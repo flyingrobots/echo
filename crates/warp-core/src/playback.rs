@@ -233,6 +233,13 @@ pub enum SeekError {
         tick: WorldlineTick,
     },
 
+    /// The retained tick receipt disagreed with the replay coordinate or decision commitment.
+    #[error("tick receipt mismatch at tick {tick}")]
+    ReceiptMismatch {
+        /// The tick where receipt verification failed.
+        tick: WorldlineTick,
+    },
+
     /// Failed to apply a patch during seek.
     ///
     /// This wraps the underlying [`ApplyError`](crate::ApplyError) from the worldline module.
@@ -405,6 +412,10 @@ impl PlaybackCursor {
             }
             ReplayError::StateRootMismatch { tick, .. } => SeekError::StateRootMismatch { tick },
             ReplayError::CommitHashMismatch { tick, .. } => SeekError::CommitHashMismatch { tick },
+            ReplayError::ReceiptTxMismatch { tick, .. }
+            | ReplayError::ReceiptDigestMismatch { tick, .. } => {
+                SeekError::ReceiptMismatch { tick }
+            }
             ReplayError::CheckpointStateRootMismatch { tick, .. } => {
                 SeekError::CheckpointStateRootMismatch { tick }
             }

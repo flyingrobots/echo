@@ -29,6 +29,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Strands and braids](topics/StrandsAndBraids.md)
 - [Obstructions](topics/Obstructions.md)
 - [Causal anchors](topics/CausalAnchors.md)
+- [Contract inverse admission](topics/ContractInverseAdmission.md)
 - [WAL](topics/WAL.md)
 - [Runtime constellation](topics/RuntimeConstellation.md)
 

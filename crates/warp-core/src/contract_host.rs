@@ -15,6 +15,17 @@ use crate::graph_view::GraphView;
 use crate::ident::{make_type_id, NodeId, NodeKey};
 use crate::inbox::INTENT_ATTACHMENT_TYPE;
 
+/// Decodes one canonical EINT envelope at the contract-host serialization boundary.
+pub(crate) fn decode_canonical_eint(bytes: &[u8]) -> Option<(u32, &[u8])> {
+    echo_wasm_abi::unpack_intent_v1(bytes).ok()
+}
+
+/// Encodes one canonical EINT envelope at the contract-host serialization boundary.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn encode_canonical_eint(op_id: u32, vars_bytes: &[u8]) -> Option<Vec<u8>> {
+    echo_wasm_abi::pack_intent_v1(op_id, vars_bytes).ok()
+}
+
 /// Returns the EINT operation id attached to a scheduler-materialized runtime
 /// ingress event.
 ///
@@ -86,5 +97,5 @@ fn runtime_ingress_eint<'a>(view: GraphView<'a>, scope: &NodeId) -> Option<(u32,
     if atom.type_id != make_type_id(INTENT_ATTACHMENT_TYPE) {
         return None;
     }
-    echo_wasm_abi::unpack_intent_v1(atom.bytes.as_ref()).ok()
+    decode_canonical_eint(atom.bytes.as_ref())
 }

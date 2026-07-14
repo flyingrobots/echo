@@ -16,16 +16,16 @@ use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
     build_recovery_certificate, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_tick_transaction,
-    build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
-    evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
-    missing_material_scope, observe_wal_projection_graph_wsc, project_causal_commit_evidence,
-    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
-    rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
-    recover_filesystem_store, recover_in_memory_store, recover_materialization_outbox,
-    recover_materialization_outbox_with_retained_material, recover_receipt_index,
-    recover_retention_index, recover_submission_index, recover_topology_index,
-    recovered_submission_receipt_index_root, recovered_topology_index_root,
+    build_submission_acceptance_transaction, build_submission_acceptance_with_material_transaction,
+    build_tick_transaction, build_topology_intent_transaction, canonical_segment_relative_path,
+    doctor_in_memory_store, evaluate_checkpoint_publication, lint_wal_schema_terms,
+    materialize_wal_projection_graph, missing_material_scope, observe_wal_projection_graph_wsc,
+    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
+    read_checkpoint_record, rebuild_durability_indexes_after_recovery,
+    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
+    recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
+    recover_receipt_index, recover_retention_index, recover_submission_index,
+    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
@@ -41,16 +41,17 @@ use warp_core::causal_wal::{
     StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture,
     SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind,
     TopologyIntentRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
-    WalCommitAnchor, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
-    WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
+    WalCommitAnchor, WalCommittedTransaction, WalDecodeError, WalDoctorPosture, WalDurabilityMode,
+    WalManifest, WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
     WalRecoveryBootstrapSource, WalRecoveryCheckpointPosture, WalRecoveryError,
     WalRecoveryIndexError, WalRecoveryPlan, WalRecoveryProjectionObstruction,
     WalRecoveryProjectionPosture, WalRecoveryRetainedMaterialAvailability,
     WalRecoveryRetainedMaterialPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates,
     WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
-    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalTickDecision, WalTransactionBuilder,
-    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
-    WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord,
+    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch,
+    WriterEpoch, WriterEpochId, WriterEpochRequest,
+    WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
@@ -71,7 +72,8 @@ use warp_core::wsc::{
 };
 use warp_core::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
-    Hash, HeadId, OriginId, WorldlineId, WorldlineTick, WriterHeadKey,
+    CausalTickReceiptRef, GlobalTick, Hash, HeadId, OriginId, WorldlineId, WorldlineTick,
+    WriterHeadKey,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1173,8 +1175,10 @@ fn wal_recovery_rebuilds_all_durability_indexes() {
     let expected_submissions = must_ok(
         RecoveredSubmissionIndex::from_acceptance_and_receipt_records([acceptance], [receipt]),
     );
-    let expected_receipts =
-        RecoveredReceiptIndex::from_receipt_correlation_records([receipt], [correlation]);
+    let expected_receipts = must_ok(RecoveredReceiptIndex::from_receipt_correlation_records(
+        [receipt],
+        [correlation],
+    ));
     let expected_retention = must_ok(RecoveredRetentionIndex::from_retention_records(
         [material],
         [reading],
@@ -1316,7 +1320,13 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let export = must_ok(wsc_ref_only_wal_export(
         &root,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let imported = must_ok(validate_wsc_ref_only_wal_export(&export, &root));
 
@@ -1328,7 +1338,10 @@ fn wsc_ref_only_export_preserves_wal_identity() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.segment_dependencies.len(), 1);
     let dependency = &imported.segment_dependencies[0];
@@ -1369,11 +1382,23 @@ fn wsc_ref_only_export_preserves_wal_identity() {
 
     let absolute_export_a = must_ok(wsc_ref_only_wal_export(
         &absolute_a,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let absolute_export_b = must_ok(wsc_ref_only_wal_export(
         &absolute_b,
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     assert_eq!(
         absolute_export_a.projection_envelope.basis_digest(),
@@ -1411,7 +1436,13 @@ fn wsc_ref_only_export_preserves_wal_identity() {
         must_err(
             wsc_ref_only_wal_export(
                 &missing_locator,
-                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+                wsc_records(
+                    &[],
+                    &[],
+                    &[acceptance],
+                    &[receipt],
+                    core::slice::from_ref(&correlation),
+                ),
             ),
             "ref-only WSC exports require segment locators",
         ),
@@ -1480,7 +1511,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
                 &root,
                 &[],
                 &[],
-                wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+                wsc_records(
+                    &[],
+                    &[],
+                    &[acceptance],
+                    &[receipt],
+                    core::slice::from_ref(&correlation),
+                ),
             ),
             "self-contained WSC exports require embedded segment material",
         ),
@@ -1496,7 +1533,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_bytes: segment_bytes.clone(),
         }],
         &[],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     drop(store);
     must_ok(fs::remove_dir_all(&dir));
@@ -1514,7 +1557,10 @@ fn wsc_self_contained_export_replays_segment_bytes() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.segment_recoveries.len(), 1);
     let segment_recovery = &imported.segment_recoveries[0];
@@ -1549,14 +1595,14 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             .receipt_index
             .receipt_by_submission
             .get(&acceptance.submission_id),
-        Some(&receipt.receipt_digest)
+        Some(&receipt.receipt_ref)
     );
     assert_eq!(
         imported
             .receipt_index
             .receipt_by_ticket
-            .get(&receipt.ticket_digest),
-        Some(&receipt.receipt_digest)
+            .get(&receipt.receipt_ref.ticket_digest),
+        Some(&receipt.receipt_ref)
     );
 
     let mut wsc_store = InMemoryWscStore::default();
@@ -1578,7 +1624,13 @@ fn wsc_self_contained_export_replays_segment_bytes() {
             segment_bytes: tampered_segment_bytes,
         }],
         &[],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
     let error = must_err(
         validate_wsc_self_contained_wal_export(&tampered_export, &root),
@@ -1684,7 +1736,13 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
                 byte_len: retained_b.byte_len,
             },
         ],
-        wsc_records(&[], &[], &[acceptance], &[receipt], &[correlation]),
+        wsc_records(
+            &[],
+            &[],
+            &[acceptance],
+            &[receipt],
+            core::slice::from_ref(&correlation),
+        ),
     ));
 
     let imported = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -1703,7 +1761,10 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
     assert_eq!(imported.root_identity_digest, root.identity_digest());
     assert_eq!(imported.accepted_submissions, vec![acceptance]);
     assert_eq!(imported.receipts, vec![receipt]);
-    assert_eq!(imported.correlations, vec![correlation]);
+    assert_eq!(
+        imported.correlations.as_slice(),
+        core::slice::from_ref(&correlation)
+    );
 
     assert_eq!(imported.cas_references.segments.len(), 1);
     let segment_reference = &imported.cas_references.segments[0];
@@ -1818,7 +1879,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let ref_only_import = must_ok(validate_wsc_ref_only_wal_export(&ref_only, &root));
@@ -1848,7 +1909,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let self_contained_import = must_ok(validate_wsc_self_contained_wal_export(
@@ -1887,7 +1948,7 @@ fn wsc_retained_evidence_export_modes() {
             &[reading_ref],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let cas_import = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -1948,8 +2009,8 @@ fn dind_durability_outcome(
     DindDurabilityOutcome {
         submission_id: acceptance.submission_id,
         canonical_envelope_digest: acceptance.canonical_envelope_digest,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        ticket_digest: receipt.receipt_ref.ticket_digest,
+        receipt_digest: receipt.receipt_ref.receipt_content_digest,
         decision: receipt.decision,
         reading_id: reading.reading_id,
         reading_coordinate_digest: reading.semantic_coordinate_digest,
@@ -2048,6 +2109,12 @@ fn dind_durability_convergence_gate() {
     let recovered_submissions = must_ok(recover_submission_index(&report));
     let recovered_receipts = must_ok(recover_receipt_index(&report));
     let recovered_retention = must_ok(recover_retention_index(&report));
+    let recovered_receipt_ref = must_some(
+        recovered_receipts
+            .receipt_by_submission
+            .get(&acceptance.submission_id)
+            .copied(),
+    );
     let recovered_outcome = dind_durability_outcome(
         must_some(
             recovered_submissions
@@ -2055,23 +2122,11 @@ fn dind_durability_convergence_gate() {
                 .map(|entry| entry.acceptance),
         ),
         TickReceiptRecord {
-            submission_id: acceptance.submission_id,
-            ticket_digest: must_some(
-                recovered_receipts
-                    .ticket_by_submission
-                    .get(&acceptance.submission_id)
-                    .copied(),
-            ),
-            receipt_digest: must_some(
-                recovered_receipts
-                    .receipt_by_submission
-                    .get(&acceptance.submission_id)
-                    .copied(),
-            ),
+            receipt_ref: recovered_receipt_ref,
             decision: must_some(
                 recovered_receipts
                     .decisions_by_receipt
-                    .get(&receipt.receipt_digest)
+                    .get(&recovered_receipt_ref)
                     .copied(),
             ),
         },
@@ -2130,7 +2185,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let imported_self_contained = must_ok(validate_wsc_self_contained_wal_export(
@@ -2178,7 +2233,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let imported_cas = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -2241,7 +2296,7 @@ fn dind_durability_convergence_gate() {
                 &[reading],
                 &[acceptance],
                 &[receipt],
-                &[correlation],
+                core::slice::from_ref(&correlation),
             ),
         ),
         "corrupt embedded retained material must obstruct rather than diverge",
@@ -2274,7 +2329,7 @@ fn dind_durability_convergence_gate() {
             &[reading],
             &[acceptance],
             &[receipt],
-            &[correlation],
+            core::slice::from_ref(&correlation),
         ),
     ));
     let corrupt_segment = must_err(
@@ -2338,20 +2393,29 @@ fn submission_acceptance(label: &str) -> SubmissionAcceptanceRecord {
     }
 }
 
-fn receipt_record(label: &str, decision: WalTickDecision) -> TickReceiptRecord {
-    TickReceiptRecord {
+fn causal_receipt_ref(label: &str) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest(&format!("worldline:{label}"))),
+        worldline_tick_after: WorldlineTick::from_raw(1),
+        commit_global_tick: GlobalTick::from_raw(1),
+        commit_hash: digest(&format!("commit:{label}")),
         submission_id: digest(&format!("submission:{label}")),
         ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_content_digest: digest(&format!("receipt:{label}")),
+    }
+}
+
+fn receipt_record(label: &str, decision: WalTickDecision) -> TickReceiptRecord {
+    TickReceiptRecord {
+        receipt_ref: causal_receipt_ref(label),
         decision,
     }
 }
 
 fn correlation_record(label: &str) -> WalReceiptCorrelationRecord {
     WalReceiptCorrelationRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
+        causal_parent_receipts: Vec::new(),
     }
 }
 
@@ -2593,6 +2657,7 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
     let kinds = [
         WalRecordKind::SubmissionAcceptedRecorded,
         WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
+        WalRecordKind::SubmissionEnvelopeRetained,
         WalRecordKind::RuntimeLawWitnessRecorded,
         WalRecordKind::RuntimeAdmissionTicketIssued,
         WalRecordKind::TicketedRuntimeIngressRecorded,
@@ -2612,6 +2677,168 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
     assert!(kinds
         .iter()
         .all(|kind| kind.obeys_recorded_not_committed_grammar()));
+}
+
+#[test]
+fn submission_acceptance_retains_envelope_in_the_same_transaction() {
+    let acceptance = submission_acceptance("retained-envelope");
+    let material = WalSubmissionEnvelopeRecord {
+        submission_id: acceptance.submission_id,
+        canonical_envelope_digest: acceptance.canonical_envelope_digest,
+        submission_generation: 1,
+        head_key: head(7, worldline(6)),
+        retained_envelope_bytes: b"retained-envelope-v1".to_vec(),
+    };
+    let transaction = must_ok(build_submission_acceptance_with_material_transaction(
+        builder(
+            transaction_id("tx:submission:retained-envelope"),
+            Lsn::from_raw(0),
+            WalAppendAuthority::SubmissionIntake,
+            WalTransactionKind::SubmissionIntake,
+        ),
+        acceptance,
+        material.clone(),
+        vec![frontier(
+            AffectedFrontierKind::SubmissionQueue,
+            "queue:retained-envelope:before",
+            "queue:retained-envelope:after",
+        )],
+    ));
+
+    assert_eq!(
+        transaction
+            .frames
+            .iter()
+            .map(|frame| frame.header.record_kind)
+            .collect::<Vec<_>>(),
+        vec![
+            WalRecordKind::SubmissionAcceptedRecorded,
+            WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
+            WalRecordKind::SubmissionEnvelopeRetained,
+        ]
+    );
+    assert_eq!(
+        must_ok(WalSubmissionEnvelopeRecord::from_payload_bytes(
+            &transaction.frames[2].payload.canonical_bytes,
+        )),
+        material
+    );
+}
+
+#[test]
+fn submission_acceptance_rejects_mismatched_retained_material() {
+    let acceptance = submission_acceptance("mismatched-retained-envelope");
+    let material = WalSubmissionEnvelopeRecord {
+        submission_id: digest("submission:other"),
+        canonical_envelope_digest: acceptance.canonical_envelope_digest,
+        submission_generation: 1,
+        head_key: head(7, worldline(6)),
+        retained_envelope_bytes: b"retained-envelope-v1".to_vec(),
+    };
+
+    let error = must_err(
+        build_submission_acceptance_with_material_transaction(
+            builder(
+                transaction_id("tx:submission:mismatched-retained-envelope"),
+                Lsn::from_raw(0),
+                WalAppendAuthority::SubmissionIntake,
+                WalTransactionKind::SubmissionIntake,
+            ),
+            acceptance,
+            material,
+            Vec::new(),
+        ),
+        "mismatched retained material must not enter an atomic WAL claim",
+    );
+
+    assert_eq!(error, WalBuildError::SubmissionMaterialMismatch);
+}
+
+#[test]
+fn tick_transaction_rejects_mismatched_receipt_correlation() {
+    let receipt = receipt_record("receipt", WalTickDecision::Applied);
+    let correlation = correlation_record("other-receipt");
+
+    let error = must_err(
+        build_tick_transaction(
+            builder(
+                transaction_id("tx:tick:mismatched-correlation"),
+                Lsn::from_raw(0),
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionKind::SchedulerTick,
+            ),
+            receipt,
+            correlation,
+            digest("state-delta:mismatched-correlation"),
+            Vec::new(),
+        ),
+        "a receipt and correlation must name the same causal event",
+    );
+
+    assert_eq!(error, WalBuildError::ReceiptCorrelationMismatch);
+}
+
+#[test]
+fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
+    let parent_a = causal_receipt_ref("parent-a");
+    let parent_b = causal_receipt_ref("parent-b");
+    let canonical = WalReceiptCorrelationRecord {
+        receipt_ref: causal_receipt_ref("child"),
+        causal_parent_receipts: vec![parent_a, parent_b],
+    }
+    .to_payload_bytes();
+    let parent_len = parent_a.to_canonical_bytes().len();
+    let parents_offset = canonical.len() - 2 * parent_len;
+    let first_parent = canonical[parents_offset..parents_offset + parent_len].to_vec();
+    let second_parent = canonical[parents_offset + parent_len..].to_vec();
+
+    let mut out_of_order = canonical.clone();
+    out_of_order[parents_offset..parents_offset + parent_len].copy_from_slice(&second_parent);
+    out_of_order[parents_offset + parent_len..].copy_from_slice(&first_parent);
+
+    let mut duplicate = canonical;
+    duplicate[parents_offset + parent_len..].copy_from_slice(&first_parent);
+
+    for bytes in [out_of_order, duplicate] {
+        assert_eq!(
+            WalReceiptCorrelationRecord::from_payload_bytes(&bytes),
+            Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                record_kind: "receipt-correlation",
+            })
+        );
+    }
+
+    let mut empty_but_present = WalReceiptCorrelationRecord {
+        receipt_ref: causal_receipt_ref("parentless-child"),
+        causal_parent_receipts: Vec::new(),
+    }
+    .to_payload_bytes();
+    empty_but_present.extend_from_slice(&0_u64.to_le_bytes());
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&empty_but_present),
+        Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+            record_kind: "receipt-correlation",
+        })
+    );
+}
+
+#[test]
+fn receipt_correlation_decode_rejects_explicit_empty_parent_count() {
+    let record = correlation_record("explicit-empty-parents");
+    let canonical = record.to_payload_bytes();
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&canonical),
+        Ok(record)
+    );
+
+    let mut noncanonical = canonical;
+    noncanonical.extend_from_slice(&0_u64.to_le_bytes());
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&noncanonical),
+        Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+            record_kind: "receipt-correlation",
+        })
+    );
 }
 
 #[test]
@@ -2837,6 +3064,26 @@ fn schema_linter_rejects_app_nouns_and_authority_leaks() {
 }
 
 #[test]
+fn recovered_submission_index_rejects_conflicting_receipt_decisions() {
+    let acceptance = submission_acceptance("conflicting-receipt-decision");
+    let applied = receipt_record("conflicting-receipt-decision", WalTickDecision::Applied);
+    let obstructed = TickReceiptRecord {
+        receipt_ref: applied.receipt_ref,
+        decision: WalTickDecision::Obstructed,
+    };
+
+    assert_eq!(
+        RecoveredSubmissionIndex::from_acceptance_and_receipt_records(
+            [acceptance],
+            [applied, obstructed],
+        ),
+        Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+            receipt_identity_digest: applied.receipt_ref.identity_digest(),
+        })
+    );
+}
+
+#[test]
 fn accepted_submission_is_not_returned_before_wal_commit() {
     let mut store = InMemoryWalStore::new();
     must_ok(store.acquire_writer_epoch(writer_epoch_request()));
@@ -2998,7 +3245,7 @@ fn crash_after_tick_commit_recovers_receipt_and_state_delta() {
             .receipt_by_submission
             .get(&digest("submission:applied"))
             .copied(),
-        Some(digest("receipt:applied"))
+        Some(causal_receipt_ref("applied"))
     );
 }
 
@@ -3023,7 +3270,7 @@ fn committed_receipt_correlation_rebuilds_after_restart() {
             .receipt_by_ticket
             .get(&digest("ticket:correlated"))
             .copied(),
-        Some(digest("receipt:correlated"))
+        Some(causal_receipt_ref("correlated"))
     );
     assert_eq!(
         receipts
@@ -3059,7 +3306,7 @@ fn lawful_rejection_recovers_without_fault_posture() {
     assert!(must_some(
         receipts
             .decisions_by_receipt
-            .get(&digest("receipt:rejected"))
+            .get(&causal_receipt_ref("rejected"))
             .copied()
     )
     .is_lawful_rejection());

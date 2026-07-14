@@ -16,22 +16,24 @@ use echo_registry_api::{
 use warp_core::{
     causal_wal::{
         canonical_segment_path, recover_in_memory_store, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root, FilesystemWalFaultPlan,
-        FilesystemWalFaultTarget, FilesystemWalStore, Lsn, RecoveredSubmissionPosture,
-        RecoveryAccessMode, RecoveryTailPosture, WalBuildError, WalDurabilityMode, WalManifest,
-        WalRecoveryError, WalSegmentId, WalStoreError, WalStorePort, WalTransactionKind,
-        WriterEpochId, WriterEpochRequest,
+        recover_submission_index, FilesystemWalFaultPlan, FilesystemWalFaultTarget,
+        FilesystemWalStore, Lsn, RecoveredSubmissionPosture, RecoveryAccessMode,
+        RecoveryTailPosture, WalBuildError, WalDurabilityMode, WalManifest, WalRecoveryError,
+        WalSegmentId, WalStoreError, WalStorePort, WalTransactionKind, WriterEpochId,
+        WriterEpochRequest,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
-    ContractMutationHandler, ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
-    ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView, Hash, InboxPolicy,
-    IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord, ObservationAt,
-    ObservationCoordinate, ObservationFrame, ObservationPayload, ObservationProjection,
-    ObservationReadBudget, ObservationRequest, ObserverPlanId, OpticAdmissionTicket,
-    OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
-    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind, ContractPackageIdentity,
+    ContractQueryObserver, ContractQueryObserverResult, EngineBuilder, GlobalTick, GraphStore,
+    GraphView, Hash, InboxPolicy, IngressCausalParent, IngressEnvelope, IngressTarget,
+    IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate, ObservationFrame,
+    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
+    ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode,
+    ProvenanceStore, RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta,
+    TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime,
+    WorldlineState, WorldlineTick, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -83,6 +85,18 @@ fn temp_runtime_wal_dir(label: &str) -> PathBuf {
 
 fn filesystem_wal_failure_digest(label: &str) -> Hash {
     blake3::hash(format!("trusted-runtime-wal-failure:{label}").as_bytes()).into()
+}
+
+fn causal_receipt_ref(worldline_id: WorldlineId, label: &str, tick: u64) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id,
+        worldline_tick_after: WorldlineTick::from_raw(tick),
+        commit_global_tick: GlobalTick::from_raw(tick),
+        commit_hash: filesystem_wal_failure_digest(&format!("{label}:commit")),
+        submission_id: filesystem_wal_failure_digest(&format!("{label}:submission")),
+        ticket_digest: filesystem_wal_failure_digest(&format!("{label}:ticket")),
+        receipt_content_digest: filesystem_wal_failure_digest(&format!("{label}:content")),
+    }
 }
 
 fn filesystem_wal_failure_epoch_id() -> WriterEpochId {
@@ -278,6 +292,7 @@ fn package() -> warp_core::InstalledContractPackage<'static> {
             op_id: MUTATION_OP_ID,
             rule: contract_rule(),
         }],
+        inverse_handlers: vec![],
         query_observers: vec![query_observer()],
     }
 }
@@ -332,6 +347,21 @@ fn eint_envelope(worldline_id: WorldlineId) -> IngressEnvelope {
         IngressTarget::DefaultWriter { worldline_id },
         make_intent_kind("echo.intent/eint-v1"),
         echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
+    )
+}
+
+fn causal_eint_envelope(
+    worldline_id: WorldlineId,
+    causal_parent_receipts: Vec<CausalTickReceiptRef>,
+) -> IngressEnvelope {
+    IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
+        causal_parent_receipts
+            .into_iter()
+            .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })
+            .collect(),
     )
 }
 
@@ -493,6 +523,38 @@ fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
 }
 
 #[test]
+fn runtime_wal_ack_rejects_contract_inverse_target_from_normal_submission() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+
+    let envelope = IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS).expect("EINT should pack"),
+        vec![IngressCausalParent::ContractInverseTarget {
+            receipt_ref: causal_receipt_ref(worldline_id, "smuggled-inverse-target", 1),
+        }],
+    );
+
+    let result = host.app().submit_intent_with_runtime_wal_ack(envelope);
+
+    assert!(matches!(
+        result,
+        Err(TrustedRuntimeHostError::Runtime(error))
+            if matches!(*error, RuntimeError::ContractInverseTargetRequiresContractAdmission)
+    ));
+    assert_eq!(
+        host.runtime_wal()
+            .expect("runtime WAL should remain configured")
+            .submission_acceptance_count(),
+        0
+    );
+}
+
+#[test]
 fn runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary() {
     let (runtime, worldline_id) = runtime();
     let mut host =
@@ -564,7 +626,7 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     let IntentOutcome::Applied { receipt, .. } = outcome else {
         panic!("expected applied outcome");
     };
-    let tick_receipt_digest = receipt.tick_receipt_digest;
+    let causal_receipt_ref = receipt.causal_receipt_ref;
     drop(host);
 
     let (reconstructed_runtime, _) = runtime();
@@ -601,7 +663,7 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
             .receipts
             .receipt_by_submission
             .get(&submission.submission_id),
-        Some(&tick_receipt_digest)
+        Some(&causal_receipt_ref)
     );
     assert_eq!(
         recovery
@@ -614,8 +676,257 @@ fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     assert_eq!(recovery.certificate.obstruction_count, 0);
     assert_eq!(
         recovery.certificate.recovered_indexes_root,
-        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+        recovery
+            .recomputed_indexes_root()
+            .expect("recovered evidence should reproduce the certificate root")
     );
+    assert_eq!(recovery.witnessed_submissions.len(), 1);
+    assert!(recovery.missing_submission_envelopes.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_restores_witnessed_submission_material_after_restart() {
+    let wal_root = temp_runtime_wal_dir("submission-material-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+
+    let envelope = causal_eint_envelope(
+        worldline_id,
+        vec![causal_receipt_ref(worldline_id, "retained-parent", 37)],
+    );
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope.clone())
+        .expect("submission should cross the durable ACK boundary");
+    assert_eq!(host.runtime().global_tick().as_u64(), 0);
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reopened WAL should restore witnessed submission material");
+
+    let restored = reconstructed_host
+        .runtime()
+        .witnessed_submission(&submission.submission_id)
+        .expect("witnessed submission should survive host restart");
+    assert_eq!(restored.ingress_id, envelope.ingress_id());
+    let restored_envelope = reconstructed_host
+        .runtime()
+        .witnessed_submission_envelope(&submission.submission_id)
+        .expect("canonical envelope material should survive host restart");
+    assert_eq!(restored_envelope.ingress_id(), envelope.ingress_id());
+    assert_eq!(
+        restored_envelope.causal_parents(),
+        envelope.causal_parents()
+    );
+    assert_eq!(reconstructed_host.runtime().global_tick().as_u64(), 0);
+
+    let duplicate = reconstructed_host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("restored submission should remain idempotent");
+    assert!(duplicate.duplicate);
+    assert_eq!(duplicate.submission_id, submission.submission_id);
+    assert_eq!(
+        reconstructed_host
+            .runtime_wal()
+            .expect("runtime WAL should remain configured")
+            .submission_acceptance_count(),
+        1
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart() {
+    let wal_root = temp_runtime_wal_dir("causal-parent-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let target_receipt = causal_receipt_ref(worldline_id, "target-receipt", 41);
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent_with_runtime_wal_ack(causal_eint_envelope(
+            worldline_id,
+            vec![target_receipt],
+        ))
+        .expect("causal intent should cross the durable ACK boundary")
+    };
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(58))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+
+    let outcome = host.app().observe_intent_outcome(&submission.submission_id);
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied causal intent outcome");
+    };
+    assert_eq!(receipt.causal_parent_receipts, vec![target_receipt]);
+    let inverse_receipt = receipt.causal_receipt_ref;
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed trusted host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reconstructed host should reopen filesystem runtime WAL adapter");
+
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should be configured")
+        .recover_read_only()
+        .expect("filesystem runtime WAL should recover causal receipt ancestry");
+    assert_eq!(
+        recovery.receipts.causal_parent_receipts(&inverse_receipt),
+        [target_receipt].as_slice()
+    );
+    assert_eq!(
+        recovery.receipts.receipts_citing(&target_receipt),
+        [inverse_receipt].as_slice()
+    );
+}
+
+#[test]
+fn filesystem_runtime_wal_recovers_replayable_provenance_after_restart() {
+    let wal_root = temp_runtime_wal_dir("replayable-provenance-recovery");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let envelope = eint_envelope(worldline_id);
+    let ticket = admission_ticket(59);
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope.clone())
+        .expect("submission should cross the durable ACK boundary");
+    host.stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("trusted host should commit the mutation");
+    let expected_entry = host
+        .provenance()
+        .entry(worldline_id, WorldlineTick::ZERO)
+        .expect("committed mutation should have provenance");
+    let expected_correlation = host
+        .runtime()
+        .receipt_correlation_for_submission(&submission.submission_id)
+        .expect("committed mutation should have a receipt correlation")
+        .clone();
+    let expected_frontier = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("committed worldline should remain registered");
+    let expected_frontier_tick = expected_frontier.frontier_tick();
+    let expected_state_root = expected_frontier.state().state_root();
+    let expected_outcome = host.app().observe_intent_outcome(&submission.submission_id);
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut reconstructed_host = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    reconstructed_host
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("reopened WAL should recover retained provenance");
+    let recovery = reconstructed_host
+        .runtime_wal()
+        .expect("runtime WAL should remain configured")
+        .recover_read_only()
+        .expect("read-only recovery should decode retained provenance");
+
+    assert_eq!(recovery.provenance_entries, vec![expected_entry]);
+    assert_eq!(
+        reconstructed_host.runtime().global_tick().as_u64(),
+        expected_correlation.commit_global_tick.as_u64()
+    );
+    let reconstructed_frontier = reconstructed_host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("reconstructed worldline should remain registered");
+    assert_eq!(
+        reconstructed_frontier.frontier_tick(),
+        expected_frontier_tick
+    );
+    assert_eq!(
+        reconstructed_frontier.state().state_root(),
+        expected_state_root
+    );
+    assert_eq!(
+        reconstructed_host
+            .app()
+            .observe_intent_outcome(&submission.submission_id),
+        expected_outcome
+    );
+
+    reconstructed_host
+        .register_contract_package(package())
+        .expect("reconstructed host should reinstall deterministic contract code");
+    let duplicate = reconstructed_host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("recovered causal submission should remain idempotent");
+    assert!(duplicate.duplicate);
+    assert!(matches!(
+        reconstructed_host
+            .stage_installed_contract_submission(submission.submission_id, &ticket)
+            .expect("recovered ticketed ingress should remain idempotent"),
+        warp_core::TicketedRuntimeIngressDisposition::Duplicate { .. }
+    ));
+    let idle = reconstructed_host
+        .run_until_idle(1)
+        .expect("duplicate recovered work should not schedule another transition");
+    assert_eq!(idle.committed_steps, 0);
+    assert_eq!(
+        reconstructed_host
+            .provenance()
+            .len(worldline_id)
+            .expect("recovered provenance should remain readable"),
+        1
+    );
+}
+
+#[test]
+fn runtime_wal_activation_rejects_process_only_committed_history() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = host
+        .app()
+        .submit_intent(eint_envelope(worldline_id))
+        .expect("process-local submission should be accepted");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(60))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    host.run_until_idle(4)
+        .expect("process-local runtime should commit the mutation");
+
+    let error = host
+        .enable_in_memory_runtime_wal()
+        .expect_err("WAL activation must reject already-committed process-only history");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::WitnessedSubmission,
+        })
+    ));
 }
 
 #[test]
@@ -654,9 +965,9 @@ fn filesystem_runtime_wal_ack_reconstructed_host_appends_after_recovery() {
     let commits = runtime_wal.commits();
     assert_eq!(commits.len(), 2);
     assert_eq!(commits[0].first_lsn, Lsn::from_raw(0));
-    assert_eq!(commits[0].last_lsn, Lsn::from_raw(1));
-    assert_eq!(commits[1].first_lsn, Lsn::from_raw(2));
-    assert_eq!(commits[1].last_lsn, Lsn::from_raw(3));
+    assert_eq!(commits[0].last_lsn, Lsn::from_raw(2));
+    assert_eq!(commits[1].first_lsn, Lsn::from_raw(3));
+    assert_eq!(commits[1].last_lsn, Lsn::from_raw(5));
     assert_eq!(
         commits[1].previous_committed_transaction_digest,
         commits[0].commit_digest
@@ -742,7 +1053,7 @@ fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
         .expect("read-only recovery should report uncommitted tail");
     assert_eq!(
         recovery.certificate.tail_posture,
-        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(1))
+        RecoveryTailPosture::WouldTruncateAfter(Lsn::from_raw(2))
     );
 }
 
@@ -1282,7 +1593,7 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
     let IntentOutcome::Applied { receipt, .. } = outcome else {
         panic!("expected applied outcome");
     };
-    let tick_receipt_digest = receipt.tick_receipt_digest;
+    let causal_receipt_ref = receipt.causal_receipt_ref;
 
     let runtime_wal = host
         .runtime_wal()
@@ -1317,7 +1628,7 @@ fn runtime_wal_ack_tick_commits_receipt_transaction_before_outcome_is_observed()
         receipts
             .receipt_by_submission
             .get(&submission.submission_id),
-        Some(&tick_receipt_digest)
+        Some(&causal_receipt_ref)
     );
     assert_eq!(
         receipts.ticket_by_submission.get(&submission.submission_id),
@@ -1485,8 +1796,12 @@ fn runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes() {
     );
     assert_eq!(
         recovery.certificate.recovered_indexes_root,
-        recovered_submission_receipt_index_root(&recovery.submissions, &recovery.receipts)
+        recovery
+            .recomputed_indexes_root()
+            .expect("recovered evidence should reproduce the certificate root")
     );
+    assert_eq!(recovery.witnessed_submissions.len(), 1);
+    assert!(recovery.missing_submission_envelopes.is_empty());
 }
 
 #[test]

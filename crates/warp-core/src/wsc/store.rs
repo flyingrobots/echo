@@ -1753,8 +1753,9 @@ pub fn validate_wsc_self_contained_wal_export(
     .map_err(WscSelfContainedWalImportError::Index)?;
     let receipt_index = RecoveredReceiptIndex::from_receipt_correlation_records(
         receipt_records.receipts.iter().copied(),
-        receipt_records.correlations.iter().copied(),
-    );
+        receipt_records.correlations.iter().cloned(),
+    )
+    .map_err(WscSelfContainedWalImportError::Index)?;
 
     Ok(WscSelfContainedWalImport {
         profile: export.profile,
@@ -2359,7 +2360,7 @@ pub fn receipt_correlation_records_to_wsc_envelope(
         insert_receipt_material_node(
             &mut store,
             root,
-            receipt_node_id(&receipt.receipt_digest),
+            receipt_node_id(&receipt.receipt_ref.identity_digest()),
             WSC_TICK_RECEIPT_ATTACHMENT_TYPE,
             receipt.to_payload_bytes(),
         );
@@ -2368,7 +2369,7 @@ pub fn receipt_correlation_records_to_wsc_envelope(
         insert_receipt_material_node(
             &mut store,
             root,
-            correlation_node_id(&correlation.submission_id, &correlation.ticket_digest),
+            correlation_node_id(&correlation.receipt_ref.identity_digest()),
             WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE,
             correlation.to_payload_bytes(),
         );
@@ -4520,30 +4521,30 @@ fn canonical_tick_receipts(
     let mut by_submission = BTreeMap::new();
     let mut by_ticket = BTreeMap::new();
     for record in records {
-        if let Some(existing) = by_receipt.get(&record.receipt_digest) {
+        if let Some(existing) = by_receipt.get(&record.receipt_ref) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.receipt_digest),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.identity_digest()),
                 ));
             }
         }
-        if let Some(existing) = by_submission.get(&record.submission_id) {
+        if let Some(existing) = by_submission.get(&record.receipt_ref.submission_id) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.submission_id),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.submission_id),
                 ));
             }
         }
-        if let Some(existing) = by_ticket.get(&record.ticket_digest) {
+        if let Some(existing) = by_ticket.get(&record.receipt_ref.ticket_digest) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.ticket_digest),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.ticket_digest),
                 ));
             }
         }
-        by_receipt.insert(record.receipt_digest, *record);
-        by_submission.insert(record.submission_id, *record);
-        by_ticket.insert(record.ticket_digest, *record);
+        by_receipt.insert(record.receipt_ref, *record);
+        by_submission.insert(record.receipt_ref.submission_id, *record);
+        by_ticket.insert(record.receipt_ref.ticket_digest, *record);
     }
     Ok(by_receipt.into_values().collect())
 }
@@ -4554,40 +4555,31 @@ fn canonical_receipt_correlations(
     let mut by_correlation = BTreeMap::new();
     let mut by_submission = BTreeMap::new();
     let mut by_ticket = BTreeMap::new();
-    let mut by_receipt = BTreeMap::new();
     for record in records {
-        if let Some(existing) = by_submission.get(&record.submission_id) {
+        if let Some(existing) = by_submission.get(&record.receipt_ref.submission_id) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.submission_id),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.submission_id),
                 ));
             }
         }
-        if let Some(existing) = by_ticket.get(&record.ticket_digest) {
+        if let Some(existing) = by_ticket.get(&record.receipt_ref.ticket_digest) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.ticket_digest),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.ticket_digest),
                 ));
             }
         }
-        if let Some(existing) = by_receipt.get(&record.receipt_digest) {
+        if let Some(existing) = by_correlation.get(&record.receipt_ref) {
             if existing != record {
                 return Err(WscStoreObstruction::duplicate_mismatch(
-                    WscStoreEnvelopeId::from_hash(record.receipt_digest),
+                    WscStoreEnvelopeId::from_hash(record.receipt_ref.identity_digest()),
                 ));
             }
         }
-        by_correlation.insert(
-            (
-                record.submission_id,
-                record.ticket_digest,
-                record.receipt_digest,
-            ),
-            *record,
-        );
-        by_submission.insert(record.submission_id, *record);
-        by_ticket.insert(record.ticket_digest, *record);
-        by_receipt.insert(record.receipt_digest, *record);
+        by_correlation.insert(record.receipt_ref, record.clone());
+        by_submission.insert(record.receipt_ref.submission_id, record.clone());
+        by_ticket.insert(record.receipt_ref.ticket_digest, record.clone());
     }
     Ok(by_correlation.into_values().collect())
 }
@@ -4601,55 +4593,35 @@ fn validate_wsc_causal_history_records(
         .iter()
         .map(|record| record.submission_id)
         .collect();
-    let receipt_keys: BTreeSet<(Hash, Hash, Hash)> = receipts
+    let receipt_keys = receipts
         .iter()
-        .map(|record| {
-            (
-                record.submission_id,
-                record.ticket_digest,
-                record.receipt_digest,
-            )
-        })
-        .collect();
-    let correlation_keys: BTreeSet<(Hash, Hash, Hash)> = correlations
+        .map(|record| record.receipt_ref)
+        .collect::<BTreeSet<_>>();
+    let correlation_keys = correlations
         .iter()
-        .map(|record| {
-            (
-                record.submission_id,
-                record.ticket_digest,
-                record.receipt_digest,
-            )
-        })
-        .collect();
+        .map(|record| record.receipt_ref)
+        .collect::<BTreeSet<_>>();
     for receipt in receipts {
-        if !accepted_submissions.contains(&receipt.submission_id) {
+        if !accepted_submissions.contains(&receipt.receipt_ref.submission_id) {
             return Err(WscStoreObstruction::incomplete_causal_history(
-                receipt.receipt_digest,
+                receipt.receipt_ref.identity_digest(),
             ));
         }
-        if !correlation_keys.contains(&(
-            receipt.submission_id,
-            receipt.ticket_digest,
-            receipt.receipt_digest,
-        )) {
+        if !correlation_keys.contains(&receipt.receipt_ref) {
             return Err(WscStoreObstruction::incomplete_causal_history(
-                receipt.receipt_digest,
+                receipt.receipt_ref.identity_digest(),
             ));
         }
     }
     for correlation in correlations {
-        if !accepted_submissions.contains(&correlation.submission_id) {
+        if !accepted_submissions.contains(&correlation.receipt_ref.submission_id) {
             return Err(WscStoreObstruction::incomplete_causal_history(
-                correlation.receipt_digest,
+                correlation.receipt_ref.identity_digest(),
             ));
         }
-        if !receipt_keys.contains(&(
-            correlation.submission_id,
-            correlation.ticket_digest,
-            correlation.receipt_digest,
-        )) {
+        if !receipt_keys.contains(&correlation.receipt_ref) {
             return Err(WscStoreObstruction::incomplete_causal_history(
-                correlation.receipt_digest,
+                correlation.receipt_ref.identity_digest(),
             ));
         }
     }
@@ -4704,20 +4676,19 @@ fn receipt_correlation_basis_digest(
     hasher.finalize().into()
 }
 
-fn receipt_node_id(receipt_digest: &Hash) -> NodeId {
+fn receipt_node_id(receipt_ref_digest: &Hash) -> NodeId {
     let mut hasher = Hasher::new();
     hasher.update(WSC_RECEIPT_CORRELATION_NODE_DOMAIN);
     hasher.update(b"receipt");
-    hasher.update(receipt_digest);
+    hasher.update(receipt_ref_digest);
     NodeId(hasher.finalize().into())
 }
 
-fn correlation_node_id(submission_id: &Hash, ticket_digest: &Hash) -> NodeId {
+fn correlation_node_id(receipt_ref_digest: &Hash) -> NodeId {
     let mut hasher = Hasher::new();
     hasher.update(WSC_RECEIPT_CORRELATION_NODE_DOMAIN);
     hasher.update(b"correlation");
-    hasher.update(submission_id);
-    hasher.update(ticket_digest);
+    hasher.update(receipt_ref_digest);
     NodeId(hasher.finalize().into())
 }
 

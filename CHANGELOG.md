@@ -22,6 +22,59 @@
   roots while treating generated files and relocated SDL as non-authoritative.
   Authority-facts outputs are bound to Edict's canonical ABI work in
   `flyingrobots/edict#157` rather than defining an Echo-owned wire contract.
+- `warp-core` installed contract packages can now provide read-only inverse
+  laws for mutation operations. The trusted app surface resolves an exact
+  retained causal receipt after restart, verifies the recovered witnessed
+  submission and currently installed artifact, checks the caller's current
+  frontier, resolves the receipt set for the current frontier commit, and
+  WAL-acknowledges the contract-produced mutation with both the target receipt
+  and current-basis receipts as causal parents. The retained ingress preserves a
+  typed inverse-target role, and the app surface can recover the inverse target
+  and admission basis directly from receipt history after restart. Missing
+  receipts, non-applied target receipts, stale bases, unavailable inverse
+  fragments, unmappable spans, absent handlers, and contract-version mismatches
+  remain typed obstructions; inverse admission never deletes or rewrites the
+  original transition. Ordinary app and runtime submission reject the reserved
+  inverse-target parent role, preventing caller-authored intents from being
+  projected as contract-defined inverses. Runtime recovery rejects a receipt
+  correlation when its non-empty retained tick receipt contains only other
+  submission ingresses.
+- `warp-core` now distinguishes repeatable `TickReceipt` content commitments
+  from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
+  content to worldline, worldline tick, global tick, commit, submission, and
+  admission ticket coordinates; ingress, trusted-runtime WAL, recovery indexes,
+  app-facing outcomes, and WSC causal history now retain and follow that exact
+  coordinate. `echo-cli wal submission-posture` reports the canonical receipt
+  reference bytes alongside the repeatable receipt-content digest. Versioned
+  codecs reject malformed magic and empty-but-present, duplicated, or reordered
+  parent sets as corruption and report structurally valid legacy digest-only
+  parent evidence as an explicit ambiguity rather than aliasing it to an
+  arbitrary event.
+  Retained tick-receipt reconstruction also rejects non-canonical blocker
+  ordering, forward or non-applied blocker references, and blocker attribution
+  incompatible with the candidate disposition before the receipt re-enters
+  provenance history.
+- Trusted runtime scheduler commits now retain canonical local-commit
+  provenance, the exact typed tick receipt, and installed-contract evidence in
+  the same WAL transaction as receipt correlation. Filesystem reopen replays
+  that evidence into a fresh runtime without invoking scheduler or contract
+  callbacks and restores global tick, worldline frontier, materialized state,
+  receipt indexes, causal parents, and app-facing outcome. Legacy digest-only
+  runtime deltas remain explicit recovery obstructions. WAL activation also
+  rejects live process-only authority that recovered durable history cannot
+  reproduce. Recovery rejects scheduler transactions that duplicate tick
+  receipt or receipt-correlation records. WAL transaction construction rejects
+  retained submission, correlation, or replayable state-delta material that
+  does not bind the other evidence in the same atomic claim.
+- Trusted runtime submission intake now atomically retains a versioned canonical
+  ingress envelope with each WAL-backed acceptance. Filesystem WAL reopen
+  restores the witnessed submission ledger without ticking or dispatching,
+  preserves duplicate posture, and reports legacy acceptances without envelope
+  material as explicit recovery obstructions.
+- `warp-core` ingress can now cite typed causal parent tick receipts. Trusted
+  runtime outcomes, WAL receipt correlations, read-only recovery indexes, and
+  WSC causal-history envelopes retain both parent and reverse child lookup so
+  contract-defined inverse intents remain attributable after host restart.
 - `warp-core` now exposes `RetainedEvidenceBoundaryPosture` with boundary
   layer, origin, proof strength, access, completeness, and obstruction axes so
   retained evidence refs can be projected without conflating citation, reveal

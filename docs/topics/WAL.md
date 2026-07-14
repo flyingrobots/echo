@@ -41,6 +41,41 @@ without scheduler callbacks, application callbacks, wall-clock interpretation,
 or external I/O. Recovery also emits a certificate over the committed replay
 range and recovered index root.
 
+Fifth, an admitted intent may cite typed causal parent tick receipts. Echo does
+not interpret a parent as undo, redo, compensation, or any other application
+operation. It commits the citation with the child receipt and rebuilds both
+parent lookup and reverse child lookup during read-only recovery. A contract can
+therefore define inverse semantics while Echo preserves the provenance chain
+across process loss. Recovery rejects explicitly empty, duplicated, or
+out-of-order parent receipt coordinates instead of normalizing committed
+non-canonical bytes.
+
+Sixth, trusted submission intake commits the canonical retained ingress envelope
+in the same transaction as acceptance evidence. Reopening a filesystem WAL can
+restore witnessed submission identity, generation, route, payload, and causal
+parents without scheduler or contract callbacks. Legacy acceptance records that
+lack envelope material remain inspectable, but recovery reports them as
+obstructed and the trusted host refuses to claim a complete replay.
+Transaction construction rejects any retained envelope whose submission or
+canonical-envelope identity disagrees with its acceptance record.
+
+Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
+canonical local-commit provenance entry, its exact typed `TickReceipt`, and any
+installed-contract identity attached to the outcome. Filesystem WAL reopen
+loads that evidence into a fresh provenance service, replays the worldline from
+its deterministic registered boundary, restores receipt correlations, and only
+then publishes the reconstructed runtime. The recovery witness compares global
+tick, frontier tick, state root, provenance, receipt, contract evidence, and the
+app-facing outcome without running the scheduler or contract handler. A legacy
+digest-only state-delta record is inspectable but obstructs writable startup.
+Transaction construction also requires the receipt and correlation to name the
+same causal event and the retained state delta to bind that receipt's content
+commitment before the transaction can commit.
+WAL activation is non-lossy: if the live host contains submissions, staged
+ingress, receipt correlations, provenance, pending inbox work, cycle progress,
+or worldline state that recovered WAL evidence cannot reproduce, activation
+fails instead of treating process memory as durable authority.
+
 ## Boundaries
 
 The WAL belongs to the trusted runtime host. Application-facing code can submit
@@ -87,6 +122,15 @@ or file switch. The correct gate is whether the edit crossed the Echo
 WAL-backed ACK boundary and whether recovery can later classify it as pending,
 decided, rejected, or obstructed. If that boundary is unavailable, the editor
 must say so honestly instead of pretending a local buffer is causal history.
+
+Restored submission material alone is not runtime-state replay. For WAL-backed
+ticketed transitions, the trusted host now also requires replayable provenance
+and the exact tick receipt, then restores the materialized worldline and outcome
+before allowing writable startup. That is the causal authority Jim needs for
+durable edit history. It is still not complete editor-session restoration:
+viewport, cursor, mode, open-buffer topology, and other application projections
+must be expressed as admitted application intents and recovered readings rather
+than inferred from the text worldline.
 
 ## Topology Intents
 
@@ -166,6 +210,19 @@ The core test names to read first are:
 - `runtime_wal_ack_tick_failure_rolls_back_visible_outcome`
 - `runtime_wal_ack_recover_read_only_rebuilds_submission_and_receipt_indexes`
 - `runtime_wal_ack_recover_read_only_exposes_recovery_certificate`
+- `filesystem_runtime_wal_recovers_receipt_causal_parents_after_host_restart`
+- `filesystem_runtime_wal_restores_witnessed_submission_material_after_restart`
+- `filesystem_runtime_wal_recovers_replayable_provenance_after_restart`
+- `runtime_wal_activation_rejects_process_only_committed_history`
+- `submission_acceptance_rejects_mismatched_retained_material`
+- `tick_transaction_rejects_mismatched_receipt_correlation`
+- `replayable_tick_transaction_rejects_unrelated_state_delta_receipt`
+
+The canonical retained transition codec witnesses live in
+`crates/warp-core/tests/provenance_retention_codec_tests.rs`. They cover every
+current patch operation and slot variant, exact receipt and contract-evidence
+round-trip, all truncation boundaries, trailing bytes, corrupt commitments,
+missing receipts, and non-local events.
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,
@@ -178,12 +235,18 @@ belong in GitHub.
 
 ## Current Caveat
 
-The trusted-runtime host tests use an in-memory runtime WAL adapter to prove ACK
-ordering, rollback behavior, receipt publication ordering, and recovery index
-shape. That is not the same claim as strict filesystem durability. Filesystem
-WAL hardening, WSC export/import shape, retained material availability, and
-release-grade recovery gates remain the place to prove crash and portability
-claims beyond the current ACK boundary witnesses.
+The trusted-runtime suite uses both the fast in-memory adapter and the strict
+filesystem adapter. Filesystem witnesses now prove accepted-submission and
+ticketed-transition replay across host reconstruction. The replayable
+state-delta path is currently emitted from ticketed receipt correlations; work
+committed through lower-level, non-ticketed scheduler ingress does not yet have
+the same trusted-host WAL reconstruction claim. Jim must therefore use the
+WAL-backed application-intent path for user-facing edits and inverses instead
+of treating an internal runtime mutation as durable history.
+
+WSC export/import shape, retained reading availability, multi-correlation tick
+packing, and complete application-session projection recovery remain separate
+gates. None of those gaps permits falling back to process-local undo authority.
 
 `cargo xtask dind` now carries the `dind_durability_convergence_gate` witness
 for the joined durability path. The gate commits one filesystem WAL history,

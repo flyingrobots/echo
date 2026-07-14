@@ -45,11 +45,13 @@ mod braid;
 mod braid_shell;
 mod causal_anchor;
 mod causal_facts;
+mod causal_receipt;
 pub mod causal_wal;
 mod clock;
 mod cmd;
 mod constants;
 mod contract_host;
+mod contract_inverse;
 mod contract_obstruction;
 mod contract_registry;
 /// Domain separation prefixes for hashing.
@@ -144,6 +146,7 @@ mod payload;
 mod playback;
 mod plurality_law;
 pub mod proof;
+mod provenance_codec;
 mod provenance_store;
 mod receipt;
 mod record;
@@ -193,6 +196,7 @@ pub use causal_facts::{
     ArtifactRegistrationReceipt, CapabilityGrantValidationObstructionKind, FactDigest, GraphFact,
     InvocationObstructionKind, PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
+pub use causal_receipt::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{
     import_suffix_intent_rule, import_suffix_result_edge_id, import_suffix_result_node_id,
@@ -202,6 +206,11 @@ pub use cmd::{
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use contract_host::{
     eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
+};
+pub use contract_inverse::{
+    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseDerivation,
+    ContractInverseHandler, ContractInverseHandlerError, ContractInverseHistoryObstruction,
+    ContractInverseIntent, ContractInverseObstruction, ContractInverseResolveFn,
 };
 pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
@@ -360,12 +369,16 @@ pub use optic_artifact::{
     OPTIC_ADMISSION_TICKET_KIND, OPTIC_ADMISSION_TICKET_POSTURE_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
+pub use provenance_codec::RetainedProvenanceError;
 pub use provenance_store::{
     BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,
     LocalProvenanceStore, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, ProvenanceService,
     ProvenanceStore, ReplayCheckpoint, ReplayError,
 };
-pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
+pub use receipt::{
+    TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptPartsError,
+    TickReceiptRejection,
+};
 pub use record::{EdgeRecord, NodeRecord};
 #[allow(deprecated)]
 pub use revelation::RevelationPosture;
@@ -409,9 +422,9 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    EvidenceCatalogPosture, TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError,
-    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
-    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
+    TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
@@ -436,11 +449,12 @@ pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
     IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentOutcomeReceipt,
     IntentSubmissionDisposition, IntentSubmissionHandle, IntentSubmissionRecord,
-    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
-    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
-    SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
-    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord,
-    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RuntimeError,
+    SchedulerCoordinator, SchedulerFaultGeneration, SchedulerFaultId, SchedulerFaultRecord,
+    SchedulerFaultRecoveryAuthority, SchedulerFaultScope, SchedulerFaultStatus, SchedulerRunId,
+    StepRecord, TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    TicketedRuntimeIngressRecord, WitnessedSubmissionPersistenceRecord,
+    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{
@@ -453,8 +467,8 @@ pub use head::{
 /// transitional callers, but new code should route ingress via
 /// [`WorldlineRuntime::ingest`] with these types.
 pub use head_inbox::{
-    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressEnvelope, IngressPayload,
-    IngressTarget, IntentKind,
+    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressCausalParent, IngressEnvelope,
+    IngressEnvelopeDecodeError, IngressPayload, IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
 pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};

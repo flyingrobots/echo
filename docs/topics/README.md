@@ -11,6 +11,7 @@ ADR.
 ## Index
 
 - [Causal anchors](CausalAnchors.md)
+- [Contract inverse admission](ContractInverseAdmission.md)
 - [Generated rule authorship](GeneratedRules.md)
 - [Obstructions](Obstructions.md)
 - [Runtime authority](RuntimeAuthority.md)

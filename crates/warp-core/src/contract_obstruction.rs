@@ -213,6 +213,7 @@ impl ContractObstruction {
                 })
             }
             RuntimeError::MalformedInstalledContractIntent
+            | RuntimeError::ContractInverseTargetRequiresContractAdmission
             | RuntimeError::UnknownIntentSubmission(_)
             | RuntimeError::TicketedIngressSubmissionMismatch(_)
             | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -242,7 +243,8 @@ impl ContractObstruction {
             | RuntimeError::FrontierTickOverflow(_)
             | RuntimeError::GlobalTickOverflow
             | RuntimeError::IntentSubmissionGenerationOverflow
-            | RuntimeError::IntentSubmissionReplayMismatch(_) => {
+            | RuntimeError::IntentSubmissionReplayMismatch(_)
+            | RuntimeError::ReceiptCorrelationReplayMismatch(_) => {
                 Self::runtime_fault(ContractObstructionSubject::Unspecified)
             }
         }

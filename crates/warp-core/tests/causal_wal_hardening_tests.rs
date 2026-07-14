@@ -43,7 +43,7 @@ use warp_core::causal_wal::{
     WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
     WalValidationError, WriterEpochId, WriterEpochRequest,
 };
-use warp_core::Hash;
+use warp_core::{CausalTickReceiptRef, GlobalTick, Hash, WorldlineId, WorldlineTick};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
@@ -59,6 +59,18 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn digest(label: &str) -> Hash {
     blake3::hash(label.as_bytes()).into()
+}
+
+fn causal_receipt_ref(label: &str) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest(&format!("hardening:worldline:{label}"))),
+        worldline_tick_after: WorldlineTick::from_raw(1),
+        commit_global_tick: GlobalTick::from_raw(1),
+        commit_hash: digest(&format!("hardening:commit:{label}")),
+        submission_id: digest(&format!("hardening:submission:{label}")),
+        ticket_digest: digest(&format!("hardening:ticket:{label}")),
+        receipt_content_digest: digest(&format!("hardening:receipt:{label}")),
+    }
 }
 
 fn must_ok<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
@@ -211,15 +223,12 @@ fn tick_transaction(
     decision: WalTickDecision,
 ) -> WalCommittedTransaction {
     let receipt = TickReceiptRecord {
-        submission_id: digest(&format!("hardening:submission:{label}")),
-        ticket_digest: digest(&format!("hardening:ticket:{label}")),
-        receipt_digest: digest(&format!("hardening:receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         decision,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id: receipt.submission_id,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        receipt_ref: receipt.receipt_ref,
+        causal_parent_receipts: Vec::new(),
     };
     must_ok(build_tick_transaction(
         builder(
@@ -598,7 +607,7 @@ fn wal_recovery_golden_clean_committed_segment() {
         receipts
             .receipt_by_submission
             .get(&submission_acceptance("clean").submission_id),
-        Some(&digest("hardening:receipt:clean"))
+        Some(&causal_receipt_ref("clean"))
     );
 }
 
@@ -1097,7 +1106,7 @@ fn crash_after_tick_commit_before_publish_rebuilds_receipt_indexes() {
         receipt_index
             .receipt_by_submission
             .get(&submission_acceptance("tick").submission_id),
-        Some(&digest("hardening:receipt:tick"))
+        Some(&causal_receipt_ref("tick"))
     );
 }
 

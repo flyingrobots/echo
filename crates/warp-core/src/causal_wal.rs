@@ -23,23 +23,37 @@ use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
 use crate::clock::WorldlineTick;
+use crate::contract_registry::{
+    ContractEvidenceIdentity, ContractOperationKind, InstalledContractPackageId,
+};
 use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
 use crate::ident::{EdgeId, Hash, NodeId};
+use crate::provenance_codec::{
+    decode_local_commit_v1, encode_local_commit_v1, RetainedProvenanceError,
+};
+use crate::provenance_store::ProvenanceEntry;
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
 use crate::wsc::{validate_wsc, WscFile};
+use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
+const WAL_TICK_RECEIPT_MAGIC_V2: &[u8; 8] = b"ETICK002";
+const WAL_RECEIPT_CORRELATION_MAGIC_V2: &[u8; 8] = b"ERCOR002";
+const LEGACY_TICK_RECEIPT_PAYLOAD_LEN: usize = 3 * core::mem::size_of::<Hash>() + 1;
+const LEGACY_RECEIPT_CORRELATION_PREFIX_LEN: usize = 3 * core::mem::size_of::<Hash>();
 const WAL_RECORDS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:records_root:v1\0";
 const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
 const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index_root:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
+const WAL_RUNTIME_STATE_DELTA_DOMAIN: &[u8] = b"echo:causal_wal:runtime_state_delta:v1\0";
+const WAL_RUNTIME_STATE_DELTA_MAGIC_V1: &[u8; 8] = b"ERSD0001";
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const WAL_PROJECTION_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:projection:root:v1\0";
 const WAL_PROJECTION_WRITER_EPOCH_DOMAIN: &[u8] = b"echo:causal_wal:projection:writer_epoch:v1\0";
@@ -319,6 +333,8 @@ pub enum WalRecordKind {
     SubmissionAcceptedRecorded,
     /// Echo recorded submission acceptance evidence.
     SubmissionAcceptanceEvidenceRecorded,
+    /// Echo retained the canonical submission envelope needed for replay.
+    SubmissionEnvelopeRetained,
     /// Trusted runtime recorded a law witness.
     RuntimeLawWitnessRecorded,
     /// Trusted runtime issued runtime admission-ticket evidence.
@@ -365,6 +381,7 @@ impl WalRecordKind {
         match self {
             Self::SubmissionAcceptedRecorded => "SubmissionAcceptedRecorded",
             Self::SubmissionAcceptanceEvidenceRecorded => "SubmissionAcceptanceEvidenceRecorded",
+            Self::SubmissionEnvelopeRetained => "SubmissionEnvelopeRetained",
             Self::RuntimeLawWitnessRecorded => "RuntimeLawWitnessRecorded",
             Self::RuntimeAdmissionTicketIssued => "RuntimeAdmissionTicketIssued",
             Self::TicketedRuntimeIngressRecorded => "TicketedRuntimeIngressRecorded",
@@ -390,9 +407,9 @@ impl WalRecordKind {
     /// Returns the append authority required for this record kind.
     pub const fn required_authority(self) -> WalAppendAuthority {
         match self {
-            Self::SubmissionAcceptedRecorded | Self::SubmissionAcceptanceEvidenceRecorded => {
-                WalAppendAuthority::SubmissionIntake
-            }
+            Self::SubmissionAcceptedRecorded
+            | Self::SubmissionAcceptanceEvidenceRecorded
+            | Self::SubmissionEnvelopeRetained => WalAppendAuthority::SubmissionIntake,
             Self::RuntimeLawWitnessRecorded
             | Self::RuntimeAdmissionTicketIssued
             | Self::TicketedRuntimeIngressRecorded
@@ -445,6 +462,7 @@ impl WalRecordKind {
             Self::TopologyBraidEventRecorded => 19,
             Self::TopologyBraidShellRetained => 20,
             Self::TopologySuffixImportRecorded => 21,
+            Self::SubmissionEnvelopeRetained => 22,
         }
     }
 
@@ -471,6 +489,7 @@ impl WalRecordKind {
             19 => Ok(Self::TopologyBraidEventRecorded),
             20 => Ok(Self::TopologyBraidShellRetained),
             21 => Ok(Self::TopologySuffixImportRecorded),
+            22 => Ok(Self::SubmissionEnvelopeRetained),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -1788,6 +1807,322 @@ impl SubmissionAcceptanceRecord {
     }
 }
 
+/// WAL record carrying canonical material for one witnessed submission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSubmissionEnvelopeRecord {
+    /// Stable submission id associated with the retained envelope.
+    pub submission_id: Hash,
+    /// Canonical ingress digest committed by submission acceptance.
+    pub canonical_envelope_digest: Hash,
+    /// Echo-owned submission generation needed for deterministic ledger replay.
+    pub submission_generation: u64,
+    /// Resolved writer head against which the submission id was derived.
+    pub head_key: WriterHeadKey,
+    /// Versioned retained ingress envelope bytes.
+    pub retained_envelope_bytes: Vec<u8>,
+}
+
+impl WalSubmissionEnvelopeRecord {
+    /// Encodes the retained submission material deterministically.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.canonical_envelope_digest);
+        out.extend_from_slice(&self.submission_generation.to_le_bytes());
+        push_writer_head_key(&mut out, self.head_key);
+        out.extend_from_slice(&len_u64(self.retained_envelope_bytes.len()).to_le_bytes());
+        out.extend_from_slice(&self.retained_envelope_bytes);
+        out
+    }
+
+    /// Decodes retained submission material with payload-bounded allocation.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let canonical_envelope_digest = cursor.read_hash()?;
+        let submission_generation = cursor.read_u64()?;
+        let head_key = cursor.read_writer_head_key()?;
+        let retained_envelope_bytes = cursor.read_vec()?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            canonical_envelope_digest,
+            submission_generation,
+            head_key,
+            retained_envelope_bytes,
+        })
+    }
+}
+
+/// WAL record carrying one replayable scheduler-produced provenance entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRuntimeStateDeltaRecord {
+    receipt_digest: Hash,
+    contract: Option<ContractEvidenceIdentity>,
+    entry: ProvenanceEntry,
+}
+
+impl WalRuntimeStateDeltaRecord {
+    /// Validates and wraps one local-commit provenance entry for retention.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error when the entry is not a canonical, replayable
+    /// scheduler local commit.
+    pub fn from_provenance_entry(
+        receipt_digest: Hash,
+        contract: Option<ContractEvidenceIdentity>,
+        entry: ProvenanceEntry,
+    ) -> Result<Self, RetainedProvenanceError> {
+        encode_local_commit_v1(&entry)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns the tick receipt that admitted this retained state transition.
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Hash {
+        self.receipt_digest
+    }
+
+    /// Returns the retained provenance entry.
+    #[must_use]
+    pub fn provenance_entry(&self) -> &ProvenanceEntry {
+        &self.entry
+    }
+
+    /// Returns installed-contract evidence attached to the admitted transition.
+    #[must_use]
+    pub fn contract(&self) -> Option<&ContractEvidenceIdentity> {
+        self.contract.as_ref()
+    }
+
+    /// Encodes the validated entry as canonical retained bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn to_payload_bytes(&self) -> Result<Vec<u8>, RetainedProvenanceError> {
+        let entry_bytes = encode_local_commit_v1(&self.entry)?;
+        let mut out = Vec::new();
+        out.extend_from_slice(WAL_RUNTIME_STATE_DELTA_MAGIC_V1);
+        out.extend_from_slice(&self.receipt_digest);
+        push_retained_contract_evidence(&mut out, self.contract.as_ref());
+        out.extend_from_slice(&(entry_bytes.len() as u64).to_le_bytes());
+        out.extend_from_slice(&entry_bytes);
+        Ok(out)
+    }
+
+    /// Decodes replayable retained state-delta material without applying it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error for malformed, truncated, non-canonical, or
+    /// commitment-inconsistent material.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, RetainedProvenanceError> {
+        let magic = bytes
+            .get(..WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len())
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        if magic != WAL_RUNTIME_STATE_DELTA_MAGIC_V1 {
+            return Err(RetainedProvenanceError::InvalidMagic);
+        }
+        let receipt_start = WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len();
+        let receipt_end = receipt_start + core::mem::size_of::<Hash>();
+        let receipt_digest = bytes
+            .get(receipt_start..receipt_end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)?;
+        let mut cursor = RetainedStateDeltaCursor::new(bytes, receipt_end);
+        let contract = cursor.read_contract_evidence()?;
+        let entry_len = cursor.read_u64()?;
+        let entry_len =
+            usize::try_from(entry_len).map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        let entry_bytes = cursor.read_exact(entry_len)?;
+        cursor.finish()?;
+        let entry = decode_local_commit_v1(entry_bytes)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns a content digest for the retained state-delta record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn digest(&self) -> Result<Hash, RetainedProvenanceError> {
+        let bytes = self.to_payload_bytes()?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(WAL_RUNTIME_STATE_DELTA_DOMAIN);
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+        Ok(hasher.finalize().into())
+    }
+}
+
+fn push_retained_contract_evidence(out: &mut Vec<u8>, contract: Option<&ContractEvidenceIdentity>) {
+    let Some(contract) = contract else {
+        out.push(0);
+        return;
+    };
+    out.push(1);
+    out.extend_from_slice(contract.package_id.as_bytes());
+    out.extend_from_slice(&contract.echo_abi_version.to_le_bytes());
+    push_retained_string(out, &contract.package_name);
+    push_retained_string(out, &contract.package_version);
+    push_retained_string(out, &contract.artifact_hash_hex);
+    push_retained_string(out, &contract.codec_id);
+    out.extend_from_slice(&contract.registry_version.to_le_bytes());
+    push_retained_string(out, &contract.wesley_generator_version);
+    out.extend_from_slice(&contract.helper_api_version.to_le_bytes());
+    push_retained_string(out, &contract.schema_sha256_hex);
+    out.extend_from_slice(&contract.op_id.to_le_bytes());
+    out.push(match contract.op_kind {
+        ContractOperationKind::Mutation => 1,
+        ContractOperationKind::Query => 2,
+    });
+}
+
+fn push_retained_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+struct RetainedStateDeltaCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RetainedStateDeltaCursor<'a> {
+    const fn new(bytes: &'a [u8], offset: usize) -> Self {
+        Self { bytes, offset }
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], RetainedProvenanceError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(RetainedProvenanceError::LengthOverflow)?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn read_u8(&mut self) -> Result<u8, RetainedProvenanceError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
+    fn read_u32(&mut self) -> Result<u32, RetainedProvenanceError> {
+        Ok(u32::from_le_bytes(
+            self.read_exact(4)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, RetainedProvenanceError> {
+        Ok(u64::from_le_bytes(
+            self.read_exact(8)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, RetainedProvenanceError> {
+        self.read_exact(core::mem::size_of::<Hash>())?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)
+    }
+
+    fn read_string(&mut self) -> Result<String, RetainedProvenanceError> {
+        let len = usize::try_from(self.read_u64()?)
+            .map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        String::from_utf8(self.read_exact(len)?.to_vec())
+            .map_err(|_| RetainedProvenanceError::InvalidUtf8)
+    }
+
+    fn read_contract_evidence(
+        &mut self,
+    ) -> Result<Option<ContractEvidenceIdentity>, RetainedProvenanceError> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => {
+                let package_id = InstalledContractPackageId::from_bytes(self.read_hash()?);
+                let echo_abi_version = self.read_u32()?;
+                let package_name = self.read_string()?;
+                let package_version = self.read_string()?;
+                let artifact_hash_hex = self.read_string()?;
+                let codec_id = self.read_string()?;
+                let registry_version = self.read_u32()?;
+                let wesley_generator_version = self.read_string()?;
+                let helper_api_version = self.read_u32()?;
+                let schema_sha256_hex = self.read_string()?;
+                let op_id = self.read_u32()?;
+                let op_kind = match self.read_u8()? {
+                    1 => ContractOperationKind::Mutation,
+                    2 => ContractOperationKind::Query,
+                    tag => {
+                        return Err(RetainedProvenanceError::UnknownTag {
+                            family: "contract operation kind",
+                            tag,
+                        })
+                    }
+                };
+                Ok(Some(ContractEvidenceIdentity {
+                    package_id,
+                    echo_abi_version,
+                    package_name,
+                    package_version,
+                    artifact_hash_hex,
+                    codec_id,
+                    registry_version,
+                    wesley_generator_version,
+                    helper_api_version,
+                    schema_sha256_hex,
+                    op_id,
+                    op_kind,
+                }))
+            }
+            tag => Err(RetainedProvenanceError::UnknownTag {
+                family: "optional contract evidence",
+                tag,
+            }),
+        }
+    }
+
+    fn finish(self) -> Result<(), RetainedProvenanceError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(RetainedProvenanceError::TrailingBytes)
+        }
+    }
+}
+
 /// Scheduler-owned tick decision captured by a WAL receipt record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalTickDecision {
@@ -1830,12 +2165,8 @@ impl WalTickDecision {
 /// WAL tick receipt record payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TickReceiptRecord {
-    /// Submission decided by the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
+    /// Exact causal coordinate of the admitted receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
     /// Scheduler decision.
     pub decision: WalTickDecision,
 }
@@ -1845,39 +2176,52 @@ impl TickReceiptRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_TICK_RECEIPT_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
         out.push(self.decision.code());
         out
     }
 
     /// Decodes a deterministic tick receipt payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_TICK_RECEIPT_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_TICK_RECEIPT_MAGIC_V2.len()] != WAL_TICK_RECEIPT_MAGIC_V2 {
+            return if bytes.len() == LEGACY_TICK_RECEIPT_PAYLOAD_LEN {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "tick-receipt",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "tick-receipt",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_TICK_RECEIPT_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
         let decision = WalTickDecision::from_code(cursor.read_u8()?)?;
         cursor.finish()?;
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
             decision,
         })
     }
 }
 
 /// WAL receipt correlation record payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalReceiptCorrelationRecord {
-    /// Submission correlated to the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
+    /// Exact causal coordinate of the child receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
+    /// Canonical admitted tick receipts cited by this receipt's intent.
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
 
 impl WalReceiptCorrelationRecord {
@@ -1885,25 +2229,106 @@ impl WalReceiptCorrelationRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_RECEIPT_CORRELATION_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
+        let mut causal_parent_receipts = self.causal_parent_receipts.clone();
+        causal_parent_receipts.sort_unstable();
+        causal_parent_receipts.dedup();
+        if !causal_parent_receipts.is_empty() {
+            out.extend_from_slice(&len_u64(causal_parent_receipts.len()).to_le_bytes());
+            for parent in causal_parent_receipts {
+                out.extend_from_slice(&parent.to_canonical_bytes());
+            }
+        }
         out
     }
 
     /// Decodes a deterministic receipt correlation payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_RECEIPT_CORRELATION_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_RECEIPT_CORRELATION_MAGIC_V2.len()] != WAL_RECEIPT_CORRELATION_MAGIC_V2 {
+            return if is_legacy_receipt_correlation_payload(bytes) {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "receipt-correlation",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "receipt-correlation",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_RECEIPT_CORRELATION_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
+        let causal_parent_receipts = if cursor.remaining_len() == 0 {
+            Vec::new()
+        } else {
+            let parent_count =
+                usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+            if parent_count == 0 {
+                return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                    record_kind: "receipt-correlation",
+                });
+            }
+            if parent_count > cursor.remaining_len() / CAUSAL_TICK_RECEIPT_REF_LEN {
+                return Err(WalDecodeError::UnexpectedEof);
+            }
+            let mut parents = Vec::with_capacity(parent_count);
+            for _ in 0..parent_count {
+                parents.push(CausalTickReceiptRef::from_canonical_bytes(
+                    cursor
+                        .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                        .try_into()
+                        .map_err(|_| WalDecodeError::UnexpectedEof)?,
+                ));
+            }
+            parents
+        };
         cursor.finish()?;
+        if !causal_parent_receipts
+            .windows(2)
+            .all(|parents| parents[0] < parents[1])
+        {
+            return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                record_kind: "receipt-correlation",
+            });
+        }
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
+            causal_parent_receipts,
         })
     }
+}
+
+fn is_legacy_receipt_correlation_payload(bytes: &[u8]) -> bool {
+    if bytes.len() == LEGACY_RECEIPT_CORRELATION_PREFIX_LEN {
+        return true;
+    }
+    let Some(count_bytes) =
+        bytes.get(LEGACY_RECEIPT_CORRELATION_PREFIX_LEN..LEGACY_RECEIPT_CORRELATION_PREFIX_LEN + 8)
+    else {
+        return false;
+    };
+    let mut count = [0; 8];
+    count.copy_from_slice(count_bytes);
+    let Ok(count) = usize::try_from(u64::from_le_bytes(count)) else {
+        return false;
+    };
+    count
+        .checked_mul(core::mem::size_of::<Hash>())
+        .and_then(|parent_bytes| {
+            LEGACY_RECEIPT_CORRELATION_PREFIX_LEN
+                .checked_add(8)?
+                .checked_add(parent_bytes)
+        })
+        == Some(bytes.len())
 }
 
 /// Retained material family referenced by committed WAL history.
@@ -2196,8 +2621,8 @@ pub struct RecoveredSubmissionEntry {
     pub acceptance: SubmissionAcceptanceRecord,
     /// Current recovered posture.
     pub posture: RecoveredSubmissionPosture,
-    /// Deciding receipt digest, if any.
-    pub receipt_digest: Option<Hash>,
+    /// Exact deciding receipt coordinate, if any.
+    pub receipt_ref: Option<CausalTickReceiptRef>,
 }
 
 /// Recovered submission index.
@@ -2248,7 +2673,7 @@ impl RecoveredSubmissionIndex {
     {
         let mut index = Self::from_acceptance_records(acceptances)?;
         for receipt in receipts {
-            index.apply_tick_receipt_record(receipt);
+            index.apply_tick_receipt_record(receipt)?;
         }
         Ok(index)
     }
@@ -2273,28 +2698,51 @@ impl RecoveredSubmissionIndex {
             .or_insert(RecoveredSubmissionEntry {
                 acceptance: record,
                 posture: RecoveredSubmissionPosture::AcceptedPending,
-                receipt_digest: None,
+                receipt_ref: None,
             });
         Ok(())
     }
 
-    fn apply_tick_receipt_record(&mut self, receipt: TickReceiptRecord) {
-        if let Some(entry) = self.submissions.get_mut(&receipt.submission_id) {
-            entry.posture = match receipt.decision {
-                WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
-                WalTickDecision::RejectedFootprintConflict => {
-                    RecoveredSubmissionPosture::DecidedRejected
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let posture = match receipt.decision {
+            WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
+            WalTickDecision::RejectedFootprintConflict => {
+                RecoveredSubmissionPosture::DecidedRejected
+            }
+            WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+        };
+        if let Some(entry) = self.submissions.get_mut(&receipt.receipt_ref.submission_id) {
+            if let Some(existing) = entry.receipt_ref {
+                if existing != receipt.receipt_ref {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                        submission_id: receipt.receipt_ref.submission_id,
+                    });
                 }
-                WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
-            };
-            entry.receipt_digest = Some(receipt.receipt_digest);
+                if entry.posture != posture {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                        receipt_identity_digest: receipt.receipt_ref.identity_digest(),
+                    });
+                }
+                return Ok(());
+            }
+            entry.posture = posture;
+            entry.receipt_ref = Some(receipt.receipt_ref);
         }
+        Ok(())
     }
 
     /// Returns a recovered submission entry.
     #[must_use]
     pub fn get(&self, submission_id: &Hash) -> Option<&RecoveredSubmissionEntry> {
         self.submissions.get(submission_id)
+    }
+
+    /// Iterates recovered submissions in deterministic submission-id order.
+    pub fn entries(&self) -> impl Iterator<Item = (&Hash, &RecoveredSubmissionEntry)> {
+        self.submissions.iter()
     }
 
     /// Returns the number of recovered submissions.
@@ -2372,10 +2820,10 @@ pub fn recovered_submission_receipt_index_root(
         }
         hasher.update(&entry.acceptance.acceptance_evidence_digest);
         hasher.update(&[recovered_submission_posture_code(entry.posture)]);
-        match entry.receipt_digest {
-            Some(digest) => {
+        match entry.receipt_ref {
+            Some(receipt_ref) => {
                 hasher.update(&[1]);
-                hasher.update(&digest);
+                hasher.update(&receipt_ref.to_canonical_bytes());
             }
             None => {
                 hasher.update(&[0]);
@@ -2392,16 +2840,16 @@ pub fn recovered_submission_receipt_index_root(
         }
     }
     hasher.update(&len_u64(receipts.receipt_by_submission.len()).to_le_bytes());
-    for (submission_id, receipt_digest) in &receipts.receipt_by_submission {
+    for (submission_id, receipt_ref) in &receipts.receipt_by_submission {
         hasher.update(b"receipt-by-submission");
         hasher.update(submission_id);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.receipt_by_ticket.len()).to_le_bytes());
-    for (ticket_digest, receipt_digest) in &receipts.receipt_by_ticket {
+    for (ticket_digest, receipt_ref) in &receipts.receipt_by_ticket {
         hasher.update(b"receipt-by-ticket");
         hasher.update(ticket_digest);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.ticket_by_submission.len()).to_le_bytes());
     for (submission_id, ticket_digest) in &receipts.ticket_by_submission {
@@ -2410,10 +2858,30 @@ pub fn recovered_submission_receipt_index_root(
         hasher.update(ticket_digest);
     }
     hasher.update(&len_u64(receipts.decisions_by_receipt.len()).to_le_bytes());
-    for (receipt_digest, decision) in &receipts.decisions_by_receipt {
+    for (receipt_ref, decision) in &receipts.decisions_by_receipt {
         hasher.update(b"decision-by-receipt");
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
         hasher.update(&[decision.code()]);
+    }
+    let causal_parent_count = receipts
+        .causal_parent_receipts_by_receipt
+        .values()
+        .filter(|parents| !parents.is_empty())
+        .count();
+    if causal_parent_count != 0 {
+        hasher.update(b"causal-parents-by-receipt:v2\0");
+        hasher.update(&len_u64(causal_parent_count).to_le_bytes());
+        for (receipt_ref, parents) in receipts
+            .causal_parent_receipts_by_receipt
+            .iter()
+            .filter(|(_, parents)| !parents.is_empty())
+        {
+            hasher.update(&receipt_ref.to_canonical_bytes());
+            hasher.update(&len_u64(parents.len()).to_le_bytes());
+            for parent in parents {
+                hasher.update(&parent.to_canonical_bytes());
+            }
+        }
     }
     hasher.finalize().into()
 }
@@ -2432,13 +2900,17 @@ fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredReceiptIndex {
     /// Receipt by submission id.
-    pub receipt_by_submission: BTreeMap<Hash, Hash>,
+    pub receipt_by_submission: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Receipt by admission ticket digest.
-    pub receipt_by_ticket: BTreeMap<Hash, Hash>,
+    pub receipt_by_ticket: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Ticket by submission id.
     pub ticket_by_submission: BTreeMap<Hash, Hash>,
-    /// Decisions by receipt digest.
-    pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
+    /// Decisions by exact causal receipt coordinate.
+    pub decisions_by_receipt: BTreeMap<CausalTickReceiptRef, WalTickDecision>,
+    /// Canonical causal parent receipt coordinates by child receipt.
+    causal_parent_receipts_by_receipt: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
+    /// Canonical child receipt coordinates by cited parent receipt coordinate.
+    receipts_by_causal_parent: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
 }
 
 impl RecoveredReceiptIndex {
@@ -2447,39 +2919,170 @@ impl RecoveredReceiptIndex {
     /// Tick receipt records carry decision posture. Correlation records can
     /// restore ticket/submission/receipt lookup handles when decision material
     /// is not present in the same source.
-    #[must_use]
-    pub fn from_receipt_correlation_records<I, J>(receipts: I, correlations: J) -> Self
+    pub fn from_receipt_correlation_records<I, J>(
+        receipts: I,
+        correlations: J,
+    ) -> Result<Self, WalRecoveryIndexError>
     where
         I: IntoIterator<Item = TickReceiptRecord>,
         J: IntoIterator<Item = WalReceiptCorrelationRecord>,
     {
         let mut index = Self::default();
         for receipt in receipts {
-            index
-                .receipt_by_submission
-                .insert(receipt.submission_id, receipt.receipt_digest);
-            index
-                .receipt_by_ticket
-                .insert(receipt.ticket_digest, receipt.receipt_digest);
-            index
-                .ticket_by_submission
-                .insert(receipt.submission_id, receipt.ticket_digest);
-            index
-                .decisions_by_receipt
-                .insert(receipt.receipt_digest, receipt.decision);
+            index.apply_tick_receipt_record(receipt)?;
         }
         for correlation in correlations {
-            index
-                .receipt_by_submission
-                .insert(correlation.submission_id, correlation.receipt_digest);
-            index
-                .receipt_by_ticket
-                .insert(correlation.ticket_digest, correlation.receipt_digest);
-            index
-                .ticket_by_submission
-                .insert(correlation.submission_id, correlation.ticket_digest);
+            index.apply_correlation_record(correlation)?;
         }
-        index
+        Ok(index)
+    }
+
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let receipt_ref = receipt.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
+        }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .decisions_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != receipt.decision)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
+        self.decisions_by_receipt
+            .entry(receipt_ref)
+            .or_insert(receipt.decision);
+        Ok(())
+    }
+
+    fn apply_correlation_record(
+        &mut self,
+        correlation: WalReceiptCorrelationRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let mut parents = correlation.causal_parent_receipts;
+        parents.sort_unstable();
+        parents.dedup();
+        let receipt_ref = correlation.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
+        }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != parents)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptCausalParents {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .contains_key(&receipt_ref)
+        {
+            return Ok(());
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
+        self.causal_parent_receipts_by_receipt
+            .insert(receipt_ref, parents.clone());
+        for parent in parents {
+            let children = self.receipts_by_causal_parent.entry(parent).or_default();
+            children.push(receipt_ref);
+            children.sort_unstable();
+            children.dedup();
+        }
+        Ok(())
+    }
+
+    /// Returns canonical causal parent receipt coordinates cited by a receipt.
+    #[must_use]
+    pub fn causal_parent_receipts(
+        &self,
+        receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
+        self.causal_parent_receipts_by_receipt
+            .get(receipt_ref)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns canonical receipts whose intents cite the supplied receipt coordinate.
+    #[must_use]
+    pub fn receipts_citing(
+        &self,
+        parent_receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
+        self.receipts_by_causal_parent
+            .get(parent_receipt_ref)
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -6822,6 +7425,14 @@ pub fn build_submission_acceptance_transaction(
     record: SubmissionAcceptanceRecord,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_submission_acceptance_records(
+    builder: &mut WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+) -> Result<(), WalBuildError> {
     builder.push_record(
         WalRecordKind::SubmissionAcceptedRecorded,
         record.to_payload_bytes(),
@@ -6829,6 +7440,26 @@ pub fn build_submission_acceptance_transaction(
     builder.push_record(
         WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
         record.acceptance_evidence_digest.to_vec(),
+    )?;
+    Ok(())
+}
+
+/// Builds a submission acceptance transaction with replayable envelope material.
+pub fn build_submission_acceptance_with_material_transaction(
+    mut builder: WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+    material: WalSubmissionEnvelopeRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    if record.submission_id != material.submission_id
+        || record.canonical_envelope_digest != material.canonical_envelope_digest
+    {
+        return Err(WalBuildError::SubmissionMaterialMismatch);
+    }
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.push_record(
+        WalRecordKind::SubmissionEnvelopeRetained,
+        material.to_payload_bytes(),
     )?;
     builder.commit(affected_frontiers)
 }
@@ -6841,6 +7472,43 @@ pub fn build_tick_transaction(
     state_delta_digest: Hash,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        state_delta_digest.to_vec(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a scheduler-owned tick transaction with replayable state-delta material.
+pub fn build_replayable_tick_transaction(
+    mut builder: WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: WalReceiptCorrelationRecord,
+    retained_state_delta_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(&retained_state_delta_bytes)
+        .map_err(|_| WalBuildError::RuntimeStateDeltaInvalid)?;
+    if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+        return Err(WalBuildError::RuntimeStateDeltaReceiptMismatch);
+    }
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        retained_state_delta_bytes,
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_tick_receipt_records(
+    builder: &mut WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: &WalReceiptCorrelationRecord,
+) -> Result<(), WalBuildError> {
+    if receipt.receipt_ref != correlation.receipt_ref {
+        return Err(WalBuildError::ReceiptCorrelationMismatch);
+    }
     builder.push_record(
         WalRecordKind::TickReceiptRecorded,
         receipt.to_payload_bytes(),
@@ -6849,11 +7517,7 @@ pub fn build_tick_transaction(
         WalRecordKind::ReceiptCorrelationRecorded,
         correlation.to_payload_bytes(),
     )?;
-    builder.push_record(
-        WalRecordKind::RuntimeStateDeltaRecorded,
-        state_delta_digest.to_vec(),
-    )?;
-    builder.commit(affected_frontiers)
+    Ok(())
 }
 
 /// Builds a retained reading transaction.
@@ -6964,7 +7628,7 @@ pub fn recover_submission_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index.apply_tick_receipt_record(receipt);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 _ => {}
             }
@@ -6984,32 +7648,13 @@ pub fn recover_receipt_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index
-                        .receipt_by_submission
-                        .insert(receipt.submission_id, receipt.receipt_digest);
-                    index
-                        .receipt_by_ticket
-                        .insert(receipt.ticket_digest, receipt.receipt_digest);
-                    index
-                        .ticket_by_submission
-                        .insert(receipt.submission_id, receipt.ticket_digest);
-                    index
-                        .decisions_by_receipt
-                        .insert(receipt.receipt_digest, receipt.decision);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 WalRecordKind::ReceiptCorrelationRecorded => {
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
                         &frame.payload.canonical_bytes,
                     )?;
-                    index
-                        .receipt_by_submission
-                        .insert(correlation.submission_id, correlation.receipt_digest);
-                    index
-                        .receipt_by_ticket
-                        .insert(correlation.ticket_digest, correlation.receipt_digest);
-                    index
-                        .ticket_by_submission
-                        .insert(correlation.submission_id, correlation.ticket_digest);
+                    index.apply_correlation_record(correlation)?;
                 }
                 _ => {}
             }
@@ -7411,6 +8056,18 @@ pub enum WalBuildError {
     /// Empty transaction.
     #[error("WAL transaction has no records")]
     EmptyTransaction,
+    /// Submission acceptance and retained material name different evidence.
+    #[error("WAL submission acceptance does not match retained material")]
+    SubmissionMaterialMismatch,
+    /// Tick receipt and correlation name different causal receipt events.
+    #[error("WAL tick receipt does not match its receipt correlation")]
+    ReceiptCorrelationMismatch,
+    /// Replayable runtime state-delta bytes are not a valid retained record.
+    #[error("WAL replayable runtime state delta is invalid")]
+    RuntimeStateDeltaInvalid,
+    /// Replayable runtime state delta names a different receipt commitment.
+    #[error("WAL replayable runtime state delta does not match the tick receipt")]
+    RuntimeStateDeltaReceiptMismatch,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),
@@ -7632,6 +8289,24 @@ pub enum WalDecodeError {
     /// Encoded frame failed embedded integrity validation.
     #[error("encoded WAL frame failed embedded integrity validation")]
     InvalidEmbeddedFrame,
+    /// Versioned causal receipt material did not carry the required magic.
+    #[error("invalid {record_kind} WAL payload magic")]
+    InvalidRecordMagic {
+        /// Retained record family whose version marker is malformed.
+        record_kind: &'static str,
+    },
+    /// Legacy receipt material names content but not one admitted event.
+    #[error("legacy {record_kind} payload lacks an exact causal receipt identity")]
+    LegacyCausalReceiptIdentityUnavailable {
+        /// Retained record family that cannot be upgraded without ambiguity.
+        record_kind: &'static str,
+    },
+    /// Causal parent receipts were duplicated or not in canonical order.
+    #[error("non-canonical causal parent receipts in {record_kind} WAL payload")]
+    NonCanonicalCausalParentReceipts {
+        /// Retained record family whose parent set was not canonical.
+        record_kind: &'static str,
+    },
 }
 
 /// WAL recovered index errors.
@@ -7645,6 +8320,36 @@ pub enum WalRecoveryIndexError {
     SubmissionEnvelopeConflict {
         /// Conflicting submission id.
         submission_id: Hash,
+    },
+    /// One submission id mapped to conflicting exact receipt coordinates.
+    #[error("submission id mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForSubmission {
+        /// Submission whose recovered receipt evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One admission ticket mapped to conflicting exact receipt coordinates.
+    #[error("admission ticket mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForTicket {
+        /// Ticket whose recovered receipt evidence conflicted.
+        ticket_digest: Hash,
+    },
+    /// One submission id mapped to conflicting admission tickets.
+    #[error("submission id mapped to conflicting admission tickets")]
+    ConflictingTicketForSubmission {
+        /// Submission whose recovered ticket evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting decisions.
+    #[error("causal receipt coordinate carried conflicting decisions")]
+    ConflictingReceiptDecision {
+        /// Identity digest of the receipt coordinate whose decision conflicted.
+        receipt_identity_digest: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting causal parent sets.
+    #[error("causal receipt coordinate carried conflicting causal parent sets")]
+    ConflictingReceiptCausalParents {
+        /// Identity digest of the receipt coordinate whose parents conflicted.
+        receipt_identity_digest: Hash,
     },
     /// Strand fork evidence conflicted for one strand id.
     #[error("strand fork evidence conflicted for strand {strand_id:?}")]
@@ -8310,6 +9015,19 @@ impl<'a> WalPayloadCursor<'a> {
 
     fn remaining_len(&self) -> usize {
         self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(bytes)
     }
 
     fn read_u8(&mut self) -> Result<u8, WalDecodeError> {

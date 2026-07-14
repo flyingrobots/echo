@@ -19,6 +19,7 @@
 //! witness-bearing publication the runtime may emit.
 
 use blake3::Hasher;
+use thiserror::Error;
 
 use crate::admission::AdmissionOutcomeKind;
 use crate::ident::{Hash, NodeKey};
@@ -31,6 +32,61 @@ pub struct TickReceipt {
     entries: Vec<TickReceiptEntry>,
     blocked_by: Vec<Vec<u32>>,
     digest: Hash,
+}
+
+/// Error returned when reconstructing a tick receipt from retained parts.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TickReceiptPartsError {
+    /// Candidate entries and blocker lists must remain parallel.
+    #[error("tick receipt entry count {entries} does not match blocker-list count {blocked_by}")]
+    LengthMismatch {
+        /// Number of candidate entries.
+        entries: usize,
+        /// Number of blocker lists.
+        blocked_by: usize,
+    },
+    /// One blocker list is not in strictly increasing canonical order.
+    #[error(
+        "tick receipt entry {entry} blocker {blocker} does not strictly follow blocker {previous}"
+    )]
+    BlockersNotStrictlyIncreasing {
+        /// Candidate entry whose blocker list is non-canonical.
+        entry: usize,
+        /// Blocker immediately preceding the invalid value.
+        previous: u32,
+        /// Duplicate or descending blocker value.
+        blocker: u32,
+    },
+    /// A blocker does not refer to an earlier candidate entry.
+    #[error("tick receipt entry {entry} blocker {blocker} is not an earlier candidate")]
+    BlockerNotEarlier {
+        /// Candidate entry carrying the invalid blocker.
+        entry: usize,
+        /// Same-position, forward, or out-of-range blocker index.
+        blocker: u32,
+    },
+    /// A blocker refers to a candidate that was not applied.
+    #[error("tick receipt entry {entry} blocker {blocker} does not name an applied candidate")]
+    BlockerNotApplied {
+        /// Rejected candidate carrying the invalid blocker.
+        entry: usize,
+        /// Earlier candidate whose disposition is not applied.
+        blocker: u32,
+    },
+    /// Applied candidates cannot carry blocking attribution.
+    #[error("applied tick receipt entry {entry} carries {blocker_count} blockers")]
+    AppliedEntryHasBlockers {
+        /// Applied candidate carrying blockers.
+        entry: usize,
+        /// Number of invalid blockers.
+        blocker_count: usize,
+    },
+    /// Footprint-conflict rejection requires at least one applied blocker.
+    #[error("rejected tick receipt entry {entry} carries no blockers")]
+    RejectedEntryMissingBlockers {
+        /// Rejected candidate missing its blocking attribution.
+        entry: usize,
+    },
 }
 
 impl TickReceipt {
@@ -47,6 +103,82 @@ impl TickReceipt {
             blocked_by,
             digest,
         }
+    }
+
+    /// Reconstructs a receipt value from retained canonical parts.
+    ///
+    /// Constructing this value does not admit it as Echo history. Admission
+    /// boundaries must still validate its digest against causal commitments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when candidate entries and blocker lists are not
+    /// parallel, or when blocker attribution violates canonical ordering,
+    /// backward-reference, or disposition invariants.
+    pub fn try_from_retained_parts(
+        tx: TxId,
+        entries: Vec<TickReceiptEntry>,
+        blocked_by: Vec<Vec<u32>>,
+    ) -> Result<Self, TickReceiptPartsError> {
+        if entries.len() != blocked_by.len() {
+            return Err(TickReceiptPartsError::LengthMismatch {
+                entries: entries.len(),
+                blocked_by: blocked_by.len(),
+            });
+        }
+        for (entry_index, (entry, blockers)) in entries.iter().zip(&blocked_by).enumerate() {
+            match entry.disposition {
+                TickReceiptDisposition::Applied if !blockers.is_empty() => {
+                    return Err(TickReceiptPartsError::AppliedEntryHasBlockers {
+                        entry: entry_index,
+                        blocker_count: blockers.len(),
+                    });
+                }
+                TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
+                    if blockers.is_empty() =>
+                {
+                    return Err(TickReceiptPartsError::RejectedEntryMissingBlockers {
+                        entry: entry_index,
+                    });
+                }
+                TickReceiptDisposition::Applied
+                | TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => {}
+            }
+            if let Some(pair) = blockers.windows(2).find(|pair| pair[0] >= pair[1]) {
+                return Err(TickReceiptPartsError::BlockersNotStrictlyIncreasing {
+                    entry: entry_index,
+                    previous: pair[0],
+                    blocker: pair[1],
+                });
+            }
+            for &blocker in blockers {
+                let Ok(blocker_index) = usize::try_from(blocker) else {
+                    return Err(TickReceiptPartsError::BlockerNotEarlier {
+                        entry: entry_index,
+                        blocker,
+                    });
+                };
+                if blocker_index >= entry_index {
+                    return Err(TickReceiptPartsError::BlockerNotEarlier {
+                        entry: entry_index,
+                        blocker,
+                    });
+                }
+                if entries[blocker_index].disposition != TickReceiptDisposition::Applied {
+                    return Err(TickReceiptPartsError::BlockerNotApplied {
+                        entry: entry_index,
+                        blocker,
+                    });
+                }
+            }
+        }
+        let digest = compute_tick_receipt_digest(&entries);
+        Ok(Self {
+            tx,
+            entries,
+            blocked_by,
+            digest,
+        })
     }
 
     /// Transaction identifier associated with the tick receipt.

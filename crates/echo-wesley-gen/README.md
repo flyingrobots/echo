@@ -34,6 +34,16 @@ The separately declared provider manifest pins the later package root's exact
 ABI and provider coordinate and cannot inventory itself.
 This source is not accepted through the tolerant historical `echo-ir/v1` path.
 
+The Edict-owned schema authority is a separate explicit input. The exact
+Apache-2.0 contract pack checked under
+[`schemas/edict-provider/contracts/v1/`](../../schemas/edict-provider/contracts/v1/README.md)
+is admitted through
+`provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
+requires the pinned Edict PR #162 CDDL and manifest publication, verifies every
+embedded contract resource and provenance record, and performs no discovery or
+mutable coordinate resolution. This authenticates the schema publication; it
+does not by itself claim that a generated artifact is a valid schema instance.
+
 ## Usage
 
 ```bash

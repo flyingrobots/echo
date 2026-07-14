@@ -15,6 +15,9 @@
 /// Strict Echo-owned semantic source for generated Edict provider artifacts.
 pub mod provider_semantics;
 
+/// Explicit admission boundary for the Edict-owned provider contract pack.
+pub mod provider_contract_pack;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

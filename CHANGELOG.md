@@ -7,6 +7,12 @@
 
 ### Added
 
+- `echo-wesley-gen` now admits the exact Apache-2.0 Edict provider contract
+  pack merged in Edict PR #162 as an explicit generator input. The pure
+  boundary pins the CDDL and manifest publication, verifies strict contract and
+  domain inventories plus every embedded resource byte, digest, and provenance
+  record, rejects tampering with stable structured error kinds, and performs no
+  filesystem, registry, environment, or network discovery.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

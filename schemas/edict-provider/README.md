@@ -101,10 +101,16 @@ contract documents. They are not executable component bytes. Issue #655 binds
 the exact lowerer and verifier components, including their frozen WIT world
 attestations, when it assembles the provider manifest.
 
-External Edict contract inputs require the trusted artifact publication model
-tracked by [Edict #158](https://github.com/flyingrobots/edict/issues/158).
-The semantic source selects their contracts but does not authenticate arbitrary
-caller bytes under those coordinates.
+External Edict contract inputs come from the checked
+[`contracts/v1/`](contracts/v1/README.md) publication merged in
+[Edict PR #162](https://github.com/flyingrobots/edict/pull/162). Echo passes the
+CDDL and manifest bytes explicitly to
+`provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
+the pinned publication identity, exact inventories, resource bytes, digests,
+and provenance before generation. The semantic source selects those contracts
+but does not authenticate arbitrary caller bytes under their coordinates.
+Contract-pack admission authenticates schema authority; generated values must
+still pass the owning CDDL root during output admission.
 
 Issue #655, after the lowerer and verifier components exist, assembles those
 outputs and generates the package-root `edict.provider-manifest/v1` for

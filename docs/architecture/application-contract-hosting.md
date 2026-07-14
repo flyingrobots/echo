@@ -175,8 +175,12 @@ own artifact list. Two authority-facts documents preserve Edict's one-source
 rule: lawpack facts carry budgets, while target-profile facts carry operation
 profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
-declarations carry no output digests. Standard Edict resources are explicit
-trusted inputs whose canonical publication is tracked by Edict #158.
+declarations carry no output digests. Standard Edict resources and the
+self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
+contract pack merged in Edict PR #162. Echo admits its exact CDDL, manifest,
+contract/domain inventories, resource bytes, digests, and provenance before
+generation without searching a filesystem, registry, or network. Schema
+instance validation remains a separate output-admission step.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package

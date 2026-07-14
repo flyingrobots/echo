@@ -36,9 +36,9 @@
   remain typed obstructions; inverse admission never deletes or rewrites the
   original transition. Ordinary app and runtime submission reject the reserved
   inverse-target parent role, preventing caller-authored intents from being
-  projected as contract-defined inverses. Runtime recovery rejects any receipt
-  correlation whose retained tick receipt does not contain the witnessed
-  submission ingress.
+  projected as contract-defined inverses. Runtime recovery rejects a receipt
+  correlation when its non-empty retained tick receipt contains only other
+  submission ingresses.
 - `warp-core` now distinguishes repeatable `TickReceipt` content commitments
   from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
   content to worldline, worldline tick, global tick, commit, submission, and

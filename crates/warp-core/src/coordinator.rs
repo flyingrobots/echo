@@ -2138,10 +2138,11 @@ impl WorldlineRuntime {
             ));
         }
         let ingress_node = NodeId(submission.ingress_id);
-        if !receipt
-            .entries()
-            .iter()
-            .any(|entry| entry.scope.local_id == ingress_node)
+        if !receipt.entries().is_empty()
+            && !receipt
+                .entries()
+                .iter()
+                .any(|entry| entry.scope.local_id == ingress_node)
         {
             return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
                 persisted.causal_receipt_ref.identity_digest(),
@@ -5800,24 +5801,14 @@ mod tests {
 
     #[test]
     fn receipt_correlation_restore_rejects_receipt_without_submission_ingress() {
-        let mut runtime = WorldlineRuntime::new();
-        let mut engine = empty_engine();
-        let worldline_id = wl(6);
-        runtime
-            .register_worldline(worldline_id, WorldlineState::empty())
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let head_key = runtime
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
             .unwrap();
-        let head_key = register_head(
-            &mut runtime,
-            worldline_id,
-            "default",
-            None,
-            true,
-            InboxPolicy::AcceptAll,
-        );
         let first_envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter { worldline_id },
-            make_intent_kind("test"),
-            b"receipt-owner".to_vec(),
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
         );
         let mut provenance = mirrored_provenance(&runtime);
         let first_correlation = commit_ticketed_envelope(
@@ -5828,6 +5819,10 @@ mod tests {
             first_envelope,
             hash(81),
         );
+        assert!(matches!(
+            runtime.observe_app_intent_outcome(&first_correlation.submission_id),
+            IntentOutcome::Applied { .. }
+        ));
 
         let unrelated_envelope = IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter { worldline_id },

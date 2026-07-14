@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says four concrete things.
+The current runtime WAL evidence says seven concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only

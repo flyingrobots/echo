@@ -191,7 +191,9 @@ The supported application path is the root-level `warp-core` API:
 `CausalAnchorAdmissionRequest`, `CausalAnchorFact`,
 `CausalAnchorAdmissionReceipt`, and `RecoveredCausalAnchorAdmission` are all
 exported from the `warp-core` crate root. External consumers do not need an
-internal WAL module path.
+internal WAL module path. Recovered admission evidence exposes read-only
+accessors; its fact, receipt, transaction, LSN, and commit-digest fields cannot
+be replaced through a public struct constructor.
 
 The following value-only operations are deliberately quarantined from the
 authority boundary:

@@ -7690,18 +7690,88 @@ pub fn read_checkpoint_record(
 }
 
 /// One causal-anchor admission reconstructed from committed WAL authority.
+///
+/// Committed coordinates are read-only evidence. External code cannot rebuild
+/// this type with substituted WAL coordinates:
+///
+/// ```compile_fail
+/// use warp_core::{
+///     causal_wal::{Lsn, WalTransactionId},
+///     RecoveredCausalAnchorAdmission,
+/// };
+///
+/// fn substitute_coordinates(
+///     genuine: RecoveredCausalAnchorAdmission,
+/// ) -> RecoveredCausalAnchorAdmission {
+///     RecoveredCausalAnchorAdmission {
+///         fact: genuine.fact,
+///         receipt: genuine.receipt,
+///         transaction_id: WalTransactionId::from_hash([0; 32]),
+///         committed_lsn: Lsn::from_raw(0),
+///         commit_digest: [0; 32],
+///     }
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveredCausalAnchorAdmission {
     /// Echo-admitted causal-anchor fact.
-    pub fact: CausalAnchorFact,
+    fact: CausalAnchorFact,
     /// Echo admission receipt committed atomically with the fact.
-    pub receipt: CausalAnchorAdmissionReceipt,
+    receipt: CausalAnchorAdmissionReceipt,
     /// WAL transaction that ordered the admission.
-    pub transaction_id: WalTransactionId,
+    transaction_id: WalTransactionId,
     /// Last committed LSN of the admission transaction.
-    pub committed_lsn: Lsn,
+    committed_lsn: Lsn,
     /// Digest of the admission transaction commit marker.
-    pub commit_digest: Hash,
+    commit_digest: Hash,
+}
+
+impl RecoveredCausalAnchorAdmission {
+    pub(crate) const fn from_committed_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            fact,
+            receipt,
+            transaction_id,
+            committed_lsn,
+            commit_digest,
+        }
+    }
+
+    /// Returns the Echo-admitted causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        &self.fact
+    }
+
+    /// Returns the admission receipt committed atomically with the fact.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        &self.receipt
+    }
+
+    /// Returns the WAL transaction that ordered the admission.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.transaction_id
+    }
+
+    /// Returns the last committed LSN of the admission transaction.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.committed_lsn
+    }
+
+    /// Returns the admission transaction's commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        &self.commit_digest
+    }
 }
 
 /// Recovers fully committed and internally consistent causal-anchor admissions.
@@ -7747,13 +7817,13 @@ pub fn recover_causal_anchor_admissions(
                 CausalAnchorError::AdmissionEvidenceMismatch,
             ));
         }
-        admissions.push(RecoveredCausalAnchorAdmission {
+        admissions.push(RecoveredCausalAnchorAdmission::from_committed_wal_evidence(
             fact,
             receipt,
-            transaction_id: transaction.commit.transaction_id,
-            committed_lsn: transaction.commit.last_lsn,
-            commit_digest: transaction.commit.commit_digest,
-        });
+            transaction.commit.transaction_id,
+            transaction.commit.last_lsn,
+            transaction.commit.commit_digest,
+        ));
     }
     Ok(admissions)
 }

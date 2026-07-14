@@ -123,9 +123,9 @@ fn root_label(root: &CausalAnchorRoot) -> String {
 }
 
 fn render_golden(admission: &RecoveredCausalAnchorAdmission) -> String {
-    let fact = &admission.fact;
+    let fact = admission.fact();
     let claim = fact.claim();
-    let receipt = &admission.receipt;
+    let receipt = admission.receipt();
     let subject = claim.subject();
     let retained_root = &claim.retained_roots()[0];
     let materialization_root = &claim.materialization_roots()[0];
@@ -209,15 +209,19 @@ fn render_golden(admission: &RecoveredCausalAnchorAdmission) -> String {
     writeln!(
         output,
         "transaction_id={}",
-        hash_hex(&admission.transaction_id.as_hash())
+        hash_hex(&admission.transaction_id().as_hash())
     )
     .expect("write to String");
-    writeln!(output, "committed_lsn={}", admission.committed_lsn.as_u64())
-        .expect("write to String");
+    writeln!(
+        output,
+        "committed_lsn={}",
+        admission.committed_lsn().as_u64()
+    )
+    .expect("write to String");
     writeln!(
         output,
         "commit_digest={}",
-        hash_hex(&admission.commit_digest)
+        hash_hex(admission.commit_digest())
     )
     .expect("write to String");
 
@@ -243,19 +247,22 @@ fn jim_consumes_echo_admitted_anchor_identity_without_reimplementing_it() {
         .expect("Echo should admit the supported current-basis request");
     let recovered = host
         .app()
-        .causal_anchor_by_id(admission.fact.anchor_id())
+        .causal_anchor_by_id(admission.fact().anchor_id())
         .expect("anchor lookup should recover")
         .expect("admitted anchor should exist");
 
     assert_eq!(recovered, admission);
-    assert_eq!(admission.fact.anchor_id(), admission.receipt.anchor_id());
     assert_eq!(
-        admission.fact.admitted_by_receipt_id(),
-        admission.receipt.receipt_id()
+        admission.fact().anchor_id(),
+        admission.receipt().anchor_id()
     );
     assert_eq!(
-        admission.fact.claim().claim_digest(),
-        admission.receipt.claim_digest()
+        admission.fact().admitted_by_receipt_id(),
+        admission.receipt().receipt_id()
+    );
+    assert_eq!(
+        admission.fact().claim().claim_digest(),
+        admission.receipt().claim_digest()
     );
     assert_eq!(
         render_golden(&admission),

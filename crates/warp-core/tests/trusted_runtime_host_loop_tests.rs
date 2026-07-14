@@ -2145,9 +2145,9 @@ fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
         .app()
         .admit_causal_anchor(request.clone())
         .expect("supported anchor should commit before acknowledgement");
-    let anchor_id = *admitted.fact.anchor_id();
+    let anchor_id = *admitted.fact().anchor_id();
     assert_eq!(
-        admitted.receipt.support_policy_digest(),
+        admitted.receipt().support_policy_digest(),
         &expected_policy_digest
     );
     let expected_restarted_basis = host
@@ -2174,8 +2174,8 @@ fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
         .causal_anchor_by_id(&anchor_id)
         .expect("anchor lookup should recover from committed WAL history")
         .expect("committed anchor should remain addressable by id");
-    assert_eq!(recovered.fact, admitted.fact);
-    assert_eq!(recovered.receipt, admitted.receipt);
+    assert_eq!(recovered.fact(), admitted.fact());
+    assert_eq!(recovered.receipt(), admitted.receipt());
     let recovery = restarted
         .runtime_wal()
         .expect("restarted WAL should remain configured")

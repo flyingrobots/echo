@@ -25,7 +25,9 @@
   available from the `warp-core` crate root. A Jim-shaped external-consumer
   witness and standalone golden vector pin Echo-produced subject, basis, root,
   purpose, anchor, receipt, transaction, and commit identity so applications do
-  not create a second anchor hash domain.
+  not create a second anchor hash domain. Recovered admission coordinates are
+  exposed through read-only accessors rather than caller-reconstructible public
+  fields.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

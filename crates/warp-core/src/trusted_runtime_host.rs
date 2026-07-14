@@ -1241,7 +1241,7 @@ impl TrustedRuntimeWal {
         for admission in
             recover_causal_anchor_admissions(&report).map_err(WalRecoveryError::from)?
         {
-            let anchor_id = *admission.fact.anchor_id();
+            let anchor_id = *admission.fact().anchor_id();
             if causal_anchors.insert(anchor_id, admission).is_some() {
                 return Err(TrustedRuntimeWalError::CausalAnchorIdConflict { anchor_id });
             }
@@ -1341,9 +1341,9 @@ impl TrustedRuntimeWal {
     ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
         let recovery = self.recover_read_only()?;
         let mut matching = recovery.causal_anchors.into_values().filter(|admission| {
-            admission.fact.claim().claim_digest() == claim_digest
+            admission.fact().claim().claim_digest() == claim_digest
                 && support_policy_digest
-                    .is_none_or(|digest| admission.receipt.support_policy_digest() == digest)
+                    .is_none_or(|digest| admission.receipt().support_policy_digest() == digest)
         });
         let first = matching.next();
         if matching.next().is_some() {
@@ -1586,13 +1586,13 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.causal_anchor_frontier_digest = next_causal_anchor_frontier;
-        Ok(RecoveredCausalAnchorAdmission {
+        Ok(RecoveredCausalAnchorAdmission::from_committed_wal_evidence(
             fact,
             receipt,
-            transaction_id: commit.transaction_id,
-            committed_lsn: commit.last_lsn,
-            commit_digest: commit.commit_digest,
-        })
+            commit.transaction_id,
+            commit.last_lsn,
+            commit.commit_digest,
+        ))
     }
 
     fn append_transaction(
@@ -1962,7 +1962,7 @@ impl TrustedRuntimeWalCursor {
                     let admission = recovered_anchors
                         .iter()
                         .find(|admission| {
-                            admission.transaction_id == transaction.commit.transaction_id
+                            admission.transaction_id() == transaction.commit.transaction_id
                         })
                         .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
                             transaction_id: transaction.commit.transaction_id.as_hash(),
@@ -2763,7 +2763,7 @@ fn causal_anchor_frontier_digest(
     previous: Hash,
     admission: &RecoveredCausalAnchorAdmission,
 ) -> Hash {
-    causal_anchor_frontier_digest_from_evidence(previous, &admission.fact, &admission.receipt)
+    causal_anchor_frontier_digest_from_evidence(previous, admission.fact(), admission.receipt())
 }
 
 fn acceptance_evidence_digest(handle: IntentSubmissionHandle) -> Hash {
@@ -3482,15 +3482,15 @@ fn recovered_causal_anchor_index_root(
     hasher.update(&(causal_anchors.len() as u64).to_le_bytes());
     for (anchor_id, admission) in causal_anchors {
         hasher.update(anchor_id.as_bytes());
-        let fact_bytes = admission.fact.to_payload_bytes();
+        let fact_bytes = admission.fact().to_payload_bytes();
         hasher.update(&(fact_bytes.len() as u64).to_le_bytes());
         hasher.update(&fact_bytes);
-        let receipt_bytes = admission.receipt.to_payload_bytes();
+        let receipt_bytes = admission.receipt().to_payload_bytes();
         hasher.update(&(receipt_bytes.len() as u64).to_le_bytes());
         hasher.update(&receipt_bytes);
-        hasher.update(&admission.transaction_id.as_hash());
-        hasher.update(&admission.committed_lsn.as_u64().to_le_bytes());
-        hasher.update(&admission.commit_digest);
+        hasher.update(&admission.transaction_id().as_hash());
+        hasher.update(&admission.committed_lsn().as_u64().to_le_bytes());
+        hasher.update(admission.commit_digest());
     }
     hasher.finalize().into()
 }

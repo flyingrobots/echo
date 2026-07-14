@@ -176,15 +176,21 @@ fn committed_anchor_transaction_recovers_one_cross_checked_admission() {
     let admissions = must_ok(recover_causal_anchor_admissions(&report));
     assert_eq!(admissions.len(), 1);
     let admission = &admissions[0];
-    assert_eq!(admission.fact.claim(), &expected_claim);
+    assert_eq!(admission.fact().claim(), &expected_claim);
     assert_eq!(
-        admission.fact.admitted_by_receipt_id(),
-        admission.receipt.receipt_id()
+        admission.fact().admitted_by_receipt_id(),
+        admission.receipt().receipt_id()
     );
-    assert_eq!(admission.fact.anchor_id(), admission.receipt.anchor_id());
-    assert_eq!(admission.transaction_id, transaction.commit.transaction_id);
-    assert_eq!(admission.committed_lsn, transaction.commit.last_lsn);
-    assert_eq!(admission.commit_digest, transaction.commit.commit_digest);
+    assert_eq!(
+        admission.fact().anchor_id(),
+        admission.receipt().anchor_id()
+    );
+    assert_eq!(
+        admission.transaction_id(),
+        transaction.commit.transaction_id
+    );
+    assert_eq!(admission.committed_lsn(), transaction.commit.last_lsn);
+    assert_eq!(admission.commit_digest(), &transaction.commit.commit_digest);
 }
 
 #[test]
@@ -211,10 +217,10 @@ fn admission_receipt_identity_binds_host_support_policy() {
     .remove(0);
 
     assert_ne!(
-        first_admission.receipt.receipt_id(),
-        second_admission.receipt.receipt_id()
+        first_admission.receipt().receipt_id(),
+        second_admission.receipt().receipt_id()
     );
-    assert_ne!(first_admission.fact, second_admission.fact);
+    assert_ne!(first_admission.fact(), second_admission.fact());
 }
 
 #[test]

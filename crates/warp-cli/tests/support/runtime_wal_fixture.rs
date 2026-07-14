@@ -10,12 +10,13 @@ use echo_registry_api::{
 };
 use tempfile::TempDir;
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, ContractMutationHandler,
-    ContractPackageIdentity, EngineBuilder, GraphStore, GraphView, Hash, InboxPolicy,
-    IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord, OpticAdmissionTicket,
-    OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind, TickDelta, TrustedRuntimeHost,
-    TrustedRuntimeWalConfig, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, CausalTickReceiptRef,
+    ContractMutationHandler, ContractPackageIdentity, EngineBuilder, GraphStore, GraphView, Hash,
+    InboxPolicy, IngressEnvelope, IngressTarget, IntentOutcome, NodeId, NodeRecord,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, SchedulerKind,
+    TickDelta, TrustedRuntimeHost, TrustedRuntimeWalConfig, WarpOp, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
+    OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 type FixtureResult<T> = Result<T, Box<dyn Error>>;
@@ -49,6 +50,7 @@ pub(crate) struct RuntimeWalSubmissionFixture {
     pub(crate) root: TempDir,
     pub(crate) submission_id: Hash,
     pub(crate) canonical_envelope_digest: Hash,
+    pub(crate) receipt_ref: Option<CausalTickReceiptRef>,
     pub(crate) receipt_digest: Option<Hash>,
     pub(crate) ticket_digest: Option<Hash>,
 }
@@ -102,6 +104,7 @@ pub(crate) fn accepted_pending_fixture() -> FixtureResult<RuntimeWalSubmissionFi
         root,
         submission_id: submission.submission_id,
         canonical_envelope_digest,
+        receipt_ref: None,
         receipt_digest: None,
         ticket_digest: None,
     })
@@ -137,6 +140,7 @@ pub(crate) fn decided_applied_fixture() -> FixtureResult<RuntimeWalSubmissionFix
         root,
         submission_id: submission.submission_id,
         canonical_envelope_digest,
+        receipt_ref: Some(receipt.causal_receipt_ref),
         receipt_digest: Some(receipt.tick_receipt_digest),
         ticket_digest: Some(ticket.ticket_digest),
     })

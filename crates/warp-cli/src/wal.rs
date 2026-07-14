@@ -32,6 +32,7 @@ pub(crate) struct WalSubmissionPostureOutput {
     pub(crate) canonical_envelope_digest: String,
     pub(crate) retry_posture: &'static str,
     pub(crate) recovered_posture: Option<&'static str>,
+    pub(crate) receipt_ref: Option<String>,
     pub(crate) receipt_digest: Option<String>,
     pub(crate) ticket_digest: Option<String>,
 }
@@ -82,6 +83,11 @@ pub(crate) fn submission_posture(
             submissions.retry_posture(submission_id, canonical_envelope_digest),
         ),
         recovered_posture: matching_entry.map(|entry| recovered_posture_label(entry.posture)),
+        receipt_ref: matching_entry.and_then(|entry| {
+            entry
+                .receipt_ref
+                .map(|receipt_ref| hex::encode(receipt_ref.to_canonical_bytes()))
+        }),
         receipt_digest: matching_entry.and_then(|entry| {
             entry
                 .receipt_ref
@@ -92,12 +98,13 @@ pub(crate) fn submission_posture(
             .map(hex_hash),
     };
     let text = format!(
-        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nRetry posture: {}\nRecovered posture: {}\nReceipt: {}\nTicket: {}\n",
+        "echo-cli wal submission-posture\nRoot: {}\nSubmission: {}\nCanonical envelope: {}\nRetry posture: {}\nRecovered posture: {}\nReceipt ref: {}\nReceipt: {}\nTicket: {}\n",
         output.root,
         output.submission_id,
         output.canonical_envelope_digest,
         output.retry_posture,
         output.recovered_posture.unwrap_or("None"),
+        output.receipt_ref.as_deref().unwrap_or("None"),
         output.receipt_digest.as_deref().unwrap_or("None"),
         output.ticket_digest.as_deref().unwrap_or("None")
     );

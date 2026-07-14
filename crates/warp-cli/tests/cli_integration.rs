@@ -585,6 +585,7 @@ fn wal_submission_posture_runtime_ack_root_reports_accepted_pending_json() -> Te
     )?;
     assert_eq!(json["retry_posture"], "AlreadyAcceptedPending");
     assert_eq!(json["recovered_posture"], "AcceptedPending");
+    assert!(json["receipt_ref"].is_null());
     assert!(json["receipt_digest"].is_null());
     assert!(json["ticket_digest"].is_null());
     Ok(())
@@ -601,6 +602,15 @@ fn wal_submission_posture_runtime_ack_root_reports_decided_applied_json() -> Tes
 
     assert_eq!(json["retry_posture"], "AlreadyDecidedApplied");
     assert_eq!(json["recovered_posture"], "DecidedApplied");
+    assert_eq!(
+        json["receipt_ref"],
+        hex::encode(
+            fixture
+                .receipt_ref
+                .ok_or("missing applied receipt reference")?
+                .to_canonical_bytes()
+        )
+    );
     assert_eq!(
         json["receipt_digest"],
         hex::encode(fixture.receipt_digest.ok_or("missing applied receipt")?)

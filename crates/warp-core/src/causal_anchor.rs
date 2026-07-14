@@ -1,42 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Canonical causal-anchor value contract.
+//! Canonical causal-anchor claim contract.
 //!
-//! A causal-anchor value binds an application subject, a caller-provided causal
-//! frontier digest, claimed authority/evidence roots, optional projection roots,
-//! a caller-provided receipt digest, and a purpose into a deterministic value.
-//! Construction validates canonical value shape only; it does not admit or
-//! publish the value through runtime authority.
+//! An application request binds a subject, causal-frontier digest, claimed
+//! authority/evidence roots, optional projection roots, and purpose into a
+//! deterministic claim. Claim construction does not confer admission. Only the
+//! trusted Echo path may attach a receipt and construct an admitted fact.
 
 use blake3::Hasher;
 use thiserror::Error;
 
 use crate::ident::Hash;
 
-const CAUSAL_ANCHOR_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:digest:v1\0";
-const CAUSAL_ANCHOR_ID_DOMAIN: &[u8] = b"echo:causal-anchor:id:v1\0";
+const CAUSAL_ANCHOR_CLAIM_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:claim:v1\0";
 
 /// Current causal anchor schema version.
 pub const CAUSAL_ANCHOR_SCHEMA_VERSION: u32 = 1;
-
-/// Opaque Echo causal anchor identifier.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CausalAnchorId(Hash);
-
-impl CausalAnchorId {
-    /// Builds an anchor id from canonical bytes.
-    #[must_use]
-    pub const fn from_bytes(bytes: Hash) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns this anchor id's canonical bytes.
-    #[must_use]
-    pub const fn as_bytes(&self) -> &Hash {
-        &self.0
-    }
-}
 
 /// Subject named by a causal anchor.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -82,7 +61,7 @@ impl CausalFrontierRef {
     }
 }
 
-/// Claimed purpose encoded into a causal-anchor value.
+/// Claimed purpose encoded into a causal-anchor request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CausalAnchorPurpose {
     /// Recovery basis.
@@ -175,7 +154,7 @@ impl CausalAnchorAppRootRole {
     }
 }
 
-/// Root claimed as retained by or attached to a causal-anchor value.
+/// Root claimed as retained by or attached to a causal-anchor request.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CausalAnchorRoot {
     /// Content-addressed object root.
@@ -217,10 +196,14 @@ impl CausalAnchorRoot {
     }
 }
 
-/// Request to construct a canonical causal-anchor value.
+/// Application request for Echo to consider a causal-anchor claim for admission.
+///
+/// The request intentionally contains no admission receipt. Only Echo's trusted
+/// admission path may derive that identity and turn the claim into an admitted
+/// anchor fact.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CausalAnchorRequest {
-    /// Schema version for the requested anchor fact.
+pub struct CausalAnchorAdmissionRequest {
+    /// Schema version for the requested anchor claim.
     pub schema_version: u32,
     /// Application subject being anchored.
     pub subject: CausalAnchorSubject,
@@ -232,44 +215,43 @@ pub struct CausalAnchorRequest {
     pub materialization_roots: Vec<CausalAnchorRoot>,
     /// Purpose of the anchor.
     pub purpose: CausalAnchorPurpose,
-    /// Caller-provided receipt digest committed into the value.
-    ///
-    /// Construction does not recover or authenticate this receipt.
-    pub admitted_by_receipt_id: Hash,
 }
 
-/// Canonical causal-anchor value.
+/// Canonical, shape-validated application claim awaiting Echo admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CausalAnchorFact {
-    /// Schema version for this anchor fact.
-    pub schema_version: u32,
-    /// Stable anchor id derived from the anchor digest.
-    pub anchor_id: CausalAnchorId,
+pub struct CausalAnchorClaim {
+    /// Schema version for this anchor claim.
+    schema_version: u32,
     /// Application subject being anchored.
-    pub subject: CausalAnchorSubject,
+    subject: CausalAnchorSubject,
     /// Caller-provided causal-frontier reference.
-    pub basis_frontier: CausalFrontierRef,
+    basis_frontier: CausalFrontierRef,
     /// Canonical retained root set.
-    pub retained_roots: Vec<CausalAnchorRoot>,
+    retained_roots: Vec<CausalAnchorRoot>,
     /// Canonical materialization root set.
-    pub materialization_roots: Vec<CausalAnchorRoot>,
+    materialization_roots: Vec<CausalAnchorRoot>,
     /// Purpose of the anchor.
-    pub purpose: CausalAnchorPurpose,
-    /// Caller-provided receipt digest committed into the value.
-    pub admitted_by_receipt_id: Hash,
-    /// Digest over subject, basis, roots, purpose, and supplied receipt digest.
-    pub anchor_digest: Hash,
+    purpose: CausalAnchorPurpose,
+    /// Digest over the canonical claim fields, before any admission identity.
+    claim_digest: Hash,
 }
 
-impl CausalAnchorFact {
-    /// Builds a shape-validated, canonical causal-anchor value.
+impl CausalAnchorClaim {
+    /// Builds a canonical claim without conferring Echo admission.
     ///
     /// Root vectors are sorted and duplicate roots are rejected so the resulting
-    /// digest represents a set of retained/materialized roots rather than caller
-    /// iteration order. This function does not verify frontier admission, root
-    /// existence, receipt provenance, authority, or retention, and it does not
-    /// publish the resulting value through the WAL.
-    pub fn from_request(request: CausalAnchorRequest) -> Result<Self, CausalAnchorError> {
+    /// digest represents root sets rather than caller iteration order. This
+    /// function does not verify frontier admission, root existence, authority,
+    /// retention, or publish anything through the WAL.
+    pub fn from_admission_request(
+        request: CausalAnchorAdmissionRequest,
+    ) -> Result<Self, CausalAnchorError> {
+        if request.schema_version != CAUSAL_ANCHOR_SCHEMA_VERSION {
+            return Err(CausalAnchorError::UnsupportedSchemaVersion {
+                expected: CAUSAL_ANCHOR_SCHEMA_VERSION,
+                actual: request.schema_version,
+            });
+        }
         validate_subject(&request.subject)?;
         let retained_roots =
             canonicalize_roots(request.retained_roots, CausalAnchorRootSet::Retained)?;
@@ -292,33 +274,79 @@ impl CausalAnchorFact {
         {
             return Err(CausalAnchorError::RootAppearsInRetainedAndMaterialization);
         }
-        let anchor_digest = compute_anchor_digest(
+        let claim_digest = compute_claim_digest(
             request.schema_version,
             &request.subject,
             &request.basis_frontier,
             &retained_roots,
             &materialization_roots,
             request.purpose,
-            &request.admitted_by_receipt_id,
         );
-        let anchor_id = compute_anchor_id(&anchor_digest);
         Ok(Self {
             schema_version: request.schema_version,
-            anchor_id,
             subject: request.subject,
             basis_frontier: request.basis_frontier,
             retained_roots,
             materialization_roots,
             purpose: request.purpose,
-            admitted_by_receipt_id: request.admitted_by_receipt_id,
-            anchor_digest,
+            claim_digest,
         })
+    }
+
+    /// Returns the schema version used to canonicalize this claim.
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    /// Returns the application subject named by this claim.
+    #[must_use]
+    pub const fn subject(&self) -> &CausalAnchorSubject {
+        &self.subject
+    }
+
+    /// Returns the caller-provided causal-frontier reference.
+    #[must_use]
+    pub const fn basis_frontier(&self) -> &CausalFrontierRef {
+        &self.basis_frontier
+    }
+
+    /// Returns the canonical retained root set.
+    #[must_use]
+    pub fn retained_roots(&self) -> &[CausalAnchorRoot] {
+        &self.retained_roots
+    }
+
+    /// Returns the canonical materialization root set.
+    #[must_use]
+    pub fn materialization_roots(&self) -> &[CausalAnchorRoot] {
+        &self.materialization_roots
+    }
+
+    /// Returns the claimed anchor purpose.
+    #[must_use]
+    pub const fn purpose(&self) -> CausalAnchorPurpose {
+        self.purpose
+    }
+
+    /// Returns the canonical digest of this claim.
+    #[must_use]
+    pub const fn claim_digest(&self) -> &Hash {
+        &self.claim_digest
     }
 }
 
 /// Causal anchor validation error.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum CausalAnchorError {
+    /// The request uses a schema this implementation cannot canonicalize.
+    #[error("unsupported causal anchor schema version {actual}; expected {expected}")]
+    UnsupportedSchemaVersion {
+        /// Supported schema version.
+        expected: u32,
+        /// Requested schema version.
+        actual: u32,
+    },
     /// Subject field cannot be empty.
     #[error("causal anchor subject field `{field}` cannot be empty")]
     EmptySubjectField {
@@ -375,31 +403,22 @@ fn canonicalize_roots(
     Ok(roots)
 }
 
-fn compute_anchor_id(anchor_digest: &Hash) -> CausalAnchorId {
-    let mut hasher = Hasher::new();
-    hasher.update(CAUSAL_ANCHOR_ID_DOMAIN);
-    hasher.update(anchor_digest);
-    CausalAnchorId(hasher.finalize().into())
-}
-
-fn compute_anchor_digest(
+fn compute_claim_digest(
     schema_version: u32,
     subject: &CausalAnchorSubject,
     basis_frontier: &CausalFrontierRef,
     retained_roots: &[CausalAnchorRoot],
     materialization_roots: &[CausalAnchorRoot],
     purpose: CausalAnchorPurpose,
-    admitted_by_receipt_id: &Hash,
 ) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(CAUSAL_ANCHOR_DIGEST_DOMAIN);
+    hasher.update(CAUSAL_ANCHOR_CLAIM_DIGEST_DOMAIN);
     hasher.update(&schema_version.to_le_bytes());
     update_subject(&mut hasher, subject);
     hasher.update(&basis_frontier.frontier_digest);
     update_roots(&mut hasher, retained_roots);
     update_roots(&mut hasher, materialization_roots);
     hasher.update(&[purpose.tag()]);
-    hasher.update(admitted_by_receipt_id);
     hasher.finalize().into()
 }
 

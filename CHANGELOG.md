@@ -7,6 +7,11 @@
 
 ### Added
 
+- `warp-core` now separates application-requested causal-anchor claims from
+  Echo admission. `CausalAnchorAdmissionRequest` contains no admission receipt,
+  `CausalAnchorClaim` is an opaque canonical value over only the caller's claim,
+  and admitted fact construction is reserved for Echo's trusted admission path
+  under ADR 0022.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

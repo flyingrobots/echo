@@ -2752,6 +2752,19 @@ fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
             })
         );
     }
+
+    let mut empty_but_present = WalReceiptCorrelationRecord {
+        receipt_ref: causal_receipt_ref("parentless-child"),
+        causal_parent_receipts: Vec::new(),
+    }
+    .to_payload_bytes();
+    empty_but_present.extend_from_slice(&0_u64.to_le_bytes());
+    assert_eq!(
+        WalReceiptCorrelationRecord::from_payload_bytes(&empty_but_present),
+        Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+            record_kind: "receipt-correlation",
+        })
+    );
 }
 
 #[test]

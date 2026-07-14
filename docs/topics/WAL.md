@@ -46,8 +46,9 @@ not interpret a parent as undo, redo, compensation, or any other application
 operation. It commits the citation with the child receipt and rebuilds both
 parent lookup and reverse child lookup during read-only recovery. A contract can
 therefore define inverse semantics while Echo preserves the provenance chain
-across process loss. Recovery rejects duplicated or out-of-order parent receipt
-coordinates instead of normalizing committed non-canonical bytes.
+across process loss. Recovery rejects explicitly empty, duplicated, or
+out-of-order parent receipt coordinates instead of normalizing committed
+non-canonical bytes.
 
 Sixth, trusted submission intake commits the canonical retained ingress envelope
 in the same transaction as acceptance evidence. Reopening a filesystem WAL can

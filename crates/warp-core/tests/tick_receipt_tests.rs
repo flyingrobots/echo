@@ -12,8 +12,8 @@ use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
     ConflictPolicy, Engine, Footprint, GraphStore, GraphView, Hash, NodeId, NodeKey, NodeRecord,
-    PatternGraph, RewriteRule, TickDelta, TickReceiptDisposition, TickReceiptEntry,
-    TickReceiptRejection, TxId, WarpId,
+    PatternGraph, RewriteRule, TickDelta, TickReceipt, TickReceiptDisposition, TickReceiptEntry,
+    TickReceiptPartsError, TickReceiptRejection, TxId, WarpId,
 };
 
 fn rule_id(name: &str) -> Hash {
@@ -80,6 +80,108 @@ fn fp_write_scope_and_other(view: GraphView<'_>, scope: &NodeId) -> Footprint {
 
 fn root_warp_id() -> WarpId {
     warp_core::make_warp_id("root")
+}
+
+#[test]
+fn retained_receipt_parts_reject_every_noncanonical_blocker_shape() {
+    let scope = NodeKey {
+        warp_id: root_warp_id(),
+        local_id: make_node_id("retained-receipt-blockers"),
+    };
+    let entries = vec![
+        TickReceiptEntry {
+            rule_id: rule_id("retained-applied-0"),
+            scope_hash: [1; 32],
+            scope,
+            disposition: TickReceiptDisposition::Applied,
+        },
+        TickReceiptEntry {
+            rule_id: rule_id("retained-applied-1"),
+            scope_hash: [2; 32],
+            scope,
+            disposition: TickReceiptDisposition::Applied,
+        },
+        TickReceiptEntry {
+            rule_id: rule_id("retained-rejected-2"),
+            scope_hash: [3; 32],
+            scope,
+            disposition: TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict),
+        },
+    ];
+    let tx = TxId::from_raw(41);
+
+    for (blocked_by, expected) in [
+        (
+            vec![vec![], vec![], vec![0, 0]],
+            TickReceiptPartsError::BlockersNotStrictlyIncreasing {
+                entry: 2,
+                previous: 0,
+                blocker: 0,
+            },
+        ),
+        (
+            vec![vec![], vec![], vec![1, 0]],
+            TickReceiptPartsError::BlockersNotStrictlyIncreasing {
+                entry: 2,
+                previous: 1,
+                blocker: 0,
+            },
+        ),
+        (
+            vec![vec![], vec![], vec![2]],
+            TickReceiptPartsError::BlockerNotEarlier {
+                entry: 2,
+                blocker: 2,
+            },
+        ),
+        (
+            vec![vec![], vec![0], vec![0]],
+            TickReceiptPartsError::AppliedEntryHasBlockers {
+                entry: 1,
+                blocker_count: 1,
+            },
+        ),
+        (
+            vec![vec![], vec![], vec![]],
+            TickReceiptPartsError::RejectedEntryMissingBlockers { entry: 2 },
+        ),
+    ] {
+        assert_eq!(
+            TickReceipt::try_from_retained_parts(tx, entries.clone(), blocked_by),
+            Err(expected)
+        );
+    }
+
+    TickReceipt::try_from_retained_parts(tx, entries, vec![vec![], vec![], vec![0, 1]])
+        .expect("canonical retained blockers should reconstruct");
+
+    let entries = vec![
+        TickReceiptEntry {
+            rule_id: rule_id("retained-applied-0"),
+            scope_hash: [1; 32],
+            scope,
+            disposition: TickReceiptDisposition::Applied,
+        },
+        TickReceiptEntry {
+            rule_id: rule_id("retained-rejected-1"),
+            scope_hash: [2; 32],
+            scope,
+            disposition: TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict),
+        },
+        TickReceiptEntry {
+            rule_id: rule_id("retained-rejected-2"),
+            scope_hash: [3; 32],
+            scope,
+            disposition: TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict),
+        },
+    ];
+    assert_eq!(
+        TickReceipt::try_from_retained_parts(tx, entries, vec![vec![], vec![0], vec![1]]),
+        Err(TickReceiptPartsError::BlockerNotApplied {
+            entry: 2,
+            blocker: 1,
+        })
+    );
 }
 
 /// Finds three synthetic rule ids (A, B, C) such that when applied to

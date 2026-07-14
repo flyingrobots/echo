@@ -34,7 +34,8 @@
   receipts, non-applied target receipts, stale bases, unavailable inverse
   fragments, unmappable spans, absent handlers, and contract-version mismatches
   remain typed obstructions; inverse admission never deletes or rewrites the
-  original transition.
+  original transition. Runtime recovery rejects any receipt correlation whose
+  retained tick receipt does not contain the witnessed submission ingress.
 - `warp-core` now distinguishes repeatable `TickReceipt` content commitments
   from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
   content to worldline, worldline tick, global tick, commit, submission, and

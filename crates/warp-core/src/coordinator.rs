@@ -2124,6 +2124,16 @@ impl WorldlineRuntime {
                 persisted.tick_receipt_digest,
             ));
         }
+        let ingress_node = NodeId(submission.ingress_id);
+        if !receipt
+            .entries()
+            .iter()
+            .any(|entry| entry.scope.local_id == ingress_node)
+        {
+            return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
+                persisted.causal_receipt_ref.identity_digest(),
+            ));
+        }
         let expected_receipt_ref = CausalTickReceiptRef {
             worldline_id: persisted.head_key.worldline_id,
             worldline_tick_after: persisted.worldline_tick_after,
@@ -5753,6 +5763,65 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![correlation.ticketed_ingress_id]
         );
+    }
+
+    #[test]
+    fn receipt_correlation_restore_rejects_receipt_without_submission_ingress() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(6);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let first_envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"receipt-owner".to_vec(),
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        let first_correlation = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            first_envelope,
+            hash(81),
+        );
+
+        let unrelated_envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"unrelated-submission".to_vec(),
+        );
+        let unrelated_submission_id = match runtime.submit_intent(unrelated_envelope).unwrap() {
+            IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("unrelated submission must be newly witnessed")
+            }
+        };
+        let unrelated_ticket_digest = hash(82);
+        let mut persisted = ReceiptCorrelationPersistenceRecord::from(&first_correlation);
+        persisted.submission_id = unrelated_submission_id;
+        persisted.ticket_digest = unrelated_ticket_digest;
+        persisted.causal_receipt_ref.submission_id = unrelated_submission_id;
+        persisted.causal_receipt_ref.ticket_digest = unrelated_ticket_digest;
+
+        assert!(matches!(
+            runtime.restore_receipt_correlation(&persisted),
+            Err(RuntimeError::ReceiptCorrelationReplayMismatch(digest))
+                if digest == persisted.causal_receipt_ref.identity_digest()
+        ));
+        assert!(runtime
+            .receipt_correlation_for_submission(&unrelated_submission_id)
+            .is_none());
     }
 
     #[test]

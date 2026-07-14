@@ -2105,7 +2105,7 @@ impl WorldlineRuntime {
                 persisted.tick_receipt_digest,
             ));
         }
-        if persisted.causal_parent_receipts != canonical_causal_parent_receipts(envelope) {
+        if persisted.causal_parent_receipts != envelope.canonical_causal_parent_receipt_refs() {
             return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
                 persisted.causal_receipt_ref.identity_digest(),
             ));
@@ -2700,7 +2700,7 @@ impl WorldlineRuntime {
                 worldline_tick_after: context.worldline_tick_after,
                 tick_receipt_digest: context.tick_receipt_digest,
                 commit_hash: context.commit_hash,
-                causal_parent_receipts: canonical_causal_parent_receipts(envelope),
+                causal_parent_receipts: envelope.canonical_causal_parent_receipt_refs(),
             };
             let current_basis = receipt_correlation_current_basis(&record);
             if self
@@ -2790,18 +2790,6 @@ impl WorldlineRuntime {
                 .ok_or(RuntimeError::UnknownHead(*key)),
         }
     }
-}
-
-fn canonical_causal_parent_receipts(envelope: &IngressEnvelope) -> Vec<CausalTickReceiptRef> {
-    let mut receipt_refs = envelope
-        .causal_parents()
-        .iter()
-        .copied()
-        .map(crate::IngressCausalParent::receipt_ref)
-        .collect::<Vec<_>>();
-    receipt_refs.sort_unstable();
-    receipt_refs.dedup();
-    receipt_refs
 }
 
 fn receipt_correlation_current_basis(

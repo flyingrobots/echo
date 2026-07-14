@@ -121,6 +121,16 @@ pub enum TrustedRuntimeWalError {
         /// Accepted submission whose canonical envelope was unavailable.
         submission_id: Hash,
     },
+    /// Receipt correlation parents disagreed with the retained ingress envelope.
+    #[error(
+        "trusted runtime WAL causal parents mismatched submission {submission_id:?} receipt {receipt_ref_digest:?}"
+    )]
+    ReceiptCorrelationCausalParentsMismatch {
+        /// Submission whose retained causal-parent claims disagreed.
+        submission_id: Hash,
+        /// Identity digest of the receipt carrying the conflicting correlation.
+        receipt_ref_digest: Hash,
+    },
     /// A replayable runtime state delta could not be encoded or decoded.
     #[error("trusted runtime WAL retained state-delta codec error: {0}")]
     RuntimeStateDeltaCodec(#[from] RetainedProvenanceError),
@@ -1164,6 +1174,7 @@ impl TrustedRuntimeWal {
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
+        validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
         Ok(TrustedRuntimeWalRecovery {
             certificate: runtime_wal_recovery_certificate(
                 &report,
@@ -1993,6 +2004,31 @@ fn recover_runtime_state_delta_material(
     })
 }
 
+fn validate_recovered_causal_parent_evidence(
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    receipt_correlations: &[ReceiptCorrelationPersistenceRecord],
+) -> Result<(), TrustedRuntimeWalError> {
+    let envelopes_by_submission = witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, &record.envelope))
+        .collect::<BTreeMap<_, _>>();
+    for correlation in receipt_correlations {
+        let Some(envelope) = envelopes_by_submission.get(&correlation.submission_id) else {
+            continue;
+        };
+        if correlation.causal_parent_receipts != envelope.canonical_causal_parent_receipt_refs() {
+            return Err(
+                TrustedRuntimeWalError::ReceiptCorrelationCausalParentsMismatch {
+                    submission_id: correlation.submission_id,
+                    receipt_ref_digest: correlation.causal_receipt_ref.identity_digest(),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 fn tick_records_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<
@@ -2460,8 +2496,8 @@ fn wal_tick_decision_from_observation(
 mod tests {
     use super::*;
     use crate::{
-        CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, WorldlineId, WorldlineTick,
-        WriterHeadKey,
+        CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, IngressTarget, WorldlineId,
+        WorldlineTick, WriterHeadKey,
     };
 
     fn test_head_key() -> WriterHeadKey {
@@ -2766,6 +2802,54 @@ mod tests {
                 )))
             ));
         }
+    }
+
+    #[test]
+    fn recovered_correlation_rejects_parents_not_bound_by_envelope() {
+        let head_key = test_head_key();
+        let envelope_parent = CausalTickReceiptRef {
+            worldline_id: head_key.worldline_id,
+            worldline_tick_after: WorldlineTick::from_raw(2),
+            commit_global_tick: GlobalTick::from_raw(2),
+            commit_hash: [31; 32],
+            submission_id: [32; 32],
+            ticket_digest: [33; 32],
+            receipt_content_digest: [34; 32],
+        };
+        let envelope = IngressEnvelope::local_intent_with_causal_parents(
+            IngressTarget::ExactHead { key: head_key },
+            crate::make_intent_kind("runtime-wal-parent-validation"),
+            b"parent-validation".to_vec(),
+            vec![IngressCausalParent::TickReceipt {
+                receipt_ref: envelope_parent,
+            }],
+        );
+        let witnessed = WitnessedSubmissionPersistenceSnapshot::new(vec![
+            WitnessedSubmissionPersistenceRecord {
+                submission: IntentSubmissionRecord {
+                    submission_id: [2; 32],
+                    ingress_id: envelope.ingress_id(),
+                    head_key,
+                    submission_generation: IngressSubmissionGeneration::from_raw(1),
+                },
+                envelope,
+            },
+        ]);
+        let mut correlation = ReceiptCorrelationPersistenceRecord::from(&test_correlation([7; 32]));
+        correlation.causal_parent_receipts = vec![CausalTickReceiptRef {
+            ticket_digest: [35; 32],
+            ..envelope_parent
+        }];
+
+        assert_eq!(
+            validate_recovered_causal_parent_evidence(&witnessed, &[correlation.clone()]),
+            Err(
+                TrustedRuntimeWalError::ReceiptCorrelationCausalParentsMismatch {
+                    submission_id: correlation.submission_id,
+                    receipt_ref_digest: correlation.causal_receipt_ref.identity_digest(),
+                }
+            )
+        );
     }
 }
 

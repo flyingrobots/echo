@@ -49,7 +49,8 @@
   codecs reject malformed magic and empty-but-present, duplicated, or reordered
   parent sets as corruption and report structurally valid legacy digest-only
   parent evidence as an explicit ambiguity rather than aliasing it to an
-  arbitrary event.
+  arbitrary event. Read-only runtime-WAL recovery also rejects any correlation
+  parent set that disagrees with the independently retained ingress envelope.
   Retained tick-receipt reconstruction also rejects non-canonical blocker
   ordering, forward or non-applied blocker references, and blocker attribution
   incompatible with the candidate disposition before the receipt re-enters

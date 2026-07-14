@@ -48,7 +48,9 @@ parent lookup and reverse child lookup during read-only recovery. A contract can
 therefore define inverse semantics while Echo preserves the provenance chain
 across process loss. Recovery rejects explicitly empty, duplicated, or
 out-of-order parent receipt coordinates instead of normalizing committed
-non-canonical bytes.
+non-canonical bytes. Before exposing a recovered correlation, it also requires
+that correlation's parent set to match the independently retained ingress
+envelope.
 
 Sixth, trusted submission intake commits the canonical retained ingress envelope
 in the same transaction as acceptance evidence. Reopening a filesystem WAL can

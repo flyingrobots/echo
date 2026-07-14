@@ -243,6 +243,20 @@ impl IngressEnvelope {
         &self.causal_parents
     }
 
+    /// Returns the canonical receipt set cited by every typed causal relation.
+    #[must_use]
+    pub(crate) fn canonical_causal_parent_receipt_refs(&self) -> Vec<CausalTickReceiptRef> {
+        let mut receipt_refs = self
+            .causal_parents
+            .iter()
+            .copied()
+            .map(IngressCausalParent::receipt_ref)
+            .collect::<Vec<_>>();
+        receipt_refs.sort_unstable();
+        receipt_refs.dedup();
+        receipt_refs
+    }
+
     /// Encodes this envelope as bounded, versioned retained material.
     ///
     /// These bytes preserve the canonical claim needed for restart replay. The

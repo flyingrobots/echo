@@ -372,13 +372,8 @@ fn temp_runtime_wal_dir_in(root: &Path, label: &str, counter: &AtomicU64) -> Pat
 
 #[test]
 fn temp_runtime_wal_dir_preserves_colliding_directory() {
-    let root = PathBuf::from("target").join("warp-core-test-tmp");
-    fs::create_dir_all(&root).expect("test temp root should be created");
-    let label = format!(
-        "collision-{}-{}",
-        std::process::id(),
-        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-    );
+    let root = temp_runtime_wal_dir("collision-fixture-root");
+    let label = "collision";
     let collision = root.join(format!("echo-contract-inverse-{label}-0"));
     fs::create_dir(&collision).expect("collision directory should be created");
     let marker = collision.join("owner-marker");
@@ -390,6 +385,7 @@ fn temp_runtime_wal_dir_preserves_colliding_directory() {
     if collision.exists() {
         fs::remove_dir_all(&collision).expect("collision test directory should be removable");
     }
+    fs::remove_dir(&root).expect("collision fixture root should be removable");
 
     assert!(collision_preserved, "collision owner marker was deleted");
 }

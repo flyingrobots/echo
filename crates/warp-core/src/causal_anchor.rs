@@ -13,6 +13,13 @@ use thiserror::Error;
 use crate::ident::Hash;
 
 const CAUSAL_ANCHOR_CLAIM_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:claim:v1\0";
+const CAUSAL_ANCHOR_ADMISSION_RECEIPT_ID_DOMAIN: &[u8] =
+    b"echo:causal-anchor:admission-receipt-id:v1\0";
+const CAUSAL_ANCHOR_FACT_DIGEST_DOMAIN: &[u8] = b"echo:causal-anchor:fact-digest:v1\0";
+const CAUSAL_ANCHOR_ID_DOMAIN: &[u8] = b"echo:causal-anchor:id:v1\0";
+const CAUSAL_ANCHOR_CLAIM_PAYLOAD_MAGIC: &[u8; 8] = b"EACLM001";
+const CAUSAL_ANCHOR_FACT_PAYLOAD_MAGIC: &[u8; 8] = b"EAFCT001";
+const CAUSAL_ANCHOR_RECEIPT_PAYLOAD_MAGIC: &[u8; 8] = b"EARCP001";
 
 /// Current causal anchor schema version.
 pub const CAUSAL_ANCHOR_SCHEMA_VERSION: u32 = 1;
@@ -92,6 +99,22 @@ impl CausalAnchorPurpose {
             Self::CacheWarm => 7,
         }
     }
+
+    fn from_tag(tag: u8) -> Result<Self, CausalAnchorError> {
+        match tag {
+            1 => Ok(Self::Recovery),
+            2 => Ok(Self::Retention),
+            3 => Ok(Self::Export),
+            4 => Ok(Self::UserSave),
+            5 => Ok(Self::Autosave),
+            6 => Ok(Self::Debug),
+            7 => Ok(Self::CacheWarm),
+            code => Err(CausalAnchorError::UnknownEnumCode {
+                enum_name: "CausalAnchorPurpose",
+                code,
+            }),
+        }
+    }
 }
 
 /// Role for a CAS object named by a causal anchor.
@@ -111,6 +134,18 @@ impl CausalAnchorCasRole {
             Self::Materialization => 1,
             Self::Manifest => 2,
             Self::Index => 3,
+        }
+    }
+
+    fn from_tag(tag: u8) -> Result<Self, CausalAnchorError> {
+        match tag {
+            1 => Ok(Self::Materialization),
+            2 => Ok(Self::Manifest),
+            3 => Ok(Self::Index),
+            code => Err(CausalAnchorError::UnknownEnumCode {
+                enum_name: "CausalAnchorCasRole",
+                code,
+            }),
         }
     }
 }
@@ -134,6 +169,18 @@ impl CausalAnchorGraphRole {
             Self::Index => 3,
         }
     }
+
+    fn from_tag(tag: u8) -> Result<Self, CausalAnchorError> {
+        match tag {
+            1 => Ok(Self::Authority),
+            2 => Ok(Self::Evidence),
+            3 => Ok(Self::Index),
+            code => Err(CausalAnchorError::UnknownEnumCode {
+                enum_name: "CausalAnchorGraphRole",
+                code,
+            }),
+        }
+    }
 }
 
 /// Role for an application subject root named by a causal anchor.
@@ -150,6 +197,17 @@ impl CausalAnchorAppRootRole {
         match self {
             Self::Authority => 1,
             Self::Evidence => 2,
+        }
+    }
+
+    fn from_tag(tag: u8) -> Result<Self, CausalAnchorError> {
+        match tag {
+            1 => Ok(Self::Authority),
+            2 => Ok(Self::Evidence),
+            code => Err(CausalAnchorError::UnknownEnumCode {
+                enum_name: "CausalAnchorAppRootRole",
+                code,
+            }),
         }
     }
 }
@@ -334,6 +392,306 @@ impl CausalAnchorClaim {
     pub const fn claim_digest(&self) -> &Hash {
         &self.claim_digest
     }
+
+    pub(crate) fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(CAUSAL_ANCHOR_CLAIM_PAYLOAD_MAGIC);
+        out.extend_from_slice(&self.schema_version.to_le_bytes());
+        push_string(&mut out, &self.subject.app_id);
+        push_string(&mut out, &self.subject.subject_kind);
+        push_string(&mut out, &self.subject.subject_id);
+        out.extend_from_slice(&self.basis_frontier.frontier_digest);
+        push_roots(&mut out, &self.retained_roots);
+        push_roots(&mut out, &self.materialization_roots);
+        out.push(self.purpose.tag());
+        out.extend_from_slice(&self.claim_digest);
+        out
+    }
+
+    pub(crate) fn from_payload_bytes(bytes: &[u8]) -> Result<Self, CausalAnchorError> {
+        let mut cursor = CausalAnchorPayloadCursor::new(bytes);
+        cursor.expect_magic(CAUSAL_ANCHOR_CLAIM_PAYLOAD_MAGIC, "claim")?;
+        let schema_version = cursor.read_u32()?;
+        let subject = CausalAnchorSubject::new(
+            cursor.read_string("subject.app_id")?,
+            cursor.read_string("subject.subject_kind")?,
+            cursor.read_string("subject.subject_id")?,
+        );
+        let basis_frontier = CausalFrontierRef::from_digest(cursor.read_hash()?);
+        let retained_roots = cursor.read_roots()?;
+        let materialization_roots = cursor.read_roots()?;
+        let purpose = CausalAnchorPurpose::from_tag(cursor.read_u8()?)?;
+        let encoded_claim_digest = cursor.read_hash()?;
+        cursor.finish()?;
+
+        let claim = Self::from_admission_request(CausalAnchorAdmissionRequest {
+            schema_version,
+            subject,
+            basis_frontier,
+            retained_roots,
+            materialization_roots,
+            purpose,
+        })?;
+        if claim.claim_digest != encoded_claim_digest {
+            return Err(CausalAnchorError::ClaimDigestMismatch);
+        }
+        if claim.to_payload_bytes() != bytes {
+            return Err(CausalAnchorError::NonCanonicalPayload);
+        }
+        Ok(claim)
+    }
+}
+
+/// Opaque identity of an Echo-admitted causal anchor.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CausalAnchorId(Hash);
+
+impl CausalAnchorId {
+    /// Returns the canonical anchor-id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Opaque identity of an Echo causal-anchor admission receipt.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CausalAnchorAdmissionReceiptId(Hash);
+
+impl CausalAnchorAdmissionReceiptId {
+    /// Returns the canonical admission-receipt-id bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
+/// Echo-admitted causal-anchor fact.
+///
+/// Construction is restricted to Echo's trusted WAL admission path. Possessing
+/// decoded value bytes alone is not proof that the fact was durably committed;
+/// callers obtain authority through trusted admission or recovery results.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CausalAnchorFact {
+    claim: CausalAnchorClaim,
+    anchor_id: CausalAnchorId,
+    admitted_by_receipt_id: CausalAnchorAdmissionReceiptId,
+    anchor_digest: Hash,
+}
+
+impl CausalAnchorFact {
+    /// Returns the canonical application claim Echo admitted.
+    #[must_use]
+    pub const fn claim(&self) -> &CausalAnchorClaim {
+        &self.claim
+    }
+
+    /// Returns this admitted anchor's stable identity.
+    #[must_use]
+    pub const fn anchor_id(&self) -> &CausalAnchorId {
+        &self.anchor_id
+    }
+
+    /// Returns the Echo receipt identity that admitted this fact.
+    #[must_use]
+    pub const fn admitted_by_receipt_id(&self) -> &CausalAnchorAdmissionReceiptId {
+        &self.admitted_by_receipt_id
+    }
+
+    /// Returns the admitted fact digest.
+    #[must_use]
+    pub const fn anchor_digest(&self) -> &Hash {
+        &self.anchor_digest
+    }
+
+    pub(crate) fn to_payload_bytes(&self) -> Vec<u8> {
+        let claim_bytes = self.claim.to_payload_bytes();
+        let mut out = Vec::new();
+        out.extend_from_slice(CAUSAL_ANCHOR_FACT_PAYLOAD_MAGIC);
+        push_bytes(&mut out, &claim_bytes);
+        out.extend_from_slice(self.admitted_by_receipt_id.as_bytes());
+        out.extend_from_slice(&self.anchor_digest);
+        out.extend_from_slice(self.anchor_id.as_bytes());
+        out
+    }
+
+    pub(crate) fn from_payload_bytes(bytes: &[u8]) -> Result<Self, CausalAnchorError> {
+        let mut cursor = CausalAnchorPayloadCursor::new(bytes);
+        cursor.expect_magic(CAUSAL_ANCHOR_FACT_PAYLOAD_MAGIC, "fact")?;
+        let claim = CausalAnchorClaim::from_payload_bytes(&cursor.read_bytes()?)?;
+        let admitted_by_receipt_id = CausalAnchorAdmissionReceiptId(cursor.read_hash()?);
+        let anchor_digest = cursor.read_hash()?;
+        let anchor_id = CausalAnchorId(cursor.read_hash()?);
+        cursor.finish()?;
+
+        let expected_anchor_digest =
+            compute_anchor_digest(claim.claim_digest(), &admitted_by_receipt_id);
+        if anchor_digest != expected_anchor_digest {
+            return Err(CausalAnchorError::AnchorDigestMismatch);
+        }
+        if anchor_id != compute_anchor_id(&anchor_digest) {
+            return Err(CausalAnchorError::AnchorIdMismatch);
+        }
+        Ok(Self {
+            claim,
+            anchor_id,
+            admitted_by_receipt_id,
+            anchor_digest,
+        })
+    }
+}
+
+/// Receipt evidence committed by Echo for one causal-anchor admission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CausalAnchorAdmissionReceipt {
+    receipt_id: CausalAnchorAdmissionReceiptId,
+    anchor_id: CausalAnchorId,
+    claim_digest: Hash,
+    basis_frontier: CausalFrontierRef,
+    writer_epoch_id: Hash,
+    wal_transaction_id: Hash,
+    wal_first_lsn: u64,
+}
+
+impl CausalAnchorAdmissionReceipt {
+    /// Returns this receipt's stable identity.
+    #[must_use]
+    pub const fn receipt_id(&self) -> &CausalAnchorAdmissionReceiptId {
+        &self.receipt_id
+    }
+
+    /// Returns the admitted anchor identity.
+    #[must_use]
+    pub const fn anchor_id(&self) -> &CausalAnchorId {
+        &self.anchor_id
+    }
+
+    /// Returns the digest of the exact application claim admitted by Echo.
+    #[must_use]
+    pub const fn claim_digest(&self) -> &Hash {
+        &self.claim_digest
+    }
+
+    /// Returns the causal frontier named by the admitted claim.
+    #[must_use]
+    pub const fn basis_frontier(&self) -> &CausalFrontierRef {
+        &self.basis_frontier
+    }
+
+    /// Returns the WAL writer epoch that ordered this admission.
+    #[must_use]
+    pub const fn writer_epoch_id(&self) -> &Hash {
+        &self.writer_epoch_id
+    }
+
+    /// Returns the WAL transaction identity that ordered this admission.
+    #[must_use]
+    pub const fn wal_transaction_id(&self) -> &Hash {
+        &self.wal_transaction_id
+    }
+
+    /// Returns the first WAL LSN occupied by this admission transaction.
+    #[must_use]
+    pub const fn wal_first_lsn(&self) -> u64 {
+        self.wal_first_lsn
+    }
+
+    pub(crate) fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(CAUSAL_ANCHOR_RECEIPT_PAYLOAD_MAGIC);
+        out.extend_from_slice(self.receipt_id.as_bytes());
+        out.extend_from_slice(self.anchor_id.as_bytes());
+        out.extend_from_slice(&self.claim_digest);
+        out.extend_from_slice(&self.basis_frontier.frontier_digest);
+        out.extend_from_slice(&self.writer_epoch_id);
+        out.extend_from_slice(&self.wal_transaction_id);
+        out.extend_from_slice(&self.wal_first_lsn.to_le_bytes());
+        out
+    }
+
+    pub(crate) fn from_payload_bytes(bytes: &[u8]) -> Result<Self, CausalAnchorError> {
+        let mut cursor = CausalAnchorPayloadCursor::new(bytes);
+        cursor.expect_magic(CAUSAL_ANCHOR_RECEIPT_PAYLOAD_MAGIC, "admission receipt")?;
+        let receipt_id = CausalAnchorAdmissionReceiptId(cursor.read_hash()?);
+        let anchor_id = CausalAnchorId(cursor.read_hash()?);
+        let claim_digest = cursor.read_hash()?;
+        let basis_frontier = CausalFrontierRef::from_digest(cursor.read_hash()?);
+        let writer_epoch_id = cursor.read_hash()?;
+        let wal_transaction_id = cursor.read_hash()?;
+        let wal_first_lsn = cursor.read_u64()?;
+        cursor.finish()?;
+
+        let expected_receipt_id = compute_admission_receipt_id(
+            &claim_digest,
+            &writer_epoch_id,
+            &wal_transaction_id,
+            wal_first_lsn,
+        );
+        if receipt_id != expected_receipt_id {
+            return Err(CausalAnchorError::AdmissionReceiptIdMismatch);
+        }
+        let anchor_digest = compute_anchor_digest(&claim_digest, &receipt_id);
+        if anchor_id != compute_anchor_id(&anchor_digest) {
+            return Err(CausalAnchorError::AnchorIdMismatch);
+        }
+        Ok(Self {
+            receipt_id,
+            anchor_id,
+            claim_digest,
+            basis_frontier,
+            writer_epoch_id,
+            wal_transaction_id,
+            wal_first_lsn,
+        })
+    }
+}
+
+pub(crate) fn prepare_causal_anchor_admission(
+    claim: CausalAnchorClaim,
+    writer_epoch_id: Hash,
+    wal_transaction_id: Hash,
+    wal_first_lsn: u64,
+) -> (CausalAnchorFact, CausalAnchorAdmissionReceipt) {
+    let receipt_id = compute_admission_receipt_id(
+        claim.claim_digest(),
+        &writer_epoch_id,
+        &wal_transaction_id,
+        wal_first_lsn,
+    );
+    let anchor_digest = compute_anchor_digest(claim.claim_digest(), &receipt_id);
+    let anchor_id = compute_anchor_id(&anchor_digest);
+    let receipt = CausalAnchorAdmissionReceipt {
+        receipt_id,
+        anchor_id,
+        claim_digest: *claim.claim_digest(),
+        basis_frontier: *claim.basis_frontier(),
+        writer_epoch_id,
+        wal_transaction_id,
+        wal_first_lsn,
+    };
+    let fact = CausalAnchorFact {
+        claim,
+        anchor_id,
+        admitted_by_receipt_id: receipt_id,
+        anchor_digest,
+    };
+    (fact, receipt)
+}
+
+pub(crate) fn validate_causal_anchor_admission_evidence(
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+) -> Result<(), CausalAnchorError> {
+    let receipt_matches = fact.admitted_by_receipt_id == receipt.receipt_id;
+    let anchor_matches = fact.anchor_id == receipt.anchor_id;
+    let claim_matches = fact.claim.claim_digest == receipt.claim_digest;
+    let basis_matches = fact.claim.basis_frontier == receipt.basis_frontier;
+    if !(receipt_matches && anchor_matches && claim_matches && basis_matches) {
+        return Err(CausalAnchorError::AdmissionEvidenceMismatch);
+    }
+    Ok(())
 }
 
 /// Causal anchor validation error.
@@ -347,10 +705,65 @@ pub enum CausalAnchorError {
         /// Requested schema version.
         actual: u32,
     },
+    /// A causal-anchor payload ended before all required fields were decoded.
+    #[error("causal anchor payload ended unexpectedly")]
+    UnexpectedPayloadEnd,
+    /// A causal-anchor payload contained bytes after its canonical final field.
+    #[error("causal anchor payload contained trailing bytes")]
+    TrailingPayloadBytes,
+    /// A causal-anchor payload used the wrong versioned magic.
+    #[error("invalid causal anchor {payload_kind} payload magic")]
+    InvalidPayloadMagic {
+        /// Payload family whose magic was invalid.
+        payload_kind: &'static str,
+    },
+    /// A causal-anchor string field was not valid UTF-8.
+    #[error("causal anchor field `{field}` is not valid UTF-8")]
+    InvalidUtf8 {
+        /// String field that failed decoding.
+        field: &'static str,
+    },
+    /// A causal-anchor payload length cannot be represented by this runtime.
+    #[error("causal anchor payload length exceeds the runtime address space")]
+    PayloadLengthOverflow,
+    /// A causal-anchor payload carried an unknown enum code.
+    #[error("unknown causal anchor enum code {code} for {enum_name}")]
+    UnknownEnumCode {
+        /// Enum whose code was unknown.
+        enum_name: &'static str,
+        /// Unknown persisted code.
+        code: u8,
+    },
+    /// A decoded payload did not use the one canonical byte representation.
+    #[error("causal anchor payload is not canonically encoded")]
+    NonCanonicalPayload,
+    /// The encoded claim digest did not match the canonical claim fields.
+    #[error("causal anchor claim digest mismatch")]
+    ClaimDigestMismatch,
+    /// The encoded admitted-fact digest did not match the claim and receipt.
+    #[error("causal anchor fact digest mismatch")]
+    AnchorDigestMismatch,
+    /// The encoded anchor id did not match the admitted-fact digest.
+    #[error("causal anchor id mismatch")]
+    AnchorIdMismatch,
+    /// The encoded admission receipt id did not match its WAL coordinate.
+    #[error("causal anchor admission receipt id mismatch")]
+    AdmissionReceiptIdMismatch,
+    /// An anchor fact and receipt did not describe the same admission.
+    #[error("causal anchor fact and admission receipt evidence mismatch")]
+    AdmissionEvidenceMismatch,
     /// Subject field cannot be empty.
     #[error("causal anchor subject field `{field}` cannot be empty")]
     EmptySubjectField {
         /// Empty subject field name.
+        field: &'static str,
+    },
+    /// An application root field cannot be empty.
+    #[error("causal anchor {root_kind} root field `{field}` cannot be empty")]
+    EmptyRootField {
+        /// Root family containing the empty field.
+        root_kind: &'static str,
+        /// Empty application-root field.
         field: &'static str,
     },
     /// Anchor must retain at least one authority or evidence root.
@@ -393,6 +806,9 @@ fn canonicalize_roots(
     mut roots: Vec<CausalAnchorRoot>,
     root_set: CausalAnchorRootSet,
 ) -> Result<Vec<CausalAnchorRoot>, CausalAnchorError> {
+    for root in &roots {
+        validate_root(root)?;
+    }
     roots.sort();
     if roots.windows(2).any(|window| window[0] == window[1]) {
         return Err(match root_set {
@@ -401,6 +817,32 @@ fn canonicalize_roots(
         });
     }
     Ok(roots)
+}
+
+fn validate_root(root: &CausalAnchorRoot) -> Result<(), CausalAnchorError> {
+    if let CausalAnchorRoot::AppSubjectRoot {
+        app_id,
+        subject_kind,
+        id,
+        ..
+    } = root
+    {
+        validate_non_empty_root("app-subject", "app_id", app_id)?;
+        validate_non_empty_root("app-subject", "subject_kind", subject_kind)?;
+        validate_non_empty_root("app-subject", "id", id)?;
+    }
+    Ok(())
+}
+
+fn validate_non_empty_root(
+    root_kind: &'static str,
+    field: &'static str,
+    value: &str,
+) -> Result<(), CausalAnchorError> {
+    if value.is_empty() {
+        return Err(CausalAnchorError::EmptyRootField { root_kind, field });
+    }
+    Ok(())
 }
 
 fn compute_claim_digest(
@@ -420,6 +862,36 @@ fn compute_claim_digest(
     update_roots(&mut hasher, materialization_roots);
     hasher.update(&[purpose.tag()]);
     hasher.finalize().into()
+}
+
+fn compute_admission_receipt_id(
+    claim_digest: &Hash,
+    writer_epoch_id: &Hash,
+    wal_transaction_id: &Hash,
+    wal_first_lsn: u64,
+) -> CausalAnchorAdmissionReceiptId {
+    let mut hasher = Hasher::new();
+    hasher.update(CAUSAL_ANCHOR_ADMISSION_RECEIPT_ID_DOMAIN);
+    hasher.update(claim_digest);
+    hasher.update(writer_epoch_id);
+    hasher.update(wal_transaction_id);
+    hasher.update(&wal_first_lsn.to_le_bytes());
+    CausalAnchorAdmissionReceiptId(hasher.finalize().into())
+}
+
+fn compute_anchor_digest(claim_digest: &Hash, receipt_id: &CausalAnchorAdmissionReceiptId) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(CAUSAL_ANCHOR_FACT_DIGEST_DOMAIN);
+    hasher.update(claim_digest);
+    hasher.update(receipt_id.as_bytes());
+    hasher.finalize().into()
+}
+
+fn compute_anchor_id(anchor_digest: &Hash) -> CausalAnchorId {
+    let mut hasher = Hasher::new();
+    hasher.update(CAUSAL_ANCHOR_ID_DOMAIN);
+    hasher.update(anchor_digest);
+    CausalAnchorId(hasher.finalize().into())
 }
 
 fn update_roots(hasher: &mut Hasher, roots: &[CausalAnchorRoot]) {
@@ -463,4 +935,159 @@ fn update_string(hasher: &mut Hasher, value: &str) {
     let bytes = value.as_bytes();
     hasher.update(&(bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
+}
+
+fn push_roots(out: &mut Vec<u8>, roots: &[CausalAnchorRoot]) {
+    push_len(out, roots.len());
+    for root in roots {
+        match root {
+            CausalAnchorRoot::CasObject { id, role } => {
+                out.push(1);
+                out.extend_from_slice(id);
+                out.push(role.tag());
+            }
+            CausalAnchorRoot::GraphFact { id, role } => {
+                out.push(2);
+                out.extend_from_slice(id);
+                out.push(role.tag());
+            }
+            CausalAnchorRoot::AppSubjectRoot {
+                app_id,
+                subject_kind,
+                id,
+                role,
+            } => {
+                out.push(3);
+                push_string(out, app_id);
+                push_string(out, subject_kind);
+                push_string(out, id);
+                out.push(role.tag());
+            }
+        }
+    }
+}
+
+fn push_string(out: &mut Vec<u8>, value: &str) {
+    push_bytes(out, value.as_bytes());
+}
+
+fn push_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    push_len(out, value.len());
+    out.extend_from_slice(value);
+}
+
+fn push_len(out: &mut Vec<u8>, len: usize) {
+    let encoded = match u64::try_from(len) {
+        Ok(value) => value,
+        Err(_) => u64::MAX,
+    };
+    out.extend_from_slice(&encoded.to_le_bytes());
+}
+
+struct CausalAnchorPayloadCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> CausalAnchorPayloadCursor<'a> {
+    const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn expect_magic(
+        &mut self,
+        expected: &[u8],
+        payload_kind: &'static str,
+    ) -> Result<(), CausalAnchorError> {
+        if self.read_exact(expected.len())? != expected {
+            return Err(CausalAnchorError::InvalidPayloadMagic { payload_kind });
+        }
+        Ok(())
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], CausalAnchorError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(CausalAnchorError::UnexpectedPayloadEnd)?;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(CausalAnchorError::UnexpectedPayloadEnd)?;
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    fn read_u8(&mut self) -> Result<u8, CausalAnchorError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
+    fn read_u32(&mut self) -> Result<u32, CausalAnchorError> {
+        let mut bytes = [0; 4];
+        bytes.copy_from_slice(self.read_exact(4)?);
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, CausalAnchorError> {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(self.read_exact(8)?);
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, CausalAnchorError> {
+        let mut hash = [0; 32];
+        hash.copy_from_slice(self.read_exact(32)?);
+        Ok(hash)
+    }
+
+    fn read_bytes(&mut self) -> Result<Vec<u8>, CausalAnchorError> {
+        let len = usize::try_from(self.read_u64()?)
+            .map_err(|_| CausalAnchorError::PayloadLengthOverflow)?;
+        Ok(self.read_exact(len)?.to_vec())
+    }
+
+    fn read_string(&mut self, field: &'static str) -> Result<String, CausalAnchorError> {
+        String::from_utf8(self.read_bytes()?).map_err(|_| CausalAnchorError::InvalidUtf8 { field })
+    }
+
+    fn read_roots(&mut self) -> Result<Vec<CausalAnchorRoot>, CausalAnchorError> {
+        let count = usize::try_from(self.read_u64()?)
+            .map_err(|_| CausalAnchorError::PayloadLengthOverflow)?;
+        let mut roots = Vec::new();
+        for _ in 0..count {
+            roots.push(self.read_root()?);
+        }
+        Ok(roots)
+    }
+
+    fn read_root(&mut self) -> Result<CausalAnchorRoot, CausalAnchorError> {
+        match self.read_u8()? {
+            1 => Ok(CausalAnchorRoot::CasObject {
+                id: self.read_hash()?,
+                role: CausalAnchorCasRole::from_tag(self.read_u8()?)?,
+            }),
+            2 => Ok(CausalAnchorRoot::GraphFact {
+                id: self.read_hash()?,
+                role: CausalAnchorGraphRole::from_tag(self.read_u8()?)?,
+            }),
+            3 => Ok(CausalAnchorRoot::AppSubjectRoot {
+                app_id: self.read_string("root.app_id")?,
+                subject_kind: self.read_string("root.subject_kind")?,
+                id: self.read_string("root.id")?,
+                role: CausalAnchorAppRootRole::from_tag(self.read_u8()?)?,
+            }),
+            code => Err(CausalAnchorError::UnknownEnumCode {
+                enum_name: "CausalAnchorRoot",
+                code,
+            }),
+        }
+    }
+
+    fn finish(&self) -> Result<(), CausalAnchorError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(CausalAnchorError::TrailingPayloadBytes)
+        }
+    }
 }

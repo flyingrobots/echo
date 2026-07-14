@@ -122,6 +122,25 @@ fn causal_anchor_rejects_empty_retained_roots() {
 }
 
 #[test]
+fn causal_anchor_rejects_empty_application_root_fields() {
+    assert!(matches!(
+        CausalAnchorClaim::from_admission_request(request_with_roots(
+            vec![CausalAnchorRoot::AppSubjectRoot {
+                app_id: "jedit".to_owned(),
+                subject_kind: "RopeHead".to_owned(),
+                id: String::new(),
+                role: CausalAnchorAppRootRole::Authority,
+            }],
+            Vec::new(),
+        )),
+        Err(CausalAnchorError::EmptyRootField {
+            root_kind: "app-subject",
+            field: "id",
+        })
+    ));
+}
+
+#[test]
 fn causal_anchor_rejects_authority_materialization_roots() {
     assert!(matches!(
         CausalAnchorClaim::from_admission_request(request_with_roots(

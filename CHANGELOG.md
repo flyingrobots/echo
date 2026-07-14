@@ -12,6 +12,10 @@
   `CausalAnchorClaim` is an opaque canonical value over only the caller's claim,
   and admitted fact construction is reserved for Echo's trusted admission path
   under ADR 0022.
+- The causal WAL now has stable causal-anchor admission transaction, fact, and
+  receipt record kinds. One transaction derives and commits both evidence
+  records, while recovery rejects uncommitted, malformed, missing, duplicate,
+  coordinate-mismatched, or cross-admission evidence.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

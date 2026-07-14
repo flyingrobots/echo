@@ -2672,6 +2672,13 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
         WalRecordKind::MaterializationIntentRecorded,
         WalRecordKind::MaterializationEffectObserved,
         WalRecordKind::RecoveryPostureRecorded,
+        WalRecordKind::TopologyStrandForkRecorded,
+        WalRecordKind::TopologyStrandDropRecorded,
+        WalRecordKind::TopologyBraidEventRecorded,
+        WalRecordKind::TopologyBraidShellRetained,
+        WalRecordKind::TopologySuffixImportRecorded,
+        WalRecordKind::CausalAnchorFactRecorded,
+        WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
     ];
 
     assert!(kinds

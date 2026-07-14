@@ -277,8 +277,9 @@ pub use plurality_law::{
 };
 // --- Cursor types ---
 pub use causal_anchor::{
-    CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
-    CausalAnchorError, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
+    CausalAnchorAdmissionReceipt, CausalAnchorAdmissionReceiptId, CausalAnchorAdmissionRequest,
+    CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim, CausalAnchorError,
+    CausalAnchorFact, CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRoot,
     CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 pub use contract_obstruction::{

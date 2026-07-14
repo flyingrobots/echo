@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says seven concrete things.
+The current runtime WAL evidence says eight concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -82,6 +82,17 @@ WAL activation is non-lossy: if the live host contains submissions, staged
 ingress, receipt correlations, provenance, pending inbox work, cycle progress,
 or worldline state that recovered WAL evidence cannot reproduce, activation
 fails instead of treating process memory as durable authority.
+
+Eighth, causal-anchor admission has its own admission-kernel authority,
+transaction kind, fact record, receipt record, and affected frontier. The
+canonical claim contains no receipt identity. Echo derives that identity from
+the claim and WAL coordinate, commits the fact and receipt in one transaction,
+and recovers only complete, internally consistent pairs. Uncommitted frames do
+not become admitted anchors; malformed payloads, unknown enum codes, trailing
+bytes, missing or duplicate required frames, mismatched fact/receipt evidence,
+noncanonical frame order, and mismatched WAL coordinates are rejected. The
+low-level durable transition exists; its application-facing trusted-host API is
+a separate gate.
 
 ## Boundaries
 
@@ -173,8 +184,9 @@ as recovery input.
 
 Read-only recovery can rebuild durability indexes from committed transactions:
 submission posture, receipt/correlation, retained material, materialization
-outbox, topology, and graph/WSC projection posture. Uncommitted tail frames are
-reported through tail posture and do not appear in rebuilt indexes.
+outbox, topology, causal-anchor admissions, and graph/WSC projection posture.
+Uncommitted tail frames are reported through tail posture and do not appear in
+rebuilt indexes.
 Materialization outbox recovery reports typed posture for missing artifacts,
 artifact or metadata mismatches, committed observation mismatches, and retained
 material unavailability so restart logic can retry, repair, or obstruct without
@@ -230,6 +242,12 @@ The canonical retained transition codec witnesses live in
 current patch operation and slot variant, exact receipt and contract-evidence
 round-trip, all truncation boundaries, trailing bytes, corrupt commitments,
 missing receipts, and non-local events.
+
+The causal-anchor WAL codec and recovery witnesses live in
+`crates/warp-core/tests/causal_anchor_wal_tests.rs`. They cover stable persisted
+codes, committed round-trip, uncommitted-tail invisibility, required-frame
+cardinality, truncation, trailing bytes, malformed enum codes, cross-admission
+evidence mismatch, and WAL-coordinate binding.
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,

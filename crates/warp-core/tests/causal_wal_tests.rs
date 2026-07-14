@@ -41,8 +41,8 @@ use warp_core::causal_wal::{
     StrandDropRecord, StrandForkRecord, SubmissionAcceptanceRecord, SubmissionRetryPosture,
     SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord, TopologyImportOutcomeKind,
     TopologyIntentRecord, TransactionLocalIndex, WalAppendAuthority, WalBuildError,
-    WalCommitAnchor, WalCommittedTransaction, WalDoctorPosture, WalDurabilityMode, WalManifest,
-    WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
+    WalCommitAnchor, WalCommittedTransaction, WalDecodeError, WalDoctorPosture, WalDurabilityMode,
+    WalManifest, WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
     WalRecoveryBootstrapSource, WalRecoveryCheckpointPosture, WalRecoveryError,
     WalRecoveryIndexError, WalRecoveryPlan, WalRecoveryProjectionObstruction,
     WalRecoveryProjectionPosture, WalRecoveryRetainedMaterialAvailability,
@@ -2721,6 +2721,37 @@ fn submission_acceptance_retains_envelope_in_the_same_transaction() {
         )),
         material
     );
+}
+
+#[test]
+fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
+    let parent_a = causal_receipt_ref("parent-a");
+    let parent_b = causal_receipt_ref("parent-b");
+    let canonical = WalReceiptCorrelationRecord {
+        receipt_ref: causal_receipt_ref("child"),
+        causal_parent_receipts: vec![parent_a, parent_b],
+    }
+    .to_payload_bytes();
+    let parent_len = parent_a.to_canonical_bytes().len();
+    let parents_offset = canonical.len() - 2 * parent_len;
+    let first_parent = canonical[parents_offset..parents_offset + parent_len].to_vec();
+    let second_parent = canonical[parents_offset + parent_len..].to_vec();
+
+    let mut out_of_order = canonical.clone();
+    out_of_order[parents_offset..parents_offset + parent_len].copy_from_slice(&second_parent);
+    out_of_order[parents_offset + parent_len..].copy_from_slice(&first_parent);
+
+    let mut duplicate = canonical;
+    duplicate[parents_offset + parent_len..].copy_from_slice(&first_parent);
+
+    for bytes in [out_of_order, duplicate] {
+        assert_eq!(
+            WalReceiptCorrelationRecord::from_payload_bytes(&bytes),
+            Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                record_kind: "receipt-correlation",
+            })
+        );
+    }
 }
 
 #[test]

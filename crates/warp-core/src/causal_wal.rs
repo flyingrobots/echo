@@ -2267,7 +2267,7 @@ impl WalReceiptCorrelationRecord {
                 .try_into()
                 .map_err(|_| WalDecodeError::UnexpectedEof)?,
         );
-        let mut causal_parent_receipts = if cursor.remaining_len() == 0 {
+        let causal_parent_receipts = if cursor.remaining_len() == 0 {
             Vec::new()
         } else {
             let parent_count =
@@ -2286,9 +2286,15 @@ impl WalReceiptCorrelationRecord {
             }
             parents
         };
-        causal_parent_receipts.sort_unstable();
-        causal_parent_receipts.dedup();
         cursor.finish()?;
+        if !causal_parent_receipts
+            .windows(2)
+            .all(|parents| parents[0] < parents[1])
+        {
+            return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                record_kind: "receipt-correlation",
+            });
+        }
         Ok(Self {
             receipt_ref,
             causal_parent_receipts,
@@ -8178,6 +8184,12 @@ pub enum WalDecodeError {
     #[error("legacy {record_kind} payload lacks an exact causal receipt identity")]
     LegacyCausalReceiptIdentityUnavailable {
         /// Retained record family that cannot be upgraded without ambiguity.
+        record_kind: &'static str,
+    },
+    /// Causal parent receipts were duplicated or not in canonical order.
+    #[error("non-canonical causal parent receipts in {record_kind} WAL payload")]
+    NonCanonicalCausalParentReceipts {
+        /// Retained record family whose parent set was not canonical.
         record_kind: &'static str,
     },
 }

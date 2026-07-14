@@ -42,7 +42,8 @@
   app-facing outcomes, and WSC causal history now retain and follow that exact
   coordinate. `echo-cli wal submission-posture` reports the canonical receipt
   reference bytes alongside the repeatable receipt-content digest. Versioned
-  codecs reject malformed magic as corruption and report
+  codecs reject malformed magic and non-canonical parent sets as corruption and
+  report
   structurally valid legacy digest-only parent evidence as an explicit
   ambiguity rather than aliasing it to an arbitrary event.
 - Trusted runtime scheduler commits now retain canonical local-commit

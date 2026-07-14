@@ -2162,6 +2162,12 @@ pub struct TrustedRuntimeApp<'a> {
     host: &'a mut TrustedRuntimeHost,
 }
 
+#[derive(Clone, Copy)]
+enum AppIntentAdmission {
+    Ordinary,
+    ContractInverse,
+}
+
 impl TrustedRuntimeApp<'_> {
     /// Submits canonical intent material as witnessed ingress history.
     ///
@@ -2192,12 +2198,28 @@ impl TrustedRuntimeApp<'_> {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
+        self.submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::Ordinary)
+    }
+
+    fn submit_intent_with_runtime_wal_ack_inner(
+        &mut self,
+        envelope: IngressEnvelope,
+        admission: AppIntentAdmission,
+    ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
         if self.host.runtime_wal.is_none() {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
 
         let before_runtime = self.host.runtime.clone();
-        let handle = self.host.runtime.submit_app_intent(envelope.clone())?;
+        let handle = match admission {
+            AppIntentAdmission::Ordinary => {
+                self.host.runtime.submit_app_intent(envelope.clone())?
+            }
+            AppIntentAdmission::ContractInverse => self
+                .host
+                .runtime
+                .submit_contract_inverse_intent(envelope.clone())?,
+        };
         let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
             self.host.runtime = before_runtime;
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
@@ -2248,7 +2270,7 @@ impl TrustedRuntimeApp<'_> {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
         let envelope = self.host.resolve_contract_inverse_envelope(&request)?;
-        self.submit_intent_with_runtime_wal_ack(envelope)
+        self.submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::ContractInverse)
     }
 
     /// Recovers the typed causal derivation for one admitted inverse receipt.

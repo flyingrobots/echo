@@ -195,9 +195,9 @@ impl IngressEnvelope {
 
     /// Creates a local intent that explicitly cites retained causal evidence.
     ///
-    /// Parent references are canonicalized as a set. Contract-defined inverse or
-    /// compensating intents use this boundary to cite the receipt evidence they
-    /// depend on without teaching Echo the contract's domain semantics.
+    /// Parent references are canonicalized as a set. The trusted contract-inverse
+    /// admission path uses the typed inverse-target role; ordinary runtime
+    /// submission rejects that reserved role.
     #[must_use]
     pub fn local_intent_with_causal_parents(
         target: IngressTarget,

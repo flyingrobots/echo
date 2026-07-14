@@ -685,6 +685,69 @@ fn inverse_intent_resolves_one_admitted_transition_after_restart() {
 }
 
 #[test]
+fn inverse_intent_refuses_a_rejected_target_receipt() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("in-memory WAL should initialize");
+    host.register_contract_package(package())
+        .expect("external package should install");
+
+    let (first, second) = {
+        let mut app = host.app();
+        let first = app
+            .submit_intent_with_runtime_wal_ack(replace_envelope(worldline_id, REPLACE_VARS_A))
+            .expect("first replacement should be witnessed");
+        let second = app
+            .submit_intent_with_runtime_wal_ack(replace_envelope(worldline_id, REPLACE_VARS_B))
+            .expect("second replacement should be witnessed");
+        (first, second)
+    };
+    host.stage_installed_contract_submission(first.submission_id, &admission_ticket(60))
+        .expect("first replacement should stage");
+    host.stage_installed_contract_submission(second.submission_id, &admission_ticket(61))
+        .expect("second replacement should stage");
+    host.run_until_idle(4)
+        .expect("one replacement should apply and one should be rejected");
+
+    let rejected_receipt_ref = [first.submission_id, second.submission_id]
+        .into_iter()
+        .find_map(
+            |submission_id| match host.runtime().observe_app_intent_outcome(&submission_id) {
+                IntentOutcome::Rejected { receipt, .. } => Some(receipt.causal_receipt_ref),
+                _ => None,
+            },
+        )
+        .expect("one conflicting replacement should have a rejected receipt");
+    let current_frontier_tick = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("worldline should exist")
+        .frontier_tick();
+
+    let error = {
+        let mut app = host.app();
+        app.submit_contract_inverse_with_runtime_wal_ack(ContractInverseAdmissionRequest {
+            target_receipt_ref: rejected_receipt_ref,
+            current_target: IngressTarget::DefaultWriter { worldline_id },
+            expected_current_frontier_tick: current_frontier_tick,
+            policy_bytes: b"exact-span-or-obstruct".to_vec(),
+        })
+        .expect_err("a rejected mutation did not change state and cannot be inverted")
+    };
+    assert!(matches!(
+        error,
+        warp_core::TrustedRuntimeHostError::ContractInverse(
+            warp_core::ContractInverseObstruction::TargetReceiptNotApplied {
+                target_receipt_ref,
+            }
+        ) if *target_receipt_ref == rejected_receipt_ref
+    ));
+}
+
+#[test]
 fn serious_external_consumer_fixture_proves_hosted_contract_path() {
     let (runtime, worldline_id) = runtime();
     let mut host =

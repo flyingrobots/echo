@@ -246,6 +246,12 @@ pub enum ContractInverseObstruction {
         /// Requested exact target receipt coordinate.
         target_receipt_ref: Box<CausalTickReceiptRef>,
     },
+    /// The retained target receipt did not apply a state transition.
+    #[error("contract inverse target receipt was not applied: {target_receipt_ref:?}")]
+    TargetReceiptNotApplied {
+        /// Requested exact target receipt coordinate.
+        target_receipt_ref: Box<CausalTickReceiptRef>,
+    },
     /// The target transition names submission material that is not retained.
     #[error("contract inverse target submission is unavailable: {submission_id:?}")]
     TargetSubmissionUnavailable {

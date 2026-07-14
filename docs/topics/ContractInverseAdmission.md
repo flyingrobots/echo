@@ -109,6 +109,7 @@ request map.
 Echo obstructs before submission when:
 
 - the exact target receipt is unavailable;
+- the target receipt records a rejected or otherwise non-applied outcome;
 - the target witnessed envelope is unavailable or malformed;
 - target contract evidence is absent or inconsistent;
 - the matching artifact or inverse handler is not installed;

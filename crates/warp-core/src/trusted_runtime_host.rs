@@ -501,6 +501,16 @@ impl TrustedRuntimeHost {
             .ok_or_else(|| ContractInverseObstruction::TargetReceiptUnavailable {
                 target_receipt_ref: Box::new(request.target_receipt_ref),
             })?;
+        if !matches!(
+            self.runtime
+                .observe_app_intent_outcome(&correlation.submission_id),
+            IntentOutcome::Applied { receipt, .. }
+                if receipt.causal_receipt_ref == request.target_receipt_ref
+        ) {
+            return Err(ContractInverseObstruction::TargetReceiptNotApplied {
+                target_receipt_ref: Box::new(request.target_receipt_ref),
+            });
+        }
         let target_envelope = self
             .runtime
             .witnessed_submission_envelope(&correlation.submission_id)

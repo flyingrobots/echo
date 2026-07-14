@@ -174,6 +174,41 @@ Applications may construct canonical anchor claims, but they cannot confer Echo
 admission on those claims. Echo must not encode application semantics into the
 generic claim contract.
 
+### External Consumer Contract
+
+The supported application path is the root-level `warp-core` API:
+
+1. Ask `TrustedRuntimeApp::current_causal_anchor_basis()` for the exact durable
+   basis Echo can currently admit.
+2. Build `CausalAnchorAdmissionRequest` with the application subject and roots.
+3. Submit it through `TrustedRuntimeApp::admit_causal_anchor(...)`.
+4. Consume the returned `RecoveredCausalAnchorAdmission`, including its
+   `CausalAnchorFact`, `CausalAnchorAdmissionReceipt`, WAL transaction identity,
+   committed LSN, and commit digest.
+5. Recover the same evidence later through
+   `TrustedRuntimeApp::causal_anchor_by_id(...)`.
+
+`CausalAnchorAdmissionRequest`, `CausalAnchorFact`,
+`CausalAnchorAdmissionReceipt`, and `RecoveredCausalAnchorAdmission` are all
+exported from the `warp-core` crate root. External consumers do not need an
+internal WAL module path.
+
+The following value-only operations are deliberately quarantined from the
+authority boundary:
+
+- `CausalAnchorClaim::from_admission_request(...)` canonicalizes and validates
+  a proposal, but does not admit it;
+- the golden vector documents Echo-produced identities, but is not a
+  specification for another hash implementation;
+- decoded, copied, or structurally valid fact values do not prove WAL commit;
+- application code must never synthesize `admittedByReceiptId`, `anchorDigest`,
+  `anchorId`, WAL coordinates, or an `authority: echo` posture.
+
+An adapter may translate the returned Echo evidence into an application wire
+shape. It must copy the opaque Echo identities exactly and preserve the trusted
+source posture. It must not recompute those identities in JavaScript,
+TypeScript, another Rust crate, or a generated application contract.
+
 ## Jim And Rope Checkpoints
 
 For `jedit`, the domain checkpoint can be a thin fact over an Echo-admitted
@@ -342,6 +377,15 @@ The app-safe admission boundary lives in
 - `TrustedRuntimeApp::causal_anchor_by_id(...)` rebuilds lookup from committed
   WAL history after restart.
 
+The external Jim-shaped witness lives in
+`crates/warp-core/tests/causal_anchor_external_consumer_tests.rs`. It uses only
+root-level public APIs, admits a `jedit` `BufferWorldline` save anchor, recovers
+it by id, and proves parity across the fact, receipt, and durable WAL evidence.
+Its standalone golden vector is
+`crates/warp-core/tests/fixtures/causal_anchor_admission_v1.txt`. A changed
+claim domain, receipt domain, root encoding, policy binding, WAL coordinate, or
+commit identity changes that vector and requires explicit compatibility review.
+
 The public witness tests live in
 `crates/warp-core/tests/causal_anchor_tests.rs`. They prove:
 
@@ -355,9 +399,9 @@ The public witness tests live in
   materialization.
 
 The implementation has a canonical claim contract, a WAL-backed admission and
-recovery path, and an application-facing trusted-host API. External consumers
-must use the host API rather than value-only claim construction; the portable
-consumer fixture and golden contract are CA-01 Slice 4.
+recovery path, an application-facing trusted-host API, and a portable external
+consumer fixture. External consumers must use the host API rather than
+value-only claim construction.
 
 ## Doctrine
 

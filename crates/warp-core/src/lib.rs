@@ -284,6 +284,7 @@ pub use causal_anchor::{
     CausalAnchorSupportError, CausalAnchorSupportSet, CausalFrontierRef,
     CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
+pub use causal_wal::RecoveredCausalAnchorAdmission;
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
 };

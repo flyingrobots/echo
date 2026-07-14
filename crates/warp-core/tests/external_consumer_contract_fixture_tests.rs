@@ -360,7 +360,7 @@ fn temp_runtime_wal_dir_in(root: &Path, label: &str, counter: &AtomicU64) -> Pat
         let dir = root.join(format!("echo-contract-inverse-{label}-{unique}"));
         match fs::create_dir(&dir) {
             Ok(()) => return dir,
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
             Err(error) => panic!(
                 "failed to create deterministic test directory {}: {error}",
                 dir.display()

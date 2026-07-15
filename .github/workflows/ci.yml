@@ -182,7 +182,7 @@ jobs:
 
     build-edict-provider-lowerer:
         name: Build and check Edict provider lowerer
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
               with:
@@ -197,7 +197,7 @@ jobs:
                       .
             - name: build, audit, and check exact component bytes
               run: |
-                  cargo xtask provider-lowerer-component \
+                  cargo xtask provider-lowerer-component check \
                     --target-dir target/provider-lowerer-component \
                     --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
             - name: clippy (wasm32 Edict provider adapter)
@@ -205,7 +205,7 @@ jobs:
 
     edict-provider-host-v1:
         name: Edict provider host contract (Rust 1.94)
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
               with:

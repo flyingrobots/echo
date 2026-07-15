@@ -80,14 +80,62 @@ struct TestSliceArgs {
 
 #[derive(Args)]
 struct ProviderLowererComponentArgs {
+    /// Exact component operation to perform.
+    #[command(subcommand)]
+    command: ProviderLowererComponentCommand,
+}
+
+#[derive(Subcommand)]
+enum ProviderLowererComponentCommand {
+    /// Build and audit local bytes without claiming checked cross-host identity.
+    Build(ProviderLowererComponentLocalBuildArgs),
+    /// Build and write candidate bytes on the exact designated host.
+    DesignatedBuild(ProviderLowererComponentBuildArgs),
+    /// Build on the designated host and compare exact checked bytes.
+    Check(ProviderLowererComponentBuildArgs),
+    /// Audit an explicit existing component without rebuilding it.
+    Audit(ProviderLowererComponentAuditArgs),
+    /// Audit and intentionally promote an explicit candidate to an output.
+    Promote(ProviderLowererComponentPromoteArgs),
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentLocalBuildArgs {
+    /// Explicit Cargo target directory, relative to the repository root unless absolute.
+    #[arg(long)]
+    target_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentBuildArgs {
     /// Explicit output path, relative to the repository root unless absolute.
     #[arg(long)]
     output: PathBuf,
     /// Explicit Cargo target directory, relative to the repository root unless absolute.
     #[arg(long)]
     target_dir: PathBuf,
-    /// Write missing or stale output bytes; the default only reports drift.
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentAuditArgs {
+    /// Explicit component path, relative to the repository root unless absolute.
     #[arg(long)]
+    input: PathBuf,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentPromoteArgs {
+    /// First explicit candidate path, relative to the repository root unless absolute.
+    #[arg(long)]
+    candidate_a: PathBuf,
+    /// Second distinct candidate path, relative to the repository root unless absolute.
+    #[arg(long)]
+    candidate_b: PathBuf,
+    /// Explicit checked output path, relative to the repository root unless absolute.
+    #[arg(long)]
+    output: PathBuf,
+    /// Confirm the intentional checked-artifact write.
+    #[arg(long, required = true)]
     write: bool,
 }
 
@@ -400,29 +448,116 @@ fn main() -> Result<()> {
 
 fn run_provider_lowerer_component(args: ProviderLowererComponentArgs) -> Result<()> {
     let repository_root = find_repo_root()?;
-    let output_path = if args.output.is_absolute() {
-        args.output
-    } else {
-        repository_root.join(args.output)
-    };
-    let component =
-        provider_lowerer_component::build_component(&repository_root, &args.target_dir)?;
-    let mode = if args.write {
-        provider_lowerer_component::ComponentOutputMode::Write
-    } else {
-        provider_lowerer_component::ComponentOutputMode::Check
-    };
-    let status = provider_lowerer_component::sync_output(&output_path, component.bytes(), mode)?;
-    let status = match status {
-        provider_lowerer_component::ComponentOutputStatus::Current => "current",
-        provider_lowerer_component::ComponentOutputStatus::Written => "written",
-    };
-    println!(
-        "provider lowerer component: {status}; sha256:{}; {}",
-        component.sha256_hex(),
-        output_path.display()
-    );
+    match args.command {
+        ProviderLowererComponentCommand::Build(args) => {
+            let toolchain = provider_lowerer_component::pinned_rust_toolchain()?;
+            let component = provider_lowerer_component::build_component(
+                &repository_root,
+                &args.target_dir,
+                &toolchain,
+            )?;
+            print_provider_component("local-build", None, &component, None);
+        }
+        ProviderLowererComponentCommand::DesignatedBuild(args) => {
+            let output_path = repository_path(&repository_root, args.output);
+            let checked_path =
+                repository_root.join(provider_lowerer_component::CHECKED_COMPONENT_REPOSITORY_PATH);
+            provider_lowerer_component::ensure_designated_candidate_output(
+                &output_path,
+                &checked_path,
+            )?;
+            let builder = provider_lowerer_component::require_checked_builder()?;
+            let component = provider_lowerer_component::build_component(
+                &repository_root,
+                &args.target_dir,
+                &builder,
+            )?;
+            let status = provider_lowerer_component::sync_output(
+                &output_path,
+                component.bytes(),
+                provider_lowerer_component::ComponentOutputMode::Write,
+            )?;
+            print_provider_component(
+                &format!("designated-build:{}", builder.host()),
+                Some(&output_path),
+                &component,
+                Some(status),
+            );
+        }
+        ProviderLowererComponentCommand::Check(args) => {
+            let builder = provider_lowerer_component::require_checked_builder()?;
+            let output_path = repository_path(&repository_root, args.output);
+            let component = provider_lowerer_component::build_component(
+                &repository_root,
+                &args.target_dir,
+                &builder,
+            )?;
+            let status = provider_lowerer_component::sync_output(
+                &output_path,
+                component.bytes(),
+                provider_lowerer_component::ComponentOutputMode::Check,
+            )?;
+            print_provider_component(
+                &format!("checked-build:{}", builder.host()),
+                Some(&output_path),
+                &component,
+                Some(status),
+            );
+        }
+        ProviderLowererComponentCommand::Audit(args) => {
+            let input_path = repository_path(&repository_root, args.input);
+            let component = provider_lowerer_component::read_component(&input_path)?;
+            print_provider_component("audited", Some(&input_path), &component, None);
+        }
+        ProviderLowererComponentCommand::Promote(args) => {
+            if !args.write {
+                bail!("provider lowerer promotion requires --write");
+            }
+            let candidate_a = repository_path(&repository_root, args.candidate_a);
+            let candidate_b = repository_path(&repository_root, args.candidate_b);
+            let output_path = repository_path(&repository_root, args.output);
+            let (component, status) = provider_lowerer_component::promote_reproducible_candidates(
+                &candidate_a,
+                &candidate_b,
+                &output_path,
+            )?;
+            print_provider_component("promoted", Some(&output_path), &component, Some(status));
+        }
+    }
     Ok(())
+}
+
+fn repository_path(repository_root: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        repository_root.join(path)
+    }
+}
+
+fn print_provider_component(
+    action: &str,
+    path: Option<&Path>,
+    component: &provider_lowerer_component::ProviderLowererComponent,
+    status: Option<provider_lowerer_component::ComponentOutputStatus>,
+) {
+    let status = match status {
+        Some(provider_lowerer_component::ComponentOutputStatus::Current) => "; current",
+        Some(provider_lowerer_component::ComponentOutputStatus::Written) => "; written",
+        None => "",
+    };
+    if let Some(path) = path {
+        println!(
+            "provider lowerer component: {action}{status}; sha256:{}; {}",
+            component.sha256_hex(),
+            path.display()
+        );
+    } else {
+        println!(
+            "provider lowerer component: {action}{status}; sha256:{}",
+            component.sha256_hex()
+        );
+    }
 }
 
 fn run_hello_echo(args: HelloEchoArgs) -> Result<()> {

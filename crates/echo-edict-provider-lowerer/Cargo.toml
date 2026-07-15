@@ -8,7 +8,9 @@ rust-version = "1.90.0"
 description = "Pure Echo provider lowerer for Edict's frozen Component Model boundary."
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
-publish = false
+readme = "README.md"
+keywords = ["echo", "edict", "wasm", "component-model", "compiler"]
+categories = ["compilers", "wasm", "development-tools"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

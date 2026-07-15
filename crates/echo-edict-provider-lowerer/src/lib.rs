@@ -39,17 +39,11 @@ const SEMANTIC_EFFECT: &str = "target.replace";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
 
-const TARGET_PROFILE_BYTES: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
-);
-const LAWPACK_BYTES: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor");
-const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"
-);
-const LAWPACK_AUTHORITY_BYTES: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"
-);
+const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
+const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
+const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
+const LAWPACK_AUTHORITY_BYTES: &[u8] =
+    include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
 
 /// Semantic version carried by every invocation of the frozen provider ABI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

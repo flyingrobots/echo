@@ -224,7 +224,7 @@ jobs:
     name: G4 build reproducibility (wasm)
     needs: classify-changes
     if: needs.classify-changes.outputs.run_g4 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Setup Rust (Global)
@@ -244,10 +244,9 @@ jobs:
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash1.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build1.wasm
-          cargo xtask provider-lowerer-component \
+          cargo xtask provider-lowerer-component designated-build \
             --target-dir target/provider-lowerer-repro \
-            --output target/lowerer.echo-dpo.component.wasm \
-            --write
+            --output target/lowerer.echo-dpo.component.wasm
           sha256sum target/lowerer.echo-dpo.component.wasm > ../lowerer-hash1.txt
           cp target/lowerer.echo-dpo.component.wasm ../build1.lowerer.component.wasm
       - name: Checkout Build 2
@@ -263,10 +262,9 @@ jobs:
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash2.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build2.wasm
-          cargo xtask provider-lowerer-component \
+          cargo xtask provider-lowerer-component designated-build \
             --target-dir target/provider-lowerer-repro \
-            --output target/lowerer.echo-dpo.component.wasm \
-            --write
+            --output target/lowerer.echo-dpo.component.wasm
           sha256sum target/lowerer.echo-dpo.component.wasm > ../lowerer-hash2.txt
           cp target/lowerer.echo-dpo.component.wasm ../build2.lowerer.component.wasm
       - name: Compare hashes
@@ -274,6 +272,8 @@ jobs:
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
           diff lowerer-hash1.txt lowerer-hash2.txt || (echo "Lowerer reproducibility failure: Hashes differ!" && exit 1)
           cmp build1.lowerer.component.wasm build2.lowerer.component.wasm
+          cmp build1.lowerer.component.wasm build1/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+          cmp build2.lowerer.component.wasm build2/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
           echo "Hashes match: $(cat hash1.txt)"
           echo "Lowerer hashes match: $(cat lowerer-hash1.txt)"
       - name: Upload build artifacts

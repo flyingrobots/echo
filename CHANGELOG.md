@@ -17,8 +17,17 @@
   intrinsics, and output roles. A deterministic build boundary pins the frozen
   WIT bytes, rejects ambient or callable imports, checks the exact decoded world
   type graph and contract attestation, and reproduces the checked component
-  byte-for-byte across fresh target directories. These artifacts describe and
-  translate provider semantics; they confer no Echo runtime authority.
+  byte-for-byte across fresh target directories on the designated Rust 1.90.0
+  `x86_64-unknown-linux-gnu` builder. The builder resolves and authenticates the
+  exact Rust and Cargo executables, binds Cargo to that compiler despite ambient
+  overrides, and atomically promotes only distinct candidates matching a reviewed
+  repository digest. Other-host builds are structural and semantic witnesses
+  rather than cross-host compiler-identity claims. The publication-enabled,
+  archive-self-contained `echo-edict-provider-lowerer` source crate carries
+  package-local copies of its four exact admitted resources, with a workspace
+  witness binding them to the checked generated corpus. Its full package gate
+  follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
+  and translate provider semantics; they confer no Echo runtime authority.
 - `echo-edict-canonical` now owns the shared pure implementation of Edict's
   canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a

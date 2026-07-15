@@ -9,13 +9,17 @@ into the digest-locked provider package; its presence here does not claim that
 Echo has installed, admitted, authorized, or executed it.
 
 `lowerer.echo-dpo.component.wasm` implements
-`edict:target-provider/lowerer@1.0.0`. It was built with Rust 1.90.0 from
-`echo-edict-provider-lowerer` and componentized with `wit-component` 0.251.0.
+`edict:target-provider/lowerer@1.0.0`. It was built from
+`echo-edict-provider-lowerer` with the absolute rustup-resolved Rust 1.90.0
+compiler at commit `1159e78c4747b02ef996e55082b704c09b970588` and Cargo at
+commit `840b83a10fb0e039a83f4d70ad032892c287570a`. The build binds Cargo to
+that exact compiler and explicitly disables compiler wrappers. The core module
+is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 112,718 bytes with SHA-256
-`ea068940b8ca520585c395c63f18855c243a5b2ce731d601e61e5b508a7c6bf7`.
+The checked component is 112,937 bytes with SHA-256
+`03a73240dda6dce6f16c33aa55537a45e4491bb59f25ea9911bb3fbe0c4b8de4`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -23,16 +27,41 @@ non-callable protocol instance and equality-bounded request/result type aliases;
 its only callable world export is `lower`. It has no core, WASI, or ambient
 capability imports.
 
-Check the artifact without rewriting it:
+On the designated `x86_64-unknown-linux-gnu` Rust 1.90.0 builder, rebuild and
+check the artifact without rewriting it:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component \
+cargo +1.90.0 xtask provider-lowerer-component check \
   --target-dir target/provider-lowerer-component \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
 ```
 
-Two independent fresh target directories must produce byte-identical component
-bytes. The standalone Edict-host witness separately proves invocation parity,
-typed refusal, host failure separation, replay equality, and cross-process
-determinism. Exact component identity is build evidence for this translation
-crossing only; it is not runtime Echo authority.
+Two independent fresh target directories on that designated builder must produce
+byte-identical component bytes. Builds on other hosts are local structural and
+semantic witnesses; Rust/LLVM cross-host code generation is not claimed to be
+byte-identical. The standalone Edict-host witness audits and invokes the checked
+portable component and separately proves invocation parity, typed refusal, host
+failure separation, replay equality, and cross-process determinism. Exact
+component identity is build evidence for this translation crossing only; it is
+not runtime Echo authority.
+
+After two designated-builder candidates compare exactly, promote either explicit
+candidate through the same structural admission boundary:
+
+```sh
+cargo +1.90.0 xtask provider-lowerer-component promote \
+  --candidate-a /explicit/build-a/lowerer.echo-dpo.component.wasm \
+  --candidate-b /explicit/build-b/lowerer.echo-dpo.component.wasm \
+  --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm \
+  --write
+```
+
+Promotion performs no discovery. It requires two distinct underlying files,
+exact byte equality, the repository-approved SHA-256 identity above, and complete
+component/world admission. It then synchronizes a same-directory temporary file
+and atomically replaces a regular output; symlink and non-regular outputs fail
+closed. The one-build `designated-build` command refuses this checked repository
+path, so a refresh must cross the promotion boundary. The command does not infer
+how the two files were produced. G4's two
+fresh designated checkouts and target directories—or equivalent explicit
+operator evidence—establish independent build provenance.

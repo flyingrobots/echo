@@ -13,17 +13,10 @@ use echo_edict_provider_lowerer::{
 };
 use sha2::{Digest as ShaDigest, Sha256};
 
-const TARGET_PROFILE: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
-);
-const LAWPACK: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor");
-const TARGET_AUTHORITY: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"
-);
-const LAWPACK_AUTHORITY: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"
-);
+const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
+const LAWPACK: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
+const TARGET_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
+const LAWPACK_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
 
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";

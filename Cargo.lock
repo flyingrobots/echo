@@ -2725,6 +2725,7 @@ dependencies = [
  "clap_mangen",
  "hex",
  "pulldown-cmark",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",

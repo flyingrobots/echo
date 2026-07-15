@@ -4,8 +4,10 @@
 
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
+use std::ffi::OsString;
 use std::fmt;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use wasm_encoder::{ComponentSection, CustomSection};
@@ -33,6 +35,18 @@ const LOWERER_PACKAGE: &str = "echo-edict-provider-lowerer";
 const LOWERER_CORE_WASM: &str = "echo_edict_provider_lowerer.wasm";
 const LOWER_EXPORT: &str = "lower";
 
+/// Exact host triple designated to produce the checked component bytes.
+pub(crate) const CHECKED_COMPONENT_BUILDER_HOST: &str = "x86_64-unknown-linux-gnu";
+const PINNED_RUST_TOOLCHAIN: &str = "1.90.0";
+const PINNED_RUSTC_COMMIT: &str = "1159e78c4747b02ef996e55082b704c09b970588";
+const PINNED_CARGO_COMMIT: &str = "840b83a10fb0e039a83f4d70ad032892c287570a";
+
+/// Reviewed identity that the portable promotion command is permitted to install.
+pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
+    "03a73240dda6dce6f16c33aa55537a45e4491bb59f25ea9911bb3fbe0c4b8de4";
+pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
+    "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
+
 /// Stable classification for a component build or audit failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ProviderLowererComponentErrorKind {
@@ -44,6 +58,28 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     BuildFailed,
     /// The expected core WebAssembly artifact could not be read.
     CoreWasmReadFailed,
+    /// The pinned Rust compiler could not report its host identity.
+    BuilderHostInvocationFailed,
+    /// The pinned Rust compiler reported no unique host identity.
+    BuilderHostInvalid,
+    /// A pinned Rust tool reported a release other than the reviewed release.
+    BuilderReleaseMismatch,
+    /// A pinned Rust tool reported a commit other than the reviewed commit.
+    BuilderCommitMismatch,
+    /// Exact checked-byte comparison was attempted on a non-designated host.
+    BuilderHostMismatch,
+    /// An explicit component candidate could not be read.
+    ComponentReadFailed,
+    /// Two explicit reproducibility candidates differ byte-for-byte.
+    CandidateMismatch,
+    /// Two candidate paths resolve to the same underlying file.
+    CandidateAliased,
+    /// An expected candidate identity is not exact lowercase SHA-256.
+    ExpectedDigestInvalid,
+    /// Reproducible candidates do not have the explicitly expected digest.
+    CandidateDigestMismatch,
+    /// A one-build candidate command targeted the checked repository artifact.
+    CheckedOutputRequiresPromotion,
     /// The core module could not be componentized.
     ComponentEncodingFailed,
     /// The component byte stream is malformed or fails WebAssembly validation.
@@ -84,6 +120,8 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     OutputReadFailed,
     /// An explicit checked output differs from the newly built bytes.
     OutputDrift,
+    /// An explicit output path is a symlink or is not a regular file.
+    OutputTypeInvalid,
     /// An explicit output could not be written.
     OutputWriteFailed,
 }
@@ -95,6 +133,17 @@ impl ProviderLowererComponentErrorKind {
             Self::BuildInvocationFailed => "build-invocation-failed",
             Self::BuildFailed => "build-failed",
             Self::CoreWasmReadFailed => "core-wasm-read-failed",
+            Self::BuilderHostInvocationFailed => "builder-host-invocation-failed",
+            Self::BuilderHostInvalid => "builder-host-invalid",
+            Self::BuilderReleaseMismatch => "builder-release-mismatch",
+            Self::BuilderCommitMismatch => "builder-commit-mismatch",
+            Self::BuilderHostMismatch => "builder-host-mismatch",
+            Self::ComponentReadFailed => "component-read-failed",
+            Self::CandidateMismatch => "candidate-mismatch",
+            Self::CandidateAliased => "candidate-aliased",
+            Self::ExpectedDigestInvalid => "expected-digest-invalid",
+            Self::CandidateDigestMismatch => "candidate-digest-mismatch",
+            Self::CheckedOutputRequiresPromotion => "checked-output-requires-promotion",
             Self::ComponentEncodingFailed => "component-encoding-failed",
             Self::ComponentInvalid => "component-invalid",
             Self::ComponentEncodingInvalid => "component-encoding-invalid",
@@ -115,6 +164,7 @@ impl ProviderLowererComponentErrorKind {
             Self::OutputMissing => "output-missing",
             Self::OutputReadFailed => "output-read-failed",
             Self::OutputDrift => "output-drift",
+            Self::OutputTypeInvalid => "output-type-invalid",
             Self::OutputWriteFailed => "output-write-failed",
         }
     }
@@ -194,6 +244,19 @@ pub(crate) struct ProviderLowererComponent {
     sha256: [u8; 32],
 }
 
+#[derive(Debug)]
+pub(crate) struct PinnedRustToolchain {
+    cargo: PathBuf,
+    rustc: PathBuf,
+    host: String,
+}
+
+impl PinnedRustToolchain {
+    pub(crate) fn host(&self) -> &str {
+        &self.host
+    }
+}
+
 impl ProviderLowererComponent {
     /// Returns the exact final component bytes.
     pub(crate) fn bytes(&self) -> &[u8] {
@@ -204,6 +267,352 @@ impl ProviderLowererComponent {
     pub(crate) fn sha256_hex(&self) -> String {
         digest_hex(&self.sha256)
     }
+}
+
+/// Resolves and authenticates the exact Rust toolchain used by component builds.
+pub(crate) fn pinned_rust_toolchain() -> Result<PinnedRustToolchain> {
+    let rustc = resolve_rustup_tool("rustc")?;
+    let cargo = resolve_rustup_tool("cargo")?;
+    let rustc_identity = invoke_tool_identity(&rustc, "-vV", "rustc")?;
+    let cargo_identity = invoke_tool_identity(&cargo, "-Vv", "cargo")?;
+    let rustc_host = authenticate_tool_identity("rustc", &rustc_identity, PINNED_RUSTC_COMMIT)?;
+    let cargo_host = authenticate_tool_identity("cargo", &cargo_identity, PINNED_CARGO_COMMIT)?;
+    if rustc_host != cargo_host {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostMismatch,
+            cargo_host,
+            Some(rustc_host.to_owned()),
+        ));
+    }
+    Ok(PinnedRustToolchain {
+        cargo,
+        rustc,
+        host: rustc_host.to_owned(),
+    })
+}
+
+/// Authenticates the pinned compiler host before an exact checked-byte build.
+pub(crate) fn require_checked_builder() -> Result<PinnedRustToolchain> {
+    let toolchain = pinned_rust_toolchain()?;
+    ensure_checked_builder_host(toolchain.host())?;
+    Ok(toolchain)
+}
+
+fn resolve_rustup_tool(tool: &str) -> Result<PathBuf> {
+    let output = Command::new("rustup")
+        .args(["which", "--toolchain", PINNED_RUST_TOOLCHAIN, tool])
+        .output()
+        .map_err(|error| {
+            ProviderLowererComponentError::new(
+                ProviderLowererComponentErrorKind::BuilderHostInvocationFailed,
+                format!("rustup which {tool}"),
+                Some(PINNED_RUST_TOOLCHAIN.to_owned()),
+            )
+            .with_detail(error.to_string())
+        })?;
+    if !output.status.success() {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvocationFailed,
+            format!("rustup which {tool}"),
+            Some(PINNED_RUST_TOOLCHAIN.to_owned()),
+        )
+        .with_detail(String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let resolved = String::from_utf8(output.stdout).map_err(|error| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            format!("rustup which {tool}"),
+            Some("utf-8-absolute-path".to_owned()),
+        )
+        .with_detail(error.to_string())
+    })?;
+    let path = parse_resolved_tool_path(&resolved).ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            format!("rustup which {tool}"),
+            Some("one-absolute-path".to_owned()),
+        )
+    })?;
+    fs::canonicalize(&path).map_err(|error| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            path.display().to_string(),
+            Some(tool.to_owned()),
+        )
+        .with_detail(error.to_string())
+    })
+}
+
+fn parse_resolved_tool_path(output: &str) -> Option<PathBuf> {
+    let mut lines = output.lines();
+    let path = lines.next()?;
+    if path.is_empty() || lines.next().is_some() {
+        return None;
+    }
+    let path = PathBuf::from(path);
+    path.is_absolute().then_some(path)
+}
+
+fn invoke_tool_identity(path: &Path, version_arg: &str, tool: &str) -> Result<String> {
+    let output = Command::new(path)
+        .arg(version_arg)
+        .output()
+        .map_err(|error| {
+            ProviderLowererComponentError::new(
+                ProviderLowererComponentErrorKind::BuilderHostInvocationFailed,
+                path.display().to_string(),
+                Some(tool.to_owned()),
+            )
+            .with_detail(error.to_string())
+        })?;
+    if !output.status.success() {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvocationFailed,
+            path.display().to_string(),
+            Some(tool.to_owned()),
+        )
+        .with_detail(String::from_utf8_lossy(&output.stderr)));
+    }
+    String::from_utf8(output.stdout).map_err(|error| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            path.display().to_string(),
+            Some(tool.to_owned()),
+        )
+        .with_detail(error.to_string())
+    })
+}
+
+fn authenticate_tool_identity<'a>(
+    tool: &str,
+    identity: &'a str,
+    expected_commit: &str,
+) -> Result<&'a str> {
+    let release = parse_identity_field(identity, "release").ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            tool,
+            Some("release".to_owned()),
+        )
+    })?;
+    if release != PINNED_RUST_TOOLCHAIN {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderReleaseMismatch,
+            release,
+            Some(PINNED_RUST_TOOLCHAIN.to_owned()),
+        ));
+    }
+    let commit = parse_identity_field(identity, "commit-hash").ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            tool,
+            Some("commit-hash".to_owned()),
+        )
+    })?;
+    if commit != expected_commit {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderCommitMismatch,
+            commit,
+            Some(expected_commit.to_owned()),
+        ));
+    }
+    parse_identity_field(identity, "host").ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::BuilderHostInvalid,
+            tool,
+            Some("host".to_owned()),
+        )
+    })
+}
+
+#[cfg(test)]
+fn parse_rustc_host(version: &str) -> Option<&str> {
+    parse_identity_field(version, "host")
+}
+
+fn parse_identity_field<'a>(identity: &'a str, field: &str) -> Option<&'a str> {
+    let prefix = format!("{field}: ");
+    let mut values = identity
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix));
+    let value = values.next()?;
+    if value.is_empty() || values.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+fn ensure_checked_builder_host(host: &str) -> Result<()> {
+    if host == CHECKED_COMPONENT_BUILDER_HOST {
+        return Ok(());
+    }
+    Err(ProviderLowererComponentError::new(
+        ProviderLowererComponentErrorKind::BuilderHostMismatch,
+        host,
+        Some(CHECKED_COMPONENT_BUILDER_HOST.to_owned()),
+    ))
+}
+
+/// Reads and fully audits an explicit component candidate.
+pub(crate) fn read_component(input_path: &Path) -> Result<ProviderLowererComponent> {
+    authenticated_component(read_component_bytes(input_path)?)
+}
+
+fn read_component_bytes(input_path: &Path) -> Result<Vec<u8>> {
+    fs::read(input_path).map_err(|error| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::ComponentReadFailed,
+            input_path.display().to_string(),
+            None,
+        )
+        .with_detail(error.to_string())
+    })
+}
+
+pub(crate) fn ensure_designated_candidate_output(
+    output_path: &Path,
+    checked_path: &Path,
+) -> Result<()> {
+    let aliases_checked = match same_file::is_same_file(output_path, checked_path) {
+        Ok(aliases) => aliases,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            normalized_destination(output_path)? == normalized_destination(checked_path)?
+        }
+        Err(error) => {
+            return Err(ProviderLowererComponentError::new(
+                ProviderLowererComponentErrorKind::OutputReadFailed,
+                output_path.display().to_string(),
+                Some(checked_path.display().to_string()),
+            )
+            .with_detail(error.to_string()));
+        }
+    };
+    if aliases_checked {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CheckedOutputRequiresPromotion,
+            output_path.display().to_string(),
+            Some(checked_path.display().to_string()),
+        ));
+    }
+    Ok(())
+}
+
+fn normalized_destination(path: &Path) -> Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            let file_name = path.file_name().ok_or_else(|| {
+                ProviderLowererComponentError::new(
+                    ProviderLowererComponentErrorKind::InvalidPath,
+                    path.display().to_string(),
+                    Some("file-name".to_owned()),
+                )
+            })?;
+            fs::canonicalize(parent)
+                .map(|parent| parent.join(file_name))
+                .map_err(|error| {
+                    ProviderLowererComponentError::new(
+                        ProviderLowererComponentErrorKind::OutputReadFailed,
+                        path.display().to_string(),
+                        Some("canonical-parent".to_owned()),
+                    )
+                    .with_detail(error.to_string())
+                })
+        }
+        Err(error) => Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::OutputReadFailed,
+            path.display().to_string(),
+            Some("canonical-path".to_owned()),
+        )
+        .with_detail(error.to_string())),
+    }
+}
+
+/// Audits two explicit candidates and admits only one exact expected identity.
+pub(crate) fn read_reproducible_candidates(
+    first_path: &Path,
+    second_path: &Path,
+) -> Result<ProviderLowererComponent> {
+    let first = read_component_bytes(first_path)?;
+    let second = read_component_bytes(second_path)?;
+    let aliased = same_file::is_same_file(first_path, second_path).map_err(|error| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::ComponentReadFailed,
+            first_path.display().to_string(),
+            Some(second_path.display().to_string()),
+        )
+        .with_detail(error.to_string())
+    })?;
+    if aliased {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateAliased,
+            first_path.display().to_string(),
+            Some(second_path.display().to_string()),
+        ));
+    }
+    ensure_reproducible_candidates(&first, &second, APPROVED_CHECKED_COMPONENT_SHA256)?;
+    authenticated_component(first)
+}
+
+/// Audits, authenticates, and intentionally writes two reproducible candidates.
+pub(crate) fn promote_reproducible_candidates(
+    first_path: &Path,
+    second_path: &Path,
+    output_path: &Path,
+) -> Result<(ProviderLowererComponent, ComponentOutputStatus)> {
+    let component = read_reproducible_candidates(first_path, second_path)?;
+    let status = sync_output(output_path, component.bytes(), ComponentOutputMode::Write)?;
+    Ok((component, status))
+}
+
+fn ensure_reproducible_candidates(
+    first: &[u8],
+    second: &[u8],
+    expected_sha256: &str,
+) -> Result<()> {
+    if first != second {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateMismatch,
+            LOWERER_CONTRACT_COORDINATE,
+            Some(format!(
+                "first:{};second:{}",
+                digest_hex(&sha256(first)),
+                digest_hex(&sha256(second))
+            )),
+        ));
+    }
+    if expected_sha256.len() != 64
+        || !expected_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid,
+            expected_sha256,
+            Some("lowercase-sha256".to_owned()),
+        ));
+    }
+    if expected_sha256 != APPROVED_CHECKED_COMPONENT_SHA256 {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch,
+            APPROVED_CHECKED_COMPONENT_SHA256,
+            Some(expected_sha256.to_owned()),
+        ));
+    }
+    let observed = digest_hex(&sha256(first));
+    if observed != expected_sha256 {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch,
+            expected_sha256,
+            Some(observed),
+        ));
+    }
+    Ok(())
 }
 
 /// Structural facts established by [`audit_component`].
@@ -245,6 +654,7 @@ pub(crate) enum ComponentOutputStatus {
 pub(crate) fn build_component(
     repository_root: &Path,
     target_directory: &Path,
+    toolchain: &PinnedRustToolchain,
 ) -> Result<ProviderLowererComponent> {
     let target_directory = absolute_target_directory(repository_root, target_directory);
     let repository_root_text = path_text(repository_root)?;
@@ -256,9 +666,10 @@ pub(crate) fn build_component(
     ]
     .join("\u{1f}");
 
-    let output = Command::new("cargo")
+    let mut command = Command::new(&toolchain.cargo);
+    bind_pinned_toolchain(&mut command, toolchain);
+    let output = command
         .args([
-            "+1.90.0",
             "build",
             "-p",
             LOWERER_PACKAGE,
@@ -273,14 +684,13 @@ pub(crate) fn build_component(
         .env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags)
         .env("SOURCE_DATE_EPOCH", "1")
         .env_remove("RUSTFLAGS")
-        .env_remove("RUSTC_WRAPPER")
-        .env_remove("RUSTC_WORKSPACE_WRAPPER")
+        .env_remove("RUSTC_BOOTSTRAP")
         .output()
         .map_err(|error| {
             ProviderLowererComponentError::new(
                 ProviderLowererComponentErrorKind::BuildInvocationFailed,
                 LOWERER_PACKAGE,
-                Some("cargo +1.90.0".to_owned()),
+                Some(toolchain.cargo.display().to_string()),
             )
             .with_detail(error.to_string())
         })?;
@@ -310,6 +720,16 @@ pub(crate) fn build_component(
     componentize(&core_bytes)
 }
 
+fn bind_pinned_toolchain(command: &mut Command, toolchain: &PinnedRustToolchain) {
+    command
+        .env("RUSTC", &toolchain.rustc)
+        .env("CARGO_BUILD_RUSTC", &toolchain.rustc)
+        .env("RUSTC_WRAPPER", "")
+        .env("RUSTC_WORKSPACE_WRAPPER", "")
+        .env_remove("CARGO_BUILD_RUSTC_WRAPPER")
+        .env_remove("CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER");
+}
+
 /// Componentizes explicit core Wasm bytes and appends the exact attestation.
 pub(crate) fn componentize(core_bytes: &[u8]) -> Result<ProviderLowererComponent> {
     let encoder = ComponentEncoder::default()
@@ -335,6 +755,10 @@ pub(crate) fn componentize(core_bytes: &[u8]) -> Result<ProviderLowererComponent
     })?;
 
     append_contract_attestation(&mut bytes);
+    authenticated_component(bytes)
+}
+
+fn authenticated_component(bytes: Vec<u8>) -> Result<ProviderLowererComponent> {
     audit_component(&bytes)?;
     let sha256 = sha256(&bytes);
     Ok(ProviderLowererComponent { bytes, sha256 })
@@ -559,6 +983,7 @@ pub(crate) fn sync_output(
     bytes: &[u8],
     mode: ComponentOutputMode,
 ) -> Result<ComponentOutputStatus> {
+    validate_output_type(output_path)?;
     match fs::read(output_path) {
         Ok(existing) if existing == bytes => Ok(ComponentOutputStatus::Current),
         Ok(existing) if mode == ComponentOutputMode::Check => {
@@ -596,6 +1021,13 @@ pub(crate) fn sync_output(
 }
 
 fn write_output(output_path: &Path, bytes: &[u8]) -> Result<ComponentOutputStatus> {
+    write_output_with(output_path, |temporary| temporary.write_all(bytes))
+}
+
+fn write_output_with(
+    output_path: &Path,
+    writer: impl FnOnce(&mut File) -> std::io::Result<()>,
+) -> Result<ComponentOutputStatus> {
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|error| {
@@ -608,15 +1040,100 @@ fn write_output(output_path: &Path, bytes: &[u8]) -> Result<ComponentOutputStatu
             })?;
         }
     }
-    fs::write(output_path, bytes).map_err(|error| {
+
+    let (temporary_path, mut temporary) = create_temporary_sibling(output_path)?;
+    if let Err(error) = writer(&mut temporary).and_then(|()| temporary.sync_all()) {
+        drop(temporary);
+        let _ = fs::remove_file(&temporary_path);
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::OutputWriteFailed,
+            output_path.display().to_string(),
+            Some("write-temporary".to_owned()),
+        )
+        .with_detail(error.to_string()));
+    }
+    drop(temporary);
+
+    fs::rename(&temporary_path, output_path).map_err(|error| {
+        let _ = fs::remove_file(&temporary_path);
         ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::OutputWriteFailed,
             output_path.display().to_string(),
-            Some("write".to_owned()),
+            Some("atomic-replace".to_owned()),
         )
         .with_detail(error.to_string())
     })?;
     Ok(ComponentOutputStatus::Written)
+}
+
+fn validate_output_type(output_path: &Path) -> Result<()> {
+    match fs::symlink_metadata(output_path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(()),
+        Ok(metadata) => {
+            let kind = if metadata.file_type().is_symlink() {
+                "symlink"
+            } else if metadata.file_type().is_dir() {
+                "directory"
+            } else {
+                "non-regular"
+            };
+            Err(ProviderLowererComponentError::new(
+                ProviderLowererComponentErrorKind::OutputTypeInvalid,
+                output_path.display().to_string(),
+                Some(kind.to_owned()),
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::OutputReadFailed,
+            output_path.display().to_string(),
+            Some("metadata".to_owned()),
+        )
+        .with_detail(error.to_string())),
+    }
+}
+
+fn create_temporary_sibling(output_path: &Path) -> Result<(PathBuf, File)> {
+    let parent = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = output_path.file_name().ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::InvalidPath,
+            output_path.display().to_string(),
+            Some("file-name".to_owned()),
+        )
+    })?;
+
+    for nonce in 0_u16..128 {
+        let mut temporary_name = OsString::from(".");
+        temporary_name.push(file_name);
+        temporary_name.push(format!(".tmp-{}-{nonce}", std::process::id()));
+        let temporary_path = parent.join(temporary_name);
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)
+        {
+            Ok(file) => return Ok((temporary_path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(ProviderLowererComponentError::new(
+                    ProviderLowererComponentErrorKind::OutputWriteFailed,
+                    output_path.display().to_string(),
+                    Some("create-temporary".to_owned()),
+                )
+                .with_detail(error.to_string()));
+            }
+        }
+    }
+
+    Err(ProviderLowererComponentError::new(
+        ProviderLowererComponentErrorKind::OutputWriteFailed,
+        output_path.display().to_string(),
+        Some("temporary-name-exhausted".to_owned()),
+    ))
 }
 
 fn append_contract_attestation(bytes: &mut Vec<u8>) {
@@ -1006,6 +1523,505 @@ mod tests {
         assert_eq!(fs::read(&output)?, b"component");
         fs::remove_file(output)?;
         Ok(())
+    }
+
+    #[test]
+    fn failed_atomic_replacement_preserves_the_previous_output(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let output = temporary_output("atomic-write-failure");
+        fs::write(&output, b"preserve-me")?;
+
+        let error = match write_output_with(&output, |temporary| {
+            temporary.write_all(b"partial")?;
+            Err(std::io::Error::other("injected write failure"))
+        }) {
+            Err(error) => error,
+            Ok(_) => return Err(std::io::Error::other("partial output was installed").into()),
+        };
+
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::OutputWriteFailed
+        );
+        assert_eq!(fs::read(&output)?, b"preserve-me");
+        fs::remove_file(output)?;
+        Ok(())
+    }
+
+    #[test]
+    fn non_regular_output_paths_fail_closed() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let output = temporary_output("non-regular");
+        fs::create_dir(&output)?;
+
+        let error = match sync_output(&output, b"component", ComponentOutputMode::Write) {
+            Err(error) => error,
+            Ok(_) => return Err(std::io::Error::other("directory output was accepted").into()),
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::OutputTypeInvalid
+        );
+        fs::remove_dir(output)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_outputs_fail_without_mutating_the_link_target(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::fs::symlink;
+
+        let target = temporary_output("symlink-target");
+        let output = temporary_output("symlink-output");
+        fs::write(&target, b"preserve-target")?;
+        symlink(&target, &output)?;
+
+        let error = match sync_output(&output, b"component", ComponentOutputMode::Write) {
+            Err(error) => error,
+            Ok(_) => return Err(std::io::Error::other("symlink output was accepted").into()),
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::OutputTypeInvalid
+        );
+        assert_eq!(error.reference(), Some("symlink"));
+        assert_eq!(fs::read(&target)?, b"preserve-target");
+        assert!(fs::symlink_metadata(&output)?.file_type().is_symlink());
+        fs::remove_file(output)?;
+        fs::remove_file(target)?;
+        Ok(())
+    }
+
+    #[test]
+    fn checked_builder_policy_is_explicit_and_fails_closed(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            parse_rustc_host(
+                "rustc 1.90.0 (1159e78c4 2025-09-14)\nbinary: rustc\nhost: x86_64-unknown-linux-gnu\n"
+            ),
+            Some(CHECKED_COMPONENT_BUILDER_HOST)
+        );
+        assert_eq!(
+            parse_rustc_host("host: x86_64-unknown-linux-gnu\nhost: aarch64-apple-darwin\n"),
+            None
+        );
+
+        assert!(ensure_checked_builder_host(CHECKED_COMPONENT_BUILDER_HOST).is_ok());
+        let error = match ensure_checked_builder_host("aarch64-apple-darwin") {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(
+                    std::io::Error::other("a non-designated builder must fail closed").into(),
+                );
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::BuilderHostMismatch
+        );
+        assert_eq!(error.subject(), "aarch64-apple-darwin");
+        assert_eq!(error.reference(), Some(CHECKED_COMPONENT_BUILDER_HOST));
+        Ok(())
+    }
+
+    #[test]
+    fn pinned_tool_paths_and_identities_fail_closed(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            parse_resolved_tool_path("/toolchains/1.90.0/bin/rustc\n"),
+            Some(PathBuf::from("/toolchains/1.90.0/bin/rustc"))
+        );
+        for malformed in ["", "relative/rustc\n", "/first/rustc\n/second/rustc\n"] {
+            assert_eq!(parse_resolved_tool_path(malformed), None);
+        }
+
+        let valid = format!(
+            "release: {PINNED_RUST_TOOLCHAIN}\ncommit-hash: {PINNED_RUSTC_COMMIT}\nhost: {CHECKED_COMPONENT_BUILDER_HOST}\n"
+        );
+        assert_eq!(
+            authenticate_tool_identity("rustc", &valid, PINNED_RUSTC_COMMIT)?,
+            CHECKED_COMPONENT_BUILDER_HOST
+        );
+
+        let duplicate_release = format!(
+            "release: {PINNED_RUST_TOOLCHAIN}\nrelease: {PINNED_RUST_TOOLCHAIN}\ncommit-hash: {PINNED_RUSTC_COMMIT}\nhost: {CHECKED_COMPONENT_BUILDER_HOST}\n"
+        );
+        let error =
+            match authenticate_tool_identity("rustc", &duplicate_release, PINNED_RUSTC_COMMIT) {
+                Err(error) => error,
+                Ok(_) => return Err(std::io::Error::other("duplicate release was accepted").into()),
+            };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::BuilderHostInvalid
+        );
+
+        let wrong_release = format!(
+            "release: 1.91.0\ncommit-hash: {PINNED_RUSTC_COMMIT}\nhost: {CHECKED_COMPONENT_BUILDER_HOST}\n"
+        );
+        let error = match authenticate_tool_identity("rustc", &wrong_release, PINNED_RUSTC_COMMIT) {
+            Err(error) => error,
+            Ok(_) => return Err(std::io::Error::other("wrong release was accepted").into()),
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::BuilderReleaseMismatch
+        );
+
+        let wrong_commit = format!(
+            "release: {PINNED_RUST_TOOLCHAIN}\ncommit-hash: deadbeef\nhost: {CHECKED_COMPONENT_BUILDER_HOST}\n"
+        );
+        let error = match authenticate_tool_identity("rustc", &wrong_commit, PINNED_RUSTC_COMMIT) {
+            Err(error) => error,
+            Ok(_) => return Err(std::io::Error::other("wrong commit was accepted").into()),
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::BuilderCommitMismatch
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn installed_pinned_toolchain_has_one_authenticated_identity(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let toolchain = pinned_rust_toolchain()?;
+        assert!(toolchain.cargo.is_absolute());
+        assert!(toolchain.rustc.is_absolute());
+        assert!(!toolchain.host().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn cargo_build_is_bound_to_the_authenticated_toolchain() {
+        let toolchain = PinnedRustToolchain {
+            cargo: PathBuf::from("/approved/cargo"),
+            rustc: PathBuf::from("/approved/rustc"),
+            host: CHECKED_COMPONENT_BUILDER_HOST.to_owned(),
+        };
+        let mut command = Command::new(&toolchain.cargo);
+        for name in [
+            "RUSTC",
+            "CARGO_BUILD_RUSTC",
+            "RUSTC_WRAPPER",
+            "CARGO_BUILD_RUSTC_WRAPPER",
+            "RUSTC_WORKSPACE_WRAPPER",
+            "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+        ] {
+            command.env(name, "/ambient/override");
+        }
+
+        bind_pinned_toolchain(&mut command, &toolchain);
+
+        assert_eq!(command.get_program(), toolchain.cargo.as_os_str());
+        assert_eq!(
+            command_environment_value(&command, "RUSTC"),
+            Some(toolchain.rustc.as_os_str())
+        );
+        assert_eq!(
+            command_environment_value(&command, "CARGO_BUILD_RUSTC"),
+            Some(toolchain.rustc.as_os_str())
+        );
+        for name in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
+            assert_eq!(
+                command_environment_value(&command, name),
+                Some(std::ffi::OsStr::new(""))
+            );
+        }
+        for name in [
+            "CARGO_BUILD_RUSTC_WRAPPER",
+            "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+        ] {
+            assert!(command_environment_is_removed(&command, name));
+        }
+    }
+
+    fn command_environment_value<'a>(
+        command: &'a Command,
+        name: &str,
+    ) -> Option<&'a std::ffi::OsStr> {
+        command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(name))
+            .and_then(|(_, value)| value)
+    }
+
+    fn command_environment_is_removed(command: &Command, name: &str) -> bool {
+        command
+            .get_envs()
+            .any(|(key, value)| key == std::ffi::OsStr::new(name) && value.is_none())
+    }
+
+    #[test]
+    fn explicit_component_candidates_are_audited_before_use(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let candidate = temporary_output("candidate-invalid");
+        fs::write(&candidate, b"not-a-component")?;
+
+        let error = match read_component(&candidate) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(
+                    std::io::Error::other("an unaudited candidate became a component").into(),
+                );
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::ComponentInvalid
+        );
+        fs::remove_file(candidate)?;
+        Ok(())
+    }
+
+    #[test]
+    fn failed_promotion_never_touches_the_output(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let first = temporary_output("promotion-invalid-a");
+        let second = temporary_output("promotion-invalid-b");
+        let output = temporary_output("promotion-preserved");
+        fs::write(&first, b"not-a-component")?;
+        fs::write(&second, b"not-a-component")?;
+        fs::write(&output, b"preserve-me")?;
+        let error = match promote_reproducible_candidates(&first, &second, &output) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(std::io::Error::other("an invalid candidate was promoted").into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch
+        );
+        assert_eq!(fs::read(&output)?, b"preserve-me");
+        fs::remove_file(first)?;
+        fs::remove_file(second)?;
+        fs::remove_file(output)?;
+        Ok(())
+    }
+
+    #[test]
+    fn promotion_rejects_one_candidate_supplied_twice(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let candidate = temporary_output("promotion-aliased");
+        fs::write(&candidate, b"one-candidate")?;
+        let error = match read_reproducible_candidates(&candidate, &candidate) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(std::io::Error::other(
+                    "one candidate path satisfied the two-candidate boundary",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateAliased
+        );
+        fs::remove_file(candidate)?;
+        Ok(())
+    }
+
+    #[test]
+    fn promotion_rejects_two_paths_to_one_underlying_file(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let first = temporary_output("promotion-hardlink-a");
+        let second = temporary_output("promotion-hardlink-b");
+        fs::write(&first, b"one-underlying-file")?;
+        fs::hard_link(&first, &second)?;
+
+        let error = match read_reproducible_candidates(&first, &second) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(std::io::Error::other(
+                    "hard-linked paths satisfied the two-candidate boundary",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateAliased
+        );
+        fs::remove_file(first)?;
+        fs::remove_file(second)?;
+        Ok(())
+    }
+
+    #[test]
+    fn designated_candidate_build_cannot_target_the_checked_output(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let checked = temporary_output("checked-route");
+        fs::write(&checked, b"checked")?;
+
+        let error = match ensure_designated_candidate_output(&checked, &checked) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(std::io::Error::other(
+                    "one designated build could write the checked artifact",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CheckedOutputRequiresPromotion
+        );
+        let alias = temporary_output("checked-route-hardlink");
+        fs::hard_link(&checked, &alias)?;
+        let error = match ensure_designated_candidate_output(&alias, &checked) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(std::io::Error::other(
+                    "hard-linked candidate output bypassed promotion",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CheckedOutputRequiresPromotion
+        );
+        fs::remove_file(alias)?;
+        fs::remove_file(checked)?;
+        Ok(())
+    }
+
+    #[test]
+    fn promotion_requires_two_equal_candidates_and_the_expected_digest(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let first = b"first";
+        let second = b"second";
+        let first_digest = digest_hex(&sha256(first));
+        let second_digest = digest_hex(&sha256(second));
+
+        let error = match ensure_reproducible_candidates(first, second, &first_digest) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(std::io::Error::other("different candidates were promotable").into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateMismatch
+        );
+
+        let error = match ensure_reproducible_candidates(first, first, "not-a-sha256") {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(
+                    std::io::Error::other("a malformed expected digest was promotable").into(),
+                );
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid
+        );
+
+        let error = match ensure_reproducible_candidates(first, first, &second_digest) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(std::io::Error::other(
+                    "an unexpected candidate identity was promotable",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch
+        );
+        let error = match ensure_reproducible_candidates(first, first, &first_digest) {
+            Err(error) => error,
+            Ok(()) => {
+                return Err(std::io::Error::other(
+                    "a caller-selected digest became release authority",
+                )
+                .into());
+            }
+        };
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn packaged_lowerer_resources_match_the_checked_provider_corpus() {
+        let pairs: [(&[u8], &[u8]); 4] = [
+            (
+                include_bytes!("../../crates/echo-edict-provider-lowerer/resources/target-profile.echo-dpo.cbor"),
+                include_bytes!("../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"),
+            ),
+            (
+                include_bytes!("../../crates/echo-edict-provider-lowerer/resources/lawpack.echo-dpo.cbor"),
+                include_bytes!("../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor"),
+            ),
+            (
+                include_bytes!("../../crates/echo-edict-provider-lowerer/resources/authority-facts.echo-dpo.cbor"),
+                include_bytes!("../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"),
+            ),
+            (
+                include_bytes!("../../crates/echo-edict-provider-lowerer/resources/authority-facts.echo-lawpack.cbor"),
+                include_bytes!("../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"),
+            ),
+        ];
+
+        for (packaged, checked) in pairs {
+            assert_eq!(packaged, checked);
+        }
+    }
+
+    #[test]
+    fn checked_component_promotion_is_exact_and_idempotent(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let bytes = include_bytes!(
+            "../../schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+        );
+        assert_eq!(
+            digest_hex(&sha256(bytes)),
+            APPROVED_CHECKED_COMPONENT_SHA256
+        );
+        let first = temporary_output("promotion-valid-a");
+        let second = temporary_output("promotion-valid-b");
+        let output = temporary_output("promotion-output");
+        fs::write(&first, bytes)?;
+        fs::write(&second, bytes)?;
+
+        let (component, status) = promote_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Written);
+        assert_eq!(component.bytes(), bytes);
+        let (_, status) = promote_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Current);
+        assert_eq!(fs::read(&output)?, bytes);
+        fs::remove_file(first)?;
+        fs::remove_file(second)?;
+        fs::remove_file(output)?;
+        Ok(())
+    }
+
+    #[test]
+    fn repository_routes_preserve_separate_build_propositions() {
+        let ci = include_str!("../../.github/workflows/ci.yml");
+        assert!(ci.contains("cargo xtask provider-lowerer-component check"));
+        assert!(ci.contains("runs-on: ubuntu-24.04"));
+
+        let determinism = include_str!("../../.github/workflows/det-gates.yml");
+        assert!(determinism.contains("cargo xtask provider-lowerer-component designated-build"));
+        assert!(determinism.contains(
+            "cmp build1.lowerer.component.wasm build1/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+        ));
+        assert!(determinism.contains(
+            "cmp build2.lowerer.component.wasm build2/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+        ));
+
+        let host = include_str!("../../scripts/verify-edict-provider-host-v1.sh");
+        assert!(host.contains("provider-lowerer-component build"));
+        assert!(host.contains("provider-lowerer-component audit"));
+        assert!(!host.contains("provider-lowerer-component promote"));
     }
 
     fn temporary_output(label: &str) -> PathBuf {

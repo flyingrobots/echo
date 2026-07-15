@@ -56,11 +56,15 @@ Cargo and compiler executables, binds the inner Cargo build to that exact
 compiler, disables configured wrappers, and validates the complete module,
 import/export topology, and contract attestation without claiming cross-host byte
 identity. The checked artifact is built and compared exactly on the designated
-`x86_64-unknown-linux-gnu` builder. `audit` authenticates an existing component
-without rebuilding it. `promote` requires two distinct underlying candidate
-files, byte equality, the repository-approved SHA-256 identity, complete
-component admission, and `--write`; G4 separately proves those candidates came
-from fresh designated builds. Successful refresh uses synchronized temporary
+`linux/amd64` Rust image pinned by OCI digest. The inner build uses a controlled
+Cargo home beneath its target directory, removes ambient Cargo
+profile/build/target overrides, and remaps dependency source paths to `/cargo`;
+physical cache locations therefore cannot alter the component bytes.
+`audit` authenticates an existing component without rebuilding it. `promote`
+requires two distinct underlying candidate files, byte equality, the
+repository-approved SHA-256 identity, complete component admission, and
+`--write`; G4 separately proves those candidates came from independently
+provisioned designated builds. Successful refresh uses synchronized temporary
 bytes and atomic replacement, while write failure preserves the prior artifact.
 `designated-build` can emit candidates but refuses the checked repository path.
 Edict-host invocation evidence lives in the isolated Rust 1.94 witness under

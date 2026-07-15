@@ -24,11 +24,13 @@
   deterministic build boundary pins the frozen
   WIT bytes, rejects ambient or callable imports, checks the exact decoded world
   type graph and contract attestation, and reproduces the checked component
-  byte-for-byte across fresh target directories on the designated Rust 1.90.0
-  `x86_64-unknown-linux-gnu` builder. The builder resolves and authenticates the
-  exact Rust and Cargo executables, binds Cargo to that compiler despite ambient
-  overrides, and atomically promotes only distinct candidates matching a reviewed
-  repository digest. Other-host builds are structural and semantic witnesses
+  byte-for-byte across independently provisioned `linux/amd64` containers from
+  the immutable Rust image used by CI. The builder resolves and authenticates the
+  exact Rust and Cargo executables, binds Cargo to that compiler, owns the inner
+  Cargo home, removes ambient Cargo profile/build/target overrides, remaps its
+  dependency source paths to `/cargo`, and atomically promotes only distinct
+  candidates matching a reviewed repository digest.
+  Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
   package-local copies of its four exact admitted resources, with a workspace

@@ -183,6 +183,9 @@ jobs:
     build-edict-provider-lowerer:
         name: Build and check Edict provider lowerer
         runs-on: ubuntu-24.04
+        container:
+            image: docker.io/library/rust@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+            options: --platform linux/amd64
         steps:
             - uses: actions/checkout@v4
               with:
@@ -191,10 +194,6 @@ jobs:
               with:
                   components: clippy
                   targets: wasm32-unknown-unknown
-            - uses: Swatinem/rust-cache@v2
-              with:
-                  workspaces: |
-                      .
             - name: build, audit, and check exact component bytes
               run: |
                   cargo xtask provider-lowerer-component check \

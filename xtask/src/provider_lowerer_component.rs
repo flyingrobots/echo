@@ -43,7 +43,7 @@ const PINNED_CARGO_COMMIT: &str = "840b83a10fb0e039a83f4d70ad032892c287570a";
 
 /// Reviewed identity that the portable promotion command is permitted to install.
 pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
-    "4fc9cd57b75ec3c5c71bf4a2a08ecaa7d3705234312bba5bea525005fa518f39";
+    "14b6578e469ac8b2bab754ff13e1aa97cec8d9178235aa2993e1eabec4785a28";
 pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
 
@@ -657,16 +657,12 @@ pub(crate) fn build_component(
     toolchain: &PinnedRustToolchain,
 ) -> Result<ProviderLowererComponent> {
     let target_directory = absolute_target_directory(repository_root, target_directory);
-    let repository_root_text = path_text(repository_root)?;
-    let target_directory_text = path_text(&target_directory)?;
-
-    let encoded_rustflags = [
-        format!("--remap-path-prefix={repository_root_text}=/echo"),
-        format!("--remap-path-prefix={target_directory_text}=/target"),
-    ]
-    .join("\u{1f}");
+    let cargo_home = target_directory.join("cargo-home");
+    let encoded_rustflags =
+        encoded_build_rustflags(repository_root, &target_directory, &cargo_home)?;
 
     let mut command = Command::new(&toolchain.cargo);
+    remove_ambient_cargo_build_overrides(&mut command, std::env::vars_os().map(|(name, _)| name));
     bind_pinned_toolchain(&mut command, toolchain);
     let output = command
         .args([
@@ -679,6 +675,7 @@ pub(crate) fn build_component(
             "--locked",
         ])
         .current_dir(repository_root)
+        .env("CARGO_HOME", &cargo_home)
         .env("CARGO_TARGET_DIR", &target_directory)
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags)
@@ -718,6 +715,41 @@ pub(crate) fn build_component(
     })?;
 
     componentize(&core_bytes)
+}
+
+fn encoded_build_rustflags(
+    repository_root: &Path,
+    target_directory: &Path,
+    cargo_home: &Path,
+) -> Result<String> {
+    let repository_root_text = path_text(repository_root)?;
+    let target_directory_text = path_text(target_directory)?;
+    let cargo_home_text = path_text(cargo_home)?;
+
+    // rustc uses the last matching remap, so broad roots precede nested roots.
+    Ok([
+        format!("--remap-path-prefix={repository_root_text}=/echo"),
+        format!("--remap-path-prefix={target_directory_text}=/target"),
+        format!("--remap-path-prefix={cargo_home_text}=/cargo"),
+    ]
+    .join("\u{1f}"))
+}
+
+fn remove_ambient_cargo_build_overrides(
+    command: &mut Command,
+    names: impl IntoIterator<Item = OsString>,
+) {
+    for name in names {
+        let Some(name_text) = name.to_str() else {
+            continue;
+        };
+        if ["CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_"]
+            .iter()
+            .any(|prefix| name_text.starts_with(prefix))
+        {
+            command.env_remove(name);
+        }
+    }
 }
 
 fn bind_pinned_toolchain(command: &mut Command, toolchain: &PinnedRustToolchain) {
@@ -1594,6 +1626,38 @@ mod tests {
     }
 
     #[test]
+    fn provider_component_build_flags_remap_cargo_home_to_one_stable_prefix(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(
+            encoded_build_rustflags(
+                Path::new("/workspace/echo"),
+                Path::new("/workspace/echo/target/provider-a"),
+                Path::new("/workspace/echo/target/provider-a/cargo-home"),
+            )?,
+            [
+                "--remap-path-prefix=/workspace/echo=/echo",
+                "--remap-path-prefix=/workspace/echo/target/provider-a=/target",
+                "--remap-path-prefix=/workspace/echo/target/provider-a/cargo-home=/cargo",
+            ]
+            .join("\u{1f}")
+        );
+        assert_eq!(
+            encoded_build_rustflags(
+                Path::new("/checkout-b/echo"),
+                Path::new("/var/tmp/provider-b"),
+                Path::new("/var/tmp/provider-b/cargo-home"),
+            )?,
+            [
+                "--remap-path-prefix=/checkout-b/echo=/echo",
+                "--remap-path-prefix=/var/tmp/provider-b=/target",
+                "--remap-path-prefix=/var/tmp/provider-b/cargo-home=/cargo",
+            ]
+            .join("\u{1f}")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn checked_builder_policy_is_explicit_and_fails_closed(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
@@ -1691,6 +1755,39 @@ mod tests {
         assert!(toolchain.rustc.is_absolute());
         assert!(!toolchain.host().is_empty());
         Ok(())
+    }
+
+    #[test]
+    fn ambient_cargo_build_overrides_are_removed_by_prefix_family() {
+        let mut command = Command::new("cargo");
+        let overridden = [
+            "CARGO_PROFILE_RELEASE_OPT_LEVEL",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG",
+            "CARGO_BUILD_TARGET",
+            "CARGO_BUILD_JOBS",
+            "CARGO_TARGET_DIR",
+            "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS",
+        ];
+        for name in overridden {
+            command.env(name, "ambient");
+        }
+        command.env("CARGO_NET_OFFLINE", "true");
+
+        remove_ambient_cargo_build_overrides(
+            &mut command,
+            overridden
+                .into_iter()
+                .chain(["CARGO_NET_OFFLINE"])
+                .map(OsString::from),
+        );
+
+        for name in overridden {
+            assert!(command_environment_is_removed(&command, name));
+        }
+        assert_eq!(
+            command_environment_value(&command, "CARGO_NET_OFFLINE"),
+            Some(std::ffi::OsStr::new("true"))
+        );
     }
 
     #[test]
@@ -2004,18 +2101,44 @@ mod tests {
     }
 
     #[test]
+    fn checked_component_contains_no_physical_builder_paths() {
+        let bytes = include_bytes!(
+            "../../schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+        );
+        for forbidden in [
+            b"/usr/local/cargo".as_slice(),
+            b"/home/runner/.cargo".as_slice(),
+            b"/target/cargo-home".as_slice(),
+        ] {
+            assert!(!bytes.windows(forbidden.len()).any(|part| part == forbidden));
+        }
+        let canonical = b"/cargo/registry/src/";
+        assert!(bytes.windows(canonical.len()).any(|part| part == canonical));
+    }
+
+    #[test]
     fn repository_routes_preserve_separate_build_propositions() {
+        let designated_image = "docker.io/library/rust@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f";
         let ci = include_str!("../../.github/workflows/ci.yml");
         assert!(ci.contains("cargo xtask provider-lowerer-component check"));
         assert!(ci.contains("runs-on: ubuntu-24.04"));
+        assert!(ci.contains(designated_image));
+        assert!(ci.contains("options: --platform linux/amd64"));
 
         let determinism = include_str!("../../.github/workflows/det-gates.yml");
+        assert!(determinism.contains(designated_image));
+        assert!(determinism.contains("options: --platform linux/amd64"));
+        assert!(determinism.contains("candidate: [1, 2]"));
+        assert!(determinism.contains("build-repro-candidate-${{ matrix.candidate }}"));
+        assert!(determinism.matches("overwrite: true").count() >= 2);
         assert!(determinism.contains("cargo xtask provider-lowerer-component designated-build"));
+        assert!(determinism.contains("cargo xtask provider-lowerer-component promote"));
+        assert!(determinism.contains("--write"));
         assert!(determinism.contains(
-            "cmp build1.lowerer.component.wasm build1/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+            "cmp build1.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
         ));
         assert!(determinism.contains(
-            "cmp build2.lowerer.component.wasm build2/schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+            "cmp build2.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
         ));
 
         let host = include_str!("../../scripts/verify-edict-provider-host-v1.sh");

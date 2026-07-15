@@ -1821,6 +1821,45 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
 }
 
 #[test]
+fn raw_store_commits_cannot_confer_causal_anchor_authority() {
+    let transaction = witnessed_causal_anchor_transaction(
+        "raw-store-authority",
+        Lsn::from_raw(0),
+        causal_history_genesis_frontier_digest(),
+        causal_anchor_genesis_frontier_digest(),
+    );
+
+    let mut in_memory = InMemoryWalStore::new();
+    assert_raw_store_rejects_anchor_commit(&mut in_memory, &transaction);
+
+    let dir = temp_wal_dir("raw-store-authority");
+    let mut filesystem = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    assert_raw_store_rejects_anchor_commit(&mut filesystem, &transaction);
+}
+
+fn assert_raw_store_rejects_anchor_commit(
+    store: &mut impl WalStorePort,
+    transaction: &WalCommittedTransaction,
+) {
+    let epoch_id = transaction.commit.writer_epoch;
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    for frame in transaction.frames.iter().cloned() {
+        must_ok(store.append_frame(epoch_id, frame));
+    }
+    let error = must_err(
+        store.flush_commit(epoch_id, transaction.commit.clone()),
+        "raw WAL store commits must not carry causal-anchor admission authority",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::Validation(
+            crate::causal_wal::WalValidationError::AdmissionKernelCapabilityRequired
+        )
+    ));
+    assert!(store.read_commits().is_empty());
+}
+
+#[test]
 fn wsc_materialized_anchor_import_rejects_unwitnessed_anchor_transitions() {
     let basis_label = "wsc-forged-anchor-basis";
     assert_wsc_materialized_anchor_import_rejected(

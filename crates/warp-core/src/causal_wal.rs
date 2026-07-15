@@ -975,11 +975,10 @@ pub struct WalCommittedTransaction {
 impl WalCommittedTransaction {
     /// Validates the transaction's structural and semantic commit invariants.
     pub fn validate(&self) -> Result<(), WalValidationError> {
-        if self.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission
-            && self.admission_kernel_capability.is_none()
-        {
-            return Err(WalValidationError::AdmissionKernelCapabilityRequired);
-        }
+        validate_admission_kernel_capability(
+            self.commit.transaction_kind,
+            self.admission_kernel_capability,
+        )?;
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
         validate_transaction_frontiers(&self.affected_frontiers, self.commit.transaction_kind)?;
@@ -996,6 +995,16 @@ impl WalCommittedTransaction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AdmissionKernelCapability;
+
+fn validate_admission_kernel_capability(
+    transaction_kind: WalTransactionKind,
+    capability: Option<AdmissionKernelCapability>,
+) -> Result<(), WalValidationError> {
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission && capability.is_none() {
+        return Err(WalValidationError::AdmissionKernelCapabilityRequired);
+    }
+    Ok(())
+}
 
 /// Builder for a contiguous WAL transaction.
 #[derive(Clone, Debug)]
@@ -1256,6 +1265,10 @@ pub trait WalStorePort {
     ) -> Result<(), WalStoreError>;
 
     /// Flushes a transaction commit marker under the store's durability mode.
+    ///
+    /// Raw store callers cannot flush admission-kernel transaction kinds. Those
+    /// commits require the private capability carried by a validated Echo
+    /// transaction and must use the concrete store's transaction append path.
     fn flush_commit(
         &mut self,
         epoch_id: WriterEpochId,
@@ -1693,11 +1706,37 @@ impl InMemoryWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.commits.push(commit);
+        Ok(())
     }
 
     /// Appends a frame without a commit marker to simulate an uncommitted tail.
@@ -1752,22 +1791,7 @@ impl WalStorePort for InMemoryWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.commits.push(commit);
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -5240,11 +5264,60 @@ impl FilesystemWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::FlushCommit)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL flush_commit failure".to_owned(),
+            ));
+        }
+        let transaction_id = commit.transaction_id;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
+            FilesystemSyncBoundary::CommitFileSynced,
+            transaction_id,
+        ));
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL commit_marker_synced failure".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     /// Appends an uncommitted frame to simulate a torn transaction tail.
@@ -5343,45 +5416,7 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::FlushCommit)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL flush_commit failure".to_owned(),
-            ));
-        }
-        let transaction_id = commit.transaction_id;
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
-            FilesystemSyncBoundary::CommitFileSynced,
-            transaction_id,
-        ));
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL commit_marker_synced failure".to_owned(),
-            ));
-        }
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {

@@ -13,6 +13,12 @@
   domain inventories plus every embedded resource byte, digest, and provenance
   record, rejects tampering with stable structured error kinds, and performs no
   filesystem, registry, environment, or network discovery.
+- `echo-wesley-gen` now implements the exact `edict.canonical-cbor/v1` value,
+  encoding, nesting, map-ordering, and domain-framed SHA-256 contracts. Named
+  provider artifacts must both use those canonical bytes and satisfy their
+  owning root in the admitted Edict CDDL; typed failures distinguish unknown
+  contracts, invalid canonical encoding, and schema mismatch. This validates a
+  generation artifact and does not grant Echo runtime authority or admission.
 - `echo-wesley-gen` now constructs a canonical Wesley extension-generation
   input from exact Echo semantic-source bytes, the admitted Edict CDDL and
   manifest, and checked versioned settings. The first provider closure uses an

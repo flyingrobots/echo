@@ -126,7 +126,11 @@ the pinned publication identity, exact inventories, resource bytes, digests,
 and provenance before generation. The semantic source selects those contracts
 but does not authenticate arbitrary caller bytes under their coordinates.
 Contract-pack admission authenticates schema authority; generated values must
-still pass the owning CDDL root during output admission.
+still pass the owning CDDL root during output admission. Echo's pure
+`AdmittedProviderContractPackV1::validate_contract_bytes(...)` boundary now
+enforces both exact `edict.canonical-cbor/v1` bytes and that named root. This is
+generation-time artifact validation, not runtime installation or authority;
+Echo must still explicitly admit any package, operation, or consequence.
 
 Issue #655, after the lowerer and verifier components exist, assembles those
 outputs and generates the package-root `edict.provider-manifest/v1` for

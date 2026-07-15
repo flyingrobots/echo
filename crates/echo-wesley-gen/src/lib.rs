@@ -18,6 +18,9 @@ pub mod provider_semantics;
 /// Explicit admission boundary for the Edict-owned provider contract pack.
 pub mod provider_contract_pack;
 
+/// Edict canonical values, CBOR encoding, and domain-framed artifact digests.
+pub mod provider_canonical;
+
 /// Canonical Wesley input assembly for Echo provider artifact generation.
 pub mod provider_generation;
 

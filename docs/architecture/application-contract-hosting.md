@@ -180,7 +180,11 @@ self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
 contract pack merged in Edict PR #162. Echo admits its exact CDDL, manifest,
 contract/domain inventories, resource bytes, digests, and provenance before
 generation without searching a filesystem, registry, or network. Schema
-instance validation remains a separate output-admission step.
+instance validation is a separate output-admission step: exact
+`edict.canonical-cbor/v1` decoding is followed by validation against the named
+owning root in that authenticated CDDL. Passing both checks attests provider
+artifact shape only. It does not make authority-facts runtime Echo authority,
+install a package, admit an operation, or authorize a runtime consequence.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package

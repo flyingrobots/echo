@@ -44,6 +44,14 @@ embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.
 
+`provider_canonical` implements the publication's exact
+`edict.canonical-cbor/v1` subset and `edict.digest/v1` domain frame.
+`AdmittedProviderContractPackV1::validate_contract_bytes(...)` first requires
+those exact canonical bytes and then validates the decoded value against the
+named contract's owning root in the authenticated CDDL. Canonical decoding or
+hashing alone is not schema admission, and even successful owning-root
+validation does not install an artifact or confer Echo runtime authority.
+
 `provider_generation::build_provider_generation_input_v1(...)` joins that
 admitted pack with exact Echo semantic-source bytes and the checked versioned
 generation settings. It constructs Wesley's canonical extension-generation

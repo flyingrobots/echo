@@ -9,9 +9,17 @@
 //! identity checked here.
 
 use std::fmt;
+use std::sync::Arc;
 
+use cddl_cat::cbor::validate_cbor;
+use cddl_cat::context::BasicContext;
+use cddl_cat::flatten::flatten_from_str;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+use crate::provider_canonical::{
+    decode_canonical_cbor_v1, CanonicalValueErrorKind, CanonicalValueV1,
+};
 
 /// Exact Edict contract-pack API accepted by Echo provider generation.
 pub const EDICT_PROVIDER_CONTRACT_PACK_API_V1: &str = "edict.provider-contract-pack/v1";
@@ -197,14 +205,40 @@ impl ProviderContractResourceV1 {
 }
 
 /// Opaque proof that explicit bytes match Echo's pinned Edict publication.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct AdmittedProviderContractPackV1 {
     schema_bytes: Vec<u8>,
     manifest_bytes: Vec<u8>,
     contracts: Vec<ProviderContractBindingV1>,
     domains: Vec<ProviderDomainBindingV1>,
     resources: Vec<ProviderContractResourceV1>,
+    schema_context: Arc<BasicContext>,
 }
+
+impl fmt::Debug for AdmittedProviderContractPackV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdmittedProviderContractPackV1")
+            .field("schema_bytes", &self.schema_bytes)
+            .field("manifest_bytes", &self.manifest_bytes)
+            .field("contracts", &self.contracts)
+            .field("domains", &self.domains)
+            .field("resources", &self.resources)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for AdmittedProviderContractPackV1 {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema_bytes == other.schema_bytes
+            && self.manifest_bytes == other.manifest_bytes
+            && self.contracts == other.contracts
+            && self.domains == other.domains
+            && self.resources == other.resources
+    }
+}
+
+impl Eq for AdmittedProviderContractPackV1 {}
 
 impl AdmittedProviderContractPackV1 {
     /// Returns the exact admitted API version.
@@ -301,7 +335,140 @@ impl AdmittedProviderContractPackV1 {
             .iter()
             .find(|resource| resource.coordinate == coordinate)
     }
+
+    /// Decode canonical bytes and validate them against one named owning root.
+    ///
+    /// This boundary validates only the trusted, digest-pinned Edict publication.
+    /// It does not admit an artifact into the Echo runtime or grant runtime
+    /// authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable structured error when the contract is unknown, the
+    /// supplied bytes are not exact Edict canonical CBOR, or the decoded value
+    /// does not satisfy the named contract's admitted CDDL root.
+    pub fn validate_contract_bytes(
+        &self,
+        contract: &str,
+        bytes: &[u8],
+    ) -> Result<CanonicalValueV1, ProviderContractValidationError> {
+        let root = self
+            .contracts
+            .iter()
+            .find(|binding| binding.contract == contract)
+            .map(ProviderContractBindingV1::root_rule)
+            .ok_or_else(|| {
+                ProviderContractValidationError::new(
+                    ProviderContractValidationErrorKind::UnknownContract,
+                    contract,
+                    None,
+                )
+            })?;
+        let value = decode_canonical_cbor_v1(bytes).map_err(|error| {
+            ProviderContractValidationError::new(
+                ProviderContractValidationErrorKind::CanonicalEncodingInvalid,
+                contract,
+                Some(error.kind()),
+            )
+        })?;
+        let cbor_value: ciborium::Value = ciborium::from_reader(bytes).map_err(|_| {
+            ProviderContractValidationError::new(
+                ProviderContractValidationErrorKind::CanonicalEncodingInvalid,
+                contract,
+                None,
+            )
+        })?;
+        let rule = self.schema_context.rules.get(root).ok_or_else(|| {
+            ProviderContractValidationError::new(
+                ProviderContractValidationErrorKind::SchemaMismatch,
+                contract,
+                None,
+            )
+        })?;
+        validate_cbor(rule, &cbor_value, self.schema_context.as_ref()).map_err(|_| {
+            ProviderContractValidationError::new(
+                ProviderContractValidationErrorKind::SchemaMismatch,
+                contract,
+                None,
+            )
+        })?;
+        Ok(value)
+    }
 }
+
+/// Stable failure categories returned by named provider-contract validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderContractValidationErrorKind {
+    /// The admitted publication does not declare the requested contract name.
+    UnknownContract,
+    /// The supplied bytes are not exact `edict.canonical-cbor/v1` bytes.
+    CanonicalEncodingInvalid,
+    /// The canonical value does not satisfy the contract's owning CDDL root.
+    SchemaMismatch,
+}
+
+impl ProviderContractValidationErrorKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::UnknownContract => "unknown-contract",
+            Self::CanonicalEncodingInvalid => "canonical-encoding-invalid",
+            Self::SchemaMismatch => "schema-mismatch",
+        }
+    }
+}
+
+/// Structured failure from canonical bytes and owning-root validation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderContractValidationError {
+    kind: ProviderContractValidationErrorKind,
+    subject: String,
+    canonical_value_kind: Option<CanonicalValueErrorKind>,
+}
+
+impl ProviderContractValidationError {
+    /// Returns the stable validation failure category.
+    #[must_use]
+    pub const fn kind(&self) -> ProviderContractValidationErrorKind {
+        self.kind
+    }
+
+    /// Returns the requested logical contract name.
+    #[must_use]
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// Returns the typed canonical-value cause, when decoding failed.
+    #[must_use]
+    pub const fn canonical_value_kind(&self) -> Option<CanonicalValueErrorKind> {
+        self.canonical_value_kind
+    }
+
+    fn new(
+        kind: ProviderContractValidationErrorKind,
+        subject: impl Into<String>,
+        canonical_value_kind: Option<CanonicalValueErrorKind>,
+    ) -> Self {
+        Self {
+            kind,
+            subject: subject.into(),
+            canonical_value_kind,
+        }
+    }
+}
+
+impl fmt::Display for ProviderContractValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "provider contract validation {}: {}",
+            self.kind.label(),
+            self.subject
+        )
+    }
+}
+
+impl std::error::Error for ProviderContractValidationError {}
 
 /// Stable failure categories returned by contract-pack admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -338,6 +505,10 @@ pub enum ProviderContractPackErrorKind {
     ResourceProvenanceMismatch,
     /// The manifest bytes differed despite matching known semantic fields.
     ManifestDigestMismatch,
+    /// The authenticated self-contained CDDL publication failed to compile.
+    SchemaCompilationFailed,
+    /// The compiled publication did not contain one of its declared roots.
+    SchemaRootMissing,
 }
 
 /// Structured contract-pack parsing or admission failure.
@@ -492,6 +663,8 @@ pub fn admit_provider_contract_pack_v1(
         ));
     }
 
+    let schema_context = compile_schema_context(schema_bytes)?;
+
     Ok(AdmittedProviderContractPackV1 {
         schema_bytes: schema_bytes.to_vec(),
         manifest_bytes: manifest_bytes.to_vec(),
@@ -512,7 +685,38 @@ pub fn admit_provider_contract_pack_v1(
             })
             .collect(),
         resources,
+        schema_context,
     })
+}
+
+fn compile_schema_context(
+    schema_bytes: &[u8],
+) -> Result<Arc<BasicContext>, ProviderContractPackError> {
+    let schema = std::str::from_utf8(schema_bytes).map_err(|_| {
+        ProviderContractPackError::new(
+            ProviderContractPackErrorKind::SchemaCompilationFailed,
+            EDICT_PROVIDER_CONTRACT_PACK_COORDINATE_V1,
+            "utf-8 CDDL",
+        )
+    })?;
+    let rules = flatten_from_str(schema).map_err(|_| {
+        ProviderContractPackError::new(
+            ProviderContractPackErrorKind::SchemaCompilationFailed,
+            EDICT_PROVIDER_CONTRACT_PACK_COORDINATE_V1,
+            "compiled CDDL",
+        )
+    })?;
+    let context = Arc::new(BasicContext::new(rules));
+    for (_, root) in EXPECTED_CONTRACTS.into_iter().chain(EXPECTED_DOMAINS) {
+        if !context.rules.contains_key(root) {
+            return Err(ProviderContractPackError::new(
+                ProviderContractPackErrorKind::SchemaRootMissing,
+                root,
+                EDICT_PROVIDER_CONTRACT_PACK_COORDINATE_V1,
+            ));
+        }
+    }
+    Ok(context)
 }
 
 fn validate_resources(

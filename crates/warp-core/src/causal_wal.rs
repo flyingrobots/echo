@@ -10,6 +10,13 @@
 //! Transactions are committed.
 //! History begins at WalTransactionCommit.
 //! ```
+//!
+//! Causal-anchor admission transaction construction is an admission-kernel
+//! authority and is intentionally absent from the downstream API:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::build_causal_anchor_admission_transaction;
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -22,9 +29,14 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+use crate::causal_anchor::{prepare_causal_anchor_admission, CausalAnchorClaim};
 use crate::causal_anchor::{
-    prepare_causal_anchor_admission, validate_causal_anchor_admission_evidence,
-    CausalAnchorAdmissionReceipt, CausalAnchorClaim, CausalAnchorError, CausalAnchorFact,
+    validate_causal_anchor_admission_evidence, CausalAnchorAdmissionReceipt, CausalAnchorError,
+    CausalAnchorFact,
 };
 use crate::clock::WorldlineTick;
 use crate::contract_registry::{
@@ -7566,7 +7578,11 @@ fn push_tick_receipt_records(
 }
 
 /// Builds one atomic Echo-owned causal-anchor admission transaction.
-pub fn build_causal_anchor_admission_transaction(
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+pub(crate) fn build_causal_anchor_admission_transaction(
     mut builder: WalTransactionBuilder,
     claim: CausalAnchorClaim,
     support_policy_digest: Hash,

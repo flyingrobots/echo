@@ -9,10 +9,7 @@
     clippy::unnecessary_debug_formatting
 )]
 
-use echo_cas::{
-    BlobHash, BlobStore, MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate,
-};
-use warp_core::causal_wal::{
+use crate::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_causal_anchor_admission_transaction, build_checkpoint_publication_transaction,
     build_materialization_outbox_transaction, build_recovery_certificate,
@@ -57,7 +54,7 @@ use warp_core::causal_wal::{
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
 };
-use warp_core::wsc::{
+use crate::wsc::{
     accepted_submission_records_from_wsc_envelope, build_one_warp_input,
     causal_anchor_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
     topology_records_from_wsc_envelope, validate_wsc, validate_wsc_cas_addressed_wal_export,
@@ -72,12 +69,15 @@ use warp_core::wsc::{
     WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
     WscStoreRecordKind, WscWalCausalHistoryRecords,
 };
-use warp_core::{
+use crate::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
     CausalAnchorPurpose, CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef,
     CausalTickReceiptRef, GlobalTick, Hash, HeadId, OriginId, WorldlineId, WorldlineTick,
     WriterHeadKey, CAUSAL_ANCHOR_SCHEMA_VERSION,
+};
+use echo_cas::{
+    BlobHash, BlobStore, MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -828,7 +828,7 @@ fn wal_projection_from_recovery() {
         }
     ));
 
-    let mismatched_certificate = warp_core::causal_wal::RecoveryCertificate {
+    let mismatched_certificate = crate::causal_wal::RecoveryCertificate {
         committed_transactions_replayed: 99,
         ..certificate
     };
@@ -2488,7 +2488,7 @@ fn wsc_records_with_causal_anchors<'a>(
     accepted_submissions: &'a [SubmissionAcceptanceRecord],
     receipts: &'a [TickReceiptRecord],
     correlations: &'a [WalReceiptCorrelationRecord],
-    causal_anchors: &'a [warp_core::RecoveredCausalAnchorAdmission],
+    causal_anchors: &'a [crate::RecoveredCausalAnchorAdmission],
 ) -> WscWalCausalHistoryRecords<'a> {
     WscWalCausalHistoryRecords {
         retained_materials,
@@ -3031,7 +3031,7 @@ fn semantic_validation_rejects_record_authority_mismatch() {
     assert!(matches!(
         tx,
         Err(WalBuildError::Validation(
-            warp_core::causal_wal::WalValidationError::RecordAuthorityMismatch
+            crate::causal_wal::WalValidationError::RecordAuthorityMismatch
         ))
     ));
 }

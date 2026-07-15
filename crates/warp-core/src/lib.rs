@@ -44,9 +44,13 @@ mod attachment;
 mod braid;
 mod braid_shell;
 mod causal_anchor;
+#[cfg(test)]
+mod causal_anchor_wal_tests;
 mod causal_facts;
 mod causal_receipt;
 pub mod causal_wal;
+#[cfg(test)]
+mod causal_wal_tests;
 mod clock;
 mod cmd;
 mod constants;

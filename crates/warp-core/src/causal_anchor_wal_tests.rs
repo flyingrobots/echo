@@ -6,17 +6,15 @@
 
 use std::fmt::Debug;
 
-use warp_core::causal_wal::{
+use crate::causal_wal::{
     build_causal_anchor_admission_transaction, recover_causal_anchor_admissions,
     recover_from_frames_and_commits, AffectedFrontier, AffectedFrontierKind, Lsn, PayloadCodecId,
     PayloadSchemaId, RecoveryAccessMode, WalAppendAuthority, WalBuildError,
     WalCommittedTransaction, WalDurabilityMode, WalRecordKind, WalRecoveryIndexError, WalSegmentId,
     WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
 };
-use warp_core::wsc::{
-    causal_anchor_records_from_wsc_envelope, causal_anchor_records_to_wsc_envelope,
-};
-use warp_core::{
+use crate::wsc::{causal_anchor_records_from_wsc_envelope, causal_anchor_records_to_wsc_envelope};
+use crate::{
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
     CausalAnchorSubject, CausalFrontierRef, Hash, CAUSAL_ANCHOR_SCHEMA_VERSION,
@@ -122,7 +120,7 @@ fn transaction(label: &str) -> Result<WalCommittedTransaction, WalBuildError> {
 
 fn report_for(
     transaction: &WalCommittedTransaction,
-) -> Result<warp_core::causal_wal::RecoveryScanReport, warp_core::causal_wal::WalRecoveryError> {
+) -> Result<crate::causal_wal::RecoveryScanReport, crate::causal_wal::WalRecoveryError> {
     recover_from_frames_and_commits(
         &transaction.frames,
         std::slice::from_ref(&transaction.commit),

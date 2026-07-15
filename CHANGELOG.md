@@ -7,6 +7,23 @@
 
 ### Added
 
+- Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
+  Component Model implementation for the first checked provider closure. The
+  pure lowerer accepts only explicit digest-bound Core, target-profile,
+  authority, lawpack, lowerability, and output-role inputs; produces canonical
+  `echo.span-ir/v1` Target IR with byte-for-byte parity to Edict's built-in Echo
+  wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
+  reads, rebound operations, unresolved authored optics, changed type bindings,
+  intrinsics, and output roles. A deterministic build boundary pins the frozen
+  WIT bytes, rejects ambient or callable imports, checks the exact decoded world
+  type graph and contract attestation, and reproduces the checked component
+  byte-for-byte across fresh target directories. These artifacts describe and
+  translate provider semantics; they confer no Echo runtime authority.
+- `echo-edict-canonical` now owns the shared pure implementation of Edict's
+  canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
+  leaf. `echo-wesley-gen` retains its existing compatibility surface through a
+  re-export, while executable provider components use the same codec without
+  depending on generator or Wesley APIs.
 - `echo-wesley-gen` now checks in the first exact 22-file Edict provider
   artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
   resources, the self-contained CDDL, Wesley provenance JSON, and

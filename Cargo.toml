@@ -16,6 +16,8 @@ members = [
     "crates/echo-dind-tests",
     "crates/echo-wasm-abi",
     "crates/echo-registry-api",
+    "crates/echo-edict-canonical",
+    "crates/echo-edict-provider-lowerer",
     "crates/echo-wesley-gen",
     "crates/echo-dry-tests",
     "crates/echo-cas",
@@ -39,6 +41,7 @@ echo-file-aperture = { version = "0.1.0", path = "crates/echo-file-aperture" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
 echo-runtime-schema = { version = "0.1.0", path = "crates/echo-runtime-schema", default-features = false }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
+echo-edict-canonical = { version = "0.1.0", path = "crates/echo-edict-canonical" }
 echo-scene-codec = { version = "0.1.0", path = "crates/echo-scene-codec" }
 echo-scene-port = { version = "0.1.0", path = "crates/echo-scene-port" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }

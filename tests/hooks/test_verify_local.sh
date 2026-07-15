@@ -28,6 +28,11 @@ if grep -q -- 'cargo clippy -p warp-math --all-targets -- -D warnings -D missing
 else
   fail "CI clippy should cover all warp-math targets"
 fi
+if grep -q -- 'cargo +1.90.0 clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
+  pass "CI clippy covers the wasm-only Edict provider adapter"
+else
+  fail "CI clippy should cover the wasm-only Edict provider adapter"
+fi
 if awk '
   /^permissions:$/ { in_permissions = 1; next }
   in_permissions && /^[^[:space:]]/ { in_permissions = 0 }
@@ -243,6 +248,12 @@ run_fake_verify() {
   mkdir -p "$tmp/crates/warp-math/src/bin"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
+  cat >"$tmp/scripts/verify-edict-provider-host-v1.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "edict-provider-host-v1" >>"$VERIFY_FAKE_HOOK_LOG"
+EOF
+  chmod +x "$tmp/scripts/verify-edict-provider-host-v1.sh"
 
   cat >"$tmp/rust-toolchain.toml" <<'EOF'
 [toolchain]
@@ -1820,6 +1831,68 @@ if printf '%s\n' "$fake_echo_wasm_abi_canonical_output" | grep -q -- 'test -p ec
   printf '%s\n' "$fake_echo_wasm_abi_canonical_output"
 else
   pass "canonical ABI changes avoid the generic lib smoke lane"
+fi
+
+fake_edict_component_output="$(run_fake_verify full schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm)"
+if printf '%s\n' "$fake_edict_component_output" | grep -q 'critical local gate (targeted-rust)'; then
+  pass "checked Edict component changes select the lowerer Rust scope"
+else
+  fail "checked Edict component changes should select the lowerer Rust scope"
+  printf '%s\n' "$fake_edict_component_output"
+fi
+if printf '%s\n' "$fake_edict_component_output" | grep -q -- 'clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs'; then
+  pass "checked Edict component changes run wasm-target strict Clippy"
+else
+  fail "checked Edict component changes should run wasm-target strict Clippy"
+  printf '%s\n' "$fake_edict_component_output"
+fi
+if printf '%s\n' "$fake_edict_component_output" | grep -q '^edict-provider-host-v1$'; then
+  pass "checked Edict component changes run the isolated host witness"
+else
+  fail "checked Edict component changes should run the isolated host witness"
+  printf '%s\n' "$fake_edict_component_output"
+fi
+
+fake_edict_wit_output="$(run_fake_verify full crates/echo-edict-provider-lowerer/wit/edict-target-provider.wit)"
+if printf '%s\n' "$fake_edict_wit_output" | grep -q 'critical local gate (targeted-rust)'; then
+  pass "Edict lowerer WIT changes select the lowerer Rust scope"
+else
+  fail "Edict lowerer WIT changes should select the lowerer Rust scope"
+  printf '%s\n' "$fake_edict_wit_output"
+fi
+if printf '%s\n' "$fake_edict_wit_output" | grep -q -- 'clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs'; then
+  pass "Edict lowerer WIT changes run wasm-target strict Clippy"
+else
+  fail "Edict lowerer WIT changes should run wasm-target strict Clippy"
+  printf '%s\n' "$fake_edict_wit_output"
+fi
+if printf '%s\n' "$fake_edict_wit_output" | grep -q '^edict-provider-host-v1$'; then
+  pass "Edict lowerer WIT changes run the isolated host witness"
+else
+  fail "Edict lowerer WIT changes should run the isolated host witness"
+  printf '%s\n' "$fake_edict_wit_output"
+fi
+
+fake_edict_host_output="$(run_fake_verify full tests/edict-provider-host-v1/tests/provider_host.rs)"
+if printf '%s\n' "$fake_edict_host_output" | grep -q -- 'clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs'; then
+  pass "isolated Edict host changes run wasm-target strict Clippy"
+else
+  fail "isolated Edict host changes should run wasm-target strict Clippy"
+  printf '%s\n' "$fake_edict_host_output"
+fi
+if printf '%s\n' "$fake_edict_host_output" | grep -q '^edict-provider-host-v1$'; then
+  pass "isolated Edict host changes rerun the host witness"
+else
+  fail "isolated Edict host changes should rerun the host witness"
+  printf '%s\n' "$fake_edict_host_output"
+fi
+
+fake_edict_host_script_output="$(run_fake_verify full scripts/verify-edict-provider-host-v1.sh)"
+if printf '%s\n' "$fake_edict_host_script_output" | grep -q '^edict-provider-host-v1$'; then
+  pass "Edict host verifier script changes rerun the host witness"
+else
+  fail "Edict host verifier script changes should rerun the host witness"
+  printf '%s\n' "$fake_edict_host_script_output"
 fi
 
 fake_warp_wasm_readme_output="$(run_fake_verify full crates/warp-wasm/README.md)"

@@ -9,7 +9,7 @@ set -euo pipefail
 #   ./scripts/ban-nondeterminism.sh
 #
 # Optional env:
-#   DETERMINISM_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
+#   DETERMINISM_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer"
 #   DETERMINISM_ALLOWLIST=".ban-nondeterminism-allowlist"
 #
 # Every waiver is rule-scoped to an exact path and must explain why the
@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source scripts/lib/determinism-scan.sh
 
-PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
+PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer"
 PATHS="${DETERMINISM_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${DETERMINISM_ALLOWLIST:-.ban-nondeterminism-allowlist}"

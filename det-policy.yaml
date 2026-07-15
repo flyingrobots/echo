@@ -39,6 +39,14 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-wasm-abi/**"]
+  echo-edict-canonical:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-edict-canonical/**"]
+  echo-edict-provider-lowerer:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-edict-provider-lowerer/**", "schemas/edict-provider/components/v1/**", "tests/edict-provider-host-v1/**"]
   echo-runtime-schema:
     class: DET_CRITICAL
     owner_role: "Architect"

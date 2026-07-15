@@ -21,6 +21,7 @@ cap-std = "=4.0.2"
 cddl-cat = { version = "0.7.1", default-features = false, features = ["ciborium"] }
 ciborium = "0.2.2"
 clap = { version = "4.4", features = ["derive"] }
+echo-edict-canonical = { workspace = true }
 hex = "0.4"
 proc-macro2 = "1.0"
 quote = "1.0"

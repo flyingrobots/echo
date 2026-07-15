@@ -23,6 +23,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 mod hello_echo;
+mod provider_lowerer_component;
 
 #[derive(Parser)]
 #[command(
@@ -47,6 +48,8 @@ enum Commands {
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
     PrSnapshot(PrSnapshotArgs),
+    /// Build or check the exact Echo Edict provider lowerer component.
+    ProviderLowererComponent(ProviderLowererComponentArgs),
     /// List, reply to, or resolve PR review threads via `gh`.
     PrThreads(PrThreadsArgs),
     /// Run the high-signal local gate before opening a PR.
@@ -73,6 +76,19 @@ struct TestSliceArgs {
     /// Print the exact commands without running them.
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentArgs {
+    /// Explicit output path, relative to the repository root unless absolute.
+    #[arg(long)]
+    output: PathBuf,
+    /// Explicit Cargo target directory, relative to the repository root unless absolute.
+    #[arg(long)]
+    target_dir: PathBuf,
+    /// Write missing or stale output bytes; the default only reports drift.
+    #[arg(long)]
+    write: bool,
 }
 
 #[derive(Args)]
@@ -370,6 +386,7 @@ fn main() -> Result<()> {
         Commands::HelloEcho(args) => run_hello_echo(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
+        Commands::ProviderLowererComponent(args) => run_provider_lowerer_component(args),
         Commands::PrThreads(args) => run_pr_threads(args),
         Commands::PrPreflight(args) => run_pr_preflight(args),
         Commands::Dind(args) => run_dind(args),
@@ -379,6 +396,33 @@ fn main() -> Result<()> {
         Commands::DocsLint(args) => run_docs_lint(args),
         Commands::TestSlice(args) => run_test_slice(args),
     }
+}
+
+fn run_provider_lowerer_component(args: ProviderLowererComponentArgs) -> Result<()> {
+    let repository_root = find_repo_root()?;
+    let output_path = if args.output.is_absolute() {
+        args.output
+    } else {
+        repository_root.join(args.output)
+    };
+    let component =
+        provider_lowerer_component::build_component(&repository_root, &args.target_dir)?;
+    let mode = if args.write {
+        provider_lowerer_component::ComponentOutputMode::Write
+    } else {
+        provider_lowerer_component::ComponentOutputMode::Check
+    };
+    let status = provider_lowerer_component::sync_output(&output_path, component.bytes(), mode)?;
+    let status = match status {
+        provider_lowerer_component::ComponentOutputStatus::Current => "current",
+        provider_lowerer_component::ComponentOutputStatus::Written => "written",
+    };
+    println!(
+        "provider lowerer component: {status}; sha256:{}; {}",
+        component.sha256_hex(),
+        output_path.display()
+    );
+    Ok(())
 }
 
 fn run_hello_echo(args: HelloEchoArgs) -> Result<()> {

@@ -349,9 +349,17 @@ pub fn build_provider_generator_source_bundle_v1(
 /// contract. No filesystem or environment discovery is performed.
 pub fn checked_provider_generator_source_bundle_v1(
 ) -> Result<ProviderGeneratorSourceBundleV1, ProviderArtifactCorpusError> {
-    let sources: [(&str, &[u8]); 14] = [
+    let sources: [(&str, &[u8]); 16] = [
         ("Cargo.lock", include_bytes!("../../../Cargo.lock")),
         ("Cargo.toml", include_bytes!("../../../Cargo.toml")),
+        (
+            "crates/echo-edict-canonical/Cargo.toml",
+            include_bytes!("../../echo-edict-canonical/Cargo.toml"),
+        ),
+        (
+            "crates/echo-edict-canonical/src/lib.rs",
+            include_bytes!("../../echo-edict-canonical/src/lib.rs"),
+        ),
         (
             "crates/echo-wesley-gen/Cargo.toml",
             include_bytes!("../Cargo.toml"),

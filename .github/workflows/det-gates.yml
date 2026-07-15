@@ -228,7 +228,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Setup Rust (Global)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: wasm32-unknown-unknown
       - name: Checkout Build 1
@@ -244,6 +244,12 @@ jobs:
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash1.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build1.wasm
+          cargo xtask provider-lowerer-component \
+            --target-dir target/provider-lowerer-repro \
+            --output target/lowerer.echo-dpo.component.wasm \
+            --write
+          sha256sum target/lowerer.echo-dpo.component.wasm > ../lowerer-hash1.txt
+          cp target/lowerer.echo-dpo.component.wasm ../build1.lowerer.component.wasm
       - name: Checkout Build 2
         uses: actions/checkout@v4
         with:
@@ -257,10 +263,19 @@ jobs:
           cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
           sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash2.txt
           cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build2.wasm
+          cargo xtask provider-lowerer-component \
+            --target-dir target/provider-lowerer-repro \
+            --output target/lowerer.echo-dpo.component.wasm \
+            --write
+          sha256sum target/lowerer.echo-dpo.component.wasm > ../lowerer-hash2.txt
+          cp target/lowerer.echo-dpo.component.wasm ../build2.lowerer.component.wasm
       - name: Compare hashes
         run: |
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
+          diff lowerer-hash1.txt lowerer-hash2.txt || (echo "Lowerer reproducibility failure: Hashes differ!" && exit 1)
+          cmp build1.lowerer.component.wasm build2.lowerer.component.wasm
           echo "Hashes match: $(cat hash1.txt)"
+          echo "Lowerer hashes match: $(cat lowerer-hash1.txt)"
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -271,6 +286,10 @@ jobs:
             hash2.txt
             build1.wasm
             build2.wasm
+            lowerer-hash1.txt
+            lowerer-hash2.txt
+            build1.lowerer.component.wasm
+            build2.lowerer.component.wasm
 
   validate-evidence:
     name: Evidence artifact presence
@@ -349,6 +368,10 @@ jobs:
               gathered-artifacts/build-repro-artifacts/hash2.txt
               gathered-artifacts/build-repro-artifacts/build1.wasm
               gathered-artifacts/build-repro-artifacts/build2.wasm
+              gathered-artifacts/build-repro-artifacts/lowerer-hash1.txt
+              gathered-artifacts/build-repro-artifacts/lowerer-hash2.txt
+              gathered-artifacts/build-repro-artifacts/build1.lowerer.component.wasm
+              gathered-artifacts/build-repro-artifacts/build2.lowerer.component.wasm
             )
           fi
 

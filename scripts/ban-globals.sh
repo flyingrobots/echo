@@ -18,13 +18,13 @@ set -euo pipefail
 #   ./scripts/ban-globals.sh
 #
 # Optional env:
-#   BAN_GLOBALS_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
+#   BAN_GLOBALS_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer"
 #   BAN_GLOBALS_ALLOWLIST=".ban-globals-allowlist"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi"
+PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer"
 PATHS="${BAN_GLOBALS_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${BAN_GLOBALS_ALLOWLIST:-.ban-globals-allowlist}"

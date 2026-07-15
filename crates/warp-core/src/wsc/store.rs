@@ -1713,6 +1713,8 @@ pub fn validate_wsc_ref_only_wal_export(
     let unverified_causal_anchors =
         causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
             .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
+    validate_wsc_causal_anchors_against_root(&unverified_causal_anchors, expected_root)
+        .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
     validate_wsc_causal_history_records(
         &accepted_submissions,
         &receipt_records.receipts,

@@ -20,10 +20,11 @@ use crate::causal_wal::{
     missing_material_scope, observe_causal_anchor_admissions, observe_wal_projection_graph_wsc,
     project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
     read_checkpoint_record, rebuild_durability_indexes_after_recovery,
-    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
-    recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
-    recover_receipt_index, recover_retention_index, recover_submission_index,
-    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
+    recover_checkpoint_publications, recover_filesystem_store, recover_from_frames_and_commits,
+    recover_in_memory_store, recover_materialization_outbox,
+    recover_materialization_outbox_with_retained_material, recover_receipt_index,
+    recover_retention_index, recover_submission_index, recover_topology_index,
+    recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
@@ -63,7 +64,7 @@ use crate::wsc::{
     wsc_cas_addressed_wal_export, wsc_ref_only_wal_export, wsc_self_contained_wal_export,
     InMemoryWscStore, WscCasAddressedRetainedMaterialReference, WscCasAddressedWalExportError,
     WscCasAddressedWalImportError, WscCasAddressedWalSegmentMaterial, WscCasBlobStorePort,
-    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError,
+    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError, WscRefOnlyWalImportError,
     WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscSelfContainedRetainedMaterial,
     WscSelfContainedWalExportError, WscSelfContainedWalImportError,
     WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
@@ -1906,6 +1907,28 @@ fn wsc_retained_evidence_export_modes() {
         ref_only_import.unverified_causal_anchors[0].fact(),
         causal_anchors[0].fact()
     );
+
+    let unrelated_transaction =
+        durable_causal_anchor_transaction("wsc-unrelated-anchor", Lsn::from_raw(0));
+    let unrelated_report = must_ok(recover_from_frames_and_commits(
+        &unrelated_transaction.frames,
+        core::slice::from_ref(&unrelated_transaction.commit),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let unrelated_anchors = must_ok(observe_causal_anchor_admissions(&unrelated_report));
+    let mut unrelated_ref_only = ref_only.clone();
+    unrelated_ref_only.causal_anchor_envelope =
+        must_ok(causal_anchor_records_to_wsc_envelope(&unrelated_anchors));
+    let unrelated_ref_only_error = must_err(
+        validate_wsc_ref_only_wal_export(&unrelated_ref_only, &root),
+        "ref-only anchor sidecars must be covered by the projected WAL root",
+    );
+    assert!(matches!(
+        unrelated_ref_only_error,
+        WscRefOnlyWalImportError::CausalAnchors(ref obstruction)
+            if obstruction.kind == WscStoreObstructionKind::IncompleteCausalHistory
+    ));
+
     assert_eq!(
         ref_only_import.retention.materials[0].semantic_coordinate_digest,
         retained_coordinate

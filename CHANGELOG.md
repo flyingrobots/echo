@@ -186,9 +186,11 @@
 - WSC causal-history profile version 2 now carries explicit Echo causal-anchor
   fact, receipt, WAL transaction, LSN, and commit evidence through all three
   export profiles. Ref-only imports expose sidecar records as unverified until
-  external WAL dependencies are resolved; self-contained and CAS-addressed
-  validation recovers retained WAL segments and requires the envelope to match
-  the complete recovered anchor history before exposing observation evidence.
+  external WAL dependencies are resolved, but require every supplied sidecar to
+  match a transaction and commit anchor in the projected WAL root;
+  self-contained and CAS-addressed validation recovers retained WAL segments
+  and requires the envelope to match the complete recovered anchor history
+  before exposing observation evidence.
   CAS-addressed exports and imports also require retained CAS references to
   exactly match every retention record whose material posture is present.
   `echo-cli` bundle schema version 2 writes, inspects, and reports the dedicated

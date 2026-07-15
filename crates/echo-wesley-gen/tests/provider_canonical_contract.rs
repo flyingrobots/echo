@@ -301,6 +301,12 @@ fn unsupported_cbor_and_digest_domains_fail_closed() {
             .kind(),
         CanonicalValueErrorKind::InvalidUtf8
     );
+    assert_eq!(
+        decode_canonical_cbor_v1(&[0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
+            .expect_err("oversized declared collection rejects before allocation")
+            .kind(),
+        CanonicalValueErrorKind::UnexpectedEof
+    );
     let value = text("domain-separated");
     assert_eq!(
         digest_canonical_value_v1("", &value)

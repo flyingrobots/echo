@@ -27,6 +27,9 @@ pub mod provider_generation;
 /// Deterministic, schema-validated primary Edict provider artifacts.
 pub mod provider_artifacts;
 
+/// Exact-material Wesley provenance for provider artifact generation.
+pub mod provider_provenance;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

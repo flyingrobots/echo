@@ -430,7 +430,19 @@ fn source_set_reordering_moves_input_evidence_not_primary_semantics() {
         reordered_input.semantic_source()
     );
     assert_ne!(baseline_input.digest(), reordered_input.digest());
-    assert_eq!(baseline, reordered);
+    assert_eq!(baseline.generation_input_digest(), baseline_input.digest());
+    assert_eq!(
+        reordered.generation_input_digest(),
+        reordered_input.digest()
+    );
+    assert_ne!(
+        baseline.generation_input_digest(),
+        reordered.generation_input_digest()
+    );
+    assert_eq!(baseline.projection_roles(), reordered.projection_roles());
+    assert_eq!(baseline.artifacts(), reordered.artifacts());
+    assert_eq!(baseline.resources(), reordered.resources());
+    assert_eq!(baseline.schema(), reordered.schema());
 }
 
 #[test]

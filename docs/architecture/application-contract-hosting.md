@@ -219,6 +219,20 @@ self-reference. Wesley content references separately bind exact output bytes.
 Neither digest form installs an artifact or turns generated authority facts
 into runtime Echo authority.
 
+The derived Wesley provenance manifest binds the exact semantic-source, Edict
+CDDL, Edict manifest, settings, and caller-supplied generator component bytes.
+Its emitted closure is exactly the five canonical primary artifacts plus the
+raw self-contained CDDL. Construction immediately re-verifies all three source
+and six output byte identities. The fourteen resource documents remain
+transitively covered by the primary manifest DAG; restating them as primary
+emissions would misrepresent the projection boundary. The generator API never
+discovers an executable, path, environment, process, registry, clock, or
+network input. A primary closure retains the exact Wesley input digest that
+produced it, so outputs from another invocation cannot be falsely attributed
+merely because their role closure matches. The generator coordinate must also
+be disjoint from every declared artifact, resource, provider, and package
+coordinate.
+
 The generated operation profile preserves native versus direct-adapter
 selection, operation-local obstruction mappings, and the target optic contract.
 Invocation posture is derived from admitted optic semantics: mutation-capable

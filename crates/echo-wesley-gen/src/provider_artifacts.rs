@@ -504,6 +504,7 @@ impl GeneratedProviderSchemaV1 {
 /// Complete first-slice primary provider artifact closure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderPrimaryArtifactsV1 {
+    generation_input_digest: String,
     projection_roles: Vec<String>,
     artifacts: Vec<SchemaValidatedCanonicalProviderOutputV1>,
     resources: Vec<SchemaValidatedCanonicalProviderOutputV1>,
@@ -511,6 +512,11 @@ pub struct ProviderPrimaryArtifactsV1 {
 }
 
 impl ProviderPrimaryArtifactsV1 {
+    /// Returns the exact Wesley generation input that produced this closure.
+    #[must_use]
+    pub fn generation_input_digest(&self) -> &str {
+        &self.generation_input_digest
+    }
     /// Returns the exact sorted primary role closure, including the schema.
     #[must_use]
     pub fn projection_roles(&self) -> &[String] {
@@ -688,6 +694,7 @@ pub fn generate_provider_primary_artifacts_v1(
     }
 
     Ok(ProviderPrimaryArtifactsV1 {
+        generation_input_digest: input.digest().to_owned(),
         projection_roles,
         artifacts,
         resources,

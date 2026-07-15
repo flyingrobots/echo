@@ -7,6 +7,17 @@
 
 ### Added
 
+- `echo-wesley-gen` now constructs canonical Wesley provider-generation
+  provenance from explicit material only. The manifest binds the exact three
+  authored source artifacts, checked settings digest, caller-supplied generator
+  component bytes, and exactly six non-derived primary outputs, then immediately
+  re-verifies all referenced bytes. Generated resources remain transitively
+  bound through the primary artifacts, while provenance and review stay outside
+  the emitted set to prevent circular digests. Typed Wesley failures are
+  preserved without exposing Rust debug spelling as a stable diagnostic. The
+  primary closure retains its producing input digest so outputs cannot be
+  attributed to another invocation, and generator coordinates must remain
+  disjoint from every declared artifact, resource, and package coordinate.
 - `echo-wesley-gen` now deterministically projects the validated Echo Edict
   source into a canonical lawpack, target profile, two source-partitioned
   authority-facts documents, generated operation profile, fourteen declarative

@@ -87,10 +87,18 @@ target profile, two source-partitioned authority-facts documents,
 generated-artifact profile, fourteen manifest subresources, and self-contained
 CDDL schema. Every canonical output passes its owning generated root, and every
 Edict-owned output also passes the independently admitted upstream root. The
-remaining #652 slices derive deterministic review evidence, Wesley-owned
-`generationProvenance` metadata, and the checked corpus from those primary
-outputs. Resources marked `external` are explicit digest-locked generator
-inputs; placeholder digests are forbidden.
+Wesley-owned `generationProvenance` document binds exact source, settings,
+generator, and six primary output byte identities and immediately verifies all
+of them. Its emitted set contains the five canonical primary artifacts plus the
+raw self-contained CDDL; fourteen resources are transitively bound through
+those artifacts rather than incorrectly promoted into the primary projection.
+The primary wrapper retains its producing Wesley input digest, and generator
+coordinates cannot alias any declared artifact, resource, provider, or package
+coordinate. Exact source reordering therefore preserves all primary emitted
+bytes while intentionally moving the provenance identity.
+Remaining #652 slices derive deterministic review evidence and the checked
+corpus. Resources marked `external` are explicit digest-locked generator inputs;
+placeholder digests are forbidden.
 
 [`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
 versioned settings input for that invocation. The first closure selects no

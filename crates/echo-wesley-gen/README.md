@@ -79,6 +79,19 @@ revelation/projection produces a bounded observer. These artifacts describe
 provider semantics only; they do not install a package or grant Echo runtime
 authority.
 
+`provider_provenance::generate_provider_generation_provenance_v1(...)` builds
+Wesley's canonical provenance manifest from the generation input, primary
+closure, and caller-supplied exact generator component bytes. It immediately
+verifies the generator, all three source artifacts, and the five canonical-CBOR
+artifacts plus raw CDDL schema. The fourteen resources are transitively bound by
+the primary bytes and are not restated as top-level emissions. Provenance and
+review are likewise excluded from that set so neither document claims its own
+digest. The API performs no executable, path, environment, process, registry,
+clock, or network discovery. Each primary closure records the exact Wesley input
+digest that produced it, preventing mixed-input attribution even when requested
+roles match. Generator coordinates must also be distinct from all declared
+artifact, resource, provider, and package-manifest coordinates.
+
 ## Usage
 
 ```bash

@@ -17,7 +17,8 @@ use crate::wsc::{causal_anchor_records_from_wsc_envelope, causal_anchor_records_
 use crate::{
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
-    CausalAnchorSubject, CausalFrontierRef, Hash, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalAnchorSubject, CausalFrontierRef, Hash, ObservedCausalAnchorAdmission,
+    CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 
 fn digest(label: &str) -> Hash {
@@ -199,8 +200,12 @@ fn causal_anchor_history_round_trips_through_wsc() {
     let transaction = must_ok(transaction("wsc-round-trip"));
     let report = must_ok(report_for(&transaction));
     let admissions = must_ok(recover_causal_anchor_admissions(&report));
+    let observations = admissions
+        .iter()
+        .map(ObservedCausalAnchorAdmission::from)
+        .collect::<Vec<_>>();
 
-    let envelope = must_ok(causal_anchor_records_to_wsc_envelope(&admissions));
+    let envelope = must_ok(causal_anchor_records_to_wsc_envelope(&observations));
     let recovered = must_ok(causal_anchor_records_from_wsc_envelope(&envelope));
 
     assert_eq!(recovered.len(), 1);

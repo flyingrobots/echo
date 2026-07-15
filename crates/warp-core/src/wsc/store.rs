@@ -16,9 +16,9 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_anchor::validate_causal_anchor_admission_evidence;
 use crate::causal_wal::{
-    materialize_wal_projection_graph, observe_wal_projection_graph_wsc,
-    recover_causal_anchor_admissions, recover_wal_segment_bytes, wal_projection_graph_schema_hash,
-    BraidShellRetentionRecord, Lsn, ReadingRefRecord, RecoveredCausalAnchorAdmission,
+    materialize_wal_projection_graph, observe_causal_anchor_admissions,
+    observe_wal_projection_graph_wsc, recover_wal_segment_bytes, wal_projection_graph_schema_hash,
+    BraidShellRetentionRecord, Lsn, ObservedCausalAnchorAdmission, ReadingRefRecord,
     RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryTailPosture,
     RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
     SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
@@ -390,49 +390,11 @@ pub struct WscRefOnlyWalSegmentDependency {
 
 /// Observation-only causal-anchor admission evidence decoded from WSC.
 ///
-/// This type proves internal fact/receipt consistency and preserves the remote
+/// This type proves internal fact/receipt consistency and preserves remote
 /// durable coordinates. It does not confer local Echo admission authority and
-/// intentionally offers no conversion into [`RecoveredCausalAnchorAdmission`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WscCausalAnchorAdmissionEvidence {
-    fact: CausalAnchorFact,
-    receipt: CausalAnchorAdmissionReceipt,
-    transaction_id: WalTransactionId,
-    committed_lsn: Lsn,
-    commit_digest: Hash,
-}
-
-impl WscCausalAnchorAdmissionEvidence {
-    /// Returns the observed Echo causal-anchor fact.
-    #[must_use]
-    pub const fn fact(&self) -> &CausalAnchorFact {
-        &self.fact
-    }
-
-    /// Returns the observed Echo admission receipt.
-    #[must_use]
-    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
-        &self.receipt
-    }
-
-    /// Returns the remote WAL transaction identity carried as evidence.
-    #[must_use]
-    pub const fn transaction_id(&self) -> WalTransactionId {
-        self.transaction_id
-    }
-
-    /// Returns the remote committed LSN carried as evidence.
-    #[must_use]
-    pub const fn committed_lsn(&self) -> Lsn {
-        self.committed_lsn
-    }
-
-    /// Returns the remote commit digest carried as evidence.
-    #[must_use]
-    pub const fn commit_digest(&self) -> &Hash {
-        &self.commit_digest
-    }
-}
+/// intentionally offers no conversion into
+/// [`RecoveredCausalAnchorAdmission`](crate::RecoveredCausalAnchorAdmission).
+pub type WscCausalAnchorAdmissionEvidence = ObservedCausalAnchorAdmission;
 
 /// Record slices carried by WAL causal-history WSC exports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -447,8 +409,8 @@ pub struct WscWalCausalHistoryRecords<'a> {
     pub receipts: &'a [TickReceiptRecord],
     /// Receipt-correlation records recovered from WAL.
     pub correlations: &'a [WalReceiptCorrelationRecord],
-    /// Echo causal-anchor admissions recovered from local witnessed history.
-    pub causal_anchors: &'a [RecoveredCausalAnchorAdmission],
+    /// Observation-only causal-anchor evidence selected for export.
+    pub causal_anchors: &'a [ObservedCausalAnchorAdmission],
 }
 
 impl WscWalCausalHistoryRecords<'_> {
@@ -2628,12 +2590,12 @@ where
 ///
 /// # Errors
 ///
-/// Returns a typed obstruction when local admission evidence is inconsistent,
+/// Returns a typed obstruction when observed admission evidence is inconsistent,
 /// duplicate anchor identities conflict, or generated WSC material is invalid.
 pub fn causal_anchor_records_to_wsc_envelope(
-    records: &[RecoveredCausalAnchorAdmission],
+    records: &[ObservedCausalAnchorAdmission],
 ) -> Result<WscStoreEnvelope, WscStoreObstruction> {
-    let records = canonical_recovered_causal_anchor_records(records)?;
+    let records = canonical_observed_causal_anchor_records(records)?;
     let mut store = GraphStore::new(make_warp_id(WSC_CAUSAL_ANCHOR_WARP));
     let root = make_node_id(WSC_CAUSAL_ANCHOR_ROOT);
     store.insert_node(
@@ -2711,7 +2673,7 @@ pub fn causal_anchor_records_from_wsc_envelope(
         }
     }
     let records = canonical_wsc_causal_anchor_records(&records)?;
-    let basis_digest = wsc_causal_anchor_basis_digest(&records);
+    let basis_digest = causal_anchor_basis_digest(&records);
     if envelope.basis_digest() != &basis_digest {
         return Err(WscStoreObstruction::basis_digest_mismatch(
             *envelope.basis_digest(),
@@ -4763,9 +4725,9 @@ fn digest_wsc_bytes(bytes: &[u8]) -> Hash {
     hasher.finalize().into()
 }
 
-fn canonical_recovered_causal_anchor_records(
-    records: &[RecoveredCausalAnchorAdmission],
-) -> Result<Vec<RecoveredCausalAnchorAdmission>, WscStoreObstruction> {
+fn canonical_observed_causal_anchor_records(
+    records: &[ObservedCausalAnchorAdmission],
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WscStoreObstruction> {
     let mut by_anchor = BTreeMap::new();
     for record in records {
         validate_causal_anchor_exchange_fields(
@@ -4815,23 +4777,23 @@ fn canonical_wsc_causal_anchor_records(
 
 fn causal_anchors_from_segment_recoveries(
     recoveries: &[WalSegmentBytesRecovery],
-) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
     let mut records = Vec::new();
     for recovery in recoveries {
-        records.extend(recover_causal_anchor_admissions(&recovery.report)?);
+        records.extend(observe_causal_anchor_admissions(&recovery.report)?);
     }
     Ok(records)
 }
 
 fn validate_wsc_causal_anchors_against_recovered_history(
     records: &[WscCausalAnchorAdmissionEvidence],
-    recovered: &[RecoveredCausalAnchorAdmission],
+    recovered: &[ObservedCausalAnchorAdmission],
 ) -> Result<(), WscStoreObstruction> {
     let records = canonical_wsc_causal_anchor_records(records)?
         .into_iter()
         .map(|record| (*record.fact().anchor_id().as_bytes(), record))
         .collect::<BTreeMap<_, _>>();
-    let recovered = canonical_recovered_causal_anchor_records(recovered)?
+    let recovered = canonical_observed_causal_anchor_records(recovered)?
         .into_iter()
         .map(|record| (*record.fact().anchor_id().as_bytes(), record))
         .collect::<BTreeMap<_, _>>();
@@ -4904,17 +4866,7 @@ fn validate_causal_anchor_exchange_fields(
     Ok(())
 }
 
-fn causal_anchor_record_payload(record: &RecoveredCausalAnchorAdmission) -> Vec<u8> {
-    encode_causal_anchor_record_payload(
-        record.fact(),
-        record.receipt(),
-        record.transaction_id(),
-        record.committed_lsn(),
-        record.commit_digest(),
-    )
-}
-
-fn wsc_causal_anchor_record_payload(record: &WscCausalAnchorAdmissionEvidence) -> Vec<u8> {
+fn causal_anchor_record_payload(record: &ObservedCausalAnchorAdmission) -> Vec<u8> {
     encode_causal_anchor_record_payload(
         record.fact(),
         record.receipt(),
@@ -4964,29 +4916,20 @@ fn causal_anchor_record_from_payload(
     let commit_digest = cursor.read_hash()?;
     cursor.finish()?;
     validate_causal_anchor_exchange_fields(&fact, &receipt, transaction_id, committed_lsn)?;
-    Ok(WscCausalAnchorAdmissionEvidence {
+    Ok(ObservedCausalAnchorAdmission::from_validated_wal_evidence(
         fact,
         receipt,
         transaction_id,
         committed_lsn,
         commit_digest,
-    })
+    ))
 }
 
-fn causal_anchor_basis_digest(records: &[RecoveredCausalAnchorAdmission]) -> Hash {
+fn causal_anchor_basis_digest(records: &[ObservedCausalAnchorAdmission]) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(WSC_CAUSAL_ANCHOR_BASIS_DOMAIN);
     for record in records {
         hasher.update(&causal_anchor_record_payload(record));
-    }
-    hasher.finalize().into()
-}
-
-fn wsc_causal_anchor_basis_digest(records: &[WscCausalAnchorAdmissionEvidence]) -> Hash {
-    let mut hasher = Hasher::new();
-    hasher.update(WSC_CAUSAL_ANCHOR_BASIS_DOMAIN);
-    for record in records {
-        hasher.update(&wsc_causal_anchor_record_payload(record));
     }
     hasher.finalize().into()
 }

@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use warp_core::causal_wal::{
-    canonical_segment_path, project_filesystem_wal_recovery, recover_causal_anchor_admissions,
-    recover_filesystem_store, recover_retention_index, Lsn, ReadingRefRecord,
-    RecoveredCausalAnchorAdmission, RecoveryAccessMode, RecoveryCertificateRef,
-    RecoveryTailPosture, RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord,
-    WalCommitAnchor, WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord,
-    WalRecordKind, WalRecoveryProjectionPosture, WalRoot, WalSegmentId, WalSegmentSealPosture,
+    canonical_segment_path, observe_causal_anchor_admissions, project_filesystem_wal_recovery,
+    recover_filesystem_store, recover_retention_index, Lsn, ObservedCausalAnchorAdmission,
+    ReadingRefRecord, RecoveryAccessMode, RecoveryCertificateRef, RecoveryTailPosture,
+    RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord, WalCommitAnchor,
+    WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord, WalRecordKind,
+    WalRecoveryProjectionPosture, WalRoot, WalSegmentId, WalSegmentSealPosture,
     WalSegmentStorageLocator, WalTransactionId, WalWriterEpoch, WriterEpochId,
 };
 use warp_core::wsc::{
@@ -120,7 +120,7 @@ struct ProjectedWal {
     accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     receipts: Vec<TickReceiptRecord>,
     correlations: Vec<WalReceiptCorrelationRecord>,
-    causal_anchors: Vec<RecoveredCausalAnchorAdmission>,
+    causal_anchors: Vec<ObservedCausalAnchorAdmission>,
     retained_materials: Vec<RetainedMaterialRecord>,
     reading_refs: Vec<ReadingRefRecord>,
 }
@@ -129,7 +129,7 @@ struct RecoveredCausalHistoryRecords {
     accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     receipts: Vec<TickReceiptRecord>,
     correlations: Vec<WalReceiptCorrelationRecord>,
-    causal_anchors: Vec<RecoveredCausalAnchorAdmission>,
+    causal_anchors: Vec<ObservedCausalAnchorAdmission>,
 }
 
 impl ProjectedWal {
@@ -212,8 +212,8 @@ fn causal_history_records_from_report(
             }
         }
     }
-    let causal_anchors = recover_causal_anchor_admissions(report)
-        .context("failed to recover WAL causal-anchor admission records")?;
+    let causal_anchors = observe_causal_anchor_admissions(report)
+        .context("failed to observe WAL causal-anchor admission records")?;
     Ok(RecoveredCausalHistoryRecords {
         accepted_submissions,
         receipts,

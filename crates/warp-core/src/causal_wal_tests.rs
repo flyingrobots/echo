@@ -17,9 +17,9 @@ use crate::causal_wal::{
     build_submission_acceptance_with_material_transaction, build_tick_transaction,
     build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
     evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
-    missing_material_scope, observe_wal_projection_graph_wsc, project_causal_commit_evidence,
-    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
-    rebuild_durability_indexes_after_recovery, recover_causal_anchor_admissions,
+    missing_material_scope, observe_causal_anchor_admissions, observe_wal_projection_graph_wsc,
+    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
+    read_checkpoint_record, rebuild_durability_indexes_after_recovery,
     recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
     recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
     recover_receipt_index, recover_retention_index, recover_submission_index,
@@ -1859,7 +1859,7 @@ fn wsc_retained_evidence_export_modes() {
     must_ok(store.publish_manifest(epoch_id(), manifest));
 
     let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
-    let causal_anchors = must_ok(recover_causal_anchor_admissions(&report));
+    let causal_anchors = must_ok(observe_causal_anchor_admissions(&report));
     assert_eq!(causal_anchors.len(), 1);
     let certificate = build_recovery_certificate(
         &report,
@@ -2488,7 +2488,7 @@ fn wsc_records_with_causal_anchors<'a>(
     accepted_submissions: &'a [SubmissionAcceptanceRecord],
     receipts: &'a [TickReceiptRecord],
     correlations: &'a [WalReceiptCorrelationRecord],
-    causal_anchors: &'a [crate::RecoveredCausalAnchorAdmission],
+    causal_anchors: &'a [crate::ObservedCausalAnchorAdmission],
 ) -> WscWalCausalHistoryRecords<'a> {
     WscWalCausalHistoryRecords {
         retained_materials,

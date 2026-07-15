@@ -17,6 +17,13 @@
 //! ```compile_fail
 //! use warp_core::causal_wal::build_causal_anchor_admission_transaction;
 //! ```
+//!
+//! Likewise, arbitrary recovery reports can only produce observation evidence;
+//! sealing local recovered authority is reserved for the trusted runtime:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::recover_causal_anchor_admissions;
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -7705,7 +7712,70 @@ pub fn read_checkpoint_record(
     parse_checkpoint_file_bytes(&bytes)
 }
 
-/// One causal-anchor admission reconstructed from committed WAL authority.
+/// One causal-anchor admission observed in a structurally valid WAL report.
+///
+/// This type preserves fact, receipt, and remote WAL coordinates without
+/// conferring local Echo admission authority. Arbitrary recovery reports and
+/// imported segment material can produce observations, never sealed local
+/// admissions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservedCausalAnchorAdmission {
+    fact: CausalAnchorFact,
+    receipt: CausalAnchorAdmissionReceipt,
+    transaction_id: WalTransactionId,
+    committed_lsn: Lsn,
+    commit_digest: Hash,
+}
+
+impl ObservedCausalAnchorAdmission {
+    pub(crate) const fn from_validated_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            fact,
+            receipt,
+            transaction_id,
+            committed_lsn,
+            commit_digest,
+        }
+    }
+
+    /// Returns the observed causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        &self.fact
+    }
+
+    /// Returns the observed admission receipt.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        &self.receipt
+    }
+
+    /// Returns the observed WAL transaction identity.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.transaction_id
+    }
+
+    /// Returns the observed committed LSN.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.committed_lsn
+    }
+
+    /// Returns the observed commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        &self.commit_digest
+    }
+}
+
+/// One causal-anchor admission reconstructed from trusted local WAL authority.
 ///
 /// Committed coordinates are read-only evidence. External code cannot rebuild
 /// this type with substituted WAL coordinates:
@@ -7730,19 +7800,11 @@ pub fn read_checkpoint_record(
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveredCausalAnchorAdmission {
-    /// Echo-admitted causal-anchor fact.
-    fact: CausalAnchorFact,
-    /// Echo admission receipt committed atomically with the fact.
-    receipt: CausalAnchorAdmissionReceipt,
-    /// WAL transaction that ordered the admission.
-    transaction_id: WalTransactionId,
-    /// Last committed LSN of the admission transaction.
-    committed_lsn: Lsn,
-    /// Digest of the admission transaction commit marker.
-    commit_digest: Hash,
+    observation: ObservedCausalAnchorAdmission,
 }
 
 impl RecoveredCausalAnchorAdmission {
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) const fn from_committed_wal_evidence(
         fact: CausalAnchorFact,
         receipt: CausalAnchorAdmissionReceipt,
@@ -7751,49 +7813,74 @@ impl RecoveredCausalAnchorAdmission {
         commit_digest: Hash,
     ) -> Self {
         Self {
-            fact,
-            receipt,
-            transaction_id,
-            committed_lsn,
-            commit_digest,
+            observation: ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+                fact,
+                receipt,
+                transaction_id,
+                committed_lsn,
+                commit_digest,
+            ),
         }
+    }
+
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
+        Self { observation }
+    }
+
+    /// Returns this trusted admission as observation-only evidence.
+    #[must_use]
+    pub const fn observation(&self) -> &ObservedCausalAnchorAdmission {
+        &self.observation
     }
 
     /// Returns the Echo-admitted causal-anchor fact.
     #[must_use]
     pub const fn fact(&self) -> &CausalAnchorFact {
-        &self.fact
+        self.observation.fact()
     }
 
     /// Returns the admission receipt committed atomically with the fact.
     #[must_use]
     pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
-        &self.receipt
+        self.observation.receipt()
     }
 
     /// Returns the WAL transaction that ordered the admission.
     #[must_use]
     pub const fn transaction_id(&self) -> WalTransactionId {
-        self.transaction_id
+        self.observation.transaction_id()
     }
 
     /// Returns the last committed LSN of the admission transaction.
     #[must_use]
     pub const fn committed_lsn(&self) -> Lsn {
-        self.committed_lsn
+        self.observation.committed_lsn()
     }
 
     /// Returns the admission transaction's commit-marker digest.
     #[must_use]
     pub const fn commit_digest(&self) -> &Hash {
-        &self.commit_digest
+        self.observation.commit_digest()
     }
 }
 
-/// Recovers fully committed and internally consistent causal-anchor admissions.
-pub fn recover_causal_anchor_admissions(
+impl From<&RecoveredCausalAnchorAdmission> for ObservedCausalAnchorAdmission {
+    fn from(admission: &RecoveredCausalAnchorAdmission) -> Self {
+        admission.observation.clone()
+    }
+}
+
+/// Observes fully committed and internally consistent causal-anchor evidence.
+///
+/// The returned values do not confer local Echo admission authority. Trusted
+/// local WAL recovery seals the same validated evidence through a private path.
+pub fn observe_causal_anchor_admissions(
     report: &RecoveryScanReport,
-) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
     let mut admissions = Vec::new();
     for transaction in &report.transactions {
         if transaction.commit.transaction_kind != WalTransactionKind::CausalAnchorAdmission {
@@ -7833,7 +7920,7 @@ pub fn recover_causal_anchor_admissions(
                 CausalAnchorError::AdmissionEvidenceMismatch,
             ));
         }
-        admissions.push(RecoveredCausalAnchorAdmission::from_committed_wal_evidence(
+        admissions.push(ObservedCausalAnchorAdmission::from_validated_wal_evidence(
             fact,
             receipt,
             transaction.commit.transaction_id,
@@ -7842,6 +7929,19 @@ pub fn recover_causal_anchor_admissions(
         ));
     }
     Ok(admissions)
+}
+
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+pub(crate) fn recover_causal_anchor_admissions(
+    report: &RecoveryScanReport,
+) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
+    Ok(observe_causal_anchor_admissions(report)?
+        .into_iter()
+        .map(RecoveredCausalAnchorAdmission::from_observation)
+        .collect())
 }
 
 #[derive(Clone, Copy)]

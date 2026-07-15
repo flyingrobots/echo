@@ -21,13 +21,15 @@
   policy is validated and bound into receipt identity; successful admissions
   recover by anchor id after restart, while stale bases, unsupported roots, and
   failed storage commits publish no authority.
-- Causal-anchor request, fact, receipt, and recovered admission evidence are now
-  available from the `warp-core` crate root. A Jim-shaped external-consumer
-  witness and standalone golden vector pin Echo-produced subject, basis, root,
-  purpose, anchor, receipt, transaction, and commit identity so applications do
-  not create a second anchor hash domain. Recovered admission coordinates are
-  exposed through read-only accessors rather than caller-reconstructible public
-  fields.
+- Causal-anchor request, fact, receipt, observation-only WAL evidence, and
+  recovered admission evidence are now available from the `warp-core` crate
+  root. Arbitrary recovery reports produce `ObservedCausalAnchorAdmission`;
+  sealing `RecoveredCausalAnchorAdmission` is reserved for trusted local WAL
+  recovery. A Jim-shaped external-consumer witness and standalone golden vector
+  pin Echo-produced subject, basis, root, purpose, anchor, receipt, transaction,
+  and commit identity so applications do not create a second anchor hash domain.
+  Both evidence types expose coordinates through read-only accessors rather than
+  caller-reconstructible public fields.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

@@ -28,7 +28,7 @@ sha2 = "0.10"
 syn = { version = "2.0", features = ["full", "extra-traits"] }
 prettyplease = "0.2"
 warp-core = { workspace = true }
-wesley-core = { version = "0.2.0", git = "https://github.com/flyingrobots/wesley", rev = "f66b81cb01918777d5856aa8236b4e46fdf7505d" }
+wesley-core = "=0.3.0-alpha.1"
 
 [lints]
 workspace = true

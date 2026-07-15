@@ -9,9 +9,9 @@ use std::fmt::Debug;
 use crate::causal_wal::{
     build_causal_anchor_admission_transaction, recover_causal_anchor_admissions,
     recover_from_frames_and_commits, AffectedFrontier, AffectedFrontierKind, Lsn, PayloadCodecId,
-    PayloadSchemaId, RecoveryAccessMode, WalAppendAuthority, WalBuildError,
-    WalCommittedTransaction, WalDurabilityMode, WalRecordKind, WalRecoveryIndexError, WalSegmentId,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
+    PayloadSchemaId, RecoveryAccessMode, WalBuildError, WalCommittedTransaction, WalDurabilityMode,
+    WalRecordKind, WalRecoveryIndexError, WalSegmentId, WalTransactionBuilder, WalTransactionId,
+    WalTransactionKind, WalValidationError, WriterEpochId,
 };
 use crate::wsc::{causal_anchor_records_from_wsc_envelope, causal_anchor_records_to_wsc_envelope};
 use crate::{
@@ -84,12 +84,10 @@ fn claim_with_two_graph_roots(label: &str) -> CausalAnchorClaim {
 }
 
 fn builder(label: &str, first_lsn: u64) -> WalTransactionBuilder {
-    WalTransactionBuilder::new(
+    WalTransactionBuilder::new_causal_anchor_admission(
         WriterEpochId::from_hash(digest("anchor-writer-epoch")),
         WalSegmentId::from_raw(1),
         WalTransactionId::from_hash(digest(&format!("anchor-transaction:{label}"))),
-        WalTransactionKind::CausalAnchorAdmission,
-        WalAppendAuthority::AdmissionKernel,
         Lsn::from_raw(first_lsn),
         digest("previous-frame"),
         digest("previous-commit"),

@@ -2777,11 +2777,19 @@ fn causal_anchor_claim(label: &str) -> CausalAnchorClaim {
 }
 
 fn durable_causal_anchor_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
-    let builder = builder(
+    let builder = WalTransactionBuilder::new_causal_anchor_admission(
+        epoch_id(),
+        WalSegmentId::from_raw(1),
         transaction_id(&format!("tx:causal-anchor:{label}")),
         first_lsn,
-        WalAppendAuthority::AdmissionKernel,
-        WalTransactionKind::CausalAnchorAdmission,
+        digest("previous-frame"),
+        digest("previous-commit"),
+        WalDurabilityMode::Buffered,
+        PayloadCodecId::from_hash(digest("codec")),
+        PayloadSchemaId::from_hash(digest("schema")),
+        1,
+        1,
+        digest("domain"),
     );
     must_ok(build_causal_anchor_admission_transaction(
         builder,

@@ -1673,11 +1673,7 @@ impl TrustedRuntimeWal {
             &receipt,
         );
         let transaction = build_causal_anchor_admission_transaction(
-            self.builder(
-                WalTransactionKind::CausalAnchorAdmission,
-                WalAppendAuthority::AdmissionKernel,
-                transaction_id,
-            ),
+            self.causal_anchor_builder(transaction_id),
             claim,
             support_policy_digest,
             vec![AffectedFrontier {
@@ -1766,6 +1762,23 @@ impl TrustedRuntimeWal {
             transaction_id,
             kind,
             authority,
+            self.next_lsn,
+            self.previous_frame_digest,
+            self.previous_committed_transaction_digest,
+            self.durability_mode,
+            self.payload_codec_id,
+            self.payload_schema_id,
+            1,
+            1,
+            self.digest_domain,
+        )
+    }
+
+    fn causal_anchor_builder(&self, transaction_id: WalTransactionId) -> WalTransactionBuilder {
+        WalTransactionBuilder::new_causal_anchor_admission(
+            self.writer_epoch,
+            self.segment_id,
+            transaction_id,
             self.next_lsn,
             self.previous_frame_digest,
             self.previous_committed_transaction_digest,

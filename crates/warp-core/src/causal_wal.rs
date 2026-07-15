@@ -12,7 +12,9 @@
 //! ```
 //!
 //! Causal-anchor admission transaction construction is an admission-kernel
-//! authority and is intentionally absent from the downstream API:
+//! authority and is intentionally absent from the downstream API. The public
+//! transaction builder carries no admission capability even when a caller
+//! selects the observable admission enum labels:
 //!
 //! ```compile_fail
 //! use warp_core::causal_wal::build_causal_anchor_admission_transaction;
@@ -966,11 +968,17 @@ pub struct WalCommittedTransaction {
     pub affected_frontiers: Vec<AffectedFrontier>,
     /// Commit marker.
     pub commit: WalTransactionCommit,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalCommittedTransaction {
     /// Validates the transaction's structural and semantic commit invariants.
     pub fn validate(&self) -> Result<(), WalValidationError> {
+        if self.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission
+            && self.admission_kernel_capability.is_none()
+        {
+            return Err(WalValidationError::AdmissionKernelCapabilityRequired);
+        }
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
         validate_transaction_frontiers(&self.affected_frontiers, self.commit.transaction_kind)?;
@@ -984,6 +992,9 @@ impl WalCommittedTransaction {
         Ok(())
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdmissionKernelCapability;
 
 /// Builder for a contiguous WAL transaction.
 #[derive(Clone, Debug)]
@@ -1005,10 +1016,11 @@ pub struct WalTransactionBuilder {
     digest_domain: Hash,
     frames: Vec<WalFrame>,
     closed: bool,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalTransactionBuilder {
-    /// Creates a transaction builder.
+    /// Creates a transaction builder without Echo admission-kernel authority.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         writer_epoch: WriterEpochId,
@@ -1025,6 +1037,82 @@ impl WalTransactionBuilder {
         payload_schema_version: u16,
         canonical_encoding_version: u16,
         digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            transaction_kind,
+            authority,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            None,
+        )
+    }
+
+    /// Creates an admission-kernel-authorized causal-anchor transaction builder.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_causal_anchor_admission(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            WalTransactionKind::CausalAnchorAdmission,
+            WalAppendAuthority::AdmissionKernel,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            Some(AdmissionKernelCapability),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_admission_kernel_capability(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        transaction_kind: WalTransactionKind,
+        authority: WalAppendAuthority,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
     ) -> Self {
         Self {
             writer_epoch,
@@ -1044,6 +1132,7 @@ impl WalTransactionBuilder {
             digest_domain,
             frames: Vec::new(),
             closed: false,
+            admission_kernel_capability,
         }
     }
 
@@ -1055,6 +1144,11 @@ impl WalTransactionBuilder {
     ) -> Result<(), WalBuildError> {
         if self.closed {
             return Err(WalBuildError::TransactionClosed);
+        }
+        if kind.required_authority() == WalAppendAuthority::AdmissionKernel
+            && self.admission_kernel_capability.is_none()
+        {
+            return Err(WalBuildError::AdmissionKernelCapabilityRequired);
         }
         if kind.required_authority() != self.authority {
             return Err(WalBuildError::WrongAppendAuthority {
@@ -1138,6 +1232,7 @@ impl WalTransactionBuilder {
             frames: self.frames,
             affected_frontiers,
             commit,
+            admission_kernel_capability: self.admission_kernel_capability,
         };
         transaction.validate()?;
         Ok(transaction)
@@ -8410,6 +8505,9 @@ pub enum WalBuildError {
     /// Transaction already closed.
     #[error("WAL transaction is already closed")]
     TransactionClosed,
+    /// Public builders do not carry Echo's causal-anchor admission capability.
+    #[error("Echo admission-kernel capability is required")]
+    AdmissionKernelCapabilityRequired,
     /// Record requires a different append authority.
     #[error(
         "wrong append authority for {record_kind:?}: required {required:?}, actual {actual:?}"
@@ -8457,6 +8555,9 @@ pub enum WalBuildError {
 /// WAL validation errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalValidationError {
+    /// A causal-anchor transaction lacks Echo's private admission capability.
+    #[error("WAL causal-anchor transaction lacks Echo admission-kernel capability")]
+    AdmissionKernelCapabilityRequired,
     /// Frame payload kind does not match header kind.
     #[error("WAL frame record kind mismatch")]
     RecordKindMismatch,

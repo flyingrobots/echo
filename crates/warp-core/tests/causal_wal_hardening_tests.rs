@@ -958,6 +958,46 @@ fn byte_valid_submission_with_tick_record_rejected() {
 }
 
 #[test]
+fn public_builder_cannot_exercise_admission_kernel_authority() {
+    let mut builder = builder(
+        "public-admission-kernel",
+        Lsn::from_raw(0),
+        WalAppendAuthority::AdmissionKernel,
+        WalTransactionKind::CausalAnchorAdmission,
+    );
+
+    let error = must_err(
+        builder.push_record(
+            WalRecordKind::CausalAnchorFactRecorded,
+            digest("hardening:forged-anchor-fact").to_vec(),
+        ),
+        "the downstream builder must not carry Echo admission-kernel authority",
+    );
+
+    assert!(matches!(
+        error,
+        WalBuildError::AdmissionKernelCapabilityRequired
+    ));
+}
+
+#[test]
+fn public_store_rejects_transaction_reclassified_as_anchor_admission() {
+    let mut transaction = submission_transaction("reclassified-anchor", Lsn::from_raw(0));
+    transaction.commit.transaction_kind = WalTransactionKind::CausalAnchorAdmission;
+    refresh_commit_digest(&mut transaction);
+
+    let error = must_err(
+        InMemoryWalStore::new().append_transaction(transaction),
+        "public append must reject a transaction without Echo admission capability",
+    );
+
+    assert!(matches!(
+        error,
+        WalStoreError::Validation(WalValidationError::AdmissionKernelCapabilityRequired)
+    ));
+}
+
+#[test]
 fn runtime_control_record_without_runtime_authority_rejected() {
     let mut builder = builder(
         "runtime-control-semantic",

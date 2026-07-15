@@ -8035,7 +8035,9 @@ pub fn observe_causal_anchor_admissions(
 #[derive(Clone, Debug)]
 pub(crate) struct ValidatedCausalAnchorHistory {
     pub(crate) admissions: Vec<(ObservedCausalAnchorAdmission, usize)>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) causal_history_frontiers: Vec<CausalFrontierRef>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) causal_anchor_frontier_digest: Hash,
 }
 
@@ -8105,7 +8107,9 @@ pub(crate) fn validate_recovered_causal_anchor_history(
 
     Ok(ValidatedCausalAnchorHistory {
         admissions,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
         causal_history_frontiers: frontiers,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
         causal_anchor_frontier_digest: current_causal_anchor_frontier,
     })
 }

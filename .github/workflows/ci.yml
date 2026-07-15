@@ -195,6 +195,10 @@ jobs:
                   components: clippy
                   targets: wasm32-unknown-unknown
             - name: build, audit, and check exact component bytes
+              env:
+                  GIT_CONFIG_COUNT: 1
+                  GIT_CONFIG_KEY_0: safe.directory
+                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}
               run: |
                   cargo xtask provider-lowerer-component check \
                     --target-dir target/provider-lowerer-component \

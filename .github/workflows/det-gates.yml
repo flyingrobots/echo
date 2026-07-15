@@ -243,6 +243,9 @@ jobs:
       - name: Build isolated candidate
         env:
           CANDIDATE: ${{ matrix.candidate }}
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: ${{ github.workspace }}
         run: |
           repo_root="$(pwd -P)"
           export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"

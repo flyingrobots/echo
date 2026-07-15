@@ -2124,10 +2124,25 @@ mod tests {
         assert!(ci.contains("runs-on: ubuntu-24.04"));
         assert!(ci.contains(designated_image));
         assert!(ci.contains("options: --platform linux/amd64"));
+        assert!(ci.contains(concat!(
+            "- name: build, audit, and check exact component bytes\n",
+            "              env:\n",
+            "                  GIT_CONFIG_COUNT: 1\n",
+            "                  GIT_CONFIG_KEY_0: safe.directory\n",
+            "                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}",
+        )));
 
         let determinism = include_str!("../../.github/workflows/det-gates.yml");
         assert!(determinism.contains(designated_image));
         assert!(determinism.contains("options: --platform linux/amd64"));
+        assert!(determinism.contains(concat!(
+            "- name: Build isolated candidate\n",
+            "        env:\n",
+            "          CANDIDATE: ${{ matrix.candidate }}\n",
+            "          GIT_CONFIG_COUNT: 1\n",
+            "          GIT_CONFIG_KEY_0: safe.directory\n",
+            "          GIT_CONFIG_VALUE_0: ${{ github.workspace }}",
+        )));
         assert!(determinism.contains("candidate: [1, 2]"));
         assert!(determinism.contains("build-repro-candidate-${{ matrix.candidate }}"));
         assert!(determinism.matches("overwrite: true").count() >= 2);

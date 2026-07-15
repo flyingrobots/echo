@@ -337,7 +337,7 @@ fn checked_echo_provider_semantic_source_validates() {
                 "review.provider-generation",
                 GeneratedArtifactKind::ReviewArtifact,
                 "echo.edict-provider-generation-review@1",
-                "echo.edict-provider.generation-review/v1",
+                "wesley:GenerationReviewV1",
             ),
             (
                 "schema.echo-provider-artifacts",
@@ -404,6 +404,15 @@ fn checked_echo_provider_semantic_source_validates() {
         .expect("generation provenance is a generated package member");
     assert_eq!(
         generation_provenance.contract_owner.as_deref(),
+        Some("flyingrobots/wesley#728")
+    );
+    let generation_review = source
+        .generated_artifacts
+        .iter()
+        .find(|artifact| artifact.kind == GeneratedArtifactKind::ReviewArtifact)
+        .expect("generation review is a generated package member");
+    assert_eq!(
+        generation_review.contract_owner.as_deref(),
         Some("flyingrobots/wesley#728")
     );
     assert_eq!(source.artifact_resources.len(), 19);
@@ -1632,6 +1641,28 @@ fn generated_artifact_and_output_contracts_are_exact() {
                 Value::String("flyingrobots/echo#651".to_owned());
         },
         ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch,
+    );
+    assert_failure_tuple(
+        |source| {
+            source["generatedArtifacts"][5]["schemaContract"] =
+                Value::String("wesley:Unknown".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch,
+            "review.provider-generation",
+            "wesley:Unknown",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["generatedArtifacts"][5]["contractOwner"] =
+                Value::String("flyingrobots/echo#651".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch,
+            "review.provider-generation",
+            "flyingrobots/echo#651",
+        ),
     );
     assert_failure(
         |source| {

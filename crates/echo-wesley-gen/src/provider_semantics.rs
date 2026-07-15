@@ -925,8 +925,10 @@ pub enum ProviderSemanticSourceErrorKind {
     AuthorityFactProjectionMismatch,
     /// A lawpack or target-profile projection was incomplete or contradictory.
     ArtifactClosureMismatch,
-    /// The pending Wesley generation-provenance contract was misidentified.
+    /// The Wesley generation-provenance contract was misidentified.
     GenerationProvenanceContractMismatch,
+    /// The Wesley generation-review contract was misidentified.
+    GenerationReviewContractMismatch,
     /// A WIT output kind named the wrong canonical artifact domain.
     OutputDomainMismatch,
     /// A provider input kind named the wrong canonical artifact domain.
@@ -2613,34 +2615,46 @@ fn validate_generated_artifact_contracts(
             GeneratedArtifactKind::TargetProfile => "edict.target-profile/v1",
             GeneratedArtifactKind::AuthorityFacts => "edict.authority-facts/v1",
             GeneratedArtifactKind::ProviderManifest => "edict.provider-manifest/v1",
-            GeneratedArtifactKind::ReviewArtifact => "echo.edict-provider.generation-review/v1",
+            GeneratedArtifactKind::ReviewArtifact => "wesley:GenerationReviewV1",
             GeneratedArtifactKind::GeneratedArtifactProfile => "echo.generated-artifact-profile/v1",
             GeneratedArtifactKind::GenerationProvenance => "wesley:GenerationProvenanceManifestV1",
             GeneratedArtifactKind::ArtifactSchema => "selfContainedCddlV1",
         };
         if artifact.schema_contract != expected {
-            return Err(ProviderSemanticSourceError::new(
-                if artifact.kind == GeneratedArtifactKind::GenerationProvenance {
+            let kind = match artifact.kind {
+                GeneratedArtifactKind::GenerationProvenance => {
                     ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch
-                } else {
-                    ProviderSemanticSourceErrorKind::ArtifactSchemaContractMismatch
-                },
+                }
+                GeneratedArtifactKind::ReviewArtifact => {
+                    ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch
+                }
+                _ => ProviderSemanticSourceErrorKind::ArtifactSchemaContractMismatch,
+            };
+            return Err(ProviderSemanticSourceError::new(
+                kind,
                 &artifact.role,
                 &artifact.schema_contract,
             ));
         }
         let expected_contract_owner = match artifact.kind {
             GeneratedArtifactKind::AuthorityFacts => Some("flyingrobots/edict#157"),
-            GeneratedArtifactKind::GenerationProvenance => Some("flyingrobots/wesley#728"),
+            GeneratedArtifactKind::GenerationProvenance | GeneratedArtifactKind::ReviewArtifact => {
+                Some("flyingrobots/wesley#728")
+            }
             _ => None,
         };
         if artifact.contract_owner.as_deref() != expected_contract_owner {
-            return Err(ProviderSemanticSourceError::new(
-                if artifact.kind == GeneratedArtifactKind::GenerationProvenance {
+            let kind = match artifact.kind {
+                GeneratedArtifactKind::GenerationProvenance => {
                     ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch
-                } else {
-                    ProviderSemanticSourceErrorKind::ArtifactContractOwnerMismatch
-                },
+                }
+                GeneratedArtifactKind::ReviewArtifact => {
+                    ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch
+                }
+                _ => ProviderSemanticSourceErrorKind::ArtifactContractOwnerMismatch,
+            };
+            return Err(ProviderSemanticSourceError::new(
+                kind,
                 &artifact.role,
                 artifact.contract_owner.as_deref().unwrap_or_default(),
             ));

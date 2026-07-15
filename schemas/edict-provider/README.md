@@ -96,9 +96,12 @@ The primary wrapper retains its producing Wesley input digest, and generator
 coordinates cannot alias any declared artifact, resource, provider, or package
 coordinate. Exact source reordering therefore preserves all primary emitted
 bytes while intentionally moving the provenance identity.
-Remaining #652 slices derive deterministic review evidence and the checked
-corpus. Resources marked `external` are explicit digest-locked generator inputs;
-placeholder digests are forbidden.
+Wesley's non-authoritative `GenerationReviewV1` is then derived from the
+verified input/provenance pair and deterministically copies its generator,
+roles, sources, and emitted identities. It cannot claim semantic or runtime
+authority. Remaining #652 slices publish the checked corpus. Resources marked
+`external` are explicit digest-locked generator inputs; placeholder digests are
+forbidden.
 
 [`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
 versioned settings input for that invocation. The first closure selects no

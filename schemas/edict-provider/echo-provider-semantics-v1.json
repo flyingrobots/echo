@@ -447,7 +447,8 @@
       "role": "review.provider-generation",
       "kind": "reviewArtifact",
       "coordinate": "echo.edict-provider-generation-review@1",
-      "schemaContract": "echo.edict-provider.generation-review/v1"
+      "schemaContract": "wesley:GenerationReviewV1",
+      "contractOwner": "flyingrobots/wesley#728"
     },
     {
       "role": "schema.echo-provider-artifacts",

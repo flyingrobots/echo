@@ -7,6 +7,12 @@
 
 ### Added
 
+- `echo-wesley-gen` now derives Wesley's canonical `GenerationReviewV1` from
+  verified provider provenance. The deterministic JSON copies the exact input,
+  provenance, generator, projection-role, source, and emitted-output identities,
+  is structurally unable to claim authority, and preserves typed Wesley
+  failures when its input and provenance disagree. The semantic source now
+  identifies both provenance and review contracts as Wesley #728 artifacts.
 - `echo-wesley-gen` now constructs canonical Wesley provider-generation
   provenance from explicit material only. The manifest binds the exact three
   authored source artifacts, checked settings digest, caller-supplied generator

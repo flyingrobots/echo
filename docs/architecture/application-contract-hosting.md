@@ -233,6 +233,13 @@ merely because their role closure matches. The generator coordinate must also
 be disjoint from every declared artifact, resource, provider, and package
 coordinate.
 
+The deterministic review JSON is Wesley's `GenerationReviewV1`, derived only
+after the provenance wrapper has verified exact materials. It copies the input,
+provenance, generator, projection roles, sources, and primary emissions for
+inspection, but its `authoritative` posture is permanently false. Review does
+not become a second contract, provenance proof, package admission, or runtime
+authority surface.
+
 The generated operation profile preserves native versus direct-adapter
 selection, operation-local obstruction mappings, and the target optic contract.
 Invocation posture is derived from admitted optic semantics: mutation-capable

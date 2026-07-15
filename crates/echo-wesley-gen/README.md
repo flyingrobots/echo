@@ -92,6 +92,14 @@ digest that produced it, preventing mixed-input attribution even when requested
 roles match. Generator coordinates must also be distinct from all declared
 artifact, resource, provider, and package-manifest coordinates.
 
+`provider_review::generate_provider_generation_review_v1(...)` derives Wesley's
+canonical `GenerationReviewV1` from that verified provenance wrapper. It copies
+the exact input, provenance, generator, projection-role, source, and emitted
+identities into deterministic JSON while Wesley keeps the `authoritative` field
+false by construction and deserialization. Review is derived tooling evidence;
+it neither replaces provenance verification nor admits or authorizes anything
+in Echo.
+
 ## Usage
 
 ```bash

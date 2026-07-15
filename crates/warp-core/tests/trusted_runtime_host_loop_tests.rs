@@ -2127,7 +2127,7 @@ fn causal_anchor_admission_rejects_stale_basis_and_unsupported_roots() {
 #[test]
 fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
     let wal_root = temp_runtime_wal_dir("causal-anchor-restart");
-    let (initial_runtime, _) = runtime();
+    let (initial_runtime, worldline_id) = runtime();
     let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
         .expect("trusted host should initialize");
     host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
@@ -2150,10 +2150,49 @@ fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
         admitted.receipt().support_policy_digest(),
         &expected_policy_digest
     );
-    let expected_restarted_basis = host
+    let admission_basis = host
         .app()
         .current_causal_anchor_basis()
         .expect("committed anchor should advance the durable causal basis");
+
+    let before_observation = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &basis)
+        .expect("the pre-admission basis should remain observable");
+    assert!(
+        before_observation.is_none(),
+        "an anchor must not be visible before its admission transition"
+    );
+    let after_observation = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &admission_basis)
+        .expect("the post-admission basis should remain observable")
+        .expect("the admitted anchor should be visible after admission");
+    assert_eq!(after_observation, admitted);
+    host.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("unrelated admitted history should advance the global basis");
+    let expected_restarted_basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("the later durable basis should remain observable");
+    assert_ne!(admission_basis, expected_restarted_basis);
+    assert_eq!(
+        host.app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &expected_restarted_basis)
+            .expect("a later non-anchor basis should support anchor observation"),
+        Some(admitted.clone())
+    );
+    let unavailable_basis_error = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &CausalFrontierRef::from_digest([0xff; 32]))
+        .expect_err("an unknown basis must not produce an unsupported reading");
+    assert!(matches!(
+        unavailable_basis_error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::CausalHistoryBasisUnavailable {
+            requested
+        }) if requested == [0xff; 32]
+    ));
     drop(host);
 
     let (runtime, _) = runtime();
@@ -2181,6 +2220,38 @@ fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
         .expect("restarted WAL should remain configured")
         .recover_read_only()
         .expect("anchor evidence should rebuild into the recovery certificate");
+    assert_eq!(recovery.causal_anchor_history.len(), 1);
+    assert_eq!(
+        recovery.causal_anchor_history[0].basis_before(),
+        &basis,
+        "witnessed control history must retain the admission basis"
+    );
+    assert_eq!(
+        recovery.causal_anchor_history[0].basis_after(),
+        &admission_basis,
+        "witnessed control history must name the frontier produced by admission"
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &basis)
+            .expect("restart must rebuild the pre-admission reading"),
+        None
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &admission_basis)
+            .expect("restart must rebuild the post-admission reading"),
+        Some(admitted.clone())
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &expected_restarted_basis)
+            .expect("restart must rebuild later basis-pinned readings"),
+        Some(admitted.clone())
+    );
     assert_eq!(
         recovery.certificate.recovered_indexes_root,
         recovery
@@ -2234,7 +2305,7 @@ fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
         .expect("runtime WAL should remain configured")
         .recover_read_only()
         .expect("failed anchor commit should leave recoverable WAL posture");
-    assert!(recovery.causal_anchors.is_empty());
+    assert!(recovery.causal_anchor_history.is_empty());
     assert_eq!(recovery.certificate.committed_transactions_replayed, 0);
 
     drop(host);

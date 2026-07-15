@@ -190,6 +190,12 @@ pub enum TrustedRuntimeWalError {
         /// Canonical claim digest with ambiguous recovered evidence.
         claim_digest: Hash,
     },
+    /// A basis-pinned observation named a frontier outside recovered history.
+    #[error("trusted runtime WAL causal-history basis is unavailable: {requested:?}")]
+    CausalHistoryBasisUnavailable {
+        /// Requested logical causal-history frontier digest.
+        requested: Hash,
+    },
     /// Live runtime authority contains state absent from the recovered WAL.
     #[error("trusted runtime WAL activation would forget process-only {gap:?} authority")]
     RuntimeAuthorityNotDurable {
@@ -260,6 +266,53 @@ pub struct TrustedRuntimeHostRunReport {
     pub committed_steps: usize,
 }
 
+/// One Echo causal-anchor admission observed in committed control history.
+///
+/// The enclosed fact and receipt are the semantic evidence. WAL coordinates on
+/// the recovered admission prove how that transition was made durable, while
+/// the before/after bases place it in Echo's ordered causal history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WitnessedCausalAnchorAdmission {
+    admission: RecoveredCausalAnchorAdmission,
+    basis_before: CausalFrontierRef,
+    basis_after: CausalFrontierRef,
+    transition_ordinal: usize,
+}
+
+impl WitnessedCausalAnchorAdmission {
+    fn new(
+        admission: RecoveredCausalAnchorAdmission,
+        basis_before: CausalFrontierRef,
+        basis_after: CausalFrontierRef,
+        transition_ordinal: usize,
+    ) -> Self {
+        Self {
+            admission,
+            basis_before,
+            basis_after,
+            transition_ordinal,
+        }
+    }
+
+    /// Returns the admitted fact, receipt, and durable carrier evidence.
+    #[must_use]
+    pub const fn admission(&self) -> &RecoveredCausalAnchorAdmission {
+        &self.admission
+    }
+
+    /// Returns the causal frontier immediately before admission.
+    #[must_use]
+    pub const fn basis_before(&self) -> &CausalFrontierRef {
+        &self.basis_before
+    }
+
+    /// Returns the causal frontier produced by admission.
+    #[must_use]
+    pub const fn basis_after(&self) -> &CausalFrontierRef {
+        &self.basis_after
+    }
+}
+
 /// Read-only runtime WAL recovery report.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustedRuntimeWalRecovery {
@@ -279,8 +332,9 @@ pub struct TrustedRuntimeWalRecovery {
     pub missing_runtime_state_deltas: Vec<Hash>,
     /// Receipt correlations reconstructed from atomic tick transactions.
     pub receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
-    /// Echo-admitted causal anchors indexed by stable anchor identity.
-    pub causal_anchors: BTreeMap<CausalAnchorId, RecoveredCausalAnchorAdmission>,
+    /// Ordered Echo control history for committed causal-anchor admissions.
+    pub causal_anchor_history: Vec<WitnessedCausalAnchorAdmission>,
+    causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
 impl TrustedRuntimeWalRecovery {
@@ -298,7 +352,7 @@ impl TrustedRuntimeWalRecovery {
             missing_submission_envelopes: &self.missing_submission_envelopes,
             provenance_entries: &self.provenance_entries,
             missing_runtime_state_deltas: &self.missing_runtime_state_deltas,
-            causal_anchors: &self.causal_anchors,
+            causal_anchor_history: &self.causal_anchor_history,
         })
     }
 
@@ -308,7 +362,38 @@ impl TrustedRuntimeWalRecovery {
         &self,
         anchor_id: &CausalAnchorId,
     ) -> Option<&RecoveredCausalAnchorAdmission> {
-        self.causal_anchors.get(anchor_id)
+        self.causal_anchor_history
+            .iter()
+            .find(|entry| entry.admission().fact().anchor_id() == anchor_id)
+            .map(WitnessedCausalAnchorAdmission::admission)
+    }
+
+    /// Observes one anchor at an exact committed causal-history basis.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed error when the requested basis is not part of the
+    /// recovered history represented by this report.
+    pub fn causal_anchor_by_id_at_basis(
+        &self,
+        anchor_id: &CausalAnchorId,
+        basis: &CausalFrontierRef,
+    ) -> Result<Option<&RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
+        let basis_ordinal = self
+            .causal_history_frontiers
+            .iter()
+            .position(|candidate| candidate == basis)
+            .ok_or(TrustedRuntimeWalError::CausalHistoryBasisUnavailable {
+                requested: basis.frontier_digest,
+            })?;
+        Ok(self
+            .causal_anchor_history
+            .iter()
+            .find(|entry| {
+                entry.transition_ordinal <= basis_ordinal
+                    && entry.admission().fact().anchor_id() == anchor_id
+            })
+            .map(WitnessedCausalAnchorAdmission::admission))
     }
 }
 
@@ -1237,15 +1322,8 @@ impl TrustedRuntimeWal {
         let report = self.store.recover_read_only()?;
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
-        let mut causal_anchors = BTreeMap::new();
-        for admission in
-            recover_causal_anchor_admissions(&report).map_err(WalRecoveryError::from)?
-        {
-            let anchor_id = *admission.fact().anchor_id();
-            if causal_anchors.insert(anchor_id, admission).is_some() {
-                return Err(TrustedRuntimeWalError::CausalAnchorIdConflict { anchor_id });
-            }
-        }
+        let (causal_anchor_history, causal_history_frontiers) =
+            recover_witnessed_causal_anchor_history(&report)?;
         let (witnessed_submissions, missing_submission_envelopes) =
             recover_witnessed_submission_material(&report, &submissions)?;
         let runtime_state = recover_runtime_state_delta_material(&report)?;
@@ -1262,7 +1340,7 @@ impl TrustedRuntimeWal {
                 missing_submission_envelopes: &missing_submission_envelopes,
                 provenance_entries: &provenance_entries,
                 missing_runtime_state_deltas: &missing_runtime_state_deltas,
-                causal_anchors: &causal_anchors,
+                causal_anchor_history: &causal_anchor_history,
             },
         )?;
         Ok(TrustedRuntimeWalRecovery {
@@ -1274,7 +1352,8 @@ impl TrustedRuntimeWal {
             provenance_entries,
             missing_runtime_state_deltas,
             receipt_correlations,
-            causal_anchors,
+            causal_anchor_history,
+            causal_history_frontiers,
         })
     }
 
@@ -1329,8 +1408,18 @@ impl TrustedRuntimeWal {
     ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
         Ok(self
             .recover_read_only()?
-            .causal_anchors
-            .get(anchor_id)
+            .causal_anchor_by_id(anchor_id)
+            .cloned())
+    }
+
+    fn causal_anchor_by_id_at_basis(
+        &self,
+        anchor_id: &CausalAnchorId,
+        basis: &CausalFrontierRef,
+    ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
+        Ok(self
+            .recover_read_only()?
+            .causal_anchor_by_id_at_basis(anchor_id, basis)?
             .cloned())
     }
 
@@ -1340,12 +1429,13 @@ impl TrustedRuntimeWal {
         support_policy_digest: Option<&Hash>,
     ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
         let recovery = self.recover_read_only()?;
-        let mut matching = recovery.causal_anchors.into_values().filter(|admission| {
-            admission.fact().claim().claim_digest() == claim_digest
-                && support_policy_digest
-                    .is_none_or(|digest| admission.receipt().support_policy_digest() == digest)
+        let mut matching = recovery.causal_anchor_history.iter().filter(|entry| {
+            entry.admission().fact().claim().claim_digest() == claim_digest
+                && support_policy_digest.is_none_or(|digest| {
+                    entry.admission().receipt().support_policy_digest() == digest
+                })
         });
-        let first = matching.next();
+        let first = matching.next().map(|entry| entry.admission().clone());
         if matching.next().is_some() {
             return Err(TrustedRuntimeWalError::CausalAnchorClaimConflict {
                 claim_digest: *claim_digest,
@@ -1900,9 +1990,7 @@ impl TrustedRuntimeWalCursor {
             causal_anchor_frontier_digest: trusted_runtime_wal_digest(
                 "causal-anchor-frontier:genesis",
             ),
-            causal_history_frontier_digest: trusted_runtime_wal_digest(
-                "causal-history-frontier:genesis",
-            ),
+            causal_history_frontier_digest: causal_history_genesis_frontier_digest(),
         }
     }
 
@@ -1977,6 +2065,51 @@ impl TrustedRuntimeWalCursor {
         }
         Ok(cursor)
     }
+}
+
+fn recover_witnessed_causal_anchor_history(
+    report: &RecoveryScanReport,
+) -> Result<(Vec<WitnessedCausalAnchorAdmission>, Vec<CausalFrontierRef>), TrustedRuntimeWalError> {
+    let recovered = recover_causal_anchor_admissions(report).map_err(WalRecoveryError::from)?;
+    let mut by_transaction = recovered
+        .into_iter()
+        .map(|admission| (admission.transaction_id(), admission))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_anchor_ids = BTreeSet::new();
+    let mut history = Vec::new();
+    let mut current_frontier = causal_history_genesis_frontier_digest();
+    let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
+
+    for (index, transaction) in report.transactions.iter().enumerate() {
+        let basis_before = CausalFrontierRef::from_digest(current_frontier);
+        let next_frontier = logical_causal_history_frontier_digest(
+            current_frontier,
+            transaction.commit.transaction_kind,
+            &transaction.frames,
+        );
+        let basis_after = CausalFrontierRef::from_digest(next_frontier);
+        if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
+            let admission = by_transaction
+                .remove(&transaction.commit.transaction_id)
+                .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
+                    transaction_id: transaction.commit.transaction_id.as_hash(),
+                })?;
+            let anchor_id = *admission.fact().anchor_id();
+            if !seen_anchor_ids.insert(anchor_id) {
+                return Err(TrustedRuntimeWalError::CausalAnchorIdConflict { anchor_id });
+            }
+            history.push(WitnessedCausalAnchorAdmission::new(
+                admission,
+                basis_before,
+                basis_after,
+                index + 1,
+            ));
+        }
+        current_frontier = next_frontier;
+        frontiers.push(basis_after);
+    }
+
+    Ok((history, frontiers))
 }
 
 fn submission_acceptance_record_from_transaction(
@@ -2516,6 +2649,31 @@ impl TrustedRuntimeApp<'_> {
             .map_err(TrustedRuntimeHostError::from)
     }
 
+    /// Observes one Echo-admitted causal anchor at an exact historical basis.
+    ///
+    /// This is a bounded point reading over witnessed control history. The WAL
+    /// adapter reconstructs that history, but neither its transient lookup nor
+    /// the returned projection becomes a second source of authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed host error when no runtime WAL is configured, recovery
+    /// evidence is malformed, or the requested basis is not in local history.
+    pub fn causal_anchor_by_id_at_basis(
+        &self,
+        anchor_id: &CausalAnchorId,
+        basis: &CausalFrontierRef,
+    ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeHostError> {
+        let runtime_wal = self
+            .host
+            .runtime_wal
+            .as_ref()
+            .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?;
+        runtime_wal
+            .causal_anchor_by_id_at_basis(anchor_id, basis)
+            .map_err(TrustedRuntimeHostError::from)
+    }
+
     /// Submits canonical intent material as witnessed ingress history.
     ///
     /// # Errors
@@ -2711,6 +2869,10 @@ fn trusted_runtime_wal_digest(label: &str) -> Hash {
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(label.as_bytes());
     hasher.finalize().into()
+}
+
+fn causal_history_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-history-frontier:genesis")
 }
 
 fn logical_causal_history_frontier_digest(
@@ -3429,7 +3591,7 @@ struct RecoveredRuntimeWalIndexEvidence<'a> {
     missing_submission_envelopes: &'a [Hash],
     provenance_entries: &'a [ProvenanceEntry],
     missing_runtime_state_deltas: &'a [Hash],
-    causal_anchors: &'a BTreeMap<CausalAnchorId, RecoveredCausalAnchorAdmission>,
+    causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
 }
 
 fn runtime_wal_recovery_certificate(
@@ -3465,23 +3627,26 @@ fn recovered_runtime_wal_indexes_root(
     )?;
     Ok(recovered_causal_anchor_index_root(
         runtime_root,
-        indexes.causal_anchors,
+        indexes.causal_anchor_history,
     ))
 }
 
 fn recovered_causal_anchor_index_root(
     base_root: Hash,
-    causal_anchors: &BTreeMap<CausalAnchorId, RecoveredCausalAnchorAdmission>,
+    causal_anchor_history: &[WitnessedCausalAnchorAdmission],
 ) -> Hash {
-    if causal_anchors.is_empty() {
+    if causal_anchor_history.is_empty() {
         return base_root;
     }
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:causal-anchor-index:v1\0");
+    hasher.update(b"echo:trusted-runtime-wal:causal-anchor-history-index:v1\0");
     hasher.update(&base_root);
-    hasher.update(&(causal_anchors.len() as u64).to_le_bytes());
-    for (anchor_id, admission) in causal_anchors {
-        hasher.update(anchor_id.as_bytes());
+    hasher.update(&(causal_anchor_history.len() as u64).to_le_bytes());
+    for entry in causal_anchor_history {
+        let admission = entry.admission();
+        hasher.update(admission.fact().anchor_id().as_bytes());
+        hasher.update(&entry.basis_before().frontier_digest);
+        hasher.update(&entry.basis_after().frontier_digest);
         let fact_bytes = admission.fact().to_payload_bytes();
         hasher.update(&(fact_bytes.len() as u64).to_le_bytes());
         hasher.update(&fact_bytes);

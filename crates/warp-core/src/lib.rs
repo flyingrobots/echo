@@ -428,7 +428,8 @@ pub use tick_patch::{
 pub use trusted_runtime_host::{
     EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
     TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
-    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
+    TrustedRuntimeWalStoreKind, WitnessedCausalAnchorAdmission,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

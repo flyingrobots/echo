@@ -376,8 +376,45 @@ The app-safe admission boundary lives in
   logical frontier;
 - `TrustedRuntimeApp::admit_causal_anchor(...)` validates, commits, and only then
   returns Echo-produced evidence;
-- `TrustedRuntimeApp::causal_anchor_by_id(...)` rebuilds lookup from committed
-  WAL history after restart.
+- `TrustedRuntimeApp::causal_anchor_by_id(...)` is a bounded point projection
+  over committed witnessed control history;
+- `TrustedRuntimeApp::causal_anchor_by_id_at_basis(...)` performs the same point
+  observation at an exact recovered causal frontier.
+
+### Authority after restart
+
+The authoritative proposition after restart is the committed
+`CausalAnchorFact` paired with its `CausalAnchorAdmissionReceipt` and placed in
+Echo's ordered control history. WAL frames and commit markers are the durable
+carrier and recovery evidence for that proposition. They are not a separate
+anchor registry.
+
+`TrustedRuntimeWalRecovery::causal_anchor_history` is an ordered reading over
+those committed transitions. Each `WitnessedCausalAnchorAdmission` names the
+global causal frontier immediately before and after admission. This makes the
+fact basis-pinned and causally related to both the support it cites and the
+receipt that admitted it.
+
+`causal_anchor_by_id(...)` does not consult an independently maintained map. It
+reconstructs witnessed history and performs a bounded point lookup. Any
+temporary map used by a future index is therefore disposable: deleting it must
+not delete authority, and it must be reconstructible from the ordered history.
+
+The authority questions have these concrete answers:
+
+| Question | Answer |
+| --- | --- |
+| What is authoritative after restart? | The committed anchor fact/receipt transition in witnessed Echo control history. |
+| Is `causal_anchor_by_id()` a WAL-owned registry? | No. It is a projection over reconstructed witnessed history; the WAL only carries the committed transition. |
+| Are lookup maps disposable? | Yes. No persistent anchor lookup map is required for correctness. |
+| Can anchors participate in basis-pinned observations and provenance? | Yes. Witnessed entries bind pre- and post-admission frontiers, the admitted fact, its receipt, and durable commit evidence. |
+
+Semantic WSC/Continuum exchange of anchor facts and receipts is tracked by
+[CA-01-S8](https://github.com/flyingrobots/echo/issues/669). Until that slice
+lands, self-contained WAL exchange can carry the bytes needed for recovery, but
+the WSC causal-history record contract does not yet expose anchors as explicit
+semantic records. Consumers must not mistake indirect byte carriage for a
+complete exchange API.
 
 The external Jim-shaped witness lives in
 `crates/warp-core/tests/causal_anchor_external_consumer_tests.rs`. It uses only

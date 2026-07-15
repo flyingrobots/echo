@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use warp_core::causal_wal::{
-    canonical_segment_path, project_filesystem_wal_recovery, recover_filesystem_store,
-    recover_retention_index, Lsn, ReadingRefRecord, RecoveryAccessMode, RecoveryCertificateRef,
+    canonical_segment_path, project_filesystem_wal_recovery, recover_causal_anchor_admissions,
+    recover_filesystem_store, recover_retention_index, Lsn, ReadingRefRecord,
+    RecoveredCausalAnchorAdmission, RecoveryAccessMode, RecoveryCertificateRef,
     RecoveryTailPosture, RetainedMaterialRecord, SubmissionAcceptanceRecord, TickReceiptRecord,
     WalCommitAnchor, WalProjectionGraphObservationPosture, WalReceiptCorrelationRecord,
     WalRecordKind, WalRecoveryProjectionPosture, WalRoot, WalSegmentId, WalSegmentSealPosture,
@@ -31,6 +32,7 @@ const BUNDLE_MANIFEST: &str = "bundle.json";
 const PROJECTION_ENVELOPE: &str = "projection.ecwsc";
 const ACCEPTED_SUBMISSIONS_ENVELOPE: &str = "accepted-submissions.ecwsc";
 const RECEIPT_CORRELATIONS_ENVELOPE: &str = "receipt-correlations.ecwsc";
+const CAUSAL_ANCHORS_ENVELOPE: &str = "causal-anchors.ecwsc";
 const RETAINED_EVIDENCE_ENVELOPE: &str = "retained-evidence.ecwsc";
 const RETAINED_PAYLOADS_ENVELOPE: &str = "retained-payloads.ecwsc";
 const SEGMENT_MATERIAL_ENVELOPE: &str = "segment-material.ecwsc";
@@ -118,8 +120,16 @@ struct ProjectedWal {
     accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     receipts: Vec<TickReceiptRecord>,
     correlations: Vec<WalReceiptCorrelationRecord>,
+    causal_anchors: Vec<RecoveredCausalAnchorAdmission>,
     retained_materials: Vec<RetainedMaterialRecord>,
     reading_refs: Vec<ReadingRefRecord>,
+}
+
+struct RecoveredCausalHistoryRecords {
+    accepted_submissions: Vec<SubmissionAcceptanceRecord>,
+    receipts: Vec<TickReceiptRecord>,
+    correlations: Vec<WalReceiptCorrelationRecord>,
+    causal_anchors: Vec<RecoveredCausalAnchorAdmission>,
 }
 
 impl ProjectedWal {
@@ -130,6 +140,7 @@ impl ProjectedWal {
             accepted_submissions: &self.accepted_submissions,
             receipts: &self.receipts,
             correlations: &self.correlations,
+            causal_anchors: &self.causal_anchors,
         }
     }
 }
@@ -153,14 +164,14 @@ fn project_wal_root(wal_root: &Path, writer_epochs: &Path) -> Result<ProjectedWa
     let root = projection
         .root
         .ok_or_else(|| anyhow::anyhow!("WAL recovery projection did not produce a root"))?;
-    let (accepted_submissions, receipts, correlations) =
-        causal_history_records_from_report(&report)?;
+    let causal_history = causal_history_records_from_report(&report)?;
     let retention = recover_retention_index(&report)?;
     Ok(ProjectedWal {
         root,
-        accepted_submissions,
-        receipts,
-        correlations,
+        accepted_submissions: causal_history.accepted_submissions,
+        receipts: causal_history.receipts,
+        correlations: causal_history.correlations,
+        causal_anchors: causal_history.causal_anchors,
         retained_materials: retention.material_by_digest.into_values().collect(),
         reading_refs: retention.reading_by_id.into_values().collect(),
     })
@@ -168,11 +179,7 @@ fn project_wal_root(wal_root: &Path, writer_epochs: &Path) -> Result<ProjectedWa
 
 fn causal_history_records_from_report(
     report: &warp_core::causal_wal::RecoveryScanReport,
-) -> Result<(
-    Vec<SubmissionAcceptanceRecord>,
-    Vec<TickReceiptRecord>,
-    Vec<WalReceiptCorrelationRecord>,
-)> {
+) -> Result<RecoveredCausalHistoryRecords> {
     let mut accepted_submissions = Vec::new();
     let mut receipts = Vec::new();
     let mut correlations = Vec::new();
@@ -205,7 +212,14 @@ fn causal_history_records_from_report(
             }
         }
     }
-    Ok((accepted_submissions, receipts, correlations))
+    let causal_anchors = recover_causal_anchor_admissions(report)
+        .context("failed to recover WAL causal-anchor admission records")?;
+    Ok(RecoveredCausalHistoryRecords {
+        accepted_submissions,
+        receipts,
+        correlations,
+        causal_anchors,
+    })
 }
 
 fn segment_materials(
@@ -244,15 +258,17 @@ fn write_ref_only_bundle(
         RECEIPT_CORRELATIONS_ENVELOPE,
         &export.receipt_correlation_envelope,
     )?;
+    write_envelope(out, CAUSAL_ANCHORS_ENVELOPE, &export.causal_anchor_envelope)?;
     write_envelope(out, RETAINED_EVIDENCE_ENVELOPE, &export.retention_envelope)?;
     let manifest = BundleManifest {
-        schema_version: 1,
+        schema_version: 2,
         profile: "ref-only".to_owned(),
         root: WalRootJson::from_wal_root(root),
         envelopes: BundleEnvelopePaths {
             projection: PROJECTION_ENVELOPE.to_owned(),
             accepted_submissions: ACCEPTED_SUBMISSIONS_ENVELOPE.to_owned(),
             receipt_correlations: RECEIPT_CORRELATIONS_ENVELOPE.to_owned(),
+            causal_anchors: CAUSAL_ANCHORS_ENVELOPE.to_owned(),
             retained_evidence: RETAINED_EVIDENCE_ENVELOPE.to_owned(),
             segment_material: None,
             retained_payloads: None,
@@ -291,15 +307,17 @@ fn write_self_contained_bundle(
         RECEIPT_CORRELATIONS_ENVELOPE,
         &export.receipt_correlation_envelope,
     )?;
+    write_envelope(out, CAUSAL_ANCHORS_ENVELOPE, &export.causal_anchor_envelope)?;
     write_envelope(out, RETAINED_EVIDENCE_ENVELOPE, &export.retention_envelope)?;
     let manifest = BundleManifest {
-        schema_version: 1,
+        schema_version: 2,
         profile: "self-contained".to_owned(),
         root: WalRootJson::from_wal_root(root),
         envelopes: BundleEnvelopePaths {
             projection: PROJECTION_ENVELOPE.to_owned(),
             accepted_submissions: ACCEPTED_SUBMISSIONS_ENVELOPE.to_owned(),
             receipt_correlations: RECEIPT_CORRELATIONS_ENVELOPE.to_owned(),
+            causal_anchors: CAUSAL_ANCHORS_ENVELOPE.to_owned(),
             retained_evidence: RETAINED_EVIDENCE_ENVELOPE.to_owned(),
             segment_material: Some(SEGMENT_MATERIAL_ENVELOPE.to_owned()),
             retained_payloads: Some(RETAINED_PAYLOADS_ENVELOPE.to_owned()),
@@ -328,6 +346,7 @@ fn verify_ref_only(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        causal_anchor_envelope: read_envelope(bundle, &manifest.envelopes.causal_anchors)?,
         retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
         segment_dependencies: expected_dependencies,
     };
@@ -351,6 +370,7 @@ fn verify_ref_only(
             accepted_submission_count: imported.accepted_submissions.len(),
             receipt_count: imported.receipts.len(),
             correlation_count: imported.correlations.len(),
+            causal_anchor_count: imported.causal_anchors.len(),
             projection_node_count: imported.projection.node_count,
             obstructions,
         },
@@ -385,6 +405,7 @@ fn verify_self_contained(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        causal_anchor_envelope: read_envelope(bundle, &manifest.envelopes.causal_anchors)?,
         retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
     };
     let imported = validate_wsc_self_contained_wal_export(&export, root)?;
@@ -397,6 +418,7 @@ fn verify_self_contained(
             accepted_submission_count: imported.accepted_submissions.len(),
             receipt_count: imported.receipts.len(),
             correlation_count: imported.correlations.len(),
+            causal_anchor_count: imported.causal_anchors.len(),
             projection_node_count: imported.projection.node_count,
             obstructions: Vec::new(),
         },
@@ -425,6 +447,7 @@ fn verify_cas_addressed(
             bundle,
             &manifest.envelopes.receipt_correlations,
         )?,
+        causal_anchor_envelope: read_envelope(bundle, &manifest.envelopes.causal_anchors)?,
         retention_envelope: read_envelope(bundle, &manifest.envelopes.retained_evidence)?,
     };
     match validate_wsc_cas_addressed_wal_export(&export, root, &UnavailableCasStore) {
@@ -437,6 +460,7 @@ fn verify_cas_addressed(
                 accepted_submission_count: imported.accepted_submissions.len(),
                 receipt_count: imported.receipts.len(),
                 correlation_count: imported.correlations.len(),
+                causal_anchor_count: imported.causal_anchors.len(),
                 projection_node_count: imported.projection.node_count,
                 obstructions: Vec::new(),
             },
@@ -450,6 +474,7 @@ fn verify_cas_addressed(
                 accepted_submission_count: 0,
                 receipt_count: 0,
                 correlation_count: 0,
+                causal_anchor_count: 0,
                 projection_node_count: 0,
                 obstructions: vec![MaterialObstruction {
                     kind: format!("{error:?}"),
@@ -467,6 +492,7 @@ struct VerificationSummary {
     accepted_submission_count: usize,
     receipt_count: usize,
     correlation_count: usize,
+    causal_anchor_count: usize,
     projection_node_count: u64,
     obstructions: Vec<MaterialObstruction>,
 }
@@ -485,6 +511,7 @@ fn verify_output(
         accepted_submission_count: summary.accepted_submission_count,
         receipt_count: summary.receipt_count,
         correlation_count: summary.correlation_count,
+        causal_anchor_count: summary.causal_anchor_count,
         projection_posture: format!(
             "{:?}",
             WalProjectionGraphObservationPosture::ObservationOnly
@@ -546,14 +573,16 @@ fn read_manifest(bundle: &Path) -> Result<BundleManifest> {
     let path = bundle.join(BUNDLE_MANIFEST);
     let bytes = fs::read(&path)
         .with_context(|| format!("failed to read WSC bundle manifest {}", path.display()))?;
-    let manifest: BundleManifest = serde_json::from_slice(&bytes)
+    let schema: BundleSchemaVersion = serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to decode WSC bundle manifest {}", path.display()))?;
-    if manifest.schema_version != 1 {
+    if schema.schema_version != 2 {
         bail!(
             "unsupported WSC bundle schema version {}",
-            manifest.schema_version
+            schema.schema_version
         );
     }
+    let manifest: BundleManifest = serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to decode WSC bundle manifest {}", path.display()))?;
     Ok(manifest)
 }
 
@@ -607,6 +636,11 @@ fn optional_lsn(input: Option<u64>) -> Option<Lsn> {
     input.map(Lsn::from_raw)
 }
 
+#[derive(Deserialize)]
+struct BundleSchemaVersion {
+    schema_version: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BundleManifest {
     schema_version: u32,
@@ -620,6 +654,7 @@ struct BundleEnvelopePaths {
     projection: String,
     accepted_submissions: String,
     receipt_correlations: String,
+    causal_anchors: String,
     retained_evidence: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     segment_material: Option<String>,
@@ -635,6 +670,7 @@ impl BundleEnvelopePaths {
             ("projection", self.projection.as_str()),
             ("accepted_submissions", self.accepted_submissions.as_str()),
             ("receipt_correlations", self.receipt_correlations.as_str()),
+            ("causal_anchors", self.causal_anchors.as_str()),
             ("retained_evidence", self.retained_evidence.as_str()),
         ];
         if let Some(path) = self.segment_material.as_deref() {
@@ -678,6 +714,7 @@ struct BundleVerifyOutput {
     accepted_submission_count: usize,
     receipt_count: usize,
     correlation_count: usize,
+    causal_anchor_count: usize,
     projection_posture: String,
     projection_node_count: u64,
     obstructions: Vec<MaterialObstruction>,

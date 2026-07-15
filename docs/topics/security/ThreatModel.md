@@ -202,10 +202,13 @@ WAL guarantee.
 wrong semantic coordinate, a missing blob, a tampered self-contained WSC
 segment, or a projection that answers a different reading question.
 
-**Current controls.** CAS-addressed import verifies byte hashes. WSC import
-validates segment and retained-material digests. `ReadIdentity` and retained
-material references remain distinct from content hashes. Missing or mismatched
-material produces typed obstruction.
+**Current controls.** CAS-addressed import verifies byte hashes and recovers WAL
+segment bytes against the projected segment digest, LSN range, commit chain, and
+commit anchors. WSC import validates segment and retained-material digests.
+Explicit causal-anchor envelopes in self-contained and CAS-addressed profiles
+must exactly match anchor admissions recovered from those segments.
+`ReadIdentity` and retained material references remain distinct from content
+hashes. Missing or mismatched material produces typed obstruction.
 
 **Residual risk.** A matching content hash says only that the bytes match. It
 does not prove admission, authority, availability, retention duration, reveal

@@ -13,6 +13,9 @@ use warp_core::causal_wal::{
     WalCommittedTransaction, WalDurabilityMode, WalRecordKind, WalRecoveryIndexError, WalSegmentId,
     WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
 };
+use warp_core::wsc::{
+    causal_anchor_records_from_wsc_envelope, causal_anchor_records_to_wsc_envelope,
+};
 use warp_core::{
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
@@ -191,6 +194,26 @@ fn committed_anchor_transaction_recovers_one_cross_checked_admission() {
     );
     assert_eq!(admission.committed_lsn(), transaction.commit.last_lsn);
     assert_eq!(admission.commit_digest(), &transaction.commit.commit_digest);
+}
+
+#[test]
+fn causal_anchor_history_round_trips_through_wsc() {
+    let transaction = must_ok(transaction("wsc-round-trip"));
+    let report = must_ok(report_for(&transaction));
+    let admissions = must_ok(recover_causal_anchor_admissions(&report));
+
+    let envelope = must_ok(causal_anchor_records_to_wsc_envelope(&admissions));
+    let recovered = must_ok(causal_anchor_records_from_wsc_envelope(&envelope));
+
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].fact(), admissions[0].fact());
+    assert_eq!(recovered[0].receipt(), admissions[0].receipt());
+    assert_eq!(
+        recovered[0].transaction_id(),
+        admissions[0].transaction_id()
+    );
+    assert_eq!(recovered[0].committed_lsn(), admissions[0].committed_lsn());
+    assert_eq!(recovered[0].commit_digest(), admissions[0].commit_digest());
 }
 
 #[test]

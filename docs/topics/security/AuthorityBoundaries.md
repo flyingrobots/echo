@@ -271,8 +271,12 @@ names a CAS root does not itself pin or reveal the blob.
 ### WSC
 
 WSC is deterministic physical representation. Self-contained and CAS-addressed
-profiles can carry or reference retained evidence and validate their bytes. WSC
-decode success does not admit that evidence into local causal history.
+profiles can carry or reference retained evidence and validate their bytes.
+Causal-anchor envelopes decode to observation-only evidence; self-contained and
+CAS-addressed imports cross-check that envelope against anchor admissions
+recovered from the retained WAL segments. Ref-only imports retain external WAL
+bytes as an explicit dependency. No WSC decode or cross-check admits imported
+evidence into local causal history.
 
 ### Holograms, BTRs, and caches
 

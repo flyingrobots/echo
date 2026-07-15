@@ -178,6 +178,13 @@
   Self-contained exports can embed retained payload bytes and validate them
   against the WAL-retained material digest, while CAS-addressed imports require
   the referenced retained blobs to be present before reporting success.
+- WSC causal-history profile version 2 now carries explicit Echo causal-anchor
+  fact, receipt, WAL transaction, LSN, and commit evidence through all three
+  export profiles. Imports expose that material as observation-only evidence;
+  self-contained and CAS-addressed validation recovers retained WAL segments
+  and requires the envelope to match the complete recovered anchor history.
+  `echo-cli` bundle schema version 2 writes, inspects, and reports the dedicated
+  causal-anchor envelope without treating Continuum transport as admission.
 - `warp-core` now includes a filesystem-backed WSC store adapter that persists
   envelope material separately from commit markers, hides staged material until
   marker publication, reopens committed envelopes in deterministic order, and

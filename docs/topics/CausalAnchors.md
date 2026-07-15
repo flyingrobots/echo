@@ -5,9 +5,10 @@
 
 A causal-anchor claim is an application-requested, canonical claim over a basis
 in causal history. It is not a materialized snapshot, an admission receipt, or
-proof that referenced history and roots exist. The current implementation binds
-a subject, basis-frontier digest, root set, and purpose into a deterministic
-claim without admitting or publishing it.
+proof that referenced history and roots exist. Claim construction binds a
+subject, basis-frontier digest, root set, and purpose into a deterministic value
+without admitting or publishing it; the trusted Echo transition described below
+performs admission separately.
 
 The short rule is:
 
@@ -213,8 +214,11 @@ TypeScript, another Rust crate, or a generated application contract.
 
 ## Jim And Rope Checkpoints
 
-For `jedit`, the domain checkpoint can be a thin fact over an Echo-admitted
-causal anchor:
+For `jedit`, checkpoint declaration and Echo anchoring are separate
+propositions. A checkpoint can be useful as an undo boundary, navigation
+marker, temporary basis, or application-local declaration without requesting
+special Echo retention. Durable save, export, or recovery policy may later
+associate that checkpoint with an admitted Echo anchor.
 
 ```ts
 type RopeCheckpointReason =
@@ -225,16 +229,29 @@ type RopeCheckpointReason =
     | "export"
     | "test-fixture";
 
-type RopeCheckpointFact = {
-    kind: "jedit.text.RopeCheckpoint";
+type RopeCheckpointDeclaredFact = {
+    kind: "jedit.text.RopeCheckpointDeclared";
     schemaVersion: 1;
     checkpointId: string;
     worldlineId: string;
     headId: string;
-    causalAnchorId: string;
     reason: RopeCheckpointReason;
 };
+
+type RopeCheckpointAnchoredFact = {
+    kind: "jedit.text.RopeCheckpointAnchored";
+    schemaVersion: 1;
+    checkpointId: string;
+    causalAnchorId: string;
+};
 ```
+
+Separate facts are preferred over an optional `causalAnchorId`. They preserve
+the distinction between declaring application meaning and requesting Echo
+retention policy, allow an anchor to be admitted later without replacing the
+original checkpoint fact, and make the association independently explainable
+through provenance. A future disassociation would likewise require an explicit
+superseding fact rather than mutating either proposition.
 
 Jim says:
 
@@ -270,11 +287,13 @@ An optional flat UTF-8 file projection belongs under `materializationRoots`, not
 `retainedRoots`, unless the application explicitly models that projection as
 authority.
 
-Creating a rope checkpoint may request and, after Echo admission, receive:
+Declaring a rope checkpoint creates Jim-owned application semantics. A
+separate anchoring operation may request and, after Echo admission, receive:
 
 - a canonical causal-anchor claim;
 - an Echo-admitted anchor fact and receipt;
-- a Jim `RopeCheckpointFact`;
+- a Jim `RopeCheckpointDeclaredFact`;
+- a Jim `RopeCheckpointAnchoredFact` associating the two propositions;
 - optional projection materialization evidence.
 
 It must not mint:
@@ -285,7 +304,8 @@ It must not mint:
 - replacement blobs;
 - text mutation evidence.
 
-A checkpoint is a causal event. It is not a text edit.
+A checkpoint declaration and an anchor association are causal events. Neither
+is a text edit, and not every checkpoint declaration requires an anchor.
 
 ## Projection Caches
 
@@ -336,9 +356,10 @@ receipt binds the policy digest used for that decision. The WAL path
 authenticates and recovers the receipt; the claim constructor does not.
 Application root semantics and physical retention pins remain separate.
 
-A domain checkpoint fact must separately validate domain semantics. For Jim, that
-means the rope head exists, belongs to the named worldline, and matches the anchor
-subject. Echo does not validate rope structure; Jim does.
+A domain checkpoint declaration must separately validate domain semantics. For
+Jim, that means the rope head exists and belongs to the named worldline. An
+anchoring association must additionally prove that the admitted anchor subject
+matches that declaration. Echo does not validate rope structure; Jim does.
 
 ## Relationship To WAL
 
@@ -408,13 +429,30 @@ The authority questions have these concrete answers:
 | Is `causal_anchor_by_id()` a WAL-owned registry? | No. It is a projection over reconstructed witnessed history; the WAL only carries the committed transition. |
 | Are lookup maps disposable? | Yes. No persistent anchor lookup map is required for correctness. |
 | Can anchors participate in basis-pinned observations and provenance? | Yes. Witnessed entries bind pre- and post-admission frontiers, the admitted fact, its receipt, and durable commit evidence. |
+| Can anchors participate in Continuum exchange? | Yes. WSC causal-history profile version 2 carries explicit anchor fact, receipt, transaction, LSN, and commit evidence without granting local admission authority. |
 
-Semantic WSC/Continuum exchange of anchor facts and receipts is tracked by
-[CA-01-S8](https://github.com/flyingrobots/echo/issues/669). Until that slice
-lands, self-contained WAL exchange can carry the bytes needed for recovery, but
-the WSC causal-history record contract does not yet expose anchors as explicit
-semantic records. Consumers must not mistake indirect byte carriage for a
-complete exchange API.
+### Continuum exchange posture
+
+WSC causal-history profile version 2 carries causal-anchor admissions in a
+dedicated semantic envelope across ref-only, self-contained, and CAS-addressed
+exports. Decoding yields `WscCausalAnchorAdmissionEvidence`, an explicitly
+observation-only value. It cannot be converted into
+`RecoveredCausalAnchorAdmission` or installed as local Echo authority.
+
+The validation posture depends on the profile:
+
+- Ref-only import binds each supplied anchor observation to the projected WAL
+  root's transaction, LSN, record-count, and commit evidence. The segment bytes
+  remain an explicit external dependency.
+- Self-contained import recovers the embedded WAL segments, requires the anchor
+  envelope to match the complete recovered anchor history, and rejects omitted,
+  extra, malformed, or mismatched admissions.
+- CAS-addressed import verifies each retained segment blob, recovers it against
+  the projected WAL root, and requires the same complete anchor-history match.
+
+Continuum transport does not perform admission. A receiving Echo runtime may
+observe, inspect, or propose imported evidence under its local law, but only a
+new Echo-owned transition can make a proposition part of local causal history.
 
 The external Jim-shaped witness lives in
 `crates/warp-core/tests/causal_anchor_external_consumer_tests.rs`. It uses only

@@ -543,9 +543,11 @@ sequenceDiagram
         W-->>H: Committed admission evidence
         H-->>A: RecoveredCausalAnchorAdmission A12
         A-->>J: Echo-produced anchor and receipt identities
-        J->>A: Submit CreateRopeCheckpoint(H42, A12)
+        J->>A: Submit DeclareRopeCheckpoint(H42)
         Note over A,H: Normal WAL-backed admission, staging,<br/>Jim contract tick, and receipt lifecycle
-        A-->>J: Committed Jim checkpoint receipt
+        A-->>J: Committed Jim checkpoint declaration C7
+        J->>A: Submit AssociateCheckpointAnchor(C7, A12)
+        A-->>J: Committed Jim anchor-association receipt
         J-->>U: Saved from H42 with anchor A12
     end
 ```
@@ -586,14 +588,17 @@ The returned `RecoveredCausalAnchorAdmission` contains:
 - the committed LSN; and
 - the transaction commit digest.
 
-Jim copies those opaque identities into its adapter or domain checkpoint. It
-must not recompute `anchorId`, `anchorDigest`, or `admittedByReceiptId`.
+Jim copies those opaque identities into its adapter or checkpoint-anchor
+association. It must not recompute `anchorId`, `anchorDigest`, or
+`admittedByReceiptId`.
 
-The Jim `RopeCheckpointFact` is application history. It must be produced by a
-Jim contract operation that references the Echo-produced anchor and passes
-through the normal intent lifecycle. Receiving `RecoveredCausalAnchorAdmission`
-does not authorize Jim to append a domain fact directly to a graph or local
-array.
+The Jim `RopeCheckpointDeclaredFact` is application history independent of
+Echo retention policy. When save law requires an anchor, a separate
+`RopeCheckpointAnchoredFact` associates that declaration with the
+Echo-produced anchor. Both facts must be produced by Jim contract operations
+through the normal intent lifecycle. Receiving
+`RecoveredCausalAnchorAdmission` does not authorize Jim to append either domain
+fact directly to a graph or local array.
 
 The value-only constructor
 `CausalAnchorClaim::from_admission_request(...)` is useful for canonical

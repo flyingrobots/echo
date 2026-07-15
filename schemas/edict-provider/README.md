@@ -82,12 +82,15 @@ evidence only.
 
 ## Generated Outputs
 
-Issue #652 will compile this source into the declared Edict lawpack, target
-profile, two source-partitioned authority-facts documents, generated-artifact
-profile, self-contained CDDL schema, deterministic review artifact, manifest
-subresources, and Wesley-owned `generationProvenance` metadata. Resources marked
-`external` are explicit digest-locked generator inputs; placeholder digests
-are forbidden.
+Issue #652 now compiles the primary closure into the declared Edict lawpack,
+target profile, two source-partitioned authority-facts documents,
+generated-artifact profile, fourteen manifest subresources, and self-contained
+CDDL schema. Every canonical output passes its owning generated root, and every
+Edict-owned output also passes the independently admitted upstream root. The
+remaining #652 slices derive deterministic review evidence, Wesley-owned
+`generationProvenance` metadata, and the checked corpus from those primary
+outputs. Resources marked `external` are explicit digest-locked generator
+inputs; placeholder digests are forbidden.
 
 [`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
 versioned settings input for that invocation. The first closure selects no
@@ -104,6 +107,17 @@ when the authored JSON bytes are reordered, because later provenance binds the
 exact source artifact rather than mislabeling normalized bytes as the checked
 file. Generated semantic artifact bytes remain a function of the normalized
 model.
+
+Echo-owned resource documents use their declared schema API as their wire
+`apiVersion`; generated resource digests are framed by the resource coordinate.
+The lawpack and target-profile manifests bind those domain-framed identities,
+while later Wesley provenance binds exact-byte content references. The empty
+declarative conformance corpus cannot carry cases until executable parity
+evidence exists. Direct-adapter routes bind the adapter and native capability,
+and operation-local failure mappings are not collapsed merely because two
+operations share one semantic effect. Read-class operations must use a
+revelation/projection optic and generate observer metadata rather than mutation
+metadata.
 
 The two authority-facts outputs use Edict's `edict.authority-facts/v1` domain
 and bind their contract owner to

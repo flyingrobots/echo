@@ -1299,6 +1299,21 @@ fn effect_profile_and_implementation_joins_fail_closed() {
     }
     assert_failure_tuple(
         |source| {
+            source["writeClasses"][0]["identity"]["coordinate"] = json!("read");
+            source["profiles"][0]["allowedWriteClasses"][0] = json!("read");
+            source["effects"][0]["effectKindHint"] = json!("read");
+            source["capabilities"][0]["effectKind"] = json!("read");
+            source["capabilities"][0]["writeClass"] = json!("read");
+            source["capabilities"][0]["semanticDischarge"]["effectKindHint"] = json!("read");
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+            "a.b@1.t",
+            "affectReintegration",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
             source["profiles"][0]["atomicity"] = Value::String("non-atomic".to_owned());
         },
         (

@@ -208,6 +208,24 @@ after primary output digests exist, preventing self-referential digest sets.
 Set-like source reordering preserves normalized semantic projections but moves
 the exact-source generation-input identity, as honest provenance requires.
 
+Primary provider generation is a pure digest DAG. Echo first emits and
+owning-root-validates the declarative resource closure and generated operation
+profile, then the target profile, then the lawpack, and finally the two
+source-partitioned authority-facts documents. The target profile binds the
+generated profile and resource domain digests; the lawpack binds the completed
+target-profile digest; authority facts bind their completed source artifact.
+No primary artifact binds review or provenance, so the graph has no
+self-reference. Wesley content references separately bind exact output bytes.
+Neither digest form installs an artifact or turns generated authority facts
+into runtime Echo authority.
+
+The generated operation profile preserves native versus direct-adapter
+selection, operation-local obstruction mappings, and the target optic contract.
+Invocation posture is derived from admitted optic semantics: mutation-capable
+write classes require affect/reintegration, while non-mutating classes require
+revelation/projection and remain bounded observers. This rule is generic and
+does not encode application- or editor-specific behavior.
+
 The first capability distinguishes two nested domains. `echo.span-ir/v1` is
 the inner Echo target IR domain selected by `echo.dpo@1.replace`.
 `edict.target-ir.artifact/v1` is the outer canonical artifact domain that

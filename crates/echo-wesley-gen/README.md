@@ -65,6 +65,20 @@ The normalized semantic model is stable under set ordering, while the
 generation-input digest changes when raw authored bytes change because it binds
 the exact source artifact.
 
+`provider_artifacts::generate_provider_primary_artifacts_v1(...)` projects the
+normalized semantic model into five canonical-CBOR primary artifacts, fourteen
+declarative generated resources, and one exact self-contained CDDL artifact.
+Every canonical value is validated against its generated owning root; the
+Edict-owned lawpack, target-profile, authority-facts, export, intrinsic, and
+operation-profile values are also checked independently against the admitted
+contract pack. Manifest edges use Edict domain-framed digests, while Wesley
+content references bind exact emitted bytes. Direct adapters and
+operation-local obstruction mappings remain explicit, and invocation posture
+comes from the admitted optic: affect/reintegration produces a mutation while
+revelation/projection produces a bounded observer. These artifacts describe
+provider semantics only; they do not install a package or grant Echo runtime
+authority.
+
 ## Usage
 
 ```bash

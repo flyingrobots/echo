@@ -7,6 +7,16 @@
 
 ### Added
 
+- `echo-wesley-gen` now deterministically projects the validated Echo Edict
+  source into a canonical lawpack, target profile, two source-partitioned
+  authority-facts documents, generated operation profile, fourteen declarative
+  resources, and a self-contained provider CDDL artifact. Every output passes
+  its owning generated root, Edict-owned values also pass the independently
+  admitted upstream roots, manifest edges use domain-framed digests, and Wesley
+  references bind exact output bytes. The projection preserves direct adapters,
+  operation-local obstructions, and optic contracts, and keeps read-class
+  operations as bounded observers rather than mutation DPOs. These artifacts
+  describe provider semantics and confer no Echo runtime authority.
 - `echo-wesley-gen` now admits the exact Apache-2.0 Edict provider contract
   pack merged in Edict PR #162 as an explicit generator input. The pure
   boundary pins the CDDL and manifest publication, verifies strict contract and

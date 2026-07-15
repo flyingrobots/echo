@@ -2458,6 +2458,21 @@ fn validate_operation_references(
                     "projection",
                 ));
             }
+        } else {
+            if profile.optic_template.optic_kind != OpticKind::Revelation {
+                return Err(ProviderSemanticSourceError::new(
+                    ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+                    subject,
+                    "affectReintegration",
+                ));
+            }
+            if profile.optic_template.boundary_kind != BoundaryKind::Projection {
+                return Err(ProviderSemanticSourceError::new(
+                    ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+                    subject,
+                    "affect",
+                ));
+            }
         }
         if effect
             .guard_kinds

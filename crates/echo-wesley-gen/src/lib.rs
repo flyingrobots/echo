@@ -24,6 +24,9 @@ pub mod provider_canonical;
 /// Canonical Wesley input assembly for Echo provider artifact generation.
 pub mod provider_generation;
 
+/// Deterministic, schema-validated primary Edict provider artifacts.
+pub mod provider_artifacts;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

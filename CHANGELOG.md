@@ -192,7 +192,8 @@
   and requires the envelope to match the complete recovered anchor history
   before exposing observation evidence.
   CAS-addressed exports and imports also require retained CAS references to
-  exactly match every retention record whose material posture is present.
+  exactly match every retention record whose material posture is present;
+  mismatch errors report missing and extra references independently.
   `echo-cli` bundle schema version 2 writes, inspects, and reports the dedicated
   causal-anchor envelope without treating Continuum transport as admission.
 - `warp-core` now includes a filesystem-backed WSC store adapter that persists

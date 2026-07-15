@@ -959,12 +959,14 @@ pub enum WscCasAddressedWalExportError {
         segment_id: WalSegmentId,
     },
     /// Present retained-material records did not exactly match CAS references.
-    #[error("CAS-addressed retained-material references mismatch")]
+    #[error(
+        "CAS-addressed retained-material references mismatch: {missing_from_references} missing, {extra_in_references} extra"
+    )]
     RetainedCasReferenceMismatch {
-        /// Number of present retained-material records.
-        expected_count: usize,
-        /// Number of retained-material CAS references.
-        actual_count: usize,
+        /// Number of present retained-material records absent from CAS references.
+        missing_from_references: usize,
+        /// Number of CAS references absent from present retained-material records.
+        extra_in_references: usize,
     },
     /// CAS reference WSC envelope was invalid.
     #[error("invalid CAS-addressed WAL reference WSC")]
@@ -1027,12 +1029,14 @@ pub enum WscCasAddressedWalImportError {
         segment_id: WalSegmentId,
     },
     /// Present retained-material records did not exactly match CAS references.
-    #[error("CAS-addressed retained-material references mismatch")]
+    #[error(
+        "CAS-addressed retained-material references mismatch: {missing_from_references} missing, {extra_in_references} extra"
+    )]
     RetainedCasReferenceMismatch {
-        /// Number of present retained-material records.
-        expected_count: usize,
-        /// Number of retained-material CAS references.
-        actual_count: usize,
+        /// Number of present retained-material records absent from CAS references.
+        missing_from_references: usize,
+        /// Number of CAS references absent from present retained-material records.
+        extra_in_references: usize,
     },
     /// A CAS-retained WAL segment could not be recovered.
     #[error("CAS-retained WAL segment recovery failed")]
@@ -1919,8 +1923,8 @@ pub fn wsc_cas_addressed_wal_export(
         wsc_cas_addressed_wal_references(root, segment_materials, retained_material_references)?;
     validate_cas_addressed_retained_references(records.retained_materials, &references).map_err(
         |mismatch| WscCasAddressedWalExportError::RetainedCasReferenceMismatch {
-            expected_count: mismatch.expected_count,
-            actual_count: mismatch.actual_count,
+            missing_from_references: mismatch.missing_from_references,
+            extra_in_references: mismatch.extra_in_references,
         },
     )?;
     Ok(WscCasAddressedWalExport {
@@ -2002,8 +2006,8 @@ where
         .map_err(WscCasAddressedWalImportError::Retention)?;
     validate_cas_addressed_retained_references(&retention.materials, &cas_references).map_err(
         |mismatch| WscCasAddressedWalImportError::RetainedCasReferenceMismatch {
-            expected_count: mismatch.expected_count,
-            actual_count: mismatch.actual_count,
+            missing_from_references: mismatch.missing_from_references,
+            extra_in_references: mismatch.extra_in_references,
         },
     )?;
     validate_cas_addressed_segment_references(&cas_references.segments, expected_root)?;
@@ -4284,8 +4288,8 @@ where
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CasAddressedRetainedReferenceMismatch {
-    expected_count: usize,
-    actual_count: usize,
+    missing_from_references: usize,
+    extra_in_references: usize,
 }
 
 fn validate_cas_addressed_retained_references(
@@ -4316,8 +4320,8 @@ fn validate_cas_addressed_retained_references(
         .collect::<BTreeSet<_>>();
     if expected != actual {
         return Err(CasAddressedRetainedReferenceMismatch {
-            expected_count: expected.len(),
-            actual_count: actual.len(),
+            missing_from_references: expected.difference(&actual).count(),
+            extra_in_references: actual.difference(&expected).count(),
         });
     }
     Ok(())

@@ -1741,8 +1741,8 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
     assert!(matches!(
         missing_retained_reference,
         WscCasAddressedWalExportError::RetainedCasReferenceMismatch {
-            expected_count: 1,
-            actual_count: 0,
+            missing_from_references: 1,
+            extra_in_references: 0,
         }
     ));
 
@@ -2038,11 +2038,16 @@ fn wsc_retained_evidence_export_modes() {
         ),
         "CAS references must exactly match present retained-material records",
     );
+    let mismatch_diagnostic = format!("{mismatch}");
+    assert!(
+        mismatch_diagnostic.contains("1 missing") && mismatch_diagnostic.contains("1 extra"),
+        "equal-size substitutions must report the two directional differences"
+    );
     assert!(matches!(
         mismatch,
         WscCasAddressedWalImportError::RetainedCasReferenceMismatch {
-            expected_count: 1,
-            actual_count: 1,
+            missing_from_references: 1,
+            extra_in_references: 1,
         }
     ));
 

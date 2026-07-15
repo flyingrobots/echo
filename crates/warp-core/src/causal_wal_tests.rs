@@ -1893,9 +1893,9 @@ fn wsc_retained_evidence_export_modes() {
     let ref_only_import = must_ok(validate_wsc_ref_only_wal_export(&ref_only, &root));
     assert_eq!(ref_only_import.retention.materials, vec![retained_material]);
     assert_eq!(ref_only_import.retention.readings, vec![reading_ref]);
-    assert_eq!(ref_only_import.causal_anchors.len(), 1);
+    assert_eq!(ref_only_import.unverified_causal_anchors.len(), 1);
     assert_eq!(
-        ref_only_import.causal_anchors[0].fact(),
+        ref_only_import.unverified_causal_anchors[0].fact(),
         causal_anchors[0].fact()
     );
     assert_eq!(

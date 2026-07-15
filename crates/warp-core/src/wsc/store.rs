@@ -447,7 +447,17 @@ pub struct WscRefOnlyWalExport {
     pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
 }
 
-/// Imported and validated ref-only WAL causal-history WSC evidence.
+/// Structurally validated ref-only WAL metadata with unresolved WAL dependencies.
+///
+/// Ref-only imports do not expose causal-anchor sidecars as validated history:
+///
+/// ```compile_fail
+/// use warp_core::wsc::WscRefOnlyWalImport;
+///
+/// fn promote_unresolved_sidecar(imported: WscRefOnlyWalImport) {
+///     let _ = imported.causal_anchors;
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WscRefOnlyWalImport {
     /// Export profile.
@@ -462,8 +472,8 @@ pub struct WscRefOnlyWalImport {
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
-    /// Observation-only causal-anchor admissions recovered from WSC.
-    pub causal_anchors: Vec<WscCausalAnchorAdmissionEvidence>,
+    /// Causal-anchor sidecar records awaiting resolution against WAL bytes.
+    pub unverified_causal_anchors: Vec<WscCausalAnchorAdmissionEvidence>,
     /// Retained material and reading references recovered from WSC.
     pub retention: WscRetentionRecords,
     /// External segment byte dependencies for ref-only validation.
@@ -1684,10 +1694,9 @@ pub fn validate_wsc_ref_only_wal_export(
     let receipt_records =
         receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
             .map_err(WscRefOnlyWalImportError::ReceiptCorrelations)?;
-    let causal_anchors = causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
-        .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
-    validate_wsc_causal_anchors_against_root(&causal_anchors, expected_root)
-        .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
+    let unverified_causal_anchors =
+        causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
+            .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
     validate_wsc_causal_history_records(
         &accepted_submissions,
         &receipt_records.receipts,
@@ -1704,7 +1713,7 @@ pub fn validate_wsc_ref_only_wal_export(
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
-        causal_anchors,
+        unverified_causal_anchors,
         retention,
         segment_dependencies: expected_dependencies,
     })

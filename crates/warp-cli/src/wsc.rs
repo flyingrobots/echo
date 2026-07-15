@@ -370,7 +370,8 @@ fn verify_ref_only(
             accepted_submission_count: imported.accepted_submissions.len(),
             receipt_count: imported.receipts.len(),
             correlation_count: imported.correlations.len(),
-            causal_anchor_count: imported.causal_anchors.len(),
+            causal_anchor_count: 0,
+            unverified_causal_anchor_count: imported.unverified_causal_anchors.len(),
             projection_node_count: imported.projection.node_count,
             obstructions,
         },
@@ -419,6 +420,7 @@ fn verify_self_contained(
             receipt_count: imported.receipts.len(),
             correlation_count: imported.correlations.len(),
             causal_anchor_count: imported.causal_anchors.len(),
+            unverified_causal_anchor_count: 0,
             projection_node_count: imported.projection.node_count,
             obstructions: Vec::new(),
         },
@@ -461,6 +463,7 @@ fn verify_cas_addressed(
                 receipt_count: imported.receipts.len(),
                 correlation_count: imported.correlations.len(),
                 causal_anchor_count: imported.causal_anchors.len(),
+                unverified_causal_anchor_count: 0,
                 projection_node_count: imported.projection.node_count,
                 obstructions: Vec::new(),
             },
@@ -475,6 +478,7 @@ fn verify_cas_addressed(
                 receipt_count: 0,
                 correlation_count: 0,
                 causal_anchor_count: 0,
+                unverified_causal_anchor_count: 0,
                 projection_node_count: 0,
                 obstructions: vec![MaterialObstruction {
                     kind: format!("{error:?}"),
@@ -493,6 +497,7 @@ struct VerificationSummary {
     receipt_count: usize,
     correlation_count: usize,
     causal_anchor_count: usize,
+    unverified_causal_anchor_count: usize,
     projection_node_count: u64,
     obstructions: Vec<MaterialObstruction>,
 }
@@ -512,6 +517,7 @@ fn verify_output(
         receipt_count: summary.receipt_count,
         correlation_count: summary.correlation_count,
         causal_anchor_count: summary.causal_anchor_count,
+        unverified_causal_anchor_count: summary.unverified_causal_anchor_count,
         projection_posture: format!(
             "{:?}",
             WalProjectionGraphObservationPosture::ObservationOnly
@@ -715,6 +721,7 @@ struct BundleVerifyOutput {
     receipt_count: usize,
     correlation_count: usize,
     causal_anchor_count: usize,
+    unverified_causal_anchor_count: usize,
     projection_posture: String,
     projection_node_count: u64,
     obstructions: Vec<MaterialObstruction>,

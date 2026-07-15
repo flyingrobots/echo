@@ -727,6 +727,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
     assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(
         json["obstructions"][0]["kind"],
         "ExternalSegmentBytesUnavailable"
@@ -811,6 +812,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
     assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(json["obstructions"].as_array().map(Vec::len), Some(0));
     Ok(())
 }

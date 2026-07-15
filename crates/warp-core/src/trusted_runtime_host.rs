@@ -1996,8 +1996,11 @@ impl TrustedRuntimeWalCursor {
 
     fn from_recovery(report: &RecoveryScanReport) -> Result<Self, TrustedRuntimeWalError> {
         let mut cursor = Self::genesis();
-        let recovered_anchors =
-            recover_causal_anchor_admissions(report).map_err(WalRecoveryError::from)?;
+        let mut recovered_anchors_by_transaction = recover_causal_anchor_admissions(report)
+            .map_err(WalRecoveryError::from)?
+            .into_iter()
+            .map(|admission| (admission.transaction_id(), admission))
+            .collect::<BTreeMap<_, _>>();
         for transaction in &report.transactions {
             cursor.has_committed_history = true;
             cursor.causal_history_frontier_digest = logical_causal_history_frontier_digest(
@@ -2047,17 +2050,14 @@ impl TrustedRuntimeWalCursor {
                     };
                 }
                 WalTransactionKind::CausalAnchorAdmission => {
-                    let admission = recovered_anchors
-                        .iter()
-                        .find(|admission| {
-                            admission.transaction_id() == transaction.commit.transaction_id
-                        })
+                    let admission = recovered_anchors_by_transaction
+                        .remove(&transaction.commit.transaction_id)
                         .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
                             transaction_id: transaction.commit.transaction_id.as_hash(),
                         })?;
                     cursor.causal_anchor_frontier_digest = causal_anchor_frontier_digest(
                         cursor.causal_anchor_frontier_digest,
-                        admission,
+                        &admission,
                     );
                 }
                 _ => {}

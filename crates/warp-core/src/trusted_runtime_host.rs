@@ -2012,6 +2012,12 @@ struct TrustedRuntimeWalCursor {
     causal_history_frontier_digest: Hash,
 }
 
+struct RecoveredCausalAnchorTraversal {
+    history: Vec<WitnessedCausalAnchorAdmission>,
+    causal_history_frontiers: Vec<CausalFrontierRef>,
+    causal_anchor_frontier_digest: Hash,
+}
+
 impl TrustedRuntimeWalCursor {
     fn genesis() -> Self {
         Self {
@@ -2030,21 +2036,12 @@ impl TrustedRuntimeWalCursor {
     }
 
     fn from_recovery(report: &RecoveryScanReport) -> Result<Self, TrustedRuntimeWalError> {
+        let causal_anchor_traversal = traverse_recovered_causal_anchors(report)?;
         let mut cursor = Self::genesis();
-        let mut recovered_anchors_by_transaction = recover_causal_anchor_admissions(report)
-            .map_err(WalRecoveryError::from)?
-            .into_iter()
-            .map(|admission| (admission.transaction_id(), admission))
-            .collect::<BTreeMap<_, _>>();
-        for transaction in &report.transactions {
-            let causal_history_basis_before =
-                CausalFrontierRef::from_digest(cursor.causal_history_frontier_digest);
+        for (index, transaction) in report.transactions.iter().enumerate() {
             cursor.has_committed_history = true;
-            cursor.causal_history_frontier_digest = logical_causal_history_frontier_digest(
-                cursor.causal_history_frontier_digest,
-                transaction.commit.transaction_kind,
-                &transaction.frames,
-            );
+            cursor.causal_history_frontier_digest =
+                causal_anchor_traversal.causal_history_frontiers[index + 1].frontier_digest;
             cursor.next_lsn = transaction
                 .commit
                 .last_lsn
@@ -2086,27 +2083,11 @@ impl TrustedRuntimeWalCursor {
                         ),
                     };
                 }
-                WalTransactionKind::CausalAnchorAdmission => {
-                    let admission = recovered_anchors_by_transaction
-                        .remove(&transaction.commit.transaction_id)
-                        .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
-                            transaction_id: transaction.commit.transaction_id.as_hash(),
-                        })?;
-                    require_recovered_causal_anchor_basis(
-                        transaction,
-                        &admission,
-                        &causal_history_basis_before,
-                    )?;
-                    cursor.causal_anchor_frontier_digest =
-                        require_recovered_causal_anchor_frontier(
-                            transaction,
-                            &admission,
-                            cursor.causal_anchor_frontier_digest,
-                        )?;
-                }
                 _ => {}
             }
         }
+        cursor.causal_anchor_frontier_digest =
+            causal_anchor_traversal.causal_anchor_frontier_digest;
         Ok(cursor)
     }
 }
@@ -2114,6 +2095,13 @@ impl TrustedRuntimeWalCursor {
 fn recover_witnessed_causal_anchor_history(
     report: &RecoveryScanReport,
 ) -> Result<(Vec<WitnessedCausalAnchorAdmission>, Vec<CausalFrontierRef>), TrustedRuntimeWalError> {
+    let traversal = traverse_recovered_causal_anchors(report)?;
+    Ok((traversal.history, traversal.causal_history_frontiers))
+}
+
+fn traverse_recovered_causal_anchors(
+    report: &RecoveryScanReport,
+) -> Result<RecoveredCausalAnchorTraversal, TrustedRuntimeWalError> {
     let recovered = recover_causal_anchor_admissions(report).map_err(WalRecoveryError::from)?;
     let mut by_transaction = recovered
         .into_iter()
@@ -2160,7 +2148,11 @@ fn recover_witnessed_causal_anchor_history(
         frontiers.push(basis_after);
     }
 
-    Ok((history, frontiers))
+    Ok(RecoveredCausalAnchorTraversal {
+        history,
+        causal_history_frontiers: frontiers,
+        causal_anchor_frontier_digest: current_causal_anchor_frontier,
+    })
 }
 
 fn require_recovered_causal_anchor_basis(
@@ -3254,6 +3246,41 @@ mod tests {
             reading_error,
             TrustedRuntimeWalError::CausalAnchorFrontierMismatch { .. }
         ));
+    }
+
+    #[test]
+    fn causal_anchor_recovery_traversal_drives_cursor_and_witnessed_history() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let claim = test_causal_anchor_claim(wal.current_causal_anchor_basis());
+        wal.record_causal_anchor_admission(claim, [0x4f; 32])
+            .expect("test causal-anchor admission should commit");
+        let report = wal
+            .store
+            .recover_read_only()
+            .expect("committed causal-anchor admission should recover");
+
+        let traversal = traverse_recovered_causal_anchors(&report)
+            .expect("shared causal-anchor traversal should validate recovery");
+        let cursor = TrustedRuntimeWalCursor::from_recovery(&report)
+            .expect("writer cursor should consume the shared traversal");
+        let (history, frontiers) = recover_witnessed_causal_anchor_history(&report)
+            .expect("read-only history should consume the shared traversal");
+
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.len(), traversal.history.len());
+        assert_eq!(frontiers, traversal.causal_history_frontiers);
+        assert_eq!(
+            cursor.causal_history_frontier_digest,
+            traversal
+                .causal_history_frontiers
+                .last()
+                .expect("traversal must retain its terminal frontier")
+                .frontier_digest
+        );
+        assert_eq!(
+            cursor.causal_anchor_frontier_digest,
+            traversal.causal_anchor_frontier_digest
+        );
     }
 
     #[test]

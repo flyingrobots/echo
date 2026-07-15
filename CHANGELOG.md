@@ -18,7 +18,9 @@
   uncommitted, malformed, coordinate-mismatched, basis-mismatched,
   frontier-root-mismatched, or cross-admission evidence. Public WAL builders
   and stores cannot originate causal-anchor admission transactions without
-  Echo's crate-private admission capability.
+  Echo's crate-private admission capability. Writer-cursor and read-only
+  recovery consume one shared causal-anchor traversal so basis and frontier
+  validation cannot diverge between recovery modes.
 - `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
   WAL at the current logical durable frontier. A host-owned exact root-support
   policy is validated and bound into receipt identity; successful admissions

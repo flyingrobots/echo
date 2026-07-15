@@ -18,6 +18,7 @@ members = [
     "crates/echo-registry-api",
     "crates/echo-edict-canonical",
     "crates/echo-edict-provider-lowerer",
+    "crates/echo-edict-provider-verifier",
     "crates/echo-wesley-gen",
     "crates/echo-dry-tests",
     "crates/echo-cas",

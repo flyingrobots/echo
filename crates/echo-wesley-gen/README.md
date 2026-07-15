@@ -15,7 +15,8 @@ authority.
 The preferred input is GraphQL SDL lowered directly through the published
 `wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
 fixtures and compatibility while consumers move off the historical JavaScript
-generator.
+generator. Direct SDL lowering records the exact pinned `wesley-core` version
+in the provenance bound into each generated Rust artifact hash.
 
 Echo's external Edict provider uses a separate strict source contract:
 [`schemas/edict-provider/echo-provider-semantics-v1.json`](../../schemas/edict-provider/echo-provider-semantics-v1.json).

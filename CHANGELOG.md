@@ -1093,6 +1093,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Direct GraphQL SDL lowering in `echo-wesley-gen` now binds the exact pinned
+  `wesley-core` version into generated Rust artifact-hash provenance, with a
+  regression test that refuses dependency/provenance version drift.
 - Generated-rule architecture now distinguishes Wesley's current raw
   `RewriteRule` fixture path, Edict's fixture-only Target IR bridge, and the
   still-target package-registration corridor. It also records

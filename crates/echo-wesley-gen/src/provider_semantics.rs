@@ -943,6 +943,61 @@ pub enum ProviderSemanticSourceErrorKind {
     SchemaRootMismatch,
 }
 
+impl ProviderSemanticSourceErrorKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::MalformedDocument => "malformed-document",
+            Self::UnsupportedApiVersion => "unsupported-api-version",
+            Self::MissingIdentity => "missing-identity",
+            Self::DuplicateCoordinate => "duplicate-coordinate",
+            Self::DuplicateKey => "duplicate-key",
+            Self::UnknownAuthority => "unknown-authority",
+            Self::FactDomainMismatch => "fact-domain-mismatch",
+            Self::FactAuthorityMismatch => "fact-authority-mismatch",
+            Self::UnknownType => "unknown-type",
+            Self::UnboundedTypeGraph => "unbounded-type-graph",
+            Self::CoreTypeAuthorityMismatch => "core-type-authority-mismatch",
+            Self::UnknownWriteClass => "unknown-write-class",
+            Self::InvalidWriteClass => "invalid-write-class",
+            Self::UnknownObstruction => "unknown-obstruction",
+            Self::UnknownFailure => "unknown-failure",
+            Self::InvalidFailureKey => "invalid-failure-key",
+            Self::UnknownEffect => "unknown-effect",
+            Self::UnknownProfile => "unknown-profile",
+            Self::UnknownBudget => "unknown-budget",
+            Self::UnknownCapability => "unknown-capability",
+            Self::UnknownAdapter => "unknown-adapter",
+            Self::UnknownSchemaRole => "unknown-schema-role",
+            Self::MissingSchemaBinding => "missing-schema-binding",
+            Self::SchemaRoleMismatch => "schema-role-mismatch",
+            Self::NonAuthoritativeSource => "non-authoritative-source",
+            Self::TargetIrDomainMismatch => "target-ir-domain-mismatch",
+            Self::UnsupportedAdapterChain => "unsupported-adapter-chain",
+            Self::AmbiguousEffectImplementation => "ambiguous-effect-implementation",
+            Self::MissingEffectImplementation => "missing-effect-implementation",
+            Self::ImplementationEffectMismatch => "implementation-effect-mismatch",
+            Self::ProfileEffectMismatch => "profile-effect-mismatch",
+            Self::UnsupportedEffectShape => "unsupported-effect-shape",
+            Self::ObstructionMappingMismatch => "obstruction-mapping-mismatch",
+            Self::UnsupportedObstructionPayloadMapping => "unsupported-obstruction-payload-mapping",
+            Self::ArtifactSchemaContractMismatch => "artifact-schema-contract-mismatch",
+            Self::ArtifactContractOwnerMismatch => "artifact-contract-owner-mismatch",
+            Self::SelfReferentialManifestInventory => "self-referential-manifest-inventory",
+            Self::ProviderManifestProjectionMismatch => "provider-manifest-projection-mismatch",
+            Self::AuthorityFactProjectionMismatch => "authority-fact-projection-mismatch",
+            Self::ArtifactClosureMismatch => "artifact-closure-mismatch",
+            Self::GenerationProvenanceContractMismatch => "generation-provenance-contract-mismatch",
+            Self::GenerationReviewContractMismatch => "generation-review-contract-mismatch",
+            Self::OutputDomainMismatch => "output-domain-mismatch",
+            Self::InputDomainMismatch => "input-domain-mismatch",
+            Self::InvocationInputClosureMismatch => "invocation-input-closure-mismatch",
+            Self::InvocationOutputClosureMismatch => "invocation-output-closure-mismatch",
+            Self::UnexpectedSchemaBinding => "unexpected-schema-binding",
+            Self::SchemaRootMismatch => "schema-root-mismatch",
+        }
+    }
+}
+
 /// Structured semantic-source parsing or validation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderSemanticSourceError {
@@ -987,8 +1042,10 @@ impl fmt::Display for ProviderSemanticSourceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "provider semantic source {:?}: {} -> {}",
-            self.kind, self.subject, self.reference
+            "provider semantic source {}: {} -> {}",
+            self.kind.label(),
+            self.subject,
+            self.reference
         )
     }
 }

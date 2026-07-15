@@ -1065,6 +1065,20 @@ fn unknown_semantic_references_fail_with_stable_kinds() {
 }
 
 #[test]
+fn semantic_source_display_uses_a_stable_kind_label() {
+    let mut source = source_value();
+    source["operations"][0]["implementation"]["capability"] =
+        Value::String("capability.unknown".to_owned());
+    let text = serde_json::to_string(&source).expect("mutated source serializes");
+
+    let error = parse_provider_semantic_source_v1(&text).expect_err("unknown capability must fail");
+    assert_eq!(
+        error.to_string(),
+        "provider semantic source unknown-capability: a.b@1.t -> capability.unknown"
+    );
+}
+
+#[test]
 fn strict_shape_and_set_duplicates_fail_deterministically() {
     assert_failure(
         |source| {

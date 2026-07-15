@@ -268,4 +268,8 @@ fn semantic_source_failures_preserve_the_typed_source_kind() {
     );
     assert_eq!(error.subject(), "a.b@1.t");
     assert_eq!(error.reference(), "echo.dpo@1.missing");
+    assert_eq!(
+        error.to_string(),
+        "provider generation semantic-source-invalid: a.b@1.t -> echo.dpo@1.missing"
+    );
 }

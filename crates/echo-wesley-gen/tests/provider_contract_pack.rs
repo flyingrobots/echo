@@ -81,6 +81,13 @@ fn tampered_contract_cddl_has_stable_failure_kind() {
         error.kind(),
         ProviderContractPackErrorKind::SchemaBytesMismatch
     );
+    assert_eq!(
+        error.to_string(),
+        concat!(
+            "provider contract pack schema-bytes-mismatch: schema.bytesHex -> ",
+            "92697bc9a5262c68258be9ee451ee8c144aeb363b92142915b8224430b85cf74"
+        )
+    );
 }
 
 #[test]

@@ -917,6 +917,18 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
+  `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
+  `import_registration_descriptor(...)` accepts
+  `OperationRegistrationDescriptor`. Source consumers using Wesley's former
+  `OpticArtifact` or `OpticRegistrationDescriptor` names must update when they
+  adopt the corresponding Wesley 0.3 prerelease; Echo's runtime-local optic
+  artifact types and handles are unchanged.
+- Provider semantic-source, generation-input, and contract-pack `Display`
+  diagnostics now render explicit kebab-case failure labels instead of Rust
+  `Debug` variant spellings. Typed error enums remain the programmatic
+  contract, while human/CLI diagnostics no longer move when Rust variants are
+  refactored.
 - Restored the durable ADR 0001–0011 namespace and moved the post-Method
   decisions to ADR 0012–0019, preserving the meaning of existing source
   citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or

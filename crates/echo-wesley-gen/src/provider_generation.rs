@@ -106,6 +106,20 @@ pub enum ProviderGenerationErrorKind {
     WesleyContractRejected,
 }
 
+impl ProviderGenerationErrorKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::InputSizeExceeded => "input-size-exceeded",
+            Self::SemanticSourceInvalid => "semantic-source-invalid",
+            Self::SettingsMalformed => "settings-malformed",
+            Self::UnsupportedSettingsApiVersion => "unsupported-settings-api-version",
+            Self::SettingsContractMismatch => "settings-contract-mismatch",
+            Self::GraphqlSourceMissing => "graphql-source-missing",
+            Self::WesleyContractRejected => "wesley-contract-rejected",
+        }
+    }
+}
+
 /// Structured provider-generation input failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderGenerationError {
@@ -175,8 +189,10 @@ impl fmt::Display for ProviderGenerationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "provider generation {:?}: {} -> {}",
-            self.kind, self.subject, self.reference
+            "provider generation {}: {} -> {}",
+            self.kind.label(),
+            self.subject,
+            self.reference
         )
     }
 }

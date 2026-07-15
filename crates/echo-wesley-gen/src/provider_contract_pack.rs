@@ -511,6 +511,31 @@ pub enum ProviderContractPackErrorKind {
     SchemaRootMissing,
 }
 
+impl ProviderContractPackErrorKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ManifestSizeExceeded => "manifest-size-exceeded",
+            Self::ManifestMalformed => "manifest-malformed",
+            Self::UnsupportedApiVersion => "unsupported-api-version",
+            Self::CoordinateMismatch => "coordinate-mismatch",
+            Self::LicenseMismatch => "license-mismatch",
+            Self::SchemaHexInvalid => "schema-hex-invalid",
+            Self::SchemaBytesMismatch => "schema-bytes-mismatch",
+            Self::SchemaDigestMismatch => "schema-digest-mismatch",
+            Self::ContractInventoryMismatch => "contract-inventory-mismatch",
+            Self::DomainInventoryMismatch => "domain-inventory-mismatch",
+            Self::ResourceInventoryMismatch => "resource-inventory-mismatch",
+            Self::ResourceHexInvalid => "resource-hex-invalid",
+            Self::ResourceRawDigestMismatch => "resource-raw-digest-mismatch",
+            Self::ResourceDomainDigestMismatch => "resource-domain-digest-mismatch",
+            Self::ResourceProvenanceMismatch => "resource-provenance-mismatch",
+            Self::ManifestDigestMismatch => "manifest-digest-mismatch",
+            Self::SchemaCompilationFailed => "schema-compilation-failed",
+            Self::SchemaRootMissing => "schema-root-missing",
+        }
+    }
+}
+
 /// Structured contract-pack parsing or admission failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderContractPackError {
@@ -555,8 +580,10 @@ impl fmt::Display for ProviderContractPackError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "provider contract pack {:?}: {} -> {}",
-            self.kind, self.subject, self.reference
+            "provider contract pack {}: {} -> {}",
+            self.kind.label(),
+            self.subject,
+            self.reference
         )
     }
 }

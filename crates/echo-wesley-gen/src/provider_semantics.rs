@@ -925,8 +925,10 @@ pub enum ProviderSemanticSourceErrorKind {
     AuthorityFactProjectionMismatch,
     /// A lawpack or target-profile projection was incomplete or contradictory.
     ArtifactClosureMismatch,
-    /// The pending Wesley generation-provenance contract was misidentified.
+    /// The Wesley generation-provenance contract was misidentified.
     GenerationProvenanceContractMismatch,
+    /// The Wesley generation-review contract was misidentified.
+    GenerationReviewContractMismatch,
     /// A WIT output kind named the wrong canonical artifact domain.
     OutputDomainMismatch,
     /// A provider input kind named the wrong canonical artifact domain.
@@ -939,6 +941,61 @@ pub enum ProviderSemanticSourceErrorKind {
     UnexpectedSchemaBinding,
     /// A WIT output domain named the wrong schema root.
     SchemaRootMismatch,
+}
+
+impl ProviderSemanticSourceErrorKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::MalformedDocument => "malformed-document",
+            Self::UnsupportedApiVersion => "unsupported-api-version",
+            Self::MissingIdentity => "missing-identity",
+            Self::DuplicateCoordinate => "duplicate-coordinate",
+            Self::DuplicateKey => "duplicate-key",
+            Self::UnknownAuthority => "unknown-authority",
+            Self::FactDomainMismatch => "fact-domain-mismatch",
+            Self::FactAuthorityMismatch => "fact-authority-mismatch",
+            Self::UnknownType => "unknown-type",
+            Self::UnboundedTypeGraph => "unbounded-type-graph",
+            Self::CoreTypeAuthorityMismatch => "core-type-authority-mismatch",
+            Self::UnknownWriteClass => "unknown-write-class",
+            Self::InvalidWriteClass => "invalid-write-class",
+            Self::UnknownObstruction => "unknown-obstruction",
+            Self::UnknownFailure => "unknown-failure",
+            Self::InvalidFailureKey => "invalid-failure-key",
+            Self::UnknownEffect => "unknown-effect",
+            Self::UnknownProfile => "unknown-profile",
+            Self::UnknownBudget => "unknown-budget",
+            Self::UnknownCapability => "unknown-capability",
+            Self::UnknownAdapter => "unknown-adapter",
+            Self::UnknownSchemaRole => "unknown-schema-role",
+            Self::MissingSchemaBinding => "missing-schema-binding",
+            Self::SchemaRoleMismatch => "schema-role-mismatch",
+            Self::NonAuthoritativeSource => "non-authoritative-source",
+            Self::TargetIrDomainMismatch => "target-ir-domain-mismatch",
+            Self::UnsupportedAdapterChain => "unsupported-adapter-chain",
+            Self::AmbiguousEffectImplementation => "ambiguous-effect-implementation",
+            Self::MissingEffectImplementation => "missing-effect-implementation",
+            Self::ImplementationEffectMismatch => "implementation-effect-mismatch",
+            Self::ProfileEffectMismatch => "profile-effect-mismatch",
+            Self::UnsupportedEffectShape => "unsupported-effect-shape",
+            Self::ObstructionMappingMismatch => "obstruction-mapping-mismatch",
+            Self::UnsupportedObstructionPayloadMapping => "unsupported-obstruction-payload-mapping",
+            Self::ArtifactSchemaContractMismatch => "artifact-schema-contract-mismatch",
+            Self::ArtifactContractOwnerMismatch => "artifact-contract-owner-mismatch",
+            Self::SelfReferentialManifestInventory => "self-referential-manifest-inventory",
+            Self::ProviderManifestProjectionMismatch => "provider-manifest-projection-mismatch",
+            Self::AuthorityFactProjectionMismatch => "authority-fact-projection-mismatch",
+            Self::ArtifactClosureMismatch => "artifact-closure-mismatch",
+            Self::GenerationProvenanceContractMismatch => "generation-provenance-contract-mismatch",
+            Self::GenerationReviewContractMismatch => "generation-review-contract-mismatch",
+            Self::OutputDomainMismatch => "output-domain-mismatch",
+            Self::InputDomainMismatch => "input-domain-mismatch",
+            Self::InvocationInputClosureMismatch => "invocation-input-closure-mismatch",
+            Self::InvocationOutputClosureMismatch => "invocation-output-closure-mismatch",
+            Self::UnexpectedSchemaBinding => "unexpected-schema-binding",
+            Self::SchemaRootMismatch => "schema-root-mismatch",
+        }
+    }
 }
 
 /// Structured semantic-source parsing or validation failure.
@@ -985,8 +1042,10 @@ impl fmt::Display for ProviderSemanticSourceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "provider semantic source {:?}: {} -> {}",
-            self.kind, self.subject, self.reference
+            "provider semantic source {}: {} -> {}",
+            self.kind.label(),
+            self.subject,
+            self.reference
         )
     }
 }
@@ -2458,6 +2517,21 @@ fn validate_operation_references(
                     "projection",
                 ));
             }
+        } else {
+            if profile.optic_template.optic_kind != OpticKind::Revelation {
+                return Err(ProviderSemanticSourceError::new(
+                    ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+                    subject,
+                    "affectReintegration",
+                ));
+            }
+            if profile.optic_template.boundary_kind != BoundaryKind::Projection {
+                return Err(ProviderSemanticSourceError::new(
+                    ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+                    subject,
+                    "affect",
+                ));
+            }
         }
         if effect
             .guard_kinds
@@ -2598,34 +2672,46 @@ fn validate_generated_artifact_contracts(
             GeneratedArtifactKind::TargetProfile => "edict.target-profile/v1",
             GeneratedArtifactKind::AuthorityFacts => "edict.authority-facts/v1",
             GeneratedArtifactKind::ProviderManifest => "edict.provider-manifest/v1",
-            GeneratedArtifactKind::ReviewArtifact => "echo.edict-provider.generation-review/v1",
+            GeneratedArtifactKind::ReviewArtifact => "wesley:GenerationReviewV1",
             GeneratedArtifactKind::GeneratedArtifactProfile => "echo.generated-artifact-profile/v1",
             GeneratedArtifactKind::GenerationProvenance => "wesley:GenerationProvenanceManifestV1",
             GeneratedArtifactKind::ArtifactSchema => "selfContainedCddlV1",
         };
         if artifact.schema_contract != expected {
-            return Err(ProviderSemanticSourceError::new(
-                if artifact.kind == GeneratedArtifactKind::GenerationProvenance {
+            let kind = match artifact.kind {
+                GeneratedArtifactKind::GenerationProvenance => {
                     ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch
-                } else {
-                    ProviderSemanticSourceErrorKind::ArtifactSchemaContractMismatch
-                },
+                }
+                GeneratedArtifactKind::ReviewArtifact => {
+                    ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch
+                }
+                _ => ProviderSemanticSourceErrorKind::ArtifactSchemaContractMismatch,
+            };
+            return Err(ProviderSemanticSourceError::new(
+                kind,
                 &artifact.role,
                 &artifact.schema_contract,
             ));
         }
         let expected_contract_owner = match artifact.kind {
             GeneratedArtifactKind::AuthorityFacts => Some("flyingrobots/edict#157"),
-            GeneratedArtifactKind::GenerationProvenance => Some("flyingrobots/wesley#728"),
+            GeneratedArtifactKind::GenerationProvenance | GeneratedArtifactKind::ReviewArtifact => {
+                Some("flyingrobots/wesley#728")
+            }
             _ => None,
         };
         if artifact.contract_owner.as_deref() != expected_contract_owner {
-            return Err(ProviderSemanticSourceError::new(
-                if artifact.kind == GeneratedArtifactKind::GenerationProvenance {
+            let kind = match artifact.kind {
+                GeneratedArtifactKind::GenerationProvenance => {
                     ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch
-                } else {
-                    ProviderSemanticSourceErrorKind::ArtifactContractOwnerMismatch
-                },
+                }
+                GeneratedArtifactKind::ReviewArtifact => {
+                    ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch
+                }
+                _ => ProviderSemanticSourceErrorKind::ArtifactContractOwnerMismatch,
+            };
+            return Err(ProviderSemanticSourceError::new(
+                kind,
                 &artifact.role,
                 artifact.contract_owner.as_deref().unwrap_or_default(),
             ));

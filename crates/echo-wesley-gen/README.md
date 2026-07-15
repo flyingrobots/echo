@@ -15,7 +15,8 @@ authority.
 The preferred input is GraphQL SDL lowered directly through the published
 `wesley-core` crate. The older `echo-ir/v1` JSON stdin path is retained for
 fixtures and compatibility while consumers move off the historical JavaScript
-generator.
+generator. Direct SDL lowering records the exact pinned `wesley-core` version
+in the provenance bound into each generated Rust artifact hash.
 
 Echo's external Edict provider uses a separate strict source contract:
 [`schemas/edict-provider/echo-provider-semantics-v1.json`](../../schemas/edict-provider/echo-provider-semantics-v1.json).
@@ -33,6 +34,96 @@ Authority-facts outputs name Edict issue #157 as their canonical contract owner.
 The separately declared provider manifest pins the later package root's exact
 ABI and provider coordinate and cannot inventory itself.
 This source is not accepted through the tolerant historical `echo-ir/v1` path.
+
+The Edict-owned schema authority is a separate explicit input. The exact
+Apache-2.0 contract pack checked under
+[`schemas/edict-provider/contracts/v1/`](../../schemas/edict-provider/contracts/v1/README.md)
+is admitted through
+`provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
+requires the pinned Edict PR #162 CDDL and manifest publication, verifies every
+embedded contract resource and provenance record, and performs no discovery or
+mutable coordinate resolution. This authenticates the schema publication; it
+does not by itself claim that a generated artifact is a valid schema instance.
+
+`provider_canonical` implements the publication's exact
+`edict.canonical-cbor/v1` subset and `edict.digest/v1` domain frame.
+`AdmittedProviderContractPackV1::validate_contract_bytes(...)` first requires
+those exact canonical bytes and then validates the decoded value against the
+named contract's owning root in the authenticated CDDL. Canonical decoding or
+hashing alone is not schema admission, and even successful owning-root
+validation does not install an artifact or confer Echo runtime authority.
+
+`provider_generation::build_provider_generation_input_v1(...)` joins that
+admitted pack with exact Echo semantic-source bytes and the checked versioned
+generation settings. It constructs Wesley's canonical extension-generation
+input in memory, binds exact source materials for later provenance verification,
+and derives the six primary output roles from the validated source. The current
+closure carries an empty Wesley Shape and operation catalog because it declares
+no GraphQL authority source; it does not synthesize `a.b@1.t` as GraphQL.
+While the checked settings select no Shape source, any semantic input that
+declares GraphQL authority fails closed until explicit SDL bytes are supported.
+The normalized semantic model is stable under set ordering, while the
+generation-input digest changes when raw authored bytes change because it binds
+the exact source artifact.
+
+`provider_artifacts::generate_provider_primary_artifacts_v1(...)` projects the
+normalized semantic model into five canonical-CBOR primary artifacts, fourteen
+declarative generated resources, and one exact self-contained CDDL artifact.
+Every canonical value is validated against its generated owning root; the
+Edict-owned lawpack, target-profile, authority-facts, export, intrinsic, and
+operation-profile values are also checked independently against the admitted
+contract pack. Manifest edges use Edict domain-framed digests, while Wesley
+content references bind exact emitted bytes. Direct adapters and
+operation-local obstruction mappings remain explicit, and invocation posture
+comes from the admitted optic: affect/reintegration produces a mutation while
+revelation/projection produces a bounded observer. These artifacts describe
+provider semantics only; they do not install a package or grant Echo runtime
+authority.
+
+`provider_provenance::generate_provider_generation_provenance_v1(...)` builds
+Wesley's canonical provenance manifest from the generation input, primary
+closure, and caller-supplied exact generator component bytes. It immediately
+verifies the generator, all three source artifacts, and the five canonical-CBOR
+artifacts plus raw CDDL schema. The fourteen resources are transitively bound by
+the primary bytes and are not restated as top-level emissions. Provenance and
+review are likewise excluded from that set so neither document claims its own
+digest. The API performs no executable, path, environment, process, registry,
+clock, or network discovery. Each primary closure records the exact Wesley input
+digest that produced it, preventing mixed-input attribution even when requested
+roles match. Generator coordinates must also be distinct from all declared
+source-artifact, generated-artifact, resource, provider, and package-manifest
+coordinates.
+
+`provider_review::generate_provider_generation_review_v1(...)` derives Wesley's
+canonical `GenerationReviewV1` from that verified provenance wrapper. It copies
+the exact input, provenance, generator, projection-role, source, and emitted
+identities into deterministic JSON while Wesley keeps the `authoritative` field
+false by construction and deserialization. Review is derived tooling evidence;
+it neither replaces provenance verification nor admits or authorizes anything
+in Echo.
+
+`provider_corpus` frames the generator's exact source and dependency-lock
+closure, re-verifies the complete generation chain, and renders the checked
+22-file corpus under `schemas/edict-provider/generated/v1/`. The frame uses a
+fixed coordinate, crate version, repo-relative source paths, and exact
+compile-time bytes for the provider modules, dedicated corpus CLI, manifests,
+workspace lockfile, and Rust toolchain. It deliberately excludes authored
+semantic/settings/contract inputs already bound by Wesley and every generated
+output, preventing a circular generator identity. This is source/dependency-lock
+identity, not an executable-build or supply-chain attestation.
+
+The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
+boundary. The caller-supplied `--out` path is resolved once under ambient
+filesystem authority; its final corpus-root entry is opened or created without
+following a symlink. Every operation beneath that acquired root inventories and
+writes through retained, no-follow directory capabilities. Generation refuses
+every unexpected entry it observes before creating or replacing an expected
+path; otherwise it replaces only the 22 expected leaves and preserves an
+existing destination if replacement fails. `--check` renders expected bytes in
+memory, reads the target tree through the same bounded handles, reports sorted
+missing/changed/unexpected drift, and returns before every directory-creation or
+write path. This boundary does not claim that unrelated ancestors used to locate
+the requested root are symlink-free.
 
 ## Usage
 
@@ -52,6 +143,14 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 # Emit std-only warp-core contract-host helpers for installed mutation handlers
 # and query observers
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
+
+# Rebuild the checked Edict provider artifact corpus from exact inputs
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-artifacts --
+
+# Report checked-corpus drift without rewriting anything
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-artifacts -- --check
 ```
 
 ## Notes

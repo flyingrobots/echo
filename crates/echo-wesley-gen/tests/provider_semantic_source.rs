@@ -337,7 +337,7 @@ fn checked_echo_provider_semantic_source_validates() {
                 "review.provider-generation",
                 GeneratedArtifactKind::ReviewArtifact,
                 "echo.edict-provider-generation-review@1",
-                "echo.edict-provider.generation-review/v1",
+                "wesley:GenerationReviewV1",
             ),
             (
                 "schema.echo-provider-artifacts",
@@ -404,6 +404,15 @@ fn checked_echo_provider_semantic_source_validates() {
         .expect("generation provenance is a generated package member");
     assert_eq!(
         generation_provenance.contract_owner.as_deref(),
+        Some("flyingrobots/wesley#728")
+    );
+    let generation_review = source
+        .generated_artifacts
+        .iter()
+        .find(|artifact| artifact.kind == GeneratedArtifactKind::ReviewArtifact)
+        .expect("generation review is a generated package member");
+    assert_eq!(
+        generation_review.contract_owner.as_deref(),
         Some("flyingrobots/wesley#728")
     );
     assert_eq!(source.artifact_resources.len(), 19);
@@ -1056,6 +1065,20 @@ fn unknown_semantic_references_fail_with_stable_kinds() {
 }
 
 #[test]
+fn semantic_source_display_uses_a_stable_kind_label() {
+    let mut source = source_value();
+    source["operations"][0]["implementation"]["capability"] =
+        Value::String("capability.unknown".to_owned());
+    let text = serde_json::to_string(&source).expect("mutated source serializes");
+
+    let error = parse_provider_semantic_source_v1(&text).expect_err("unknown capability must fail");
+    assert_eq!(
+        error.to_string(),
+        "provider semantic source unknown-capability: a.b@1.t -> capability.unknown"
+    );
+}
+
+#[test]
 fn strict_shape_and_set_duplicates_fail_deterministically() {
     assert_failure(
         |source| {
@@ -1297,6 +1320,21 @@ fn effect_profile_and_implementation_joins_fail_closed() {
             ),
         );
     }
+    assert_failure_tuple(
+        |source| {
+            source["writeClasses"][0]["identity"]["coordinate"] = json!("read");
+            source["profiles"][0]["allowedWriteClasses"][0] = json!("read");
+            source["effects"][0]["effectKindHint"] = json!("read");
+            source["capabilities"][0]["effectKind"] = json!("read");
+            source["capabilities"][0]["writeClass"] = json!("read");
+            source["capabilities"][0]["semanticDischarge"]["effectKindHint"] = json!("read");
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProfileEffectMismatch,
+            "a.b@1.t",
+            "affectReintegration",
+        ),
+    );
     assert_failure_tuple(
         |source| {
             source["profiles"][0]["atomicity"] = Value::String("non-atomic".to_owned());
@@ -1617,6 +1655,28 @@ fn generated_artifact_and_output_contracts_are_exact() {
                 Value::String("flyingrobots/echo#651".to_owned());
         },
         ProviderSemanticSourceErrorKind::GenerationProvenanceContractMismatch,
+    );
+    assert_failure_tuple(
+        |source| {
+            source["generatedArtifacts"][5]["schemaContract"] =
+                Value::String("wesley:Unknown".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch,
+            "review.provider-generation",
+            "wesley:Unknown",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["generatedArtifacts"][5]["contractOwner"] =
+                Value::String("flyingrobots/echo#651".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::GenerationReviewContractMismatch,
+            "review.provider-generation",
+            "flyingrobots/echo#651",
+        ),
     );
     assert_failure(
         |source| {

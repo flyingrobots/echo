@@ -25,7 +25,7 @@ const ECHO_IR_VERSION: &str = "echo-ir/v1";
 const DEFAULT_CODEC_ID: &str = "le-binary-v1";
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
 const RESERVED_CONTROL_OP_ID: u32 = u32::MAX;
-const WESLEY_CORE_VERSION: &str = "0.0.4";
+const WESLEY_CORE_VERSION: &str = "0.3.0-alpha.1";
 
 #[derive(Parser)]
 #[command(
@@ -2120,6 +2120,23 @@ fn map_helper_type(gql_type: &str, args: &Args) -> TokenStream {
             let ident = safe_ident(other);
             quote! { super::#ident }
         }
+    }
+}
+
+#[cfg(test)]
+mod wesley_core_version_pinned {
+    use super::WESLEY_CORE_VERSION;
+
+    #[test]
+    fn provenance_version_matches_exact_dependency() {
+        let exact_dependency = format!("wesley-core = \"={WESLEY_CORE_VERSION}\"");
+
+        assert!(
+            include_str!("../Cargo.toml")
+                .lines()
+                .any(|line| line.trim() == exact_dependency),
+            "Wesley provenance must match the exact wesley-core dependency"
+        );
     }
 }
 

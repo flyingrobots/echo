@@ -7,7 +7,7 @@ use echo_wesley_gen::import_runtime_optic_artifact;
 use warp_core::{
     OpticArtifactRegistrationError, OpticArtifactRegistry, OPTIC_ARTIFACT_HANDLE_KIND,
 };
-use wesley_core::compile_runtime_optic;
+use wesley_core::compile_operation_artifact;
 
 const WORKSPACE_SCHEMA: &str = r"
 directive @wes_law(id: String!) on FIELD
@@ -80,8 +80,8 @@ mutation RenameSymbol($input: RenameSymbolInput!) {
 }
 "#;
 
-fn compile_fixture_artifact() -> wesley_core::OpticArtifact {
-    compile_runtime_optic(
+fn compile_fixture_artifact() -> wesley_core::OperationArtifact {
+    compile_operation_artifact(
         WORKSPACE_SCHEMA,
         RENAME_SYMBOL_OPERATION,
         Some("RenameSymbol"),

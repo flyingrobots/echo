@@ -175,8 +175,16 @@ own artifact list. Two authority-facts documents preserve Edict's one-source
 rule: lawpack facts carry budgets, while target-profile facts carry operation
 profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
-declarations carry no output digests. Standard Edict resources are explicit
-trusted inputs whose canonical publication is tracked by Edict #158.
+declarations carry no output digests. Standard Edict resources and the
+self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
+contract pack merged in Edict PR #162. Echo admits its exact CDDL, manifest,
+contract/domain inventories, resource bytes, digests, and provenance before
+generation without searching a filesystem, registry, or network. Schema
+instance validation is a separate output-admission step: exact
+`edict.canonical-cbor/v1` decoding is followed by validation against the named
+owning root in that authenticated CDDL. Passing both checks attests provider
+artifact shape only. It does not make authority-facts runtime Echo authority,
+install a package, admit an operation, or authorize a runtime consequence.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package
@@ -188,6 +196,80 @@ The package-root projection pins `echo.edict-provider@1` to exact component
 world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
 `generationProvenance` package member whose document contract remains owned by
 Wesley #728.
+
+The generation invocation itself is a pure Wesley extension input. It binds
+the exact Echo semantic-source file, admitted Edict CDDL and manifest, and
+versioned generator settings as content-addressed inputs. The first closure has
+no GraphQL Shape authority, so its Wesley Shape and root-operation catalog are
+empty; the Echo semantic operation is not projected into a synthetic GraphQL
+operation. Primary lawpack, target-profile, facts, registration-profile, and
+schema roles are selected before provenance. Provenance and review are derived
+after primary output digests exist, preventing self-referential digest sets.
+Set-like source reordering preserves normalized semantic projections but moves
+the exact-source generation-input identity, as honest provenance requires.
+
+Primary provider generation is a pure digest DAG. Echo first emits and
+owning-root-validates the declarative resource closure and generated operation
+profile, then the target profile, then the lawpack, and finally the two
+source-partitioned authority-facts documents. The target profile binds the
+generated profile and resource domain digests; the lawpack binds the completed
+target-profile digest; authority facts bind their completed source artifact.
+No primary artifact binds review or provenance, so the graph has no
+self-reference. Wesley content references separately bind exact output bytes.
+Neither digest form installs an artifact or turns generated authority facts
+into runtime Echo authority.
+
+The derived Wesley provenance manifest binds the exact semantic-source, Edict
+CDDL, Edict manifest, settings, and caller-supplied generator component bytes.
+Its emitted closure is exactly the five canonical primary artifacts plus the
+raw self-contained CDDL. Construction immediately re-verifies all three source
+and six output byte identities. The fourteen resource documents remain
+transitively covered by the primary manifest DAG; restating them as primary
+emissions would misrepresent the projection boundary. The generator API never
+discovers an executable, path, environment, process, registry, clock, or
+network input. A primary closure retains the exact Wesley input digest that
+produced it, so outputs from another invocation cannot be falsely attributed
+merely because their role closure matches. The generator coordinate must also
+be disjoint from every exact source artifact, declared generated artifact,
+resource, provider, and package coordinate.
+
+The deterministic review JSON is Wesley's `GenerationReviewV1`, derived only
+after the provenance wrapper has verified exact materials. It copies the input,
+provenance, generator, projection roles, sources, and primary emissions for
+inspection, but its `authoritative` posture is permanently false. Review does
+not become a second contract, provenance proof, package admission, or runtime
+authority surface.
+
+The checked provider corpus materializes that digest DAG as exactly 22 files:
+five canonical-CBOR primary artifacts, fourteen canonical-CBOR resources, raw
+self-contained CDDL, canonical provenance JSON, and canonical review JSON. Its
+generator identity is the Wesley digest of a versioned binary frame containing
+an explicit compile-time inventory of provider generator source, Cargo
+manifests and lockfile, and the pinned Rust toolchain. Authored semantic,
+settings, CDDL, and contract-manifest bytes remain separate Wesley inputs, and
+generated corpus bytes never re-enter generator identity. The frame therefore
+attests the source/dependency-lock closure without claiming a reproducible
+executable or creating a circular output digest.
+
+Corpus comparison is an exact-byte, exact-path check. Missing, changed, and
+unexpected entries are reported in stable order. Check mode performs no
+directory creation, write, deletion, normalization, or symlink traversal;
+the caller's `--out` path is an ambient locator, while its final corpus-root
+entry and every descendant are opened without following symlinks and retained as
+directory capabilities. Generation refuses every unexpected entry it observes
+before creating or replacing an expected path and leaves that entry for explicit
+operator disposition. Each temporary write, sync, replacement, and failure
+cleanup remains relative to the validated parent handle. Unrelated ancestors
+used to locate the requested root are outside this capability boundary. This
+checked build artifact remains provider evidence. Echo runtime admission and
+installation are still separate acts.
+
+The generated operation profile preserves native versus direct-adapter
+selection, operation-local obstruction mappings, and the target optic contract.
+Invocation posture is derived from admitted optic semantics: mutation-capable
+write classes require affect/reintegration, while non-mutating classes require
+revelation/projection and remain bounded observers. This rule is generic and
+does not encode application- or editor-specific behavior.
 
 The first capability distinguishes two nested domains. `echo.span-ir/v1` is
 the inner Echo target IR domain selected by `echo.dpo@1.replace`.

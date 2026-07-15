@@ -7,6 +7,65 @@
 
 ### Added
 
+- `echo-wesley-gen` now checks in the first exact 22-file Edict provider
+  artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
+  resources, the self-contained CDDL, Wesley provenance JSON, and
+  non-authoritative review JSON. A dedicated generator binds an explicit,
+  compile-time-enumerated source/dependency-lock bundle rather than executable,
+  Git, path, or environment discovery. Its `--check` mode reports sorted
+  missing, changed, and unexpected paths without creating, deleting, or
+  rewriting files, while generation refuses observed unexpected entries before
+  writing and retains no-follow directory capabilities through temporary-file
+  replacement. The crate test suite checks the committed snapshot.
+- `echo-wesley-gen` now derives Wesley's canonical `GenerationReviewV1` from
+  verified provider provenance. The deterministic JSON copies the exact input,
+  provenance, generator, projection-role, source, and emitted-output identities,
+  is structurally unable to claim authority, and preserves typed Wesley
+  failures when its input and provenance disagree. The semantic source now
+  identifies both provenance and review contracts as Wesley #728 artifacts.
+- `echo-wesley-gen` now constructs canonical Wesley provider-generation
+  provenance from explicit material only. The manifest binds the exact three
+  authored source artifacts, checked settings digest, caller-supplied generator
+  component bytes, and exactly six non-derived primary outputs, then immediately
+  re-verifies all referenced bytes. Generated resources remain transitively
+  bound through the primary artifacts, while provenance and review stay outside
+  the emitted set to prevent circular digests. Typed Wesley failures are
+  preserved without exposing Rust debug spelling as a stable diagnostic. The
+  primary closure retains its producing input digest so outputs cannot be
+  attributed to another invocation, and generator coordinates must remain
+  disjoint from every exact source, declared artifact, resource, and package
+  coordinate.
+- `echo-wesley-gen` now deterministically projects the validated Echo Edict
+  source into a canonical lawpack, target profile, two source-partitioned
+  authority-facts documents, generated operation profile, fourteen declarative
+  resources, and a self-contained provider CDDL artifact. Every output passes
+  its owning generated root, Edict-owned values also pass the independently
+  admitted upstream roots, manifest edges use domain-framed digests, and Wesley
+  references bind exact output bytes. The projection preserves direct adapters,
+  operation-local obstructions, and optic contracts, and keeps read-class
+  operations as bounded observers rather than mutation DPOs. These artifacts
+  describe provider semantics and confer no Echo runtime authority.
+- `echo-wesley-gen` now admits the exact Apache-2.0 Edict provider contract
+  pack merged in Edict PR #162 as an explicit generator input. The pure
+  boundary pins the CDDL and manifest publication, verifies strict contract and
+  domain inventories plus every embedded resource byte, digest, and provenance
+  record, rejects tampering with stable structured error kinds, and performs no
+  filesystem, registry, environment, or network discovery.
+- `echo-wesley-gen` now implements the exact `edict.canonical-cbor/v1` value,
+  encoding, nesting, map-ordering, and domain-framed SHA-256 contracts. Named
+  provider artifacts must both use those canonical bytes and satisfy their
+  owning root in the admitted Edict CDDL; typed failures distinguish unknown
+  contracts, invalid canonical encoding, and schema mismatch, and oversized
+  declared lengths produce platform-stable truncation failures before host-width
+  conversion. This validates a generation artifact and does not grant Echo
+  runtime authority or admission.
+- `echo-wesley-gen` now constructs a canonical Wesley extension-generation
+  input from exact Echo semantic-source bytes, the admitted Edict CDDL and
+  manifest, and checked versioned settings. The first provider closure uses an
+  explicitly empty GraphQL Shape/operation catalog, derives six primary output
+  roles without circular provenance/review digests, preserves the normalized
+  semantic model across set reordering, and moves the generation-input digest
+  when exact authored source or settings bytes change.
 - `warp-core` now separates application-requested causal-anchor claims from
   Echo admission. `CausalAnchorAdmissionRequest` contains no admission receipt,
   `CausalAnchorClaim` is an opaque canonical value over only the caller's claim,
@@ -917,6 +976,18 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
+  `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
+  `import_registration_descriptor(...)` accepts
+  `OperationRegistrationDescriptor`. Source consumers using Wesley's former
+  `OpticArtifact` or `OpticRegistrationDescriptor` names must update when they
+  adopt the corresponding Wesley 0.3 prerelease; Echo's runtime-local optic
+  artifact types and handles are unchanged.
+- Provider semantic-source, generation-input, and contract-pack `Display`
+  diagnostics now render explicit kebab-case failure labels instead of Rust
+  `Debug` variant spellings. Typed error enums remain the programmatic
+  contract, while human/CLI diagnostics no longer move when Rust variants are
+  refactored.
 - Restored the durable ADR 0001–0011 namespace and moved the post-Method
   decisions to ADR 0012–0019, preserving the meaning of existing source
   citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
@@ -1027,6 +1098,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Direct GraphQL SDL lowering in `echo-wesley-gen` now binds the exact pinned
+  `wesley-core` version into generated Rust artifact-hash provenance, with a
+  regression test that refuses dependency/provenance version drift.
 - Generated-rule architecture now distinguishes Wesley's current raw
   `RewriteRule` fixture path, Edict's fixture-only Target IR bridge, and the
   still-target package-registration corridor. It also records

@@ -1,0 +1,793 @@
+; SPDX-License-Identifier: Apache-2.0
+; edict-provider-contracts.cddl
+; Generated from Edict-owned ABI fragments. DO NOT EDIT.
+
+; --- edict-common.cddl ---
+; edict-common.cddl
+; Shared CDDL types for the Edict ABIs, defined ONCE here so they cannot drift
+; (EDICT-ABI-NODUP-001). Two groups:
+;   - resource-ref, sha256-digest, effect-failure-body, effect-kind, authority-class,
+;     core-type-ref: assembled with edict-target-profile.cddl and
+;     edict-lawpack.cddl by the build; those schemas do not redefine them.
+;   - operation-profile, optic-template, aperture-requirement and their refs:
+;     consumed by the Core/optic layer (edict-core.cddl) and referenced by the
+;     language/target-profile specs.
+; Authoritative byte encoding: edict.canonical-cbor/v1.
+
+; A normative subcomponent referenced by identity plus digest. Manifests never
+; embed their own self-digest in their preimage (EDICT-CORE-SELFHASH-001).
+resource-ref = { id: tstr, digest: sha256-digest }
+
+; Digests are authoritative as typed byte values, never hex strings. Review JSON
+; renders this as "sha256:<64 lowercase hex>" (EDICT-DIGEST-WIRE-001).
+sha256-digest = [ algorithm: "sha256", bytes: bstr .size 32 ]
+
+; A named low-level failure an effect can raise. The source obstruction map
+; binds it (by coordinate) and constructs a typed domain obstruction from its
+; payload (EDICT-ABI-FAILURE-NAMED-001).
+; An effect's `effectFailures` list MUST have unique `coordinate`s: since the
+; obstruction map is keyed by coordinate, two failures sharing a coordinate (even
+; with different authorityClass/payloadType) make exhaustive mapping and binder
+; typing ambiguous and are rejected (EDICT-ABI-FAILURE-UNIQUE-001).
+;
+; Effects carry their failures as a map `{ failure-ident => effect-failure-body }`
+; (see the target/lawpack effect schemas). The failure coordinate is the map
+; KEY, so it is not repeated in the body and cannot disagree with the key.
+effect-failure-body = {
+  authorityClass: authority-class,
+  payloadType: core-type-ref,             ; typed, bounded (may be empty record)
+}
+
+; A failure coordinate must be a bare Edict `ident` (letter/underscore then
+; letters/digits/underscores) AND must not be a reserved keyword (e.g. `else`,
+; `basis`, `where`, `require`, `for`, `if`). The source obstruction-map LHS only
+; accepts a non-keyword `ident`, so a hyphen/dot/keyword coordinate would be
+; ABI-valid yet impossible to map exhaustively in source. The regex captures the
+; lexical shape; keyword exclusion is an additional validation rule
+; (EDICT-ABI-FAILURE-IDENT-001).
+failure-ident = tstr .regexp "[A-Za-z_][A-Za-z0-9_]*"
+
+effect-kind = "read" / "create" / "ensure" / "replace" / "delete" /
+              "append" / "reduce" / "semantic.emit" / "custom"
+
+authority-class = "domainMappable" / "participantOwned" / "integrityFault" /
+                  "resourceFault" / "internalFault"
+
+core-type-ref = tstr   ; canonical Core type coordinate
+
+; An operation profile supplies the optic template a Core intent resolves its
+; opticKind/boundaryKind/supportPolicy/lossDisposition from. Target profiles and
+; lawpacks publish these as a map `{ coordinate => operation-profile }`, so the
+; coordinate is the KEY, not a value field (EDICT-OPTIC-TEMPLATE-OWNER-001,
+; EDICT-ABI-OPPROFILE-UNIQUE-001).
+operation-profile = {
+  opticTemplate: optic-template,
+  effectPredicate: tstr,           ; coordinate of the operation-mode predicate
+}
+
+optic-template = {
+  opticKind: "revelation" / "affectReintegration",
+  boundaryKind: "projection" / "affect",
+  supportPolicy: tstr,             ; canonical support-policy coordinate
+  lossDisposition: tstr,           ; canonical loss-disposition coordinate
+  ? basisTemplate: tstr,           ; optional digest-locked basis template coord
+  ; the aperture requirement this template supplies. Required when the template
+  ; is the source of a Core optic's apertureRequirement (i.e. the intent has no
+  ; source `footprint <= ...`), since apertureRequirement is mandatory in Core
+  ; (EDICT-OPTIC-APERTURE-REF-001).
+  ? apertureRequirement: aperture-requirement,
+}
+
+; apertureRequirement is a typed reference, never a free-form string. A review
+; rendering may show its coordinate (EDICT-OPTIC-APERTURE-REF-001).
+aperture-requirement = footprint-ceiling-ref / abstract-footprint-obligation-ref
+footprint-ceiling-ref = { kind: "footprintCeiling", ref: tstr }
+abstract-footprint-obligation-ref = { kind: "abstractFootprintObligation", ref: tstr }
+
+; --- edict-core.cddl ---
+; edict-core.cddl
+; Normative schema for the Edict Core v1 semantic model.
+;
+; Scope boundary: this file defines Core meaning and schema shape only. It does
+; not define a canonical encoder, Core module hash fields, hash fixtures, target
+; lowering, admission bundles, or target-owned IR.
+
+core-module = {
+  apiVersion: "edict.core/v1",
+  coordinate: tstr,
+  imports: [* core-import],
+  types: { * tstr => core-type },
+  intents: { + tstr => core-intent },
+  requiredCoreCapabilities: [* tstr],
+}
+
+core-import = {
+  kind: "lawpack" / "target" / "core",
+  ref: resource-ref,
+  ? alias: tstr,
+}
+
+; --- types ---------------------------------------------------------------
+
+core-type = core-scalar-type / core-record-type / core-variant-type /
+            core-option-type / core-list-type / core-map-type /
+            core-capability-ref-type
+
+core-scalar-type = core-bool-type / core-int-type / core-string-type /
+                   core-bytes-type / core-unit-type
+
+core-bool-type = { kind: "Bool" }
+core-unit-type = { kind: "Unit" }
+core-int-type = {
+  kind: "I64" / "U64" / "I32" / "U32" / "I16" / "U16" / "I8" / "U8",
+}
+core-string-type = {
+  kind: "String",
+  max: uint,
+  canonical: "unicode-scalar-nfc" / "raw-utf8",
+}
+core-bytes-type = {
+  kind: "Bytes",
+  max: uint,
+}
+core-record-type = {
+  kind: "Record",
+  fields: { * tstr => core-type-ref },
+}
+core-variant-type = {
+  kind: "Variant",
+  cases: { + tstr => variant-case-body },
+}
+variant-case-body = {
+  ? payload: core-type-ref,
+}
+core-option-type = {
+  kind: "Option",
+  item: core-type-ref,
+}
+core-list-type = {
+  kind: "List",
+  item: core-type-ref,
+  max: uint,
+}
+core-map-type = {
+  kind: "Map",
+  key: core-type-ref,
+  value: core-type-ref,
+  max: uint,
+}
+core-capability-ref-type = {
+  kind: "CapabilityRef",
+  item: core-type-ref,
+}
+
+; core-type-ref is defined in edict-common.cddl and assembled with this schema.
+
+; --- references and values ----------------------------------------------
+
+; Local identity is alpha-stable. `id` is the compiler-owned local coordinate;
+; `alphaName` is the normalized human/debug name. Source binder spelling is not
+; identity.
+local-ref = {
+  id: tstr,
+  alphaName: tstr,
+  type: core-type-ref,
+}
+
+core-value = core-null-value / core-bool-value / core-int-value /
+             core-string-value / core-bytes-value / core-record-value /
+             core-variant-value / core-list-value / core-map-value /
+             core-capability-value
+
+core-null-value = { kind: "null" }
+core-bool-value = { kind: "bool", value: bool }
+core-int-value = { kind: "int", width: tstr, value: int }
+core-string-value = { kind: "string", value: tstr }
+core-bytes-value = { kind: "bytes", value: bstr }
+core-record-value = { kind: "record", fields: { * tstr => core-value } }
+core-variant-value = {
+  kind: "variant",
+  type: core-type-ref,
+  case: tstr,
+  ? payload: core-value,
+}
+core-list-value = { kind: "list", values: [* core-value] }
+core-map-value = { kind: "map", entries: [* [key: core-value, value: core-value]] }
+core-capability-value = {
+  kind: "capability",
+  receipt: sha256-digest,
+}
+
+; Edict-authored pure helpers use a pure Core function body. The body can bind
+; pure expressions and return an expression, but it cannot contain Core effect,
+; guard, branch, loop, match-node, or proof-obligation nodes.
+core-fn-body = {
+  params: [* local-ref],
+  body: core-pure-block,
+}
+
+core-pure-block = {
+  locals: [* local-ref],
+  bindings: [* pure-let-node],
+  result: core-expr,
+}
+
+pure-let-node = {
+  kind: "let",
+  binding: local-ref,
+  value: core-expr,
+}
+
+; --- expressions and predicates -----------------------------------------
+
+core-expr = local-expr / const-expr / record-expr / field-expr /
+            variant-expr / match-expr / call-expr / list-expr / map-expr /
+            if-expr
+
+local-expr = { kind: "local", ref: local-ref }
+const-expr = { kind: "const", value: core-value }
+record-expr = { kind: "record", fields: { * tstr => core-expr } }
+field-expr = { kind: "field", base: core-expr, field: tstr }
+variant-expr = {
+  kind: "variant",
+  type: core-type-ref,
+  case: tstr,
+  ? payload: core-expr,
+}
+match-expr = {
+  kind: "match",
+  scrutinee: core-expr,
+  arms: [+ match-arm],
+}
+match-arm = {
+  case: tstr,
+  ? binder: local-ref,
+  body: core-expr,
+}
+call-expr = {
+  kind: "call",
+  callee: tstr,
+  typeArgs: [* core-type-ref],
+  args: [* core-expr],
+}
+list-expr = { kind: "list", values: [* core-expr] }
+map-expr = { kind: "map", entries: [* [key: core-expr, value: core-expr]] }
+if-expr = {
+  kind: "if",
+  predicate: core-predicate,
+  then: core-expr,
+  else: core-expr,
+}
+
+core-predicate = true-predicate / false-predicate / not-predicate /
+                 all-predicate / any-predicate / compare-predicate /
+                 call-predicate / obstruction-predicate
+
+true-predicate = { kind: "true" }
+false-predicate = { kind: "false" }
+not-predicate = { kind: "not", value: core-predicate }
+all-predicate = { kind: "all", values: [+ core-predicate] }
+any-predicate = { kind: "any", values: [+ core-predicate] }
+compare-predicate = {
+  kind: "compare",
+  op: "==" / "!=" / "<" / "<=" / ">" / ">=",
+  left: core-expr,
+  right: core-expr,
+}
+call-predicate = {
+  kind: "call",
+  predicate: tstr,
+  args: [* core-expr],
+}
+obstruction-predicate = {
+  kind: "obstruction",
+  coordinate: failure-ident,
+  payload: core-expr,
+}
+
+input-constraint = {
+  coordinate: tstr,
+  source: "where" / "compiler",
+  predicate: core-predicate,
+}
+
+; --- intents, blocks, and nodes -----------------------------------------
+
+core-intent = {
+  input: core-type-ref,
+  output: core-type-ref,
+  requiredOperationProfile: tstr,
+  inputConstraints: [* input-constraint],
+  coreEvaluationBudget: core-budget,
+  body: core-block,
+  ? optic: core-optic,
+}
+
+core-budget = {
+  maxSteps: uint,
+  maxAllocatedBytes: uint,
+  maxOutputBytes: uint,
+}
+
+core-optic = {
+  opticKind: "revelation" / "affectReintegration",
+  boundaryKind: "projection" / "affect",
+  apertureRequirement: aperture-requirement,
+  supportPolicy: tstr,
+  lossDisposition: tstr,
+}
+
+core-block = {
+  locals: [* local-ref],
+  nodes: [* core-node],
+  result: core-expr,
+}
+
+core-node = let-node / require-node / effect-node / guard-node / branch-node /
+            for-node / match-node / proof-obligation-node
+
+let-node = {
+  kind: "let",
+  binding: local-ref,
+  value: core-expr,
+}
+require-node = {
+  kind: "require",
+  predicate: core-predicate,
+  onFailure: require-failure-arm,
+}
+require-failure-arm = terminal-require-failure /
+                      continue-obstructed-require-failure
+terminal-require-failure = {
+  kind: "terminal",
+  reason: obstruction-reason,
+}
+continue-obstructed-require-failure = {
+  kind: "continueObstructed",
+  reason: obstruction-reason,
+}
+obstruction-reason = {
+  reasonKind: tstr,
+  payload: { * tstr => core-expr },
+}
+effect-node = {
+  kind: "effect",
+  binding: local-ref,
+  effect: tstr,
+  input: core-expr,
+  obstructionMap: { * failure-ident => obstruction-arm },
+}
+obstruction-arm = {
+  binder: local-ref,
+  value: core-expr,
+}
+guard-node = {
+  kind: "guard",
+  predicate: core-predicate,
+  obstruction: core-expr,
+}
+branch-node = {
+  kind: "branch",
+  predicate: core-predicate,
+  then: core-block,
+  else: core-block,
+}
+for-node = {
+  kind: "for",
+  binder: local-ref,
+  iter: core-expr,
+  bound: core-bound,
+  body: core-block,
+}
+match-node = {
+  kind: "match",
+  scrutinee: core-expr,
+  arms: [+ match-block-arm],
+}
+match-block-arm = {
+  case: tstr,
+  ? binder: local-ref,
+  body: core-block,
+}
+proof-obligation-node = {
+  kind: "proof",
+  coordinate: tstr,
+  predicate: core-predicate,
+}
+
+core-bound = literal-bound / coordinate-bound
+literal-bound = { kind: "literal", value: uint }
+coordinate-bound = { kind: "coordinate", ref: tstr }
+
+; Shared resource-ref, sha256-digest, failure-ident, aperture-requirement, and
+; core-type-ref are defined once in edict-common.cddl.
+
+; --- edict-lawpack.cddl ---
+; edict-lawpack.cddl
+; Canonical schema for the Edict lawpack manifest and export surface.
+; Authoritative byte encoding: edict.canonical-cbor/v1. JSON in the prose specs
+; is a review rendering generated from this schema (EDICT-ABI-NODUP-001).
+
+lawpack-manifest = {
+  apiVersion: "edict.lawpack/v1",
+  id: tstr,
+  version: tstr,
+  acceptedCoreAbi: [+ tstr],
+  dependencies: [* lawpack-dep],          ; acyclic, digest-locked (EDICT-LAWPACK-DAG-001)
+  exports: resource-ref,
+  ? targetAdapters: [+ target-adapter],   ; required only if any runtime effect exists
+  ? helperComponent: executable-component, ; executable helpers carry their own sandbox+fuel
+  verifier: verifier,                      ; classified: declarative or executable
+  compatibility: resource-ref,
+  conformanceFixtureCorpus: resource-ref,
+}
+
+; A verifier is either a declarative ruleset (no runtime) or an executable
+; component. An executable verifier MUST carry its own sandbox and fuel model,
+; so the schema enforces that no executable component is left unbounded
+; (EDICT-ABI-VERIFIER-BOUND-001).
+verifier = declarative-verifier / executable-verifier
+declarative-verifier = { class: "declarative", ruleset: resource-ref }
+executable-verifier = {
+  class: "executable",
+  component: resource-ref,
+  sandbox: resource-ref,
+  fuelModel: resource-ref,
+}
+
+; Any executable component is bounded by its own sandbox + fuel model.
+executable-component = {
+  component: resource-ref,
+  sandbox: resource-ref,
+  fuelModel: resource-ref,
+}
+
+lawpack-dep = { id: tstr, version: tstr, digest: sha256-digest }
+
+; Adapter selection keys SOLELY off the digest-locked `acceptedTargetProfile`
+; (its `id` is the profile id; its `digest` pins the exact profile/version). There
+; are no independent display strings that could disagree with the lock, so a
+; resolver cannot bind an adapter to one target while the lock proves another
+; (EDICT-LAWPACK-ADAPTER-TARGETIR-001).
+target-adapter = {
+  acceptedTargetProfile: resource-ref,    ; digest-locked, authoritative selector
+  acceptedTargetIr: resource-ref,         ; digest-locked
+  adapter: resource-ref,
+}
+
+; Shared types resource-ref and sha256-digest are defined once in
+; edict-common.cddl and assembled with this schema (EDICT-ABI-NODUP-001).
+
+; --- export surface ------------------------------------------------------
+
+lawpack-exports = {
+  types: [* exported-type],
+  constants: [* exported-constant],
+  pureFunctions: [* pure-function],
+  effects: [* semantic-effect],
+  obstructions: [* obstruction-def],
+  ; keyed by operation-profile coordinate → uniqueness enforced
+  ; (EDICT-ABI-OPPROFILE-UNIQUE-001)
+  ; operation-profile records this lawpack exports (optic templates that
+  ; `implements`/`profile` clauses resolve against). operation-profile is
+  ; defined in edict-common.cddl (EDICT-ABI-OPPROFILE-SLOT-001).
+  operationProfiles: { * tstr => operation-profile },  ; keyed by coordinate
+}
+
+exported-type     = { coordinate: tstr, definition: core-type-ref }
+exported-constant = { coordinate: tstr, type: core-type-ref, value: any }
+
+; A pure helper is a discriminated union by `source`, so the schema itself
+; guarantees an implementation exists (EDICT-LAWPACK-PURE-IMPL-001):
+;   - "edict": authored in Edict/Core; the Core body is carried inline (hashed
+;     with the export surface). The schema requires the `body` field.
+;   - "component": implemented outside Edict; carries no inline body and instead
+;     carries its own digest-locked `implementation` (sandbox + fuel). It does
+;     not depend on the optional manifest-level helperComponent.
+pure-function = edict-pure-function / component-pure-function
+
+pure-function-common = (
+  coordinate: tstr,
+  typeParameters: [* tstr],
+  parameterTypes: [* core-type-ref],      ; all bounded
+  returnType: core-type-ref,              ; bounded
+  costTemplate: tstr,
+  determinismClass: "total" / "total-with-typed-diagnostic",
+)
+
+edict-pure-function = {
+  pure-function-common,
+  source: "edict",
+  body: core-fn-body,                     ; inline, hash-significant
+}
+
+component-pure-function = {
+  pure-function-common,
+  source: "component",
+  ; the digest-locked component implementing this helper. Required at the schema
+  ; level so a component helper can never validate without a hash-bound,
+  ; sandbox+fuel-described implementation (EDICT-LAWPACK-PURE-IMPL-001).
+  implementation: executable-component,
+}
+
+; core-fn-body is defined by edict-core.cddl and assembled with this lawpack
+; schema. It is a pure Core function body, not an effect-capable core-block.
+
+semantic-effect = {
+  coordinate: tstr,
+  typeParameters: [* tstr],
+  inputType: core-type-ref,               ; bounded
+  outputType: core-type-ref,              ; bounded
+  executionClass: "proofOnly" / "runtime",   ; orthogonal to writeClass
+  effectKindHint: effect-kind,
+  footprintObligation: tstr,
+  costObligation: tstr,
+  effectFailures: { * failure-ident => effect-failure-body },  ; keyed by coordinate; unique
+  guardSupport: bool,
+}
+
+obstruction-def = {
+  coordinate: tstr,
+  authorityClass: authority-class,
+  payloadSchema: core-type-ref,           ; typed, bounded (may be empty record)
+}
+
+; effect-failure-body, effect-kind, authority-class, and core-type-ref are defined
+; once in edict-common.cddl and assembled with this schema (EDICT-ABI-NODUP-001).
+
+; --- edict-target-profile.cddl ---
+; edict-target-profile.cddl
+; Canonical schema for the Edict target profile manifest.
+; Authoritative byte encoding: edict.canonical-cbor/v1
+; (see SPEC_continuum-contract-bundle-v1.md). JSON in the prose specs is a
+; review rendering generated from this schema; this CDDL is the single source
+; of truth (EDICT-ABI-NODUP-001).
+
+target-profile-manifest = {
+  apiVersion: "edict.target-profile/v1",
+  id: tstr,                         ; e.g. "echo.dpo"
+  version: tstr,                    ; e.g. "1"
+  acceptedCoreAbi: [+ tstr],        ; e.g. ["edict.core/v1"]
+
+  intrinsics: resource-ref,
+  intrinsicNamespace: tstr,
+  ; publishes this profile's operation-profile records (optic templates that
+  ; `profile`/`implements` clauses resolve against). References an
+  ; operation-profiles-document (EDICT-ABI-OPPROFILE-SLOT-001).
+  operationProfiles: resource-ref,
+  footprintAlgebra: resource-ref,
+  costAlgebra: resource-ref,
+  targetIr: resource-ref,
+  obstructionTaxonomy: resource-ref,
+  verifier: resource-ref,
+  lowerer: resource-ref,
+  sandbox: resource-ref,
+  fuelModel: resource-ref,
+
+  ; fields the language spec requires of every profile
+  bundleProfile: resource-ref,
+  generatedArtifactProfiles: [* resource-ref],
+  canonicalEncodingRules: resource-ref,
+  ; Reserved/deferred: will list accepted lawpack-adapter ABI ids once that
+  ; byte-level ABI (edict.lawpack-adapter/v1) is specified. The schema enforces
+  ; emptiness now — the type is the empty array, so non-empty values are
+  ; rejected, not merely discouraged (EDICT-ABI-LAWPACK-ADAPTER-DEFER-001).
+  ? acceptedLawpackAdapterAbi: [],
+  diagnosticAbi: resource-ref,
+
+  ; application doctrine
+  applicationModel: "atomic",
+  readConsistency: "application-snapshot" / tstr,
+  guardEvaluation: "precommit-atomic" / tstr,
+  obstructionRollback: "no-visible-effects" / tstr,
+  multiTarget: bool,
+  ; whether the target can evaluate precommit postcondition (`guarantee`) checks
+  ; inside the atomic application unit (EDICT-TARGET-POSTCOND-001)
+  postconditionSupport: bool,
+
+  deterministicExecution: resource-ref,
+  conformanceFixtureCorpus: resource-ref,
+}
+
+; Shared types resource-ref and sha256-digest are defined once in
+; edict-common.cddl and assembled with this schema by the build
+; (EDICT-ABI-NODUP-001). They are not redefined here.
+
+; --- intrinsic signature -------------------------------------------------
+; The artifact referenced by the manifest's `intrinsics` resource-ref is the
+; intrinsic-signature corpus document below. Its layout is fixed so two
+; independent profiles validate/hash the corpus identically
+; (EDICT-ABI-INTRINSICS-DOC-001).
+
+; intrinsics is a MAP keyed by coordinate, so the schema itself enforces
+; coordinate uniqueness. A provider receives the resolved corpus as a
+; digest-bound semantic input and resolves coordinates within that artifact.
+; Each map key MUST equal its record's `coordinate` field
+; (EDICT-ABI-INTRINSIC-UNIQUE-001).
+intrinsics-document = {
+  apiVersion: "edict.target-profile.intrinsics/v1",
+  intrinsics: { * tstr => intrinsic },
+}
+
+; The artifact referenced by the manifest's `operationProfiles` resource-ref.
+; operation-profile / optic-template are defined in edict-common.cddl. Keyed by
+; coordinate so resolution can't pick between two same-coordinate profiles
+; (EDICT-ABI-OPPROFILE-SLOT-001, EDICT-ABI-OPPROFILE-UNIQUE-001).
+operation-profiles-document = {
+  apiVersion: "edict.target-profile.operation-profiles/v1",
+  profiles: { * tstr => operation-profile },
+}
+
+; A typed pre-lowering question that can be proposed by Watson or an agent and
+; checked by the compiler. It is canonical-CBOR encoded under
+; `edict.lowering-requirements/v1`; the compiler checks this artifact, not the
+; prose that produced it.
+lowering-requirements = {
+  apiVersion: "edict.lowering-requirements/v1",
+  operationProfile: tstr,
+  semanticEffects: [* semantic-effect-requirement],
+  requiredWriteClasses: [* write-class],
+  guardKinds: [* guard-kind],
+  atomicity: atomicity-requirement,
+  postconditionSupport: bool,
+  obstructionCoordinates: [* tstr],
+  footprintObligations: [* tstr],
+  costObligations: [* tstr],
+  opticContract: tstr,
+}
+
+semantic-effect-requirement = {
+  coordinate: tstr,
+  writeClass: write-class,
+  guardKinds: [* guard-kind],
+  obstructionCoordinates: [* tstr],
+  footprintObligations: [* tstr],
+  costObligations: [* tstr],
+}
+
+write-class = "none" / "read" / "create" / "ensure" / "append" /
+              "replace" / "delete" / tstr
+guard-kind = "precommit-atomic" / tstr
+atomicity-requirement = "atomic" / tstr
+
+; A genuine union: pure constructors carry no effect kind or failures; effect
+; intrinsics must (EDICT-TARGET-INTRINSIC-CLASS-001). The schema enforces this,
+; not a comment.
+
+; The intrinsic's coordinate is the intrinsics map KEY, not a value field, so the
+; key and coordinate can never disagree (EDICT-ABI-INTRINSIC-UNIQUE-001).
+intrinsic = pure-intrinsic / effect-intrinsic
+
+pure-intrinsic = {
+  intrinsicClass: "pure",
+  typeParameters: [* tstr],
+  argumentTypes: [* core-type-ref],
+  returnType: core-type-ref,
+  guardSupport: false,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "none",
+}
+
+effect-intrinsic = {
+  intrinsicClass: "effect",
+  typeParameters: [* tstr],
+  argumentTypes: [* core-type-ref],
+  returnType: core-type-ref,
+  effectKind: effect-kind,
+  ; map keyed by failure coordinate (failure-ident); the failure coordinate is
+  ; the key, not a value field, so uniqueness is structural
+  ; (EDICT-ABI-FAILURE-UNIQUE-001).
+  effectFailures: { * failure-ident => effect-failure-body },
+  guardSupport: bool,
+  footprintTemplate: tstr,
+  costTemplate: tstr,
+  writeClass: "read" / "create" / "ensure" / "append" / "replace" /
+              "delete" / "custom",
+  canParticipateInAtomicGuard: bool,
+}
+
+; effect-failure-body, effect-kind, authority-class, and core-type-ref are defined
+; once in edict-common.cddl and assembled with this schema (EDICT-ABI-NODUP-001).
+
+; --- edict-authority-facts.cddl ---
+; edict-authority-facts.cddl
+; Canonical schema for the first compiler-context authority-facts document.
+; Authoritative byte encoding: edict.canonical-cbor/v1.
+;
+; This schema is assembled with edict-common.cddl so source.digest uses the
+; shared sha256-digest typed value. JSON is a review/input rendering: its
+; `sha256:<64 hex>` source digest is projected to [`sha256`, 32 raw bytes] on
+; the wire, and its fact arrays project to the coordinate-keyed maps below.
+
+authority-facts = {
+  apiVersion: "edict.authority-facts/v1",
+  source: authority-fact-source,
+  operationProfiles: { * tstr => authority-operation-profile-fact },
+  effectWriteClasses: { * tstr => authority-write-class },
+  budgets: { * tstr => authority-budget-fact },
+}
+
+authority-fact-source = {
+  kind: "lawpack" / "targetProfile",
+  coordinate: tstr,
+  digest: sha256-digest,
+}
+
+; The map key is the source operation-profile coordinate. It is not repeated in
+; the value, so a key and embedded coordinate cannot disagree. Allowed write
+; classes are a canonical map-set: the class is the unique key and null is the
+; unit marker. Canonical CBOR fixes key order without a second ordering rule.
+authority-operation-profile-fact = {
+  core: tstr,
+  allowedWriteClasses: { * authority-write-class => null },
+}
+
+; The effectWriteClasses map key is the semantic effect coordinate. The budgets
+; map key is the source budget coordinate. Canonical CBOR map-key uniqueness
+; makes duplicate fact coordinates structurally unrepresentable.
+authority-budget-fact = {
+  maxSteps: uint,
+  maxAllocatedBytes: uint,
+  maxOutputBytes: uint,
+}
+
+; AuthorityFactsDocument v1 intentionally accepts only the write classes the
+; current compiler model can consume. `custom` is the sole v1 custom spelling;
+; arbitrary target-profile extension strings do not enter this compiler path.
+authority-write-class = "none" / "read" / "create" / "ensure" / "append" /
+                        "replace" / "delete" / "custom"
+
+; --- edict-target-ir.cddl ---
+; SPDX-License-Identifier: Apache-2.0
+; edict-target-ir.cddl
+; Canonical schema for the Edict-owned Target IR artifact envelope.
+; Authoritative byte encoding: edict.canonical-cbor/v1.
+;
+; This schema is assembled with edict-common.cddl and edict-core.cddl. It
+; deliberately reuses Core expressions, predicates, budgets, local references,
+; obstruction reasons, and obstruction arms so the schema matches the value
+; emitted by the canonical Target IR encoder rather than restating those types.
+; It describes the structural shape of valid lowering-produced artifacts. The
+; lowering and encoder contracts separately enforce semantic identifier rules
+; and canonical ordering/deduplication for set-like values.
+
+; Target IR encoding rejects an empty target-profile coordinate before bytes
+; exist, so this root tightens the shared structural resource-ref accordingly.
+target-ir-resource-ref = {
+  id: tstr .regexp "(?s).+",
+  digest: sha256-digest,
+}
+
+target-ir-artifact = {
+  kind: "targetIrArtifact",
+  domain: tstr,
+  targetProfile: target-ir-resource-ref,
+  sourceCoreCoordinate: tstr,
+  intents: { * tstr => target-ir-intent },
+}
+
+target-ir-intent = {
+  operationProfile: tstr,
+  inputConstraints: [* input-constraint],
+  coreEvaluationBudget: core-budget,
+  requirements: [* target-ir-requirement],
+  steps: [* target-ir-step],
+  result: core-expr,
+}
+
+target-ir-requirement = {
+  id: tstr,
+  predicate: core-predicate,
+  onFailure: require-failure-arm,
+}
+
+target-ir-step = {
+  id: tstr,
+  binding: local-ref,
+  effect: tstr,
+  targetIntrinsic: tstr,
+  input: core-expr,
+  obstructionFailures: [* failure-ident],
+  obstructionArms: { * failure-ident => obstruction-arm },
+}

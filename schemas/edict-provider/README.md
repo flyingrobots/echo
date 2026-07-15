@@ -82,12 +82,58 @@ evidence only.
 
 ## Generated Outputs
 
-Issue #652 will compile this source into the declared Edict lawpack, target
-profile, two source-partitioned authority-facts documents, generated-artifact
-profile, self-contained CDDL schema, deterministic review artifact, manifest
-subresources, and Wesley-owned `generationProvenance` metadata. Resources marked
-`external` are explicit digest-locked generator inputs; placeholder digests
-are forbidden.
+Issue #652 now compiles the primary closure into the declared Edict lawpack,
+target profile, two source-partitioned authority-facts documents,
+generated-artifact profile, fourteen manifest subresources, and self-contained
+CDDL schema. Every canonical output passes its owning generated root, and every
+Edict-owned output also passes the independently admitted upstream root. The
+Wesley-owned `generationProvenance` document binds exact source, settings,
+generator, and six primary output byte identities and immediately verifies all
+of them. Its emitted set contains the five canonical primary artifacts plus the
+raw self-contained CDDL; fourteen resources are transitively bound through
+those artifacts rather than incorrectly promoted into the primary projection.
+The primary wrapper retains its producing Wesley input digest, and generator
+coordinates cannot alias any declared artifact, resource, provider, or package
+coordinate. Exact source reordering therefore preserves all primary emitted
+bytes while intentionally moving the provenance identity.
+Wesley's non-authoritative `GenerationReviewV1` is then derived from the
+verified input/provenance pair and deterministically copies its generator,
+roles, sources, and emitted identities. It cannot claim semantic or runtime
+authority. The exact 22-file result is checked under
+[`generated/v1/`](generated/README.md): five canonical-CBOR primary artifacts,
+fourteen canonical-CBOR resources, raw self-contained CDDL, canonical Wesley
+provenance JSON, and canonical non-authoritative review JSON. The dedicated
+generator binds a fixed source/dependency-lock frame and its `--check` mode
+reports missing, changed, or unexpected files without rewriting them. Resources
+marked `external` are explicit digest-locked generator inputs; placeholder
+digests are forbidden.
+
+[`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
+versioned settings input for that invocation. The first closure selects no
+GraphQL Shape source: `a.b@1.t` remains an Echo semantic operation and is not
+invented as a GraphQL root field. The canonical Wesley generation input binds
+the exact semantic-source bytes, admitted Edict CDDL and manifest bytes, and
+settings bytes. Its primary projection-role set excludes provenance and review
+because those are derived envelopes over the primary outputs and cannot include
+their own digests.
+
+The validator's normalized semantic projection is insensitive to ordering of
+set-like declarations. The generation-input digest intentionally still changes
+when the authored JSON bytes are reordered, because later provenance binds the
+exact source artifact rather than mislabeling normalized bytes as the checked
+file. Generated semantic artifact bytes remain a function of the normalized
+model.
+
+Echo-owned resource documents use their declared schema API as their wire
+`apiVersion`; generated resource digests are framed by the resource coordinate.
+The lawpack and target-profile manifests bind those domain-framed identities,
+while later Wesley provenance binds exact-byte content references. The empty
+declarative conformance corpus cannot carry cases until executable parity
+evidence exists. Direct-adapter routes bind the adapter and native capability,
+and operation-local failure mappings are not collapsed merely because two
+operations share one semantic effect. Read-class operations must use a
+revelation/projection optic and generate observer metadata rather than mutation
+metadata.
 
 The two authority-facts outputs use Edict's `edict.authority-facts/v1` domain
 and bind their contract owner to
@@ -101,10 +147,20 @@ contract documents. They are not executable component bytes. Issue #655 binds
 the exact lowerer and verifier components, including their frozen WIT world
 attestations, when it assembles the provider manifest.
 
-External Edict contract inputs require the trusted artifact publication model
-tracked by [Edict #158](https://github.com/flyingrobots/edict/issues/158).
-The semantic source selects their contracts but does not authenticate arbitrary
-caller bytes under those coordinates.
+External Edict contract inputs come from the checked
+[`contracts/v1/`](contracts/v1/README.md) publication merged in
+[Edict PR #162](https://github.com/flyingrobots/edict/pull/162). Echo passes the
+CDDL and manifest bytes explicitly to
+`provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
+the pinned publication identity, exact inventories, resource bytes, digests,
+and provenance before generation. The semantic source selects those contracts
+but does not authenticate arbitrary caller bytes under their coordinates.
+Contract-pack admission authenticates schema authority; generated values must
+still pass the owning CDDL root during output admission. Echo's pure
+`AdmittedProviderContractPackV1::validate_contract_bytes(...)` boundary now
+enforces both exact `edict.canonical-cbor/v1` bytes and that named root. This is
+generation-time artifact validation, not runtime installation or authority;
+Echo must still explicitly admit any package, operation, or consequence.
 
 Issue #655, after the lowerer and verifier components exist, assembles those
 outputs and generates the package-root `edict.provider-manifest/v1` for

@@ -835,6 +835,12 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the provisional caller-authoritative causal-anchor API:
+  `CausalAnchorRequest`, `CausalAnchorFact::from_request`, public admitted-fact
+  fields, and raw admitted-identity constructors. Applications now submit a
+  `CausalAnchorAdmissionRequest` and treat the returned Echo fact, receipt, and
+  identities as opaque. This is an intentional breaking Rust API correction;
+  preserving the old surface would let callers manufacture Echo authority.
 - Removed the abandoned Method system: its workspace crate and `xtask`
   commands, checked-in backlog, cycles, retrospectives, status ledgers, process
   manuals, and generated task graphs. Current architecture now lives in

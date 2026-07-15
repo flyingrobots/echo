@@ -14,20 +14,23 @@ use bytes::Bytes;
 use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentValue};
+use crate::causal_anchor::validate_causal_anchor_admission_evidence;
 use crate::causal_wal::{
     materialize_wal_projection_graph, observe_wal_projection_graph_wsc, recover_wal_segment_bytes,
-    wal_projection_graph_schema_hash, BraidShellRetentionRecord, Lsn, ReadingRefRecord,
-    RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryTailPosture,
-    RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
-    SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
-    TopologyIntentRecord, WalCommitAnchor, WalProjectionGraphObservation,
+    validate_recovered_causal_anchor_history, wal_projection_graph_schema_hash,
+    BraidShellRetentionRecord, Lsn, ObservedCausalAnchorAdmission, ReadingRefRecord,
+    RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryScanReport,
+    RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
+    StrandForkRecord, SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord,
+    TopologyBraidEventRecord, TopologyIntentRecord, WalCommitAnchor, WalProjectionGraphObservation,
     WalProjectionGraphObservationError, WalReceiptCorrelationRecord, WalRecoveryError,
     WalRecoveryIndexError, WalRoot, WalSegmentBytesRecovery, WalSegmentId, WalSegmentRef,
-    WalSegmentStorageLocator,
+    WalSegmentStorageLocator, WalTransactionId,
 };
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, EdgeId, Hash, NodeId};
 use crate::record::{EdgeRecord, NodeRecord};
+use crate::{CausalAnchorAdmissionReceipt, CausalAnchorFact};
 
 use super::build::build_one_warp_input;
 use super::types::AttRow;
@@ -67,6 +70,16 @@ const WSC_RECEIPT_CORRELATION_EDGE_TYPE: &str = "echo/wsc-store/receipt-correlat
 const WSC_TICK_RECEIPT_ATTACHMENT_TYPE: &str = "echo/wsc-store/receipt-correlations/receipt/v1";
 const WSC_RECEIPT_CORRELATION_ATTACHMENT_TYPE: &str =
     "echo/wsc-store/receipt-correlations/correlation/v1";
+const WSC_CAUSAL_ANCHOR_BASIS_DOMAIN: &[u8] = b"echo:wsc_store:causal_anchor_basis:v1\0";
+const WSC_CAUSAL_ANCHOR_NODE_DOMAIN: &[u8] = b"echo:wsc_store:causal_anchor_node:v1\0";
+const WSC_CAUSAL_ANCHOR_EDGE_DOMAIN: &[u8] = b"echo:wsc_store:causal_anchor_edge:v1\0";
+const WSC_CAUSAL_ANCHOR_SCHEMA: &str = "echo/wsc-store/causal-anchors/v1";
+const WSC_CAUSAL_ANCHOR_WARP: &str = "echo/wsc-store/causal-anchors";
+const WSC_CAUSAL_ANCHOR_ROOT: &str = "echo/wsc-store/causal-anchors/root";
+const WSC_CAUSAL_ANCHOR_NODE_TYPE: &str = "echo/wsc-store/causal-anchors/node/v1";
+const WSC_CAUSAL_ANCHOR_EDGE_TYPE: &str = "echo/wsc-store/causal-anchors/member/v1";
+const WSC_CAUSAL_ANCHOR_ATTACHMENT_TYPE: &str = "echo/wsc-store/causal-anchors/evidence/v1";
+const WSC_CAUSAL_ANCHOR_PAYLOAD_MAGIC: &[u8; 8] = b"ECWSCCA1";
 const WSC_SELF_CONTAINED_WAL_SEGMENT_BASIS_DOMAIN: &[u8] =
     b"echo:wsc_store:self_contained_wal_segment_basis:v1\0";
 const WSC_SELF_CONTAINED_WAL_SEGMENT_NODE_DOMAIN: &[u8] =
@@ -187,7 +200,7 @@ impl WscStoreRecordKind {
 }
 
 /// Current version of the causal-history WSC export profile model.
-pub const WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION: u16 = 1;
+pub const WSC_CAUSAL_HISTORY_EXPORT_PROFILE_VERSION: u16 = 2;
 
 /// Versioned causal-history WSC export profile kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -260,6 +273,8 @@ pub struct WscCausalHistoryExportProfile {
     pub lsn_ranges: WscCausalHistoryExportEvidence,
     /// Commit anchor requirement.
     pub commit_anchors: WscCausalHistoryExportEvidence,
+    /// Echo-admitted causal-anchor history requirement.
+    pub causal_anchor_history: WscCausalHistoryExportEvidence,
     /// Embedded segment bytes or retained material requirement.
     pub embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence,
     /// CAS content hash requirement.
@@ -285,6 +300,7 @@ pub const fn wsc_causal_history_export_profile(
             segment_digests: WscCausalHistoryExportEvidence::Required,
             lsn_ranges: WscCausalHistoryExportEvidence::Required,
             commit_anchors: WscCausalHistoryExportEvidence::Required,
+            causal_anchor_history: WscCausalHistoryExportEvidence::Required,
             embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Forbidden,
             cas_content_hashes: WscCausalHistoryExportEvidence::Forbidden,
             semantic_refs: WscCausalHistoryExportEvidence::Forbidden,
@@ -300,6 +316,7 @@ pub const fn wsc_causal_history_export_profile(
             segment_digests: WscCausalHistoryExportEvidence::Required,
             lsn_ranges: WscCausalHistoryExportEvidence::Required,
             commit_anchors: WscCausalHistoryExportEvidence::Required,
+            causal_anchor_history: WscCausalHistoryExportEvidence::Required,
             embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Required,
             cas_content_hashes: WscCausalHistoryExportEvidence::Forbidden,
             semantic_refs: WscCausalHistoryExportEvidence::Forbidden,
@@ -315,6 +332,7 @@ pub const fn wsc_causal_history_export_profile(
             segment_digests: WscCausalHistoryExportEvidence::Required,
             lsn_ranges: WscCausalHistoryExportEvidence::Required,
             commit_anchors: WscCausalHistoryExportEvidence::Required,
+            causal_anchor_history: WscCausalHistoryExportEvidence::Required,
             embedded_segment_bytes_or_retained_material: WscCausalHistoryExportEvidence::Forbidden,
             cas_content_hashes: WscCausalHistoryExportEvidence::Required,
             semantic_refs: WscCausalHistoryExportEvidence::Required,
@@ -370,6 +388,14 @@ pub struct WscRefOnlyWalSegmentDependency {
     pub locator_posture: WscRefOnlyWalLocatorPosture,
 }
 
+/// Observation-only causal-anchor admission evidence decoded from WSC.
+///
+/// This type proves internal fact/receipt consistency and preserves remote
+/// durable coordinates. It does not confer local Echo admission authority and
+/// intentionally offers no conversion into
+/// [`RecoveredCausalAnchorAdmission`](crate::RecoveredCausalAnchorAdmission).
+pub type WscCausalAnchorAdmissionEvidence = ObservedCausalAnchorAdmission;
+
 /// Record slices carried by WAL causal-history WSC exports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WscWalCausalHistoryRecords<'a> {
@@ -383,6 +409,8 @@ pub struct WscWalCausalHistoryRecords<'a> {
     pub receipts: &'a [TickReceiptRecord],
     /// Receipt-correlation records recovered from WAL.
     pub correlations: &'a [WalReceiptCorrelationRecord],
+    /// Observation-only causal-anchor evidence selected for export.
+    pub causal_anchors: &'a [ObservedCausalAnchorAdmission],
 }
 
 impl WscWalCausalHistoryRecords<'_> {
@@ -395,6 +423,7 @@ impl WscWalCausalHistoryRecords<'_> {
             accepted_submissions: &[],
             receipts: &[],
             correlations: &[],
+            causal_anchors: &[],
         }
     }
 }
@@ -410,13 +439,25 @@ pub struct WscRefOnlyWalExport {
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Echo causal-anchor fact and admission-receipt WSC envelope.
+    pub causal_anchor_envelope: WscStoreEnvelope,
     /// Retained material and reading reference WSC envelope.
     pub retention_envelope: WscStoreEnvelope,
     /// External segment byte dependencies for ref-only validation.
     pub segment_dependencies: Vec<WscRefOnlyWalSegmentDependency>,
 }
 
-/// Imported and validated ref-only WAL causal-history WSC evidence.
+/// Structurally validated ref-only WAL metadata with unresolved WAL dependencies.
+///
+/// Ref-only imports do not expose causal-anchor sidecars as validated history:
+///
+/// ```compile_fail
+/// use warp_core::wsc::WscRefOnlyWalImport;
+///
+/// fn promote_unresolved_sidecar(imported: WscRefOnlyWalImport) {
+///     let _ = imported.causal_anchors;
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WscRefOnlyWalImport {
     /// Export profile.
@@ -431,6 +472,8 @@ pub struct WscRefOnlyWalImport {
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Causal-anchor sidecar records awaiting resolution against WAL bytes.
+    pub unverified_causal_anchors: Vec<WscCausalAnchorAdmissionEvidence>,
     /// Retained material and reading references recovered from WSC.
     pub retention: WscRetentionRecords,
     /// External segment byte dependencies for ref-only validation.
@@ -470,6 +513,8 @@ pub struct WscSelfContainedWalExport {
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Echo causal-anchor fact and admission-receipt WSC envelope.
+    pub causal_anchor_envelope: WscStoreEnvelope,
     /// Retained material and reading reference WSC envelope.
     pub retention_envelope: WscStoreEnvelope,
 }
@@ -493,6 +538,8 @@ pub struct WscSelfContainedWalImport {
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Observation-only causal-anchor admissions recovered from WSC.
+    pub causal_anchors: Vec<WscCausalAnchorAdmissionEvidence>,
     /// Submission retry index rebuilt from imported WSC evidence.
     pub submission_index: RecoveredSubmissionIndex,
     /// Receipt correlation index rebuilt from imported WSC evidence.
@@ -572,6 +619,8 @@ pub struct WscCasAddressedWalExport {
     pub accepted_submission_envelope: WscStoreEnvelope,
     /// Tick receipt and receipt-correlation WSC envelope.
     pub receipt_correlation_envelope: WscStoreEnvelope,
+    /// Echo causal-anchor fact and admission-receipt WSC envelope.
+    pub causal_anchor_envelope: WscStoreEnvelope,
     /// Retained material and reading reference WSC envelope.
     pub retention_envelope: WscStoreEnvelope,
 }
@@ -587,12 +636,16 @@ pub struct WscCasAddressedWalImport {
     pub root_identity_digest: Hash,
     /// CAS references validated for projection agreement and blob availability.
     pub cas_references: WscCasAddressedWalReferences,
+    /// CAS-retained segment recoveries validated against the projected WAL root.
+    pub segment_recoveries: Vec<WalSegmentBytesRecovery>,
     /// Accepted submission records recovered from WSC.
     pub accepted_submissions: Vec<SubmissionAcceptanceRecord>,
     /// Tick receipt records recovered from WSC.
     pub receipts: Vec<TickReceiptRecord>,
     /// Receipt-correlation records recovered from WSC.
     pub correlations: Vec<WalReceiptCorrelationRecord>,
+    /// Observation-only causal-anchor admissions recovered from WSC.
+    pub causal_anchors: Vec<WscCausalAnchorAdmissionEvidence>,
     /// Retained material and reading references recovered from WSC.
     pub retention: WscRetentionRecords,
 }
@@ -663,6 +716,9 @@ pub enum WscRefOnlyWalImportError {
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-anchor WSC material was invalid.
+    #[error("invalid causal-anchor WSC material")]
+    CausalAnchors(WscStoreObstruction),
     /// Retained evidence WSC material was invalid.
     #[error("invalid retained evidence WSC material")]
     Retention(WscStoreObstruction),
@@ -721,6 +777,9 @@ pub enum WscSelfContainedWalExportError {
     /// Receipt correlation WSC envelope was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-anchor WSC envelope was invalid.
+    #[error("invalid causal-anchor WSC material")]
+    CausalAnchors(WscStoreObstruction),
     /// Retained evidence WSC envelope was invalid.
     #[error("invalid retained evidence WSC material")]
     Retention(WscStoreObstruction),
@@ -864,6 +923,12 @@ pub enum WscSelfContainedWalImportError {
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-anchor WSC material was invalid.
+    #[error("invalid causal-anchor WSC material")]
+    CausalAnchors(WscStoreObstruction),
+    /// Causal-anchor recovery from embedded WAL evidence failed.
+    #[error("causal-anchor recovery from embedded WAL evidence failed")]
+    CausalAnchorRecovery(WalRecoveryIndexError),
     /// Retained evidence WSC material was invalid.
     #[error("invalid retained evidence WSC material")]
     Retention(WscStoreObstruction),
@@ -893,6 +958,16 @@ pub enum WscCasAddressedWalExportError {
         /// Extra segment id.
         segment_id: WalSegmentId,
     },
+    /// Present retained-material records did not exactly match CAS references.
+    #[error(
+        "CAS-addressed retained-material references mismatch: {missing_from_references} missing, {extra_in_references} extra"
+    )]
+    RetainedCasReferenceMismatch {
+        /// Number of present retained-material records absent from CAS references.
+        missing_from_references: usize,
+        /// Number of CAS references absent from present retained-material records.
+        extra_in_references: usize,
+    },
     /// CAS reference WSC envelope was invalid.
     #[error("invalid CAS-addressed WAL reference WSC")]
     CasReferences(WscStoreObstruction),
@@ -902,6 +977,9 @@ pub enum WscCasAddressedWalExportError {
     /// Receipt correlation WSC envelope was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-anchor WSC envelope was invalid.
+    #[error("invalid causal-anchor WSC material")]
+    CausalAnchors(WscStoreObstruction),
     /// Retained evidence WSC envelope was invalid.
     #[error("invalid retained evidence WSC material")]
     Retention(WscStoreObstruction),
@@ -950,6 +1028,30 @@ pub enum WscCasAddressedWalImportError {
         /// Segment id being checked.
         segment_id: WalSegmentId,
     },
+    /// Present retained-material records did not exactly match CAS references.
+    #[error(
+        "CAS-addressed retained-material references mismatch: {missing_from_references} missing, {extra_in_references} extra"
+    )]
+    RetainedCasReferenceMismatch {
+        /// Number of present retained-material records absent from CAS references.
+        missing_from_references: usize,
+        /// Number of CAS references absent from present retained-material records.
+        extra_in_references: usize,
+    },
+    /// A CAS-retained WAL segment could not be recovered.
+    #[error("CAS-retained WAL segment recovery failed")]
+    SegmentRecovery {
+        /// Segment id being recovered.
+        segment_id: WalSegmentId,
+        /// WAL recovery error.
+        error: WalRecoveryError,
+    },
+    /// Recovered CAS-retained WAL segment evidence did not match the projected root.
+    #[error("CAS-retained WAL segment evidence mismatch")]
+    SegmentEvidenceMismatch {
+        /// Segment id being checked.
+        segment_id: WalSegmentId,
+    },
     /// A required CAS blob was missing.
     #[error("missing CAS blob for WAL WSC material")]
     MissingCasBlob {
@@ -980,6 +1082,12 @@ pub enum WscCasAddressedWalImportError {
     /// Receipt correlation WSC material was invalid.
     #[error("invalid receipt correlation WSC material")]
     ReceiptCorrelations(WscStoreObstruction),
+    /// Causal-anchor WSC material was invalid.
+    #[error("invalid causal-anchor WSC material")]
+    CausalAnchors(WscStoreObstruction),
+    /// Causal-anchor recovery from CAS-retained WAL evidence failed.
+    #[error("causal-anchor recovery from CAS-retained WAL evidence failed")]
+    CausalAnchorRecovery(WalRecoveryIndexError),
     /// Retained evidence WSC material was invalid.
     #[error("invalid retained evidence WSC material")]
     Retention(WscStoreObstruction),
@@ -1541,6 +1649,8 @@ pub fn wsc_ref_only_wal_export(
             records.correlations,
         )
         .map_err(WscRefOnlyWalExportError::Envelope)?,
+        causal_anchor_envelope: causal_anchor_records_to_wsc_envelope(records.causal_anchors)
+            .map_err(WscRefOnlyWalExportError::Envelope)?,
         retention_envelope: retention_records_to_wsc_envelope(
             records.retained_materials,
             records.reading_refs,
@@ -1604,6 +1714,11 @@ pub fn validate_wsc_ref_only_wal_export(
     let receipt_records =
         receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
             .map_err(WscRefOnlyWalImportError::ReceiptCorrelations)?;
+    let unverified_causal_anchors =
+        causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
+            .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
+    validate_wsc_causal_anchors_against_root(&unverified_causal_anchors, expected_root)
+        .map_err(WscRefOnlyWalImportError::CausalAnchors)?;
     validate_wsc_causal_history_records(
         &accepted_submissions,
         &receipt_records.receipts,
@@ -1620,6 +1735,7 @@ pub fn validate_wsc_ref_only_wal_export(
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
+        unverified_causal_anchors,
         retention,
         segment_dependencies: expected_dependencies,
     })
@@ -1671,6 +1787,8 @@ pub fn wsc_self_contained_wal_export(
             records.correlations,
         )
         .map_err(WscSelfContainedWalExportError::ReceiptCorrelations)?,
+        causal_anchor_envelope: causal_anchor_records_to_wsc_envelope(records.causal_anchors)
+            .map_err(WscSelfContainedWalExportError::CausalAnchors)?,
         retention_envelope: retention_records_to_wsc_envelope(
             records.retained_materials,
             records.reading_refs,
@@ -1740,6 +1858,17 @@ pub fn validate_wsc_self_contained_wal_export(
     let receipt_records =
         receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
             .map_err(WscSelfContainedWalImportError::ReceiptCorrelations)?;
+    let causal_anchors = causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
+        .map_err(WscSelfContainedWalImportError::CausalAnchors)?;
+    validate_wsc_causal_anchors_against_root(&causal_anchors, expected_root)
+        .map_err(WscSelfContainedWalImportError::CausalAnchors)?;
+    let recovered_causal_anchors = causal_anchors_from_segment_recoveries(&segment_recoveries)
+        .map_err(WscSelfContainedWalImportError::CausalAnchorRecovery)?;
+    validate_wsc_causal_anchors_against_recovered_history(
+        &causal_anchors,
+        &recovered_causal_anchors,
+    )
+    .map_err(WscSelfContainedWalImportError::CausalAnchors)?;
     validate_wsc_causal_history_records(
         &accepted_submissions,
         &receipt_records.receipts,
@@ -1766,6 +1895,7 @@ pub fn validate_wsc_self_contained_wal_export(
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
+        causal_anchors,
         submission_index,
         receipt_index,
         retention,
@@ -1791,6 +1921,12 @@ pub fn wsc_cas_addressed_wal_export(
 ) -> Result<WscCasAddressedWalExport, WscCasAddressedWalExportError> {
     let references =
         wsc_cas_addressed_wal_references(root, segment_materials, retained_material_references)?;
+    validate_cas_addressed_retained_references(records.retained_materials, &references).map_err(
+        |mismatch| WscCasAddressedWalExportError::RetainedCasReferenceMismatch {
+            missing_from_references: mismatch.missing_from_references,
+            extra_in_references: mismatch.extra_in_references,
+        },
+    )?;
     Ok(WscCasAddressedWalExport {
         profile: WscCausalHistoryExportProfileKind::CasAddressed,
         projection_envelope: wsc_ref_only_wal_projection_envelope(root)
@@ -1806,6 +1942,8 @@ pub fn wsc_cas_addressed_wal_export(
             records.correlations,
         )
         .map_err(WscCasAddressedWalExportError::ReceiptCorrelations)?,
+        causal_anchor_envelope: causal_anchor_records_to_wsc_envelope(records.causal_anchors)
+            .map_err(WscCasAddressedWalExportError::CausalAnchors)?,
         retention_envelope: retention_records_to_wsc_envelope(
             records.retained_materials,
             records.reading_refs,
@@ -1864,8 +2002,18 @@ where
     let cas_references =
         cas_addressed_wal_references_from_wsc_envelope(&export.cas_reference_envelope)
             .map_err(WscCasAddressedWalImportError::CasReferences)?;
+    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
+        .map_err(WscCasAddressedWalImportError::Retention)?;
+    validate_cas_addressed_retained_references(&retention.materials, &cas_references).map_err(
+        |mismatch| WscCasAddressedWalImportError::RetainedCasReferenceMismatch {
+            missing_from_references: mismatch.missing_from_references,
+            extra_in_references: mismatch.extra_in_references,
+        },
+    )?;
     validate_cas_addressed_segment_references(&cas_references.segments, expected_root)?;
-    validate_cas_addressed_blob_availability(&cas_references, cas_store)?;
+    let segment_recoveries =
+        validate_cas_addressed_segment_recoveries(&cas_references, expected_root, cas_store)?;
+    validate_cas_addressed_retained_blob_availability(&cas_references, cas_store)?;
 
     let accepted_submissions =
         accepted_submission_records_from_wsc_envelope(&export.accepted_submission_envelope)
@@ -1873,23 +2021,33 @@ where
     let receipt_records =
         receipt_correlation_records_from_wsc_envelope(&export.receipt_correlation_envelope)
             .map_err(WscCasAddressedWalImportError::ReceiptCorrelations)?;
+    let causal_anchors = causal_anchor_records_from_wsc_envelope(&export.causal_anchor_envelope)
+        .map_err(WscCasAddressedWalImportError::CausalAnchors)?;
+    validate_wsc_causal_anchors_against_root(&causal_anchors, expected_root)
+        .map_err(WscCasAddressedWalImportError::CausalAnchors)?;
+    let recovered_causal_anchors = causal_anchors_from_segment_recoveries(&segment_recoveries)
+        .map_err(WscCasAddressedWalImportError::CausalAnchorRecovery)?;
+    validate_wsc_causal_anchors_against_recovered_history(
+        &causal_anchors,
+        &recovered_causal_anchors,
+    )
+    .map_err(WscCasAddressedWalImportError::CausalAnchors)?;
     validate_wsc_causal_history_records(
         &accepted_submissions,
         &receipt_records.receipts,
         &receipt_records.correlations,
     )
     .map_err(WscCasAddressedWalImportError::IncompleteCausalHistory)?;
-    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
-        .map_err(WscCasAddressedWalImportError::Retention)?;
-
     Ok(WscCasAddressedWalImport {
         profile: export.profile,
         projection,
         root_identity_digest: expected_root_identity,
         cas_references,
+        segment_recoveries,
         accepted_submissions,
         receipts: receipt_records.receipts,
         correlations: receipt_records.correlations,
+        causal_anchors,
         retention,
     })
 }
@@ -2470,6 +2628,129 @@ where
     })
 }
 
+/// Builds a causal-history WSC envelope for Echo-admitted causal anchors.
+///
+/// # Errors
+///
+/// Returns a typed obstruction when observed admission evidence is inconsistent,
+/// duplicate anchor identities conflict, or generated WSC material is invalid.
+pub fn causal_anchor_records_to_wsc_envelope(
+    records: &[ObservedCausalAnchorAdmission],
+) -> Result<WscStoreEnvelope, WscStoreObstruction> {
+    let records = canonical_observed_causal_anchor_records(records)?;
+    let mut store = GraphStore::new(make_warp_id(WSC_CAUSAL_ANCHOR_WARP));
+    let root = make_node_id(WSC_CAUSAL_ANCHOR_ROOT);
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id(WSC_CAUSAL_ANCHOR_NODE_TYPE),
+        },
+    );
+    for record in &records {
+        let anchor_id = record.fact().anchor_id().as_bytes();
+        let node = causal_anchor_node_id(anchor_id);
+        store.insert_node(
+            node,
+            NodeRecord {
+                ty: make_type_id(WSC_CAUSAL_ANCHOR_NODE_TYPE),
+            },
+        );
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: causal_anchor_edge_id(anchor_id),
+                from: root,
+                to: node,
+                ty: make_type_id(WSC_CAUSAL_ANCHOR_EDGE_TYPE),
+            },
+        );
+        store.set_node_attachment(
+            node,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id(WSC_CAUSAL_ANCHOR_ATTACHMENT_TYPE),
+                Bytes::from(causal_anchor_record_payload(record)),
+            ))),
+        );
+    }
+    let basis_digest = causal_anchor_basis_digest(&records);
+    let input = build_one_warp_input(&store, root);
+    let wsc_bytes = write_wsc_one_warp(&input, make_type_id(WSC_CAUSAL_ANCHOR_SCHEMA).0, 0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(basis_digest))?;
+    WscStoreEnvelope::validated(WscStoreRecordKind::CausalHistory, basis_digest, wsc_bytes)
+}
+
+/// Recovers observation-only causal-anchor admission evidence from WSC.
+///
+/// Decoding validates the fact/receipt relationship and remote durable
+/// coordinates. It does not admit the anchor into local Echo history.
+///
+/// # Errors
+///
+/// Returns a typed obstruction when the envelope schema, payload, evidence
+/// pairing, duplicate identities, or basis digest is invalid.
+pub fn causal_anchor_records_from_wsc_envelope(
+    envelope: &WscStoreEnvelope,
+) -> Result<Vec<WscCausalAnchorAdmissionEvidence>, WscStoreObstruction> {
+    if envelope.record_kind() != WscStoreRecordKind::CausalHistory {
+        return Err(WscStoreObstruction::invalid_envelope(0));
+    }
+    let wsc_digest = *envelope.wsc_digest();
+    let file = WscFile::from_bytes(envelope.wsc_bytes().to_vec())
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    validate_wsc(&file).map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    if file.schema_hash() != &make_type_id(WSC_CAUSAL_ANCHOR_SCHEMA).0 {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let view = file
+        .warp_view(0)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let mut records = Vec::new();
+    for node_index in 0..view.nodes().len() {
+        for attachment in view.node_attachments(node_index) {
+            if attachment.type_or_warp != make_type_id(WSC_CAUSAL_ANCHOR_ATTACHMENT_TYPE).0 {
+                return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+            }
+            let payload = atom_payload_bytes(&view, attachment, wsc_digest)?;
+            records.push(causal_anchor_record_from_payload(payload, wsc_digest)?);
+        }
+    }
+    let records = canonical_wsc_causal_anchor_records(&records)?;
+    let basis_digest = causal_anchor_basis_digest(&records);
+    if envelope.basis_digest() != &basis_digest {
+        return Err(WscStoreObstruction::basis_digest_mismatch(
+            *envelope.basis_digest(),
+            basis_digest,
+        ));
+    }
+    Ok(records)
+}
+
+/// Recovers observation-only causal-anchor evidence from committed WSC store
+/// envelopes.
+///
+/// # Errors
+///
+/// Returns a typed obstruction when any committed causal-anchor envelope is
+/// malformed, basis-mismatched, or conflicts with another envelope.
+pub fn causal_anchor_records_from_wsc_store<P>(
+    store: &P,
+) -> Result<Vec<WscCausalAnchorAdmissionEvidence>, WscStoreObstruction>
+where
+    P: WscStorePort + ?Sized,
+{
+    let mut records = Vec::new();
+    for envelope_id in store.list_envelopes() {
+        let envelope = store.read_envelope(envelope_id)?;
+        if envelope.record_kind() != WscStoreRecordKind::CausalHistory
+            || !envelope_has_schema(&envelope, WSC_CAUSAL_ANCHOR_SCHEMA)?
+        {
+            continue;
+        }
+        records.extend(causal_anchor_records_from_wsc_envelope(&envelope)?);
+    }
+    canonical_wsc_causal_anchor_records(&records)
+}
+
 /// Validates committed WSC causal-history records for required partner material.
 ///
 /// Accepted submissions may remain pending without receipts. Receipt records
@@ -2486,6 +2767,7 @@ where
 {
     let acceptances = accepted_submission_records_from_wsc_store(store)?;
     let receipt_records = receipt_correlation_records_from_wsc_store(store)?;
+    let _causal_anchors = causal_anchor_records_from_wsc_store(store)?;
     validate_wsc_causal_history_records(
         &acceptances,
         &receipt_records.receipts,
@@ -3944,23 +4226,57 @@ fn validate_cas_addressed_segment_references(
     Ok(())
 }
 
-fn validate_cas_addressed_blob_availability<P>(
+fn validate_cas_addressed_segment_recoveries<P>(
+    references: &WscCasAddressedWalReferences,
+    expected_root: &WalRoot,
+    cas_store: &P,
+) -> Result<Vec<WalSegmentBytesRecovery>, WscCasAddressedWalImportError>
+where
+    P: WscCasBlobStorePort + ?Sized,
+{
+    let mut recoveries = Vec::with_capacity(expected_root.segments.len());
+    for segment in &expected_root.segments {
+        let Some(reference) = references
+            .segments
+            .iter()
+            .find(|reference| reference.segment_id == segment.segment_id)
+        else {
+            return Err(WscCasAddressedWalImportError::SegmentCasReferenceMismatch {
+                segment_id: segment.segment_id,
+            });
+        };
+        let bytes = validated_cas_blob_bytes(
+            cas_store,
+            reference.content_hash,
+            reference.semantic_coordinate_digest,
+            reference.byte_len,
+        )?;
+        let recovery =
+            recover_wal_segment_bytes(segment.segment_id, &bytes, RecoveryAccessMode::ReadOnly)
+                .map_err(|error| WscCasAddressedWalImportError::SegmentRecovery {
+                    segment_id: segment.segment_id,
+                    error,
+                })?;
+        validate_self_contained_segment_recovery(segment, &recovery).map_err(|_| {
+            WscCasAddressedWalImportError::SegmentEvidenceMismatch {
+                segment_id: segment.segment_id,
+            }
+        })?;
+        recoveries.push(recovery);
+    }
+    recoveries.sort_by_key(|recovery| recovery.segment_id);
+    Ok(recoveries)
+}
+
+fn validate_cas_addressed_retained_blob_availability<P>(
     references: &WscCasAddressedWalReferences,
     cas_store: &P,
 ) -> Result<(), WscCasAddressedWalImportError>
 where
     P: WscCasBlobStorePort + ?Sized,
 {
-    for segment in &references.segments {
-        validate_cas_blob_reference(
-            cas_store,
-            segment.content_hash,
-            segment.semantic_coordinate_digest,
-            segment.byte_len,
-        )?;
-    }
     for retained in &references.retained_materials {
-        validate_cas_blob_reference(
+        let _bytes = validated_cas_blob_bytes(
             cas_store,
             retained.content_hash,
             retained.semantic_coordinate_digest,
@@ -3970,12 +4286,53 @@ where
     Ok(())
 }
 
-fn validate_cas_blob_reference<P>(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CasAddressedRetainedReferenceMismatch {
+    missing_from_references: usize,
+    extra_in_references: usize,
+}
+
+fn validate_cas_addressed_retained_references(
+    retained_materials: &[RetainedMaterialRecord],
+    references: &WscCasAddressedWalReferences,
+) -> Result<(), CasAddressedRetainedReferenceMismatch> {
+    let expected = retained_materials
+        .iter()
+        .filter(|material| material.posture == crate::causal_wal::EvidenceMaterialPosture::Present)
+        .map(|material| {
+            (
+                material.kind,
+                material.material_digest,
+                material.semantic_coordinate_digest,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    let actual = references
+        .retained_materials
+        .iter()
+        .map(|reference| {
+            (
+                reference.material_kind,
+                reference.content_hash,
+                reference.semantic_coordinate_digest,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    if expected != actual {
+        return Err(CasAddressedRetainedReferenceMismatch {
+            missing_from_references: expected.difference(&actual).count(),
+            extra_in_references: actual.difference(&expected).count(),
+        });
+    }
+    Ok(())
+}
+
+fn validated_cas_blob_bytes<P>(
     cas_store: &P,
     content_hash: Hash,
     semantic_coordinate_digest: Hash,
     byte_len: u64,
-) -> Result<(), WscCasAddressedWalImportError>
+) -> Result<Vec<u8>, WscCasAddressedWalImportError>
 where
     P: WscCasBlobStorePort + ?Sized,
 {
@@ -3999,7 +4356,7 @@ where
             actual: actual_len,
         });
     }
-    Ok(())
+    Ok(bytes)
 }
 
 fn canonical_cas_addressed_segment_references(
@@ -4449,6 +4806,238 @@ fn digest_wsc_bytes(bytes: &[u8]) -> Hash {
     hasher.update(WSC_STORE_BYTES_DOMAIN);
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+fn canonical_observed_causal_anchor_records(
+    records: &[ObservedCausalAnchorAdmission],
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WscStoreObstruction> {
+    let mut by_anchor = BTreeMap::new();
+    for record in records {
+        validate_causal_anchor_exchange_fields(
+            record.fact(),
+            record.receipt(),
+            record.transaction_id(),
+            record.committed_lsn(),
+        )?;
+        let anchor_id = *record.fact().anchor_id().as_bytes();
+        if by_anchor
+            .get(&anchor_id)
+            .is_some_and(|existing| existing != record)
+        {
+            return Err(WscStoreObstruction::duplicate_mismatch(
+                WscStoreEnvelopeId::from_hash(anchor_id),
+            ));
+        }
+        by_anchor.insert(anchor_id, record.clone());
+    }
+    Ok(by_anchor.into_values().collect())
+}
+
+fn canonical_wsc_causal_anchor_records(
+    records: &[WscCausalAnchorAdmissionEvidence],
+) -> Result<Vec<WscCausalAnchorAdmissionEvidence>, WscStoreObstruction> {
+    let mut by_anchor = BTreeMap::new();
+    for record in records {
+        validate_causal_anchor_exchange_fields(
+            record.fact(),
+            record.receipt(),
+            record.transaction_id(),
+            record.committed_lsn(),
+        )?;
+        let anchor_id = *record.fact().anchor_id().as_bytes();
+        if by_anchor
+            .get(&anchor_id)
+            .is_some_and(|existing| existing != record)
+        {
+            return Err(WscStoreObstruction::duplicate_mismatch(
+                WscStoreEnvelopeId::from_hash(anchor_id),
+            ));
+        }
+        by_anchor.insert(anchor_id, record.clone());
+    }
+    Ok(by_anchor.into_values().collect())
+}
+
+fn causal_anchors_from_segment_recoveries(
+    recoveries: &[WalSegmentBytesRecovery],
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
+    let mut transactions = recoveries
+        .iter()
+        .flat_map(|recovery| recovery.report.transactions.iter().cloned())
+        .collect::<Vec<_>>();
+    transactions.sort_by_key(|transaction| transaction.commit.first_lsn);
+    let history = validate_recovered_causal_anchor_history(&RecoveryScanReport {
+        transactions,
+        tail_posture: RecoveryTailPosture::Clean,
+    })?;
+    Ok(history
+        .admissions
+        .into_iter()
+        .map(|(admission, _)| admission)
+        .collect())
+}
+
+fn validate_wsc_causal_anchors_against_recovered_history(
+    records: &[WscCausalAnchorAdmissionEvidence],
+    recovered: &[ObservedCausalAnchorAdmission],
+) -> Result<(), WscStoreObstruction> {
+    let records = canonical_wsc_causal_anchor_records(records)?
+        .into_iter()
+        .map(|record| (*record.fact().anchor_id().as_bytes(), record))
+        .collect::<BTreeMap<_, _>>();
+    let recovered = canonical_observed_causal_anchor_records(recovered)?
+        .into_iter()
+        .map(|record| (*record.fact().anchor_id().as_bytes(), record))
+        .collect::<BTreeMap<_, _>>();
+
+    for (anchor_id, authoritative) in &recovered {
+        let Some(observed) = records.get(anchor_id) else {
+            return Err(WscStoreObstruction::incomplete_causal_history(*anchor_id));
+        };
+        if observed.fact() != authoritative.fact()
+            || observed.receipt() != authoritative.receipt()
+            || observed.transaction_id() != authoritative.transaction_id()
+            || observed.committed_lsn() != authoritative.committed_lsn()
+            || observed.commit_digest() != authoritative.commit_digest()
+        {
+            return Err(WscStoreObstruction::incomplete_causal_history(*anchor_id));
+        }
+    }
+    if let Some(anchor_id) = records
+        .keys()
+        .find(|anchor_id| !recovered.contains_key(*anchor_id))
+    {
+        return Err(WscStoreObstruction::incomplete_causal_history(*anchor_id));
+    }
+    Ok(())
+}
+
+fn validate_wsc_causal_anchors_against_root(
+    records: &[WscCausalAnchorAdmissionEvidence],
+    root: &WalRoot,
+) -> Result<(), WscStoreObstruction> {
+    for record in records {
+        let mut commits = root
+            .segments
+            .iter()
+            .flat_map(|segment| segment.commit_anchors.iter())
+            .filter(|commit| commit.transaction_id == record.transaction_id());
+        let Some(commit) = commits.next() else {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                *record.fact().anchor_id().as_bytes(),
+            ));
+        };
+        if commits.next().is_some()
+            || commit.first_lsn.as_u64() != record.receipt().wal_first_lsn()
+            || commit.last_lsn != record.committed_lsn()
+            || commit.record_count != 2
+            || &commit.commit_digest != record.commit_digest()
+        {
+            return Err(WscStoreObstruction::incomplete_causal_history(
+                *record.fact().anchor_id().as_bytes(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_causal_anchor_exchange_fields(
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+    transaction_id: WalTransactionId,
+    committed_lsn: Lsn,
+) -> Result<(), WscStoreObstruction> {
+    let subject_digest = *fact.anchor_id().as_bytes();
+    validate_causal_anchor_admission_evidence(fact, receipt)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(subject_digest))?;
+    if receipt.wal_transaction_id() != &transaction_id.as_hash()
+        || receipt.wal_first_lsn().checked_add(1) != Some(committed_lsn.as_u64())
+    {
+        return Err(WscStoreObstruction::invalid_wsc(subject_digest));
+    }
+    Ok(())
+}
+
+fn causal_anchor_record_payload(record: &ObservedCausalAnchorAdmission) -> Vec<u8> {
+    encode_causal_anchor_record_payload(
+        record.fact(),
+        record.receipt(),
+        record.transaction_id(),
+        record.committed_lsn(),
+        record.commit_digest(),
+    )
+}
+
+fn encode_causal_anchor_record_payload(
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+    transaction_id: WalTransactionId,
+    committed_lsn: Lsn,
+    commit_digest: &Hash,
+) -> Vec<u8> {
+    let fact_bytes = fact.to_payload_bytes();
+    let receipt_bytes = receipt.to_payload_bytes();
+    let mut payload = Vec::new();
+    payload.extend_from_slice(WSC_CAUSAL_ANCHOR_PAYLOAD_MAGIC);
+    payload.extend_from_slice(&(fact_bytes.len() as u64).to_le_bytes());
+    payload.extend_from_slice(&fact_bytes);
+    payload.extend_from_slice(&(receipt_bytes.len() as u64).to_le_bytes());
+    payload.extend_from_slice(&receipt_bytes);
+    payload.extend_from_slice(&transaction_id.as_hash());
+    payload.extend_from_slice(&committed_lsn.as_u64().to_le_bytes());
+    payload.extend_from_slice(commit_digest);
+    payload
+}
+
+fn causal_anchor_record_from_payload(
+    payload: &[u8],
+    wsc_digest: Hash,
+) -> Result<WscCausalAnchorAdmissionEvidence, WscStoreObstruction> {
+    let mut cursor = WscPayloadCursor::new(payload, wsc_digest);
+    if cursor.read_array::<8>()? != *WSC_CAUSAL_ANCHOR_PAYLOAD_MAGIC {
+        return Err(WscStoreObstruction::invalid_wsc(wsc_digest));
+    }
+    let fact_len = cursor.read_usize()?;
+    let fact = CausalAnchorFact::from_payload_bytes(cursor.read_bytes(fact_len)?)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let receipt_len = cursor.read_usize()?;
+    let receipt = CausalAnchorAdmissionReceipt::from_payload_bytes(cursor.read_bytes(receipt_len)?)
+        .map_err(|_| WscStoreObstruction::invalid_wsc(wsc_digest))?;
+    let transaction_id = WalTransactionId::from_hash(cursor.read_hash()?);
+    let committed_lsn = Lsn::from_raw(cursor.read_u64()?);
+    let commit_digest = cursor.read_hash()?;
+    cursor.finish()?;
+    validate_causal_anchor_exchange_fields(&fact, &receipt, transaction_id, committed_lsn)?;
+    Ok(ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+        fact,
+        receipt,
+        transaction_id,
+        committed_lsn,
+        commit_digest,
+    ))
+}
+
+fn causal_anchor_basis_digest(records: &[ObservedCausalAnchorAdmission]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAUSAL_ANCHOR_BASIS_DOMAIN);
+    for record in records {
+        hasher.update(&causal_anchor_record_payload(record));
+    }
+    hasher.finalize().into()
+}
+
+fn causal_anchor_node_id(anchor_id: &Hash) -> NodeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAUSAL_ANCHOR_NODE_DOMAIN);
+    hasher.update(anchor_id);
+    NodeId(hasher.finalize().into())
+}
+
+fn causal_anchor_edge_id(anchor_id: &Hash) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(WSC_CAUSAL_ANCHOR_EDGE_DOMAIN);
+    hasher.update(anchor_id);
+    EdgeId(hasher.finalize().into())
 }
 
 fn canonical_accepted_submission_records(

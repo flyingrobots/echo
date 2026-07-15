@@ -23,17 +23,20 @@ use warp_core::{
         WriterEpochRequest,
     },
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
-    CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind, ContractPackageIdentity,
-    ContractQueryObserver, ContractQueryObserverResult, EngineBuilder, GlobalTick, GraphStore,
-    GraphView, Hash, InboxPolicy, IngressCausalParent, IngressEnvelope, IngressTarget,
-    IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate, ObservationFrame,
-    ObservationPayload, ObservationProjection, ObservationReadBudget, ObservationRequest,
-    ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode,
-    ProvenanceStore, RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta,
+    CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole,
+    CausalAnchorPurpose, CausalAnchorRoot, CausalAnchorRootSupportGrant,
+    CausalAnchorRootSupportPolicy, CausalAnchorSubject, CausalAnchorSupportError,
+    CausalFrontierRef, CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind,
+    ContractPackageIdentity, ContractQueryObserver, ContractQueryObserverResult, EngineBuilder,
+    GlobalTick, GraphStore, GraphView, Hash, InboxPolicy, IngressCausalParent, IngressEnvelope,
+    IngressTarget, IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate,
+    ObservationFrame, ObservationPayload, ObservationProjection, ObservationReadBudget,
+    ObservationRequest, ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph,
+    PlaybackMode, ProvenanceStore, RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta,
     TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig,
     TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime,
-    WorldlineState, WorldlineTick, WriterHead, WriterHeadKey, OPTIC_ADMISSION_TICKET_KIND,
-    OPTIC_ARTIFACT_HANDLE_KIND,
+    WorldlineState, WorldlineTick, WriterHead, WriterHeadKey, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -402,6 +405,44 @@ fn admission_ticket(seed: u8) -> OpticAdmissionTicket {
         law_witness_digest: [seed.wrapping_add(3); 32],
         ticket_digest: [seed.wrapping_add(4); 32],
     }
+}
+
+fn causal_anchor_request(basis: CausalFrontierRef, label: &str) -> CausalAnchorAdmissionRequest {
+    CausalAnchorAdmissionRequest {
+        schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION,
+        subject: CausalAnchorSubject::new("jedit", "BufferWorldline", "worldline:main"),
+        basis_frontier: basis,
+        retained_roots: vec![CausalAnchorRoot::AppSubjectRoot {
+            app_id: "jedit".to_owned(),
+            subject_kind: "RopeHead".to_owned(),
+            id: format!("head:{label}"),
+            role: CausalAnchorAppRootRole::Authority,
+        }],
+        materialization_roots: vec![CausalAnchorRoot::CasObject {
+            id: filesystem_wal_failure_digest(&format!("flat-text:{label}")),
+            role: CausalAnchorCasRole::Materialization,
+        }],
+        purpose: CausalAnchorPurpose::UserSave,
+    }
+}
+
+fn causal_anchor_support_policy(
+    requests: &[CausalAnchorAdmissionRequest],
+) -> CausalAnchorRootSupportPolicy {
+    let mut grants = Vec::new();
+    for request in requests {
+        grants.extend(
+            request
+                .retained_roots
+                .iter()
+                .cloned()
+                .map(|root| CausalAnchorRootSupportGrant::retained(request.subject.clone(), root)),
+        );
+        grants.extend(request.materialization_roots.iter().cloned().map(|root| {
+            CausalAnchorRootSupportGrant::materialization(request.subject.clone(), root)
+        }));
+    }
+    CausalAnchorRootSupportPolicy::new(grants)
 }
 
 fn result_node_id(scope: &NodeId) -> NodeId {
@@ -1982,4 +2023,291 @@ fn runtime_wal_live_evidence_catalog_failure_marks_needs_rebuild_without_failing
             ..
         } if *observed == last_good_commit
     ));
+}
+
+#[test]
+fn causal_anchor_admission_requires_runtime_wal_authority() {
+    let (initial_runtime, _) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    let request = causal_anchor_request(CausalFrontierRef::from_digest([0x11; 32]), "no-wal");
+    host.install_causal_anchor_root_support_policy(causal_anchor_support_policy(
+        std::slice::from_ref(&request),
+    ));
+
+    let error = host
+        .app()
+        .admit_causal_anchor(request)
+        .expect_err("application admission must require the trusted runtime WAL");
+
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::RuntimeWalUnavailable
+    ));
+}
+
+#[test]
+fn causal_anchor_basis_advances_for_non_anchor_causal_history() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    let before = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("enabled WAL should expose its durable causal basis");
+
+    host.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("submission history should commit before acknowledgement");
+    let after = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("committed submission should expose the advanced basis");
+
+    assert_ne!(before, after);
+}
+
+#[test]
+fn causal_anchor_admission_rejects_stale_basis_and_unsupported_roots() {
+    let (runtime, _) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_in_memory_runtime_wal()
+        .expect("runtime WAL should initialize");
+    let original_basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("enabled WAL should expose its durable causal basis");
+    let first = causal_anchor_request(original_basis, "first");
+    let stale = causal_anchor_request(original_basis, "stale");
+    let missing_policy_error = host
+        .app()
+        .admit_causal_anchor(first.clone())
+        .expect_err("application admission must require host-owned root support");
+    assert!(matches!(
+        missing_policy_error,
+        TrustedRuntimeHostError::CausalAnchorSupportPolicyUnavailable
+    ));
+    host.install_causal_anchor_root_support_policy(causal_anchor_support_policy(&[
+        first.clone(),
+        stale.clone(),
+    ]));
+
+    host.app()
+        .admit_causal_anchor(first)
+        .expect("supported request at the current basis should be admitted");
+    let stale_error = host
+        .app()
+        .admit_causal_anchor(stale)
+        .expect_err("a committed anchor must advance the durable causal basis");
+    assert!(matches!(
+        stale_error,
+        TrustedRuntimeHostError::CausalAnchorBasisStale { .. }
+    ));
+
+    let current_basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("committed anchor should expose the advanced basis");
+    let unsupported = causal_anchor_request(current_basis, "unsupported");
+    let support_error = host
+        .app()
+        .admit_causal_anchor(unsupported)
+        .expect_err("unregistered roots must not acquire Echo authority");
+    assert!(matches!(
+        support_error,
+        TrustedRuntimeHostError::CausalAnchorSupport(
+            CausalAnchorSupportError::UnsupportedRoot { .. }
+        )
+    ));
+}
+
+#[test]
+fn filesystem_causal_anchor_admission_recovers_by_id_after_restart() {
+    let wal_root = temp_runtime_wal_dir("causal-anchor-restart");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("filesystem runtime WAL should initialize");
+    let basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("enabled WAL should expose its durable causal basis");
+    let request = causal_anchor_request(basis, "restart");
+    let policy = causal_anchor_support_policy(std::slice::from_ref(&request));
+    let expected_policy_digest = *policy.policy_digest();
+    host.install_causal_anchor_root_support_policy(policy);
+
+    let admitted = host
+        .app()
+        .admit_causal_anchor(request.clone())
+        .expect("supported anchor should commit before acknowledgement");
+    let anchor_id = *admitted.fact().anchor_id();
+    assert_eq!(
+        admitted.receipt().support_policy_digest(),
+        &expected_policy_digest
+    );
+    let admission_basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("committed anchor should advance the durable causal basis");
+
+    let before_observation = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &basis)
+        .expect("the pre-admission basis should remain observable");
+    assert!(
+        before_observation.is_none(),
+        "an anchor must not be visible before its admission transition"
+    );
+    let after_observation = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &admission_basis)
+        .expect("the post-admission basis should remain observable")
+        .expect("the admitted anchor should be visible after admission");
+    assert_eq!(after_observation, admitted);
+    host.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("unrelated admitted history should advance the global basis");
+    let expected_restarted_basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("the later durable basis should remain observable");
+    assert_ne!(admission_basis, expected_restarted_basis);
+    assert_eq!(
+        host.app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &expected_restarted_basis)
+            .expect("a later non-anchor basis should support anchor observation"),
+        Some(admitted.clone())
+    );
+    let unavailable_basis_error = host
+        .app()
+        .causal_anchor_by_id_at_basis(&anchor_id, &CausalFrontierRef::from_digest([0xff; 32]))
+        .expect_err("an unknown basis must not produce an unsupported reading");
+    assert!(matches!(
+        unavailable_basis_error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::CausalHistoryBasisUnavailable {
+            requested
+        }) if requested == [0xff; 32]
+    ));
+    drop(host);
+
+    let (runtime, _) = runtime();
+    let mut restarted =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("restarted host should initialize");
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("restarted host should recover committed anchor authority");
+    assert_eq!(
+        restarted
+            .app()
+            .current_causal_anchor_basis()
+            .expect("restarted host should rebuild the logical durable basis"),
+        expected_restarted_basis
+    );
+    let recovered = restarted
+        .app()
+        .causal_anchor_by_id(&anchor_id)
+        .expect("anchor lookup should recover from committed WAL history")
+        .expect("committed anchor should remain addressable by id");
+    assert_eq!(recovered.fact(), admitted.fact());
+    assert_eq!(recovered.receipt(), admitted.receipt());
+    let recovery = restarted
+        .runtime_wal()
+        .expect("restarted WAL should remain configured")
+        .recover_read_only()
+        .expect("anchor evidence should rebuild into the recovery certificate");
+    assert_eq!(recovery.causal_anchor_history.len(), 1);
+    assert_eq!(
+        recovery.causal_anchor_history[0].basis_before(),
+        &basis,
+        "witnessed control history must retain the admission basis"
+    );
+    assert_eq!(
+        recovery.causal_anchor_history[0].basis_after(),
+        &admission_basis,
+        "witnessed control history must name the frontier produced by admission"
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &basis)
+            .expect("restart must rebuild the pre-admission reading"),
+        None
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &admission_basis)
+            .expect("restart must rebuild the post-admission reading"),
+        Some(admitted.clone())
+    );
+    assert_eq!(
+        restarted
+            .app()
+            .causal_anchor_by_id_at_basis(&anchor_id, &expected_restarted_basis)
+            .expect("restart must rebuild later basis-pinned readings"),
+        Some(admitted.clone())
+    );
+    assert_eq!(
+        recovery.certificate.recovered_indexes_root,
+        recovery
+            .recomputed_indexes_root()
+            .expect("recovered anchors should reproduce the certificate index root")
+    );
+    let retried = restarted
+        .app()
+        .admit_causal_anchor(request)
+        .expect("exact retry should recover authority without mutable policy state");
+    assert_eq!(retried, admitted);
+
+    drop(restarted);
+    fs::remove_dir_all(&wal_root).expect("causal-anchor WAL fixture should be removable");
+}
+
+#[test]
+fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
+    let wal_root = temp_runtime_wal_dir("causal-anchor-flush-failure");
+    let (runtime, _) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::FlushCommit),
+        ),
+    )
+    .expect("faulting filesystem runtime WAL should initialize");
+    let basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("enabled WAL should expose its durable causal basis");
+    let request = causal_anchor_request(basis, "flush-failure");
+    host.install_causal_anchor_root_support_policy(causal_anchor_support_policy(
+        std::slice::from_ref(&request),
+    ));
+
+    let error = host
+        .app()
+        .admit_causal_anchor(request)
+        .expect_err("failed commit flush must not acknowledge anchor authority");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL flush_commit failure")
+    ));
+    let recovery = host
+        .runtime_wal()
+        .expect("runtime WAL should remain configured")
+        .recover_read_only()
+        .expect("failed anchor commit should leave recoverable WAL posture");
+    assert!(recovery.causal_anchor_history.is_empty());
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 0);
+
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
 }

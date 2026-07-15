@@ -178,6 +178,18 @@ pub enum TrustedRuntimeWalError {
         /// Transaction whose canonical anchor evidence was unavailable.
         transaction_id: Hash,
     },
+    /// A recovered anchor claim named a basis other than its transaction basis.
+    #[error(
+        "trusted runtime WAL causal-anchor basis mismatched transaction {transaction_id:?}: claimed {claimed:?}, recovered {recovered:?}"
+    )]
+    CausalAnchorBasisMismatch {
+        /// Transaction carrying the inconsistent anchor admission.
+        transaction_id: Hash,
+        /// Basis encoded in the recovered anchor claim and receipt.
+        claimed: Hash,
+        /// Logical causal-history frontier immediately before the transaction.
+        recovered: Hash,
+    },
     /// Distinct recovered admissions claimed the same stable anchor identity.
     #[error("trusted runtime WAL recovered duplicate causal-anchor id {anchor_id:?}")]
     CausalAnchorIdConflict {
@@ -2002,6 +2014,8 @@ impl TrustedRuntimeWalCursor {
             .map(|admission| (admission.transaction_id(), admission))
             .collect::<BTreeMap<_, _>>();
         for transaction in &report.transactions {
+            let causal_history_basis_before =
+                CausalFrontierRef::from_digest(cursor.causal_history_frontier_digest);
             cursor.has_committed_history = true;
             cursor.causal_history_frontier_digest = logical_causal_history_frontier_digest(
                 cursor.causal_history_frontier_digest,
@@ -2055,6 +2069,11 @@ impl TrustedRuntimeWalCursor {
                         .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
                             transaction_id: transaction.commit.transaction_id.as_hash(),
                         })?;
+                    require_recovered_causal_anchor_basis(
+                        transaction,
+                        &admission,
+                        &causal_history_basis_before,
+                    )?;
                     cursor.causal_anchor_frontier_digest = causal_anchor_frontier_digest(
                         cursor.causal_anchor_frontier_digest,
                         &admission,
@@ -2094,6 +2113,7 @@ fn recover_witnessed_causal_anchor_history(
                 .ok_or(TrustedRuntimeWalError::CausalAnchorAdmissionMissing {
                     transaction_id: transaction.commit.transaction_id.as_hash(),
                 })?;
+            require_recovered_causal_anchor_basis(transaction, &admission, &basis_before)?;
             let anchor_id = *admission.fact().anchor_id();
             if !seen_anchor_ids.insert(anchor_id) {
                 return Err(TrustedRuntimeWalError::CausalAnchorIdConflict { anchor_id });
@@ -2110,6 +2130,22 @@ fn recover_witnessed_causal_anchor_history(
     }
 
     Ok((history, frontiers))
+}
+
+fn require_recovered_causal_anchor_basis(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+    admission: &RecoveredCausalAnchorAdmission,
+    recovered_basis: &CausalFrontierRef,
+) -> Result<(), TrustedRuntimeWalError> {
+    let claimed_basis = admission.fact().claim().basis_frontier();
+    if claimed_basis == recovered_basis {
+        return Ok(());
+    }
+    Err(TrustedRuntimeWalError::CausalAnchorBasisMismatch {
+        transaction_id: transaction.commit.transaction_id.as_hash(),
+        claimed: claimed_basis.frontier_digest,
+        recovered: recovered_basis.frontier_digest,
+    })
 }
 
 fn submission_acceptance_record_from_transaction(
@@ -3057,6 +3093,66 @@ mod tests {
             },
             causal_parent_receipts: Vec::new(),
         }
+    }
+
+    fn test_causal_anchor_claim(basis_frontier: CausalFrontierRef) -> CausalAnchorClaim {
+        CausalAnchorClaim::from_admission_request(CausalAnchorAdmissionRequest {
+            schema_version: crate::CAUSAL_ANCHOR_SCHEMA_VERSION,
+            subject: crate::CausalAnchorSubject::new(
+                "jedit",
+                "BufferWorldline",
+                "worldline:recovery-basis",
+            ),
+            basis_frontier,
+            retained_roots: vec![crate::CausalAnchorRoot::AppSubjectRoot {
+                app_id: "jedit".to_owned(),
+                subject_kind: "RopeHead".to_owned(),
+                id: "head:recovery-basis".to_owned(),
+                role: crate::CausalAnchorAppRootRole::Authority,
+            }],
+            materialization_roots: Vec::new(),
+            purpose: crate::CausalAnchorPurpose::Recovery,
+        })
+        .expect("test causal-anchor claim should be valid")
+    }
+
+    #[test]
+    fn runtime_wal_recovery_rejects_anchor_claimed_at_unrelated_basis() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let recovered_basis = wal.current_causal_anchor_basis();
+        let claimed_basis = CausalFrontierRef::from_digest([0x5a; 32]);
+        assert_ne!(claimed_basis, recovered_basis);
+        wal.record_causal_anchor_admission(test_causal_anchor_claim(claimed_basis), [0x6b; 32])
+            .expect("internal test setup should append malformed historical evidence");
+
+        let report = wal
+            .store
+            .recover_read_only()
+            .expect("malformed committed transaction should remain physically readable");
+        let cursor_error = TrustedRuntimeWalCursor::from_recovery(&report)
+            .expect_err("writer recovery must reject the unrelated anchor basis");
+        assert!(matches!(
+            cursor_error,
+            TrustedRuntimeWalError::CausalAnchorBasisMismatch {
+                claimed,
+                recovered,
+                ..
+            } if claimed == claimed_basis.frontier_digest
+                && recovered == recovered_basis.frontier_digest
+        ));
+
+        let reading_error = wal
+            .recover_read_only()
+            .expect_err("recovery must reject an anchor claim at an unrelated basis");
+        assert!(matches!(
+            reading_error,
+            TrustedRuntimeWalError::CausalAnchorBasisMismatch {
+                claimed,
+                recovered,
+                ..
+            } if claimed == claimed_basis.frontier_digest
+                && recovered == recovered_basis.frontier_digest
+        ));
     }
 
     #[test]

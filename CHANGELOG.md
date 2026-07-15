@@ -39,7 +39,9 @@
   pin Echo-produced subject, basis, root, purpose, anchor, receipt, transaction,
   and commit identity so applications do not create a second anchor hash domain.
   Both evidence types expose coordinates through read-only accessors rather than
-  caller-reconstructible public fields.
+  caller-reconstructible public fields. External consumers can reconstruct an
+  opaque anchor lookup key from persisted Echo-produced identifier bytes
+  without gaining fact, receipt, or admission construction authority.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,

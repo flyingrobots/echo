@@ -9,10 +9,11 @@ use std::fmt::Write;
 
 use warp_core::{
     make_node_id, make_type_id, CausalAnchorAdmissionRequest, CausalAnchorAppRootRole,
-    CausalAnchorCasRole, CausalAnchorGraphRole, CausalAnchorPurpose, CausalAnchorRoot,
-    CausalAnchorRootSupportGrant, CausalAnchorRootSupportPolicy, CausalAnchorSubject,
-    CausalFrontierRef, EngineBuilder, GraphStore, Hash, NodeRecord, RecoveredCausalAnchorAdmission,
-    TrustedRuntimeHost, WorldlineRuntime, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalAnchorCasRole, CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose,
+    CausalAnchorRoot, CausalAnchorRootSupportGrant, CausalAnchorRootSupportPolicy,
+    CausalAnchorSubject, CausalFrontierRef, EngineBuilder, GraphStore, Hash, NodeRecord,
+    RecoveredCausalAnchorAdmission, TrustedRuntimeHost, WorldlineRuntime,
+    CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
 
 fn empty_engine() -> warp_core::Engine {
@@ -245,12 +246,15 @@ fn jim_consumes_echo_admitted_anchor_identity_without_reimplementing_it() {
         .app()
         .admit_causal_anchor(request)
         .expect("Echo should admit the supported current-basis request");
+    let persisted_anchor_id = *admission.fact().anchor_id().as_bytes();
+    let lookup_id = CausalAnchorId::from_bytes(persisted_anchor_id);
     let recovered = host
         .app()
-        .causal_anchor_by_id(admission.fact().anchor_id())
+        .causal_anchor_by_id(&lookup_id)
         .expect("anchor lookup should recover")
         .expect("admitted anchor should exist");
 
+    assert_eq!(lookup_id.as_bytes(), &persisted_anchor_id);
     assert_eq!(recovered, admission);
     assert_eq!(
         admission.fact().anchor_id(),

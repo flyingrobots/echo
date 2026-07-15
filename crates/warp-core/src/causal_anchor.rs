@@ -616,6 +616,14 @@ impl CausalAnchorClaim {
 pub struct CausalAnchorId(Hash);
 
 impl CausalAnchorId {
+    /// Reconstructs an opaque anchor lookup key from persisted Echo-produced bytes.
+    ///
+    /// This value constructor does not admit an anchor or create authority.
+    #[must_use]
+    pub const fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the canonical anchor-id bytes.
     #[must_use]
     pub const fn as_bytes(&self) -> &Hash {

@@ -11,7 +11,7 @@ use crate::causal_wal::{
     recover_from_frames_and_commits, AffectedFrontier, AffectedFrontierKind, Lsn, PayloadCodecId,
     PayloadSchemaId, RecoveryAccessMode, WalAppendAuthority, WalBuildError,
     WalCommittedTransaction, WalDurabilityMode, WalRecordKind, WalRecoveryIndexError, WalSegmentId,
-    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WriterEpochId,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
 };
 use crate::wsc::{causal_anchor_records_from_wsc_envelope, causal_anchor_records_to_wsc_envelope};
 use crate::{
@@ -262,44 +262,42 @@ fn uncommitted_anchor_frames_never_recover_as_admitted() {
 }
 
 #[test]
-fn anchor_recovery_rejects_missing_or_duplicate_required_frames() {
+fn anchor_commit_rejects_noncanonical_required_frame_shape() {
     let valid = must_ok(transaction("frame-cardinality"));
     let fact = valid.frames[0].payload.canonical_bytes.clone();
     let receipt = valid.frames[1].payload.canonical_bytes.clone();
 
-    let missing = malformed_transaction("missing-receipt", std::slice::from_ref(&fact), &[]);
-    let missing_report = must_ok(report_for(&missing));
+    let mut missing = builder("missing-receipt", 10);
+    must_ok(missing.push_record(WalRecordKind::CausalAnchorFactRecorded, fact.clone()));
     assert!(matches!(
-        recover_causal_anchor_admissions(&missing_report),
-        Err(WalRecoveryIndexError::MissingCausalAnchorAdmissionReceiptFrame { .. })
+        missing.commit(vec![frontier("missing-receipt")]),
+        Err(WalBuildError::Validation(
+            WalValidationError::CausalAnchorAdmissionFrameShapeMismatch
+        ))
     ));
 
-    let duplicate = malformed_transaction(
-        "duplicate-fact",
-        &[fact.clone(), fact],
-        std::slice::from_ref(&receipt),
-    );
-    let duplicate_report = must_ok(report_for(&duplicate));
-    assert!(matches!(
-        recover_causal_anchor_admissions(&duplicate_report),
-        Err(WalRecoveryIndexError::DuplicateCausalAnchorFactFrame { .. })
+    let mut duplicate = builder("duplicate-fact", 10);
+    must_ok(duplicate.push_record(WalRecordKind::CausalAnchorFactRecorded, fact.clone()));
+    must_ok(duplicate.push_record(WalRecordKind::CausalAnchorFactRecorded, fact.clone()));
+    must_ok(duplicate.push_record(
+        WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
+        receipt.clone(),
     ));
-}
-
-#[test]
-fn anchor_recovery_rejects_noncanonical_required_frame_order() {
-    let valid = must_ok(transaction("frame-order"));
-    let fact = valid.frames[0].payload.canonical_bytes.clone();
-    let receipt = valid.frames[1].payload.canonical_bytes.clone();
-    let mut builder = builder("frame-order", 10);
-    must_ok(builder.push_record(WalRecordKind::CausalAnchorAdmissionReceiptRecorded, receipt));
-    must_ok(builder.push_record(WalRecordKind::CausalAnchorFactRecorded, fact));
-    let reversed = must_ok(builder.commit(vec![frontier("frame-order")]));
-    let report = must_ok(report_for(&reversed));
-
     assert!(matches!(
-        recover_causal_anchor_admissions(&report),
-        Err(WalRecoveryIndexError::NonCanonicalCausalAnchorAdmissionFrameOrder { .. })
+        duplicate.commit(vec![frontier("duplicate-fact")]),
+        Err(WalBuildError::Validation(
+            WalValidationError::CausalAnchorAdmissionFrameShapeMismatch
+        ))
+    ));
+
+    let mut reversed = builder("frame-order", 10);
+    must_ok(reversed.push_record(WalRecordKind::CausalAnchorAdmissionReceiptRecorded, receipt));
+    must_ok(reversed.push_record(WalRecordKind::CausalAnchorFactRecorded, fact));
+    assert!(matches!(
+        reversed.commit(vec![frontier("frame-order")]),
+        Err(WalBuildError::Validation(
+            WalValidationError::CausalAnchorAdmissionFrameShapeMismatch
+        ))
     ));
 }
 

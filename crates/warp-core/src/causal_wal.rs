@@ -8472,6 +8472,9 @@ pub enum WalValidationError {
     /// Record kind does not match transaction kind authority.
     #[error("WAL record kind authority does not match transaction kind")]
     RecordAuthorityMismatch,
+    /// Causal-anchor admission does not contain exactly one fact followed by one receipt.
+    #[error("WAL causal-anchor admission frame shape is invalid")]
+    CausalAnchorAdmissionFrameShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -8923,6 +8926,13 @@ fn validate_transaction_semantics(
         if frame.header.record_kind.required_authority() != expected_authority {
             return Err(WalValidationError::RecordAuthorityMismatch);
         }
+    }
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission
+        && (frames.len() != 2
+            || frames[0].header.record_kind != WalRecordKind::CausalAnchorFactRecorded
+            || frames[1].header.record_kind != WalRecordKind::CausalAnchorAdmissionReceiptRecorded)
+    {
+        return Err(WalValidationError::CausalAnchorAdmissionFrameShapeMismatch);
     }
     Ok(())
 }

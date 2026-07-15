@@ -13,9 +13,9 @@
   and admitted fact construction is reserved for Echo's trusted admission path
   under ADR 0022.
 - The causal WAL now has stable causal-anchor admission transaction, fact, and
-  receipt record kinds. One transaction derives and commits both evidence
-  records, while recovery rejects uncommitted, malformed, missing, duplicate,
-  coordinate-mismatched, or cross-admission evidence.
+  receipt record kinds. Transaction validation requires exactly one fact frame
+  followed by exactly one receipt frame before append, while recovery rejects
+  uncommitted, malformed, coordinate-mismatched, or cross-admission evidence.
 - `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
   WAL at the current logical durable frontier. A host-owned exact root-support
   policy is validated and bound into receipt identity; successful admissions

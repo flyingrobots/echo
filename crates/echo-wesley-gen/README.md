@@ -91,7 +91,8 @@ digest. The API performs no executable, path, environment, process, registry,
 clock, or network discovery. Each primary closure records the exact Wesley input
 digest that produced it, preventing mixed-input attribution even when requested
 roles match. Generator coordinates must also be distinct from all declared
-artifact, resource, provider, and package-manifest coordinates.
+source-artifact, generated-artifact, resource, provider, and package-manifest
+coordinates.
 
 `provider_review::generate_provider_generation_review_v1(...)` derives Wesley's
 canonical `GenerationReviewV1` from that verified provenance wrapper. It copies
@@ -112,10 +113,17 @@ output, preventing a circular generator identity. This is source/dependency-lock
 identity, not an executable-build or supply-chain attestation.
 
 The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
-boundary. Generation writes only the 22 expected paths and never deletes an
-unexpected entry. `--check` renders expected bytes in memory, reads the target
-tree without following symlinks, reports sorted missing/changed/unexpected
-drift, and returns before every directory-creation or write path.
+boundary. The caller-supplied `--out` path is resolved once under ambient
+filesystem authority; its final corpus-root entry is opened or created without
+following a symlink. Every operation beneath that acquired root inventories and
+writes through retained, no-follow directory capabilities. Generation refuses
+every unexpected entry it observes before creating or replacing an expected
+path; otherwise it replaces only the 22 expected leaves and preserves an
+existing destination if replacement fails. `--check` renders expected bytes in
+memory, reads the target tree through the same bounded handles, reports sorted
+missing/changed/unexpected drift, and returns before every directory-creation or
+write path. This boundary does not claim that unrelated ancestors used to locate
+the requested root are symlink-free.
 
 ## Usage
 

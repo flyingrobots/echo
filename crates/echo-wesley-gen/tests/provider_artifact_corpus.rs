@@ -446,6 +446,30 @@ fn check_mode_reports_drift_without_rewriting_or_creating_files() {
     assert!(!directory.path().join("resources").exists());
 }
 
+#[test]
+fn generation_refuses_unexpected_entries_before_writing_expected_files() {
+    let directory = TestDirectory::new("generation-unexpected-entry");
+    let unexpected_path = directory.path().join("operator-owned.txt");
+    std::fs::write(&unexpected_path, b"operator bytes").expect("unexpected test file is written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_echo-edict-provider-artifacts"))
+        .arg("--out")
+        .arg(directory.path())
+        .output()
+        .expect("provider corpus generator executes");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("refusing to generate over unexpected corpus entry operator-owned.txt"));
+    assert_eq!(
+        std::fs::read(&unexpected_path).expect("unexpected test file remains readable"),
+        b"operator bytes"
+    );
+    assert!(!directory.path().join("evidence").exists());
+    assert!(!directory.path().join("primary").exists());
+    assert!(!directory.path().join("resources").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn generation_refuses_symlinked_root_parent_and_leaf_without_writing_through_them() {

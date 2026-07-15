@@ -230,8 +230,8 @@ discovers an executable, path, environment, process, registry, clock, or
 network input. A primary closure retains the exact Wesley input digest that
 produced it, so outputs from another invocation cannot be falsely attributed
 merely because their role closure matches. The generator coordinate must also
-be disjoint from every declared artifact, resource, provider, and package
-coordinate.
+be disjoint from every exact source artifact, declared generated artifact,
+resource, provider, and package coordinate.
 
 The deterministic review JSON is Wesley's `GenerationReviewV1`, derived only
 after the provenance wrapper has verified exact materials. It copies the input,
@@ -254,9 +254,15 @@ executable or creating a circular output digest.
 Corpus comparison is an exact-byte, exact-path check. Missing, changed, and
 unexpected entries are reported in stable order. Check mode performs no
 directory creation, write, deletion, normalization, or symlink traversal;
-generation mode writes only expected paths and leaves unexpected entries for
-explicit operator disposition. This checked build artifact remains provider
-evidence. Echo runtime admission and installation are still separate acts.
+the caller's `--out` path is an ambient locator, while its final corpus-root
+entry and every descendant are opened without following symlinks and retained as
+directory capabilities. Generation refuses every unexpected entry it observes
+before creating or replacing an expected path and leaves that entry for explicit
+operator disposition. Each temporary write, sync, replacement, and failure
+cleanup remains relative to the validated parent handle. Unrelated ancestors
+used to locate the requested root are outside this capability boundary. This
+checked build artifact remains provider evidence. Echo runtime admission and
+installation are still separate acts.
 
 The generated operation profile preserves native versus direct-adapter
 selection, operation-local obstruction mappings, and the target optic contract.

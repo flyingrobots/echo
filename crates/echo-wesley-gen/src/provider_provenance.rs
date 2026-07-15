@@ -332,6 +332,10 @@ fn validate_generator_coordinate(
 ) -> Result<(), ProviderProvenanceError> {
     let source = input.semantic_source().source();
     let coordinate = &generator.identity().coordinate;
+    let source_conflict = input
+        .source_artifacts()
+        .iter()
+        .any(|artifact| artifact.coordinate == *coordinate);
     let mut conflicting_roles = source
         .generated_artifacts
         .iter()
@@ -352,11 +356,15 @@ fn validate_generator_coordinate(
         conflicting_roles.push("packageManifest.providerCoordinate");
     }
     conflicting_roles.sort_unstable();
-    if let Some(role) = conflicting_roles.first() {
+    let conflicting_role = conflicting_roles
+        .first()
+        .copied()
+        .or_else(|| source_conflict.then_some("sourceArtifacts"));
+    if let Some(role) = conflicting_role {
         return Err(ProviderProvenanceError::new(
             ProviderProvenanceErrorKind::GeneratorCoordinateConflict,
             "generator.coordinate",
-            *role,
+            role,
         ));
     }
     Ok(())

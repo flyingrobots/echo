@@ -4,6 +4,11 @@
 //! Generates or checks Echo's deterministic Edict provider artifact corpus.
 
 use anyhow::{anyhow, bail, Context, Result};
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt, OpenOptionsMaybeDirExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, File, OpenOptions},
+};
 use clap::Parser;
 use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;
 use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
@@ -14,9 +19,8 @@ use echo_wesley_gen::provider_corpus::{
 use echo_wesley_gen::provider_generation::build_provider_generation_input_v1;
 use echo_wesley_gen::provider_provenance::generate_provider_generation_provenance_v1;
 use echo_wesley_gen::provider_review::generate_provider_generation_review_v1;
-use std::collections::BTreeSet;
-use std::ffi::OsString;
-use std::fs::{File, OpenOptions};
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -94,21 +98,17 @@ fn read_actual_corpus(
     root: &Path,
     expected: &[ProviderArtifactCorpusFileV1],
 ) -> Result<Vec<ProviderArtifactCorpusFileV1>> {
-    let metadata = match std::fs::symlink_metadata(root) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect corpus root {}", root.display()));
-        }
+    let Some(root_directory) = open_corpus_root(root, false)? else {
+        return Ok(Vec::new());
     };
-    if metadata.file_type().is_symlink() {
-        bail!("corpus root must not be a symlink: {}", root.display());
-    }
-    if !metadata.is_dir() {
-        bail!("corpus root is not a directory: {}", root.display());
-    }
 
+    read_actual_corpus_from_directory(&root_directory, expected)
+}
+
+fn read_actual_corpus_from_directory(
+    root: &Dir,
+    expected: &[ProviderArtifactCorpusFileV1],
+) -> Result<Vec<ProviderArtifactCorpusFileV1>> {
     let expected_directories = expected_directories(expected);
     let mut actual = Vec::new();
     read_actual_directory(root, "", &expected_directories, &mut actual)?;
@@ -127,24 +127,22 @@ fn expected_directories(expected: &[ProviderArtifactCorpusFileV1]) -> BTreeSet<S
 }
 
 fn read_actual_directory(
-    directory: &Path,
+    directory: &Dir,
     relative_directory: &str,
     expected_directories: &BTreeSet<String>,
     actual: &mut Vec<ProviderArtifactCorpusFileV1>,
 ) -> Result<()> {
-    let mut entries = std::fs::read_dir(directory)
-        .with_context(|| format!("failed to read corpus directory {}", directory.display()))?
+    let mut entries = directory
+        .entries()
+        .with_context(|| format!("failed to read corpus directory {relative_directory}"))?
         .collect::<std::io::Result<Vec<_>>>()
-        .with_context(|| {
-            format!(
-                "failed to enumerate corpus directory {}",
-                directory.display()
-            )
-        })?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
+        .with_context(|| format!("failed to enumerate corpus directory {relative_directory}"))?;
+    entries.sort_by_key(cap_std::fs::DirEntry::file_name);
 
     for entry in entries {
-        let file_name = utf8_file_name(entry.file_name(), &entry.path())?;
+        let raw_file_name = entry.file_name();
+        let diagnostic_path = Path::new(relative_directory).join(&raw_file_name);
+        let file_name = utf8_file_name(raw_file_name.clone(), &diagnostic_path)?;
         let relative_path = if relative_directory.is_empty() {
             file_name
         } else {
@@ -155,12 +153,17 @@ fn read_actual_directory(
             .with_context(|| format!("failed to inspect corpus entry {relative_path}"))?;
 
         if file_type.is_file() {
-            let file = File::open(entry.path())
+            let file = open_file_nofollow(directory, &raw_file_name)
                 .with_context(|| format!("failed to open corpus file {relative_path}"))?;
             let metadata = file
                 .metadata()
                 .with_context(|| format!("failed to inspect corpus file {relative_path}"))?;
-            if metadata.len() > MAX_ACTUAL_CORPUS_FILE_BYTES_U64 {
+            if !metadata.is_file() {
+                actual.push(ProviderArtifactCorpusFileV1::new(
+                    relative_path,
+                    NON_REGULAR_ENTRY_BYTES,
+                )?);
+            } else if metadata.len() > MAX_ACTUAL_CORPUS_FILE_BYTES_U64 {
                 actual.push(ProviderArtifactCorpusFileV1::new(
                     relative_path,
                     OVERSIZED_ENTRY_BYTES,
@@ -181,7 +184,9 @@ fn read_actual_directory(
                 )?);
             }
         } else if file_type.is_dir() && expected_directories.contains(&relative_path) {
-            read_actual_directory(&entry.path(), &relative_path, expected_directories, actual)?;
+            let child = open_dir_nofollow(directory, &raw_file_name)
+                .with_context(|| format!("failed to open corpus directory {relative_path}"))?;
+            read_actual_directory(&child, &relative_path, expected_directories, actual)?;
         } else {
             actual.push(ProviderArtifactCorpusFileV1::new(
                 relative_path,
@@ -202,250 +207,420 @@ fn utf8_file_name(file_name: OsString, path: &Path) -> Result<String> {
     })
 }
 
-fn write_corpus(root: &Path, files: &[ProviderArtifactCorpusFileV1]) -> Result<()> {
-    ensure_corpus_root(root)?;
-    let root = std::fs::canonicalize(root)
+fn open_corpus_root(root: &Path, create: bool) -> Result<Option<Dir>> {
+    let absolute = std::path::absolute(root)
         .with_context(|| format!("failed to resolve corpus root {}", root.display()))?;
-    preflight_corpus_write(&root, files)?;
-    for file in files {
-        let mut directory = root.clone();
-        if let Some(parent) = Path::new(file.relative_path()).parent() {
-            for component in parent.components() {
-                directory.push(component.as_os_str());
-                ensure_corpus_directory(&directory)?;
-            }
+    let Some(name) = absolute.file_name() else {
+        return Dir::open_ambient_dir(&absolute, ambient_authority())
+            .map(Some)
+            .with_context(|| format!("failed to open corpus root {}", absolute.display()));
+    };
+    let parent_path = absolute.parent().ok_or_else(|| {
+        anyhow!(
+            "corpus root has no parent directory: {}",
+            absolute.display()
+        )
+    })?;
+
+    if create {
+        std::fs::create_dir_all(parent_path).with_context(|| {
+            format!(
+                "failed to create corpus root parent {}",
+                parent_path.display()
+            )
+        })?;
+    }
+    let parent = match Dir::open_ambient_dir(parent_path, ambient_authority()) {
+        Ok(parent) => parent,
+        Err(error) if !create && error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to open corpus root parent {}",
+                    parent_path.display()
+                )
+            });
         }
+    };
+
+    if create {
+        ensure_corpus_directory(&parent, name, &absolute).map(Some)
+    } else {
+        open_existing_corpus_directory(&parent, name, &absolute)
+    }
+}
+
+fn open_existing_corpus_directory(
+    parent: &Dir,
+    name: &OsStr,
+    display_path: &Path,
+) -> Result<Option<Dir>> {
+    match parent.symlink_metadata(name) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "refusing to traverse corpus directory symlink {}",
+                display_path.display()
+            );
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            bail!(
+                "corpus directory path is not a directory: {}",
+                display_path.display()
+            );
+        }
+        Ok(_) => open_dir_nofollow(parent, name)
+            .map(Some)
+            .with_context(|| format!("failed to open corpus directory {}", display_path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "failed to inspect corpus directory {}",
+                display_path.display()
+            )
+        }),
+    }
+}
+
+fn ensure_corpus_directory(parent: &Dir, name: &OsStr, display_path: &Path) -> Result<Dir> {
+    if let Some(directory) = open_existing_corpus_directory(parent, name, display_path)? {
+        return Ok(directory);
+    }
+
+    match parent.create_dir(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to create corpus directory {}",
+                    display_path.display()
+                )
+            });
+        }
+    }
+    open_existing_corpus_directory(parent, name, display_path)?.ok_or_else(|| {
+        anyhow!(
+            "created corpus directory disappeared before it could be opened: {}",
+            display_path.display()
+        )
+    })
+}
+
+fn open_dir_nofollow(parent: &Dir, name: &OsStr) -> std::io::Result<Dir> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    options.follow(FollowSymlinks::No);
+    options.maybe_dir(true);
+    let file = parent.open_with(name, &options)?;
+    if !file.metadata()?.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            "corpus path component is not a directory",
+        ));
+    }
+    Ok(Dir::from_std_file(file.into_std()))
+}
+
+fn open_file_nofollow(parent: &Dir, name: &OsStr) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    options.follow(FollowSymlinks::No);
+    parent.open_with(name, &options)
+}
+
+fn write_corpus(root: &Path, files: &[ProviderArtifactCorpusFileV1]) -> Result<()> {
+    let root_directory = open_corpus_root(root, true)?.ok_or_else(|| {
+        anyhow!(
+            "created corpus root could not be opened: {}",
+            root.display()
+        )
+    })?;
+    let actual = read_actual_corpus_from_directory(&root_directory, files)?;
+    let expected_paths = files
+        .iter()
+        .map(ProviderArtifactCorpusFileV1::relative_path)
+        .collect::<BTreeSet<_>>();
+    if let Some(unexpected) = actual
+        .iter()
+        .find(|file| !expected_paths.contains(file.relative_path()))
+    {
+        bail!(
+            "refusing to generate over unexpected corpus entry {}",
+            unexpected.relative_path()
+        );
+    }
+
+    let directories = prepare_corpus_directories(&root_directory, root, files)?;
+    preflight_corpus_write(&directories, files)?;
+    for file in files {
+        let (parent, leaf) = corpus_file_parts(file.relative_path());
+        let directory = directories.get(parent).ok_or_else(|| {
+            anyhow!(
+                "corpus file parent was not retained: {}",
+                file.relative_path()
+            )
+        })?;
         let path = root.join(file.relative_path());
-        replace_corpus_file(&path, file.bytes())?;
+        replace_corpus_file(directory, OsStr::new(leaf), file.bytes(), &path)?;
         println!("  wrote {}", path.display());
     }
     Ok(())
 }
 
-fn preflight_corpus_write(root: &Path, files: &[ProviderArtifactCorpusFileV1]) -> Result<()> {
-    match std::fs::symlink_metadata(root) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!("corpus root must not be a symlink: {}", root.display());
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            bail!("corpus root is not a directory: {}", root.display());
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect corpus root {}", root.display()));
-        }
+fn prepare_corpus_directories(
+    root: &Dir,
+    root_display: &Path,
+    files: &[ProviderArtifactCorpusFileV1],
+) -> Result<BTreeMap<String, Dir>> {
+    let mut directories = BTreeMap::new();
+    directories.insert(
+        String::new(),
+        root.try_clone()
+            .context("failed to retain the corpus root directory")?,
+    );
+
+    for relative_path in expected_directories(files) {
+        let (parent, name) = corpus_file_parts(&relative_path);
+        let parent_directory = directories
+            .get(parent)
+            .ok_or_else(|| anyhow!("corpus directory parent was not retained: {relative_path}"))?;
+        let directory = ensure_corpus_directory(
+            parent_directory,
+            OsStr::new(name),
+            &root_display.join(&relative_path),
+        )?;
+        directories.insert(relative_path, directory);
     }
 
+    Ok(directories)
+}
+
+fn preflight_corpus_write(
+    directories: &BTreeMap<String, Dir>,
+    files: &[ProviderArtifactCorpusFileV1],
+) -> Result<()> {
     for file in files {
-        let mut directory = root.to_path_buf();
-        let mut parents_exist = true;
-        if let Some(parent) = Path::new(file.relative_path()).parent() {
-            for component in parent.components() {
-                directory.push(component.as_os_str());
-                match std::fs::symlink_metadata(&directory) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        bail!(
-                            "refusing to traverse corpus directory symlink {}",
-                            directory.display()
-                        );
-                    }
-                    Ok(metadata) if !metadata.is_dir() => {
-                        bail!(
-                            "corpus directory path is not a directory: {}",
-                            directory.display()
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        parents_exist = false;
-                        break;
-                    }
-                    Err(error) => {
-                        return Err(error).with_context(|| {
-                            format!("failed to inspect corpus directory {}", directory.display())
-                        });
-                    }
-                }
-            }
-        }
-        if parents_exist {
-            validate_existing_corpus_file(&root.join(file.relative_path()))?;
-        }
+        let (parent, leaf) = corpus_file_parts(file.relative_path());
+        let directory = directories.get(parent).ok_or_else(|| {
+            anyhow!(
+                "corpus file parent was not retained: {}",
+                file.relative_path()
+            )
+        })?;
+        validate_existing_corpus_file(
+            directory,
+            OsStr::new(leaf),
+            Path::new(file.relative_path()),
+        )?;
     }
     Ok(())
 }
 
-fn validate_existing_corpus_file(path: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(path) {
+fn corpus_file_parts(relative_path: &str) -> (&str, &str) {
+    relative_path
+        .rsplit_once('/')
+        .unwrap_or(("", relative_path))
+}
+
+fn validate_existing_corpus_file(parent: &Dir, leaf: &OsStr, display_path: &Path) -> Result<()> {
+    match parent.symlink_metadata(leaf) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!("refusing to replace corpus symlink {}", path.display());
+            bail!(
+                "refusing to replace corpus symlink {}",
+                display_path.display()
+            );
         }
         Ok(metadata) if !metadata.is_file() => {
             bail!(
                 "refusing to replace non-file corpus entry {}",
-                path.display()
+                display_path.display()
             );
         }
         Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => {
-            Err(error).with_context(|| format!("failed to inspect corpus file {}", path.display()))
-        }
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to inspect corpus file {}", display_path.display())),
     }
 }
 
-fn replace_corpus_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    validate_existing_corpus_file(path)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("corpus file has no parent: {}", path.display()))?;
-    let (temporary_path, mut temporary_file) = create_temporary_file(parent)?;
+fn replace_corpus_file(
+    parent: &Dir,
+    leaf: &OsStr,
+    bytes: &[u8],
+    display_path: &Path,
+) -> Result<()> {
+    validate_existing_corpus_file(parent, leaf, display_path)?;
+    let display_parent = display_path.parent().ok_or_else(|| {
+        anyhow!(
+            "corpus file has no display parent: {}",
+            display_path.display()
+        )
+    })?;
+    let (temporary_name, mut temporary_file) = create_temporary_file(parent, display_parent)?;
 
     let write_result = temporary_file
         .write_all(bytes)
         .with_context(|| {
             format!(
                 "failed to write temporary corpus file {}",
-                temporary_path.display()
+                display_parent.join(&temporary_name).display()
             )
         })
         .and_then(|()| {
             temporary_file.sync_all().with_context(|| {
                 format!(
                     "failed to sync temporary corpus file {}",
-                    temporary_path.display()
+                    display_parent.join(&temporary_name).display()
                 )
             })
         });
     drop(temporary_file);
     if let Err(error) = write_result {
-        remove_temporary_file(&temporary_path);
+        remove_temporary_file(parent, &temporary_name);
         return Err(error);
     }
 
-    validate_existing_corpus_file(path)?;
-    if let Err(error) = replace_temporary_file(&temporary_path, path) {
-        remove_temporary_file(&temporary_path);
+    validate_existing_corpus_file(parent, leaf, display_path)?;
+    if let Err(error) = replace_temporary_file(parent, &temporary_name, leaf, display_path) {
+        remove_temporary_file(parent, &temporary_name);
         return Err(error);
     }
     Ok(())
 }
 
-fn create_temporary_file(parent: &Path) -> Result<(PathBuf, File)> {
+fn create_temporary_file(parent: &Dir, display_parent: &Path) -> Result<(OsString, File)> {
     for _ in 0..MAX_TEMP_FILE_ATTEMPTS {
         let sequence = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
-        let path = parent.join(format!(
+        let name = OsString::from(format!(
             ".echo-provider-artifact-{}-{sequence}.tmp",
             std::process::id()
         ));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        options.follow(FollowSymlinks::No);
+        match parent.open_with(&name, &options) {
+            Ok(file) => return Ok((name, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => {
                 return Err(error).with_context(|| {
-                    format!("failed to create temporary corpus file {}", path.display())
+                    format!(
+                        "failed to create temporary corpus file {}",
+                        display_parent.join(&name).display()
+                    )
                 });
             }
         }
     }
     bail!(
         "failed to reserve a temporary corpus file in {} after {} attempts",
-        parent.display(),
+        display_parent.display(),
         MAX_TEMP_FILE_ATTEMPTS
     );
 }
 
-#[cfg(not(windows))]
-fn replace_temporary_file(temporary_path: &Path, destination: &Path) -> Result<()> {
-    std::fs::rename(temporary_path, destination).with_context(|| {
+fn replace_temporary_file(
+    parent: &Dir,
+    temporary_name: &OsStr,
+    destination_name: &OsStr,
+    destination_display: &Path,
+) -> Result<()> {
+    replace_temporary_file_with(
+        temporary_name,
+        destination_name,
+        destination_display,
+        |from, to| parent.rename(from, parent, to),
+    )
+}
+
+fn replace_temporary_file_with(
+    temporary_name: &OsStr,
+    destination_name: &OsStr,
+    destination_display: &Path,
+    replace: impl FnOnce(&OsStr, &OsStr) -> std::io::Result<()>,
+) -> Result<()> {
+    replace(temporary_name, destination_name).with_context(|| {
         format!(
             "failed to replace corpus file {} from {}",
-            destination.display(),
-            temporary_path.display()
+            destination_display.display(),
+            temporary_name.to_string_lossy()
         )
     })
 }
 
-#[cfg(windows)]
-fn replace_temporary_file(temporary_path: &Path, destination: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(destination) {
-        Ok(_) => {
-            validate_existing_corpus_file(destination)?;
-            std::fs::remove_file(destination).with_context(|| {
-                format!(
-                    "failed to unlink existing corpus file {}",
-                    destination.display()
-                )
-            })?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!("failed to inspect corpus file {}", destination.display())
-            });
-        }
-    }
-    std::fs::rename(temporary_path, destination).with_context(|| {
-        format!(
-            "failed to replace corpus file {} from {}",
-            destination.display(),
-            temporary_path.display()
-        )
-    })
+fn remove_temporary_file(parent: &Dir, name: &OsStr) {
+    drop(parent.remove_file(name));
 }
 
-fn remove_temporary_file(path: &Path) {
-    drop(std::fs::remove_file(path));
-}
+#[cfg(test)]
+mod tests {
+    use super::{
+        open_dir_nofollow, replace_corpus_file, replace_temporary_file_with, NEXT_TEMP_FILE,
+    };
+    use anyhow::Result;
+    use cap_std::{ambient_authority, fs::Dir};
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::Ordering;
 
-fn ensure_corpus_root(root: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(root) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!("corpus root must not be a symlink: {}", root.display());
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            bail!("corpus root is not a directory: {}", root.display());
-        }
-        Ok(_) => return Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect corpus root {}", root.display()));
-        }
+    fn test_directory(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "echo-provider-{label}-{}-{}",
+            std::process::id(),
+            NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed)
+        ))
     }
-    std::fs::create_dir_all(root)
-        .with_context(|| format!("failed to create corpus root {}", root.display()))?;
-    let metadata = std::fs::symlink_metadata(root)
-        .with_context(|| format!("failed to inspect created corpus root {}", root.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        bail!("created corpus root is not a directory: {}", root.display());
-    }
-    Ok(())
-}
 
-fn ensure_corpus_directory(directory: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(directory) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!(
-                "refusing to traverse corpus directory symlink {}",
-                directory.display()
-            );
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            bail!(
-                "corpus directory path is not a directory: {}",
-                directory.display()
-            );
-        }
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir(directory).with_context(|| {
-                format!("failed to create corpus directory {}", directory.display())
-            })
-        }
-        Err(error) => Err(error)
-            .with_context(|| format!("failed to inspect corpus directory {}", directory.display())),
+    #[test]
+    fn failed_replacement_preserves_existing_destination() -> Result<()> {
+        let root = test_directory("replacement-test");
+        std::fs::create_dir(&root)?;
+        let temporary = root.join("temporary");
+        let destination = root.join("destination");
+        std::fs::write(&temporary, b"replacement")?;
+        std::fs::write(&destination, b"admitted")?;
+
+        let result = replace_temporary_file_with(
+            OsStr::new("temporary"),
+            OsStr::new("destination"),
+            &destination,
+            |_, _| Err(std::io::Error::other("injected replacement failure")),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&destination)?, b"admitted");
+        assert_eq!(std::fs::read(&temporary)?, b"replacement");
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retained_parent_handle_prevents_symlink_redirection() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
+        let root = test_directory("parent-swap");
+        let outside = test_directory("parent-swap-outside");
+        let evidence = root.join("evidence");
+        let parked = root.join("evidence-parked");
+        std::fs::create_dir_all(&evidence)?;
+        std::fs::create_dir_all(&outside)?;
+        let root_directory = Dir::open_ambient_dir(&root, ambient_authority())?;
+        let evidence_directory = open_dir_nofollow(&root_directory, OsStr::new("evidence"))?;
+
+        std::fs::rename(&evidence, &parked)?;
+        symlink(&outside, &evidence)?;
+
+        replace_corpus_file(
+            &evidence_directory,
+            OsStr::new("artifact"),
+            b"canonical",
+            Path::new("evidence/artifact"),
+        )?;
+
+        assert!(!outside.join("artifact").exists());
+        assert_eq!(std::fs::read(parked.join("artifact"))?, b"canonical");
+        std::fs::remove_dir_all(root)?;
+        std::fs::remove_dir_all(outside)?;
+        Ok(())
     }
 }

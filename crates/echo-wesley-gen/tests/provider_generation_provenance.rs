@@ -367,6 +367,41 @@ fn generator_coordinate_cannot_alias_provider_closure_coordinates() {
 }
 
 #[test]
+fn generator_coordinate_cannot_alias_source_artifact_coordinates() {
+    let (input, primary) = generate();
+    assert_eq!(
+        input
+            .source_artifacts()
+            .iter()
+            .map(|artifact| artifact.coordinate.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "echo.semantic-schema@1",
+            "edict.provider-contract-pack.cddl@1",
+            "edict.provider-contract-pack.manifest@1",
+        ]
+    );
+
+    for source_artifact in input.source_artifacts() {
+        let conflicting = ProviderGeneratorMaterialV1::new(
+            &source_artifact.coordinate,
+            GENERATOR_VERSION,
+            &source_artifact.bytes,
+        )
+        .expect("source artifact coordinate and bytes form valid generator material");
+        let error = generate_provider_generation_provenance_v1(&input, &primary, &conflicting)
+            .expect_err("generator coordinate must not alias an exact source artifact");
+        assert_eq!(
+            error.kind(),
+            ProviderProvenanceErrorKind::GeneratorCoordinateConflict
+        );
+        assert_eq!(error.subject(), "generator.coordinate");
+        assert_eq!(error.reference(), "sourceArtifacts");
+        assert_eq!(error.wesley_contract_kind(), None);
+    }
+}
+
+#[test]
 fn exact_source_reordering_moves_provenance_but_not_primary_emitted_bytes() {
     let pack = admitted_pack();
     let baseline_input = build_provider_generation_input_v1(SOURCE, &pack, SETTINGS)

@@ -335,6 +335,28 @@ fn usize_to_u64(value: usize) -> Result<u64, CanonicalValueError> {
     })
 }
 
+fn checked_collection_length<HostLength>(
+    declared: u64,
+    remaining: u64,
+) -> Result<HostLength, CanonicalValueError>
+where
+    HostLength: TryFrom<u64>,
+{
+    if declared > remaining {
+        return Err(CanonicalValueError::new(
+            CanonicalValueErrorKind::UnexpectedEof,
+            "canonical CBOR declared length exceeds the remaining bytes",
+        ));
+    }
+
+    HostLength::try_from(declared).map_err(|_| {
+        CanonicalValueError::new(
+            CanonicalValueErrorKind::UnsupportedCbor,
+            "canonical CBOR collection length does not fit usize",
+        )
+    })
+}
+
 struct Decoder<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -436,19 +458,15 @@ impl<'a> Decoder<'a> {
     }
 
     fn length(&mut self, additional: u8) -> Result<usize, CanonicalValueError> {
-        let length = usize::try_from(self.argument(additional)?).map_err(|_| {
+        let declared = self.argument(additional)?;
+        let remaining = u64::try_from(self.remaining()).map_err(|_| {
             CanonicalValueError::new(
                 CanonicalValueErrorKind::UnsupportedCbor,
-                "canonical CBOR collection length does not fit usize",
+                "remaining canonical CBOR input does not fit the CBOR uint range",
             )
         })?;
-        if length > self.remaining() {
-            return Err(CanonicalValueError::new(
-                CanonicalValueErrorKind::UnexpectedEof,
-                "canonical CBOR declared length exceeds the remaining bytes",
-            ));
-        }
-        Ok(length)
+
+        checked_collection_length::<usize>(declared, remaining)
     }
 
     fn byte(&mut self) -> Result<u8, CanonicalValueError> {
@@ -483,5 +501,21 @@ impl<'a> Decoder<'a> {
         let mut output = [0u8; LENGTH];
         output.copy_from_slice(self.take(LENGTH)?);
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{checked_collection_length, CanonicalValueError, CanonicalValueErrorKind};
+
+    #[test]
+    fn declared_length_bounds_precede_host_width_conversion() {
+        assert_eq!(
+            checked_collection_length::<u32>(u64::MAX, u64::from(u32::MAX)),
+            Err(CanonicalValueError::new(
+                CanonicalValueErrorKind::UnexpectedEof,
+                "canonical CBOR declared length exceeds the remaining bytes"
+            ))
+        );
     }
 }

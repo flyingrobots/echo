@@ -16,6 +16,8 @@ categories = ["development-tools", "command-line-utilities", "encoding", "wasm"]
 [dependencies]
 anyhow = "1.0"
 blake3 = "1.5"
+cap-fs-ext = "=4.0.2"
+cap-std = "=4.0.2"
 cddl-cat = { version = "0.7.1", default-features = false, features = ["ciborium"] }
 ciborium = "0.2.2"
 clap = { version = "4.4", features = ["derive"] }

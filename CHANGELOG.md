@@ -14,7 +14,9 @@
   compile-time-enumerated source/dependency-lock bundle rather than executable,
   Git, path, or environment discovery. Its `--check` mode reports sorted
   missing, changed, and unexpected paths without creating, deleting, or
-  rewriting files, and the crate test suite checks the committed snapshot.
+  rewriting files, while generation refuses observed unexpected entries before
+  writing and retains no-follow directory capabilities through temporary-file
+  replacement. The crate test suite checks the committed snapshot.
 - `echo-wesley-gen` now derives Wesley's canonical `GenerationReviewV1` from
   verified provider provenance. The deterministic JSON copies the exact input,
   provenance, generator, projection-role, source, and emitted-output identities,
@@ -31,7 +33,8 @@
   preserved without exposing Rust debug spelling as a stable diagnostic. The
   primary closure retains its producing input digest so outputs cannot be
   attributed to another invocation, and generator coordinates must remain
-  disjoint from every declared artifact, resource, and package coordinate.
+  disjoint from every exact source, declared artifact, resource, and package
+  coordinate.
 - `echo-wesley-gen` now deterministically projects the validated Echo Edict
   source into a canonical lawpack, target profile, two source-partitioned
   authority-facts documents, generated operation profile, fourteen declarative
@@ -52,8 +55,10 @@
   encoding, nesting, map-ordering, and domain-framed SHA-256 contracts. Named
   provider artifacts must both use those canonical bytes and satisfy their
   owning root in the admitted Edict CDDL; typed failures distinguish unknown
-  contracts, invalid canonical encoding, and schema mismatch. This validates a
-  generation artifact and does not grant Echo runtime authority or admission.
+  contracts, invalid canonical encoding, and schema mismatch, and oversized
+  declared lengths produce platform-stable truncation failures before host-width
+  conversion. This validates a generation artifact and does not grant Echo
+  runtime authority or admission.
 - `echo-wesley-gen` now constructs a canonical Wesley extension-generation
   input from exact Echo semantic-source bytes, the admitted Edict CDDL and
   manifest, and checked versioned settings. The first provider closure uses an

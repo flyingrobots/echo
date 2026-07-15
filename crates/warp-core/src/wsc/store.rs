@@ -958,6 +958,14 @@ pub enum WscCasAddressedWalExportError {
         /// Extra segment id.
         segment_id: WalSegmentId,
     },
+    /// Present retained-material records did not exactly match CAS references.
+    #[error("CAS-addressed retained-material references mismatch")]
+    RetainedCasReferenceMismatch {
+        /// Number of present retained-material records.
+        expected_count: usize,
+        /// Number of retained-material CAS references.
+        actual_count: usize,
+    },
     /// CAS reference WSC envelope was invalid.
     #[error("invalid CAS-addressed WAL reference WSC")]
     CasReferences(WscStoreObstruction),
@@ -1017,6 +1025,14 @@ pub enum WscCasAddressedWalImportError {
     SegmentCasReferenceMismatch {
         /// Segment id being checked.
         segment_id: WalSegmentId,
+    },
+    /// Present retained-material records did not exactly match CAS references.
+    #[error("CAS-addressed retained-material references mismatch")]
+    RetainedCasReferenceMismatch {
+        /// Number of present retained-material records.
+        expected_count: usize,
+        /// Number of retained-material CAS references.
+        actual_count: usize,
     },
     /// A CAS-retained WAL segment could not be recovered.
     #[error("CAS-retained WAL segment recovery failed")]
@@ -1899,6 +1915,12 @@ pub fn wsc_cas_addressed_wal_export(
 ) -> Result<WscCasAddressedWalExport, WscCasAddressedWalExportError> {
     let references =
         wsc_cas_addressed_wal_references(root, segment_materials, retained_material_references)?;
+    validate_cas_addressed_retained_references(records.retained_materials, &references).map_err(
+        |mismatch| WscCasAddressedWalExportError::RetainedCasReferenceMismatch {
+            expected_count: mismatch.expected_count,
+            actual_count: mismatch.actual_count,
+        },
+    )?;
     Ok(WscCasAddressedWalExport {
         profile: WscCausalHistoryExportProfileKind::CasAddressed,
         projection_envelope: wsc_ref_only_wal_projection_envelope(root)
@@ -1974,6 +1996,14 @@ where
     let cas_references =
         cas_addressed_wal_references_from_wsc_envelope(&export.cas_reference_envelope)
             .map_err(WscCasAddressedWalImportError::CasReferences)?;
+    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
+        .map_err(WscCasAddressedWalImportError::Retention)?;
+    validate_cas_addressed_retained_references(&retention.materials, &cas_references).map_err(
+        |mismatch| WscCasAddressedWalImportError::RetainedCasReferenceMismatch {
+            expected_count: mismatch.expected_count,
+            actual_count: mismatch.actual_count,
+        },
+    )?;
     validate_cas_addressed_segment_references(&cas_references.segments, expected_root)?;
     let segment_recoveries =
         validate_cas_addressed_segment_recoveries(&cas_references, expected_root, cas_store)?;
@@ -2002,9 +2032,6 @@ where
         &receipt_records.correlations,
     )
     .map_err(WscCasAddressedWalImportError::IncompleteCausalHistory)?;
-    let retention = retention_records_from_wsc_envelope(&export.retention_envelope)
-        .map_err(WscCasAddressedWalImportError::Retention)?;
-
     Ok(WscCasAddressedWalImport {
         profile: export.profile,
         projection,
@@ -4249,6 +4276,47 @@ where
             retained.semantic_coordinate_digest,
             retained.byte_len,
         )?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CasAddressedRetainedReferenceMismatch {
+    expected_count: usize,
+    actual_count: usize,
+}
+
+fn validate_cas_addressed_retained_references(
+    retained_materials: &[RetainedMaterialRecord],
+    references: &WscCasAddressedWalReferences,
+) -> Result<(), CasAddressedRetainedReferenceMismatch> {
+    let expected = retained_materials
+        .iter()
+        .filter(|material| material.posture == crate::causal_wal::EvidenceMaterialPosture::Present)
+        .map(|material| {
+            (
+                material.kind,
+                material.material_digest,
+                material.semantic_coordinate_digest,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    let actual = references
+        .retained_materials
+        .iter()
+        .map(|reference| {
+            (
+                reference.material_kind,
+                reference.content_hash,
+                reference.semantic_coordinate_digest,
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    if expected != actual {
+        return Err(CasAddressedRetainedReferenceMismatch {
+            expected_count: expected.len(),
+            actual_count: actual.len(),
+        });
     }
     Ok(())
 }

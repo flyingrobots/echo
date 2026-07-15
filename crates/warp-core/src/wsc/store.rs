@@ -16,13 +16,13 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::causal_anchor::validate_causal_anchor_admission_evidence;
 use crate::causal_wal::{
-    materialize_wal_projection_graph, observe_causal_anchor_admissions,
-    observe_wal_projection_graph_wsc, recover_wal_segment_bytes, wal_projection_graph_schema_hash,
+    materialize_wal_projection_graph, observe_wal_projection_graph_wsc, recover_wal_segment_bytes,
+    validate_recovered_causal_anchor_history, wal_projection_graph_schema_hash,
     BraidShellRetentionRecord, Lsn, ObservedCausalAnchorAdmission, ReadingRefRecord,
-    RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryTailPosture,
-    RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord, StrandForkRecord,
-    SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord, TopologyBraidEventRecord,
-    TopologyIntentRecord, WalCommitAnchor, WalProjectionGraphObservation,
+    RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryScanReport,
+    RecoveryTailPosture, RetainedMaterialKind, RetainedMaterialRecord, StrandDropRecord,
+    StrandForkRecord, SubmissionAcceptanceRecord, SuffixImportRecord, TickReceiptRecord,
+    TopologyBraidEventRecord, TopologyIntentRecord, WalCommitAnchor, WalProjectionGraphObservation,
     WalProjectionGraphObservationError, WalReceiptCorrelationRecord, WalRecoveryError,
     WalRecoveryIndexError, WalRoot, WalSegmentBytesRecovery, WalSegmentId, WalSegmentRef,
     WalSegmentStorageLocator, WalTransactionId,
@@ -4861,11 +4861,20 @@ fn canonical_wsc_causal_anchor_records(
 fn causal_anchors_from_segment_recoveries(
     recoveries: &[WalSegmentBytesRecovery],
 ) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
-    let mut records = Vec::new();
-    for recovery in recoveries {
-        records.extend(observe_causal_anchor_admissions(&recovery.report)?);
-    }
-    Ok(records)
+    let mut transactions = recoveries
+        .iter()
+        .flat_map(|recovery| recovery.report.transactions.iter().cloned())
+        .collect::<Vec<_>>();
+    transactions.sort_by_key(|transaction| transaction.commit.first_lsn);
+    let history = validate_recovered_causal_anchor_history(&RecoveryScanReport {
+        transactions,
+        tail_posture: RecoveryTailPosture::Clean,
+    })?;
+    Ok(history
+        .admissions
+        .into_iter()
+        .map(|(admission, _)| admission)
+        .collect())
 }
 
 fn validate_wsc_causal_anchors_against_recovered_history(

@@ -9,22 +9,25 @@
     clippy::unnecessary_debug_formatting
 )]
 
+use crate::causal_anchor::prepare_causal_anchor_admission;
 use crate::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_causal_anchor_admission_transaction, build_checkpoint_publication_transaction,
     build_materialization_outbox_transaction, build_recovery_certificate,
     build_retained_reading_transaction, build_submission_acceptance_transaction,
     build_submission_acceptance_with_material_transaction, build_tick_transaction,
-    build_topology_intent_transaction, canonical_segment_relative_path, doctor_in_memory_store,
-    evaluate_checkpoint_publication, lint_wal_schema_terms, materialize_wal_projection_graph,
-    missing_material_scope, observe_causal_anchor_admissions, observe_wal_projection_graph_wsc,
-    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
-    read_checkpoint_record, rebuild_durability_indexes_after_recovery,
-    recover_checkpoint_publications, recover_filesystem_store, recover_from_frames_and_commits,
-    recover_in_memory_store, recover_materialization_outbox,
-    recover_materialization_outbox_with_retained_material, recover_receipt_index,
-    recover_retention_index, recover_submission_index, recover_topology_index,
-    recovered_submission_receipt_index_root, recovered_topology_index_root,
+    build_topology_intent_transaction, canonical_segment_relative_path,
+    causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
+    causal_history_genesis_frontier_digest, doctor_in_memory_store,
+    evaluate_checkpoint_publication, lint_wal_schema_terms, logical_causal_history_frontier_digest,
+    materialize_wal_projection_graph, missing_material_scope, observe_causal_anchor_admissions,
+    observe_wal_projection_graph_wsc, project_causal_commit_evidence,
+    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
+    rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
+    recover_filesystem_store, recover_from_frames_and_commits, recover_in_memory_store,
+    recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
+    recover_receipt_index, recover_retention_index, recover_submission_index,
+    recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
     retained_material_obstructions, shadow_replay_matches, validate_checkpoint_record,
     validate_strict_object_store_capabilities, wal_projection_graph_schema_hash,
     write_checkpoint_record_atomic, AffectedFrontier, AffectedFrontierKind,
@@ -1818,6 +1821,121 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
 }
 
 #[test]
+fn wsc_materialized_anchor_import_rejects_unwitnessed_anchor_transitions() {
+    let basis_label = "wsc-forged-anchor-basis";
+    assert_wsc_materialized_anchor_import_rejected(
+        basis_label,
+        durable_causal_anchor_transaction(basis_label, Lsn::from_raw(0)),
+        |error| {
+            matches!(
+                error,
+                WalRecoveryIndexError::CausalAnchorBasisMismatch { .. }
+            )
+        },
+    );
+
+    let frontier_label = "wsc-forged-anchor-frontier";
+    assert_wsc_materialized_anchor_import_rejected(
+        frontier_label,
+        forged_frontier_causal_anchor_transaction(frontier_label, Lsn::from_raw(0)),
+        |error| {
+            matches!(
+                error,
+                WalRecoveryIndexError::CausalAnchorFrontierMismatch { .. }
+            )
+        },
+    );
+}
+
+fn assert_wsc_materialized_anchor_import_rejected(
+    label: &str,
+    transaction: WalCommittedTransaction,
+    expected_error: impl Fn(&WalRecoveryIndexError) -> bool,
+) {
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let segment_bytes = must_ok(fs::read(store.segment_path()));
+    let last_commit = must_some(store.read_commits().last().cloned());
+    must_ok(store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            manifest_digest: digest(&format!("{label}:manifest")),
+            last_committed_lsn: Some(last_commit.last_lsn),
+            last_commit_digest: Some(last_commit.commit_digest),
+            sealed_segment_count: 1,
+        },
+    ));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let causal_anchors = must_ok(observe_causal_anchor_admissions(&report));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest(&format!("{label}:frontier")),
+        digest(&format!("{label}:indexes")),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    let root = must_some(projection.root);
+    let segment = root.segments[0].clone();
+
+    let self_contained = must_ok(wsc_self_contained_wal_export(
+        &root,
+        &[WscSelfContainedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            segment_bytes: segment_bytes.clone(),
+        }],
+        &[],
+        wsc_records_with_causal_anchors(&[], &[], &[], &[], &[], &causal_anchors),
+    ));
+    let self_contained_error = must_err(
+        validate_wsc_self_contained_wal_export(&self_contained, &root),
+        "self-contained imports must validate anchor transitions against WAL history",
+    );
+    assert!(matches!(
+        self_contained_error,
+        WscSelfContainedWalImportError::CausalAnchorRecovery(ref error)
+            if expected_error(error)
+    ));
+
+    let mut cas_store = MemoryTier::new();
+    let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
+    let cas_addressed = must_ok(wsc_cas_addressed_wal_export(
+        &root,
+        &[WscCasAddressedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            content_hash: segment_content_hash,
+            semantic_coordinate_digest: digest(&format!("{label}:segment")),
+            byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
+        }],
+        &[],
+        wsc_records_with_causal_anchors(&[], &[], &[], &[], &[], &causal_anchors),
+    ));
+    let cas_addressed_error = must_err(
+        validate_wsc_cas_addressed_wal_export(
+            &cas_addressed,
+            &root,
+            &EchoCasAvailability(&cas_store),
+        ),
+        "CAS-addressed imports must validate anchor transitions against WAL history",
+    );
+    assert!(matches!(
+        cas_addressed_error,
+        WscCasAddressedWalImportError::CausalAnchorRecovery(ref error)
+            if expected_error(error)
+    ));
+}
+
+#[test]
 fn wsc_retained_evidence_export_modes() {
     let label = "wsc-retained-evidence";
     let dir = temp_wal_dir(label);
@@ -1843,13 +1961,27 @@ fn wsc_retained_evidence_export_modes() {
         posture: EvidenceMaterialPosture::Present,
     };
 
-    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
-    must_ok(store.append_transaction(durable_tick_transaction(
+    let submission = durable_submission_transaction(label, Lsn::from_raw(0));
+    let tick = durable_tick_transaction(label, Lsn::from_raw(2), WalTickDecision::Applied);
+    let anchor_basis = [&submission, &tick].into_iter().fold(
+        causal_history_genesis_frontier_digest(),
+        |frontier, transaction| {
+            logical_causal_history_frontier_digest(
+                frontier,
+                transaction.commit.transaction_kind,
+                &transaction.frames,
+            )
+        },
+    );
+    let anchor = witnessed_causal_anchor_transaction(
         label,
-        Lsn::from_raw(2),
-        WalTickDecision::Applied,
-    )));
-    must_ok(store.append_transaction(durable_causal_anchor_transaction(label, Lsn::from_raw(5))));
+        Lsn::from_raw(5),
+        anchor_basis,
+        causal_anchor_genesis_frontier_digest(),
+    );
+    must_ok(store.append_transaction(submission));
+    must_ok(store.append_transaction(tick));
+    must_ok(store.append_transaction(anchor));
     must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
     let segment_path = store.segment_path();
     let segment_bytes = must_ok(fs::read(&segment_path));
@@ -1916,7 +2048,7 @@ fn wsc_retained_evidence_export_modes() {
         RecoveryAccessMode::ReadOnly,
     ));
     let unrelated_anchors = must_ok(observe_causal_anchor_admissions(&unrelated_report));
-    let mut unrelated_ref_only = ref_only.clone();
+    let mut unrelated_ref_only = ref_only;
     unrelated_ref_only.causal_anchor_envelope =
         must_ok(causal_anchor_records_to_wsc_envelope(&unrelated_anchors));
     let unrelated_ref_only_error = must_err(
@@ -2779,7 +2911,7 @@ fn durable_tick_transaction(
     ))
 }
 
-fn causal_anchor_claim(label: &str) -> CausalAnchorClaim {
+fn causal_anchor_claim(label: &str, basis_frontier: Hash) -> CausalAnchorClaim {
     must_ok(CausalAnchorClaim::from_admission_request(
         CausalAnchorAdmissionRequest {
             schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION,
@@ -2788,7 +2920,7 @@ fn causal_anchor_claim(label: &str) -> CausalAnchorClaim {
                 "BufferWorldline",
                 format!("worldline:{label}"),
             ),
-            basis_frontier: CausalFrontierRef::from_digest(digest(&format!("basis:{label}"))),
+            basis_frontier: CausalFrontierRef::from_digest(basis_frontier),
             retained_roots: vec![CausalAnchorRoot::AppSubjectRoot {
                 app_id: "jedit".to_owned(),
                 subject_kind: "RopeHead".to_owned(),
@@ -2804,8 +2936,8 @@ fn causal_anchor_claim(label: &str) -> CausalAnchorClaim {
     ))
 }
 
-fn durable_causal_anchor_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
-    let builder = WalTransactionBuilder::new_causal_anchor_admission(
+fn causal_anchor_transaction_builder(label: &str, first_lsn: Lsn) -> WalTransactionBuilder {
+    WalTransactionBuilder::new_causal_anchor_admission(
         epoch_id(),
         WalSegmentId::from_raw(1),
         transaction_id(&format!("tx:causal-anchor:{label}")),
@@ -2818,16 +2950,65 @@ fn durable_causal_anchor_transaction(label: &str, first_lsn: Lsn) -> WalCommitte
         1,
         1,
         digest("domain"),
-    );
+    )
+}
+
+fn durable_causal_anchor_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
     must_ok(build_causal_anchor_admission_transaction(
-        builder,
-        causal_anchor_claim(label),
+        causal_anchor_transaction_builder(label, first_lsn),
+        causal_anchor_claim(label, digest(&format!("basis:{label}"))),
         digest(&format!("causal-anchor-policy:{label}")),
         vec![frontier(
             AffectedFrontierKind::CausalAnchorIndex,
             &format!("causal-anchor:{label}:before"),
             &format!("causal-anchor:{label}:after"),
         )],
+    ))
+}
+
+fn forged_frontier_causal_anchor_transaction(
+    label: &str,
+    first_lsn: Lsn,
+) -> WalCommittedTransaction {
+    must_ok(build_causal_anchor_admission_transaction(
+        causal_anchor_transaction_builder(label, first_lsn),
+        causal_anchor_claim(label, causal_history_genesis_frontier_digest()),
+        digest(&format!("causal-anchor-policy:{label}")),
+        vec![frontier(
+            AffectedFrontierKind::CausalAnchorIndex,
+            &format!("causal-anchor:{label}:before"),
+            &format!("causal-anchor:{label}:after"),
+        )],
+    ))
+}
+
+fn witnessed_causal_anchor_transaction(
+    label: &str,
+    first_lsn: Lsn,
+    basis_frontier: Hash,
+    causal_anchor_frontier: Hash,
+) -> WalCommittedTransaction {
+    let transaction_id = transaction_id(&format!("tx:causal-anchor:{label}"));
+    let support_policy_digest = digest(&format!("causal-anchor-policy:{label}"));
+    let claim = causal_anchor_claim(label, basis_frontier);
+    let (fact, receipt) = prepare_causal_anchor_admission(
+        claim.clone(),
+        support_policy_digest,
+        epoch_id().as_hash(),
+        transaction_id.as_hash(),
+        first_lsn.as_u64(),
+    );
+    let next_causal_anchor_frontier =
+        causal_anchor_frontier_digest_from_evidence(causal_anchor_frontier, &fact, &receipt);
+    must_ok(build_causal_anchor_admission_transaction(
+        causal_anchor_transaction_builder(label, first_lsn),
+        claim,
+        support_policy_digest,
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::CausalAnchorIndex,
+            before_digest: causal_anchor_frontier,
+            after_digest: next_causal_anchor_frontier,
+        }],
     ))
 }
 

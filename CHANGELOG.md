@@ -20,7 +20,10 @@
   and stores cannot originate causal-anchor admission transactions without
   Echo's crate-private admission capability. Writer-cursor and read-only
   recovery consume one shared causal-anchor traversal so basis and frontier
-  validation cannot diverge between recovery modes.
+  validation cannot diverge between recovery modes. Self-contained and
+  CAS-addressed WSC imports consume that same traversal before accepting anchor
+  sidecars, so matching projection material cannot legitimize forged recovered
+  basis or frontier evidence.
 - `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
   WAL at the current logical durable frontier. A host-owned exact root-support
   policy is validated and bound into receipt identity; successful admissions

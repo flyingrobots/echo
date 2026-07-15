@@ -45,7 +45,7 @@ use crate::braid_shell::BraidMemberRef;
 use crate::causal_anchor::{prepare_causal_anchor_admission, CausalAnchorClaim};
 use crate::causal_anchor::{
     validate_causal_anchor_admission_evidence, CausalAnchorAdmissionReceipt, CausalAnchorError,
-    CausalAnchorFact,
+    CausalAnchorFact, CausalAnchorId, CausalFrontierRef,
 };
 use crate::clock::WorldlineTick;
 use crate::contract_registry::{
@@ -93,6 +93,7 @@ const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
+pub(crate) const TRUSTED_RUNTIME_WAL_DOMAIN: &[u8] = b"echo:trusted-runtime-wal:v1\0";
 
 /// WSC schema label for materialized WAL projection graph facts.
 pub const WAL_PROJECTION_GRAPH_SCHEMA: &str = "echo/wal-projection-graph/schema/v1";
@@ -7922,7 +7923,7 @@ impl RecoveredCausalAnchorAdmission {
         test,
         all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
     ))]
-    const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
+    pub(crate) const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
         Self { observation }
     }
 
@@ -8026,10 +8027,138 @@ pub fn observe_causal_anchor_admissions(
     Ok(admissions)
 }
 
-#[cfg(any(
-    test,
-    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-))]
+/// Observation-only anchor evidence after validating its exact WAL history.
+///
+/// This traversal does not confer local admission authority. It centralizes the
+/// basis, frontier, and identity checks shared by trusted recovery and WSC
+/// import validation.
+#[derive(Clone, Debug)]
+pub(crate) struct ValidatedCausalAnchorHistory {
+    pub(crate) admissions: Vec<(ObservedCausalAnchorAdmission, usize)>,
+    pub(crate) causal_history_frontiers: Vec<CausalFrontierRef>,
+    pub(crate) causal_anchor_frontier_digest: Hash,
+}
+
+pub(crate) fn validate_recovered_causal_anchor_history(
+    report: &RecoveryScanReport,
+) -> Result<ValidatedCausalAnchorHistory, WalRecoveryIndexError> {
+    let recovered = observe_causal_anchor_admissions(report)?;
+    let mut by_transaction = recovered
+        .into_iter()
+        .map(|admission| (admission.transaction_id(), admission))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_anchor_ids = BTreeSet::new();
+    let mut admissions = Vec::new();
+    let mut current_frontier = causal_history_genesis_frontier_digest();
+    let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
+    let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
+
+    for (index, transaction) in report.transactions.iter().enumerate() {
+        let basis_before = CausalFrontierRef::from_digest(current_frontier);
+        let next_frontier = logical_causal_history_frontier_digest(
+            current_frontier,
+            transaction.commit.transaction_kind,
+            &transaction.frames,
+        );
+        let basis_after = CausalFrontierRef::from_digest(next_frontier);
+        if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
+            let admission = by_transaction
+                .remove(&transaction.commit.transaction_id)
+                .ok_or(WalRecoveryIndexError::CausalAnchorAdmissionMissing {
+                    transaction_id: transaction.commit.transaction_id,
+                })?;
+            let claimed_basis = admission.fact().claim().basis_frontier();
+            if claimed_basis != &basis_before {
+                return Err(WalRecoveryIndexError::CausalAnchorBasisMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    claimed: claimed_basis.frontier_digest,
+                    recovered: basis_before.frontier_digest,
+                });
+            }
+            let next_causal_anchor_frontier = causal_anchor_frontier_digest_from_evidence(
+                current_causal_anchor_frontier,
+                admission.fact(),
+                admission.receipt(),
+            );
+            let expected_frontiers_root = affected_frontiers_root(&[AffectedFrontier {
+                kind: AffectedFrontierKind::CausalAnchorIndex,
+                before_digest: current_causal_anchor_frontier,
+                after_digest: next_causal_anchor_frontier,
+            }]);
+            if transaction.commit.affected_frontiers_root != expected_frontiers_root {
+                return Err(WalRecoveryIndexError::CausalAnchorFrontierMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    expected: expected_frontiers_root,
+                    actual: transaction.commit.affected_frontiers_root,
+                });
+            }
+            current_causal_anchor_frontier = next_causal_anchor_frontier;
+            let anchor_id = *admission.fact().anchor_id();
+            if !seen_anchor_ids.insert(anchor_id) {
+                return Err(WalRecoveryIndexError::CausalAnchorIdConflict { anchor_id });
+            }
+            admissions.push((admission, index));
+        }
+        current_frontier = next_frontier;
+        frontiers.push(basis_after);
+    }
+
+    Ok(ValidatedCausalAnchorHistory {
+        admissions,
+        causal_history_frontiers: frontiers,
+        causal_anchor_frontier_digest: current_causal_anchor_frontier,
+    })
+}
+
+pub(crate) fn trusted_runtime_wal_digest(label: &str) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_history_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-history-frontier:genesis")
+}
+
+pub(crate) fn causal_anchor_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-anchor-frontier:genesis")
+}
+
+pub(crate) fn logical_causal_history_frontier_digest(
+    previous: Hash,
+    transaction_kind: WalTransactionKind,
+    frames: &[WalFrame],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-history-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(&[transaction_kind.stable_code()]);
+    hasher.update(&(frames.len() as u64).to_le_bytes());
+    for frame in frames {
+        hasher.update(&frame.header.payload_schema_id.as_hash());
+        hasher.update(&frame.header.payload_schema_version.to_le_bytes());
+        hasher.update(&frame.header.canonical_encoding_version.to_le_bytes());
+        hasher.update(&frame.header.digest_domain);
+        hasher.update(&frame.payload.digest());
+    }
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_anchor_frontier_digest_from_evidence(
+    previous: Hash,
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-anchor-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(fact.anchor_digest());
+    hasher.update(receipt.receipt_id().as_bytes());
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
 pub(crate) fn recover_causal_anchor_admissions(
     report: &RecoveryScanReport,
 ) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
@@ -8803,6 +8932,42 @@ pub enum WalRecoveryIndexError {
     /// Causal-anchor fact or receipt payload failed validation.
     #[error(transparent)]
     CausalAnchorPayload(#[from] CausalAnchorError),
+    /// Recovery omitted canonical evidence for an anchor transaction.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted recovered evidence")]
+    CausalAnchorAdmissionMissing {
+        /// Transaction whose canonical anchor evidence was unavailable.
+        transaction_id: WalTransactionId,
+    },
+    /// A recovered anchor claim named a basis other than its transaction basis.
+    #[error(
+        "causal-anchor basis mismatched transaction {transaction_id:?}: claimed {claimed:?}, recovered {recovered:?}"
+    )]
+    CausalAnchorBasisMismatch {
+        /// Transaction carrying the inconsistent anchor admission.
+        transaction_id: WalTransactionId,
+        /// Basis encoded in the recovered anchor claim and receipt.
+        claimed: Hash,
+        /// Logical causal-history frontier immediately before the transaction.
+        recovered: Hash,
+    },
+    /// Recovered anchor evidence was not bound to its exact frontier transition.
+    #[error(
+        "causal-anchor frontier mismatched transaction {transaction_id:?}: expected {expected:?}, actual {actual:?}"
+    )]
+    CausalAnchorFrontierMismatch {
+        /// Transaction carrying the unattested anchor-index transition.
+        transaction_id: WalTransactionId,
+        /// Root of the exact reconstructed causal-anchor frontier transition.
+        expected: Hash,
+        /// Affected-frontier root carried by the recovered commit marker.
+        actual: Hash,
+    },
+    /// Distinct recovered admissions claimed the same stable anchor identity.
+    #[error("recovered duplicate causal-anchor id {anchor_id:?}")]
+    CausalAnchorIdConflict {
+        /// Anchor identity claimed by more than one admission.
+        anchor_id: CausalAnchorId,
+    },
     /// A causal-anchor admission transaction omitted its required fact frame.
     #[error("causal-anchor admission transaction {transaction_id:?} omitted its fact frame")]
     MissingCausalAnchorFactFrame {

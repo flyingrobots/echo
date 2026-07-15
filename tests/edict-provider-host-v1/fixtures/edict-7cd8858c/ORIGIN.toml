@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+repository = "https://github.com/flyingrobots/edict"
+commit = "7cd8858c577fcfb6a05f0f617dfa821bb183c7df"
+license = "Apache-2.0"
+
+[[artifact]]
+file = "lowerer.component.wasm"
+source = "fixtures/providers/components/lowerer.component.wasm"
+bytes = 28007
+sha256 = "bec69c4fa02aa2dfb4f492d4a1c6849ae4ebe81c1725477efb6b0f2e885676aa"
+
+[[artifact]]
+file = "malformed-lowerer.component.wasm"
+source = "fixtures/providers/components/malformed-lowerer.component.wasm"
+bytes = 2165
+sha256 = "dfcd171918373d18b9dff16778e98b7618eeb4ac85976dd7134b9e201562f41b"

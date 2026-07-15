@@ -7,6 +7,42 @@
 
 ### Added
 
+- Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
+  Component Model implementation for the first checked provider closure. The
+  pure lowerer accepts only explicit digest-bound Core, target-profile,
+  authority, lawpack, lowerability, and output-role inputs; produces canonical
+  `echo.span-ir/v1` Target IR with byte-for-byte parity to Edict's built-in Echo
+  wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
+  reads, rebound operations, unresolved authored optics, changed type bindings,
+  Core type definitions, evaluation budgets, out-of-scope locals, intrinsics,
+  and output roles. Local admission distinguishes pre-effect, obstruction-arm,
+  and post-effect scope from the exact input, effect-result, and obstruction
+  declarations before cloning any expression into Target IR. The first closure
+  also requires an empty input-constraint set and the exact zero-argument
+  `domain.WriteRejected` obstruction constructor. Effect inputs and intent
+  results admit no call-expression callee, refusing unreviewed calls until their
+  own lowering laws exist. A
+  deterministic build boundary pins the frozen
+  WIT bytes, rejects ambient or callable imports, checks the exact decoded world
+  type graph and contract attestation, and reproduces the checked component
+  byte-for-byte across independently provisioned `linux/amd64` containers from
+  the immutable Rust image used by CI. The builder resolves and authenticates the
+  exact Rust and Cargo executables, binds Cargo to that compiler, owns the inner
+  Cargo home, removes ambient Cargo profile/build/target overrides, remaps its
+  dependency source paths to `/cargo`, and atomically promotes only distinct
+  candidates matching a reviewed repository digest.
+  Other-host builds are structural and semantic witnesses
+  rather than cross-host compiler-identity claims. The publication-enabled,
+  archive-self-contained `echo-edict-provider-lowerer` source crate carries
+  package-local copies of its four exact admitted resources, with a workspace
+  witness binding them to the checked generated corpus. Its full package gate
+  follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
+  and translate provider semantics; they confer no Echo runtime authority.
+- `echo-edict-canonical` now owns the shared pure implementation of Edict's
+  canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
+  leaf. `echo-wesley-gen` retains its existing compatibility surface through a
+  re-export, while executable provider components use the same codec without
+  depending on generator or Wesley APIs.
 - `echo-wesley-gen` now checks in the first exact 22-file Edict provider
   artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
   resources, the self-contained CDDL, Wesley provenance JSON, and

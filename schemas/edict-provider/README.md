@@ -147,6 +147,14 @@ contract documents. They are not executable component bytes. Issue #655 binds
 the exact lowerer and verifier components, including their frozen WIT world
 attestations, when it assembles the provider manifest.
 
+The first checked executable lowerer now lives under
+[`components/v1/`](components/v1/README.md). It consumes only the frozen Edict
+WIT request, accepts the exact generated mutation closure, and has exact Target
+IR byte parity with Edict's built-in Echo wrapper. Unsupported reads and other
+semantics produce typed refusals instead of invented artifacts. The checked
+component remains uninstalled package material; neither it nor the generated
+authority-facts documents are runtime Echo authority.
+
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in
 [Edict PR #162](https://github.com/flyingrobots/edict/pull/162). Echo passes the

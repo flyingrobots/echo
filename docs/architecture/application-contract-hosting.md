@@ -192,6 +192,32 @@ manifest separately binds the exact provider-owned components and their frozen
 WIT world attestations, preserving independent lowerers and component upgrades
 without target-profile semantic churn.
 
+The first executable lowerer implements the frozen
+`edict:target-provider/lowerer@1.0.0` world as a pure component over explicit
+request bytes. It recognizes only the checked mutation closure for local Core
+intent `t` (global semantic coordinate `a.b@1.t`) and emits the exact canonical
+Target IR bytes produced by Edict's built-in Echo compatibility wrapper. An
+effect-free operation is refused as unsupported semantics rather than encoded
+as a synthetic mutation. The same fail-closed rule applies to a rebound Core
+module, changed operation type binding, or authored Core optic that this first
+crossing cannot faithfully discharge. The lowerer authenticates the complete
+reviewed Core type-definition map and exact evaluation budget because neither
+may disappear or broaden across Target IR projection. It also derives bounded
+pre-effect, obstruction-arm, and post-effect local scopes from exactly one input,
+one effect-result, and one obstruction declaration. Every local expression must
+resolve to one complete compiler-owned identity before the expression is copied.
+This first closure admits no input constraints and only the reviewed
+zero-argument `domain.WriteRejected` obstruction constructor; non-empty
+constraints or a different construction fail closed until their own semantic
+crossings are implemented. The complete semantic closure includes the exact
+lowerability coordinate as well as its canonical bytes and digest.
+The component's protocol instance and request/result aliases are type-only
+imports; filesystem, network, environment, clock, randomness, registry,
+logging callback, WASI, and every other callable import are forbidden. This
+crossing proves translation only. Package admission, installation, invocation,
+commitment, observation, and receipt authority remain separate Echo runtime
+crossings.
+
 The package-root projection pins `echo.edict-provider@1` to exact component
 world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
 `generationProvenance` package member whose document contract remains owned by

@@ -70,6 +70,8 @@ jobs:
                     -p warp-geom \
                     -p warp-wasm \
                     -p echo-wasm-abi \
+                    -p echo-edict-canonical \
+                    -p echo-edict-provider-lowerer \
                     -p echo-runtime-schema \
                     -p echo-dry-tests \
                     -p echo-graph \
@@ -175,6 +177,55 @@ jobs:
                       .
             - name: cargo test (workspace sans warp-core)
               run: cargo test --workspace --exclude warp-core
+            - name: package publishable Edict canonical leaf
+              run: cargo package -p echo-edict-canonical --locked
+
+    build-edict-provider-lowerer:
+        name: Build and check Edict provider lowerer
+        runs-on: ubuntu-24.04
+        container:
+            image: docker.io/library/rust@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+            options: --platform linux/amd64
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+            - uses: dtolnay/rust-toolchain@1.90.0
+              with:
+                  components: clippy
+                  targets: wasm32-unknown-unknown
+            - name: build, audit, and check exact component bytes
+              env:
+                  GIT_CONFIG_COUNT: 1
+                  GIT_CONFIG_KEY_0: safe.directory
+                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+              run: |
+                  cargo xtask provider-lowerer-component check \
+                    --target-dir target/provider-lowerer-component \
+                    --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+            - name: clippy (wasm32 Edict provider adapter)
+              run: cargo +1.90.0 clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs
+
+    edict-provider-host-v1:
+        name: Edict provider host contract (Rust 1.94)
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+            - uses: dtolnay/rust-toolchain@1.90.0
+              with:
+                  targets: wasm32-unknown-unknown
+            - uses: dtolnay/rust-toolchain@1.94.0
+              with:
+                  components: clippy
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: |
+                      .
+                      tests/edict-provider-host-v1 -> target/edict-provider-host-v1
+            - name: invoke and replay through the exact Edict host
+              run: scripts/verify-edict-provider-host-v1.sh
 
     build-echo-cas-wasm:
         name: Build echo-cas (wasm32)

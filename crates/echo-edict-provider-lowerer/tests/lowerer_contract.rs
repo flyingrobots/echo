@@ -820,6 +820,29 @@ fn nonempty_input_constraints_refuse_instead_of_crossing_unchecked() {
 }
 
 #[test]
+fn unreviewed_effect_input_call_refuses_as_unsupported_semantics() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_node_mut(&mut core), "input") = call_expr("domain.Unreviewed");
+
+    assert_unsupported_semantics(
+        core,
+        "an unreviewed effect-input call cannot cross lowering",
+    );
+}
+
+#[test]
+fn unreviewed_intent_result_call_refuses_as_unsupported_semantics() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_body_mut(&mut core), "result") =
+        record_expr(call_expr("domain.Unreviewed"));
+
+    assert_unsupported_semantics(
+        core,
+        "an unreviewed intent-result call cannot cross lowering",
+    );
+}
+
+#[test]
 fn nested_undeclared_local_reference_refuses_with_stable_details() {
     let mut core = core_value(ordinary_result(), Some("target.replace"));
     *map_field_mut(operation_body_mut(&mut core), "result") = record_expr(field_expr(

@@ -32,8 +32,9 @@ one-effect closure requires exactly the compiler-owned input, effect-result, and
 obstruction declarations, then validates pre-effect, obstruction-arm, and
 post-effect scope by their complete identities before cloning expressions into
 Target IR. It accepts only an empty input-constraint set and the reviewed
-zero-argument `domain.WriteRejected` obstruction constructor; later constraint
-or constructor semantics require explicit lowering laws. Reads remain
+zero-argument `domain.WriteRejected` obstruction constructor. Effect inputs and
+intent results admit no call-expression callee in this closure; later
+constraint, constructor, or call semantics require explicit lowering laws. Reads remain
 unsupported and fail closed; the lowerer never represents a read as a synthetic
 mutation.
 

@@ -653,7 +653,7 @@ fn lower_intent(
     let result_scope = [lowered_effect.input_local, lowered_effect.binding];
     let result = map_field(body, "result")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core result is invalid"))?;
-    validate_expr(result, &result_scope)
+    validate_expr(result, &result_scope, &[])
         .map_err(|error| expression_refusal(error, "Core result is invalid"))?;
 
     Ok(canonical_map([
@@ -708,7 +708,7 @@ fn lower_effect_node<'a>(
     let pre_effect_scope = [input_local];
     let input = map_field(node, "input")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect input is invalid"))?;
-    validate_expr(input, &pre_effect_scope)
+    validate_expr(input, &pre_effect_scope, &[])
         .map_err(|error| expression_refusal(error, "effect input is invalid"))?;
 
     let obstruction_scope = [input_local, obstruction_binder];
@@ -721,7 +721,7 @@ fn lower_effect_node<'a>(
     {
         return Err(unsupported_semantics(OPERATION_COORDINATE));
     }
-    validate_expr(obstruction_value, &obstruction_scope)
+    validate_expr(obstruction_value, &obstruction_scope, &[DOMAIN_OBSTRUCTION])
         .map_err(|error| expression_refusal(error, "obstruction value is invalid"))?;
 
     Ok(LoweredEffect {
@@ -835,11 +835,13 @@ fn same_local_id(left: &CanonicalValueV1, right: &CanonicalValueV1) -> bool {
 enum ExpressionValidationError {
     Invalid,
     LocalOutOfScope,
+    UnsupportedCall,
 }
 
 fn validate_expr(
     value: &CanonicalValueV1,
     scope: &[&CanonicalValueV1],
+    allowed_callees: &[&str],
 ) -> Result<(), ExpressionValidationError> {
     match text_field(value, "kind") {
         Some("local") => {
@@ -864,7 +866,7 @@ fn validate_expr(
                 if as_text(key).is_none_or(str::is_empty) {
                     return Err(ExpressionValidationError::Invalid);
                 }
-                validate_expr(value, scope)?;
+                validate_expr(value, scope, allowed_callees)?;
             }
             Ok(())
         }
@@ -875,17 +877,23 @@ fn validate_expr(
             validate_expr(
                 map_field(value, "base").ok_or(ExpressionValidationError::Invalid)?,
                 scope,
+                allowed_callees,
             )
         }
         Some("call") => {
-            if text_field(value, "callee").is_none_or(str::is_empty)
-                || !array_field(value, "typeArgs")
-                    .is_some_and(|values| values.iter().all(|value| as_text(value).is_some()))
+            let callee = text_field(value, "callee")
+                .filter(|callee| !callee.is_empty())
+                .ok_or(ExpressionValidationError::Invalid)?;
+            if !allowed_callees.contains(&callee) {
+                return Err(ExpressionValidationError::UnsupportedCall);
+            }
+            if !array_field(value, "typeArgs")
+                .is_some_and(|values| values.iter().all(|value| as_text(value).is_some()))
             {
                 return Err(ExpressionValidationError::Invalid);
             }
             for argument in array_field(value, "args").ok_or(ExpressionValidationError::Invalid)? {
-                validate_expr(argument, scope)?;
+                validate_expr(argument, scope, allowed_callees)?;
             }
             Ok(())
         }
@@ -902,6 +910,7 @@ fn expression_refusal(
             invalid_artifact(OPERATION_COORDINATE, invalid_message)
         }
         ExpressionValidationError::LocalOutOfScope => local_scope_refusal(),
+        ExpressionValidationError::UnsupportedCall => unsupported_semantics(OPERATION_COORDINATE),
     }
 }
 

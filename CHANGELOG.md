@@ -19,8 +19,9 @@
   and post-effect scope from the exact input, effect-result, and obstruction
   declarations before cloning any expression into Target IR. The first closure
   also requires an empty input-constraint set and the exact zero-argument
-  `domain.WriteRejected` obstruction constructor, refusing those semantics until
-  their own lowering laws exist. A
+  `domain.WriteRejected` obstruction constructor. Effect inputs and intent
+  results admit no call-expression callee, refusing unreviewed calls until their
+  own lowering laws exist. A
   deterministic build boundary pins the frozen
   WIT bytes, rejects ambient or callable imports, checks the exact decoded world
   type graph and contract attestation, and reproduces the checked component

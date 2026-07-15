@@ -8088,6 +8088,7 @@ pub(crate) fn validate_recovered_causal_anchor_history(
     let mut admissions = Vec::new();
     let mut current_frontier = causal_history_genesis_frontier_digest();
     let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
 
     for (index, transaction) in report.transactions.iter().enumerate() {
@@ -8097,6 +8098,7 @@ pub(crate) fn validate_recovered_causal_anchor_history(
             transaction.commit.transaction_kind,
             &transaction.frames,
         );
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
         let basis_after = CausalFrontierRef::from_digest(next_frontier);
         if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
             let admission = by_transaction
@@ -8137,6 +8139,7 @@ pub(crate) fn validate_recovered_causal_anchor_history(
             admissions.push((admission, index));
         }
         current_frontier = next_frontier;
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
         frontiers.push(basis_after);
     }
 

@@ -1228,6 +1228,50 @@ pub enum EvidenceCatalogPosture {
     },
 }
 
+/// Disposable claim lookup rebuilt from witnessed causal-anchor history.
+#[derive(Clone, Debug, Default)]
+struct CausalAnchorClaimProjection {
+    admissions_by_claim: BTreeMap<Hash, Vec<RecoveredCausalAnchorAdmission>>,
+}
+
+impl CausalAnchorClaimProjection {
+    fn from_history(history: &[WitnessedCausalAnchorAdmission]) -> Self {
+        let mut projection = Self::default();
+        for entry in history {
+            projection.insert(entry.admission().clone());
+        }
+        projection
+    }
+
+    fn insert(&mut self, admission: RecoveredCausalAnchorAdmission) {
+        self.admissions_by_claim
+            .entry(*admission.fact().claim().claim_digest())
+            .or_default()
+            .push(admission);
+    }
+
+    fn find(
+        &self,
+        claim_digest: &Hash,
+        support_policy_digest: Option<&Hash>,
+    ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
+        let Some(admissions) = self.admissions_by_claim.get(claim_digest) else {
+            return Ok(None);
+        };
+        let mut matching = admissions.iter().filter(|admission| {
+            support_policy_digest
+                .is_none_or(|digest| admission.receipt().support_policy_digest() == digest)
+        });
+        let first = matching.next().cloned();
+        if matching.next().is_some() {
+            return Err(TrustedRuntimeWalError::CausalAnchorClaimConflict {
+                claim_digest: *claim_digest,
+            });
+        }
+        Ok(first)
+    }
+}
+
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Clone, Debug)]
 pub struct TrustedRuntimeWal {
@@ -1236,6 +1280,8 @@ pub struct TrustedRuntimeWal {
     evidence_catalog_posture: EvidenceCatalogPosture,
     #[cfg(any(test, feature = "host_test"))]
     fail_next_evidence_catalog_update: bool,
+    #[cfg(test)]
+    recover_read_only_call_count: std::cell::Cell<usize>,
     writer_epoch: WriterEpochId,
     segment_id: WalSegmentId,
     next_lsn: Lsn,
@@ -1250,6 +1296,7 @@ pub struct TrustedRuntimeWal {
     runtime_state_frontier_digest: Hash,
     causal_anchor_frontier_digest: Hash,
     causal_history_frontier_digest: Hash,
+    causal_anchor_claim_projection: CausalAnchorClaimProjection,
 }
 
 impl TrustedRuntimeWal {
@@ -1308,10 +1355,13 @@ impl TrustedRuntimeWal {
             runtime_state_frontier_digest: recovered_cursor.runtime_state_frontier_digest,
             causal_anchor_frontier_digest: recovered_cursor.causal_anchor_frontier_digest,
             causal_history_frontier_digest: recovered_cursor.causal_history_frontier_digest,
+            causal_anchor_claim_projection: recovered_cursor.causal_anchor_claim_projection,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: false,
+            #[cfg(test)]
+            recover_read_only_call_count: std::cell::Cell::new(0),
         })
     }
 
@@ -1343,6 +1393,9 @@ impl TrustedRuntimeWal {
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
+        #[cfg(test)]
+        self.recover_read_only_call_count
+            .set(self.recover_read_only_call_count.get() + 1);
         let report = self.store.recover_read_only()?;
         let submissions = recover_submission_index(&report).map_err(WalRecoveryError::from)?;
         let receipts = recover_receipt_index(&report).map_err(WalRecoveryError::from)?;
@@ -1452,20 +1505,8 @@ impl TrustedRuntimeWal {
         claim_digest: &Hash,
         support_policy_digest: Option<&Hash>,
     ) -> Result<Option<RecoveredCausalAnchorAdmission>, TrustedRuntimeWalError> {
-        let recovery = self.recover_read_only()?;
-        let mut matching = recovery.causal_anchor_history.iter().filter(|entry| {
-            entry.admission().fact().claim().claim_digest() == claim_digest
-                && support_policy_digest.is_none_or(|digest| {
-                    entry.admission().receipt().support_policy_digest() == digest
-                })
-        });
-        let first = matching.next().map(|entry| entry.admission().clone());
-        if matching.next().is_some() {
-            return Err(TrustedRuntimeWalError::CausalAnchorClaimConflict {
-                claim_digest: *claim_digest,
-            });
-        }
-        Ok(first)
+        self.causal_anchor_claim_projection
+            .find(claim_digest, support_policy_digest)
     }
 
     fn has_submission_acceptance(
@@ -1522,6 +1563,7 @@ impl TrustedRuntimeWal {
         self.runtime_state_frontier_digest = cursor.runtime_state_frontier_digest;
         self.causal_anchor_frontier_digest = cursor.causal_anchor_frontier_digest;
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
+        self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
         Ok(())
     }
 
@@ -1696,13 +1738,16 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.causal_anchor_frontier_digest = next_causal_anchor_frontier;
-        Ok(RecoveredCausalAnchorAdmission::from_committed_wal_evidence(
+        let admission = RecoveredCausalAnchorAdmission::from_committed_wal_evidence(
             fact,
             receipt,
             commit.transaction_id,
             commit.last_lsn,
             commit.commit_digest,
-        ))
+        );
+        self.causal_anchor_claim_projection
+            .insert(admission.clone());
+        Ok(admission)
     }
 
     fn append_transaction(
@@ -1999,7 +2044,7 @@ impl WalStorePort for TrustedRuntimeWalStore {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct TrustedRuntimeWalCursor {
     has_committed_history: bool,
     next_lsn: Lsn,
@@ -2010,6 +2055,7 @@ struct TrustedRuntimeWalCursor {
     runtime_state_frontier_digest: Hash,
     causal_anchor_frontier_digest: Hash,
     causal_history_frontier_digest: Hash,
+    causal_anchor_claim_projection: CausalAnchorClaimProjection,
 }
 
 struct RecoveredCausalAnchorTraversal {
@@ -2032,6 +2078,7 @@ impl TrustedRuntimeWalCursor {
             runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
             causal_anchor_frontier_digest: causal_anchor_genesis_frontier_digest(),
             causal_history_frontier_digest: causal_history_genesis_frontier_digest(),
+            causal_anchor_claim_projection: CausalAnchorClaimProjection::default(),
         }
     }
 
@@ -2088,6 +2135,8 @@ impl TrustedRuntimeWalCursor {
         }
         cursor.causal_anchor_frontier_digest =
             causal_anchor_traversal.causal_anchor_frontier_digest;
+        cursor.causal_anchor_claim_projection =
+            CausalAnchorClaimProjection::from_history(&causal_anchor_traversal.history);
         Ok(cursor)
     }
 }
@@ -3280,6 +3329,28 @@ mod tests {
         assert_eq!(
             cursor.causal_anchor_frontier_digest,
             traversal.causal_anchor_frontier_digest
+        );
+    }
+
+    #[test]
+    fn causal_anchor_claim_lookup_uses_projection_without_wal_replay() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let claim = test_causal_anchor_claim(wal.current_causal_anchor_basis());
+        let claim_digest = *claim.claim_digest();
+        let admitted = wal
+            .record_causal_anchor_admission(claim, [0x5f; 32])
+            .expect("test causal-anchor admission should commit");
+        wal.recover_read_only_call_count.set(0);
+
+        let recovered = wal
+            .causal_anchor_by_claim(&claim_digest, None)
+            .expect("claim lookup should use a validated projection");
+
+        assert_eq!(recovered, Some(admitted));
+        assert_eq!(
+            wal.recover_read_only_call_count.get(),
+            0,
+            "idempotency lookup must not replay committed WAL history"
         );
     }
 

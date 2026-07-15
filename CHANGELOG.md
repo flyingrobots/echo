@@ -25,7 +25,9 @@
   WAL at the current logical durable frontier. A host-owned exact root-support
   policy is validated and bound into receipt identity; successful admissions
   recover by anchor id after restart, while stale bases, unsupported roots, and
-  failed storage commits publish no authority.
+  failed storage commits publish no authority. Exact-retry lookup uses a
+  disposable claim projection rebuilt from validated WAL history, replaced on
+  writer recovery, and advanced only after a successful admission commit.
 - Causal-anchor request, fact, receipt, observation-only WAL evidence, and
   recovered admission evidence are now available from the `warp-core` crate
   root. Arbitrary recovery reports produce `ObservedCausalAnchorAdmission`;

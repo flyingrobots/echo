@@ -37,16 +37,16 @@ Out of scope unless an embedding profile adds a separate control:
 
 ## Attacker And Failure Classes
 
-| Class                           | Capability                                                                                                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Untrusted application caller    | Constructs arbitrary intent, query, anchor, capability-presentation, and payload bytes; retries and reorders requests; cites stale or unrelated identities. |
-| Malicious generated artifact    | Attempts to misdeclare operations, footprints, effects, schemas, requirements, or native capability.                                                        |
-| Remote Continuum peer           | Sends duplicate, reordered, stale, conflicting, malformed, or tampered suffix material and lies about local state.                                          |
-| Unauthorized observer           | Requests a wider aperture, different subject, hidden attachment, unsupported law, or privileged cached result.                                              |
-| Storage fault or attacker       | Truncates, corrupts, duplicates, reorders, deletes, or substitutes WAL, WSC, CAS, or manifest bytes.                                                        |
-| Replay or rollback attacker     | Replays valid old proposals, receipts, bundles, or an internally valid older durable store.                                                                 |
-| Resource attacker               | Sends oversized or numerous requests, constructs expensive rules or queries, exhausts WAL/CAS space, or forces repeated recovery work.                      |
-| Accidental implementation fault | Produces noncanonical bytes, divergent replay, partial publication, stale cache use, identity confusion, or a false success posture.                        |
+| Class | Capability |
+| ----- | ---------- |
+| Untrusted application caller | Constructs arbitrary intent, query, anchor, capability-presentation, and payload bytes; retries and reorders requests; cites stale or unrelated identities. |
+| Malicious generated artifact | Attempts to misdeclare operations, footprints, effects, schemas, requirements, or native capability. |
+| Remote Continuum peer | Sends duplicate, reordered, stale, conflicting, malformed, or tampered suffix material and lies about local state. |
+| Unauthorized observer | Requests a wider aperture, different subject, hidden attachment, unsupported law, or privileged cached result. |
+| Storage fault or attacker | Truncates, corrupts, duplicates, reorders, deletes, or substitutes WAL, WSC, CAS, or manifest bytes. |
+| Replay or rollback attacker | Replays valid old proposals, receipts, bundles, or an internally valid older durable store. |
+| Resource attacker | Sends oversized or numerous requests, constructs expensive rules or queries, exhausts WAL/CAS space, or forces repeated recovery work. |
+| Accidental implementation fault | Produces noncanonical bytes, divergent replay, partial publication, stale cache use, identity confusion, or a false success posture. |
 
 The current API split assumes application code cannot obtain the trusted-host
 handle by ordinary supported APIs. It is not a sandbox against hostile code

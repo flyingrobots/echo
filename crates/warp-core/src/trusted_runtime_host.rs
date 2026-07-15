@@ -18,20 +18,20 @@ use crate::causal_anchor::prepare_causal_anchor_admission;
 
 use crate::{
     causal_wal::{
-        build_causal_anchor_admission_transaction, build_recovery_certificate,
-        build_replayable_tick_transaction, build_submission_acceptance_with_material_transaction,
-        recover_causal_anchor_admissions, recover_filesystem_store,
-        recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
-        recovered_submission_receipt_index_root, AffectedFrontier, AffectedFrontierKind,
-        FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
-        RecoveredCausalAnchorAdmission, RecoveredReceiptIndex, RecoveredSubmissionIndex,
-        RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport, SubmissionAcceptanceRecord,
-        SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority, WalBuildError,
-        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
-        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalRuntimeStateDeltaRecord,
-        WalSegmentId, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision,
-        WalTransactionBuilder, WalTransactionCommit, WalTransactionId, WalTransactionKind,
-        WriterEpochId, WriterEpochRequest,
+        affected_frontiers_root, build_causal_anchor_admission_transaction,
+        build_recovery_certificate, build_replayable_tick_transaction,
+        build_submission_acceptance_with_material_transaction, recover_causal_anchor_admissions,
+        recover_filesystem_store, recover_from_frames_and_commits, recover_receipt_index,
+        recover_submission_index, recovered_submission_receipt_index_root, AffectedFrontier,
+        AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId,
+        PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
+        RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport,
+        SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority,
+        WalBuildError, WalCommittedTransaction, WalDecodeError, WalDurabilityMode,
+        WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalRecoveryIndexError,
+        WalRuntimeStateDeltaRecord, WalSegmentId, WalStoreError, WalStorePort,
+        WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
+        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     CausalAnchorAdmissionReceipt, CausalAnchorAdmissionRequest, CausalAnchorClaim,
@@ -189,6 +189,18 @@ pub enum TrustedRuntimeWalError {
         claimed: Hash,
         /// Logical causal-history frontier immediately before the transaction.
         recovered: Hash,
+    },
+    /// Recovered anchor evidence was not bound to its exact frontier transition.
+    #[error(
+        "trusted runtime WAL causal-anchor frontier mismatched transaction {transaction_id:?}: expected {expected:?}, actual {actual:?}"
+    )]
+    CausalAnchorFrontierMismatch {
+        /// Transaction carrying the unattested anchor-index transition.
+        transaction_id: Hash,
+        /// Root of the exact reconstructed causal-anchor frontier transition.
+        expected: Hash,
+        /// Affected-frontier root carried by the recovered commit marker.
+        actual: Hash,
     },
     /// Distinct recovered admissions claimed the same stable anchor identity.
     #[error("trusted runtime WAL recovered duplicate causal-anchor id {anchor_id:?}")]
@@ -2012,9 +2024,7 @@ impl TrustedRuntimeWalCursor {
             submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
             receipt_frontier_digest: trusted_runtime_wal_digest("receipt-frontier:genesis"),
             runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
-            causal_anchor_frontier_digest: trusted_runtime_wal_digest(
-                "causal-anchor-frontier:genesis",
-            ),
+            causal_anchor_frontier_digest: causal_anchor_genesis_frontier_digest(),
             causal_history_frontier_digest: causal_history_genesis_frontier_digest(),
         }
     }
@@ -2087,10 +2097,12 @@ impl TrustedRuntimeWalCursor {
                         &admission,
                         &causal_history_basis_before,
                     )?;
-                    cursor.causal_anchor_frontier_digest = causal_anchor_frontier_digest(
-                        cursor.causal_anchor_frontier_digest,
-                        &admission,
-                    );
+                    cursor.causal_anchor_frontier_digest =
+                        require_recovered_causal_anchor_frontier(
+                            transaction,
+                            &admission,
+                            cursor.causal_anchor_frontier_digest,
+                        )?;
                 }
                 _ => {}
             }
@@ -2110,6 +2122,7 @@ fn recover_witnessed_causal_anchor_history(
     let mut seen_anchor_ids = BTreeSet::new();
     let mut history = Vec::new();
     let mut current_frontier = causal_history_genesis_frontier_digest();
+    let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
     let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
 
     for (index, transaction) in report.transactions.iter().enumerate() {
@@ -2127,6 +2140,11 @@ fn recover_witnessed_causal_anchor_history(
                     transaction_id: transaction.commit.transaction_id.as_hash(),
                 })?;
             require_recovered_causal_anchor_basis(transaction, &admission, &basis_before)?;
+            current_causal_anchor_frontier = require_recovered_causal_anchor_frontier(
+                transaction,
+                &admission,
+                current_causal_anchor_frontier,
+            )?;
             let anchor_id = *admission.fact().anchor_id();
             if !seen_anchor_ids.insert(anchor_id) {
                 return Err(TrustedRuntimeWalError::CausalAnchorIdConflict { anchor_id });
@@ -2158,6 +2176,28 @@ fn require_recovered_causal_anchor_basis(
         transaction_id: transaction.commit.transaction_id.as_hash(),
         claimed: claimed_basis.frontier_digest,
         recovered: recovered_basis.frontier_digest,
+    })
+}
+
+fn require_recovered_causal_anchor_frontier(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+    admission: &RecoveredCausalAnchorAdmission,
+    previous: Hash,
+) -> Result<Hash, TrustedRuntimeWalError> {
+    let next = causal_anchor_frontier_digest(previous, admission);
+    let expected = affected_frontiers_root(&[AffectedFrontier {
+        kind: AffectedFrontierKind::CausalAnchorIndex,
+        before_digest: previous,
+        after_digest: next,
+    }]);
+    let actual = transaction.commit.affected_frontiers_root;
+    if actual == expected {
+        return Ok(next);
+    }
+    Err(TrustedRuntimeWalError::CausalAnchorFrontierMismatch {
+        transaction_id: transaction.commit.transaction_id.as_hash(),
+        expected,
+        actual,
     })
 }
 
@@ -2924,6 +2964,10 @@ fn causal_history_genesis_frontier_digest() -> Hash {
     trusted_runtime_wal_digest("causal-history-frontier:genesis")
 }
 
+fn causal_anchor_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-anchor-frontier:genesis")
+}
+
 fn logical_causal_history_frontier_digest(
     previous: Hash,
     transaction_kind: WalTransactionKind,
@@ -3165,6 +3209,50 @@ mod tests {
                 ..
             } if claimed == claimed_basis.frontier_digest
                 && recovered == recovered_basis.frontier_digest
+        ));
+    }
+
+    #[test]
+    fn runtime_wal_recovery_rejects_unattested_anchor_frontier_transition() {
+        let mut wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let claim = test_causal_anchor_claim(wal.current_causal_anchor_basis());
+        let support_policy_digest = [0x7c; 32];
+        let transaction_id = WalTransactionId::from_hash(causal_anchor_transaction_digest(
+            wal.causal_anchor_frontier_digest,
+            claim.claim_digest(),
+            &support_policy_digest,
+        ));
+        let transaction = build_causal_anchor_admission_transaction(
+            wal.causal_anchor_builder(transaction_id),
+            claim,
+            support_policy_digest,
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::CausalAnchorIndex,
+                before_digest: [0x8d; 32],
+                after_digest: [0x9e; 32],
+            }],
+        )
+        .expect("internal test setup should build malformed frontier evidence");
+        wal.append_transaction(transaction)
+            .expect("malformed historical evidence should remain physically appendable");
+
+        let report = wal
+            .store
+            .recover_read_only()
+            .expect("malformed committed transaction should remain physically readable");
+        let cursor_error = TrustedRuntimeWalCursor::from_recovery(&report)
+            .expect_err("writer recovery must reject an unattested anchor frontier transition");
+        assert!(matches!(
+            cursor_error,
+            TrustedRuntimeWalError::CausalAnchorFrontierMismatch { .. }
+        ));
+
+        let reading_error = wal
+            .recover_read_only()
+            .expect_err("read-only recovery must reject an unattested anchor frontier transition");
+        assert!(matches!(
+            reading_error,
+            TrustedRuntimeWalError::CausalAnchorFrontierMismatch { .. }
         ));
     }
 

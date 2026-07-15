@@ -9092,7 +9092,7 @@ fn records_root(frames: &[WalFrame]) -> Hash {
     h.finalize().into()
 }
 
-fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
+pub(crate) fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
     let mut sorted = frontiers.to_vec();
     sorted.sort_by_key(|frontier| frontier.kind);
     let mut h = blake3::Hasher::new();

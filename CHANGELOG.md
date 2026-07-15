@@ -15,10 +15,10 @@
 - The causal WAL now has stable causal-anchor admission transaction, fact, and
   receipt record kinds. Transaction validation requires exactly one fact frame
   followed by exactly one receipt frame before append, while recovery rejects
-  uncommitted, malformed, coordinate-mismatched, basis-mismatched, or
-  cross-admission evidence. Public WAL builders and stores cannot originate
-  causal-anchor admission transactions without Echo's crate-private admission
-  capability.
+  uncommitted, malformed, coordinate-mismatched, basis-mismatched,
+  frontier-root-mismatched, or cross-admission evidence. Public WAL builders
+  and stores cannot originate causal-anchor admission transactions without
+  Echo's crate-private admission capability.
 - `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
   WAL at the current logical durable frontier. A host-owned exact root-support
   policy is validated and bound into receipt identity; successful admissions

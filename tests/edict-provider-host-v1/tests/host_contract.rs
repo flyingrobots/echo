@@ -32,10 +32,10 @@ use edict_syntax::{
     ProviderSchemaFormat, ProviderSemanticInput, ProviderSemanticInputBinding,
     ProviderSemanticInputKind, ResourceRef, TargetEffectLowering, TargetIrLoweringFacts,
     TargetProviderManifest, ValidatedProviderLoweringRequest, WriteClass,
-    AUTHORITY_FACTS_API_VERSION, CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE,
-    ECHO_SPAN_IR_DOMAIN, PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN,
-    TARGET_PROFILE_API_VERSION, TARGET_PROVIDER_ABI, TARGET_PROVIDER_MANIFEST_API_VERSION,
-    TARGET_PROVIDER_PROTOCOL_VERSION,
+    AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
+    ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
+    PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
+    TARGET_PROVIDER_ABI, TARGET_PROVIDER_MANIFEST_API_VERSION, TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -155,13 +155,12 @@ fn locked_test_resource(coordinate: &str, digit: char) -> ResourceRef {
 }
 
 fn provider_digest(domain: &str, canonical_bytes: &[u8]) -> ProviderDigest {
-    let value = decode_canonical_cbor(canonical_bytes).expect("artifact is canonical CBOR");
-    let frame = CanonicalValue::Array(vec![
-        CanonicalValue::Text("edict.digest/v1".to_owned()),
-        CanonicalValue::Text(domain.to_owned()),
-        value,
-    ]);
-    let framed = encode_canonical_cbor(&frame).expect("provider digest frame encodes");
+    decode_canonical_cbor(canonical_bytes).expect("artifact is canonical CBOR");
+    let mut framed = vec![0x83];
+    framed
+        .extend(encode_canonical_cbor(&text(CORE_DIGEST_FRAME)).expect("digest frame tag encodes"));
+    framed.extend(encode_canonical_cbor(&text(domain)).expect("digest domain encodes"));
+    framed.extend_from_slice(canonical_bytes);
     ProviderDigest {
         algorithm: ProviderDigestAlgorithm::Sha256,
         bytes: Sha256::digest(framed).to_vec(),
@@ -437,6 +436,23 @@ fn echo_request(
 ) -> (ProviderLoweringInvocationContract, ProviderLoweringRequest) {
     let core_bytes = encode_core_module(core).expect("Core module encodes canonically");
     echo_request_from_core_bytes(&core_bytes, output_role)
+}
+
+fn canonical_map_field_mut<'a>(
+    value: &'a mut CanonicalValue,
+    field: &str,
+) -> &'a mut CanonicalValue {
+    let CanonicalValue::Map(entries) = value else {
+        panic!("canonical value is not a map");
+    };
+    entries
+        .iter_mut()
+        .find_map(|(key, value)| (key == &text(field)).then_some(value))
+        .unwrap_or_else(|| panic!("canonical map field `{field}` is absent"))
+}
+
+fn canonical_core_intent_mut(core: &mut CanonicalValue) -> &mut CanonicalValue {
+    canonical_map_field_mut(canonical_map_field_mut(core, "intents"), "t")
 }
 
 fn echo_harness_with_request(
@@ -791,6 +807,20 @@ fn exact_merged_edict_host_fixtures_are_unchanged() {
 }
 
 #[test]
+fn provider_digest_accepts_the_maximum_canonical_value_depth() {
+    let mut value = text("leaf");
+    for _ in 0..MAX_CANONICAL_NESTING_DEPTH {
+        value = CanonicalValue::Array(vec![value]);
+    }
+    let bytes = encode_canonical_cbor(&value).expect("maximum-depth value encodes");
+
+    let digest = provider_digest("test.maximum-depth/v1", &bytes);
+
+    assert_eq!(digest.algorithm, ProviderDigestAlgorithm::Sha256);
+    assert_eq!(digest.bytes.len(), 32);
+}
+
+#[test]
 fn echo_component_refuses_an_unsupported_profile_through_the_actual_host() {
     let core = echo_core();
     let (mut contract, mut request) = echo_request(&core, TARGET_IR_ROLE);
@@ -818,6 +848,61 @@ fn echo_component_refuses_unsupported_core_semantics_through_the_actual_host() {
         &harness,
         ProviderRefusalKind::UnsupportedSemantics,
         Some("x.y@1"),
+    );
+}
+
+#[test]
+fn echo_component_refuses_nonempty_input_constraints_through_the_actual_host() {
+    let core_bytes = encode_core_module(&echo_core()).expect("Core module encodes canonically");
+    let mut core = decode_canonical_cbor(&core_bytes).expect("Core module decodes canonically");
+    *canonical_map_field_mut(canonical_core_intent_mut(&mut core), "inputConstraints") =
+        CanonicalValue::Array(vec![map([
+            ("coordinate", text("a.b@1.t.where.0")),
+            ("source", text("where")),
+            (
+                "predicate",
+                map([
+                    ("kind", text("call")),
+                    ("predicate", text("domain.Unreviewed")),
+                    ("args", CanonicalValue::Array(Vec::new())),
+                ]),
+            ),
+        ])]);
+    let core_bytes = encode_canonical_cbor(&core).expect("mutated Core encodes canonically");
+    let (contract, request) = echo_request_from_core_bytes(&core_bytes, TARGET_IR_ROLE);
+    let harness = echo_harness_with_request(contract, request);
+
+    assert_echo_refusal(
+        &harness,
+        ProviderRefusalKind::UnsupportedSemantics,
+        Some("a.b@1.t"),
+    );
+}
+
+#[test]
+fn echo_component_refuses_incomplete_local_inventory_through_the_actual_host() {
+    let core_bytes = encode_core_module(&echo_core()).expect("Core module encodes canonically");
+    let mut core = decode_canonical_cbor(&core_bytes).expect("Core module decodes canonically");
+    let body = canonical_map_field_mut(canonical_core_intent_mut(&mut core), "body");
+    let CanonicalValue::Array(locals) = canonical_map_field_mut(body, "locals") else {
+        panic!("Core locals is not an array");
+    };
+    locals.retain(|local| {
+        let CanonicalValue::Map(entries) = local else {
+            return true;
+        };
+        !entries
+            .iter()
+            .any(|(key, value)| key == &text("type") && value == &text("target.replace.rejected"))
+    });
+    let core_bytes = encode_canonical_cbor(&core).expect("mutated Core encodes canonically");
+    let (contract, request) = echo_request_from_core_bytes(&core_bytes, TARGET_IR_ROLE);
+    let harness = echo_harness_with_request(contract, request);
+
+    assert_echo_refusal(
+        &harness,
+        ProviderRefusalKind::InvalidSemanticArtifact,
+        Some("a.b@1.t"),
     );
 }
 

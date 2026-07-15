@@ -14,7 +14,14 @@
   `echo.span-ir/v1` Target IR with byte-for-byte parity to Edict's built-in Echo
   wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
   reads, rebound operations, unresolved authored optics, changed type bindings,
-  intrinsics, and output roles. A deterministic build boundary pins the frozen
+  Core type definitions, evaluation budgets, out-of-scope locals, intrinsics,
+  and output roles. Local admission distinguishes pre-effect, obstruction-arm,
+  and post-effect scope from the exact input, effect-result, and obstruction
+  declarations before cloning any expression into Target IR. The first closure
+  also requires an empty input-constraint set and the exact zero-argument
+  `domain.WriteRejected` obstruction constructor, refusing those semantics until
+  their own lowering laws exist. A
+  deterministic build boundary pins the frozen
   WIT bytes, rejects ambient or callable imports, checks the exact decoded world
   type graph and contract attestation, and reproduces the checked component
   byte-for-byte across fresh target directories on the designated Rust 1.90.0

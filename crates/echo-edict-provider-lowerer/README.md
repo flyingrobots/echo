@@ -26,9 +26,16 @@ inner domain is `echo.span-ir/v1`. It accepts only the exact Core module
 coordinate, local intent key, input/output type bindings, Echo DPO target
 profile, and #652 lawpack, authority, and lowerability identities. Rebound
 operations, authored optics that this crossing cannot yet discharge, changed
-type bindings, unsupported Core ABI, target profiles, semantics, and output
-roles produce typed provider refusals. Reads remain unsupported and fail
-closed; the lowerer never represents a read as a synthetic mutation.
+type bindings or definitions, evaluation budgets, unsupported Core ABI, target
+profiles, semantics, and output roles produce typed provider refusals. The
+one-effect closure requires exactly the compiler-owned input, effect-result, and
+obstruction declarations, then validates pre-effect, obstruction-arm, and
+post-effect scope by their complete identities before cloning expressions into
+Target IR. It accepts only an empty input-constraint set and the reviewed
+zero-argument `domain.WriteRejected` obstruction constructor; later constraint
+or constructor semantics require explicit lowering laws. Reads remain
+unsupported and fail closed; the lowerer never represents a read as a synthetic
+mutation.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

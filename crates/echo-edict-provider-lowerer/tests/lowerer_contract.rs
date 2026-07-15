@@ -127,12 +127,12 @@ fn record_expr(id: CanonicalValueV1) -> CanonicalValueV1 {
     ])
 }
 
-fn call_expr(callee: &str, argument: CanonicalValueV1) -> CanonicalValueV1 {
+fn call_expr(callee: &str) -> CanonicalValueV1 {
     map([
         ("kind", text("call")),
         ("callee", text(callee)),
         ("typeArgs", CanonicalValueV1::Array(Vec::new())),
-        ("args", CanonicalValueV1::Array(vec![argument])),
+        ("args", CanonicalValueV1::Array(Vec::new())),
     ])
 }
 
@@ -166,6 +166,56 @@ fn bound(coordinate: &str, domain: &str, bytes: impl Into<Vec<u8>>) -> BoundArti
     }
 }
 
+fn core_types() -> CanonicalValueV1 {
+    string_map([
+        (
+            "Input",
+            map([
+                ("kind", text("Record")),
+                ("fields", string_map([("id", text("a.b@1.Input.id"))])),
+            ]),
+        ),
+        (
+            "Output",
+            map([
+                ("kind", text("Record")),
+                ("fields", string_map([("id", text("a.b@1.Output.id"))])),
+            ]),
+        ),
+        (
+            "Receipt",
+            map([
+                ("kind", text("Record")),
+                ("fields", string_map([("id", text("a.b@1.Receipt.id"))])),
+            ]),
+        ),
+        (
+            "Input.id",
+            map([
+                ("kind", text("String")),
+                ("max", integer(16)),
+                ("canonical", text("raw-utf8")),
+            ]),
+        ),
+        (
+            "Output.id",
+            map([
+                ("kind", text("String")),
+                ("max", integer(16)),
+                ("canonical", text("raw-utf8")),
+            ]),
+        ),
+        (
+            "Receipt.id",
+            map([
+                ("kind", text("String")),
+                ("max", integer(16)),
+                ("canonical", text("raw-utf8")),
+            ]),
+        ),
+    ])
+}
+
 fn core_value(result: CanonicalValueV1, effect: Option<&str>) -> CanonicalValueV1 {
     let input = local("local:0", "input", "a.b@1.Input");
     let receipt = local("local:1", "receipt", "a.b@1.Receipt");
@@ -182,10 +232,7 @@ fn core_value(result: CanonicalValueV1, effect: Option<&str>) -> CanonicalValueV
                     "rejected",
                     map([
                         ("binder", reason.clone()),
-                        (
-                            "value",
-                            call_expr("domain.WriteRejected", local_expr(reason)),
-                        ),
+                        ("value", call_expr("domain.WriteRejected")),
                     ]),
                 )]),
             ),
@@ -210,7 +257,10 @@ fn core_value(result: CanonicalValueV1, effect: Option<&str>) -> CanonicalValueV
         (
             "body",
             map([
-                ("locals", CanonicalValueV1::Array(vec![input, receipt])),
+                (
+                    "locals",
+                    CanonicalValueV1::Array(vec![input, receipt, reason]),
+                ),
                 ("nodes", CanonicalValueV1::Array(nodes)),
                 ("result", result),
             ]),
@@ -220,7 +270,7 @@ fn core_value(result: CanonicalValueV1, effect: Option<&str>) -> CanonicalValueV
         ("apiVersion", text("edict.core/v1")),
         ("coordinate", text("a.b@1")),
         ("imports", CanonicalValueV1::Array(Vec::new())),
-        ("types", CanonicalValueV1::Map(Vec::new())),
+        ("types", core_types()),
         ("intents", string_map([("t", intent)])),
         (
             "requiredCoreCapabilities",
@@ -446,13 +496,7 @@ fn minimal_echo_mutation_lowers_from_explicit_semantics() {
                 "binder",
                 local("local:2", "reason", "target.replace.rejected")
             ),
-            (
-                "value",
-                call_expr(
-                    "domain.WriteRejected",
-                    local_expr(local("local:2", "reason", "target.replace.rejected"))
-                )
-            ),
+            ("value", call_expr("domain.WriteRejected")),
         ])
     );
 }
@@ -461,7 +505,6 @@ fn minimal_echo_mutation_lowers_from_explicit_semantics() {
 fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     let core_bytes = hex::decode(EDICT_ORACLE_CORE_HEX).expect("oracle Core hex is valid");
     assert_eq!(core_bytes.len(), 1209);
-
     let mut request = request();
     request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
     assert_eq!(
@@ -703,6 +746,195 @@ fn unsupported_intent_type_bindings_refuse_instead_of_being_ignored() {
 }
 
 #[test]
+fn altered_core_type_definitions_refuse_instead_of_disappearing() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    let input_id = map_field_mut(map_field_mut(&mut core, "types"), "Input.id");
+    *map_field_mut(input_id, "max") = integer(17);
+
+    let refusal = lower(request_with_core(core))
+        .expect_err("changed Core type semantics cannot disappear across lowering");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_eq!(refusal.subject.as_deref(), Some("a.b@1"));
+    assert_eq!(refusal.diagnostics.len(), 1);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.provider.unsupported-semantics"
+    );
+}
+
+#[test]
+fn changed_evaluation_budget_refuses_instead_of_broadening_the_closure() {
+    for (field, value) in [
+        ("maxSteps", 0),
+        ("maxAllocatedBytes", 2048),
+        ("maxOutputBytes", 512),
+    ] {
+        let mut core = core_value(ordinary_result(), Some("target.replace"));
+        let intent = map_field_mut(map_field_mut(&mut core, "intents"), "t");
+        *map_field_mut(map_field_mut(intent, "coreEvaluationBudget"), field) = integer(value);
+
+        let refusal = lower(request_with_core(core))
+            .expect_err("a different evaluation budget is outside the reviewed closure");
+        assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+        assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
+        assert_eq!(refusal.diagnostics.len(), 1);
+        assert_eq!(
+            refusal.diagnostics[0].code,
+            "echo.provider.unsupported-semantics"
+        );
+    }
+}
+
+#[test]
+fn nonempty_input_constraints_refuse_instead_of_crossing_unchecked() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    let CanonicalValueV1::Array(constraints) =
+        map_field_mut(operation_intent_mut(&mut core), "inputConstraints")
+    else {
+        panic!("Core input constraints is not an array");
+    };
+    constraints.push(map([
+        ("coordinate", text("a.b@1.t.where.0")),
+        ("source", text("where")),
+        (
+            "predicate",
+            map([
+                ("kind", text("call")),
+                ("predicate", text("domain.Unreviewed")),
+                (
+                    "args",
+                    CanonicalValueV1::Array(vec![local_expr(local(
+                        "local:99",
+                        "ghost",
+                        "a.b@1.Input",
+                    ))]),
+                ),
+            ]),
+        ),
+    ]));
+
+    assert_unsupported_semantics(
+        core,
+        "input constraints need explicit lowering and scope validation",
+    );
+}
+
+#[test]
+fn nested_undeclared_local_reference_refuses_with_stable_details() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_body_mut(&mut core), "result") = record_expr(field_expr(
+        local_expr(local("local:99", "ghost", "a.b@1.Input")),
+        "id",
+    ));
+    assert_out_of_scope(core, "a nested undeclared result local cannot lower");
+}
+
+#[test]
+fn effect_result_binding_is_not_visible_in_its_own_input() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_node_mut(&mut core), "input") =
+        local_expr(local("local:1", "receipt", "a.b@1.Receipt"));
+    assert_out_of_scope(core, "an effect cannot consume its own result binding");
+}
+
+#[test]
+fn obstruction_binder_does_not_escape_its_arm() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_body_mut(&mut core), "result") =
+        local_expr(local("local:2", "reason", "target.replace.rejected"));
+    assert_out_of_scope(core, "an obstruction binder cannot escape its arm");
+}
+
+#[test]
+fn local_reference_must_match_the_declared_identity_triple() {
+    for changed_reference in [
+        local("local:0", "other", "a.b@1.Input"),
+        local("local:0", "input", "a.b@1.Output"),
+    ] {
+        let mut core = core_value(ordinary_result(), Some("target.replace"));
+        *map_field_mut(operation_body_mut(&mut core), "result") =
+            record_expr(field_expr(local_expr(changed_reference), "id"));
+        assert_out_of_scope(core, "a local reference cannot alter its declaration");
+    }
+}
+
+#[test]
+fn duplicate_or_conflicting_local_ids_refuse() {
+    for duplicate in [
+        local("local:0", "input", "a.b@1.Input"),
+        local("local:0", "other", "a.b@1.Output"),
+    ] {
+        let mut core = core_value(ordinary_result(), Some("target.replace"));
+        let CanonicalValueV1::Array(locals) =
+            map_field_mut(operation_body_mut(&mut core), "locals")
+        else {
+            panic!("Core locals is not an array");
+        };
+        locals.push(duplicate);
+        assert_invalid_local_declarations(core);
+    }
+}
+
+#[test]
+fn local_inventory_is_exactly_the_reviewed_binding_closure() {
+    for missing_id in ["local:1", "local:2"] {
+        let mut core = core_value(ordinary_result(), Some("target.replace"));
+        operation_locals_mut(&mut core)
+            .retain(|local| text_value(map_field(local, "id")) != missing_id);
+        assert_invalid_local_declarations(core);
+    }
+
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    operation_locals_mut(&mut core).push(local("local:99", "ghost", "a.b@1.Input"));
+    assert_invalid_local_declarations(core);
+}
+
+#[test]
+fn local_binding_roles_authenticate_their_reviewed_types() {
+    let mut input = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(local_by_id_mut(&mut input, "local:0"), "type") = text("a.b@1.Output");
+    assert_invalid_local_declarations(input);
+
+    let mut receipt = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(local_by_id_mut(&mut receipt, "local:1"), "type") = text("a.b@1.Output");
+    *map_field_mut(
+        map_field_mut(operation_node_mut(&mut receipt), "binding"),
+        "type",
+    ) = text("a.b@1.Output");
+    assert_invalid_local_declarations(receipt);
+
+    let mut reason = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(local_by_id_mut(&mut reason, "local:2"), "type") = text("a.b@1.Input");
+    *map_field_mut(
+        map_field_mut(obstruction_arm_mut(&mut reason), "binder"),
+        "type",
+    ) = text("a.b@1.Input");
+    assert_invalid_local_declarations(reason);
+}
+
+#[test]
+fn obstruction_constructor_is_exactly_the_reviewed_mapping() {
+    for (field, changed) in [
+        ("callee", text("domain.Unreviewed")),
+        ("typeArgs", CanonicalValueV1::Array(vec![text("T")])),
+        (
+            "args",
+            CanonicalValueV1::Array(vec![local_expr(local("local:0", "input", "a.b@1.Input"))]),
+        ),
+    ] {
+        let mut core = core_value(ordinary_result(), Some("target.replace"));
+        *map_field_mut(
+            map_field_mut(obstruction_arm_mut(&mut core), "value"),
+            field,
+        ) = changed;
+        assert_unsupported_semantics(
+            core,
+            "an unreviewed obstruction constructor cannot cross lowering",
+        );
+    }
+}
+
+#[test]
 fn renamed_lowerability_artifact_refuses_as_an_invalid_closure_member() {
     let mut request = request();
     request.semantic_inputs[3].artifact.reference.coordinate =
@@ -744,4 +976,76 @@ fn map_field_mut<'a>(value: &'a mut CanonicalValueV1, field: &str) -> &'a mut Ca
         .iter_mut()
         .find_map(|(key, value)| (key == &text(field)).then_some(value))
         .unwrap_or_else(|| panic!("map field `{field}` is absent"))
+}
+
+fn operation_body_mut(core: &mut CanonicalValueV1) -> &mut CanonicalValueV1 {
+    map_field_mut(operation_intent_mut(core), "body")
+}
+
+fn operation_intent_mut(core: &mut CanonicalValueV1) -> &mut CanonicalValueV1 {
+    map_field_mut(map_field_mut(core, "intents"), "t")
+}
+
+fn operation_locals_mut(core: &mut CanonicalValueV1) -> &mut Vec<CanonicalValueV1> {
+    let CanonicalValueV1::Array(locals) = map_field_mut(operation_body_mut(core), "locals") else {
+        panic!("Core locals is not an array");
+    };
+    locals
+}
+
+fn local_by_id_mut<'a>(
+    core: &'a mut CanonicalValueV1,
+    expected_id: &str,
+) -> &'a mut CanonicalValueV1 {
+    operation_locals_mut(core)
+        .iter_mut()
+        .find(|local| text_value(map_field(local, "id")) == expected_id)
+        .unwrap_or_else(|| panic!("Core local `{expected_id}` is absent"))
+}
+
+fn operation_node_mut(core: &mut CanonicalValueV1) -> &mut CanonicalValueV1 {
+    let CanonicalValueV1::Array(nodes) = map_field_mut(operation_body_mut(core), "nodes") else {
+        panic!("Core nodes is not an array");
+    };
+    nodes.first_mut().expect("reviewed closure has one node")
+}
+
+fn obstruction_arm_mut(core: &mut CanonicalValueV1) -> &mut CanonicalValueV1 {
+    map_field_mut(
+        map_field_mut(operation_node_mut(core), "obstructionMap"),
+        "rejected",
+    )
+}
+
+fn assert_out_of_scope(core: CanonicalValueV1, message: &str) {
+    let refusal = lower(request_with_core(core)).expect_err(message);
+    assert_eq!(refusal.kind, ProviderRefusalKind::InvalidSemanticArtifact);
+    assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
+    assert_eq!(refusal.diagnostics.len(), 1);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.provider.local-reference-out-of-scope"
+    );
+}
+
+fn assert_invalid_local_declarations(core: CanonicalValueV1) {
+    let refusal = lower(request_with_core(core)).expect_err("ambiguous Core locals cannot lower");
+    assert_eq!(refusal.kind, ProviderRefusalKind::InvalidSemanticArtifact);
+    assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
+    assert_eq!(refusal.diagnostics.len(), 1);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.provider.invalid-semantic-artifact"
+    );
+}
+
+fn assert_unsupported_semantics(core: CanonicalValueV1, message: &str) {
+    let refusal = lower(request_with_core(core)).expect_err(message);
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
+    assert_eq!(refusal.diagnostics.len(), 1);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.provider.unsupported-semantics"
+    );
 }

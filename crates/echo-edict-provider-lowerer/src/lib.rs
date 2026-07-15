@@ -34,10 +34,13 @@ const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const OPERATION_COORDINATE: &str = "a.b@1.t";
 const OPERATION_INPUT_TYPE: &str = "a.b@1.Input";
 const OPERATION_OUTPUT_TYPE: &str = "a.b@1.Output";
+const OPERATION_RECEIPT_TYPE: &str = "a.b@1.Receipt";
 const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
 const SEMANTIC_EFFECT: &str = "target.replace";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
+const FAILURE_PAYLOAD_TYPE: &str = "target.replace.rejected";
+const DOMAIN_OBSTRUCTION: &str = "domain.WriteRejected";
 
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
@@ -437,6 +440,43 @@ fn expected_lowerability() -> Result<CanonicalValueV1, ()> {
     ])
 }
 
+fn expected_core_types() -> Result<CanonicalValueV1, ()> {
+    canonical_sorted_map([
+        ("Input", expected_record_type("a.b@1.Input.id")?),
+        ("Output", expected_record_type("a.b@1.Output.id")?),
+        ("Receipt", expected_record_type("a.b@1.Receipt.id")?),
+        ("Input.id", expected_string_type()?),
+        ("Output.id", expected_string_type()?),
+        ("Receipt.id", expected_string_type()?),
+    ])
+}
+
+fn expected_record_type(field_type: &str) -> Result<CanonicalValueV1, ()> {
+    canonical_sorted_map([
+        ("kind", canonical_text("Record")),
+        (
+            "fields",
+            canonical_sorted_map([("id", canonical_text(field_type))])?,
+        ),
+    ])
+}
+
+fn expected_string_type() -> Result<CanonicalValueV1, ()> {
+    canonical_sorted_map([
+        ("kind", canonical_text("String")),
+        ("max", CanonicalValueV1::Integer(16)),
+        ("canonical", canonical_text("raw-utf8")),
+    ])
+}
+
+fn expected_core_evaluation_budget() -> Result<CanonicalValueV1, ()> {
+    canonical_sorted_map([
+        ("maxSteps", CanonicalValueV1::Integer(8)),
+        ("maxAllocatedBytes", CanonicalValueV1::Integer(1024)),
+        ("maxOutputBytes", CanonicalValueV1::Integer(256)),
+    ])
+}
+
 fn canonical_sorted_map<'a>(
     entries: impl IntoIterator<Item = (&'a str, CanonicalValueV1)>,
 ) -> Result<CanonicalValueV1, ()> {
@@ -520,8 +560,14 @@ fn lower_core(
     if coordinate != CORE_COORDINATE {
         return Err(unsupported_semantics(coordinate));
     }
+    let expected_types = expected_core_types().map_err(|()| {
+        invalid_artifact(
+            "core.echo-provider",
+            "reviewed Core type definitions are invalid",
+        )
+    })?;
     if !matches!(array_field(&value, "imports"), Some(imports) if imports.is_empty())
-        || !matches!(map_field(&value, "types"), Some(CanonicalValueV1::Map(_)))
+        || map_field(&value, "types") != Some(&expected_types)
         || !matches!(array_field(&value, "requiredCoreCapabilities"), Some(capabilities) if capabilities.is_empty())
     {
         return Err(unsupported_semantics(coordinate));
@@ -573,17 +619,29 @@ fn lower_intent(
     }
     let input_constraints = array_field(intent, "inputConstraints")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "input constraints are invalid"))?;
+    if !input_constraints.is_empty() {
+        return Err(unsupported_semantics(OPERATION_COORDINATE));
+    }
     let budget = map_field(intent, "coreEvaluationBudget")
         .filter(|budget| validate_budget(budget))
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core budget is invalid"))?;
+    let expected_budget = expected_core_evaluation_budget().map_err(|()| {
+        invalid_artifact(
+            OPERATION_COORDINATE,
+            "reviewed Core evaluation budget is invalid",
+        )
+    })?;
+    if budget != &expected_budget {
+        return Err(unsupported_semantics(OPERATION_COORDINATE));
+    }
     let body = map_field(intent, "body")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core body is absent"))?;
     let locals = array_field(body, "locals")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core locals are invalid"))?;
-    if !locals.iter().all(validate_local) {
+    if !validate_local_inventory(locals) {
         return Err(invalid_artifact(
             OPERATION_COORDINATE,
-            "Core local reference is invalid",
+            "Core local declarations are invalid",
         ));
     }
     let nodes = array_field(body, "nodes")
@@ -591,10 +649,12 @@ fn lower_intent(
     let [node] = nodes.as_slice() else {
         return Err(unsupported_semantics(OPERATION_COORDINATE));
     };
-    let step = lower_effect_node(intent_name, node)?;
+    let lowered_effect = lower_effect_node(intent_name, node, locals)?;
+    let result_scope = [lowered_effect.input_local, lowered_effect.binding];
     let result = map_field(body, "result")
-        .filter(|result| validate_expr(result))
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core result is invalid"))?;
+    validate_expr(result, &result_scope)
+        .map_err(|error| expression_refusal(error, "Core result is invalid"))?;
 
     Ok(canonical_map([
         ("operationProfile", canonical_text(OPERATION_PROFILE)),
@@ -604,15 +664,22 @@ fn lower_intent(
         ),
         ("coreEvaluationBudget", budget.clone()),
         ("requirements", CanonicalValueV1::Array(Vec::new())),
-        ("steps", CanonicalValueV1::Array(vec![step])),
+        ("steps", CanonicalValueV1::Array(vec![lowered_effect.value])),
         ("result", result.clone()),
     ]))
 }
 
-fn lower_effect_node(
+struct LoweredEffect<'a> {
+    value: CanonicalValueV1,
+    input_local: &'a CanonicalValueV1,
+    binding: &'a CanonicalValueV1,
+}
+
+fn lower_effect_node<'a>(
     intent_name: &str,
-    node: &CanonicalValueV1,
-) -> Result<CanonicalValueV1, ProviderRefusalV1> {
+    node: &'a CanonicalValueV1,
+    locals: &'a [CanonicalValueV1],
+) -> Result<LoweredEffect<'a>, ProviderRefusalV1> {
     if text_field(node, "kind") != Some("effect")
         || text_field(node, "effect") != Some(SEMANTIC_EFFECT)
     {
@@ -621,34 +688,61 @@ fn lower_effect_node(
     let binding = map_field(node, "binding")
         .filter(|binding| validate_local(binding))
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect binding is invalid"))?;
-    let input = map_field(node, "input")
-        .filter(|input| validate_expr(input))
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect input is invalid"))?;
     let obstruction_map = map_field(node, "obstructionMap")
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction map is invalid"))?;
     let [(failure, arm)] = obstruction_map.as_slice() else {
         return Err(unsupported_semantics(OPERATION_COORDINATE));
     };
-    if as_text(failure) != Some(FAILURE_COORDINATE) || !validate_obstruction_arm(arm) {
+    if as_text(failure) != Some(FAILURE_COORDINATE) {
         return Err(unsupported_semantics(OPERATION_COORDINATE));
     }
+    let obstruction_binder = map_field(arm, "binder")
+        .filter(|binder| validate_local(binder))
+        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction binder is invalid"))?;
+    let input_local =
+        reviewed_input_local(locals, binding, obstruction_binder).ok_or_else(|| {
+            invalid_artifact(OPERATION_COORDINATE, "Core local declarations are invalid")
+        })?;
 
-    Ok(canonical_map([
-        ("id", canonical_text(&format!("{intent_name}.step.0"))),
-        ("binding", binding.clone()),
-        ("effect", canonical_text(SEMANTIC_EFFECT)),
-        ("targetIntrinsic", canonical_text(TARGET_INTRINSIC)),
-        ("input", input.clone()),
-        (
-            "obstructionFailures",
-            CanonicalValueV1::Array(vec![canonical_text(FAILURE_COORDINATE)]),
-        ),
-        (
-            "obstructionArms",
-            canonical_map([(FAILURE_COORDINATE, arm.clone())]),
-        ),
-    ]))
+    let pre_effect_scope = [input_local];
+    let input = map_field(node, "input")
+        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect input is invalid"))?;
+    validate_expr(input, &pre_effect_scope)
+        .map_err(|error| expression_refusal(error, "effect input is invalid"))?;
+
+    let obstruction_scope = [input_local, obstruction_binder];
+    let obstruction_value = map_field(arm, "value")
+        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction value is invalid"))?;
+    if text_field(obstruction_value, "kind") != Some("call")
+        || text_field(obstruction_value, "callee") != Some(DOMAIN_OBSTRUCTION)
+        || !matches!(array_field(obstruction_value, "typeArgs"), Some(arguments) if arguments.is_empty())
+        || !matches!(array_field(obstruction_value, "args"), Some(arguments) if arguments.is_empty())
+    {
+        return Err(unsupported_semantics(OPERATION_COORDINATE));
+    }
+    validate_expr(obstruction_value, &obstruction_scope)
+        .map_err(|error| expression_refusal(error, "obstruction value is invalid"))?;
+
+    Ok(LoweredEffect {
+        value: canonical_map([
+            ("id", canonical_text(&format!("{intent_name}.step.0"))),
+            ("binding", binding.clone()),
+            ("effect", canonical_text(SEMANTIC_EFFECT)),
+            ("targetIntrinsic", canonical_text(TARGET_INTRINSIC)),
+            ("input", input.clone()),
+            (
+                "obstructionFailures",
+                CanonicalValueV1::Array(vec![canonical_text(FAILURE_COORDINATE)]),
+            ),
+            (
+                "obstructionArms",
+                canonical_map([(FAILURE_COORDINATE, arm.clone())]),
+            ),
+        ]),
+        input_local,
+        binding,
+    })
 }
 
 fn validate_binding(bound: &BoundArtifact) -> Result<CanonicalValueV1, ()> {
@@ -699,33 +793,115 @@ fn validate_local(value: &CanonicalValueV1) -> bool {
         .all(|field| text_field(value, field).is_some_and(|value| !value.is_empty()))
 }
 
-fn validate_obstruction_arm(value: &CanonicalValueV1) -> bool {
-    map_field(value, "binder").is_some_and(validate_local)
-        && map_field(value, "value").is_some_and(validate_expr)
+fn validate_local_inventory(locals: &[CanonicalValueV1]) -> bool {
+    locals.iter().enumerate().all(|(index, local)| {
+        validate_local(local)
+            && locals[index + 1..]
+                .iter()
+                .all(|other| !same_local_id(local, other))
+    })
 }
 
-fn validate_expr(value: &CanonicalValueV1) -> bool {
+fn reviewed_input_local<'a>(
+    locals: &'a [CanonicalValueV1],
+    binding: &CanonicalValueV1,
+    obstruction_binder: &CanonicalValueV1,
+) -> Option<&'a CanonicalValueV1> {
+    if locals.len() != 3
+        || text_field(binding, "type") != Some(OPERATION_RECEIPT_TYPE)
+        || text_field(obstruction_binder, "type") != Some(FAILURE_PAYLOAD_TYPE)
+        || !locals.contains(binding)
+        || !locals.contains(obstruction_binder)
+        || same_local_id(binding, obstruction_binder)
+    {
+        return None;
+    }
+
+    let mut inputs = locals.iter().filter(|local| {
+        !same_local_id(local, binding) && !same_local_id(local, obstruction_binder)
+    });
+    let input = inputs.next()?;
+    if inputs.next().is_some() || text_field(input, "type") != Some(OPERATION_INPUT_TYPE) {
+        return None;
+    }
+    Some(input)
+}
+
+fn same_local_id(left: &CanonicalValueV1, right: &CanonicalValueV1) -> bool {
+    text_field(left, "id").is_some_and(|id| text_field(right, "id") == Some(id))
+}
+
+#[derive(Clone, Copy)]
+enum ExpressionValidationError {
+    Invalid,
+    LocalOutOfScope,
+}
+
+fn validate_expr(
+    value: &CanonicalValueV1,
+    scope: &[&CanonicalValueV1],
+) -> Result<(), ExpressionValidationError> {
     match text_field(value, "kind") {
-        Some("local") => map_field(value, "ref").is_some_and(validate_local),
-        Some("const") => map_field(value, "value").is_some_and(validate_core_value),
-        Some("record") => map_field(value, "fields")
-            .and_then(as_map)
-            .is_some_and(|fields| {
-                fields.iter().all(|(key, value)| {
-                    as_text(key).is_some_and(|key| !key.is_empty()) && validate_expr(value)
-                })
-            }),
+        Some("local") => {
+            let reference = map_field(value, "ref")
+                .filter(|reference| validate_local(reference))
+                .ok_or(ExpressionValidationError::Invalid)?;
+            if scope.contains(&reference) {
+                Ok(())
+            } else {
+                Err(ExpressionValidationError::LocalOutOfScope)
+            }
+        }
+        Some("const") => map_field(value, "value")
+            .filter(|value| validate_core_value(value))
+            .map(|_| ())
+            .ok_or(ExpressionValidationError::Invalid),
+        Some("record") => {
+            let fields = map_field(value, "fields")
+                .and_then(as_map)
+                .ok_or(ExpressionValidationError::Invalid)?;
+            for (key, value) in fields {
+                if as_text(key).is_none_or(str::is_empty) {
+                    return Err(ExpressionValidationError::Invalid);
+                }
+                validate_expr(value, scope)?;
+            }
+            Ok(())
+        }
         Some("field") => {
-            text_field(value, "field").is_some_and(|field| !field.is_empty())
-                && map_field(value, "base").is_some_and(validate_expr)
+            if text_field(value, "field").is_none_or(str::is_empty) {
+                return Err(ExpressionValidationError::Invalid);
+            }
+            validate_expr(
+                map_field(value, "base").ok_or(ExpressionValidationError::Invalid)?,
+                scope,
+            )
         }
         Some("call") => {
-            text_field(value, "callee").is_some_and(|callee| !callee.is_empty())
-                && array_field(value, "typeArgs")
+            if text_field(value, "callee").is_none_or(str::is_empty)
+                || !array_field(value, "typeArgs")
                     .is_some_and(|values| values.iter().all(|value| as_text(value).is_some()))
-                && array_field(value, "args").is_some_and(|values| values.iter().all(validate_expr))
+            {
+                return Err(ExpressionValidationError::Invalid);
+            }
+            for argument in array_field(value, "args").ok_or(ExpressionValidationError::Invalid)? {
+                validate_expr(argument, scope)?;
+            }
+            Ok(())
         }
-        _ => false,
+        _ => Err(ExpressionValidationError::Invalid),
+    }
+}
+
+fn expression_refusal(
+    error: ExpressionValidationError,
+    invalid_message: &str,
+) -> ProviderRefusalV1 {
+    match error {
+        ExpressionValidationError::Invalid => {
+            invalid_artifact(OPERATION_COORDINATE, invalid_message)
+        }
+        ExpressionValidationError::LocalOutOfScope => local_scope_refusal(),
     }
 }
 
@@ -816,6 +992,15 @@ fn invalid_artifact(subject: &str, message: &str) -> ProviderRefusalV1 {
         subject,
         "echo.provider.invalid-semantic-artifact",
         message,
+    )
+}
+
+fn local_scope_refusal() -> ProviderRefusalV1 {
+    refusal(
+        ProviderRefusalKind::InvalidSemanticArtifact,
+        OPERATION_COORDINATE,
+        "echo.provider.local-reference-out-of-scope",
+        "Core local reference is not in scope",
     )
 }
 

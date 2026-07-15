@@ -586,6 +586,12 @@ impl CausalAnchorClaim {
         let encoded_claim_digest = cursor.read_hash()?;
         cursor.finish()?;
 
+        let retained_roots_were_canonical = retained_roots
+            .windows(2)
+            .all(|window| window[0] < window[1]);
+        let materialization_roots_were_canonical = materialization_roots
+            .windows(2)
+            .all(|window| window[0] < window[1]);
         let claim = Self::from_admission_request(CausalAnchorAdmissionRequest {
             schema_version,
             subject,
@@ -597,7 +603,7 @@ impl CausalAnchorClaim {
         if claim.claim_digest != encoded_claim_digest {
             return Err(CausalAnchorError::ClaimDigestMismatch);
         }
-        if claim.to_payload_bytes() != bytes {
+        if !(retained_roots_were_canonical && materialization_roots_were_canonical) {
             return Err(CausalAnchorError::NonCanonicalPayload);
         }
         Ok(claim)

@@ -100,6 +100,22 @@ false by construction and deserialization. Review is derived tooling evidence;
 it neither replaces provenance verification nor admits or authorizes anything
 in Echo.
 
+`provider_corpus` frames the generator's exact source and dependency-lock
+closure, re-verifies the complete generation chain, and renders the checked
+22-file corpus under `schemas/edict-provider/generated/v1/`. The frame uses a
+fixed coordinate, crate version, repo-relative source paths, and exact
+compile-time bytes for the provider modules, dedicated corpus CLI, manifests,
+workspace lockfile, and Rust toolchain. It deliberately excludes authored
+semantic/settings/contract inputs already bound by Wesley and every generated
+output, preventing a circular generator identity. This is source/dependency-lock
+identity, not an executable-build or supply-chain attestation.
+
+The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
+boundary. Generation writes only the 22 expected paths and never deletes an
+unexpected entry. `--check` renders expected bytes in memory, reads the target
+tree without following symlinks, reports sorted missing/changed/unexpected
+drift, and returns before every directory-creation or write path.
+
 ## Usage
 
 ```bash
@@ -118,6 +134,14 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 # Emit std-only warp-core contract-host helpers for installed mutation handlers
 # and query observers
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
+
+# Rebuild the checked Edict provider artifact corpus from exact inputs
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-artifacts --
+
+# Report checked-corpus drift without rewriting anything
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-artifacts -- --check
 ```
 
 ## Notes

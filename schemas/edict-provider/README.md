@@ -99,9 +99,14 @@ bytes while intentionally moving the provenance identity.
 Wesley's non-authoritative `GenerationReviewV1` is then derived from the
 verified input/provenance pair and deterministically copies its generator,
 roles, sources, and emitted identities. It cannot claim semantic or runtime
-authority. Remaining #652 slices publish the checked corpus. Resources marked
-`external` are explicit digest-locked generator inputs; placeholder digests are
-forbidden.
+authority. The exact 22-file result is checked under
+[`generated/v1/`](generated/README.md): five canonical-CBOR primary artifacts,
+fourteen canonical-CBOR resources, raw self-contained CDDL, canonical Wesley
+provenance JSON, and canonical non-authoritative review JSON. The dedicated
+generator binds a fixed source/dependency-lock frame and its `--check` mode
+reports missing, changed, or unexpected files without rewriting them. Resources
+marked `external` are explicit digest-locked generator inputs; placeholder
+digests are forbidden.
 
 [`generation-settings-v1.json`](generation-settings-v1.json) is the explicit,
 versioned settings input for that invocation. The first closure selects no

@@ -240,6 +240,24 @@ inspection, but its `authoritative` posture is permanently false. Review does
 not become a second contract, provenance proof, package admission, or runtime
 authority surface.
 
+The checked provider corpus materializes that digest DAG as exactly 22 files:
+five canonical-CBOR primary artifacts, fourteen canonical-CBOR resources, raw
+self-contained CDDL, canonical provenance JSON, and canonical review JSON. Its
+generator identity is the Wesley digest of a versioned binary frame containing
+an explicit compile-time inventory of provider generator source, Cargo
+manifests and lockfile, and the pinned Rust toolchain. Authored semantic,
+settings, CDDL, and contract-manifest bytes remain separate Wesley inputs, and
+generated corpus bytes never re-enter generator identity. The frame therefore
+attests the source/dependency-lock closure without claiming a reproducible
+executable or creating a circular output digest.
+
+Corpus comparison is an exact-byte, exact-path check. Missing, changed, and
+unexpected entries are reported in stable order. Check mode performs no
+directory creation, write, deletion, normalization, or symlink traversal;
+generation mode writes only expected paths and leaves unexpected entries for
+explicit operator disposition. This checked build artifact remains provider
+evidence. Echo runtime admission and installation are still separate acts.
+
 The generated operation profile preserves native versus direct-adapter
 selection, operation-local obstruction mappings, and the target optic contract.
 Invocation posture is derived from admitted optic semantics: mutation-capable

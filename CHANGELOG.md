@@ -7,6 +7,14 @@
 
 ### Added
 
+- `echo-wesley-gen` now checks in the first exact 22-file Edict provider
+  artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
+  resources, the self-contained CDDL, Wesley provenance JSON, and
+  non-authoritative review JSON. A dedicated generator binds an explicit,
+  compile-time-enumerated source/dependency-lock bundle rather than executable,
+  Git, path, or environment discovery. Its `--check` mode reports sorted
+  missing, changed, and unexpected paths without creating, deleting, or
+  rewriting files, and the crate test suite checks the committed snapshot.
 - `echo-wesley-gen` now derives Wesley's canonical `GenerationReviewV1` from
   verified provider provenance. The deterministic JSON copies the exact input,
   provenance, generator, projection-role, source, and emitted-output identities,

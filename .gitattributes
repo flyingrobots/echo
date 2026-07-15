@@ -1,2 +1,6 @@
 # Preserve concurrent additions to the shared agent instructions.
 AGENTS.md merge=union
+
+# Preserve exact checked provider corpus bytes across checkout configurations.
+schemas/edict-provider/generated/v1/** -text
+schemas/edict-provider/generated/v1/**/*.cbor binary

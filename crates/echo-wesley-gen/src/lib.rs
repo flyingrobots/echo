@@ -33,6 +33,9 @@ pub mod provider_provenance;
 /// Deterministic non-authoritative Wesley review of provider generation.
 pub mod provider_review;
 
+/// Exact generator source identity and checked provider artifact corpus.
+pub mod provider_corpus;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

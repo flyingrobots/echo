@@ -10,6 +10,22 @@
 //! Transactions are committed.
 //! History begins at WalTransactionCommit.
 //! ```
+//!
+//! Causal-anchor admission transaction construction is an admission-kernel
+//! authority and is intentionally absent from the downstream API. The public
+//! transaction builder carries no admission capability even when a caller
+//! selects the observable admission enum labels:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::build_causal_anchor_admission_transaction;
+//! ```
+//!
+//! Likewise, arbitrary recovery reports can only produce observation evidence;
+//! sealing local recovered authority is reserved for the trusted runtime:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::recover_causal_anchor_admissions;
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -22,6 +38,15 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+use crate::causal_anchor::{prepare_causal_anchor_admission, CausalAnchorClaim};
+use crate::causal_anchor::{
+    validate_causal_anchor_admission_evidence, CausalAnchorAdmissionReceipt, CausalAnchorError,
+    CausalAnchorFact, CausalAnchorId, CausalFrontierRef,
+};
 use crate::clock::WorldlineTick;
 use crate::contract_registry::{
     ContractEvidenceIdentity, ContractOperationKind, InstalledContractPackageId,
@@ -68,6 +93,7 @@ const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
+pub(crate) const TRUSTED_RUNTIME_WAL_DOMAIN: &[u8] = b"echo:trusted-runtime-wal:v1\0";
 
 /// WSC schema label for materialized WAL projection graph facts.
 pub const WAL_PROJECTION_GRAPH_SCHEMA: &str = "echo/wal-projection-graph/schema/v1";
@@ -266,6 +292,8 @@ pub enum WalAppendAuthority {
     TrustedScheduler,
     /// Trusted runtime-control authority.
     RuntimeControl,
+    /// Echo admission-kernel authority.
+    AdmissionKernel,
     /// Recovery authority.
     Recovery,
 }
@@ -285,10 +313,14 @@ pub enum WalTransactionKind {
     MaterializationOutbox,
     /// Topology-changing strand, braid, or suffix-import intent evidence.
     TopologyIntent,
+    /// Echo-owned causal-anchor admission.
+    CausalAnchorAdmission,
 }
 
 impl WalTransactionKind {
-    fn code(self) -> u8 {
+    /// Returns the stable numeric code persisted in the WAL.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionIntake => 1,
             Self::SchedulerTick => 2,
@@ -296,7 +328,12 @@ impl WalTransactionKind {
             Self::Checkpoint => 4,
             Self::MaterializationOutbox => 5,
             Self::TopologyIntent => 6,
+            Self::CausalAnchorAdmission => 7,
         }
+    }
+
+    fn code(self) -> u8 {
+        self.stable_code()
     }
 
     fn required_authority(self) -> WalAppendAuthority {
@@ -306,6 +343,7 @@ impl WalTransactionKind {
                 WalAppendAuthority::TrustedScheduler
             }
             Self::RuntimePosture => WalAppendAuthority::RuntimeControl,
+            Self::CausalAnchorAdmission => WalAppendAuthority::AdmissionKernel,
             Self::Checkpoint => WalAppendAuthority::Recovery,
         }
     }
@@ -318,6 +356,7 @@ impl WalTransactionKind {
             4 => Ok(Self::Checkpoint),
             5 => Ok(Self::MaterializationOutbox),
             6 => Ok(Self::TopologyIntent),
+            7 => Ok(Self::CausalAnchorAdmission),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -373,6 +412,10 @@ pub enum WalRecordKind {
     TopologyBraidShellRetained,
     /// Runtime recorded witnessed suffix import topology evidence.
     TopologySuffixImportRecorded,
+    /// Echo admission kernel recorded an admitted causal-anchor fact.
+    CausalAnchorFactRecorded,
+    /// Echo admission kernel recorded the matching causal-anchor receipt.
+    CausalAnchorAdmissionReceiptRecorded,
 }
 
 impl WalRecordKind {
@@ -401,6 +444,8 @@ impl WalRecordKind {
             Self::TopologyBraidEventRecorded => "TopologyBraidEventRecorded",
             Self::TopologyBraidShellRetained => "TopologyBraidShellRetained",
             Self::TopologySuffixImportRecorded => "TopologySuffixImportRecorded",
+            Self::CausalAnchorFactRecorded => "CausalAnchorFactRecorded",
+            Self::CausalAnchorAdmissionReceiptRecorded => "CausalAnchorAdmissionReceiptRecorded",
         }
     }
 
@@ -428,6 +473,9 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
+            Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
+                WalAppendAuthority::AdmissionKernel
+            }
             Self::CheckpointPublicationRecorded | Self::RecoveryPostureRecorded => {
                 WalAppendAuthority::Recovery
             }
@@ -440,6 +488,12 @@ impl WalRecordKind {
     }
 
     fn code(self) -> u8 {
+        self.stable_code()
+    }
+
+    /// Returns the stable numeric code persisted in the WAL.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionAcceptedRecorded => 1,
             Self::SubmissionAcceptanceEvidenceRecorded => 2,
@@ -463,6 +517,8 @@ impl WalRecordKind {
             Self::TopologyBraidShellRetained => 20,
             Self::TopologySuffixImportRecorded => 21,
             Self::SubmissionEnvelopeRetained => 22,
+            Self::CausalAnchorFactRecorded => 23,
+            Self::CausalAnchorAdmissionReceiptRecorded => 24,
         }
     }
 
@@ -490,6 +546,8 @@ impl WalRecordKind {
             20 => Ok(Self::TopologyBraidShellRetained),
             21 => Ok(Self::TopologySuffixImportRecorded),
             22 => Ok(Self::SubmissionEnvelopeRetained),
+            23 => Ok(Self::CausalAnchorFactRecorded),
+            24 => Ok(Self::CausalAnchorAdmissionReceiptRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -615,10 +673,14 @@ pub enum AffectedFrontierKind {
     CheckpointIndex,
     /// Topology recovery index frontier.
     TopologyIndex,
+    /// Causal-anchor admission index frontier.
+    CausalAnchorIndex,
 }
 
 impl AffectedFrontierKind {
-    fn code(self) -> u8 {
+    /// Returns the stable numeric code committed into frontier roots.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionQueue => 1,
             Self::RuntimeState => 2,
@@ -627,7 +689,12 @@ impl AffectedFrontierKind {
             Self::RuntimeControl => 5,
             Self::CheckpointIndex => 6,
             Self::TopologyIndex => 7,
+            Self::CausalAnchorIndex => 8,
         }
+    }
+
+    fn code(self) -> u8 {
+        self.stable_code()
     }
 }
 
@@ -902,11 +969,16 @@ pub struct WalCommittedTransaction {
     pub affected_frontiers: Vec<AffectedFrontier>,
     /// Commit marker.
     pub commit: WalTransactionCommit,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalCommittedTransaction {
     /// Validates the transaction's structural and semantic commit invariants.
     pub fn validate(&self) -> Result<(), WalValidationError> {
+        validate_admission_kernel_capability(
+            self.commit.transaction_kind,
+            self.admission_kernel_capability,
+        )?;
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
         validate_transaction_frontiers(&self.affected_frontiers, self.commit.transaction_kind)?;
@@ -919,6 +991,19 @@ impl WalCommittedTransaction {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdmissionKernelCapability;
+
+fn validate_admission_kernel_capability(
+    transaction_kind: WalTransactionKind,
+    capability: Option<AdmissionKernelCapability>,
+) -> Result<(), WalValidationError> {
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission && capability.is_none() {
+        return Err(WalValidationError::AdmissionKernelCapabilityRequired);
+    }
+    Ok(())
 }
 
 /// Builder for a contiguous WAL transaction.
@@ -941,10 +1026,11 @@ pub struct WalTransactionBuilder {
     digest_domain: Hash,
     frames: Vec<WalFrame>,
     closed: bool,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalTransactionBuilder {
-    /// Creates a transaction builder.
+    /// Creates a transaction builder without Echo admission-kernel authority.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         writer_epoch: WriterEpochId,
@@ -961,6 +1047,82 @@ impl WalTransactionBuilder {
         payload_schema_version: u16,
         canonical_encoding_version: u16,
         digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            transaction_kind,
+            authority,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            None,
+        )
+    }
+
+    /// Creates an admission-kernel-authorized causal-anchor transaction builder.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_causal_anchor_admission(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            WalTransactionKind::CausalAnchorAdmission,
+            WalAppendAuthority::AdmissionKernel,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            Some(AdmissionKernelCapability),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_admission_kernel_capability(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        transaction_kind: WalTransactionKind,
+        authority: WalAppendAuthority,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
     ) -> Self {
         Self {
             writer_epoch,
@@ -980,6 +1142,7 @@ impl WalTransactionBuilder {
             digest_domain,
             frames: Vec::new(),
             closed: false,
+            admission_kernel_capability,
         }
     }
 
@@ -991,6 +1154,11 @@ impl WalTransactionBuilder {
     ) -> Result<(), WalBuildError> {
         if self.closed {
             return Err(WalBuildError::TransactionClosed);
+        }
+        if kind.required_authority() == WalAppendAuthority::AdmissionKernel
+            && self.admission_kernel_capability.is_none()
+        {
+            return Err(WalBuildError::AdmissionKernelCapabilityRequired);
         }
         if kind.required_authority() != self.authority {
             return Err(WalBuildError::WrongAppendAuthority {
@@ -1074,6 +1242,7 @@ impl WalTransactionBuilder {
             frames: self.frames,
             affected_frontiers,
             commit,
+            admission_kernel_capability: self.admission_kernel_capability,
         };
         transaction.validate()?;
         Ok(transaction)
@@ -1096,6 +1265,10 @@ pub trait WalStorePort {
     ) -> Result<(), WalStoreError>;
 
     /// Flushes a transaction commit marker under the store's durability mode.
+    ///
+    /// Raw store callers cannot flush admission-kernel transaction kinds. Those
+    /// commits require the private capability carried by a validated Echo
+    /// transaction and must use the concrete store's transaction append path.
     fn flush_commit(
         &mut self,
         epoch_id: WriterEpochId,
@@ -1533,11 +1706,37 @@ impl InMemoryWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.commits.push(commit);
+        Ok(())
     }
 
     /// Appends a frame without a commit marker to simulate an uncommitted tail.
@@ -1592,22 +1791,7 @@ impl WalStorePort for InMemoryWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.commits.push(commit);
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -5080,11 +5264,60 @@ impl FilesystemWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::FlushCommit)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL flush_commit failure".to_owned(),
+            ));
+        }
+        let transaction_id = commit.transaction_id;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
+            FilesystemSyncBoundary::CommitFileSynced,
+            transaction_id,
+        ));
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL commit_marker_synced failure".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     /// Appends an uncommitted frame to simulate a torn transaction tail.
@@ -5183,45 +5416,7 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::FlushCommit)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL flush_commit failure".to_owned(),
-            ));
-        }
-        let transaction_id = commit.transaction_id;
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
-            FilesystemSyncBoundary::CommitFileSynced,
-            transaction_id,
-        ));
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL commit_marker_synced failure".to_owned(),
-            ));
-        }
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -7520,6 +7715,43 @@ fn push_tick_receipt_records(
     Ok(())
 }
 
+/// Builds one atomic Echo-owned causal-anchor admission transaction.
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+pub(crate) fn build_causal_anchor_admission_transaction(
+    mut builder: WalTransactionBuilder,
+    claim: CausalAnchorClaim,
+    support_policy_digest: Hash,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    if !builder.frames.is_empty() {
+        return Err(WalBuildError::CausalAnchorAdmissionRequiresEmptyTransaction);
+    }
+    if affected_frontiers.len() != 1
+        || affected_frontiers[0].kind != AffectedFrontierKind::CausalAnchorIndex
+    {
+        return Err(WalBuildError::CausalAnchorAdmissionFrontierMismatch);
+    }
+    let (fact, receipt) = prepare_causal_anchor_admission(
+        claim,
+        support_policy_digest,
+        builder.writer_epoch.as_hash(),
+        builder.transaction_id.as_hash(),
+        builder.next_lsn.as_u64(),
+    );
+    builder.push_record(
+        WalRecordKind::CausalAnchorFactRecorded,
+        fact.to_payload_bytes(),
+    )?;
+    builder.push_record(
+        WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
+        receipt.to_payload_bytes(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
 /// Builds a retained reading transaction.
 pub fn build_retained_reading_transaction(
     mut builder: WalTransactionBuilder,
@@ -7609,6 +7841,415 @@ pub fn read_checkpoint_record(
     let mut bytes = Vec::new();
     File::open(path.as_ref())?.read_to_end(&mut bytes)?;
     parse_checkpoint_file_bytes(&bytes)
+}
+
+/// One causal-anchor admission observed in a structurally valid WAL report.
+///
+/// This type preserves fact, receipt, and remote WAL coordinates without
+/// conferring local Echo admission authority. Arbitrary recovery reports and
+/// imported segment material can produce observations, never sealed local
+/// admissions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservedCausalAnchorAdmission {
+    fact: CausalAnchorFact,
+    receipt: CausalAnchorAdmissionReceipt,
+    transaction_id: WalTransactionId,
+    committed_lsn: Lsn,
+    commit_digest: Hash,
+}
+
+impl ObservedCausalAnchorAdmission {
+    pub(crate) const fn from_validated_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            fact,
+            receipt,
+            transaction_id,
+            committed_lsn,
+            commit_digest,
+        }
+    }
+
+    /// Returns the observed causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        &self.fact
+    }
+
+    /// Returns the observed admission receipt.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        &self.receipt
+    }
+
+    /// Returns the observed WAL transaction identity.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.transaction_id
+    }
+
+    /// Returns the observed committed LSN.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.committed_lsn
+    }
+
+    /// Returns the observed commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        &self.commit_digest
+    }
+}
+
+/// One causal-anchor admission reconstructed from trusted local WAL authority.
+///
+/// Committed coordinates are read-only evidence. External code cannot rebuild
+/// this type with substituted WAL coordinates:
+///
+/// ```compile_fail
+/// use warp_core::{
+///     causal_wal::{Lsn, WalTransactionId},
+///     RecoveredCausalAnchorAdmission,
+/// };
+///
+/// fn substitute_coordinates(
+///     genuine: RecoveredCausalAnchorAdmission,
+/// ) -> RecoveredCausalAnchorAdmission {
+///     RecoveredCausalAnchorAdmission {
+///         fact: genuine.fact,
+///         receipt: genuine.receipt,
+///         transaction_id: WalTransactionId::from_hash([0; 32]),
+///         committed_lsn: Lsn::from_raw(0),
+///         commit_digest: [0; 32],
+///     }
+/// }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveredCausalAnchorAdmission {
+    observation: ObservedCausalAnchorAdmission,
+}
+
+impl RecoveredCausalAnchorAdmission {
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) const fn from_committed_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            observation: ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+                fact,
+                receipt,
+                transaction_id,
+                committed_lsn,
+                commit_digest,
+            ),
+        }
+    }
+
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    pub(crate) const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
+        Self { observation }
+    }
+
+    /// Returns this trusted admission as observation-only evidence.
+    #[must_use]
+    pub const fn observation(&self) -> &ObservedCausalAnchorAdmission {
+        &self.observation
+    }
+
+    /// Returns the Echo-admitted causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        self.observation.fact()
+    }
+
+    /// Returns the admission receipt committed atomically with the fact.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        self.observation.receipt()
+    }
+
+    /// Returns the WAL transaction that ordered the admission.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.observation.transaction_id()
+    }
+
+    /// Returns the last committed LSN of the admission transaction.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.observation.committed_lsn()
+    }
+
+    /// Returns the admission transaction's commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        self.observation.commit_digest()
+    }
+}
+
+impl From<&RecoveredCausalAnchorAdmission> for ObservedCausalAnchorAdmission {
+    fn from(admission: &RecoveredCausalAnchorAdmission) -> Self {
+        admission.observation.clone()
+    }
+}
+
+/// Observes fully committed and internally consistent causal-anchor evidence.
+///
+/// The returned values do not confer local Echo admission authority. Trusted
+/// local WAL recovery seals the same validated evidence through a private path.
+pub fn observe_causal_anchor_admissions(
+    report: &RecoveryScanReport,
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
+    let mut admissions = Vec::new();
+    for transaction in &report.transactions {
+        if transaction.commit.transaction_kind != WalTransactionKind::CausalAnchorAdmission {
+            continue;
+        }
+        let fact_frame = unique_causal_anchor_frame(
+            transaction,
+            WalRecordKind::CausalAnchorFactRecorded,
+            CausalAnchorFrameRole::Fact,
+        )?;
+        let receipt_frame = unique_causal_anchor_frame(
+            transaction,
+            WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
+            CausalAnchorFrameRole::Receipt,
+        )?;
+        if transaction.frames.len() != 2
+            || transaction.frames[0].header.record_kind != WalRecordKind::CausalAnchorFactRecorded
+            || transaction.frames[1].header.record_kind
+                != WalRecordKind::CausalAnchorAdmissionReceiptRecorded
+        {
+            return Err(
+                WalRecoveryIndexError::NonCanonicalCausalAnchorAdmissionFrameOrder {
+                    transaction_id: transaction.commit.transaction_id,
+                },
+            );
+        }
+        let fact = CausalAnchorFact::from_payload_bytes(&fact_frame.payload.canonical_bytes)?;
+        let receipt = CausalAnchorAdmissionReceipt::from_payload_bytes(
+            &receipt_frame.payload.canonical_bytes,
+        )?;
+        validate_causal_anchor_admission_evidence(&fact, &receipt)?;
+        if receipt.writer_epoch_id() != &transaction.commit.writer_epoch.as_hash()
+            || receipt.wal_transaction_id() != &transaction.commit.transaction_id.as_hash()
+            || receipt.wal_first_lsn() != transaction.commit.first_lsn.as_u64()
+        {
+            return Err(WalRecoveryIndexError::CausalAnchorPayload(
+                CausalAnchorError::AdmissionEvidenceMismatch,
+            ));
+        }
+        admissions.push(ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+            fact,
+            receipt,
+            transaction.commit.transaction_id,
+            transaction.commit.last_lsn,
+            transaction.commit.commit_digest,
+        ));
+    }
+    Ok(admissions)
+}
+
+/// Observation-only anchor evidence after validating its exact WAL history.
+///
+/// This traversal does not confer local admission authority. It centralizes the
+/// basis, frontier, and identity checks shared by trusted recovery and WSC
+/// import validation.
+#[derive(Clone, Debug)]
+pub(crate) struct ValidatedCausalAnchorHistory {
+    pub(crate) admissions: Vec<(ObservedCausalAnchorAdmission, usize)>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) causal_history_frontiers: Vec<CausalFrontierRef>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) causal_anchor_frontier_digest: Hash,
+}
+
+pub(crate) fn validate_recovered_causal_anchor_history(
+    report: &RecoveryScanReport,
+) -> Result<ValidatedCausalAnchorHistory, WalRecoveryIndexError> {
+    let recovered = observe_causal_anchor_admissions(report)?;
+    let mut by_transaction = recovered
+        .into_iter()
+        .map(|admission| (admission.transaction_id(), admission))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_anchor_ids = BTreeSet::new();
+    let mut admissions = Vec::new();
+    let mut current_frontier = causal_history_genesis_frontier_digest();
+    let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
+
+    for (index, transaction) in report.transactions.iter().enumerate() {
+        let basis_before = CausalFrontierRef::from_digest(current_frontier);
+        let next_frontier = logical_causal_history_frontier_digest(
+            current_frontier,
+            transaction.commit.transaction_kind,
+            &transaction.frames,
+        );
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        let basis_after = CausalFrontierRef::from_digest(next_frontier);
+        if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
+            let admission = by_transaction
+                .remove(&transaction.commit.transaction_id)
+                .ok_or(WalRecoveryIndexError::CausalAnchorAdmissionMissing {
+                    transaction_id: transaction.commit.transaction_id,
+                })?;
+            let claimed_basis = admission.fact().claim().basis_frontier();
+            if claimed_basis != &basis_before {
+                return Err(WalRecoveryIndexError::CausalAnchorBasisMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    claimed: claimed_basis.frontier_digest,
+                    recovered: basis_before.frontier_digest,
+                });
+            }
+            let next_causal_anchor_frontier = causal_anchor_frontier_digest_from_evidence(
+                current_causal_anchor_frontier,
+                admission.fact(),
+                admission.receipt(),
+            );
+            let expected_frontiers_root = affected_frontiers_root(&[AffectedFrontier {
+                kind: AffectedFrontierKind::CausalAnchorIndex,
+                before_digest: current_causal_anchor_frontier,
+                after_digest: next_causal_anchor_frontier,
+            }]);
+            if transaction.commit.affected_frontiers_root != expected_frontiers_root {
+                return Err(WalRecoveryIndexError::CausalAnchorFrontierMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    expected: expected_frontiers_root,
+                    actual: transaction.commit.affected_frontiers_root,
+                });
+            }
+            current_causal_anchor_frontier = next_causal_anchor_frontier;
+            let anchor_id = *admission.fact().anchor_id();
+            if !seen_anchor_ids.insert(anchor_id) {
+                return Err(WalRecoveryIndexError::CausalAnchorIdConflict { anchor_id });
+            }
+            admissions.push((admission, index));
+        }
+        current_frontier = next_frontier;
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        frontiers.push(basis_after);
+    }
+
+    Ok(ValidatedCausalAnchorHistory {
+        admissions,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        causal_history_frontiers: frontiers,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        causal_anchor_frontier_digest: current_causal_anchor_frontier,
+    })
+}
+
+pub(crate) fn trusted_runtime_wal_digest(label: &str) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_history_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-history-frontier:genesis")
+}
+
+pub(crate) fn causal_anchor_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-anchor-frontier:genesis")
+}
+
+pub(crate) fn logical_causal_history_frontier_digest(
+    previous: Hash,
+    transaction_kind: WalTransactionKind,
+    frames: &[WalFrame],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-history-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(&[transaction_kind.stable_code()]);
+    hasher.update(&(frames.len() as u64).to_le_bytes());
+    for frame in frames {
+        hasher.update(&frame.header.payload_schema_id.as_hash());
+        hasher.update(&frame.header.payload_schema_version.to_le_bytes());
+        hasher.update(&frame.header.canonical_encoding_version.to_le_bytes());
+        hasher.update(&frame.header.digest_domain);
+        hasher.update(&frame.payload.digest());
+    }
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_anchor_frontier_digest_from_evidence(
+    previous: Hash,
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-anchor-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(fact.anchor_digest());
+    hasher.update(receipt.receipt_id().as_bytes());
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+pub(crate) fn recover_causal_anchor_admissions(
+    report: &RecoveryScanReport,
+) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
+    Ok(observe_causal_anchor_admissions(report)?
+        .into_iter()
+        .map(RecoveredCausalAnchorAdmission::from_observation)
+        .collect())
+}
+
+#[derive(Clone, Copy)]
+enum CausalAnchorFrameRole {
+    Fact,
+    Receipt,
+}
+
+fn unique_causal_anchor_frame(
+    transaction: &WalRecoveredTransaction,
+    record_kind: WalRecordKind,
+    role: CausalAnchorFrameRole,
+) -> Result<&WalFrame, WalRecoveryIndexError> {
+    let mut matching = transaction
+        .frames
+        .iter()
+        .filter(|frame| frame.header.record_kind == record_kind);
+    let Some(frame) = matching.next() else {
+        return Err(match role {
+            CausalAnchorFrameRole::Fact => WalRecoveryIndexError::MissingCausalAnchorFactFrame {
+                transaction_id: transaction.commit.transaction_id,
+            },
+            CausalAnchorFrameRole::Receipt => {
+                WalRecoveryIndexError::MissingCausalAnchorAdmissionReceiptFrame {
+                    transaction_id: transaction.commit.transaction_id,
+                }
+            }
+        });
+    };
+    if matching.next().is_some() {
+        return Err(match role {
+            CausalAnchorFrameRole::Fact => WalRecoveryIndexError::DuplicateCausalAnchorFactFrame {
+                transaction_id: transaction.commit.transaction_id,
+            },
+            CausalAnchorFrameRole::Receipt => {
+                WalRecoveryIndexError::DuplicateCausalAnchorAdmissionReceiptFrame {
+                    transaction_id: transaction.commit.transaction_id,
+                }
+            }
+        });
+    }
+    Ok(frame)
 }
 
 /// Recovers submission posture from committed WAL transactions.
@@ -8035,6 +8676,9 @@ pub enum WalBuildError {
     /// Transaction already closed.
     #[error("WAL transaction is already closed")]
     TransactionClosed,
+    /// Public builders do not carry Echo's causal-anchor admission capability.
+    #[error("Echo admission-kernel capability is required")]
+    AdmissionKernelCapabilityRequired,
     /// Record requires a different append authority.
     #[error(
         "wrong append authority for {record_kind:?}: required {required:?}, actual {actual:?}"
@@ -8056,6 +8700,12 @@ pub enum WalBuildError {
     /// Empty transaction.
     #[error("WAL transaction has no records")]
     EmptyTransaction,
+    /// Causal-anchor admission must own the entire WAL transaction.
+    #[error("causal-anchor admission requires an empty WAL transaction builder")]
+    CausalAnchorAdmissionRequiresEmptyTransaction,
+    /// Causal-anchor admission must advance exactly one anchor-index frontier.
+    #[error("causal-anchor admission requires exactly one causal-anchor index frontier")]
+    CausalAnchorAdmissionFrontierMismatch,
     /// Submission acceptance and retained material name different evidence.
     #[error("WAL submission acceptance does not match retained material")]
     SubmissionMaterialMismatch,
@@ -8076,6 +8726,9 @@ pub enum WalBuildError {
 /// WAL validation errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalValidationError {
+    /// A causal-anchor transaction lacks Echo's private admission capability.
+    #[error("WAL causal-anchor transaction lacks Echo admission-kernel capability")]
+    AdmissionKernelCapabilityRequired,
     /// Frame payload kind does not match header kind.
     #[error("WAL frame record kind mismatch")]
     RecordKindMismatch,
@@ -8091,6 +8744,9 @@ pub enum WalValidationError {
     /// Record kind does not match transaction kind authority.
     #[error("WAL record kind authority does not match transaction kind")]
     RecordAuthorityMismatch,
+    /// Causal-anchor admission does not contain exactly one fact followed by one receipt.
+    #[error("WAL causal-anchor admission frame shape is invalid")]
+    CausalAnchorAdmissionFrameShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -8315,6 +8971,77 @@ pub enum WalRecoveryIndexError {
     /// Payload decode failed.
     #[error(transparent)]
     Decode(#[from] WalDecodeError),
+    /// Causal-anchor fact or receipt payload failed validation.
+    #[error(transparent)]
+    CausalAnchorPayload(#[from] CausalAnchorError),
+    /// Recovery omitted canonical evidence for an anchor transaction.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted recovered evidence")]
+    CausalAnchorAdmissionMissing {
+        /// Transaction whose canonical anchor evidence was unavailable.
+        transaction_id: WalTransactionId,
+    },
+    /// A recovered anchor claim named a basis other than its transaction basis.
+    #[error(
+        "causal-anchor basis mismatched transaction {transaction_id:?}: claimed {claimed:?}, recovered {recovered:?}"
+    )]
+    CausalAnchorBasisMismatch {
+        /// Transaction carrying the inconsistent anchor admission.
+        transaction_id: WalTransactionId,
+        /// Basis encoded in the recovered anchor claim and receipt.
+        claimed: Hash,
+        /// Logical causal-history frontier immediately before the transaction.
+        recovered: Hash,
+    },
+    /// Recovered anchor evidence was not bound to its exact frontier transition.
+    #[error(
+        "causal-anchor frontier mismatched transaction {transaction_id:?}: expected {expected:?}, actual {actual:?}"
+    )]
+    CausalAnchorFrontierMismatch {
+        /// Transaction carrying the unattested anchor-index transition.
+        transaction_id: WalTransactionId,
+        /// Root of the exact reconstructed causal-anchor frontier transition.
+        expected: Hash,
+        /// Affected-frontier root carried by the recovered commit marker.
+        actual: Hash,
+    },
+    /// Distinct recovered admissions claimed the same stable anchor identity.
+    #[error("recovered duplicate causal-anchor id {anchor_id:?}")]
+    CausalAnchorIdConflict {
+        /// Anchor identity claimed by more than one admission.
+        anchor_id: CausalAnchorId,
+    },
+    /// A causal-anchor admission transaction omitted its required fact frame.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted its fact frame")]
+    MissingCausalAnchorFactFrame {
+        /// Transaction missing the required frame.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction omitted its required receipt frame.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted its receipt frame")]
+    MissingCausalAnchorAdmissionReceiptFrame {
+        /// Transaction missing the required frame.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction contained duplicate fact frames.
+    #[error("causal-anchor admission transaction {transaction_id:?} duplicated its fact frame")]
+    DuplicateCausalAnchorFactFrame {
+        /// Transaction containing duplicate frames.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction contained duplicate receipt frames.
+    #[error("causal-anchor admission transaction {transaction_id:?} duplicated its receipt frame")]
+    DuplicateCausalAnchorAdmissionReceiptFrame {
+        /// Transaction containing duplicate frames.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction did not encode fact then receipt.
+    #[error(
+        "causal-anchor admission transaction {transaction_id:?} used noncanonical frame order"
+    )]
+    NonCanonicalCausalAnchorAdmissionFrameOrder {
+        /// Transaction whose required frames were out of order.
+        transaction_id: WalTransactionId,
+    },
     /// Submission id was reused with a different canonical envelope digest.
     #[error("submission id was reused with a different canonical envelope digest")]
     SubmissionEnvelopeConflict {
@@ -8508,6 +9235,13 @@ fn validate_transaction_semantics(
             return Err(WalValidationError::RecordAuthorityMismatch);
         }
     }
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission
+        && (frames.len() != 2
+            || frames[0].header.record_kind != WalRecordKind::CausalAnchorFactRecorded
+            || frames[1].header.record_kind != WalRecordKind::CausalAnchorAdmissionReceiptRecorded)
+    {
+        return Err(WalValidationError::CausalAnchorAdmissionFrameShapeMismatch);
+    }
     Ok(())
 }
 
@@ -8549,6 +9283,9 @@ fn frontier_kind_allowed_for_transaction(
         WalTransactionKind::TopologyIntent => {
             matches!(frontier_kind, AffectedFrontierKind::TopologyIndex)
         }
+        WalTransactionKind::CausalAnchorAdmission => {
+            matches!(frontier_kind, AffectedFrontierKind::CausalAnchorIndex)
+        }
     }
 }
 
@@ -8562,7 +9299,7 @@ fn records_root(frames: &[WalFrame]) -> Hash {
     h.finalize().into()
 }
 
-fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
+pub(crate) fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
     let mut sorted = frontiers.to_vec();
     sorted.sort_by_key(|frontier| frontier.kind);
     let mut h = blake3::Hasher::new();

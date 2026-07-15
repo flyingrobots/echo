@@ -259,26 +259,26 @@ if grep -Eq '^## [0-9]+\. (Audit Findings|Implementation Checklist)|Issue #[0-9]
 fi
 
 if grep -Eq \
-  'Echo-admitted causal anchors|A causal anchor is .*Echo-admitted|Echo validates that the frontier is admitted|A later slice must|Causal anchor + = Echo admitted' \
+  'claim construction confers admission|applications? (may|can) construct CausalAnchorFact|WSC transport performs admission|CAS .* proves .* admission|A later slice must' \
   docs/topics/CausalAnchors.md crates/warp-core/src/causal_anchor.rs; then
   echo "knowledge-model: causal-anchor contract overclaims trusted admission" >&2
   failures=$((failures + 1))
 fi
 
 for causal_anchor_truth in \
-  'canonical causal-anchor value contract' \
-  'caller-provided references' \
-  'No current API verifies' \
-  'publishes the value under trusted runtime authority'; do
+  'A causal-anchor claim is an application-requested' \
+  'Only an Echo-owned transition may turn that claim into an admitted fact and receipt.' \
+  '`CausalAnchorAdmissionRequest` deliberately has no receipt field.' \
+  'Continuum transport does not perform admission.'; do
   if ! grep -Fq -- "${causal_anchor_truth}" docs/topics/CausalAnchors.md; then
     echo "knowledge-model: causal-anchor topic missing: ${causal_anchor_truth}" >&2
     failures=$((failures + 1))
   fi
 done
 
-if ! grep -Fq -- 'does not verify frontier admission' \
+if ! grep -Fq -- 'does not verify frontier admission, root existence, authority' \
   crates/warp-core/src/causal_anchor.rs || \
-  ! grep -Fq -- 'receipt provenance, authority, or retention' \
+  ! grep -Fq -- "Construction is restricted to Echo's trusted WAL admission path." \
   crates/warp-core/src/causal_anchor.rs; then
   echo "knowledge-model: causal-anchor API docs hide the unverified boundary" >&2
   failures=$((failures + 1))

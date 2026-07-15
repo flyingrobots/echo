@@ -401,6 +401,10 @@ fn wsc_causal_history_export_profiles_cover_required_evidence() {
         WscCausalHistoryExportEvidence::Required
     );
     assert_eq!(
+        ref_only.causal_anchor_history,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
         ref_only.embedded_segment_bytes_or_retained_material,
         WscCausalHistoryExportEvidence::Forbidden
     );
@@ -441,6 +445,10 @@ fn wsc_causal_history_export_profiles_cover_required_evidence() {
         WscCausalHistoryExportEvidence::Required
     );
     assert_eq!(
+        self_contained.causal_anchor_history,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
         self_contained.embedded_segment_bytes_or_retained_material,
         WscCausalHistoryExportEvidence::Required
     );
@@ -478,6 +486,10 @@ fn wsc_causal_history_export_profiles_cover_required_evidence() {
     );
     assert_eq!(
         cas_addressed.commit_anchors,
+        WscCausalHistoryExportEvidence::Required
+    );
+    assert_eq!(
+        cas_addressed.causal_anchor_history,
         WscCausalHistoryExportEvidence::Required
     );
     assert_eq!(

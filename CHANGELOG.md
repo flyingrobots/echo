@@ -7,6 +7,41 @@
 
 ### Added
 
+- `warp-core` now separates application-requested causal-anchor claims from
+  Echo admission. `CausalAnchorAdmissionRequest` contains no admission receipt,
+  `CausalAnchorClaim` is an opaque canonical value over only the caller's claim,
+  and admitted fact construction is reserved for Echo's trusted admission path
+  under ADR 0022.
+- The causal WAL now has stable causal-anchor admission transaction, fact, and
+  receipt record kinds. Transaction validation requires exactly one fact frame
+  followed by exactly one receipt frame before append, while recovery rejects
+  uncommitted, malformed, coordinate-mismatched, basis-mismatched,
+  frontier-root-mismatched, or cross-admission evidence. Public WAL builders
+  and stores cannot originate causal-anchor admission transactions without
+  Echo's crate-private admission capability. Writer-cursor and read-only
+  recovery consume one shared causal-anchor traversal so basis and frontier
+  validation cannot diverge between recovery modes. Self-contained and
+  CAS-addressed WSC imports consume that same traversal before accepting anchor
+  sidecars, so matching projection material cannot legitimize forged recovered
+  basis or frontier evidence.
+- `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
+  WAL at the current logical durable frontier. A host-owned exact root-support
+  policy is validated and bound into receipt identity; successful admissions
+  recover by anchor id after restart, while stale bases, unsupported roots, and
+  failed storage commits publish no authority. Exact-retry lookup uses a
+  disposable claim projection rebuilt from validated WAL history, replaced on
+  writer recovery, and advanced only after a successful admission commit.
+- Causal-anchor request, fact, receipt, observation-only WAL evidence, and
+  recovered admission evidence are now available from the `warp-core` crate
+  root. Arbitrary recovery reports produce `ObservedCausalAnchorAdmission`;
+  sealing `RecoveredCausalAnchorAdmission` is reserved for trusted local WAL
+  recovery. A Jim-shaped external-consumer witness and standalone golden vector
+  pin Echo-produced subject, basis, root, purpose, anchor, receipt, transaction,
+  and commit identity so applications do not create a second anchor hash domain.
+  Both evidence types expose coordinates through read-only accessors rather than
+  caller-reconstructible public fields. External consumers can reconstruct an
+  opaque anchor lookup key from persisted Echo-produced identifier bytes
+  without gaining fact, receipt, or admission construction authority.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,
@@ -157,6 +192,19 @@
   Self-contained exports can embed retained payload bytes and validate them
   against the WAL-retained material digest, while CAS-addressed imports require
   the referenced retained blobs to be present before reporting success.
+- WSC causal-history profile version 2 now carries explicit Echo causal-anchor
+  fact, receipt, WAL transaction, LSN, and commit evidence through all three
+  export profiles. Ref-only imports expose sidecar records as unverified until
+  external WAL dependencies are resolved, but require every supplied sidecar to
+  match a transaction and commit anchor in the projected WAL root;
+  self-contained and CAS-addressed validation recovers retained WAL segments
+  and requires the envelope to match the complete recovered anchor history
+  before exposing observation evidence.
+  CAS-addressed exports and imports also require retained CAS references to
+  exactly match every retention record whose material posture is present;
+  mismatch errors report missing and extra references independently.
+  `echo-cli` bundle schema version 2 writes, inspects, and reports the dedicated
+  causal-anchor envelope without treating Continuum transport as admission.
 - `warp-core` now includes a filesystem-backed WSC store adapter that persists
   envelope material separately from commit markers, hides staged material until
   marker publication, reopens committed envelopes in deterministic order, and
@@ -807,6 +855,12 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the provisional caller-authoritative causal-anchor API:
+  `CausalAnchorRequest`, `CausalAnchorFact::from_request`, public admitted-fact
+  fields, and raw admitted-identity constructors. Applications now submit a
+  `CausalAnchorAdmissionRequest` and treat the returned Echo fact, receipt, and
+  identities as opaque. This is an intentional breaking Rust API correction;
+  preserving the old surface would let callers manufacture Echo authority.
 - Removed the abandoned Method system: its workspace crate and `xtask`
   commands, checked-in backlog, cycles, retrospectives, status ledgers, process
   manuals, and generated task graphs. Current architecture now lives in

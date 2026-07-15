@@ -44,9 +44,13 @@ mod attachment;
 mod braid;
 mod braid_shell;
 mod causal_anchor;
+#[cfg(test)]
+mod causal_anchor_wal_tests;
 mod causal_facts;
 mod causal_receipt;
 pub mod causal_wal;
+#[cfg(test)]
+mod causal_wal_tests;
 mod clock;
 mod cmd;
 mod constants;
@@ -277,10 +281,14 @@ pub use plurality_law::{
 };
 // --- Cursor types ---
 pub use causal_anchor::{
-    CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorError, CausalAnchorFact,
-    CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRequest,
-    CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalAnchorAdmissionReceipt, CausalAnchorAdmissionReceiptId, CausalAnchorAdmissionRequest,
+    CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim, CausalAnchorError,
+    CausalAnchorFact, CausalAnchorGraphRole, CausalAnchorId, CausalAnchorPurpose, CausalAnchorRoot,
+    CausalAnchorRootSupportGrant, CausalAnchorRootSupportPolicy, CausalAnchorSubject,
+    CausalAnchorSupportError, CausalAnchorSupportSet, CausalFrontierRef,
+    CAUSAL_ANCHOR_SCHEMA_VERSION,
 };
+pub use causal_wal::{ObservedCausalAnchorAdmission, RecoveredCausalAnchorAdmission};
 pub use contract_obstruction::{
     ContractObstruction, ContractObstructionKind, ContractObstructionSubject,
 };
@@ -424,7 +432,8 @@ pub use tick_patch::{
 pub use trusted_runtime_host::{
     EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
     TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
-    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalStoreKind,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
+    TrustedRuntimeWalStoreKind, WitnessedCausalAnchorAdmission,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

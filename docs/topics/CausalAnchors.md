@@ -3,17 +3,18 @@
 
 # Causal Anchors
 
-A causal-anchor value is an application-requested, canonical claim over a basis
+A causal-anchor claim is an application-requested, canonical claim over a basis
 in causal history. It is not a materialized snapshot, an admission receipt, or
-proof that referenced history and roots exist. The current implementation binds
-a subject, basis-frontier digest, root set, purpose, and receipt digest into a
-deterministic value without admitting or publishing that value.
+proof that referenced history and roots exist. Claim construction binds a
+subject, basis-frontier digest, root set, and purpose into a deterministic value
+without admitting or publishing it; the trusted Echo transition described below
+performs admission separately.
 
 The short rule is:
 
 ```text
-CAS addresses content. A causal-anchor value binds claimed meaning to supplied references.
-A trusted admission receipt would prove Echo accepted that claim; no such API exists today.
+CAS addresses content. A causal-anchor claim binds meaning to supplied references.
+Only an Echo-owned transition may turn that claim into an admitted fact and receipt.
 ```
 
 ## Why Not Checkpoints
@@ -31,8 +32,8 @@ The boundary is:
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | CAS object              | A hash addresses bytes, facts, manifests, or projection material; availability requires separate CAS evidence.                                       |
 | Projection cache        | Derived observer-relative materialization can be reused when its basis, aperture, observer authority, policy, schema, evaluator, and coverage match. |
-| Causal-anchor value     | A canonical claim binds a subject, supplied basis-frontier digest, root sets, purpose, and supplied receipt digest.                                  |
-| Trusted admitted anchor | A runtime authority verified and durably published an anchor claim. Echo has no such API today.                                                      |
+| Causal-anchor claim     | A canonical claim binds a subject, supplied basis-frontier digest, root sets, and purpose without claiming admission.                                |
+| Trusted admitted anchor | Echo validated a current logical basis and host-owned root support, then committed the claim and receipt atomically through the causal WAL.        |
 | Domain checkpoint       | An application explains what an Echo anchor means in domain terms.                                                                                   |
 
 A graph-wide materialized checkpoint may exist as an export, backup, or diagnostic
@@ -78,17 +79,35 @@ type CausalAnchorRoot =
           role: "authority" | "evidence";
       };
 
-type CausalAnchorFact = {
-    kind: "echo.causal.Anchor";
+type CausalAnchorAdmissionRequest = {
     schemaVersion: number;
-    anchorId: string;
     subject: CausalAnchorSubject;
     basisFrontier: CausalFrontier;
     retainedRoots: readonly CausalAnchorRoot[];
     materializationRoots?: readonly CausalAnchorRoot[];
     purpose: CausalAnchorPurpose;
+};
+
+type CausalAnchorClaim = CausalAnchorAdmissionRequest & {
+    claimDigest: string;
+};
+
+type CausalAnchorFact = CausalAnchorClaim & {
+    kind: "echo.causal.Anchor";
+    anchorId: string;
     admittedByReceiptId: string;
     anchorDigest: string;
+};
+
+type CausalAnchorAdmissionReceipt = {
+    receiptId: string;
+    anchorId: string;
+    claimDigest: string;
+    basisFrontier: CausalFrontier;
+    supportPolicyDigest: string;
+    writerEpochId: string;
+    walTransactionId: string;
+    walFirstLsn: number;
 };
 ```
 
@@ -106,13 +125,14 @@ materialized projection must not become authority just because it is convenient
 to load. The two root sets are disjoint: a root cannot be both retained evidence
 and a materialized projection in the same value.
 
-`admittedByReceiptId` is a historical field name in the current value contract.
-Its digest is supplied by the caller and committed into `anchorDigest`; the
-constructor does not recover or authenticate that receipt.
+`CausalAnchorAdmissionRequest` deliberately has no receipt field. The canonical
+claim constructor cannot create `CausalAnchorFact`. Echo's trusted admission
+transition derives `admittedByReceiptId` from the claim, the host-owned
+support-policy digest, and the WAL coordinate, then commits it with the claim.
 
 ## Value Construction And Trusted Admission Boundary
 
-Applications construct anchor values because applications know when a domain
+Applications request anchor admission because applications know when a domain
 boundary is meaningful:
 
 - An editor knows when a buffer was manually saved.
@@ -120,34 +140,85 @@ boundary is meaningful:
 - A mail app knows when a thread index should be retained.
 - A debugger knows when a replay basis should be pinned.
 
-The implemented flow is:
+The implemented value and WAL flow is:
 
 1. The application identifies a subject, basis frontier, retained roots, optional
    materialization roots, and purpose.
-2. The application supplies a receipt digest with those references.
-3. `CausalAnchorFact::from_request` validates subject and root-set shape,
-   canonicalizes the roots, and derives the anchor digest and id.
-4. The application receives a canonical value. No WAL record, retention pin, or
-   runtime admission receipt is created by that operation.
+2. `CausalAnchorClaim::from_admission_request` validates subject and root-set
+   shape, canonicalizes the roots, and derives the claim digest.
+3. The application receives a canonical claim. No `CausalAnchorFact`, WAL
+   record, retention pin, or runtime admission receipt is created by that
+   operation.
+4. The trusted host requires the claim's basis to equal the logical frontier
+   derived from every committed transaction's canonical semantic frames. The
+   digest excludes physical WAL coordinates such as LSN, segment, and writer.
+5. The host-installed exact root-support policy must grant every retained and
+   materialization root for the named subject.
+6. Echo's admission-kernel WAL path derives the receipt identity from the claim,
+   support-policy digest, and WAL coordinate, then places the admitted fact and
+   receipt in one `CausalAnchorAdmission` transaction.
+7. `TrustedRuntimeApp::admit_causal_anchor(...)` returns evidence only after the
+   transaction commit succeeds. An exact retry recovers the existing admission.
+8. Only a fully committed transaction appears in
+   `recover_causal_anchor_admissions(...)`; recovery validates frame
+   cardinality, payload integrity, cross-evidence identity, and WAL coordinates.
 
-The frontier, roots, and receipt digest are caller-provided references. No
-current API verifies those references or publishes the value. Code that receives
-a `CausalAnchorFact` must therefore not treat it as proof of admission.
+The frontier and roots remain caller-provided references until trusted-host
+admission. `TrustedRuntimeApp::current_causal_anchor_basis()` supplies the basis
+the host can currently validate. `TrustedRuntimeHost` alone installs the exact
+root-support policy; the app-facing handle cannot replace it. The WAL layer owns
+receipt derivation, atomic fact/receipt recording, and recovery. Neither the
+support grant nor the anchor implies application-domain semantics or a physical
+retention pin.
 
-A trusted admission authority would have to validate that the frontier is
-admitted, each root exists under its declared kind, the request is lawful for the
-subject authority, the retention policy can honor the request, and the receipt
-provenance is recoverable. It would then publish the anchor evidence through the
-runtime's durable commit boundary. Those requirements define the trust boundary;
-they do not describe current behavior.
+Applications may construct canonical anchor claims, but they cannot confer Echo
+admission on those claims. Echo must not encode application semantics into the
+generic claim contract.
 
-Applications may construct canonical anchor values, but they cannot confer Echo
-admission on those values. Echo must not encode application semantics into the
-generic value contract.
+### External Consumer Contract
+
+The supported application path is the root-level `warp-core` API:
+
+1. Ask `TrustedRuntimeApp::current_causal_anchor_basis()` for the exact durable
+   basis Echo can currently admit.
+2. Build `CausalAnchorAdmissionRequest` with the application subject and roots.
+3. Submit it through `TrustedRuntimeApp::admit_causal_anchor(...)`.
+4. Consume the returned `RecoveredCausalAnchorAdmission`, including its
+   `CausalAnchorFact`, `CausalAnchorAdmissionReceipt`, WAL transaction identity,
+   committed LSN, and commit digest.
+5. Recover the same evidence later through
+   `TrustedRuntimeApp::causal_anchor_by_id(...)`.
+
+`CausalAnchorAdmissionRequest`, `CausalAnchorFact`,
+`CausalAnchorAdmissionReceipt`, and `RecoveredCausalAnchorAdmission` are all
+exported from the `warp-core` crate root. External consumers do not need an
+internal WAL module path. Recovered admission evidence exposes read-only
+accessors; its fact, receipt, transaction, LSN, and commit-digest fields cannot
+be replaced through a public struct constructor.
+
+The following value-only operations are deliberately quarantined from the
+authority boundary:
+
+- `CausalAnchorClaim::from_admission_request(...)` canonicalizes and validates
+  a proposal, but does not admit it;
+- the golden vector documents Echo-produced identities, but is not a
+  specification for another hash implementation;
+- decoded, copied, or structurally valid fact values do not prove WAL commit;
+- application code must never synthesize `admittedByReceiptId`, `anchorDigest`,
+  `anchorId`, WAL coordinates, or an `authority: echo` posture.
+
+An adapter may translate the returned Echo evidence into an application wire
+shape. It must copy the opaque Echo identities exactly and preserve the trusted
+source posture. It must not recompute those identities in JavaScript,
+TypeScript, another Rust crate, or a generated application contract.
 
 ## Jim And Rope Checkpoints
 
-For `jedit`, the domain checkpoint can be a thin fact over a causal-anchor value:
+For `jedit`, checkpoint declaration and Echo anchoring are separate
+propositions. A checkpoint can be useful as an undo boundary, navigation
+marker, temporary basis, or application-local declaration without requesting
+special Echo retention. Durable save, export, or recovery policy may later
+associate that checkpoint with an admitted Echo anchor.
 
 ```ts
 type RopeCheckpointReason =
@@ -158,16 +229,29 @@ type RopeCheckpointReason =
     | "export"
     | "test-fixture";
 
-type RopeCheckpointFact = {
-    kind: "jedit.text.RopeCheckpoint";
+type RopeCheckpointDeclaredFact = {
+    kind: "jedit.text.RopeCheckpointDeclared";
     schemaVersion: 1;
     checkpointId: string;
     worldlineId: string;
     headId: string;
-    causalAnchorId: string;
     reason: RopeCheckpointReason;
 };
+
+type RopeCheckpointAnchoredFact = {
+    kind: "jedit.text.RopeCheckpointAnchored";
+    schemaVersion: 1;
+    checkpointId: string;
+    causalAnchorId: string;
+};
 ```
+
+Separate facts are preferred over an optional `causalAnchorId`. They preserve
+the distinction between declaring application meaning and requesting Echo
+retention policy, allow an anchor to be admitted later without replacing the
+original checkpoint fact, and make the association independently explainable
+through provenance. A future disassociation would likewise require an explicit
+superseding fact rather than mutating either proposition.
 
 Jim says:
 
@@ -175,14 +259,17 @@ Jim says:
 This rope head is the text-domain thing being checkpointed.
 ```
 
-The constructed causal-anchor value says:
+The canonical causal-anchor claim says:
 
 ```text
-This caller claimed this subject, basis frontier, and retained root set under
-this purpose and receipt reference.
+This caller claimed this subject, basis frontier, and retained root set for this
+purpose.
 ```
 
-A Jim save anchor value can claim the rope head as retained authority:
+An admitted Echo receipt additionally says that Echo accepted that exact claim
+at its named causal basis. Jim must not invent that receipt locally.
+
+A Jim save anchor claim can name the rope head as retained authority:
 
 ```ts
 retainedRoots: [
@@ -200,10 +287,13 @@ An optional flat UTF-8 file projection belongs under `materializationRoots`, not
 `retainedRoots`, unless the application explicitly models that projection as
 authority.
 
-Creating a rope checkpoint may construct:
+Declaring a rope checkpoint creates Jim-owned application semantics. A
+separate anchoring operation may request and, after Echo admission, receive:
 
-- a canonical causal-anchor value;
-- a Jim `RopeCheckpointFact`;
+- a canonical causal-anchor claim;
+- an Echo-admitted anchor fact and receipt;
+- a Jim `RopeCheckpointDeclaredFact`;
+- a Jim `RopeCheckpointAnchoredFact` associating the two propositions;
 - optional projection materialization evidence.
 
 It must not mint:
@@ -214,7 +304,8 @@ It must not mint:
 - replacement blobs;
 - text mutation evidence.
 
-A checkpoint is a causal event. It is not a text edit.
+A checkpoint declaration and an anchor association are causal events. Neither
+is a text edit, and not every checkpoint declaration requires an anchor.
 
 ## Projection Caches
 
@@ -242,44 +333,135 @@ reuse paths remain caches unless a trusted runtime authority admits them.
 
 ## Validation Invariants
 
-The current canonical causal-anchor value contract enforces these invariants:
+The current canonical causal-anchor claim contract enforces these invariants:
 
 - The subject's `appId`, `subjectKind`, and `subjectId` are nonempty.
+- Application-root `appId`, `subjectKind`, and `id` fields are nonempty.
 - At least one retained root is supplied.
 - Retained and materialization root sets are sorted into canonical order and
   contain no duplicates.
 - Materialization roots cannot declare authority.
 - No root appears in both retained and materialization sets.
-- The anchor digest commits to the supplied subject, basis frontier, roots,
-  purpose, schema, and receipt digest.
-- The anchor id is domain-separated from the anchor digest.
+- The claim digest commits to the supplied subject, basis frontier, roots,
+  purpose, and schema.
+- Unsupported schema versions are rejected rather than canonicalized under
+  unknown rules.
+- Decoded claim bytes must exactly equal canonical re-encoding; recovery does
+  not normalize noncanonical root order into authority.
+- The application request and claim contain no Echo admission receipt identity.
 
-A trusted admitted anchor would additionally require proof that the basis
-frontier is admitted causal history, every root exists with the declared kind,
-the receipt is authentic and recoverable, the subject authority permits the
-request, and retention policy explains each pin. The current value constructor
-does not enforce those properties.
+Application-facing trusted admission additionally requires an exact current
+logical basis and a host-owned support grant for every canonical root. The
+receipt binds the policy digest used for that decision. The WAL path
+authenticates and recovers the receipt; the claim constructor does not.
+Application root semantics and physical retention pins remain separate.
 
-A domain checkpoint fact must separately validate domain semantics. For Jim, that
-means the rope head exists, belongs to the named worldline, and matches the anchor
-subject. Echo does not validate rope structure; Jim does.
+A domain checkpoint declaration must separately validate domain semantics. For
+Jim, that means the rope head exists and belongs to the named worldline. An
+anchoring association must additionally prove that the admitted anchor subject
+matches that declaration. Echo does not validate rope structure; Jim does.
 
 ## Relationship To WAL
 
-The WAL remains the durable commit boundary for Echo runtime history. The current
-causal-anchor value is not admitted through that authority and does not replace
-WAL ordering or recovery. See [WAL](WAL.md) for the WAL boundary.
+The WAL remains the durable commit boundary for Echo runtime history. The claim
+constructor is not admission and does not replace WAL ordering or recovery.
+Echo reserves transaction code `7`, record codes `23` and `24`, and frontier
+code `8` for atomic causal-anchor admission. See [WAL](WAL.md) for the WAL
+boundary.
 
-A trusted admission path could pin CAS roots, graph facts, manifests, indexes, or
-materialized projection blobs. Constructing a `CausalAnchorFact` alone pins
-nothing and creates no recoverable causal meaning.
+A separate retention policy may pin CAS roots, graph facts, manifests, indexes,
+or materialized projection blobs named by an admitted anchor. Constructing a
+`CausalAnchorClaim` pins nothing and creates no recoverable causal meaning.
 
 ## Implementation Evidence
 
-The first Echo-owned value contract lives in
+The Echo-owned claim and admitted-evidence contracts live in
 `crates/warp-core/src/causal_anchor.rs`. It defines the causal anchor subject,
 frontier reference, purpose, typed root roles, canonical root-set validation,
-anchor digest, and anchor id.
+claim digest, opaque admitted fact, and Echo admission receipt. ADR 0022
+reserves admitted fact and receipt construction for the trusted Echo transition.
+
+The durable transaction and recovery path lives in
+`crates/warp-core/src/causal_wal.rs`. Its deterministic witnesses live in
+`crates/warp-core/tests/causal_anchor_wal_tests.rs` and prove stable persisted
+codes, exact fact/receipt frame cardinality, corruption refusal, cross-evidence
+validation, canonical frame order, WAL-coordinate binding, and uncommitted-tail
+invisibility.
+
+The app-safe admission boundary lives in
+`crates/warp-core/src/trusted_runtime_host.rs`:
+
+- `TrustedRuntimeHost::install_causal_anchor_root_support_policy(...)` is the
+  trusted configuration seam;
+- `TrustedRuntimeApp::current_causal_anchor_basis()` names the current durable
+  logical frontier;
+- `TrustedRuntimeApp::admit_causal_anchor(...)` validates, commits, and only then
+  returns Echo-produced evidence;
+- `TrustedRuntimeApp::causal_anchor_by_id(...)` is a bounded point projection
+  over committed witnessed control history;
+- `TrustedRuntimeApp::causal_anchor_by_id_at_basis(...)` performs the same point
+  observation at an exact recovered causal frontier.
+
+### Authority after restart
+
+The authoritative proposition after restart is the committed
+`CausalAnchorFact` paired with its `CausalAnchorAdmissionReceipt` and placed in
+Echo's ordered control history. WAL frames and commit markers are the durable
+carrier and recovery evidence for that proposition. They are not a separate
+anchor registry.
+
+`TrustedRuntimeWalRecovery::causal_anchor_history` is an ordered reading over
+those committed transitions. Each `WitnessedCausalAnchorAdmission` names the
+global causal frontier immediately before and after admission. This makes the
+fact basis-pinned and causally related to both the support it cites and the
+receipt that admitted it.
+
+`causal_anchor_by_id(...)` does not consult an independently maintained map. It
+reconstructs witnessed history and performs a bounded point lookup. Any
+temporary map used by a future index is therefore disposable: deleting it must
+not delete authority, and it must be reconstructible from the ordered history.
+
+The authority questions have these concrete answers:
+
+| Question | Answer |
+| --- | --- |
+| What is authoritative after restart? | The committed anchor fact/receipt transition in witnessed Echo control history. |
+| Is `causal_anchor_by_id()` a WAL-owned registry? | No. It is a projection over reconstructed witnessed history; the WAL only carries the committed transition. |
+| Are lookup maps disposable? | Yes. No persistent anchor lookup map is required for correctness. |
+| Can anchors participate in basis-pinned observations and provenance? | Yes. Witnessed entries bind pre- and post-admission frontiers, the admitted fact, its receipt, and durable commit evidence. |
+| Can anchors participate in Continuum exchange? | Yes. WSC causal-history profile version 2 carries explicit anchor fact, receipt, transaction, LSN, and commit evidence without granting local admission authority. |
+
+### Continuum exchange posture
+
+WSC causal-history profile version 2 carries causal-anchor admissions in a
+dedicated semantic envelope across ref-only, self-contained, and CAS-addressed
+exports. Decoding yields `WscCausalAnchorAdmissionEvidence`, an explicitly
+observation-only value. It cannot be converted into
+`RecoveredCausalAnchorAdmission` or installed as local Echo authority.
+
+The validation posture depends on the profile:
+
+- Ref-only import binds each supplied anchor observation to the projected WAL
+  root's transaction, LSN, record-count, and commit evidence. The segment bytes
+  remain an explicit external dependency.
+- Self-contained import recovers the embedded WAL segments, requires the anchor
+  envelope to match the complete recovered anchor history, and rejects omitted,
+  extra, malformed, or mismatched admissions.
+- CAS-addressed import verifies each retained segment blob, recovers it against
+  the projected WAL root, and requires the same complete anchor-history match.
+
+Continuum transport does not perform admission. A receiving Echo runtime may
+observe, inspect, or propose imported evidence under its local law, but only a
+new Echo-owned transition can make a proposition part of local causal history.
+
+The external Jim-shaped witness lives in
+`crates/warp-core/tests/causal_anchor_external_consumer_tests.rs`. It uses only
+root-level public APIs, admits a `jedit` `BufferWorldline` save anchor, recovers
+it by id, and proves parity across the fact, receipt, and durable WAL evidence.
+Its standalone golden vector is
+`crates/warp-core/tests/fixtures/causal_anchor_admission_v1.txt`. A changed
+claim domain, receipt domain, root encoding, policy binding, WAL coordinate, or
+commit identity changes that vector and requires explicit compatibility review.
 
 The public witness tests live in
 `crates/warp-core/tests/causal_anchor_tests.rs`. They prove:
@@ -287,14 +469,16 @@ The public witness tests live in
 - retained and materialization root sets are canonicalized before digesting;
 - duplicate roots are rejected after canonicalization;
 - materialization roots cannot declare authority;
-- anchor digests bind subject, basis frontier, purpose, and the supplied receipt
-  digest;
+- claim digests bind subject, basis frontier, roots, purpose, and schema;
+- exact root-support policies are canonical and order-independent;
+- application requests cannot supply an Echo admission receipt identity;
 - a Jim rope checkpoint retains the rope head as authority while flat text remains
-  materialization;
-- anchor ids are domain-separated from anchor digests.
+  materialization.
 
-This implementation is a canonical value contract only. No current API verifies
-the supplied references or publishes the value under trusted runtime authority.
+The implementation has a canonical claim contract, a WAL-backed admission and
+recovery path, an application-facing trusted-host API, and a portable external
+consumer fixture. External consumers must use the host API rather than
+value-only claim construction.
 
 ## Doctrine
 
@@ -303,8 +487,8 @@ The core distinction is:
 ```text
 CAS object        = content is addressed; availability needs separate evidence
 Projection cache  = derived work can be reused
-Causal-anchor value = canonical claim over supplied references
-Admitted anchor   = trusted authority verified and published the claim (not implemented)
+Causal-anchor claim = canonical claim over supplied references
+Admitted anchor   = WAL-committed fact + policy-bound Echo receipt
 Domain checkpoint = an app explains what the basis means
 ```
 

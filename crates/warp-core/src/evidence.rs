@@ -356,6 +356,11 @@ mod tests {
                 WalRecordKind::TopologyStrandForkRecorded,
                 AffectedFrontierKind::TopologyIndex,
             ),
+            WalTransactionKind::CausalAnchorAdmission => (
+                WalAppendAuthority::AdmissionKernel,
+                WalRecordKind::CausalAnchorFactRecorded,
+                AffectedFrontierKind::CausalAnchorIndex,
+            ),
         }
     }
 

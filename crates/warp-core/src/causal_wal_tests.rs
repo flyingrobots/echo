@@ -9,20 +9,22 @@
     clippy::unnecessary_debug_formatting
 )]
 
-use echo_cas::{
-    BlobHash, BlobStore, MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate,
-};
-use warp_core::causal_wal::{
+use crate::causal_anchor::prepare_causal_anchor_admission;
+use crate::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
-    build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
-    build_recovery_certificate, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_submission_acceptance_with_material_transaction,
-    build_tick_transaction, build_topology_intent_transaction, canonical_segment_relative_path,
-    doctor_in_memory_store, evaluate_checkpoint_publication, lint_wal_schema_terms,
-    materialize_wal_projection_graph, missing_material_scope, observe_wal_projection_graph_wsc,
-    project_causal_commit_evidence, project_filesystem_wal_recovery, project_wal_recovery,
-    read_checkpoint_record, rebuild_durability_indexes_after_recovery,
-    recover_checkpoint_publications, recover_filesystem_store, recover_in_memory_store,
+    build_causal_anchor_admission_transaction, build_checkpoint_publication_transaction,
+    build_materialization_outbox_transaction, build_recovery_certificate,
+    build_retained_reading_transaction, build_submission_acceptance_transaction,
+    build_submission_acceptance_with_material_transaction, build_tick_transaction,
+    build_topology_intent_transaction, canonical_segment_relative_path,
+    causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
+    causal_history_genesis_frontier_digest, doctor_in_memory_store,
+    evaluate_checkpoint_publication, lint_wal_schema_terms, logical_causal_history_frontier_digest,
+    materialize_wal_projection_graph, missing_material_scope, observe_causal_anchor_admissions,
+    observe_wal_projection_graph_wsc, project_causal_commit_evidence,
+    project_filesystem_wal_recovery, project_wal_recovery, read_checkpoint_record,
+    rebuild_durability_indexes_after_recovery, recover_checkpoint_publications,
+    recover_filesystem_store, recover_from_frames_and_commits, recover_in_memory_store,
     recover_materialization_outbox, recover_materialization_outbox_with_retained_material,
     recover_receipt_index, recover_retention_index, recover_submission_index,
     recover_topology_index, recovered_submission_receipt_index_root, recovered_topology_index_root,
@@ -56,24 +58,30 @@ use warp_core::causal_wal::{
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
 };
-use warp_core::wsc::{
+use crate::wsc::{
     accepted_submission_records_from_wsc_envelope, build_one_warp_input,
-    receipt_correlation_records_from_wsc_envelope, topology_records_from_wsc_envelope,
-    validate_wsc, validate_wsc_cas_addressed_wal_export, validate_wsc_causal_history_store,
+    causal_anchor_records_to_wsc_envelope, receipt_correlation_records_from_wsc_envelope,
+    retention_records_to_wsc_envelope, topology_records_from_wsc_envelope, validate_wsc,
+    validate_wsc_cas_addressed_wal_export, validate_wsc_causal_history_store,
     validate_wsc_ref_only_wal_export, validate_wsc_self_contained_wal_export, write_wsc_one_warp,
     wsc_cas_addressed_wal_export, wsc_ref_only_wal_export, wsc_self_contained_wal_export,
-    InMemoryWscStore, WscCasAddressedRetainedMaterialReference, WscCasAddressedWalImportError,
-    WscCasAddressedWalSegmentMaterial, WscCasBlobStorePort, WscCausalHistoryExportProfileKind,
-    WscFile, WscRefOnlyWalExportError, WscRefOnlyWalLocatorPosture,
-    WscRefOnlyWalMaterialDependency, WscSelfContainedRetainedMaterial,
+    InMemoryWscStore, WscCasAddressedRetainedMaterialReference, WscCasAddressedWalExportError,
+    WscCasAddressedWalImportError, WscCasAddressedWalSegmentMaterial, WscCasBlobStorePort,
+    WscCausalHistoryExportProfileKind, WscFile, WscRefOnlyWalExportError, WscRefOnlyWalImportError,
+    WscRefOnlyWalLocatorPosture, WscRefOnlyWalMaterialDependency, WscSelfContainedRetainedMaterial,
     WscSelfContainedWalExportError, WscSelfContainedWalImportError,
     WscSelfContainedWalSegmentMaterial, WscStoreEnvelope, WscStoreObstructionKind, WscStorePort,
     WscStoreRecordKind, WscWalCausalHistoryRecords,
 };
-use warp_core::{
+use crate::{
     make_strand_id, make_type_id, AuthorityDomainId, AuthorityDomainRef, BraidEvent, BraidStatus,
+    CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole, CausalAnchorClaim,
+    CausalAnchorPurpose, CausalAnchorRoot, CausalAnchorSubject, CausalFrontierRef,
     CausalTickReceiptRef, GlobalTick, Hash, HeadId, OriginId, WorldlineId, WorldlineTick,
-    WriterHeadKey,
+    WriterHeadKey, CAUSAL_ANCHOR_SCHEMA_VERSION,
+};
+use echo_cas::{
+    BlobHash, BlobStore, MemoryTier, RetainedBlobIndex, RetainedBlobRole, SemanticBlobCoordinate,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -824,7 +832,7 @@ fn wal_projection_from_recovery() {
         }
     ));
 
-    let mismatched_certificate = warp_core::causal_wal::RecoveryCertificate {
+    let mismatched_certificate = crate::causal_wal::RecoveryCertificate {
         committed_transactions_replayed: 99,
         ..certificate
     };
@@ -1699,20 +1707,47 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
 
     let mut cas_store = MemoryTier::new();
     let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
-    let retained_bytes = b"shared retained WSC material";
+    let retained_bytes = b"retained WSC material";
     let mut retained_index = RetainedBlobIndex::default();
-    let retained_a = must_ok(retained_index.retain(
+    let retained = must_ok(retained_index.retain(
         &mut cas_store,
-        semantic_coordinate("wsc-cas:reading-a"),
+        semantic_coordinate("wsc-cas:reading"),
         retained_bytes,
     ));
-    let retained_b = must_ok(retained_index.retain(
-        &mut cas_store,
-        semantic_coordinate("wsc-cas:reading-b"),
-        retained_bytes,
+    let retained_material = RetainedMaterialRecord {
+        material_digest: *retained.content_hash.as_bytes(),
+        semantic_coordinate_digest: retained.coordinate.semantic_digest,
+        kind: RetainedMaterialKind::ReadingPayload,
+        posture: EvidenceMaterialPosture::Present,
+    };
+
+    let missing_retained_reference = must_err(
+        wsc_cas_addressed_wal_export(
+            &root,
+            &[WscCasAddressedWalSegmentMaterial {
+                segment_id: segment.segment_id,
+                content_hash: segment_content_hash,
+                semantic_coordinate_digest: digest("wsc-cas:segment"),
+                byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
+            }],
+            &[],
+            wsc_records(
+                &[retained_material],
+                &[],
+                &[acceptance],
+                &[receipt],
+                core::slice::from_ref(&correlation),
+            ),
+        ),
+        "CAS-addressed exports require exact retained-material references",
+    );
+    assert!(matches!(
+        missing_retained_reference,
+        WscCasAddressedWalExportError::RetainedCasReferenceMismatch {
+            missing_from_references: 1,
+            extra_in_references: 0,
+        }
     ));
-    assert_eq!(retained_a.content_hash, retained_b.content_hash);
-    assert_ne!(retained_a.coordinate, retained_b.coordinate);
 
     let export = must_ok(wsc_cas_addressed_wal_export(
         &root,
@@ -1722,22 +1757,14 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
             semantic_coordinate_digest: digest("wsc-cas:segment"),
             byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
         }],
-        &[
-            WscCasAddressedRetainedMaterialReference {
-                material_kind: RetainedMaterialKind::ReadingPayload,
-                content_hash: *retained_a.content_hash.as_bytes(),
-                semantic_coordinate_digest: retained_a.coordinate.semantic_digest,
-                byte_len: retained_a.byte_len,
-            },
-            WscCasAddressedRetainedMaterialReference {
-                material_kind: RetainedMaterialKind::ReadingPayload,
-                content_hash: *retained_b.content_hash.as_bytes(),
-                semantic_coordinate_digest: retained_b.coordinate.semantic_digest,
-                byte_len: retained_b.byte_len,
-            },
-        ],
+        &[WscCasAddressedRetainedMaterialReference {
+            material_kind: RetainedMaterialKind::ReadingPayload,
+            content_hash: *retained.content_hash.as_bytes(),
+            semantic_coordinate_digest: retained.coordinate.semantic_digest,
+            byte_len: retained.byte_len,
+        }],
         wsc_records(
-            &[],
+            &[retained_material],
             &[],
             &[acceptance],
             &[receipt],
@@ -1775,19 +1802,8 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
     );
     assert_eq!(segment_reference.segment_digest, segment.segment_digest);
     assert_eq!(segment_reference.content_hash, segment_content_hash);
-    assert_eq!(
-        imported.cas_references.retained_materials.len(),
-        2,
-        "equal content hashes under different semantic coordinates stay distinct"
-    );
-    assert_eq!(
-        imported.cas_references.retained_materials[0].content_hash,
-        imported.cas_references.retained_materials[1].content_hash
-    );
-    assert_ne!(
-        imported.cas_references.retained_materials[0].semantic_coordinate_digest,
-        imported.cas_references.retained_materials[1].semantic_coordinate_digest
-    );
+    assert_eq!(imported.cas_references.retained_materials.len(), 1);
+    assert_eq!(imported.retention.materials, vec![retained_material]);
 
     let empty_cas = MemoryTier::new();
     let missing = must_err(
@@ -1801,6 +1817,160 @@ fn wsc_cas_addressed_export_requires_present_blobs() {
             semantic_coordinate_digest,
         } if content_hash == segment_content_hash
             && semantic_coordinate_digest == digest("wsc-cas:segment")
+    ));
+}
+
+#[test]
+fn raw_store_commits_cannot_confer_causal_anchor_authority() {
+    let transaction = witnessed_causal_anchor_transaction(
+        "raw-store-authority",
+        Lsn::from_raw(0),
+        causal_history_genesis_frontier_digest(),
+        causal_anchor_genesis_frontier_digest(),
+    );
+
+    let mut in_memory = InMemoryWalStore::new();
+    assert_raw_store_rejects_anchor_commit(&mut in_memory, &transaction);
+
+    let dir = temp_wal_dir("raw-store-authority");
+    let mut filesystem = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    assert_raw_store_rejects_anchor_commit(&mut filesystem, &transaction);
+}
+
+fn assert_raw_store_rejects_anchor_commit(
+    store: &mut impl WalStorePort,
+    transaction: &WalCommittedTransaction,
+) {
+    let epoch_id = transaction.commit.writer_epoch;
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    for frame in transaction.frames.iter().cloned() {
+        must_ok(store.append_frame(epoch_id, frame));
+    }
+    let error = must_err(
+        store.flush_commit(epoch_id, transaction.commit.clone()),
+        "raw WAL store commits must not carry causal-anchor admission authority",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::Validation(
+            crate::causal_wal::WalValidationError::AdmissionKernelCapabilityRequired
+        )
+    ));
+    assert!(store.read_commits().is_empty());
+}
+
+#[test]
+fn wsc_materialized_anchor_import_rejects_unwitnessed_anchor_transitions() {
+    let basis_label = "wsc-forged-anchor-basis";
+    assert_wsc_materialized_anchor_import_rejected(
+        basis_label,
+        durable_causal_anchor_transaction(basis_label, Lsn::from_raw(0)),
+        |error| {
+            matches!(
+                error,
+                WalRecoveryIndexError::CausalAnchorBasisMismatch { .. }
+            )
+        },
+    );
+
+    let frontier_label = "wsc-forged-anchor-frontier";
+    assert_wsc_materialized_anchor_import_rejected(
+        frontier_label,
+        forged_frontier_causal_anchor_transaction(frontier_label, Lsn::from_raw(0)),
+        |error| {
+            matches!(
+                error,
+                WalRecoveryIndexError::CausalAnchorFrontierMismatch { .. }
+            )
+        },
+    );
+}
+
+fn assert_wsc_materialized_anchor_import_rejected(
+    label: &str,
+    transaction: WalCommittedTransaction,
+    expected_error: impl Fn(&WalRecoveryIndexError) -> bool,
+) {
+    let dir = temp_wal_dir(label);
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    let writer_epoch = must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
+    let segment_bytes = must_ok(fs::read(store.segment_path()));
+    let last_commit = must_some(store.read_commits().last().cloned());
+    must_ok(store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            manifest_digest: digest(&format!("{label}:manifest")),
+            last_committed_lsn: Some(last_commit.last_lsn),
+            last_commit_digest: Some(last_commit.commit_digest),
+            sealed_segment_count: 1,
+        },
+    ));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let causal_anchors = must_ok(observe_causal_anchor_admissions(&report));
+    let certificate = build_recovery_certificate(
+        &report,
+        None,
+        0,
+        digest(&format!("{label}:frontier")),
+        digest(&format!("{label}:indexes")),
+    );
+    let writer_epoch = WalWriterEpoch::from_writer_epoch(&writer_epoch);
+    let projection = project_filesystem_wal_recovery(
+        &dir,
+        &report,
+        std::slice::from_ref(&writer_epoch),
+        Some(&certificate),
+    );
+    let root = must_some(projection.root);
+    let segment = root.segments[0].clone();
+
+    let self_contained = must_ok(wsc_self_contained_wal_export(
+        &root,
+        &[WscSelfContainedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            segment_bytes: segment_bytes.clone(),
+        }],
+        &[],
+        wsc_records_with_causal_anchors(&[], &[], &[], &[], &[], &causal_anchors),
+    ));
+    let self_contained_error = must_err(
+        validate_wsc_self_contained_wal_export(&self_contained, &root),
+        "self-contained imports must validate anchor transitions against WAL history",
+    );
+    assert!(matches!(
+        self_contained_error,
+        WscSelfContainedWalImportError::CausalAnchorRecovery(ref error)
+            if expected_error(error)
+    ));
+
+    let mut cas_store = MemoryTier::new();
+    let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
+    let cas_addressed = must_ok(wsc_cas_addressed_wal_export(
+        &root,
+        &[WscCasAddressedWalSegmentMaterial {
+            segment_id: segment.segment_id,
+            content_hash: segment_content_hash,
+            semantic_coordinate_digest: digest(&format!("{label}:segment")),
+            byte_len: u64::try_from(segment_bytes.len()).unwrap_or(u64::MAX),
+        }],
+        &[],
+        wsc_records_with_causal_anchors(&[], &[], &[], &[], &[], &causal_anchors),
+    ));
+    let cas_addressed_error = must_err(
+        validate_wsc_cas_addressed_wal_export(
+            &cas_addressed,
+            &root,
+            &EchoCasAvailability(&cas_store),
+        ),
+        "CAS-addressed imports must validate anchor transitions against WAL history",
+    );
+    assert!(matches!(
+        cas_addressed_error,
+        WscCasAddressedWalImportError::CausalAnchorRecovery(ref error)
+            if expected_error(error)
     ));
 }
 
@@ -1830,12 +2000,27 @@ fn wsc_retained_evidence_export_modes() {
         posture: EvidenceMaterialPosture::Present,
     };
 
-    must_ok(store.append_transaction(durable_submission_transaction(label, Lsn::from_raw(0))));
-    must_ok(store.append_transaction(durable_tick_transaction(
+    let submission = durable_submission_transaction(label, Lsn::from_raw(0));
+    let tick = durable_tick_transaction(label, Lsn::from_raw(2), WalTickDecision::Applied);
+    let anchor_basis = [&submission, &tick].into_iter().fold(
+        causal_history_genesis_frontier_digest(),
+        |frontier, transaction| {
+            logical_causal_history_frontier_digest(
+                frontier,
+                transaction.commit.transaction_kind,
+                &transaction.frames,
+            )
+        },
+    );
+    let anchor = witnessed_causal_anchor_transaction(
         label,
-        Lsn::from_raw(2),
-        WalTickDecision::Applied,
-    )));
+        Lsn::from_raw(5),
+        anchor_basis,
+        causal_anchor_genesis_frontier_digest(),
+    );
+    must_ok(store.append_transaction(submission));
+    must_ok(store.append_transaction(tick));
+    must_ok(store.append_transaction(anchor));
     must_ok(store.seal_segment(epoch_id(), WalSegmentId::from_raw(1)));
     let segment_path = store.segment_path();
     let segment_bytes = must_ok(fs::read(&segment_path));
@@ -1847,13 +2032,15 @@ fn wsc_retained_evidence_export_modes() {
     );
     let manifest = WalManifest {
         manifest_digest: digest("wsc-retained-evidence:manifest"),
-        last_committed_lsn: Some(Lsn::from_raw(4)),
+        last_committed_lsn: Some(Lsn::from_raw(6)),
         last_commit_digest: Some(last_commit_digest),
         sealed_segment_count: 1,
     };
     must_ok(store.publish_manifest(epoch_id(), manifest));
 
     let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    let causal_anchors = must_ok(observe_causal_anchor_admissions(&report));
+    assert_eq!(causal_anchors.len(), 1);
     let certificate = build_recovery_certificate(
         &report,
         None,
@@ -1874,17 +2061,45 @@ fn wsc_retained_evidence_export_modes() {
 
     let ref_only = must_ok(wsc_ref_only_wal_export(
         &root,
-        wsc_records(
+        wsc_records_with_causal_anchors(
             &[retained_material],
             &[reading_ref],
             &[acceptance],
             &[receipt],
             core::slice::from_ref(&correlation),
+            &causal_anchors,
         ),
     ));
     let ref_only_import = must_ok(validate_wsc_ref_only_wal_export(&ref_only, &root));
     assert_eq!(ref_only_import.retention.materials, vec![retained_material]);
     assert_eq!(ref_only_import.retention.readings, vec![reading_ref]);
+    assert_eq!(ref_only_import.unverified_causal_anchors.len(), 1);
+    assert_eq!(
+        ref_only_import.unverified_causal_anchors[0].fact(),
+        causal_anchors[0].fact()
+    );
+
+    let unrelated_transaction =
+        durable_causal_anchor_transaction("wsc-unrelated-anchor", Lsn::from_raw(0));
+    let unrelated_report = must_ok(recover_from_frames_and_commits(
+        &unrelated_transaction.frames,
+        core::slice::from_ref(&unrelated_transaction.commit),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let unrelated_anchors = must_ok(observe_causal_anchor_admissions(&unrelated_report));
+    let mut unrelated_ref_only = ref_only;
+    unrelated_ref_only.causal_anchor_envelope =
+        must_ok(causal_anchor_records_to_wsc_envelope(&unrelated_anchors));
+    let unrelated_ref_only_error = must_err(
+        validate_wsc_ref_only_wal_export(&unrelated_ref_only, &root),
+        "ref-only anchor sidecars must be covered by the projected WAL root",
+    );
+    assert!(matches!(
+        unrelated_ref_only_error,
+        WscRefOnlyWalImportError::CausalAnchors(ref obstruction)
+            if obstruction.kind == WscStoreObstructionKind::IncompleteCausalHistory
+    ));
+
     assert_eq!(
         ref_only_import.retention.materials[0].semantic_coordinate_digest,
         retained_coordinate
@@ -1904,12 +2119,13 @@ fn wsc_retained_evidence_export_modes() {
             material: retained_material,
             material_bytes: retained_payload.to_vec(),
         }],
-        wsc_records(
+        wsc_records_with_causal_anchors(
             &[retained_material],
             &[reading_ref],
             &[acceptance],
             &[receipt],
             core::slice::from_ref(&correlation),
+            &causal_anchors,
         ),
     ));
     let self_contained_import = must_ok(validate_wsc_self_contained_wal_export(
@@ -1925,6 +2141,20 @@ fn wsc_retained_evidence_export_modes() {
         retained_payload
     );
     assert_eq!(self_contained_import.retention.readings, vec![reading_ref]);
+    assert_eq!(self_contained_import.causal_anchors.len(), 1);
+
+    let empty_causal_anchors = must_ok(causal_anchor_records_to_wsc_envelope(&[]));
+    let mut incomplete_self_contained = self_contained;
+    incomplete_self_contained.causal_anchor_envelope = empty_causal_anchors.clone();
+    let missing_self_contained_anchor = must_err(
+        validate_wsc_self_contained_wal_export(&incomplete_self_contained, &root),
+        "self-contained import requires every anchor recovered from embedded WAL bytes",
+    );
+    assert!(matches!(
+        missing_self_contained_anchor,
+        WscSelfContainedWalImportError::CausalAnchors(ref obstruction)
+            if obstruction.kind == WscStoreObstructionKind::IncompleteCausalHistory
+    ));
 
     let mut cas_store = MemoryTier::new();
     let segment_content_hash = *cas_store.put(&segment_bytes).as_bytes();
@@ -1943,12 +2173,13 @@ fn wsc_retained_evidence_export_modes() {
             semantic_coordinate_digest: retained_coordinate,
             byte_len: u64::try_from(retained_payload.len()).unwrap_or(u64::MAX),
         }],
-        wsc_records(
+        wsc_records_with_causal_anchors(
             &[retained_material],
             &[reading_ref],
             &[acceptance],
             &[receipt],
             core::slice::from_ref(&correlation),
+            &causal_anchors,
         ),
     ));
     let cas_import = must_ok(validate_wsc_cas_addressed_wal_export(
@@ -1958,6 +2189,54 @@ fn wsc_retained_evidence_export_modes() {
     ));
     assert_eq!(cas_import.retention.materials, vec![retained_material]);
     assert_eq!(cas_import.retention.readings, vec![reading_ref]);
+    assert_eq!(cas_import.causal_anchors.len(), 1);
+
+    let mut mismatched_cas_retention = cas_addressed.clone();
+    mismatched_cas_retention.retention_envelope = must_ok(retention_records_to_wsc_envelope(
+        &[RetainedMaterialRecord {
+            material_digest: digest("wsc-retained-evidence:unrelated-material"),
+            semantic_coordinate_digest: digest("wsc-retained-evidence:unrelated-coordinate"),
+            kind: RetainedMaterialKind::ReadingPayload,
+            posture: EvidenceMaterialPosture::Present,
+        }],
+        &[reading_ref],
+    ));
+    let mismatch = must_err(
+        validate_wsc_cas_addressed_wal_export(
+            &mismatched_cas_retention,
+            &root,
+            &EchoCasAvailability(&cas_store),
+        ),
+        "CAS references must exactly match present retained-material records",
+    );
+    let mismatch_diagnostic = format!("{mismatch}");
+    assert!(
+        mismatch_diagnostic.contains("1 missing") && mismatch_diagnostic.contains("1 extra"),
+        "equal-size substitutions must report the two directional differences"
+    );
+    assert!(matches!(
+        mismatch,
+        WscCasAddressedWalImportError::RetainedCasReferenceMismatch {
+            missing_from_references: 1,
+            extra_in_references: 1,
+        }
+    ));
+
+    let mut incomplete_cas_addressed = cas_addressed.clone();
+    incomplete_cas_addressed.causal_anchor_envelope = empty_causal_anchors;
+    let missing_cas_anchor = must_err(
+        validate_wsc_cas_addressed_wal_export(
+            &incomplete_cas_addressed,
+            &root,
+            &EchoCasAvailability(&cas_store),
+        ),
+        "CAS-addressed import requires every anchor recovered from retained WAL bytes",
+    );
+    assert!(matches!(
+        missing_cas_anchor,
+        WscCasAddressedWalImportError::CausalAnchors(ref obstruction)
+            if obstruction.kind == WscStoreObstructionKind::IncompleteCausalHistory
+    ));
     assert_eq!(cas_import.cas_references.retained_materials.len(), 1);
     assert_eq!(
         cas_import.cas_references.retained_materials[0].content_hash,
@@ -2432,6 +2711,25 @@ fn wsc_records<'a>(
         accepted_submissions,
         receipts,
         correlations,
+        causal_anchors: &[],
+    }
+}
+
+fn wsc_records_with_causal_anchors<'a>(
+    retained_materials: &'a [RetainedMaterialRecord],
+    reading_refs: &'a [ReadingRefRecord],
+    accepted_submissions: &'a [SubmissionAcceptanceRecord],
+    receipts: &'a [TickReceiptRecord],
+    correlations: &'a [WalReceiptCorrelationRecord],
+    causal_anchors: &'a [crate::ObservedCausalAnchorAdmission],
+) -> WscWalCausalHistoryRecords<'a> {
+    WscWalCausalHistoryRecords {
+        retained_materials,
+        reading_refs,
+        accepted_submissions,
+        receipts,
+        correlations,
+        causal_anchors,
     }
 }
 
@@ -2652,6 +2950,107 @@ fn durable_tick_transaction(
     ))
 }
 
+fn causal_anchor_claim(label: &str, basis_frontier: Hash) -> CausalAnchorClaim {
+    must_ok(CausalAnchorClaim::from_admission_request(
+        CausalAnchorAdmissionRequest {
+            schema_version: CAUSAL_ANCHOR_SCHEMA_VERSION,
+            subject: CausalAnchorSubject::new(
+                "jedit",
+                "BufferWorldline",
+                format!("worldline:{label}"),
+            ),
+            basis_frontier: CausalFrontierRef::from_digest(basis_frontier),
+            retained_roots: vec![CausalAnchorRoot::AppSubjectRoot {
+                app_id: "jedit".to_owned(),
+                subject_kind: "RopeHead".to_owned(),
+                id: format!("head:{label}"),
+                role: CausalAnchorAppRootRole::Authority,
+            }],
+            materialization_roots: vec![CausalAnchorRoot::CasObject {
+                id: digest(&format!("materialization:{label}")),
+                role: CausalAnchorCasRole::Materialization,
+            }],
+            purpose: CausalAnchorPurpose::UserSave,
+        },
+    ))
+}
+
+fn causal_anchor_transaction_builder(label: &str, first_lsn: Lsn) -> WalTransactionBuilder {
+    WalTransactionBuilder::new_causal_anchor_admission(
+        epoch_id(),
+        WalSegmentId::from_raw(1),
+        transaction_id(&format!("tx:causal-anchor:{label}")),
+        first_lsn,
+        digest("previous-frame"),
+        digest("previous-commit"),
+        WalDurabilityMode::Buffered,
+        PayloadCodecId::from_hash(digest("codec")),
+        PayloadSchemaId::from_hash(digest("schema")),
+        1,
+        1,
+        digest("domain"),
+    )
+}
+
+fn durable_causal_anchor_transaction(label: &str, first_lsn: Lsn) -> WalCommittedTransaction {
+    must_ok(build_causal_anchor_admission_transaction(
+        causal_anchor_transaction_builder(label, first_lsn),
+        causal_anchor_claim(label, digest(&format!("basis:{label}"))),
+        digest(&format!("causal-anchor-policy:{label}")),
+        vec![frontier(
+            AffectedFrontierKind::CausalAnchorIndex,
+            &format!("causal-anchor:{label}:before"),
+            &format!("causal-anchor:{label}:after"),
+        )],
+    ))
+}
+
+fn forged_frontier_causal_anchor_transaction(
+    label: &str,
+    first_lsn: Lsn,
+) -> WalCommittedTransaction {
+    must_ok(build_causal_anchor_admission_transaction(
+        causal_anchor_transaction_builder(label, first_lsn),
+        causal_anchor_claim(label, causal_history_genesis_frontier_digest()),
+        digest(&format!("causal-anchor-policy:{label}")),
+        vec![frontier(
+            AffectedFrontierKind::CausalAnchorIndex,
+            &format!("causal-anchor:{label}:before"),
+            &format!("causal-anchor:{label}:after"),
+        )],
+    ))
+}
+
+fn witnessed_causal_anchor_transaction(
+    label: &str,
+    first_lsn: Lsn,
+    basis_frontier: Hash,
+    causal_anchor_frontier: Hash,
+) -> WalCommittedTransaction {
+    let transaction_id = transaction_id(&format!("tx:causal-anchor:{label}"));
+    let support_policy_digest = digest(&format!("causal-anchor-policy:{label}"));
+    let claim = causal_anchor_claim(label, basis_frontier);
+    let (fact, receipt) = prepare_causal_anchor_admission(
+        claim.clone(),
+        support_policy_digest,
+        epoch_id().as_hash(),
+        transaction_id.as_hash(),
+        first_lsn.as_u64(),
+    );
+    let next_causal_anchor_frontier =
+        causal_anchor_frontier_digest_from_evidence(causal_anchor_frontier, &fact, &receipt);
+    must_ok(build_causal_anchor_admission_transaction(
+        causal_anchor_transaction_builder(label, first_lsn),
+        claim,
+        support_policy_digest,
+        vec![AffectedFrontier {
+            kind: AffectedFrontierKind::CausalAnchorIndex,
+            before_digest: causal_anchor_frontier,
+            after_digest: next_causal_anchor_frontier,
+        }],
+    ))
+}
+
 #[test]
 fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
     let kinds = [
@@ -2672,6 +3071,13 @@ fn record_kind_name_does_not_imply_commit_before_transaction_commit() {
         WalRecordKind::MaterializationIntentRecorded,
         WalRecordKind::MaterializationEffectObserved,
         WalRecordKind::RecoveryPostureRecorded,
+        WalRecordKind::TopologyStrandForkRecorded,
+        WalRecordKind::TopologyStrandDropRecorded,
+        WalRecordKind::TopologyBraidEventRecorded,
+        WalRecordKind::TopologyBraidShellRetained,
+        WalRecordKind::TopologySuffixImportRecorded,
+        WalRecordKind::CausalAnchorFactRecorded,
+        WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
     ];
 
     assert!(kinds
@@ -2915,7 +3321,7 @@ fn semantic_validation_rejects_record_authority_mismatch() {
     assert!(matches!(
         tx,
         Err(WalBuildError::Validation(
-            warp_core::causal_wal::WalValidationError::RecordAuthorityMismatch
+            crate::causal_wal::WalValidationError::RecordAuthorityMismatch
         ))
     ));
 }

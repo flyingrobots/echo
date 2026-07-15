@@ -32,7 +32,10 @@ readonly current_adrs=(
   "0019-bunny-owns-reusable-geometry.md"
   "0020-retained-reading-storage-and-proof-boundary.md"
   "0021-public-optic-observation-boundary.md"
+  "0022-application-requested-causal-anchor-admission.md"
 )
+
+readonly current_adr_last=22
 
 readonly superseded_legacy_adrs=(
   "ADR-0003-Materialization-Bus.md"
@@ -129,13 +132,13 @@ else
   fail "no canonical ADR records found"
 fi
 
-for number in {1..21}; do
+for ((number = 1; number <= current_adr_last; number += 1)); do
   printf '%04d\n' "$number"
 done >"${tmp_dir}/expected-ids"
 
 if ! diff -u "${tmp_dir}/expected-ids" "${tmp_dir}/actual-ids" >"${tmp_dir}/id-diff"; then
   cat "${tmp_dir}/id-diff" >&2
-  fail "ADR IDs must be the unique contiguous range 0001 through 0021"
+  fail "ADR IDs must be the unique contiguous range 0001 through $(printf '%04d' "$current_adr_last")"
 fi
 
 for basename in "${legacy_adrs[@]}" "${current_adrs[@]}"; do
@@ -169,4 +172,4 @@ if ((failures > 0)); then
   exit 1
 fi
 
-echo "adr-namespace: canonical IDs 0001 through 0021 are unique and indexed"
+echo "adr-namespace: canonical IDs 0001 through $(printf '%04d' "$current_adr_last") are unique and indexed"

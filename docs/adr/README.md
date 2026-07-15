@@ -43,6 +43,7 @@ track work, progress, priority, or release readiness.
 | [0019](0019-bunny-owns-reusable-geometry.md)                     | Accepted             | Bunny owns reusable geometry                                   |
 | [0020](0020-retained-reading-storage-and-proof-boundary.md)      | Accepted             | Retained reading storage and proof boundary                    |
 | [0021](0021-public-optic-observation-boundary.md)                | Accepted             | Public WARP optic over internal observation                    |
+| [0022](0022-application-requested-causal-anchor-admission.md)    | Accepted             | Application-requested, Echo-owned anchor admission             |
 
 ADR 0006 predates this index contract and did not declare a status. Its
 superseded tombstone preserves that fact without silently ratifying the old

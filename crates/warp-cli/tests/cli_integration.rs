@@ -726,6 +726,8 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["accepted_submission_count"], 1);
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
+    assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(
         json["obstructions"][0]["kind"],
         "ExternalSegmentBytesUnavailable"
@@ -775,7 +777,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
         .success();
     let inspect_json: serde_json::Value = serde_json::from_slice(&inspect.get_output().stdout)?;
     assert_eq!(inspect_json["profile"], "self-contained");
-    assert_eq!(inspect_json["envelope_count"], 6);
+    assert_eq!(inspect_json["envelope_count"], 7);
     let envelope_roles = inspect_json["envelopes"]
         .as_array()
         .ok_or("expected envelope summaries")?
@@ -784,6 +786,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
         .collect::<Result<Vec<_>, _>>()?;
     assert!(envelope_roles.contains(&"retained_evidence"));
     assert!(envelope_roles.contains(&"retained_payloads"));
+    assert!(envelope_roles.contains(&"causal_anchors"));
 
     drop(fixture);
 
@@ -808,7 +811,33 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["accepted_submission_count"], 1);
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
+    assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(json["obstructions"].as_array().map(Vec::len), Some(0));
+    Ok(())
+}
+
+#[test]
+fn wsc_causal_history_rejects_legacy_bundle_before_decoding_current_fields() -> TestResult {
+    let bundle = TempDir::new()?;
+    fs::write(
+        bundle.path().join("bundle.json"),
+        br#"{"schema_version":1}"#,
+    )?;
+
+    echo_cli()
+        .args([
+            "wsc",
+            "causal-history",
+            "inspect",
+            bundle.path().to_str().ok_or("bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("unsupported WSC bundle schema version 1")
+                .and(predicate::str::contains("missing field").not()),
+        );
     Ok(())
 }
 

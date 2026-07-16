@@ -2683,6 +2683,18 @@ mod tests {
             "                  GIT_CONFIG_KEY_0: safe.directory\n",
             "                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}",
         )));
+        assert!(ci.contains("    build-edict-provider-verifier:"));
+        assert!(ci.contains("name: Build and check Edict provider verifier"));
+        assert!(ci.contains("cargo xtask provider-verifier-component check"));
+        assert!(ci.contains("--target-dir target/provider-verifier-component"));
+        assert!(ci.contains(
+            "--output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(ci.contains(
+            "cargo +1.90.0 clippy -p echo-edict-provider-verifier --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs"
+        ));
+        assert!(ci.matches(designated_image).count() >= 2);
+        assert!(ci.matches("options: --platform linux/amd64").count() >= 2);
 
         let determinism = include_str!("../../.github/workflows/det-gates.yml");
         assert!(determinism.contains(designated_image));
@@ -2707,6 +2719,45 @@ mod tests {
         assert!(determinism.contains(
             "cmp build2.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
         ));
+        assert!(determinism.contains("cargo xtask provider-verifier-component designated-build"));
+        assert!(determinism.contains("--target-dir target/provider-verifier-repro"));
+        assert!(determinism.contains("--output target/verifier.echo-dpo.component.wasm"));
+        assert!(determinism.contains(
+            "sha256sum target/verifier.echo-dpo.component.wasm > \"verifier-hash${CANDIDATE}.txt\""
+        ));
+        assert!(determinism.contains(
+            "cp target/verifier.echo-dpo.component.wasm \"build${CANDIDATE}.verifier.component.wasm\""
+        ));
+        assert!(determinism.contains("verifier-hash${{ matrix.candidate }}.txt"));
+        assert!(determinism.contains("build${{ matrix.candidate }}.verifier.component.wasm"));
+        assert!(determinism.contains("diff verifier-hash1.txt verifier-hash2.txt"));
+        assert!(determinism
+            .contains("cmp build1.verifier.component.wasm build2.verifier.component.wasm"));
+        assert!(determinism.contains("cargo xtask provider-verifier-component promote"));
+        assert!(determinism.contains("--candidate-a build1.verifier.component.wasm"));
+        assert!(determinism.contains("--candidate-b build2.verifier.component.wasm"));
+        assert!(determinism.contains("--output target/verifier.echo-dpo.promoted.component.wasm"));
+        assert!(determinism.contains(
+            "cmp build1.verifier.component.wasm target/verifier.echo-dpo.promoted.component.wasm"
+        ));
+        assert!(determinism.contains(
+            "cmp build1.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(determinism.contains(
+            "cmp build2.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(determinism.contains(concat!(
+            "            verifier-hash1.txt\n",
+            "            verifier-hash2.txt\n",
+            "            build1.verifier.component.wasm\n",
+            "            build2.verifier.component.wasm",
+        )));
+        assert!(determinism.contains(concat!(
+            "              gathered-artifacts/build-repro-artifacts/verifier-hash1.txt\n",
+            "              gathered-artifacts/build-repro-artifacts/verifier-hash2.txt\n",
+            "              gathered-artifacts/build-repro-artifacts/build1.verifier.component.wasm\n",
+            "              gathered-artifacts/build-repro-artifacts/build2.verifier.component.wasm",
+        )));
 
         let host = include_str!("../../scripts/verify-edict-provider-host-v1.sh");
         assert!(host.contains("provider-lowerer-component build"));

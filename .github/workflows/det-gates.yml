@@ -257,6 +257,11 @@ jobs:
             --output target/lowerer.echo-dpo.component.wasm
           sha256sum target/lowerer.echo-dpo.component.wasm > "lowerer-hash${CANDIDATE}.txt"
           cp target/lowerer.echo-dpo.component.wasm "build${CANDIDATE}.lowerer.component.wasm"
+          cargo xtask provider-verifier-component designated-build \
+            --target-dir target/provider-verifier-repro \
+            --output target/verifier.echo-dpo.component.wasm
+          sha256sum target/verifier.echo-dpo.component.wasm > "verifier-hash${CANDIDATE}.txt"
+          cp target/verifier.echo-dpo.component.wasm "build${CANDIDATE}.verifier.component.wasm"
       - name: Upload isolated candidate
         uses: actions/upload-artifact@v4
         with:
@@ -267,6 +272,8 @@ jobs:
             build${{ matrix.candidate }}.wasm
             lowerer-hash${{ matrix.candidate }}.txt
             build${{ matrix.candidate }}.lowerer.component.wasm
+            verifier-hash${{ matrix.candidate }}.txt
+            build${{ matrix.candidate }}.verifier.component.wasm
 
   build-repro:
     name: G4 independent build comparison
@@ -303,6 +310,10 @@ jobs:
           cp candidate2/lowerer-hash2.txt lowerer-hash2.txt
           cp candidate1/build1.lowerer.component.wasm build1.lowerer.component.wasm
           cp candidate2/build2.lowerer.component.wasm build2.lowerer.component.wasm
+          cp candidate1/verifier-hash1.txt verifier-hash1.txt
+          cp candidate2/verifier-hash2.txt verifier-hash2.txt
+          cp candidate1/build1.verifier.component.wasm build1.verifier.component.wasm
+          cp candidate2/build2.verifier.component.wasm build2.verifier.component.wasm
       - name: Compare, promote, and check exact bytes
         run: |
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
@@ -317,8 +328,19 @@ jobs:
           cmp build1.lowerer.component.wasm target/lowerer.echo-dpo.promoted.component.wasm
           cmp build1.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
           cmp build2.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+          diff verifier-hash1.txt verifier-hash2.txt || (echo "Verifier reproducibility failure: Hashes differ!" && exit 1)
+          cmp build1.verifier.component.wasm build2.verifier.component.wasm
+          cargo xtask provider-verifier-component promote \
+            --candidate-a build1.verifier.component.wasm \
+            --candidate-b build2.verifier.component.wasm \
+            --output target/verifier.echo-dpo.promoted.component.wasm \
+            --write
+          cmp build1.verifier.component.wasm target/verifier.echo-dpo.promoted.component.wasm
+          cmp build1.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
+          cmp build2.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
           echo "Hashes match: $(cat hash1.txt)"
           echo "Lowerer hashes match: $(cat lowerer-hash1.txt)"
+          echo "Verifier hashes match: $(cat verifier-hash1.txt)"
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -334,6 +356,10 @@ jobs:
             lowerer-hash2.txt
             build1.lowerer.component.wasm
             build2.lowerer.component.wasm
+            verifier-hash1.txt
+            verifier-hash2.txt
+            build1.verifier.component.wasm
+            build2.verifier.component.wasm
 
   validate-evidence:
     name: Evidence artifact presence
@@ -416,6 +442,10 @@ jobs:
               gathered-artifacts/build-repro-artifacts/lowerer-hash2.txt
               gathered-artifacts/build-repro-artifacts/build1.lowerer.component.wasm
               gathered-artifacts/build-repro-artifacts/build2.lowerer.component.wasm
+              gathered-artifacts/build-repro-artifacts/verifier-hash1.txt
+              gathered-artifacts/build-repro-artifacts/verifier-hash2.txt
+              gathered-artifacts/build-repro-artifacts/build1.verifier.component.wasm
+              gathered-artifacts/build-repro-artifacts/build2.verifier.component.wasm
             )
           fi
 

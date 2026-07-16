@@ -468,7 +468,21 @@
     "coordinate": "echo.edict-provider-manifest@1",
     "schemaContract": "edict.provider-manifest/v1",
     "providerAbi": "edict:target-provider@1.0.0",
-    "providerCoordinate": "echo.edict-provider@1"
+    "providerCoordinate": "echo.edict-provider@1",
+    "components": [
+      {
+        "role": "lowerer.echo-dpo",
+        "kind": "lowerer",
+        "coordinate": "echo.dpo.lowerer/component@1",
+        "contract": "edict:target-provider/lowerer@1.0.0"
+      },
+      {
+        "role": "verifier.echo-dpo",
+        "kind": "verifier",
+        "coordinate": "echo.dpo.verifier/component@1",
+        "contract": "edict:target-provider/verifier@1.0.0"
+      }
+    ]
   },
   "invocationInputs": [
     {

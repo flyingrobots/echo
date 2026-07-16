@@ -702,6 +702,32 @@ pub struct PackageManifestProjectionDeclaration {
     pub provider_abi: String,
     /// Digest-bound provider resource coordinate selected during assembly.
     pub provider_coordinate: String,
+    /// Exact executable components bound by the package-root manifest.
+    pub components: Vec<ProviderComponentDeclaration>,
+}
+
+/// One source-owned executable component declaration for provider packaging.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderComponentDeclaration {
+    /// Unique provider-manifest role.
+    pub role: String,
+    /// Frozen target-provider component class.
+    pub kind: ProviderComponentKind,
+    /// Stable component resource coordinate before its exact digest is known.
+    pub coordinate: String,
+    /// Exact frozen WIT world implemented by the component.
+    pub contract: String,
+}
+
+/// Executable component classes admitted by the first provider package.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderComponentKind {
+    /// Deterministic Edict semantic-to-Target-IR lowerer.
+    Lowerer,
+    /// Independent Target-IR semantic verifier.
+    Verifier,
 }
 
 /// Source identity bound by one generated authority-facts document.
@@ -921,6 +947,10 @@ pub enum ProviderSemanticSourceErrorKind {
     SelfReferentialManifestInventory,
     /// The package-root manifest projection selected the wrong v1 identity.
     ProviderManifestProjectionMismatch,
+    /// A provider component selected the wrong role, coordinate, or WIT world.
+    ProviderComponentProjectionMismatch,
+    /// The package omitted or duplicated a required provider component class.
+    ProviderComponentClosureMismatch,
     /// An authority-facts artifact selected an incompatible source projection.
     AuthorityFactProjectionMismatch,
     /// A lawpack or target-profile projection was incomplete or contradictory.
@@ -984,6 +1014,8 @@ impl ProviderSemanticSourceErrorKind {
             Self::ArtifactContractOwnerMismatch => "artifact-contract-owner-mismatch",
             Self::SelfReferentialManifestInventory => "self-referential-manifest-inventory",
             Self::ProviderManifestProjectionMismatch => "provider-manifest-projection-mismatch",
+            Self::ProviderComponentProjectionMismatch => "provider-component-projection-mismatch",
+            Self::ProviderComponentClosureMismatch => "provider-component-closure-mismatch",
             Self::AuthorityFactProjectionMismatch => "authority-fact-projection-mismatch",
             Self::ArtifactClosureMismatch => "artifact-closure-mismatch",
             Self::GenerationProvenanceContractMismatch => "generation-provenance-contract-mismatch",
@@ -1197,6 +1229,10 @@ fn normalize_source(source: &mut ProviderSemanticSourceV1) {
         .generated_artifacts
         .sort_by(|left, right| left.role.cmp(&right.role));
     source
+        .package_manifest
+        .components
+        .sort_by(|left, right| left.role.cmp(&right.role));
+    source
         .invocation_inputs
         .sort_by(|left, right| left.role.cmp(&right.role));
     source
@@ -1282,6 +1318,10 @@ fn validate_identities(
         "packageManifest.providerCoordinate",
         &source.package_manifest.provider_coordinate,
     ));
+    for component in &source.package_manifest.components {
+        validate_component_identity(component)?;
+        coordinates.push(("packageManifest.components", &component.coordinate));
+    }
     coordinates.sort_by(|left, right| left.1.cmp(right.1).then(left.0.cmp(right.0)));
     if let Some(window) = coordinates
         .windows(2)
@@ -1299,6 +1339,14 @@ fn validate_identities(
         source.generated_artifacts.iter().map(|item| &item.role),
     )?;
     ensure_unique_keys(
+        "packageManifest.components.role",
+        source
+            .package_manifest
+            .components
+            .iter()
+            .map(|item| &item.role),
+    )?;
+    ensure_unique_keys(
         "artifactResources.role",
         source.artifact_resources.iter().map(|item| &item.role),
     )?;
@@ -1314,6 +1362,13 @@ fn validate_identities(
         .iter()
         .map(|item| &item.role)
         .collect::<Vec<_>>();
+    package_roles.extend(
+        source
+            .package_manifest
+            .components
+            .iter()
+            .map(|item| &item.role),
+    );
     package_roles.push(&source.package_manifest.role);
     ensure_unique_keys("packageRoles", package_roles.into_iter())?;
     ensure_unique_keys(
@@ -1437,6 +1492,17 @@ fn validate_package_manifest_identity(
         "packageManifest.providerCoordinate",
         &manifest.provider_coordinate,
     )
+}
+
+fn validate_component_identity(
+    component: &ProviderComponentDeclaration,
+) -> Result<(), ProviderSemanticSourceError> {
+    require_nonempty("packageManifest.components.role", &component.role)?;
+    require_nonempty(
+        "packageManifest.components.coordinate",
+        &component.coordinate,
+    )?;
+    require_nonempty("packageManifest.components.contract", &component.contract)
 }
 
 fn collect_fact_identities<'a, T: HasIdentity>(
@@ -2749,6 +2815,56 @@ fn validate_generated_artifact_contracts(
             &source.package_manifest.role,
             &source.package_manifest.provider_coordinate,
         ));
+    }
+    for (kind, label) in [
+        (ProviderComponentKind::Lowerer, "lowerer"),
+        (ProviderComponentKind::Verifier, "verifier"),
+    ] {
+        let actual = source
+            .package_manifest
+            .components
+            .iter()
+            .filter(|component| component.kind == kind)
+            .count();
+        if actual != 1 {
+            return Err(ProviderSemanticSourceError::new(
+                ProviderSemanticSourceErrorKind::ProviderComponentClosureMismatch,
+                "packageManifest.components",
+                if actual == 0 {
+                    label.to_owned()
+                } else {
+                    format!("{label}:{actual}")
+                },
+            ));
+        }
+    }
+    for component in &source.package_manifest.components {
+        let (expected_role, expected_coordinate, expected_contract) = match component.kind {
+            ProviderComponentKind::Lowerer => (
+                "lowerer.echo-dpo",
+                "echo.dpo.lowerer/component@1",
+                "edict:target-provider/lowerer@1.0.0",
+            ),
+            ProviderComponentKind::Verifier => (
+                "verifier.echo-dpo",
+                "echo.dpo.verifier/component@1",
+                "edict:target-provider/verifier@1.0.0",
+            ),
+        };
+        let mismatch = [
+            (component.role.as_str(), expected_role),
+            (component.coordinate.as_str(), expected_coordinate),
+            (component.contract.as_str(), expected_contract),
+        ]
+        .into_iter()
+        .find_map(|(actual, expected)| (actual != expected).then_some(actual));
+        if let Some(reference) = mismatch {
+            return Err(ProviderSemanticSourceError::new(
+                ProviderSemanticSourceErrorKind::ProviderComponentProjectionMismatch,
+                &component.role,
+                reference,
+            ));
+        }
     }
     for (kind, expected_count) in [
         (GeneratedArtifactKind::Lawpack, 1),

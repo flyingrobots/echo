@@ -7,8 +7,8 @@ use echo_wesley_gen::provider_semantics::{
     parse_provider_semantic_source_v1, ApertureRequirementDeclaration, ArtifactResourceProvision,
     AuthorityClass, AuthorityFactSourceKind, AuthoritySourceKind, BoundaryKind,
     CoreStringCanonicalization, EffectKindHint, ExecutionClass, GeneratedArtifactKind,
-    InvocationInputKind, InvocationOutputKind, OpticKind, ProviderSemanticSourceErrorKind,
-    SemanticTypeShape, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1,
+    InvocationInputKind, InvocationOutputKind, OpticKind, ProviderComponentKind,
+    ProviderSemanticSourceErrorKind, SemanticTypeShape, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1,
 };
 use serde_json::{json, Value};
 
@@ -55,6 +55,35 @@ fn checked_echo_provider_semantic_source_validates() {
 
     assert_eq!(source.api_version, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1);
     assert_eq!(source.coordinate, "echo.semantic-schema@1");
+    assert_eq!(
+        source
+            .package_manifest
+            .components
+            .iter()
+            .map(|component| {
+                (
+                    component.role.as_str(),
+                    component.kind,
+                    component.coordinate.as_str(),
+                    component.contract.as_str(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "lowerer.echo-dpo",
+                ProviderComponentKind::Lowerer,
+                "echo.dpo.lowerer/component@1",
+                "edict:target-provider/lowerer@1.0.0",
+            ),
+            (
+                "verifier.echo-dpo",
+                ProviderComponentKind::Verifier,
+                "echo.dpo.verifier/component@1",
+                "edict:target-provider/verifier@1.0.0",
+            ),
+        ]
+    );
     assert_eq!(source.operations.len(), 1);
     assert_eq!(source.operations[0].identity.coordinate, "a.b@1.t");
     assert_eq!(source.operations[0].effect, "target.replace");
@@ -654,6 +683,7 @@ fn set_like_source_reordering_preserves_validated_semantics() {
         "/targetProfileProjection/acceptedCoreAbis",
         "/targetProfileProjection/generatedArtifactProfileRoles",
         "/targetProfileProjection/acceptedLawpackAdapterAbis",
+        "/packageManifest/components",
     ] {
         reordered
             .pointer_mut(pointer)
@@ -1718,6 +1748,67 @@ fn generated_artifact_and_output_contracts_are_exact() {
             source["schemaBindings"][2]["rootRule"] = Value::String("wrong-root".to_owned());
         },
         ProviderSemanticSourceErrorKind::SchemaRootMismatch,
+    );
+}
+
+#[test]
+fn package_component_declarations_fail_closed() {
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"]
+                .as_array_mut()
+                .expect("package components")
+                .remove(0);
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentClosureMismatch,
+            "packageManifest.components",
+            "lowerer",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][0]["contract"] =
+                Value::String("edict:target-provider/verifier@1.0.0".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentProjectionMismatch,
+            "lowerer.echo-dpo",
+            "edict:target-provider/verifier@1.0.0",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["kind"] =
+                Value::String("lowerer".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentClosureMismatch,
+            "packageManifest.components",
+            "lowerer:2",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["role"] =
+                Value::String("lowerer.echo-dpo".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::DuplicateKey,
+            "packageManifest.components.role",
+            "lowerer.echo-dpo",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["coordinate"] =
+                Value::String("echo.dpo.lowerer/component@1".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::DuplicateCoordinate,
+            "packageManifest.components",
+            "echo.dpo.lowerer/component@1",
+        ),
     );
 }
 

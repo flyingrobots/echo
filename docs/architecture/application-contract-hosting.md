@@ -226,8 +226,9 @@ request artifacts and declared output schema before invoking the checked
 verifier. After invocation, it schema-validates each returned accepted or
 well-formed rejected report before authoring its manifest. An unsupported
 output-role overclaim remains a typed provider refusal with neither response nor
-manifest. Independent fresh-store replay reproduces all three completed
-outcomes identically. The report binds its named Target IR reference; the
+manifest. Independent fresh-store replay and separate host processes reproduce
+all three completed outcomes identically. The report binds its named Target IR
+reference; the
 host-authored manifest separately binds the Core, target profile, Target IR,
 semantic inputs, output request, output bytes, and domain-framed output digest.
 This crossing proves provider semantic verification and host replay only. It

@@ -24,7 +24,7 @@ pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted
 or rejected report. It preserves an unsupported output-role overclaim as a typed
 refusal without a response or manifest and replays all three completed outcome
-classes identically in independent fresh stores.
+classes identically in independent fresh stores and separate host processes.
 
 For this first one-operation closure, the exact checked target profile, exact
 lowerability facts, and exact `echo.dpo@1.replace` intrinsic jointly bind the

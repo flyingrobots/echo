@@ -160,10 +160,10 @@ pinned Edict host, exact request artifacts and the declared report schema are
 preflighted before invocation. Returned accepted and well-formed rejected
 reports are then admitted and receive host-authored manifests, while an
 unsupported output-role overclaim remains a typed refusal with neither response
-nor manifest. Independent fresh-store replay reproduces all three completed
-outcomes identically. Both checked components remain uninstalled package
-material; neither they nor the generated authority-facts documents are runtime
-Echo authority.
+nor manifest. Independent fresh-store replay and separate host processes
+reproduce all three completed outcomes identically. Both checked components
+remain uninstalled package material; neither they nor the generated
+authority-facts documents are runtime Echo authority.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in

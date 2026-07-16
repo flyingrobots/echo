@@ -65,10 +65,10 @@ standalone witness audits and invokes both checked components through the pinned
 Edict host. Before verifier invocation, the host preflights the exact request
 artifacts and declared report schema; afterward, it admits and manifests each
 returned accepted or well-formed rejected report. A typed output-role refusal
-has neither response nor manifest. Fresh-store replay reproduces each completed
-verifier outcome identically. Exact component identity is build evidence for
-its translation or verification crossing only; neither host replay nor identity
-is runtime Echo authority.
+has neither response nor manifest. Fresh-store replay and separate host
+processes reproduce each completed verifier outcome identically. Exact
+component identity is build evidence for its translation or verification
+crossing only; neither host replay nor identity is runtime Echo authority.
 
 After two designated-builder candidates compare exactly, promote either explicit
 candidate through the same structural admission boundary:

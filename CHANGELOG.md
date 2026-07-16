@@ -53,9 +53,9 @@
   request artifacts and declared output schema, invokes that checked component,
   then schema-admits each returned accepted or rejected report and authors its
   output manifest. It replays accepted, rejected, and refused completed outcomes
-  identically in independent fresh stores. These witnesses prove provider
-  verification and host replay only; they do not install, authorize, execute, or
-  observe an operation in Echo.
+  identically in independent fresh stores and separate host processes. These
+  witnesses prove provider verification and host replay only; they do not
+  install, authorize, execute, or observe an operation in Echo.
 - `echo-edict-canonical` now owns the shared pure implementation of Edict's
   canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a

@@ -364,11 +364,24 @@ fn check_package_list(
         .iter()
         .map(|file| format!("assets/v1/{}", file.relative_path()))
         .collect::<Vec<_>>();
+    check_package_asset_inventory(actual_assets, expected_assets)
+}
+
+fn check_package_asset_inventory(
+    mut actual_assets: Vec<String>,
+    mut expected_assets: Vec<String>,
+) -> Result<()> {
+    actual_assets.sort_unstable();
+    expected_assets.sort_unstable();
     if actual_assets != expected_assets {
         bail!(
-            "cargo package provider asset inventory differs: expected {} entries, found {}",
+            "cargo package provider asset inventory differs: expected {} entries, found {}\n\
+             expected paths:\n  {}\n\
+             actual paths:\n  {}",
             expected_assets.len(),
-            actual_assets.len()
+            actual_assets.len(),
+            expected_assets.join("\n  "),
+            actual_assets.join("\n  ")
         );
     }
     Ok(())
@@ -377,12 +390,31 @@ fn check_package_list(
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{load_expected_assets, ASSETS};
+    use super::{check_package_asset_inventory, load_expected_assets, ASSETS};
     use anyhow::Result;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn package_asset_inventory_ignores_listing_order_and_names_exact_drift() {
+        let expected = vec!["assets/v1/alpha".to_owned(), "assets/v1/bravo".to_owned()];
+        check_package_asset_inventory(
+            vec!["assets/v1/bravo".to_owned(), "assets/v1/alpha".to_owned()],
+            expected.clone(),
+        )
+        .expect("Cargo listing order does not change the selected asset inventory");
+
+        let error = check_package_asset_inventory(
+            vec!["assets/v1/alpha".to_owned(), "assets/v1/charlie".to_owned()],
+            expected,
+        )
+        .expect_err("same-length asset substitution reports exact paths");
+        let detail = error.to_string();
+        assert!(detail.contains("assets/v1/bravo"));
+        assert!(detail.contains("assets/v1/charlie"));
+    }
 
     #[test]
     fn staged_write_uses_authority_while_strict_check_requires_package_corroboration() -> Result<()>

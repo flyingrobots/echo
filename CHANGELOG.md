@@ -19,8 +19,8 @@
   all fail closed through structured errors. This is package-occurrence
   authentication only; Edict schema/component preflight and Echo runtime
   installation remain separate authority crossings. A dedicated publisher now
-  checks that all 22 generated members exactly reproduce the checked #652
-  corpus before writing the two components and derived manifest as a
+  checks that all 22 generated members exactly reproduce the current checked
+  provider corpus introduced by #652 before writing the two components and derived manifest as a
   self-contained 25-file distribution. Its capability-oriented filesystem
   boundary refuses invalid expected inventories before resolving the root,
   bounds actual-tree enumeration and expected-byte reads, never opens an
@@ -86,8 +86,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 188,736-byte checked component has SHA-256
-  `e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`
+  every emitted report. The 189,213-byte checked component has SHA-256
+  `c013636422f56d359d80437cc39499198b201e219ba4e119db096e99a1aa4f07`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,
@@ -100,7 +100,9 @@
   canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a
   re-export, while executable provider components use the same codec without
-  depending on generator or Wesley APIs.
+  depending on generator or Wesley APIs. Its decoder now applies a 65,536-node
+  host materialization ceiling, charging map keys and values separately and
+  rejecting oversized direct containers before reserving their storage.
 - `echo-wesley-gen` now checks in the first exact 22-file Edict provider
   artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
   resources, the self-contained CDDL, Wesley provenance JSON, and

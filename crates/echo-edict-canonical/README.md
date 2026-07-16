@@ -15,7 +15,11 @@ definite-length byte and UTF-8 text strings, arrays, and maps. Encoding sorts
 maps by canonical key bytes and rejects duplicate canonical keys. Decoding
 rejects indefinite-length, tagged, floating-point, simple, non-minimal,
 trailing, malformed, duplicate-key, and noncanonical inputs. Both directions
-enforce Edict's exact 128-container nesting boundary.
+enforce Edict's exact 128-container nesting boundary. Decoding additionally
+caps one materialized value tree at 65,536 nodes, charging map keys and values
+separately and rejecting oversized direct container cardinalities before host
+allocation. That node ceiling is an Echo host resource bound, not a new Edict
+byte-identity claim.
 
 Failures expose stable `CanonicalValueErrorKind` values rather than Rust debug
 spellings. The implementation is deterministic and pure: it performs no

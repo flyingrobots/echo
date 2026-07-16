@@ -46,7 +46,7 @@ crates:
   echo-edict-provider-artifacts:
     class: DET_CRITICAL
     owner_role: "Tooling Engineer"
-    paths: ["crates/echo-wesley-gen/src/provider_*.rs", "crates/echo-wesley-gen/src/bin/echo-edict-provider-*.rs", "crates/echo-wesley-gen/tests/provider_*.rs", "crates/echo-wesley-gen/assets/v1/**", "schemas/edict-provider/**"]
+    paths: [".gitattributes", "crates/echo-wesley-gen/src/provider_*.rs", "crates/echo-wesley-gen/src/bin/echo-edict-provider-*.rs", "crates/echo-wesley-gen/tests/provider_*.rs", "crates/echo-wesley-gen/assets/v1/**", "schemas/edict-provider/**"]
   echo-edict-provider-lowerer:
     class: DET_CRITICAL
     owner_role: "Tooling Engineer"

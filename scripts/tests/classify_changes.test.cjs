@@ -142,7 +142,7 @@ test('every workspace member has an explicit non-catch-all policy path', () => {
   );
   assert.match(
     policyYaml,
-    /echo-edict-provider-artifacts:\n\s+class: DET_CRITICAL\n\s+owner_role: "Tooling Engineer"\n\s+paths: \[.*"crates\/echo-wesley-gen\/assets\/v1\/\*\*".*"schemas\/edict-provider\/\*\*"\]\n/,
+    /echo-edict-provider-artifacts:\n\s+class: DET_CRITICAL\n\s+owner_role: "Tooling Engineer"\n\s+paths: \["\.gitattributes".*"crates\/echo-wesley-gen\/assets\/v1\/\*\*".*"schemas\/edict-provider\/\*\*"\]\n/,
   );
   assert.match(policyYaml, /echo-runtime-schema:\n\s+class: DET_CRITICAL\n/);
   assert.match(policyYaml, /echo-file-aperture:\n\s+class: DET_IMPORTANT\n/);

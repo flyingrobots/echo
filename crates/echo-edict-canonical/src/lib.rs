@@ -26,6 +26,14 @@ pub const EDICT_DIGEST_FRAME_V1: &str = "edict.digest/v1";
 /// is accepted; one additional container is rejected.
 pub const MAX_CANONICAL_NESTING_DEPTH_V1: usize = 128;
 
+/// Maximum number of value nodes materialized by one canonical decode.
+///
+/// The root counts as one node. Array members, map keys, and map values each
+/// count separately. This is an Echo host resource bound rather than part of
+/// the Edict canonical byte identity; it prevents compact collection headers
+/// from amplifying into unbounded host allocations before admission.
+pub const MAX_CANONICAL_DECODE_NODES_V1: usize = 65_536;
+
 /// Stable failure categories for Edict canonical values and byte streams.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalValueErrorKind {
@@ -360,11 +368,16 @@ where
 struct Decoder<'a> {
     bytes: &'a [u8],
     position: usize,
+    remaining_nodes: usize,
 }
 
 impl<'a> Decoder<'a> {
     const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+        Self {
+            bytes,
+            position: 0,
+            remaining_nodes: MAX_CANONICAL_DECODE_NODES_V1,
+        }
     }
 
     const fn remaining(&self) -> usize {
@@ -372,6 +385,7 @@ impl<'a> Decoder<'a> {
     }
 
     fn value(&mut self, depth: usize) -> Result<CanonicalValueV1, CanonicalValueError> {
+        self.charge_nodes(1)?;
         check_depth(depth)?;
         let initial = self.byte()?;
         let major = initial >> 5;
@@ -401,6 +415,7 @@ impl<'a> Decoder<'a> {
             4 => {
                 check_container_depth(depth)?;
                 let length = self.length(additional)?;
+                self.ensure_nodes_available(length)?;
                 let mut values = Vec::with_capacity(length);
                 for _ in 0..length {
                     values.push(self.value(depth + 1)?);
@@ -410,6 +425,8 @@ impl<'a> Decoder<'a> {
             5 => {
                 check_container_depth(depth)?;
                 let length = self.length(additional)?;
+                let child_nodes = length.checked_mul(2).ok_or_else(node_budget_error)?;
+                self.ensure_nodes_available(child_nodes)?;
                 let mut entries = Vec::with_capacity(length);
                 let mut encoded_keys = BTreeSet::new();
                 for _ in 0..length {
@@ -469,6 +486,21 @@ impl<'a> Decoder<'a> {
         checked_collection_length::<usize>(declared, remaining)
     }
 
+    fn ensure_nodes_available(&self, required: usize) -> Result<(), CanonicalValueError> {
+        if required > self.remaining_nodes {
+            return Err(node_budget_error());
+        }
+        Ok(())
+    }
+
+    fn charge_nodes(&mut self, count: usize) -> Result<(), CanonicalValueError> {
+        self.remaining_nodes = self
+            .remaining_nodes
+            .checked_sub(count)
+            .ok_or_else(node_budget_error)?;
+        Ok(())
+    }
+
     fn byte(&mut self) -> Result<u8, CanonicalValueError> {
         let Some(value) = self.bytes.get(self.position).copied() else {
             return Err(CanonicalValueError::new(
@@ -502,6 +534,13 @@ impl<'a> Decoder<'a> {
         output.copy_from_slice(self.take(LENGTH)?);
         Ok(output)
     }
+}
+
+fn node_budget_error() -> CanonicalValueError {
+    CanonicalValueError::new(
+        CanonicalValueErrorKind::UnsupportedValue,
+        "canonical CBOR decoded node budget exceeded",
+    )
 }
 
 #[cfg(test)]

@@ -350,19 +350,25 @@ pub fn build_provider_generator_source_bundle_v1(
 pub fn checked_provider_generator_source_bundle_v1(
 ) -> Result<ProviderGeneratorSourceBundleV1, ProviderArtifactCorpusError> {
     let sources: [(&str, &[u8]); 17] = [
-        ("Cargo.lock", include_bytes!("../../../Cargo.lock")),
-        ("Cargo.toml", include_bytes!("../../../Cargo.toml")),
+        (
+            "Cargo.lock",
+            include_bytes!("../assets/v1/repository/Cargo.lock.source"),
+        ),
+        (
+            "Cargo.toml",
+            include_bytes!("../assets/v1/repository/Cargo.toml.source"),
+        ),
         (
             "crates/echo-edict-canonical/Cargo.toml",
-            include_bytes!("../../echo-edict-canonical/Cargo.toml"),
+            include_bytes!("../assets/v1/repository/crates/echo-edict-canonical/Cargo.toml.source"),
         ),
         (
             "crates/echo-edict-canonical/src/lib.rs",
-            include_bytes!("../../echo-edict-canonical/src/lib.rs"),
+            include_bytes!("../assets/v1/repository/crates/echo-edict-canonical/src/lib.rs.source"),
         ),
         (
             "crates/echo-wesley-gen/Cargo.toml",
-            include_bytes!("../Cargo.toml"),
+            include_bytes!("../assets/v1/repository/crates/echo-wesley-gen/Cargo.toml.source"),
         ),
         (
             "crates/echo-wesley-gen/src/bin/echo-edict-provider-artifacts.rs",
@@ -410,7 +416,7 @@ pub fn checked_provider_generator_source_bundle_v1(
         ),
         (
             "rust-toolchain.toml",
-            include_bytes!("../../../rust-toolchain.toml"),
+            include_bytes!("../assets/v1/repository/rust-toolchain.toml.source"),
         ),
     ];
     let mut files = Vec::with_capacity(sources.len());
@@ -482,7 +488,7 @@ impl ProviderArtifactCorpusV1 {
     }
 }
 
-/// Loads the exact checked 22-file #652 corpus from compile-time repository bytes.
+/// Loads the current checked 22-file provider corpus introduced by #652.
 ///
 /// This is an explicit source boundary for later package assembly. It performs
 /// no filesystem, registry, environment, process, clock, or network discovery.
@@ -497,133 +503,133 @@ pub fn checked_provider_artifact_corpus_v1(
         (
             "evidence/provenance.provider-generation.json",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/evidence/provenance.provider-generation.json"
+                "../assets/v1/edict-provider/package/v1/generated/evidence/provenance.provider-generation.json"
             ),
         ),
         (
             "evidence/review.provider-generation.json",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/evidence/review.provider-generation.json"
+                "../assets/v1/edict-provider/package/v1/generated/evidence/review.provider-generation.json"
             ),
         ),
         (
             "primary/authority-facts.echo-dpo.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/primary/authority-facts.echo-dpo.cbor"
             ),
         ),
         (
             "primary/authority-facts.echo-lawpack.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/primary/authority-facts.echo-lawpack.cbor"
             ),
         ),
         (
             "primary/generated-artifact-profile.echo-dpo-registration.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/primary/generated-artifact-profile.echo-dpo-registration.cbor"
             ),
         ),
         (
             "primary/lawpack.echo-dpo.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/primary/lawpack.echo-dpo.cbor"
             ),
         ),
         (
             "primary/schema.echo-provider-artifacts.cddl",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
+                "../assets/v1/edict-provider/package/v1/generated/primary/schema.echo-provider-artifacts.cddl"
             ),
         ),
         (
             "primary/target-profile.echo-dpo.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/primary/target-profile.echo-dpo.cbor"
             ),
         ),
         (
             "resources/resource.conformance-corpus.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.conformance-corpus.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.conformance-corpus.cbor"
             ),
         ),
         (
             "resources/resource.lawpack-compatibility.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-compatibility.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.lawpack-compatibility.cbor"
             ),
         ),
         (
             "resources/resource.lawpack-exports.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-exports.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.lawpack-exports.cbor"
             ),
         ),
         (
             "resources/resource.lawpack-target-adapter.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-target-adapter.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.lawpack-target-adapter.cbor"
             ),
         ),
         (
             "resources/resource.lawpack-verifier.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-verifier.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.lawpack-verifier.cbor"
             ),
         ),
         (
             "resources/resource.target-bundle-profile.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-bundle-profile.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-bundle-profile.cbor"
             ),
         ),
         (
             "resources/resource.target-cost-algebra.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-cost-algebra.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-cost-algebra.cbor"
             ),
         ),
         (
             "resources/resource.target-footprint-algebra.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-footprint-algebra.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-footprint-algebra.cbor"
             ),
         ),
         (
             "resources/resource.target-intrinsics.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-intrinsics.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-intrinsics.cbor"
             ),
         ),
         (
             "resources/resource.target-ir.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-ir.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-ir.cbor"
             ),
         ),
         (
             "resources/resource.target-lowerer-contract.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-lowerer-contract.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-lowerer-contract.cbor"
             ),
         ),
         (
             "resources/resource.target-obstruction-taxonomy.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-obstruction-taxonomy.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-obstruction-taxonomy.cbor"
             ),
         ),
         (
             "resources/resource.target-operation-profiles.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-operation-profiles.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-operation-profiles.cbor"
             ),
         ),
         (
             "resources/resource.target-verifier-contract.cbor",
             include_bytes!(
-                "../../../schemas/edict-provider/generated/v1/resources/resource.target-verifier-contract.cbor"
+                "../assets/v1/edict-provider/package/v1/generated/resources/resource.target-verifier-contract.cbor"
             ),
         ),
     ];

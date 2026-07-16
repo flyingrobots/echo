@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest as _, Sha256};
 
 const EXPECTED_PROVIDER_DIGEST: &str =
-    "sha256:cf0147bea65cdfa7d426dc11a0eeab8f3ac889bfb3daa14f3d6b05ccd80f2d6e";
+    "sha256:af5be6b5670d559ba7a7bf5867ae51c0cdd7938fcaf147167640b50f1b27b688";
 const EXPECTED_MANIFEST_RAW_SHA256: &str =
-    "2ddc03d00a9ce9e3c29d74064e90458ede1aa08a0845bbe984d555710967c29b";
+    "b7f3113c21cf50780d59b8d9d2a2829a1d185e7dc7b1eba4aa8a37d7bd820dad";
 
 const PACKAGE_PATHS: [&str; 25] = [
     "components/lowerer.echo-dpo.component.wasm",
@@ -234,7 +234,7 @@ fn generation_refuses_unexpected_entries_before_writing_package_members() {
 #[test]
 fn checked_provider_package_matches_the_current_renderer() {
     let package_root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/edict-provider/package/v1");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/v1/edict-provider/package/v1");
     let checked = run_package(&package_root, true);
 
     assert!(

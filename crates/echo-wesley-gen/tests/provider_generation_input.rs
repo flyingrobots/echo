@@ -11,14 +11,12 @@ use echo_wesley_gen::provider_semantics::ProviderSemanticSourceErrorKind;
 use serde_json::{json, Value};
 use wesley_core::compute_generation_artifact_digest_v1;
 
-const SOURCE: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/echo-provider-semantics-v1.json");
-const SETTINGS: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generation-settings-v1.json");
+const SOURCE: &[u8] = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
+const SETTINGS: &[u8] = include_bytes!("../assets/v1/edict-provider/generation-settings-v1.json");
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
 fn build(
     source: &[u8],

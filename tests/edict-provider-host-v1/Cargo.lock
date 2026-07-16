@@ -355,6 +355,7 @@ dependencies = [
  "edict-provider-host-wasmtime",
  "edict-provider-schema",
  "edict-syntax",
+ "serde_json",
  "sha2",
 ]
 

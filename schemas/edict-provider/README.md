@@ -190,8 +190,9 @@ output is distinct from #652's build-time `reviewArtifact`.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
-routes, the nine domain-to-root bindings, and raw SHA-256 of all 24 physical
-members without hashing the derived manifest into itself. The five routed
+routes, 24 domain-to-root bindings (nine invocation domains, the generated
+artifact profile, and 14 generated-resource domains), and raw SHA-256 of all 24
+physical members without hashing the derived manifest into itself. The five routed
 canonical-CBOR artifacts use their Edict domain-framed identities in the
 manifest, while CDDL, Wesley JSON evidence, and components use raw exact-byte
 identities. Pure digest admission also rebinds the generated routes to the
@@ -201,10 +202,25 @@ compatibility proof and not Echo runtime installation or authority.
 
 The exact 25-file distribution is checked under
 [`package/v1/`](package/README.md). Its dedicated publisher first requires its
-22 `generated/` members to equal the checked #652 corpus byte-for-byte, then
+22 `generated/` members to equal the current checked provider corpus introduced
+by #652 byte-for-byte, then
 writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
+
+The isolated Edict c75 host gate then consumes that exact checked package. It
+constructs all 24 native schema bindings, validates the five canonical primaries
+and 14 generated resources, proves every owner field names the expected exact
+resource digest, prepares both components, and obtains both opaque request
+proofs without guest invocation. Schema-valid resource substitution, reference
+swaps, authority-source disagreement, and malformed contract material fail
+before execution. This does not grant Echo runtime authority.
+
+The crate-local `assets/v1/` tree is an exact publication carrier for the same
+provider bytes plus the repository sources needed for generator provenance.
+Carrier paths are physical packaging details only; authored logical source paths
+remain unchanged. `echo-edict-provider-assets --check-package-list` proves
+owner/carrier/package agreement and exact Cargo archive selection.
 
 All generated files are derived artifacts. Their digests and review renderings
 must never be copied back into this file as authored semantic facts.

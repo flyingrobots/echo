@@ -2132,7 +2132,7 @@ mod wesley_core_version_pinned {
         let exact_dependency = format!("wesley-core = \"={WESLEY_CORE_VERSION}\"");
 
         assert!(
-            include_str!("../Cargo.toml")
+            include_str!("../assets/v1/repository/crates/echo-wesley-gen/Cargo.toml.source")
                 .lines()
                 .any(|line| line.trim() == exact_dependency),
             "Wesley provenance must match the exact wesley-core dependency"

@@ -48,7 +48,7 @@ const PROVIDER_MANIFEST_COORDINATE_V1: &str = "echo.edict-provider-manifest@1";
 const SEMANTIC_SOURCE_COORDINATE_V1: &str = "echo.semantic-schema@1";
 const GENERATOR_COORDINATE_V1: &str = "echo-wesley-gen.provider-artifact-generator@1";
 const EXPECTED_ARTIFACT_COUNT: usize = 10;
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 9;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 24;
 const EXPECTED_MEMBER_COUNT: usize = 24;
 const EXPECTED_FILE_COUNT: usize = 25;
 const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
@@ -367,7 +367,7 @@ pub struct ProviderManifestV1 {
     pub provider: ProviderManifestResourceRefV1,
     /// Ten exact generated/component artifact routes.
     pub artifacts: Vec<ProviderManifestArtifactV1>,
-    /// Nine exact immutable schema-domain bindings.
+    /// Twenty-four exact immutable schema-domain bindings.
     pub schema_bindings: Vec<ProviderManifestSchemaBindingV1>,
 }
 
@@ -1757,8 +1757,38 @@ fn artifact_specs() -> [ArtifactSpec; EXPECTED_ARTIFACT_COUNT] {
 
 fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BINDING_COUNT] {
     [
+        (
+            "echo.dpo-lawpack.adapter.echo-dpo@1",
+            "echo-provider-lawpack-target-adapter",
+        ),
+        (
+            "echo.dpo-lawpack.compatibility@1",
+            "echo-provider-lawpack-compatibility",
+        ),
+        ("echo.dpo-lawpack.exports@1", "lawpack-exports"),
+        (
+            "echo.dpo-lawpack.verifier@1",
+            "echo-provider-lawpack-verifier",
+        ),
+        ("echo.dpo.bundle/v1", "echo-dpo-bundle"),
+        ("echo.dpo.cost/v1", "echo-dpo-cost"),
+        ("echo.dpo.fixtures/v1", "echo-provider-conformance-corpus"),
+        ("echo.dpo.footprint/v1", "echo-dpo-footprint"),
+        ("echo.dpo.intrinsics/v1", "intrinsics-document"),
+        ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
+        ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
+        (
+            "echo.dpo.operation-profiles/v1",
+            "operation-profiles-document",
+        ),
+        ("echo.dpo.verifier/v1", "echo-dpo-verifier"),
+        (
+            "echo.generated-artifact-profile/v1",
+            "generated-artifact-profile",
+        ),
         ("echo.generated-artifact/v1", "generated-artifact"),
         ("echo.review-payload/v1", "review-payload"),
+        ("echo.span-ir/v1", "echo-span-ir"),
         ("echo.verifier-report/v1", "verifier-report"),
         ("edict.authority-facts/v1", "authority-facts"),
         ("edict.core.module/v1", "core-module"),

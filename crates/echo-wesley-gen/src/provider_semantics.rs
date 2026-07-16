@@ -3435,6 +3435,28 @@ fn validate_invocation_schema_bindings(
         .iter()
         .map(|input| input.domain.as_str())
         .collect::<BTreeSet<_>>();
+    let mut owner_bindings = source
+        .generated_artifacts
+        .iter()
+        .filter_map(|artifact| {
+            generated_artifact_owner_schema(artifact.kind)
+                .map(|(domain, root)| (artifact.role.as_str(), domain, root))
+        })
+        .collect::<Vec<_>>();
+    owner_bindings.extend(
+        source
+            .artifact_resources
+            .iter()
+            .filter(|resource| resource.provision == ArtifactResourceProvision::Generated)
+            .filter_map(|resource| {
+                generated_resource_root(&resource.role)
+                    .map(|root| (resource.role.as_str(), resource.coordinate.as_str(), root))
+            }),
+    );
+    let owner_domains = owner_bindings
+        .iter()
+        .map(|(_, domain, _)| *domain)
+        .collect::<BTreeSet<_>>();
     for output in &source.invocation_outputs {
         let (expected_domain, _) = expected_output_contract(output.kind);
         if output.domain != expected_domain {
@@ -3449,6 +3471,7 @@ fn validate_invocation_schema_bindings(
     for binding in &source.schema_bindings {
         if !output_domains.contains(binding.domain.as_str())
             && !input_domains.contains(binding.domain.as_str())
+            && !owner_domains.contains(binding.domain.as_str())
         {
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::UnexpectedSchemaBinding,
@@ -3471,6 +3494,23 @@ fn validate_invocation_schema_bindings(
                     &binding.root_rule,
                 ));
             }
+        }
+    }
+
+    for (role, domain, expected_root) in owner_bindings {
+        let Some(binding) = bindings.get(domain) else {
+            return Err(ProviderSemanticSourceError::new(
+                ProviderSemanticSourceErrorKind::MissingSchemaBinding,
+                role,
+                domain,
+            ));
+        };
+        if binding.root_rule != expected_root {
+            return Err(ProviderSemanticSourceError::new(
+                ProviderSemanticSourceErrorKind::SchemaRootMismatch,
+                role,
+                &binding.root_rule,
+            ));
         }
     }
 
@@ -3555,6 +3595,48 @@ fn expected_output_contract(kind: InvocationOutputKind) -> (&'static str, &'stat
     }
 }
 
+const fn generated_artifact_owner_schema(
+    kind: GeneratedArtifactKind,
+) -> Option<(&'static str, &'static str)> {
+    match kind {
+        GeneratedArtifactKind::Lawpack => Some(("edict.lawpack/v1", "lawpack-manifest")),
+        GeneratedArtifactKind::TargetProfile => {
+            Some(("edict.target-profile/v1", "target-profile-manifest"))
+        }
+        GeneratedArtifactKind::AuthorityFacts => {
+            Some(("edict.authority-facts/v1", "authority-facts"))
+        }
+        GeneratedArtifactKind::GeneratedArtifactProfile => Some((
+            "echo.generated-artifact-profile/v1",
+            "generated-artifact-profile",
+        )),
+        GeneratedArtifactKind::ProviderManifest
+        | GeneratedArtifactKind::ReviewArtifact
+        | GeneratedArtifactKind::GenerationProvenance
+        | GeneratedArtifactKind::ArtifactSchema => None,
+    }
+}
+
+pub(crate) fn generated_resource_root(role: &str) -> Option<&'static str> {
+    match role {
+        "resource.conformance-corpus" => Some("echo-provider-conformance-corpus"),
+        "resource.lawpack-compatibility" => Some("echo-provider-lawpack-compatibility"),
+        "resource.lawpack-exports" => Some("lawpack-exports"),
+        "resource.lawpack-target-adapter" => Some("echo-provider-lawpack-target-adapter"),
+        "resource.lawpack-verifier" => Some("echo-provider-lawpack-verifier"),
+        "resource.target-bundle-profile" => Some("echo-dpo-bundle"),
+        "resource.target-cost-algebra" => Some("echo-dpo-cost"),
+        "resource.target-footprint-algebra" => Some("echo-dpo-footprint"),
+        "resource.target-intrinsics" => Some("intrinsics-document"),
+        "resource.target-ir" => Some("echo-span-ir"),
+        "resource.target-lowerer-contract" => Some("echo-dpo-lowerer"),
+        "resource.target-obstruction-taxonomy" => Some("echo-dpo-obstructions"),
+        "resource.target-operation-profiles" => Some("operation-profiles-document"),
+        "resource.target-verifier-contract" => Some("echo-dpo-verifier"),
+        _ => None,
+    }
+}
+
 const fn expected_input_domain(kind: InvocationInputKind) -> &'static str {
     match kind {
         InvocationInputKind::Core => "edict.core.module/v1",
@@ -3605,6 +3687,7 @@ fn expected_schema_root(domain: &str) -> Option<&'static str> {
         "edict.lowering-requirements/v1" => Some("lowering-requirements"),
         "edict.target-profile/v1" => Some("target-profile-manifest"),
         "edict.target-ir.artifact/v1" => Some("target-ir-artifact"),
+        "echo.generated-artifact-profile/v1" => Some("generated-artifact-profile"),
         "echo.generated-artifact/v1" => Some("generated-artifact"),
         "echo.review-payload/v1" => Some("review-payload"),
         "echo.verifier-report/v1" => Some("verifier-report"),

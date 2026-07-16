@@ -116,7 +116,9 @@ identity, not an executable-build or supply-chain attestation.
 provider components into one 24-member, non-self-referential package closure,
 then derives the separate `edict.provider-manifest/v1` JSON file. The Echo-owned
 package root is a domain-framed canonical-CBOR value over the exact manifest
-routes, nine schema bindings, and raw SHA-256 of every non-manifest member.
+routes, 24 schema bindings (nine invocation domains, the generated artifact
+profile, and 14 generated-resource domains), and raw SHA-256 of every
+non-manifest member.
 Canonical-CBOR artifact routes retain their Edict domain-framed identities;
 CDDL, Wesley evidence JSON, components, and every physical member retain raw
 exact-byte identities. Digest admission requires exact deterministic manifest
@@ -129,7 +131,8 @@ remains later still.
 
 `echo-edict-provider-package` is the explicit publication boundary for that
 distribution. Before any filesystem action it proves that the package's 22
-`generated/` members are the exact checked #652 corpus, then writes the two
+`generated/` members are the current checked provider corpus introduced by #652,
+then writes the two
 checked components and derived manifest through the same no-follow,
 unexpected-entry-refusing filesystem boundary used by the artifact corpus. The
 checked 25-file result lives under `schemas/edict-provider/package/v1/`.
@@ -138,6 +141,26 @@ never repairs or creates them. The shared boundary validates a strictly sorted,
 unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
+
+`echo-edict-provider-assets` maintains the exact 35-file package-local carrier
+tree under `assets/v1/`. The physical carrier names are packaging locations,
+not replacement source identities: generator provenance continues to name the
+original repository-relative authored paths. Read-only mode requires every
+carrier to match its fixed owner, requires generated artifacts and components
+to match their checked package copies, and can prove that `cargo package --list`
+selects exactly the complete carrier inventory. Explicit `--write` mode copies
+authoritative owners without requiring the temporarily stale package copy,
+allowing the honest staged sequence artifact generation, carrier sync, package
+generation, then final carrier corroboration. It never discovers a preferred
+owner or normalizes authored bytes.
+
+The isolated `tests/edict-provider-host-v1` gate pins Edict revision
+`c75c3f550d049485ba00eae0dc272c6dd6aca11f` and consumes the exact checked
+package. It constructs the native 24-domain schema registry, validates all 19
+canonical package members under their owning roots, binds every lawpack and
+target-profile resource field to exact packaged bytes, prepares both frozen-WIT
+components, and validates both request kinds without invoking guest code. That
+is pre-execution package readiness, not Echo installation or runtime authority.
 
 The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
 boundary. The caller-supplied `--out` path is resolved once under ambient

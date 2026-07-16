@@ -30,18 +30,17 @@ use echo_wesley_gen::provider_review::{
 };
 use wesley_core::{compute_generation_artifact_digest_v1, GenerationContractErrorKind};
 
-const SOURCE: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/echo-provider-semantics-v1.json");
-const SETTINGS: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generation-settings-v1.json");
+const SOURCE: &[u8] = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
+const SETTINGS: &[u8] = include_bytes!("../assets/v1/edict-provider/generation-settings-v1.json");
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
-const LOWERER: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
+const LOWERER: &[u8] = include_bytes!(
+    "../assets/v1/edict-provider/package/v1/components/lowerer.echo-dpo.component.wasm"
+);
 const VERIFIER: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+    "../assets/v1/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
 
 fn admitted_pack() -> AdmittedProviderContractPackV1 {
@@ -125,7 +124,7 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
     assert_eq!(package.members().len(), 24);
     assert_eq!(package.files().len(), 25);
     assert_eq!(package.manifest().artifacts.len(), 10);
-    assert_eq!(package.manifest().schema_bindings.len(), 9);
+    assert_eq!(package.manifest().schema_bindings.len(), 24);
     assert_eq!(
         package
             .manifest()
@@ -185,7 +184,7 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
 }
 
 #[test]
-fn package_generated_members_are_the_exact_checked_652_corpus() {
+fn package_generated_members_equal_the_current_checked_provider_corpus() {
     let package = assemble(false);
     let checked = checked_provider_artifact_corpus_v1()
         .expect("checked #652 provider artifact corpus is an exact bounded value");

@@ -9,9 +9,9 @@ use echo_wesley_gen::provider_contract_pack::{
 use serde_json::Value;
 
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 const DOMAIN_ROOTS: [(&str, &str); 6] = [
     ("edict.authority-facts/v1", "authority-facts"),
     ("edict.core.module/v1", "core-module"),

@@ -189,9 +189,10 @@ install a package, admit an operation, or authorize a runtime consequence.
 The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
 not a hash of the completed JSON manifest. It binds the manifest role and
 coordinate, exact API and provider ABI, ten sorted semantic/component routes,
-nine sorted schema bindings, and raw exact-byte hashes for all 24 non-manifest
-members. The derived manifest carries that root and has its own independent raw
-content identity. Canonical-CBOR routes preserve their Edict domain-framed
+24 sorted schema bindings—nine invocation domains, the generated artifact
+profile, and 14 generated-resource domains—and raw exact-byte hashes for all 24
+non-manifest members. The derived manifest carries that root and has its own
+independent raw content identity. Canonical-CBOR routes preserve their Edict domain-framed
 artifact digests while the package member table preserves raw occurrences, so
 neither proposition impersonates the other. Admission requires the caller's
 external provider pin and exact-reproduces packaged Wesley provenance/review.
@@ -199,13 +200,33 @@ That boundary still proves only the distribution occurrence: the Edict-owned
 schema registry and component host must separately admit roots, bytes,
 attestations, imports, exports, and WIT types before guest execution.
 
-The checked distribution is a self-contained 25-file publication: the exact
-22-file #652 corpus under `generated/`, the exact lowerer and verifier under
+The checked distribution is a self-contained 25-file publication: the current
+22-file provider corpus introduced by #652 under `generated/`, the exact lowerer and verifier under
 `components/`, and the derived manifest. Publication refuses before filesystem
 access if the generated members are not byte-identical to the checked source
 corpus. Its check mode inventories the exact tree through retained no-follow
 directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
+
+Native readiness is a later, independent crossing pinned to Edict revision
+`c75c3f550d049485ba00eae0dc272c6dd6aca11f`. The exact manifest constructs the
+immutable schema registry; all five canonical primaries and 14 generated
+resources validate under their owning roots; every lawpack/target-profile field
+is bound to the expected coordinate and independently recomputed domain-framed
+digest; adjacent primary references agree; and both exact components pass host
+preflight before both request kinds are validated. No guest is invoked. These
+proofs establish schema, identity-graph, component-contract, and request
+readiness only. They still do not install, authorize, schedule, execute, commit,
+observe, or receipt anything in Echo.
+
+The publishable Rust crate uses a separate 35-file package-local carrier tree
+for exact repository sources and provider bytes that would otherwise live above
+the crate root. Carrier locations never replace the logical authored paths in
+generation provenance. Generated artifacts and components remain authoritative;
+their package copies are corroborating release occurrences. This distinction
+permits staged regeneration without allowing a stale package to block the
+carrier update required to rebuild that package. Final checks require owner,
+carrier, package copy, and Cargo archive inventory to agree exactly.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package

@@ -12,9 +12,9 @@ use echo_wesley_gen::provider_contract_pack::{
 };
 
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
 fn text(value: &str) -> CanonicalValueV1 {
     CanonicalValueV1::Text(value.to_owned())

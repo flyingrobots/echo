@@ -10,8 +10,9 @@
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten
-  exact routes and nine schema bindings but never inventories itself. A
-  versioned canonical-CBOR package root binds those semantics plus raw hashes of
+  exact routes and 24 schema bindings—nine invocation domains, the generated
+  artifact profile, and 14 generated-resource domains—but never inventories
+  itself. A versioned canonical-CBOR package root binds those semantics plus raw hashes of
   all 24 non-manifest members, while the exact 25-file inventory, deterministic
   JSON rendering, mixed raw/domain-framed digest laws, packaged Wesley
   provenance/review, component bounds, and an external expected provider pin
@@ -25,6 +26,23 @@
   bounds actual-tree enumeration and expected-byte reads, never opens an
   unexpected regular file, and makes `--check` report sorted drift without
   creating, deleting, or rewriting package material.
+- The checked provider package now passes an isolated Edict-native readiness
+  boundary pinned to Edict merge `c75c3f55`. The exact manifest constructs its
+  immutable 24-domain schema registry, all five canonical primaries and 14
+  generated resources satisfy their owning CDDL roots, resource references are
+  bound field-by-field to independently recomputed domain-framed digests, both
+  components pass frozen-WIT preflight, and both request kinds produce opaque
+  validation proofs. Schema-valid byte replacement, digest mutation, semantic
+  field swaps, authority-source disagreement, malformed schemas/components,
+  and invalid requests all fail before guest execution. This proves package
+  readiness only, never Echo installation, execution, or runtime authority.
+- `echo-wesley-gen` now carries a fixed 35-file package-local source and provider
+  asset boundary, preserving original logical source labels while making its
+  `.crate` archive independent of workspace-parent files. An explicit sync tool
+  distinguishes authoritative generated/component owners from their checked
+  package corroboration, supports staged regeneration without circularity, and
+  checks exact Cargo archive selection. The extracted archive compiles when its
+  still-unpublished Echo dependencies are supplied through local patches.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,

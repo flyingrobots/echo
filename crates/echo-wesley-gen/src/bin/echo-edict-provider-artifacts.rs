@@ -18,13 +18,13 @@ use echo_wesley_gen::provider_review::generate_provider_generation_review_v1;
 use std::path::PathBuf;
 
 const SOURCE: &[u8] =
-    include_bytes!("../../../../schemas/edict-provider/echo-provider-semantics-v1.json");
+    include_bytes!("../../assets/v1/edict-provider/echo-provider-semantics-v1.json");
 const SETTINGS: &[u8] =
-    include_bytes!("../../../../schemas/edict-provider/generation-settings-v1.json");
+    include_bytes!("../../assets/v1/edict-provider/generation-settings-v1.json");
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../../assets/v1/edict-provider/contracts/v1/manifest.json");
 
 #[derive(Parser)]
 #[command(

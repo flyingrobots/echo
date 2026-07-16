@@ -1,6 +1,24 @@
 # Preserve concurrent additions to the shared agent instructions.
 AGENTS.md merge=union
 
+# Preserve every authored byte occurrence hashed into provider-generator identity.
+Cargo.lock -text
+Cargo.toml -text
+rust-toolchain.toml -text
+crates/echo-edict-canonical/Cargo.toml -text
+crates/echo-edict-canonical/src/lib.rs -text
+crates/echo-wesley-gen/Cargo.toml -text
+crates/echo-wesley-gen/src/lib.rs -text
+crates/echo-wesley-gen/src/provider_*.rs -text
+crates/echo-wesley-gen/src/bin/echo-edict-provider-*.rs -text
+schemas/edict-provider/contracts/v1/** -text
+schemas/edict-provider/echo-provider-semantics-v1.json -text
+schemas/edict-provider/generation-settings-v1.json -text
+
+# Preserve the exact audited component owners before package assembly.
+schemas/edict-provider/components/v1/** -text
+schemas/edict-provider/components/v1/**/*.wasm binary
+
 # Preserve exact checked provider corpus bytes across checkout configurations.
 schemas/edict-provider/generated/v1/** -text
 schemas/edict-provider/generated/v1/**/*.cbor binary
@@ -9,3 +27,8 @@ schemas/edict-provider/generated/v1/**/*.cbor binary
 schemas/edict-provider/package/v1/** -text
 schemas/edict-provider/package/v1/**/*.cbor binary
 schemas/edict-provider/package/v1/**/*.wasm binary
+
+# Preserve package-local provider source/artifact carriers byte-for-byte.
+crates/echo-wesley-gen/assets/v1/** -text
+crates/echo-wesley-gen/assets/v1/**/*.cbor binary
+crates/echo-wesley-gen/assets/v1/**/*.wasm binary

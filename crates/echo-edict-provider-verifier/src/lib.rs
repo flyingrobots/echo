@@ -11,6 +11,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+mod semantic_resources;
 
 use std::fmt::Write as _;
 
@@ -277,6 +278,24 @@ pub fn verify(request: VerificationRequestV1) -> VerificationResultV1 {
             "the verifier accepts only target-provider protocol 1.0.0",
         ));
     }
+    let _semantic_closure =
+        semantic_resources::admit_packaged_semantic_resources().map_err(|error| {
+            match error.kind() {
+                semantic_resources::SemanticResourceErrorKind::InvalidArtifact
+                | semantic_resources::SemanticResourceErrorKind::ReferenceMismatch => {
+                    invalid_artifact(
+                        error.subject(),
+                        "the packaged semantic resource closure is malformed or incorrectly bound",
+                    )
+                }
+                semantic_resources::SemanticResourceErrorKind::SemanticMismatch => refusal(
+                    ProviderRefusalKind::UnsupportedSemantics,
+                    error.subject(),
+                    "echo.verifier.semantic-resource-mismatch",
+                    "the packaged semantic resource closure contains a contradictory crossing",
+                ),
+            }
+        })?;
     validate_target_profile(&request.target_profile)?;
     validate_semantic_closure(&request.semantic_inputs)?;
     validate_requested_outputs(&request.requested_outputs)?;

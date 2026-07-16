@@ -667,6 +667,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-edict-provider-verifier"
+version = "0.1.0"
+dependencies = [
+ "echo-edict-canonical",
+ "hex",
+ "sha2",
+ "wit-bindgen 0.58.0",
+]
+
+[[package]]
 name = "echo-file-aperture"
 version = "0.1.0"
 dependencies = [

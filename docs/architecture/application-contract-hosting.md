@@ -218,6 +218,23 @@ crossing proves translation only. Package admission, installation, invocation,
 commitment, observation, and receipt authority remain separate Echo runtime
 crossings.
 
+The first executable verifier independently implements the frozen
+`edict:target-provider/verifier@1.0.0` world. It compares the exact Core and
+Target IR relation under the target profile and ordered semantic inputs rather
+than trusting the lowerer's construction. The pinned Edict host preflights the
+request artifacts and declared output schema before invoking the checked
+verifier. After invocation, it schema-validates each returned accepted or
+well-formed rejected report before authoring its manifest. An unsupported
+output-role overclaim remains a typed provider refusal with neither response nor
+manifest. Independent fresh-store replay and separate host processes reproduce
+all three completed outcomes identically. The report binds its named Target IR
+reference; the
+host-authored manifest separately binds the Core, target profile, Target IR,
+semantic inputs, output request, output bytes, and domain-framed output digest.
+This crossing proves provider semantic verification and host replay only. It
+does not install a package, authorize or execute an operation, observe a
+consequence, or mint an Echo receipt.
+
 The package-root projection pins `echo.edict-provider@1` to exact component
 world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
 `generationProvenance` package member whose document contract remains owned by
@@ -305,8 +322,9 @@ crosses the Edict provider WIT boundary and is validated through the declared
 
 This source contract does not claim that Echo currently executes the declared
 replace operation. Runtime mutation, admission, receipts, and presence-sensitive
-replace enforcement remain runtime implementation authority and must be proven
-by the lowerer, verifier, and admitted-execution slices.
+replace enforcement remain runtime implementation authority and must still be
+proven by admitted execution. The completed lowerer and verifier witnesses prove
+their translation, semantic-verification, and Edict-host replay crossings only.
 
 Applications own:
 

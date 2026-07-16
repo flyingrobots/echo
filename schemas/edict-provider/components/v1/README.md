@@ -3,10 +3,10 @@
 
 # Echo Edict Provider Components v1
 
-This directory checks the first executable Echo provider component for the
-frozen Edict target-provider world. Issue #655 will bind this exact component
-into the digest-locked provider package; its presence here does not claim that
-Echo has installed, admitted, authorized, or executed it.
+This directory checks the first executable Echo provider components for the
+frozen Edict target-provider worlds. Issue #655 will bind these exact components
+into the digest-locked provider package; their presence here does not claim that
+Echo has installed, admitted, authorized, or executed them.
 
 `lowerer.echo-dpo.component.wasm` implements
 `edict:target-provider/lowerer@1.0.0`. It was built from
@@ -31,6 +31,19 @@ non-callable protocol instance and equality-bounded request/result type aliases;
 its only callable world export is `lower`. It has no core, WASI, or ambient
 capability imports.
 
+`verifier.echo-dpo.component.wasm` implements
+`edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
+authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
+`wit-component` version recorded above. Its checked component is 188,736 bytes
+with SHA-256
+`e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`.
+Its sole contract attestation is the top-level custom section
+`edict:target-provider-contract` containing
+`edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
+non-callable protocol instance and equality-bounded verification request/result
+type aliases; its only callable world export is `verify`. It has no core, WASI,
+or ambient capability imports.
+
 In the designated immutable `linux/amd64` Rust 1.90.0 builder above, rebuild and
 check the artifact without rewriting it:
 
@@ -38,17 +51,24 @@ check the artifact without rewriting it:
 cargo +1.90.0 xtask provider-lowerer-component check \
   --target-dir target/provider-lowerer-component \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+
+cargo +1.90.0 xtask provider-verifier-component check \
+  --target-dir target/provider-verifier-component \
+  --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
 ```
 
 Two independently provisioned containers with fresh target and controlled Cargo
-home directories must produce byte-identical component bytes. Builds on other
-hosts are local structural and semantic witnesses; Rust/LLVM cross-host code
-generation is not claimed to be byte-identical. The standalone Edict-host
-witness audits and invokes the checked
-portable component and separately proves invocation parity, typed refusal, host
-failure separation, replay equality, and cross-process determinism. Exact
-component identity is build evidence for this translation crossing only; it is
-not runtime Echo authority.
+home directories must produce byte-identical bytes for each component
+independently. Builds on other hosts are local structural and semantic witnesses;
+Rust/LLVM cross-host code generation is not claimed to be byte-identical. The
+standalone witness audits and invokes both checked components through the pinned
+Edict host. Before verifier invocation, the host preflights the exact request
+artifacts and declared report schema; afterward, it admits and manifests each
+returned accepted or well-formed rejected report. A typed output-role refusal
+has neither response nor manifest. Fresh-store replay and separate host
+processes reproduce each completed verifier outcome identically. Exact
+component identity is build evidence for its translation or verification
+crossing only; neither host replay nor identity is runtime Echo authority.
 
 After two designated-builder candidates compare exactly, promote either explicit
 candidate through the same structural admission boundary:
@@ -59,14 +79,20 @@ cargo +1.90.0 xtask provider-lowerer-component promote \
   --candidate-b /explicit/build-b/lowerer.echo-dpo.component.wasm \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm \
   --write
+
+cargo +1.90.0 xtask provider-verifier-component promote \
+  --candidate-a /explicit/build-a/verifier.echo-dpo.component.wasm \
+  --candidate-b /explicit/build-b/verifier.echo-dpo.component.wasm \
+  --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm \
+  --write
 ```
 
 Promotion performs no discovery. It requires two distinct underlying files,
-exact byte equality, the repository-approved SHA-256 identity above, and complete
-component/world admission. It then synchronizes a same-directory temporary file
-and atomically replaces a regular output; symlink and non-regular outputs fail
-closed. The one-build `designated-build` command refuses this checked repository
-path, so a refresh must cross the promotion boundary. The command does not infer
-how the two files were produced. G4's two separately provisioned designated
-container jobs and exact source checkouts—or equivalent explicit operator
-evidence—establish independent build provenance.
+exact byte equality, the corresponding repository-approved SHA-256 identity
+above, and complete component/world admission. It then synchronizes a
+same-directory temporary file and atomically replaces a regular output; symlink
+and non-regular outputs fail closed. Each one-build `designated-build` command
+refuses its checked repository path, so a refresh must cross the promotion
+boundary. Neither command infers how the two files were produced. G4's two
+separately provisioned designated container jobs and exact source checkouts—or
+equivalent explicit operator evidence—establish independent build provenance.

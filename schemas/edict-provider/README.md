@@ -29,9 +29,11 @@ each semantic fact. In the first compatibility closure:
   outer `edict.target-ir.artifact/v1` provider domain and
   `target-ir-artifact` root;
 - runtime GraphQL owns none of these first-operation facts; and
-- runtime implementation authority for actual replace execution remains
-  unresolved until the lowerer and verifier slices prove presence-sensitive
-  replace behavior.
+- the checked lowerer and verifier prove the bounded provider translation and
+  semantic-verification crossings, while runtime authority for replace package
+  admission, installation, scheduling, execution, presence-sensitive
+  enforcement, commitment, receipts, readings, and observations remains
+  unresolved and Echo-owned.
 
 The source deliberately selects native lowerability and declares no semantic
 effect-to-effect direct adapter. Its lawpack projection separately declares the
@@ -152,7 +154,15 @@ The first checked executable lowerer now lives under
 WIT request, accepts the exact generated mutation closure, and has exact Target
 IR byte parity with Edict's built-in Echo wrapper. Unsupported reads and other
 semantics produce typed refusals instead of invented artifacts. The checked
-component remains uninstalled package material; neither it nor the generated
+verifier lives beside it and independently checks the exact Core-to-Target-IR
+relation under the generated target profile and semantic closure. Through the
+pinned Edict host, exact request artifacts and the declared report schema are
+preflighted before invocation. Returned accepted and well-formed rejected
+reports are then admitted and receive host-authored manifests, while an
+unsupported output-role overclaim remains a typed refusal with neither response
+nor manifest. Independent fresh-store replay and separate host processes
+reproduce all three completed outcomes identically. Both checked components
+remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority.
 
 External Edict contract inputs come from the checked
@@ -170,8 +180,9 @@ enforces both exact `edict.canonical-cbor/v1` bytes and that named root. This is
 generation-time artifact validation, not runtime installation or authority;
 Echo must still explicitly admit any package, operation, or consequence.
 
-Issue #655, after the lowerer and verifier components exist, assembles those
-outputs and generates the package-root `edict.provider-manifest/v1` for
+Issue #655 consumes these checked lowerer and verifier components, assembles
+them with the generated semantic artifacts, and generates the package-root
+`edict.provider-manifest/v1` for
 `echo.edict-provider@1`, implementing exact world
 `edict:target-provider@1.0.0`. The manifest is declared separately and is never
 listed inside its own artifact inventory. Runtime `reviewPayload` invocation

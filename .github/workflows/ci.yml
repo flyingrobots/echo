@@ -206,6 +206,33 @@ jobs:
             - name: clippy (wasm32 Edict provider adapter)
               run: cargo +1.90.0 clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs
 
+    build-edict-provider-verifier:
+        name: Build and check Edict provider verifier
+        runs-on: ubuntu-24.04
+        container:
+            image: docker.io/library/rust@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+            options: --platform linux/amd64
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+                  persist-credentials: false
+            - uses: dtolnay/rust-toolchain@1.90.0
+              with:
+                  components: clippy
+                  targets: wasm32-unknown-unknown
+            - name: build, audit, and check exact verifier component bytes
+              env:
+                  GIT_CONFIG_COUNT: 1
+                  GIT_CONFIG_KEY_0: safe.directory
+                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+              run: |
+                  cargo xtask provider-verifier-component check \
+                    --target-dir target/provider-verifier-component \
+                    --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
+            - name: clippy (wasm32 Edict provider verifier)
+              run: cargo +1.90.0 clippy -p echo-edict-provider-verifier --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs
+
     edict-provider-host-v1:
         name: Edict provider host contract (Rust 1.94)
         runs-on: ubuntu-24.04

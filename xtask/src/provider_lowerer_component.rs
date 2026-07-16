@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Deterministic build and structural admission for the Echo Edict lowerer component.
+//! Deterministic build and structural admission for Echo Edict provider components.
 
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -24,7 +24,7 @@ pub(crate) const CONTRACT_SECTION_NAME: &str = "edict:target-provider-contract";
 /// Exact Edict lowerer contract coordinate carried by the attestation.
 pub(crate) const LOWERER_CONTRACT_COORDINATE: &str = "edict:target-provider/lowerer@1.0.0";
 
-/// Exact type-only protocol instance that the lowerer component may import.
+/// Exact type-only protocol instance that a provider component may import.
 pub(crate) const PROTOCOL_INSTANCE_COORDINATE: &str = "edict:target-provider/protocol@1.0.0";
 
 const PROTOCOL_TYPE_IMPORTS: [&str; 2] = ["lowering-request-v1", "lowering-result-v1"];
@@ -34,6 +34,16 @@ const LOWERER_WIT_SOURCE: &str =
 const LOWERER_PACKAGE: &str = "echo-edict-provider-lowerer";
 const LOWERER_CORE_WASM: &str = "echo_edict_provider_lowerer.wasm";
 const LOWER_EXPORT: &str = "lower";
+
+const VERIFIER_CONTRACT_COORDINATE: &str = "edict:target-provider/verifier@1.0.0";
+const VERIFIER_PROTOCOL_TYPE_IMPORTS: [&str; 2] =
+    ["verification-request-v1", "verification-result-v1"];
+const VERIFIER_WORLD_NAME: &str = "verifier";
+const VERIFIER_WIT_SOURCE: &str =
+    include_str!("../../crates/echo-edict-provider-verifier/wit/edict-target-provider.wit");
+const VERIFIER_PACKAGE: &str = "echo-edict-provider-verifier";
+const VERIFIER_CORE_WASM: &str = "echo_edict_provider_verifier.wasm";
+const VERIFY_EXPORT: &str = "verify";
 
 /// Exact host triple designated to produce the checked component bytes.
 pub(crate) const CHECKED_COMPONENT_BUILDER_HOST: &str = "x86_64-unknown-linux-gnu";
@@ -47,6 +57,74 @@ pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
 pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
 
+/// Repository path reserved for the approved verifier component.
+pub(crate) const VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH: &str =
+    "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
+/// Approved SHA-256 identity of the checked verifier component.
+pub(crate) const APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256: &str =
+    "e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ProviderComponentSpec {
+    package: &'static str,
+    core_wasm: &'static str,
+    contract_coordinate: &'static str,
+    protocol_type_imports: [&'static str; 2],
+    world_name: &'static str,
+    wit_source: &'static str,
+    callable_export: &'static str,
+    checked_repository_path: &'static str,
+    approved_sha256: Option<&'static str>,
+}
+
+const LOWERER_SPEC: ProviderComponentSpec = ProviderComponentSpec {
+    package: LOWERER_PACKAGE,
+    core_wasm: LOWERER_CORE_WASM,
+    contract_coordinate: LOWERER_CONTRACT_COORDINATE,
+    protocol_type_imports: PROTOCOL_TYPE_IMPORTS,
+    world_name: LOWERER_WORLD_NAME,
+    wit_source: LOWERER_WIT_SOURCE,
+    callable_export: LOWER_EXPORT,
+    checked_repository_path: CHECKED_COMPONENT_REPOSITORY_PATH,
+    approved_sha256: Some(APPROVED_CHECKED_COMPONENT_SHA256),
+};
+
+const VERIFIER_SPEC: ProviderComponentSpec = ProviderComponentSpec {
+    package: VERIFIER_PACKAGE,
+    core_wasm: VERIFIER_CORE_WASM,
+    contract_coordinate: VERIFIER_CONTRACT_COORDINATE,
+    protocol_type_imports: VERIFIER_PROTOCOL_TYPE_IMPORTS,
+    world_name: VERIFIER_WORLD_NAME,
+    wit_source: VERIFIER_WIT_SOURCE,
+    callable_export: VERIFY_EXPORT,
+    checked_repository_path: VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH,
+    approved_sha256: Some(APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256),
+};
+
+fn export_missing_kind(spec: &ProviderComponentSpec) -> ProviderLowererComponentErrorKind {
+    if spec.callable_export == VERIFY_EXPORT {
+        ProviderLowererComponentErrorKind::VerifyExportMissing
+    } else {
+        ProviderLowererComponentErrorKind::LowerExportMissing
+    }
+}
+
+fn export_duplicate_kind(spec: &ProviderComponentSpec) -> ProviderLowererComponentErrorKind {
+    if spec.callable_export == VERIFY_EXPORT {
+        ProviderLowererComponentErrorKind::VerifyExportDuplicate
+    } else {
+        ProviderLowererComponentErrorKind::LowerExportDuplicate
+    }
+}
+
+fn export_invalid_kind(spec: &ProviderComponentSpec) -> ProviderLowererComponentErrorKind {
+    if spec.callable_export == VERIFY_EXPORT {
+        ProviderLowererComponentErrorKind::VerifyExportInvalid
+    } else {
+        ProviderLowererComponentErrorKind::LowerExportInvalid
+    }
+}
+
 /// Stable classification for a component build or audit failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ProviderLowererComponentErrorKind {
@@ -54,7 +132,7 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     InvalidPath,
     /// Cargo could not be started.
     BuildInvocationFailed,
-    /// Cargo completed without producing a successful lowerer build.
+    /// Cargo completed without producing a successful provider-component build.
     BuildFailed,
     /// The expected core WebAssembly artifact could not be read.
     CoreWasmReadFailed,
@@ -78,8 +156,12 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     ExpectedDigestInvalid,
     /// Reproducible candidates do not have the explicitly expected digest.
     CandidateDigestMismatch,
+    /// No reviewed checked identity has been approved for this component.
+    CheckedIdentityUnapproved,
     /// A one-build candidate command targeted the checked repository artifact.
     CheckedOutputRequiresPromotion,
+    /// A component command targeted another component's reserved checked artifact.
+    ReservedCheckedOutputForbidden,
     /// The core module could not be componentized.
     ComponentEncodingFailed,
     /// The component byte stream is malformed or fails WebAssembly validation.
@@ -106,7 +188,7 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     ProtocolImportClosureInvalid,
     /// The candidate component's decoded WIT world could not be authenticated.
     WorldContractInvalid,
-    /// The candidate's complete decoded WIT world differs from the frozen lowerer world.
+    /// The candidate's complete decoded WIT world differs from its frozen selected world.
     WorldContractMismatch,
     /// The required `lower` export is absent.
     LowerExportMissing,
@@ -114,6 +196,12 @@ pub(crate) enum ProviderLowererComponentErrorKind {
     LowerExportDuplicate,
     /// A top-level export is not the exact callable `lower` export.
     LowerExportInvalid,
+    /// The required `verify` export is absent.
+    VerifyExportMissing,
+    /// More than one `verify` export is present.
+    VerifyExportDuplicate,
+    /// A top-level export is not the exact callable `verify` export.
+    VerifyExportInvalid,
     /// An explicit checked output does not exist.
     OutputMissing,
     /// An explicit checked output could not be read.
@@ -143,7 +231,9 @@ impl ProviderLowererComponentErrorKind {
             Self::CandidateAliased => "candidate-aliased",
             Self::ExpectedDigestInvalid => "expected-digest-invalid",
             Self::CandidateDigestMismatch => "candidate-digest-mismatch",
+            Self::CheckedIdentityUnapproved => "checked-identity-unapproved",
             Self::CheckedOutputRequiresPromotion => "checked-output-requires-promotion",
+            Self::ReservedCheckedOutputForbidden => "reserved-checked-output-forbidden",
             Self::ComponentEncodingFailed => "component-encoding-failed",
             Self::ComponentInvalid => "component-invalid",
             Self::ComponentEncodingInvalid => "component-encoding-invalid",
@@ -161,6 +251,9 @@ impl ProviderLowererComponentErrorKind {
             Self::LowerExportMissing => "lower-export-missing",
             Self::LowerExportDuplicate => "lower-export-duplicate",
             Self::LowerExportInvalid => "lower-export-invalid",
+            Self::VerifyExportMissing => "verify-export-missing",
+            Self::VerifyExportDuplicate => "verify-export-duplicate",
+            Self::VerifyExportInvalid => "verify-export-invalid",
             Self::OutputMissing => "output-missing",
             Self::OutputReadFailed => "output-read-failed",
             Self::OutputDrift => "output-drift",
@@ -173,6 +266,7 @@ impl ProviderLowererComponentErrorKind {
 /// Stable, typed error returned by component build and audit operations.
 #[derive(Debug)]
 pub(crate) struct ProviderLowererComponentError {
+    component_label: &'static str,
     kind: ProviderLowererComponentErrorKind,
     subject: String,
     reference: Option<String>,
@@ -186,6 +280,7 @@ impl ProviderLowererComponentError {
         reference: Option<String>,
     ) -> Self {
         Self {
+            component_label: "lowerer",
             kind,
             subject: subject.into(),
             reference,
@@ -195,6 +290,11 @@ impl ProviderLowererComponentError {
 
     fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    fn for_spec(mut self, spec: &ProviderComponentSpec) -> Self {
+        self.component_label = spec.world_name;
         self
     }
 
@@ -221,7 +321,8 @@ impl fmt::Display for ProviderLowererComponentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "provider-lowerer-component:{}: {}",
+            "provider-{}-component:{}: {}",
+            self.component_label,
             self.kind.code(),
             self.subject
         )?;
@@ -237,7 +338,7 @@ impl std::error::Error for ProviderLowererComponentError {}
 /// Result alias for deterministic component operations.
 pub(crate) type Result<T> = std::result::Result<T, ProviderLowererComponentError>;
 
-/// Exact lowerer component bytes and their SHA-256 identity.
+/// Exact provider component bytes and their SHA-256 identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderLowererComponent {
     bytes: Vec<u8>,
@@ -291,11 +392,21 @@ pub(crate) fn pinned_rust_toolchain() -> Result<PinnedRustToolchain> {
     })
 }
 
+/// Resolves the same pinned toolchain with verifier-specific failure context.
+pub(crate) fn pinned_verifier_rust_toolchain() -> Result<PinnedRustToolchain> {
+    pinned_rust_toolchain().map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
 /// Authenticates the pinned compiler host before an exact checked-byte build.
 pub(crate) fn require_checked_builder() -> Result<PinnedRustToolchain> {
     let toolchain = pinned_rust_toolchain()?;
     ensure_checked_builder_host(toolchain.host())?;
     Ok(toolchain)
+}
+
+/// Authenticates the designated verifier builder host and pinned toolchain.
+pub(crate) fn require_verifier_checked_builder() -> Result<PinnedRustToolchain> {
+    require_checked_builder().map_err(|error| error.for_spec(&VERIFIER_SPEC))
 }
 
 fn resolve_rustup_tool(tool: &str) -> Result<PathBuf> {
@@ -459,6 +570,13 @@ pub(crate) fn read_component(input_path: &Path) -> Result<ProviderLowererCompone
     authenticated_component(read_component_bytes(input_path)?)
 }
 
+/// Reads and fully audits an explicit verifier component candidate.
+pub(crate) fn read_verifier_component(input_path: &Path) -> Result<ProviderLowererComponent> {
+    read_component_bytes(input_path)
+        .and_then(authenticated_verifier_component)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
 fn read_component_bytes(input_path: &Path) -> Result<Vec<u8>> {
     fs::read(input_path).map_err(|error| {
         ProviderLowererComponentError::new(
@@ -474,28 +592,70 @@ pub(crate) fn ensure_designated_candidate_output(
     output_path: &Path,
     checked_path: &Path,
 ) -> Result<()> {
-    let aliases_checked = match same_file::is_same_file(output_path, checked_path) {
+    ensure_output_does_not_alias(
+        output_path,
+        checked_path,
+        ProviderLowererComponentErrorKind::CheckedOutputRequiresPromotion,
+    )
+}
+
+fn ensure_output_does_not_alias(
+    output_path: &Path,
+    reserved_path: &Path,
+    kind: ProviderLowererComponentErrorKind,
+) -> Result<()> {
+    let aliases_reserved = match same_file::is_same_file(output_path, reserved_path) {
         Ok(aliases) => aliases,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            normalized_destination(output_path)? == normalized_destination(checked_path)?
+            normalized_destination(output_path)? == normalized_destination(reserved_path)?
         }
         Err(error) => {
             return Err(ProviderLowererComponentError::new(
                 ProviderLowererComponentErrorKind::OutputReadFailed,
                 output_path.display().to_string(),
-                Some(checked_path.display().to_string()),
+                Some(reserved_path.display().to_string()),
             )
             .with_detail(error.to_string()));
         }
     };
-    if aliases_checked {
+    if aliases_reserved {
         return Err(ProviderLowererComponentError::new(
-            ProviderLowererComponentErrorKind::CheckedOutputRequiresPromotion,
+            kind,
             output_path.display().to_string(),
-            Some(checked_path.display().to_string()),
+            Some(reserved_path.display().to_string()),
         ));
     }
     Ok(())
+}
+
+/// Refuses an output that aliases another component's reserved checked path.
+pub(crate) fn ensure_reserved_checked_output(
+    output_path: &Path,
+    reserved_path: &Path,
+) -> Result<()> {
+    ensure_output_does_not_alias(
+        output_path,
+        reserved_path,
+        ProviderLowererComponentErrorKind::ReservedCheckedOutputForbidden,
+    )
+}
+
+/// Refuses a verifier output that aliases another component's reserved checked path.
+pub(crate) fn ensure_verifier_reserved_checked_output(
+    output_path: &Path,
+    reserved_path: &Path,
+) -> Result<()> {
+    ensure_reserved_checked_output(output_path, reserved_path)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+/// Refuses a one-build verifier candidate that aliases its checked path.
+pub(crate) fn ensure_verifier_designated_candidate_output(
+    output_path: &Path,
+    checked_path: &Path,
+) -> Result<()> {
+    ensure_designated_candidate_output(output_path, checked_path)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
 }
 
 fn normalized_destination(path: &Path) -> Result<PathBuf> {
@@ -538,6 +698,14 @@ pub(crate) fn read_reproducible_candidates(
     first_path: &Path,
     second_path: &Path,
 ) -> Result<ProviderLowererComponent> {
+    read_reproducible_candidates_for(&LOWERER_SPEC, first_path, second_path)
+}
+
+fn read_reproducible_candidates_for(
+    spec: &ProviderComponentSpec,
+    first_path: &Path,
+    second_path: &Path,
+) -> Result<ProviderLowererComponent> {
     let first = read_component_bytes(first_path)?;
     let second = read_component_bytes(second_path)?;
     let aliased = same_file::is_same_file(first_path, second_path).map_err(|error| {
@@ -555,8 +723,9 @@ pub(crate) fn read_reproducible_candidates(
             Some(second_path.display().to_string()),
         ));
     }
-    ensure_reproducible_candidates(&first, &second, APPROVED_CHECKED_COMPONENT_SHA256)?;
-    authenticated_component(first)
+    let approved_sha256 = require_approved_checked_digest(spec)?;
+    ensure_reproducible_candidates_for(spec, &first, &second, approved_sha256)?;
+    authenticated_component_for(spec, first)
 }
 
 /// Audits, authenticates, and intentionally writes two reproducible candidates.
@@ -570,7 +739,90 @@ pub(crate) fn promote_reproducible_candidates(
     Ok((component, status))
 }
 
+/// Fails closed until an exact verifier identity is approved, then promotes it.
+pub(crate) fn promote_verifier_reproducible_candidates(
+    first_path: &Path,
+    second_path: &Path,
+    output_path: &Path,
+) -> Result<(ProviderLowererComponent, ComponentOutputStatus)> {
+    require_verifier_checked_identity()?;
+    let component = read_reproducible_candidates_for(&VERIFIER_SPEC, first_path, second_path)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))?;
+    let status = sync_output(output_path, component.bytes(), ComponentOutputMode::Write)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))?;
+    Ok((component, status))
+}
+
+/// Requires the verifier's checked identity to have been explicitly approved.
+pub(crate) fn require_verifier_checked_identity() -> Result<&'static str> {
+    require_approved_checked_digest(&VERIFIER_SPEC).map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+/// Binds one already authenticated lowerer component to the approved identity.
+pub(crate) fn require_lowerer_component_identity(
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    require_component_identity_for(&LOWERER_SPEC, component)
+        .map_err(|error| error.for_spec(&LOWERER_SPEC))
+}
+
+/// Binds one already authenticated verifier component to the approved identity.
+pub(crate) fn require_verifier_component_identity(
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    require_component_identity_for(&VERIFIER_SPEC, component)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+fn require_component_identity_for(
+    spec: &ProviderComponentSpec,
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    let approved_sha256 = require_approved_checked_digest(spec)?;
+    if approved_sha256.len() != 64
+        || !approved_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid,
+            approved_sha256,
+            Some("lowercase-sha256".to_owned()),
+        ));
+    }
+
+    let observed_sha256 = component.sha256_hex();
+    if observed_sha256 != approved_sha256 {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch,
+            approved_sha256,
+            Some(observed_sha256),
+        ));
+    }
+    Ok(())
+}
+
+fn require_approved_checked_digest(spec: &ProviderComponentSpec) -> Result<&'static str> {
+    spec.approved_sha256.ok_or_else(|| {
+        ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CheckedIdentityUnapproved,
+            spec.contract_coordinate,
+            Some(spec.checked_repository_path.to_owned()),
+        )
+    })
+}
+
+#[cfg(test)]
 fn ensure_reproducible_candidates(
+    first: &[u8],
+    second: &[u8],
+    expected_sha256: &str,
+) -> Result<()> {
+    ensure_reproducible_candidates_for(&LOWERER_SPEC, first, second, expected_sha256)
+}
+
+fn ensure_reproducible_candidates_for(
+    spec: &ProviderComponentSpec,
     first: &[u8],
     second: &[u8],
     expected_sha256: &str,
@@ -578,7 +830,7 @@ fn ensure_reproducible_candidates(
     if first != second {
         return Err(ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::CandidateMismatch,
-            LOWERER_CONTRACT_COORDINATE,
+            spec.contract_coordinate,
             Some(format!(
                 "first:{};second:{}",
                 digest_hex(&sha256(first)),
@@ -597,10 +849,11 @@ fn ensure_reproducible_candidates(
             Some("lowercase-sha256".to_owned()),
         ));
     }
-    if expected_sha256 != APPROVED_CHECKED_COMPONENT_SHA256 {
+    let approved_sha256 = require_approved_checked_digest(spec)?;
+    if expected_sha256 != approved_sha256 {
         return Err(ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::CandidateDigestMismatch,
-            APPROVED_CHECKED_COMPONENT_SHA256,
+            approved_sha256,
             Some(expected_sha256.to_owned()),
         ));
     }
@@ -615,7 +868,7 @@ fn ensure_reproducible_candidates(
     Ok(())
 }
 
-/// Structural facts established by [`audit_component`].
+/// Structural facts established by a specification-selected component audit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ComponentAudit {
     /// Number of exact top-level contract attestations.
@@ -624,8 +877,8 @@ pub(crate) struct ComponentAudit {
     pub(crate) protocol_imports: u32,
     /// Number of exact equality-bounded protocol type aliases (zero or two).
     pub(crate) protocol_type_imports: u32,
-    /// Number of exact callable `lower` exports.
-    pub(crate) lower_exports: u32,
+    /// Number of exact callable exports selected by the component specification.
+    pub(crate) callable_exports: u32,
 }
 
 /// Whether an explicit output should be checked or updated.
@@ -656,6 +909,25 @@ pub(crate) fn build_component(
     target_directory: &Path,
     toolchain: &PinnedRustToolchain,
 ) -> Result<ProviderLowererComponent> {
+    build_component_for(&LOWERER_SPEC, repository_root, target_directory, toolchain)
+}
+
+/// Builds, componentizes, attests, and audits the provider verifier.
+pub(crate) fn build_verifier_component(
+    repository_root: &Path,
+    target_directory: &Path,
+    toolchain: &PinnedRustToolchain,
+) -> Result<ProviderLowererComponent> {
+    build_component_for(&VERIFIER_SPEC, repository_root, target_directory, toolchain)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+fn build_component_for(
+    spec: &ProviderComponentSpec,
+    repository_root: &Path,
+    target_directory: &Path,
+    toolchain: &PinnedRustToolchain,
+) -> Result<ProviderLowererComponent> {
     let target_directory = absolute_target_directory(repository_root, target_directory);
     let cargo_home = target_directory.join("cargo-home");
     let encoded_rustflags =
@@ -668,7 +940,7 @@ pub(crate) fn build_component(
         .args([
             "build",
             "-p",
-            LOWERER_PACKAGE,
+            spec.package,
             "--target",
             "wasm32-unknown-unknown",
             "--release",
@@ -686,7 +958,7 @@ pub(crate) fn build_component(
         .map_err(|error| {
             ProviderLowererComponentError::new(
                 ProviderLowererComponentErrorKind::BuildInvocationFailed,
-                LOWERER_PACKAGE,
+                spec.package,
                 Some(toolchain.cargo.display().to_string()),
             )
             .with_detail(error.to_string())
@@ -695,7 +967,7 @@ pub(crate) fn build_component(
     if !output.status.success() {
         return Err(ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::BuildFailed,
-            LOWERER_PACKAGE,
+            spec.package,
             Some("wasm32-unknown-unknown/release".to_owned()),
         )
         .with_detail(String::from_utf8_lossy(&output.stderr)));
@@ -704,17 +976,21 @@ pub(crate) fn build_component(
     let core_path = target_directory
         .join("wasm32-unknown-unknown")
         .join("release")
-        .join(LOWERER_CORE_WASM);
+        .join(spec.core_wasm);
     let core_bytes = fs::read(&core_path).map_err(|error| {
         ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::CoreWasmReadFailed,
             core_path.display().to_string(),
-            Some(LOWERER_CORE_WASM.to_owned()),
+            Some(spec.core_wasm.to_owned()),
         )
         .with_detail(error.to_string())
     })?;
 
-    componentize(&core_bytes)
+    if spec == &LOWERER_SPEC {
+        componentize(&core_bytes)
+    } else {
+        componentize_for(spec, &core_bytes)
+    }
 }
 
 fn encoded_build_rustflags(
@@ -764,6 +1040,13 @@ fn bind_pinned_toolchain(command: &mut Command, toolchain: &PinnedRustToolchain)
 
 /// Componentizes explicit core Wasm bytes and appends the exact attestation.
 pub(crate) fn componentize(core_bytes: &[u8]) -> Result<ProviderLowererComponent> {
+    componentize_for(&LOWERER_SPEC, core_bytes)
+}
+
+fn componentize_for(
+    spec: &ProviderComponentSpec,
+    core_bytes: &[u8],
+) -> Result<ProviderLowererComponent> {
     let encoder = ComponentEncoder::default()
         .validate(true)
         .merge_imports_based_on_semver(false)
@@ -771,7 +1054,7 @@ pub(crate) fn componentize(core_bytes: &[u8]) -> Result<ProviderLowererComponent
         .map_err(|error| {
             ProviderLowererComponentError::new(
                 ProviderLowererComponentErrorKind::ComponentEncodingFailed,
-                LOWERER_PACKAGE,
+                spec.package,
                 Some("core-module".to_owned()),
             )
             .with_detail(error.to_string())
@@ -780,14 +1063,18 @@ pub(crate) fn componentize(core_bytes: &[u8]) -> Result<ProviderLowererComponent
     let mut bytes = encoder.encode().map_err(|error| {
         ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::ComponentEncodingFailed,
-            LOWERER_PACKAGE,
+            spec.package,
             Some("component".to_owned()),
         )
         .with_detail(error.to_string())
     })?;
 
-    append_contract_attestation(&mut bytes);
-    authenticated_component(bytes)
+    if spec == &LOWERER_SPEC {
+        append_contract_attestation(&mut bytes);
+    } else {
+        append_contract_attestation_for(spec, &mut bytes);
+    }
+    authenticated_component_for(spec, bytes)
 }
 
 fn authenticated_component(bytes: Vec<u8>) -> Result<ProviderLowererComponent> {
@@ -796,22 +1083,46 @@ fn authenticated_component(bytes: Vec<u8>) -> Result<ProviderLowererComponent> {
     Ok(ProviderLowererComponent { bytes, sha256 })
 }
 
+fn authenticated_verifier_component(bytes: Vec<u8>) -> Result<ProviderLowererComponent> {
+    audit_verifier_component(&bytes)?;
+    let sha256 = sha256(&bytes);
+    Ok(ProviderLowererComponent { bytes, sha256 })
+}
+
+fn authenticated_component_for(
+    spec: &ProviderComponentSpec,
+    bytes: Vec<u8>,
+) -> Result<ProviderLowererComponent> {
+    audit_component_for(spec, &bytes)?;
+    let sha256 = sha256(&bytes);
+    Ok(ProviderLowererComponent { bytes, sha256 })
+}
+
 /// Audits exact attestation, import, export, and WebAssembly validity claims.
 pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
+    audit_component_for(&LOWERER_SPEC, bytes)
+}
+
+/// Audits exact verifier attestation, imports, export, and WebAssembly validity.
+pub(crate) fn audit_verifier_component(bytes: &[u8]) -> Result<ComponentAudit> {
+    audit_component_for(&VERIFIER_SPEC, bytes).map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+fn audit_component_for(spec: &ProviderComponentSpec, bytes: &[u8]) -> Result<ComponentAudit> {
     let mut depth = 0_u32;
     let mut outer_is_component = false;
     let mut contract_attestations = 0_u32;
     let mut protocol_imports = 0_u32;
-    let mut protocol_type_imports = [false; PROTOCOL_TYPE_IMPORTS.len()];
-    let mut lower_exports = 0_u32;
+    let mut protocol_type_imports = [false; 2];
+    let mut callable_exports = 0_u32;
     let mut top_level_types = Vec::new();
 
     for payload in Parser::new(0).parse_all(bytes) {
-        let payload = payload.map_err(|error| component_invalid(error.to_string()))?;
+        let payload = payload.map_err(|error| component_invalid_for(spec, error.to_string()))?;
         match payload {
             Payload::Version { encoding, .. } => {
                 depth = depth.checked_add(1).ok_or_else(|| {
-                    component_invalid("component nesting depth overflow".to_owned())
+                    component_invalid_for(spec, "component nesting depth overflow".to_owned())
                 })?;
                 if depth == 1 {
                     outer_is_component = encoding == Encoding::Component;
@@ -819,7 +1130,7 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
             }
             Payload::End(_) => {
                 depth = depth.checked_sub(1).ok_or_else(|| {
-                    component_invalid("component nesting depth underflow".to_owned())
+                    component_invalid_for(spec, "component nesting depth underflow".to_owned())
                 })?;
             }
             Payload::CustomSection(section) if section.name() == CONTRACT_SECTION_NAME => {
@@ -835,14 +1146,14 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
                     return Err(ProviderLowererComponentError::new(
                         ProviderLowererComponentErrorKind::ContractAttestationDuplicate,
                         CONTRACT_SECTION_NAME,
-                        Some(LOWERER_CONTRACT_COORDINATE.to_owned()),
+                        Some(spec.contract_coordinate.to_owned()),
                     ));
                 }
-                if section.data() != LOWERER_CONTRACT_COORDINATE.as_bytes() {
+                if section.data() != spec.contract_coordinate.as_bytes() {
                     return Err(ProviderLowererComponentError::new(
                         ProviderLowererComponentErrorKind::ContractAttestationMismatch,
                         CONTRACT_SECTION_NAME,
-                        Some(LOWERER_CONTRACT_COORDINATE.to_owned()),
+                        Some(spec.contract_coordinate.to_owned()),
                     ));
                 }
             }
@@ -851,7 +1162,7 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
                     .into_imports()
                     .next()
                     .transpose()
-                    .map_err(|error| component_invalid(error.to_string()))?;
+                    .map_err(|error| component_invalid_for(spec, error.to_string()))?;
                 if let Some(import) = import {
                     return Err(ProviderLowererComponentError::new(
                         ProviderLowererComponentErrorKind::CoreImportForbidden,
@@ -862,14 +1173,15 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
             }
             Payload::ComponentTypeSection(section) if depth == 1 => {
                 for component_type in section {
-                    let component_type =
-                        component_type.map_err(|error| component_invalid(error.to_string()))?;
+                    let component_type = component_type
+                        .map_err(|error| component_invalid_for(spec, error.to_string()))?;
                     top_level_types.push(type_only_instance(&component_type));
                 }
             }
             Payload::ComponentImportSection(section) => {
                 for import in section {
-                    let import = import.map_err(|error| component_invalid(error.to_string()))?;
+                    let import =
+                        import.map_err(|error| component_invalid_for(spec, error.to_string()))?;
                     if depth != 1 || import.name.implements.is_some() {
                         return Err(ProviderLowererComponentError::new(
                             ProviderLowererComponentErrorKind::ComponentImportForbidden,
@@ -905,7 +1217,8 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
                         continue;
                     }
 
-                    let Some(alias_index) = PROTOCOL_TYPE_IMPORTS
+                    let Some(alias_index) = spec
+                        .protocol_type_imports
                         .iter()
                         .position(|name| *name == import.name.name)
                     else {
@@ -934,22 +1247,23 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
             }
             Payload::ComponentExportSection(section) if depth == 1 => {
                 for export in section {
-                    let export = export.map_err(|error| component_invalid(error.to_string()))?;
-                    if export.name.name != LOWER_EXPORT
+                    let export =
+                        export.map_err(|error| component_invalid_for(spec, error.to_string()))?;
+                    if export.name.name != spec.callable_export
                         || export.name.implements.is_some()
                         || export.kind != ComponentExternalKind::Func
                     {
                         return Err(ProviderLowererComponentError::new(
-                            ProviderLowererComponentErrorKind::LowerExportInvalid,
+                            export_invalid_kind(spec),
                             export.name.name,
                             Some(export.kind.desc().to_owned()),
                         ));
                     }
-                    lower_exports += 1;
-                    if lower_exports > 1 {
+                    callable_exports += 1;
+                    if callable_exports > 1 {
                         return Err(ProviderLowererComponentError::new(
-                            ProviderLowererComponentErrorKind::LowerExportDuplicate,
-                            LOWER_EXPORT,
+                            export_duplicate_kind(spec),
+                            spec.callable_export,
                             None,
                         ));
                     }
@@ -962,7 +1276,7 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
     if !outer_is_component {
         return Err(ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::ComponentEncodingInvalid,
-            LOWERER_PACKAGE,
+            spec.package,
             Some("component-model".to_owned()),
         ));
     }
@@ -970,7 +1284,7 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
         return Err(ProviderLowererComponentError::new(
             ProviderLowererComponentErrorKind::ContractAttestationMissing,
             CONTRACT_SECTION_NAME,
-            Some(LOWERER_CONTRACT_COORDINATE.to_owned()),
+            Some(spec.contract_coordinate.to_owned()),
         ));
     }
     let protocol_type_import_count = protocol_type_imports
@@ -988,24 +1302,24 @@ pub(crate) fn audit_component(bytes: &[u8]) -> Result<ComponentAudit> {
             )),
         ));
     }
-    if lower_exports != 1 {
+    if callable_exports != 1 {
         return Err(ProviderLowererComponentError::new(
-            ProviderLowererComponentErrorKind::LowerExportMissing,
-            LOWER_EXPORT,
+            export_missing_kind(spec),
+            spec.callable_export,
             None,
         ));
     }
 
     Validator::new_with_features(WasmFeatures::all())
         .validate_all(bytes)
-        .map_err(|error| component_invalid(error.to_string()))?;
-    authenticate_component_world(bytes)?;
+        .map_err(|error| component_invalid_for(spec, error.to_string()))?;
+    authenticate_component_world_for(spec, bytes)?;
 
     Ok(ComponentAudit {
         contract_attestations,
         protocol_imports,
         protocol_type_imports: protocol_type_import_count,
-        lower_exports,
+        callable_exports,
     })
 }
 
@@ -1050,6 +1364,15 @@ pub(crate) fn sync_output(
         )
         .with_detail(error.to_string())),
     }
+}
+
+/// Checks or writes explicit verifier component bytes without path discovery.
+pub(crate) fn sync_verifier_output(
+    output_path: &Path,
+    bytes: &[u8],
+    mode: ComponentOutputMode,
+) -> Result<ComponentOutputStatus> {
+    sync_output(output_path, bytes, mode).map_err(|error| error.for_spec(&VERIFIER_SPEC))
 }
 
 fn write_output(output_path: &Path, bytes: &[u8]) -> Result<ComponentOutputStatus> {
@@ -1169,9 +1492,13 @@ fn create_temporary_sibling(output_path: &Path) -> Result<(PathBuf, File)> {
 }
 
 fn append_contract_attestation(bytes: &mut Vec<u8>) {
+    append_contract_attestation_for(&LOWERER_SPEC, bytes);
+}
+
+fn append_contract_attestation_for(spec: &ProviderComponentSpec, bytes: &mut Vec<u8>) {
     CustomSection {
         name: Cow::Borrowed(CONTRACT_SECTION_NAME),
-        data: Cow::Borrowed(LOWERER_CONTRACT_COORDINATE.as_bytes()),
+        data: Cow::Borrowed(spec.contract_coordinate.as_bytes()),
     }
     .append_to_component(bytes);
 }
@@ -1192,76 +1519,99 @@ fn type_only_instance(component_type: &ComponentType<'_>) -> bool {
     export_count > 0
 }
 
-fn authenticate_component_world(bytes: &[u8]) -> Result<()> {
+fn authenticate_component_world_for(spec: &ProviderComponentSpec, bytes: &[u8]) -> Result<()> {
     let (mut expected_resolve, expected_world) =
-        parse_lowerer_world(LOWERER_WIT_SOURCE, "frozen-wit")?;
+        parse_component_world(spec, spec.wit_source, "frozen-wit")?;
     let expected_package = expected_resolve.worlds[expected_world]
         .package
         .map(|package| expected_resolve.packages[package].name.clone())
-        .ok_or_else(|| world_contract_invalid("frozen-wit", "lowerer world has no package"))?;
+        .ok_or_else(|| {
+            world_contract_invalid_for(spec, "frozen-wit", "selected world has no package")
+        })?;
     canonicalize_world_type_closure(&mut expected_resolve, expected_world);
-    let expected = encode_world_contract(&expected_resolve, expected_world, "frozen-wit")?;
+    let expected = encode_world_contract(spec, &expected_resolve, expected_world, "frozen-wit")?;
 
     let decoded = wit_component::decode(bytes).map_err(|error| {
-        world_contract_invalid("candidate-component", "component WIT decode failed")
+        world_contract_invalid_for(spec, "candidate-component", "component WIT decode failed")
             .with_detail(error.to_string())
     })?;
     let DecodedWasm::Component(mut observed_resolve, observed_world) = decoded else {
-        return Err(world_contract_invalid(
+        return Err(world_contract_invalid_for(
+            spec,
             "candidate-component",
             "decoded bytes are a WIT package rather than a component",
         ));
     };
-    normalize_decoded_world_identity(&mut observed_resolve, observed_world, expected_package)?;
+    normalize_decoded_world_identity(
+        spec,
+        &mut observed_resolve,
+        observed_world,
+        expected_package,
+    )?;
     canonicalize_world_type_closure(&mut observed_resolve, observed_world);
-    let observed = encode_world_contract(&observed_resolve, observed_world, "candidate-component")?;
-    compare_world_contracts(&expected, &observed)
+    let observed = encode_world_contract(
+        spec,
+        &observed_resolve,
+        observed_world,
+        "candidate-component",
+    )?;
+    compare_world_contracts(spec, &expected, &observed)
 }
 
 #[cfg(test)]
 fn authenticate_wit_source_for_test(source: &str) -> Result<()> {
-    let (mut expected_resolve, expected_world) =
-        parse_lowerer_world(LOWERER_WIT_SOURCE, "frozen-wit")?;
-    canonicalize_world_type_closure(&mut expected_resolve, expected_world);
-    let expected = encode_world_contract(&expected_resolve, expected_world, "frozen-wit")?;
-    let (mut observed_resolve, observed_world) = parse_lowerer_world(source, "candidate-wit")?;
-    canonicalize_world_type_closure(&mut observed_resolve, observed_world);
-    let observed = encode_world_contract(&observed_resolve, observed_world, "candidate-wit")?;
-    compare_world_contracts(&expected, &observed)
+    authenticate_wit_source_for_spec(&LOWERER_SPEC, source)
 }
 
-fn parse_lowerer_world(source: &str, reference: &str) -> Result<(Resolve, WorldId)> {
+#[cfg(test)]
+fn authenticate_wit_source_for_spec(spec: &ProviderComponentSpec, source: &str) -> Result<()> {
+    let (mut expected_resolve, expected_world) =
+        parse_component_world(spec, spec.wit_source, "frozen-wit")?;
+    canonicalize_world_type_closure(&mut expected_resolve, expected_world);
+    let expected = encode_world_contract(spec, &expected_resolve, expected_world, "frozen-wit")?;
+    let (mut observed_resolve, observed_world) =
+        parse_component_world(spec, source, "candidate-wit")?;
+    canonicalize_world_type_closure(&mut observed_resolve, observed_world);
+    let observed = encode_world_contract(spec, &observed_resolve, observed_world, "candidate-wit")?;
+    compare_world_contracts(spec, &expected, &observed)
+}
+
+fn parse_component_world(
+    spec: &ProviderComponentSpec,
+    source: &str,
+    reference: &str,
+) -> Result<(Resolve, WorldId)> {
     let mut resolve = Resolve::default();
     let package = resolve
         .push_str("edict-target-provider.wit", source)
         .map_err(|error| {
-            world_contract_invalid(reference, "WIT parse failed").with_detail(error.to_string())
+            world_contract_invalid_for(spec, reference, "WIT parse failed")
+                .with_detail(error.to_string())
         })?;
     let world = resolve
-        .select_world(&[package], Some(LOWERER_WORLD_NAME))
+        .select_world(&[package], Some(spec.world_name))
         .map_err(|error| {
-            world_contract_invalid(reference, "lowerer world selection failed")
+            world_contract_invalid_for(spec, reference, "component world selection failed")
                 .with_detail(error.to_string())
         })?;
     Ok((resolve, world))
 }
 
 fn normalize_decoded_world_identity(
+    spec: &ProviderComponentSpec,
     resolve: &mut Resolve,
     world: WorldId,
     package_name: PackageName,
 ) -> Result<()> {
     let package = resolve.worlds[world].package.ok_or_else(|| {
-        world_contract_invalid("candidate-component", "decoded world has no package")
+        world_contract_invalid_for(spec, "candidate-component", "decoded world has no package")
     })?;
-    let previous_world_name = std::mem::replace(
-        &mut resolve.worlds[world].name,
-        LOWERER_WORLD_NAME.to_owned(),
-    );
+    let previous_world_name =
+        std::mem::replace(&mut resolve.worlds[world].name, spec.world_name.to_owned());
     let package_worlds = &mut resolve.packages[package].worlds;
     if package_worlds.get(&previous_world_name) == Some(&world) {
         package_worlds.shift_remove(&previous_world_name);
-        package_worlds.insert(LOWERER_WORLD_NAME.to_owned(), world);
+        package_worlds.insert(spec.world_name.to_owned(), world);
     }
     resolve.packages[package].name = package_name;
     Ok(())
@@ -1301,20 +1651,29 @@ fn canonicalize_world_type_closure(resolve: &mut Resolve, world: WorldId) {
     }
 }
 
-fn encode_world_contract(resolve: &Resolve, world: WorldId, reference: &str) -> Result<Vec<u8>> {
+fn encode_world_contract(
+    spec: &ProviderComponentSpec,
+    resolve: &Resolve,
+    world: WorldId,
+    reference: &str,
+) -> Result<Vec<u8>> {
     wit_component::metadata::encode(resolve, world, StringEncoding::UTF8, None).map_err(|error| {
-        world_contract_invalid(reference, "canonical world encoding failed")
+        world_contract_invalid_for(spec, reference, "canonical world encoding failed")
             .with_detail(error.to_string())
     })
 }
 
-fn compare_world_contracts(expected: &[u8], observed: &[u8]) -> Result<()> {
+fn compare_world_contracts(
+    spec: &ProviderComponentSpec,
+    expected: &[u8],
+    observed: &[u8],
+) -> Result<()> {
     if expected == observed {
         return Ok(());
     }
     Err(ProviderLowererComponentError::new(
         ProviderLowererComponentErrorKind::WorldContractMismatch,
-        LOWERER_CONTRACT_COORDINATE,
+        spec.contract_coordinate,
         Some(format!(
             "expected:{};observed:{}",
             digest_hex(&sha256(expected)),
@@ -1323,13 +1682,14 @@ fn compare_world_contracts(expected: &[u8], observed: &[u8]) -> Result<()> {
     ))
 }
 
-fn world_contract_invalid(
+fn world_contract_invalid_for(
+    spec: &ProviderComponentSpec,
     reference: impl Into<String>,
     detail: impl Into<String>,
 ) -> ProviderLowererComponentError {
     ProviderLowererComponentError::new(
         ProviderLowererComponentErrorKind::WorldContractInvalid,
-        LOWERER_CONTRACT_COORDINATE,
+        spec.contract_coordinate,
         Some(reference.into()),
     )
     .with_detail(detail)
@@ -1353,10 +1713,13 @@ fn path_text(path: &Path) -> Result<&str> {
     })
 }
 
-fn component_invalid(detail: String) -> ProviderLowererComponentError {
+fn component_invalid_for(
+    spec: &ProviderComponentSpec,
+    detail: String,
+) -> ProviderLowererComponentError {
     ProviderLowererComponentError::new(
         ProviderLowererComponentErrorKind::ComponentInvalid,
-        LOWERER_PACKAGE,
+        spec.package,
         Some("wasmparser".to_owned()),
     )
     .with_detail(detail)
@@ -1377,6 +1740,288 @@ mod tests {
     use wasm_encoder::Component;
 
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    fn require_component_error<T>(
+        result: Result<T>,
+        message: &str,
+    ) -> std::result::Result<ProviderLowererComponentError, Box<dyn std::error::Error>> {
+        match result {
+            Err(error) => Ok(error),
+            Ok(_) => Err(std::io::Error::other(message).into()),
+        }
+    }
+
+    #[test]
+    fn provider_verifier_spec_is_exact_and_approved() {
+        assert_eq!(VERIFIER_SPEC.package, "echo-edict-provider-verifier");
+        assert_eq!(VERIFIER_SPEC.core_wasm, "echo_edict_provider_verifier.wasm");
+        assert_eq!(VERIFIER_SPEC.world_name, "verifier");
+        assert_eq!(
+            VERIFIER_SPEC.contract_coordinate,
+            "edict:target-provider/verifier@1.0.0"
+        );
+        assert_eq!(
+            VERIFIER_SPEC.protocol_type_imports,
+            ["verification-request-v1", "verification-result-v1"]
+        );
+        assert_eq!(VERIFIER_SPEC.callable_export, "verify");
+        assert_eq!(
+            VERIFIER_SPEC.checked_repository_path,
+            "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        );
+        assert_eq!(
+            VERIFIER_SPEC.approved_sha256,
+            Some(APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256)
+        );
+        assert_eq!(
+            sha256(VERIFIER_SPEC.wit_source.as_bytes()),
+            sha256(LOWERER_SPEC.wit_source.as_bytes())
+        );
+    }
+
+    #[test]
+    fn provider_checked_identities_are_exact() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let lowerer = authenticated_component_for(
+            &LOWERER_SPEC,
+            include_bytes!(
+                "../../schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+            )
+            .to_vec(),
+        )?;
+        require_lowerer_component_identity(&lowerer)?;
+        assert_eq!(
+            require_approved_checked_digest(&VERIFIER_SPEC)?,
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
+        );
+        assert_eq!(
+            require_verifier_checked_identity()?,
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn authenticated_verifier_requires_a_well_formed_approved_digest(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let component = authenticated_component_for(
+            &VERIFIER_SPEC,
+            include_bytes!(
+                "../../schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+            )
+            .to_vec(),
+        )?;
+
+        let stale_spec = ProviderComponentSpec {
+            approved_sha256: Some(
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            ),
+            ..VERIFIER_SPEC
+        };
+        let stale = require_component_error(
+            require_component_identity_for(&stale_spec, &component),
+            "a stale approved verifier digest must reject the authenticated component",
+        )?;
+        assert_eq!(
+            stale.kind(),
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch
+        );
+
+        let malformed_spec = ProviderComponentSpec {
+            approved_sha256: Some("not-a-lowercase-sha256"),
+            ..VERIFIER_SPEC
+        };
+        let malformed = require_component_error(
+            require_component_identity_for(&malformed_spec, &component),
+            "a malformed approved verifier digest must reject the authenticated component",
+        )?;
+        assert_eq!(
+            malformed.kind(),
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wrong_verifier_signature_cannot_receive_the_frozen_attestation(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let source = VERIFIER_SPEC.wit_source.replacen(
+            "export verify: func(request: verification-request-v1) -> verification-result-v1;",
+            "export verify: func(request: verification-result-v1) -> verification-request-v1;",
+            1,
+        );
+
+        let error = require_component_error(
+            authenticate_wit_source_for_spec(&VERIFIER_SPEC, &source),
+            "a wrong verifier signature must fail world authentication",
+        )?;
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::WorldContractMismatch
+        );
+        assert_eq!(error.subject(), VERIFIER_SPEC.contract_coordinate);
+        Ok(())
+    }
+
+    #[test]
+    fn lowerer_public_identity_remains_the_merged_spec() {
+        assert_eq!(
+            LOWERER_SPEC.contract_coordinate,
+            LOWERER_CONTRACT_COORDINATE
+        );
+        assert_eq!(
+            LOWERER_SPEC.approved_sha256,
+            Some(APPROVED_CHECKED_COMPONENT_SHA256)
+        );
+        assert_eq!(
+            LOWERER_SPEC.checked_repository_path,
+            CHECKED_COMPONENT_REPOSITORY_PATH
+        );
+        assert_eq!(LOWERER_SPEC.callable_export, "lower");
+    }
+
+    #[test]
+    fn verifier_spec_drives_exact_attestation_and_export_admission(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let mut bytes = Component::new().finish();
+        append_contract_attestation_for(&VERIFIER_SPEC, &mut bytes);
+
+        let mut sections = Vec::new();
+        for payload in Parser::new(0).parse_all(&bytes) {
+            match payload? {
+                Payload::CustomSection(section) if section.name() == CONTRACT_SECTION_NAME => {
+                    sections.push(section.data().to_vec());
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(sections, [VERIFIER_CONTRACT_COORDINATE.as_bytes()]);
+
+        let lowerer_error = require_component_error(
+            audit_component(&bytes),
+            "the verifier attestation must not authenticate as a lowerer",
+        )?;
+        assert_eq!(
+            lowerer_error.kind(),
+            ProviderLowererComponentErrorKind::ContractAttestationMismatch
+        );
+        assert_eq!(lowerer_error.subject(), CONTRACT_SECTION_NAME);
+        assert_eq!(lowerer_error.reference(), Some(LOWERER_CONTRACT_COORDINATE));
+
+        let verifier_error = require_component_error(
+            audit_verifier_component(&bytes),
+            "a verifier without its callable export must fail",
+        )?;
+        assert_eq!(
+            verifier_error.kind(),
+            ProviderLowererComponentErrorKind::VerifyExportMissing
+        );
+        assert_eq!(verifier_error.subject(), VERIFY_EXPORT);
+        assert_eq!(verifier_error.reference(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn verifier_world_rejects_world_export_and_alias_drift(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        authenticate_wit_source_for_spec(&VERIFIER_SPEC, VERIFIER_SPEC.wit_source)?;
+
+        let renamed_world =
+            VERIFIER_SPEC
+                .wit_source
+                .replacen("world verifier {", "world verifier-drift {", 1);
+        let error = require_component_error(
+            authenticate_wit_source_for_spec(&VERIFIER_SPEC, &renamed_world),
+            "a renamed verifier world must fail closed",
+        )?;
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::WorldContractInvalid
+        );
+        assert_eq!(error.subject(), VERIFIER_CONTRACT_COORDINATE);
+
+        let renamed_export = VERIFIER_SPEC.wit_source.replacen(
+            "  export verify: func(",
+            "  export verify-drift: func(",
+            1,
+        );
+        let error = require_component_error(
+            authenticate_wit_source_for_spec(&VERIFIER_SPEC, &renamed_export),
+            "a renamed verifier export must fail world equality",
+        )?;
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::WorldContractMismatch
+        );
+        assert_eq!(error.subject(), VERIFIER_CONTRACT_COORDINATE);
+
+        let lowerer_alias_closure = VERIFIER_SPEC.wit_source.replacen(
+            concat!(
+                "  use protocol.{verification-request-v1, verification-result-v1};\n\n",
+                "  export verify: func(request: verification-request-v1) -> verification-result-v1;",
+            ),
+            concat!(
+                "  use protocol.{lowering-request-v1, lowering-result-v1};\n\n",
+                "  export verify: func(request: lowering-request-v1) -> lowering-result-v1;",
+            ),
+            1,
+        );
+        let error = require_component_error(
+            authenticate_wit_source_for_spec(&VERIFIER_SPEC, &lowerer_alias_closure),
+            "the lowerer alias closure must not authenticate as the verifier",
+        )?;
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::WorldContractMismatch
+        );
+        assert_eq!(error.subject(), VERIFIER_CONTRACT_COORDINATE);
+        Ok(())
+    }
+
+    #[test]
+    fn checked_verifier_component_promotion_is_exact_and_idempotent(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let bytes = include_bytes!(
+            "../../schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        );
+        assert_eq!(
+            digest_hex(&sha256(bytes)),
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
+        );
+        let first = temporary_output("verifier-promotion-valid-a");
+        let second = temporary_output("verifier-promotion-valid-b");
+        let output = temporary_output("verifier-promotion-output");
+        fs::write(&first, bytes)?;
+        fs::write(&second, bytes)?;
+
+        let (component, status) =
+            promote_verifier_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Written);
+        assert_eq!(component.bytes(), bytes);
+        let (_, status) = promote_verifier_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Current);
+        assert_eq!(fs::read(&output)?, bytes);
+
+        fs::remove_file(first)?;
+        fs::remove_file(second)?;
+        fs::remove_file(output)?;
+        Ok(())
+    }
+
+    #[test]
+    fn lowerer_componentize_wrapper_preserves_its_error_surface(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let error = require_component_error(
+            componentize(b"not-core-wasm"),
+            "invalid core Wasm must still fail componentization",
+        )?;
+        assert_eq!(
+            error.kind(),
+            ProviderLowererComponentErrorKind::ComponentEncodingFailed
+        );
+        assert_eq!(error.subject(), LOWERER_PACKAGE);
+        Ok(())
+    }
 
     #[test]
     fn appends_one_exact_top_level_attestation(
@@ -2131,6 +2776,18 @@ mod tests {
             "                  GIT_CONFIG_KEY_0: safe.directory\n",
             "                  GIT_CONFIG_VALUE_0: ${{ github.workspace }}",
         )));
+        assert!(ci.contains("    build-edict-provider-verifier:"));
+        assert!(ci.contains("name: Build and check Edict provider verifier"));
+        assert!(ci.contains("cargo xtask provider-verifier-component check"));
+        assert!(ci.contains("--target-dir target/provider-verifier-component"));
+        assert!(ci.contains(
+            "--output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(ci.contains(
+            "cargo +1.90.0 clippy -p echo-edict-provider-verifier --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs"
+        ));
+        assert!(ci.matches(designated_image).count() >= 2);
+        assert!(ci.matches("options: --platform linux/amd64").count() >= 2);
 
         let determinism = include_str!("../../.github/workflows/det-gates.yml");
         assert!(determinism.contains(designated_image));
@@ -2155,6 +2812,45 @@ mod tests {
         assert!(determinism.contains(
             "cmp build2.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
         ));
+        assert!(determinism.contains("cargo xtask provider-verifier-component designated-build"));
+        assert!(determinism.contains("--target-dir target/provider-verifier-repro"));
+        assert!(determinism.contains("--output target/verifier.echo-dpo.component.wasm"));
+        assert!(determinism.contains(
+            "sha256sum target/verifier.echo-dpo.component.wasm > \"verifier-hash${CANDIDATE}.txt\""
+        ));
+        assert!(determinism.contains(
+            "cp target/verifier.echo-dpo.component.wasm \"build${CANDIDATE}.verifier.component.wasm\""
+        ));
+        assert!(determinism.contains("verifier-hash${{ matrix.candidate }}.txt"));
+        assert!(determinism.contains("build${{ matrix.candidate }}.verifier.component.wasm"));
+        assert!(determinism.contains("diff verifier-hash1.txt verifier-hash2.txt"));
+        assert!(determinism
+            .contains("cmp build1.verifier.component.wasm build2.verifier.component.wasm"));
+        assert!(determinism.contains("cargo xtask provider-verifier-component promote"));
+        assert!(determinism.contains("--candidate-a build1.verifier.component.wasm"));
+        assert!(determinism.contains("--candidate-b build2.verifier.component.wasm"));
+        assert!(determinism.contains("--output target/verifier.echo-dpo.promoted.component.wasm"));
+        assert!(determinism.contains(
+            "cmp build1.verifier.component.wasm target/verifier.echo-dpo.promoted.component.wasm"
+        ));
+        assert!(determinism.contains(
+            "cmp build1.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(determinism.contains(
+            "cmp build2.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+        ));
+        assert!(determinism.contains(concat!(
+            "            verifier-hash1.txt\n",
+            "            verifier-hash2.txt\n",
+            "            build1.verifier.component.wasm\n",
+            "            build2.verifier.component.wasm",
+        )));
+        assert!(determinism.contains(concat!(
+            "              gathered-artifacts/build-repro-artifacts/verifier-hash1.txt\n",
+            "              gathered-artifacts/build-repro-artifacts/verifier-hash2.txt\n",
+            "              gathered-artifacts/build-repro-artifacts/build1.verifier.component.wasm\n",
+            "              gathered-artifacts/build-repro-artifacts/build2.verifier.component.wasm",
+        )));
 
         let host = include_str!("../../scripts/verify-edict-provider-host-v1.sh");
         assert!(host.contains("provider-lowerer-component build"));

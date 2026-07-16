@@ -136,6 +136,10 @@ test('every workspace member has an explicit non-catch-all policy path', () => {
   const missing = members.filter((member) => !policyYaml.includes(`"${member}/**"`));
 
   assert.deepEqual(missing, [], `workspace members without explicit policy paths: ${missing}`);
+  assert.match(
+    policyYaml,
+    /echo-edict-provider-verifier:\n\s+class: DET_CRITICAL\n\s+owner_role: "Tooling Engineer"\n\s+paths: \["crates\/echo-edict-provider-verifier\/\*\*", "schemas\/edict-provider\/components\/v1\/verifier\.echo-dpo\.component\.wasm", "tests\/edict-provider-host-v1\/\*\*"\]\n/,
+  );
   assert.match(policyYaml, /echo-runtime-schema:\n\s+class: DET_CRITICAL\n/);
   assert.match(policyYaml, /echo-file-aperture:\n\s+class: DET_IMPORTANT\n/);
   assert.match(policyYaml, /echo-trace:\n\s+class: DET_IMPORTANT\n/);

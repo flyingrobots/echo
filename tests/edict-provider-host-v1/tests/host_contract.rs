@@ -25,13 +25,16 @@ use edict_syntax::{
     validate_provider_lowering_request, BuiltinLowererRequest, BuiltinTargetLowerer,
     CanonicalValue, CompilerContext, CoreBudget, CoreModule, ProviderArtifact,
     ProviderArtifactBinding, ProviderArtifactKind, ProviderArtifactRef, ProviderArtifactSource,
-    ProviderBoundArtifact, ProviderDigest, ProviderDigestAlgorithm, ProviderInvocationKind,
-    ProviderInvocationValidationFailureKind, ProviderLoweringInvocationContract,
-    ProviderLoweringOutputKind, ProviderLoweringOutputRequest, ProviderLoweringRequest,
-    ProviderRefusalKind, ProviderResourceRef, ProviderResponseLimits, ProviderSchemaBinding,
-    ProviderSchemaFormat, ProviderSemanticInput, ProviderSemanticInputBinding,
-    ProviderSemanticInputKind, ResourceRef, TargetEffectLowering, TargetIrLoweringFacts,
-    TargetProviderManifest, ValidatedProviderLoweringRequest, WriteClass,
+    ProviderBoundArtifact, ProviderDiagnosticSeverity, ProviderDigest, ProviderDigestAlgorithm,
+    ProviderInvocationKind, ProviderInvocationValidationFailureKind,
+    ProviderLoweringInvocationContract, ProviderLoweringOutputKind, ProviderLoweringOutputRequest,
+    ProviderLoweringRequest, ProviderOutputManifest, ProviderRefusalKind, ProviderResourceRef,
+    ProviderResponseLimits, ProviderSchemaBinding, ProviderSchemaFormat, ProviderSemanticInput,
+    ProviderSemanticInputBinding, ProviderSemanticInputKind,
+    ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
+    ProviderVerificationOutputRequest, ProviderVerificationRequest, ProviderVerificationSuccess,
+    ResourceRef, TargetEffectLowering, TargetIrLoweringFacts, TargetProviderManifest,
+    ValidatedProviderLoweringRequest, ValidatedProviderVerificationRequest, WriteClass,
     AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
     ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
@@ -55,6 +58,11 @@ const ECHO_SOURCE: &str = "package a.b@1;\n\
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const LOWERER_ROLE: &str = "lowerer.echo-dpo";
+const VERIFIER_ROLE: &str = "verifier.echo-dpo";
+const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
+const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
+const DIAGNOSTIC_ABI_DIGEST: &str =
+    "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
     "41ae7a1d95e5068cb09ec581f16a90cc6e26a80f83ec073e86d5108c3a61ea41";
@@ -102,6 +110,13 @@ struct LowerHarness {
     schema: &'static ProviderArtifactSchemaRegistry,
 }
 
+struct VerifyHarness {
+    host: ProviderComponentHost,
+    prepared: PreparedProviderComponent<'static>,
+    request: ValidatedProviderVerificationRequest<'static>,
+    schema: &'static ProviderArtifactSchemaRegistry,
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -128,12 +143,48 @@ fn echo_component_bytes() -> &'static [u8] {
     Box::leak(bytes.into_boxed_slice())
 }
 
+fn echo_verifier_component_path() -> PathBuf {
+    let configured = std::env::var_os("ECHO_PROVIDER_VERIFIER_COMPONENT").map(PathBuf::from);
+    let path = configured.unwrap_or_else(|| {
+        PathBuf::from("schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm")
+    });
+    if path.is_absolute() {
+        path
+    } else {
+        repo_root().join(path)
+    }
+}
+
+fn echo_verifier_component_bytes() -> &'static [u8] {
+    let path = echo_verifier_component_path();
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    Box::leak(bytes.into_boxed_slice())
+}
+
 fn hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(&mut output, "{byte:02x}").expect("writing hexadecimal to String cannot fail");
     }
     output
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert_eq!(value.len() % 2, 0, "hexadecimal input has whole bytes");
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                b'A'..=b'F' => byte - b'A' + 10,
+                _ => panic!("invalid hexadecimal digit"),
+            };
+            (digit(pair[0]) << 4) | digit(pair[1])
+        })
+        .collect()
 }
 
 fn raw_sha256(bytes: &[u8]) -> String {
@@ -358,6 +409,81 @@ fn echo_registry(
     ))
 }
 
+fn echo_verifier_manifest(component_bytes: &'static [u8]) -> &'static TargetProviderManifest {
+    let component = raw_resource("echo.dpo.verifier/component@1", component_bytes);
+    let schema = raw_resource("echo.provider-artifacts.cddl@1", SCHEMA_BYTES);
+    Box::leak(Box::new(TargetProviderManifest {
+        api_version: TARGET_PROVIDER_MANIFEST_API_VERSION.to_owned(),
+        provider_abi: TARGET_PROVIDER_ABI.to_owned(),
+        provider: locked_test_resource("echo.edict-provider-host-witness@1", '1'),
+        artifacts: vec![
+            ProviderArtifactRef {
+                role: VERIFIER_ROLE.to_owned(),
+                artifact_kind: ProviderArtifactKind::Verifier,
+                resource: component.clone(),
+                source: ProviderArtifactSource::Component { component },
+            },
+            ProviderArtifactRef {
+                role: SCHEMA_ROLE.to_owned(),
+                artifact_kind: ProviderArtifactKind::ArtifactSchema,
+                resource: schema,
+                source: ProviderArtifactSource::Generated {
+                    semantic_source: locked_test_resource(
+                        "echo.edict-provider-host-witness.schema-source@1",
+                        '2',
+                    ),
+                    generator: locked_test_resource(
+                        "echo.edict-provider-host-witness.schema-generator@1",
+                        '3',
+                    ),
+                },
+            },
+        ],
+        schema_bindings: [
+            (VERIFIER_REPORT_DOMAIN, "verifier-report"),
+            (AUTHORITY_FACTS_API_VERSION, "authority-facts"),
+            (CORE_MODULE_DIGEST_DOMAIN, "core-module"),
+            (PROVIDER_LAWPACK_ARTIFACT_DOMAIN, "lawpack-manifest"),
+            (LOWERABILITY_DOMAIN, "lowering-requirements"),
+            (TARGET_IR_ARTIFACT_DIGEST_DOMAIN, "target-ir-artifact"),
+            (TARGET_PROFILE_API_VERSION, "target-profile-manifest"),
+        ]
+        .into_iter()
+        .map(|(domain, root_rule)| ProviderSchemaBinding {
+            domain: domain.to_owned(),
+            schema_role: SCHEMA_ROLE.to_owned(),
+            format: ProviderSchemaFormat::SelfContainedCddlV1,
+            root_rule: root_rule.to_owned(),
+        })
+        .collect(),
+    }))
+}
+
+fn echo_verifier_registry(
+    manifest: &'static TargetProviderManifest,
+) -> &'static ProviderArtifactSchemaRegistry {
+    let proof = bind_target_provider_manifest(manifest).expect("Echo verifier manifest validates");
+    Box::leak(Box::new(
+        ProviderArtifactSchemaRegistry::from_manifest(
+            &proof,
+            [ResolvedProviderSchemaArtifact {
+                role: SCHEMA_ROLE.to_owned(),
+                bytes: Arc::from(SCHEMA_BYTES),
+            }],
+            [
+                VERIFIER_REPORT_DOMAIN,
+                AUTHORITY_FACTS_API_VERSION,
+                CORE_MODULE_DIGEST_DOMAIN,
+                PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
+                LOWERABILITY_DOMAIN,
+                TARGET_IR_ARTIFACT_DIGEST_DOMAIN,
+                TARGET_PROFILE_API_VERSION,
+            ],
+        )
+        .expect("Echo verifier schema registry constructs"),
+    ))
+}
+
 fn echo_request_from_core_bytes(
     core_bytes: &[u8],
     output_role: &str,
@@ -438,6 +564,125 @@ fn echo_request(
     echo_request_from_core_bytes(&core_bytes, output_role)
 }
 
+fn echo_verification_request(
+    core: &CoreModule,
+    target_ir_bytes: &[u8],
+) -> (
+    ProviderVerificationInvocationContract,
+    ProviderVerificationRequest,
+) {
+    let core_bytes = encode_core_module(core).expect("Core module encodes canonically");
+    let core_artifact = bound_artifact("a.b@1", CORE_MODULE_DIGEST_DOMAIN, &core_bytes);
+    let target_profile_artifact = bound_artifact(
+        ECHO_DPO_TARGET_PROFILE,
+        TARGET_PROFILE_API_VERSION,
+        TARGET_PROFILE_BYTES,
+    );
+    let target_ir_artifact = bound_artifact(
+        "echo.target-ir@1",
+        TARGET_IR_ARTIFACT_DIGEST_DOMAIN,
+        target_ir_bytes,
+    );
+    let lowerability = lowerability_bytes();
+    let semantic_inputs = vec![
+        semantic_input(
+            "authority-facts.echo-dpo",
+            ProviderSemanticInputKind::AuthorityFacts,
+            "echo.dpo-authority-facts@1",
+            AUTHORITY_FACTS_API_VERSION,
+            TARGET_AUTHORITY_BYTES,
+        ),
+        semantic_input(
+            "authority-facts.echo-lawpack",
+            ProviderSemanticInputKind::AuthorityFacts,
+            "echo.dpo-lawpack-authority-facts@1",
+            AUTHORITY_FACTS_API_VERSION,
+            LAWPACK_AUTHORITY_BYTES,
+        ),
+        semantic_input(
+            "lawpack.echo-dpo",
+            ProviderSemanticInputKind::Lawpack,
+            "echo.dpo-lawpack@1",
+            PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
+            LAWPACK_BYTES,
+        ),
+        semantic_input(
+            "lowerability.echo-dpo",
+            ProviderSemanticInputKind::LowerabilityFacts,
+            "echo.dpo-lowerability@1",
+            LOWERABILITY_DOMAIN,
+            &lowerability,
+        ),
+    ];
+    let contract = ProviderVerificationInvocationContract {
+        core: artifact_binding(&core_artifact),
+        target_profile: artifact_binding(&target_profile_artifact),
+        target_ir: artifact_binding(&target_ir_artifact),
+        semantic_inputs: semantic_inputs
+            .iter()
+            .map(|input| ProviderSemanticInputBinding {
+                role: input.role.clone(),
+                kind: input.kind.clone(),
+                artifact: artifact_binding(&input.artifact),
+            })
+            .collect(),
+    };
+    let request = ProviderVerificationRequest {
+        protocol_version: TARGET_PROVIDER_PROTOCOL_VERSION,
+        core: core_artifact,
+        target_profile: target_profile_artifact,
+        target_ir: target_ir_artifact,
+        semantic_inputs,
+        requested_outputs: vec![ProviderVerificationOutputRequest {
+            role: VERIFIER_REPORT_ROLE.to_owned(),
+            kind: ProviderVerificationOutputKind::VerifierReport,
+            domain: VERIFIER_REPORT_DOMAIN.to_owned(),
+        }],
+        limits: ProviderResponseLimits {
+            max_output_count: 8,
+            max_diagnostic_count: 8,
+            max_total_response_bytes: 64 * 1024,
+        },
+    };
+    (contract, request)
+}
+
+fn echo_verifier_harness_with_request(
+    contract: ProviderVerificationInvocationContract,
+    request: ProviderVerificationRequest,
+) -> VerifyHarness {
+    let component = echo_verifier_component_bytes();
+    let manifest = echo_verifier_manifest(component);
+    let manifest_proof = Box::leak(Box::new(
+        bind_target_provider_manifest(manifest).expect("Echo verifier manifest validates"),
+    ));
+    let selected = select_provider_component(
+        manifest_proof,
+        VERIFIER_ROLE,
+        ProviderInvocationKind::Verification,
+    )
+    .expect("Echo verifier selects");
+    let resolved = ResolvedProviderComponent::new(selected, Arc::from(component));
+    let host = ProviderComponentHost::new().expect("host configures");
+    let prepared = host.prepare(&resolved).expect("Echo verifier prepares");
+    let schema = echo_verifier_registry(manifest);
+    let contract = Box::leak(Box::new(contract));
+    let request = Box::leak(Box::new(request));
+    let request = edict_syntax::validate_provider_verification_request(schema, contract, request)
+        .expect("Echo verification request passes complete schema admission");
+    VerifyHarness {
+        host,
+        prepared,
+        request,
+        schema,
+    }
+}
+
+fn echo_verifier_harness(core: &CoreModule, target_ir_bytes: &[u8]) -> VerifyHarness {
+    let (contract, request) = echo_verification_request(core, target_ir_bytes);
+    echo_verifier_harness_with_request(contract, request)
+}
+
 fn canonical_map_field_mut<'a>(
     value: &'a mut CanonicalValue,
     field: &str,
@@ -453,6 +698,113 @@ fn canonical_map_field_mut<'a>(
 
 fn canonical_core_intent_mut(core: &mut CanonicalValue) -> &mut CanonicalValue {
     canonical_map_field_mut(canonical_map_field_mut(core, "intents"), "t")
+}
+
+fn target_ir_with_mismatched_intrinsic(core: &CoreModule) -> Vec<u8> {
+    let (target_ir_bytes, _) = oracle_target_ir(core);
+    let mut target_ir =
+        decode_canonical_cbor(&target_ir_bytes).expect("oracle Target IR decodes canonically");
+    let intent = canonical_map_field_mut(canonical_map_field_mut(&mut target_ir, "intents"), "t");
+    let CanonicalValue::Array(steps) = canonical_map_field_mut(intent, "steps") else {
+        panic!("Target IR steps are not an array");
+    };
+    let step = steps
+        .first_mut()
+        .expect("reviewed Target IR has one effect step");
+    *canonical_map_field_mut(step, "targetIntrinsic") = text("echo.dpo@1.unreviewed");
+    encode_canonical_cbor(&target_ir).expect("mismatched Target IR encodes canonically")
+}
+
+fn resource_ref_value(reference: &ProviderResourceRef) -> CanonicalValue {
+    assert_eq!(
+        reference.digest.algorithm,
+        ProviderDigestAlgorithm::Sha256,
+        "reviewed resource reference uses sha256"
+    );
+    map([
+        ("id", text(&reference.coordinate)),
+        (
+            "digest",
+            CanonicalValue::Array(vec![
+                text("sha256"),
+                CanonicalValue::Bytes(reference.digest.bytes.clone()),
+            ]),
+        ),
+    ])
+}
+
+fn expected_verifier_report_bytes(
+    target_ir_reference: &ProviderResourceRef,
+    outcome: &str,
+) -> Vec<u8> {
+    encode_canonical_cbor(&map([
+        ("apiVersion", text(VERIFIER_REPORT_DOMAIN)),
+        ("targetIr", resource_ref_value(target_ir_reference)),
+        ("outcome", text(outcome)),
+        (
+            "diagnosticAbi",
+            resource_ref_value(&ProviderResourceRef {
+                coordinate: "edict.diagnostics/v1".to_owned(),
+                digest: ProviderDigest {
+                    algorithm: ProviderDigestAlgorithm::Sha256,
+                    bytes: decode_hex(DIAGNOSTIC_ABI_DIGEST),
+                },
+            }),
+        ),
+        ("diagnosticBytes", CanonicalValue::Bytes(Vec::new())),
+    ]))
+    .expect("independent verifier report oracle encodes canonically")
+}
+
+fn assert_admitted_verifier_success(
+    harness: &VerifyHarness,
+    response: &ProviderVerificationSuccess,
+    manifest: &ProviderOutputManifest<ProviderVerificationOutputKind>,
+    expected_outcome: &str,
+) {
+    assert_eq!(response.outputs.len(), 1);
+    let output = &response.outputs[0];
+    assert_eq!(output.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(output.kind, ProviderVerificationOutputKind::VerifierReport);
+    assert_eq!(output.artifact.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(output.logical_path, None);
+
+    let request = harness.request.request();
+    let contract = harness.request.contract();
+    let expected_bytes =
+        expected_verifier_report_bytes(&request.target_ir.reference, expected_outcome);
+    assert_eq!(output.artifact.bytes, expected_bytes);
+
+    assert_eq!(manifest.invocation(), ProviderInvocationKind::Verification);
+    assert_eq!(
+        manifest.protocol_version(),
+        TARGET_PROVIDER_PROTOCOL_VERSION
+    );
+    assert_eq!(manifest.inputs().core(), &contract.core);
+    assert_eq!(manifest.inputs().target_profile(), &contract.target_profile);
+    assert_eq!(manifest.inputs().target_ir(), Some(&contract.target_ir));
+    assert_eq!(
+        manifest.inputs().semantic_inputs(),
+        contract.semantic_inputs.as_slice()
+    );
+    assert_eq!(manifest.requested_outputs().len(), 1);
+    let requested = &manifest.requested_outputs()[0];
+    assert_eq!(requested.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(
+        requested.kind,
+        ProviderVerificationOutputKind::VerifierReport
+    );
+    assert_eq!(requested.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(manifest.outputs().len(), 1);
+    let entry = &manifest.outputs()[0];
+    assert_eq!(entry.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(entry.kind, ProviderVerificationOutputKind::VerifierReport);
+    assert_eq!(entry.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(entry.logical_path, None);
+    assert_eq!(
+        entry.digest,
+        provider_digest(VERIFIER_REPORT_DOMAIN, &expected_bytes)
+    );
 }
 
 fn echo_harness_with_request(
@@ -690,6 +1042,123 @@ fn echo_observation() -> String {
         raw_sha256(echo_component_bytes()),
         raw_sha256(&response.outputs[0].artifact.bytes),
         hex(&manifest.outputs()[0].digest.bytes)
+    )
+}
+
+fn echo_verifier_observation() -> String {
+    let core = echo_core();
+    let (accepted_target_ir, _) = oracle_target_ir(&core);
+    let accepted = echo_verifier_harness(&core, &accepted_target_ir);
+    let accepted_outcome = accepted
+        .host
+        .invoke_verifier(
+            &accepted.prepared,
+            &accepted.request,
+            accepted.schema,
+            host_limits(),
+        )
+        .expect("accepted verifier observation crosses complete Edict host admission");
+    assert!(accepted_outcome.refusal().is_none());
+    let accepted_response = accepted_outcome
+        .response()
+        .expect("accepted verifier observation returns a response");
+    let accepted_manifest = accepted_outcome
+        .manifest()
+        .expect("accepted verifier observation has a host-authored manifest");
+    assert_admitted_verifier_success(&accepted, accepted_response, accepted_manifest, "accepted");
+
+    let rejected_target_ir = target_ir_with_mismatched_intrinsic(&core);
+    let rejected = echo_verifier_harness(&core, &rejected_target_ir);
+    let rejected_outcome = rejected
+        .host
+        .invoke_verifier(
+            &rejected.prepared,
+            &rejected.request,
+            rejected.schema,
+            host_limits(),
+        )
+        .expect("rejected verifier observation crosses complete Edict host admission");
+    assert!(rejected_outcome.refusal().is_none());
+    let rejected_response = rejected_outcome
+        .response()
+        .expect("rejected verifier observation returns a response");
+    let rejected_manifest = rejected_outcome
+        .manifest()
+        .expect("rejected verifier observation has a host-authored manifest");
+    assert_admitted_verifier_success(&rejected, rejected_response, rejected_manifest, "rejected");
+    let [rejected_diagnostic] = rejected_response.diagnostics.as_slice() else {
+        panic!("rejected verifier observation has one diagnostic");
+    };
+    assert_eq!(
+        rejected_diagnostic.code,
+        "echo.verifier.target-intrinsic-mismatch"
+    );
+    assert_eq!(
+        rejected_diagnostic.severity,
+        ProviderDiagnosticSeverity::Error
+    );
+    assert_eq!(
+        rejected_diagnostic.message,
+        "Target IR uses an intrinsic outside the reviewed Echo capability"
+    );
+    assert_eq!(rejected_diagnostic.repair, None);
+
+    let (refused_contract, mut refused_request) =
+        echo_verification_request(&core, &accepted_target_ir);
+    refused_request
+        .requested_outputs
+        .push(ProviderVerificationOutputRequest {
+            role: "verifier-report.unreviewed".to_owned(),
+            kind: ProviderVerificationOutputKind::VerifierReport,
+            domain: VERIFIER_REPORT_DOMAIN.to_owned(),
+        });
+    let refused = echo_verifier_harness_with_request(refused_contract, refused_request);
+    let refused_outcome = refused
+        .host
+        .invoke_verifier(
+            &refused.prepared,
+            &refused.request,
+            refused.schema,
+            host_limits(),
+        )
+        .expect("refused verifier observation crosses the WIT transport");
+    assert!(refused_outcome.response().is_none());
+    assert!(refused_outcome.manifest().is_none());
+    let refusal = refused_outcome
+        .refusal()
+        .expect("refused verifier observation preserves a typed refusal");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedOutputRole);
+    assert_eq!(
+        refusal.subject.as_deref(),
+        Some("verifier-report.unreviewed")
+    );
+    let [refusal_diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("refused verifier observation has one diagnostic");
+    };
+    assert_eq!(
+        refusal_diagnostic.code,
+        "echo.verifier.unsupported-output-role"
+    );
+    assert_eq!(
+        refusal_diagnostic.severity,
+        ProviderDiagnosticSeverity::Error
+    );
+    assert_eq!(
+        refusal_diagnostic.message,
+        "the first verifier serves exactly one verifier-report.echo-dpo output"
+    );
+    assert_eq!(refusal_diagnostic.repair, None);
+
+    format!(
+        "{}:{}:{}:{}:{}:{}:{}:{}",
+        raw_sha256(echo_verifier_component_bytes()),
+        raw_sha256(&accepted_response.outputs[0].artifact.bytes),
+        hex(&accepted_manifest.outputs()[0].digest.bytes),
+        raw_sha256(&rejected_response.outputs[0].artifact.bytes),
+        hex(&rejected_manifest.outputs()[0].digest.bytes),
+        rejected_diagnostic.code,
+        "unsupported-output-role",
+        refusal_diagnostic.code,
     )
 }
 
@@ -1075,6 +1544,197 @@ fn independent_processes_reproduce_the_same_echo_component_observation() {
                     .map(|(_, observation)| observation)
             })
             .unwrap_or_else(|| panic!("child omitted stable observation:\n{stdout}"))
+            .to_owned()
+    };
+
+    let first = run_child();
+    let second = run_child();
+    assert_eq!(first, second);
+}
+
+#[test]
+fn echo_verifier_component_admits_the_exact_relation_through_the_actual_host() {
+    let core = echo_core();
+    let (target_ir_bytes, _) = oracle_target_ir(&core);
+    let harness = echo_verifier_harness(&core, &target_ir_bytes);
+    let outcome = harness
+        .host
+        .invoke_verifier(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("accepted Echo relation crosses complete Edict host admission");
+    assert!(outcome.refusal().is_none());
+    let response = outcome
+        .response()
+        .expect("accepted Echo relation returns a verifier report");
+    assert!(response.diagnostics.is_empty());
+    let manifest = outcome
+        .manifest()
+        .expect("host authors the accepted verifier output manifest");
+    assert_admitted_verifier_success(&harness, response, manifest, "accepted");
+}
+
+#[test]
+fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
+    let core = echo_core();
+    let target_ir_bytes = target_ir_with_mismatched_intrinsic(&core);
+    let harness = echo_verifier_harness(&core, &target_ir_bytes);
+    let outcome = harness
+        .host
+        .invoke_verifier(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("well-formed semantic disagreement crosses complete Edict host admission");
+    assert!(outcome.refusal().is_none());
+    let response = outcome
+        .response()
+        .expect("semantic disagreement returns a rejected verifier report");
+    assert_eq!(response.diagnostics.len(), 1);
+    let diagnostic = &response.diagnostics[0];
+    assert_eq!(diagnostic.code, "echo.verifier.target-intrinsic-mismatch");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "Target IR uses an intrinsic outside the reviewed Echo capability"
+    );
+    assert_eq!(diagnostic.repair, None);
+    let manifest = outcome
+        .manifest()
+        .expect("host authors the rejected verifier output manifest");
+    assert_admitted_verifier_success(&harness, response, manifest, "rejected");
+}
+
+#[test]
+fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
+    let core = echo_core();
+    let (target_ir_bytes, _) = oracle_target_ir(&core);
+    let (contract, mut request) = echo_verification_request(&core, &target_ir_bytes);
+    request
+        .requested_outputs
+        .push(ProviderVerificationOutputRequest {
+            role: "verifier-report.unreviewed".to_owned(),
+            kind: ProviderVerificationOutputKind::VerifierReport,
+            domain: VERIFIER_REPORT_DOMAIN.to_owned(),
+        });
+    let harness = echo_verifier_harness_with_request(contract, request);
+    let outcome = harness
+        .host
+        .invoke_verifier(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("typed verifier refusal crosses the WIT transport");
+    assert!(outcome.response().is_none());
+    assert!(outcome.manifest().is_none());
+    let refusal = outcome
+        .refusal()
+        .expect("output overclaim returns a typed provider refusal");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedOutputRole);
+    assert_eq!(
+        refusal.subject.as_deref(),
+        Some("verifier-report.unreviewed")
+    );
+    assert_eq!(refusal.diagnostics.len(), 1);
+    let diagnostic = &refusal.diagnostics[0];
+    assert_eq!(diagnostic.code, "echo.verifier.unsupported-output-role");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "the first verifier serves exactly one verifier-report.echo-dpo output"
+    );
+    assert_eq!(diagnostic.repair, None);
+}
+
+#[test]
+fn echo_verifier_component_replays_all_completed_outcome_classes_identically() {
+    let core = echo_core();
+    let (accepted_target_ir, _) = oracle_target_ir(&core);
+    let accepted = echo_verifier_harness(&core, &accepted_target_ir);
+    let rejected_target_ir = target_ir_with_mismatched_intrinsic(&core);
+    let rejected = echo_verifier_harness(&core, &rejected_target_ir);
+    let (refusal_contract, mut refusal_request) =
+        echo_verification_request(&core, &accepted_target_ir);
+    refusal_request
+        .requested_outputs
+        .push(ProviderVerificationOutputRequest {
+            role: "verifier-report.unreviewed".to_owned(),
+            kind: ProviderVerificationOutputKind::VerifierReport,
+            domain: VERIFIER_REPORT_DOMAIN.to_owned(),
+        });
+    let refused = echo_verifier_harness_with_request(refusal_contract, refusal_request);
+
+    for (harness, expects_refusal) in [(&accepted, false), (&rejected, false), (&refused, true)] {
+        let outcome = harness
+            .host
+            .invoke_verifier(
+                &harness.prepared,
+                &harness.request,
+                harness.schema,
+                host_limits(),
+            )
+            .expect("completed verifier outcome crosses the Edict host");
+        let replay = harness
+            .host
+            .replay_verifier(
+                &harness.prepared,
+                &harness.request,
+                harness.schema,
+                host_limits(),
+            )
+            .expect("verifier outcome replays identically in fresh stores");
+        let ProviderReplayObservation::Completed(replayed) = replay.observation() else {
+            panic!("accepted, rejected, and refused outcomes must all be completed observations");
+        };
+        assert_eq!(replayed, &outcome);
+        if expects_refusal {
+            assert!(outcome.response().is_none());
+            assert!(outcome.manifest().is_none());
+            assert!(outcome.refusal().is_some());
+        } else {
+            assert!(outcome.response().is_some());
+            assert!(outcome.manifest().is_some());
+            assert!(outcome.refusal().is_none());
+        }
+    }
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the verifier independent-process witness"]
+fn emit_echo_verifier_host_observation() {
+    println!("{OBSERVATION_MARKER}{}", echo_verifier_observation());
+}
+
+#[test]
+fn independent_processes_reproduce_the_same_echo_verifier_observation() {
+    let executable = std::env::current_exe().expect("current test executable is discoverable");
+    let run_child = || {
+        let output = Command::new(&executable)
+            .arg("emit_echo_verifier_host_observation")
+            .args(["--exact", "--ignored", "--nocapture", "--test-threads=1"])
+            .output()
+            .expect("child verifier host process launches");
+        assert!(
+            output.status.success(),
+            "child verifier host witness failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("child output is UTF-8");
+        stdout
+            .lines()
+            .find_map(|line| {
+                line.split_once(OBSERVATION_MARKER)
+                    .map(|(_, observation)| observation)
+            })
+            .unwrap_or_else(|| panic!("child omitted stable verifier observation:\n{stdout}"))
             .to_owned()
     };
 

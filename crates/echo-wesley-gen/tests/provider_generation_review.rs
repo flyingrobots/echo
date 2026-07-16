@@ -24,14 +24,12 @@ use wesley_core::{
     compute_generation_artifact_digest_v1, GenerationContractErrorKind, GenerationReviewV1,
 };
 
-const SOURCE: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/echo-provider-semantics-v1.json");
-const SETTINGS: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generation-settings-v1.json");
+const SOURCE: &[u8] = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
+const SETTINGS: &[u8] = include_bytes!("../assets/v1/edict-provider/generation-settings-v1.json");
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
 const GENERATOR_COORDINATE: &str = "echo-wesley-gen.provider-artifact-generator@1";
 const GENERATOR_VERSION: &str = "0.1.0";

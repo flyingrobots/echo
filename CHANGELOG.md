@@ -7,6 +7,42 @@
 
 ### Added
 
+- `echo-wesley-gen` now purely assembles and digest-admits the first complete
+  Echo Edict provider distribution from the verified 22-file generated corpus
+  and explicit lowerer/verifier bytes. The derived provider manifest carries ten
+  exact routes and 24 schema bindings—nine invocation domains, the generated
+  artifact profile, and 14 generated-resource domains—but never inventories
+  itself. A versioned canonical-CBOR package root binds those semantics plus raw hashes of
+  all 24 non-manifest members, while the exact 25-file inventory, deterministic
+  JSON rendering, mixed raw/domain-framed digest laws, packaged Wesley
+  provenance/review, component bounds, and an external expected provider pin
+  all fail closed through structured errors. This is package-occurrence
+  authentication only; Edict schema/component preflight and Echo runtime
+  installation remain separate authority crossings. A dedicated publisher now
+  checks that all 22 generated members exactly reproduce the current checked
+  provider corpus introduced by #652 before writing the two components and derived manifest as a
+  self-contained 25-file distribution. Its capability-oriented filesystem
+  boundary refuses invalid expected inventories before resolving the root,
+  bounds actual-tree enumeration and expected-byte reads, never opens an
+  unexpected regular file, and makes `--check` report sorted drift without
+  creating, deleting, or rewriting package material.
+- The checked provider package now passes an isolated Edict-native readiness
+  boundary pinned to Edict merge `c75c3f55`. The exact manifest constructs its
+  immutable 24-domain schema registry, all five canonical primaries and 14
+  generated resources satisfy their owning CDDL roots, resource references are
+  bound field-by-field to independently recomputed domain-framed digests, both
+  components pass frozen-WIT preflight, and both request kinds produce opaque
+  validation proofs. Schema-valid byte replacement, digest mutation, semantic
+  field swaps, authority-source disagreement, malformed schemas/components,
+  and invalid requests all fail before guest execution. This proves package
+  readiness only, never Echo installation, execution, or runtime authority.
+- `echo-wesley-gen` now carries a fixed 35-file package-local source and provider
+  asset boundary, preserving original logical source labels while making its
+  `.crate` archive independent of workspace-parent files. An explicit sync tool
+  distinguishes authoritative generated/component owners from their checked
+  package corroboration, supports staged regeneration without circularity, and
+  checks exact Cargo archive selection. The extracted archive compiles when its
+  still-unpublished Echo dependencies are supplied through local patches.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,
@@ -50,8 +86,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 188,736-byte checked component has SHA-256
-  `e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`
+  every emitted report. The 189,515-byte checked component has SHA-256
+  `11fcaf291ffacac62800ab3fc198e29a23a591bcd30ca98828fa10a8ad1f1952`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,
@@ -64,7 +100,11 @@
   canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a
   re-export, while executable provider components use the same codec without
-  depending on generator or Wesley APIs.
+  depending on generator or Wesley APIs. Its decoder now applies a 65,536-node
+  host materialization ceiling, charging map keys and values separately. A
+  matching cumulative reservation budget rejects both oversized direct
+  containers and nested declarations that attempt to reuse the same capacity
+  allowance before reserving their storage.
 - `echo-wesley-gen` now checks in the first exact 22-file Edict provider
   artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
   resources, the self-contained CDDL, Wesley provenance JSON, and

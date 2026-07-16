@@ -7,13 +7,12 @@ use echo_wesley_gen::provider_semantics::{
     parse_provider_semantic_source_v1, ApertureRequirementDeclaration, ArtifactResourceProvision,
     AuthorityClass, AuthorityFactSourceKind, AuthoritySourceKind, BoundaryKind,
     CoreStringCanonicalization, EffectKindHint, ExecutionClass, GeneratedArtifactKind,
-    InvocationInputKind, InvocationOutputKind, OpticKind, ProviderSemanticSourceErrorKind,
-    SemanticTypeShape, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1,
+    InvocationInputKind, InvocationOutputKind, OpticKind, ProviderComponentKind,
+    ProviderSemanticSourceErrorKind, SemanticTypeShape, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1,
 };
 use serde_json::{json, Value};
 
-const SOURCE: &str =
-    include_str!("../../../schemas/edict-provider/echo-provider-semantics-v1.json");
+const SOURCE: &str = include_str!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
 
 fn source_value() -> Value {
     serde_json::from_str(SOURCE).expect("checked source fixture is JSON")
@@ -55,6 +54,35 @@ fn checked_echo_provider_semantic_source_validates() {
 
     assert_eq!(source.api_version, ECHO_PROVIDER_SEMANTIC_SOURCE_API_V1);
     assert_eq!(source.coordinate, "echo.semantic-schema@1");
+    assert_eq!(
+        source
+            .package_manifest
+            .components
+            .iter()
+            .map(|component| {
+                (
+                    component.role.as_str(),
+                    component.kind,
+                    component.coordinate.as_str(),
+                    component.contract.as_str(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "lowerer.echo-dpo",
+                ProviderComponentKind::Lowerer,
+                "echo.dpo.lowerer/component@1",
+                "edict:target-provider/lowerer@1.0.0",
+            ),
+            (
+                "verifier.echo-dpo",
+                ProviderComponentKind::Verifier,
+                "echo.dpo.verifier/component@1",
+                "edict:target-provider/verifier@1.0.0",
+            ),
+        ]
+    );
     assert_eq!(source.operations.len(), 1);
     assert_eq!(source.operations[0].identity.coordinate, "a.b@1.t");
     assert_eq!(source.operations[0].effect, "target.replace");
@@ -529,8 +557,38 @@ fn checked_echo_provider_semantic_source_validates() {
             .map(|binding| (binding.domain.as_str(), binding.root_rule.as_str()))
             .collect::<Vec<_>>(),
         vec![
+            (
+                "echo.dpo-lawpack.adapter.echo-dpo@1",
+                "echo-provider-lawpack-target-adapter",
+            ),
+            (
+                "echo.dpo-lawpack.compatibility@1",
+                "echo-provider-lawpack-compatibility",
+            ),
+            ("echo.dpo-lawpack.exports@1", "lawpack-exports"),
+            (
+                "echo.dpo-lawpack.verifier@1",
+                "echo-provider-lawpack-verifier",
+            ),
+            ("echo.dpo.bundle/v1", "echo-dpo-bundle"),
+            ("echo.dpo.cost/v1", "echo-dpo-cost"),
+            ("echo.dpo.fixtures/v1", "echo-provider-conformance-corpus",),
+            ("echo.dpo.footprint/v1", "echo-dpo-footprint"),
+            ("echo.dpo.intrinsics/v1", "intrinsics-document"),
+            ("echo.dpo.lowerer/v1", "echo-dpo-lowerer"),
+            ("echo.dpo.obstructions/v1", "echo-dpo-obstructions"),
+            (
+                "echo.dpo.operation-profiles/v1",
+                "operation-profiles-document",
+            ),
+            ("echo.dpo.verifier/v1", "echo-dpo-verifier"),
+            (
+                "echo.generated-artifact-profile/v1",
+                "generated-artifact-profile",
+            ),
             ("echo.generated-artifact/v1", "generated-artifact"),
             ("echo.review-payload/v1", "review-payload"),
+            ("echo.span-ir/v1", "echo-span-ir"),
             ("echo.verifier-report/v1", "verifier-report"),
             ("edict.authority-facts/v1", "authority-facts"),
             ("edict.core.module/v1", "core-module"),
@@ -539,6 +597,82 @@ fn checked_echo_provider_semantic_source_validates() {
             ("edict.target-ir.artifact/v1", "target-ir-artifact"),
             ("edict.target-profile/v1", "target-profile-manifest"),
         ]
+    );
+}
+
+#[test]
+fn generated_artifacts_require_their_owner_schema_bindings() {
+    assert_failure_tuple(
+        |source| {
+            let bindings = source["schemaBindings"]
+                .as_array_mut()
+                .expect("schema bindings");
+            let index = bindings
+                .iter()
+                .position(|binding| {
+                    binding["domain"] == Value::String("echo.generated-artifact-profile/v1".into())
+                })
+                .expect("generated-artifact-profile binding");
+            bindings.remove(index);
+        },
+        (
+            ProviderSemanticSourceErrorKind::MissingSchemaBinding,
+            "generated-artifact-profile.echo-dpo-registration",
+            "echo.generated-artifact-profile/v1",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            let bindings = source["schemaBindings"]
+                .as_array_mut()
+                .expect("schema bindings");
+            let index = bindings
+                .iter()
+                .position(|binding| {
+                    binding["domain"] == Value::String("echo.dpo.fixtures/v1".into())
+                })
+                .expect("generated resource binding");
+            bindings.remove(index);
+        },
+        (
+            ProviderSemanticSourceErrorKind::MissingSchemaBinding,
+            "resource.conformance-corpus",
+            "echo.dpo.fixtures/v1",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            let binding = source["schemaBindings"]
+                .as_array_mut()
+                .expect("schema bindings")
+                .iter_mut()
+                .find(|binding| {
+                    binding["domain"] == Value::String("echo.generated-artifact-profile/v1".into())
+                })
+                .expect("generated-artifact-profile binding");
+            binding["rootRule"] = Value::String("wrong-profile-root".into());
+        },
+        (
+            ProviderSemanticSourceErrorKind::SchemaRootMismatch,
+            "echo.generated-artifact-profile/v1",
+            "wrong-profile-root",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            let binding = source["schemaBindings"]
+                .as_array_mut()
+                .expect("schema bindings")
+                .iter_mut()
+                .find(|binding| binding["domain"] == Value::String("echo.dpo.fixtures/v1".into()))
+                .expect("generated resource binding");
+            binding["rootRule"] = Value::String("wrong-resource-root".into());
+        },
+        (
+            ProviderSemanticSourceErrorKind::SchemaRootMismatch,
+            "resource.conformance-corpus",
+            "wrong-resource-root",
+        ),
     );
 }
 
@@ -654,6 +788,7 @@ fn set_like_source_reordering_preserves_validated_semantics() {
         "/targetProfileProjection/acceptedCoreAbis",
         "/targetProfileProjection/generatedArtifactProfileRoles",
         "/targetProfileProjection/acceptedLawpackAdapterAbis",
+        "/packageManifest/components",
     ] {
         reordered
             .pointer_mut(pointer)
@@ -1718,6 +1853,67 @@ fn generated_artifact_and_output_contracts_are_exact() {
             source["schemaBindings"][2]["rootRule"] = Value::String("wrong-root".to_owned());
         },
         ProviderSemanticSourceErrorKind::SchemaRootMismatch,
+    );
+}
+
+#[test]
+fn package_component_declarations_fail_closed() {
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"]
+                .as_array_mut()
+                .expect("package components")
+                .remove(0);
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentClosureMismatch,
+            "packageManifest.components",
+            "lowerer",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][0]["contract"] =
+                Value::String("edict:target-provider/verifier@1.0.0".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentProjectionMismatch,
+            "lowerer.echo-dpo",
+            "edict:target-provider/verifier@1.0.0",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["kind"] =
+                Value::String("lowerer".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::ProviderComponentClosureMismatch,
+            "packageManifest.components",
+            "lowerer:2",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["role"] =
+                Value::String("lowerer.echo-dpo".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::DuplicateKey,
+            "packageManifest.components.role",
+            "lowerer.echo-dpo",
+        ),
+    );
+    assert_failure_tuple(
+        |source| {
+            source["packageManifest"]["components"][1]["coordinate"] =
+                Value::String("echo.dpo.lowerer/component@1".to_owned());
+        },
+        (
+            ProviderSemanticSourceErrorKind::DuplicateCoordinate,
+            "packageManifest.components",
+            "echo.dpo.lowerer/component@1",
+        ),
     );
 }
 

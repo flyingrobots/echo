@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-wesley-gen"
+version = "0.1.0"
+default-run = "echo-wesley-gen"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Code generator for Echo: consumes Wesley IR (JSON) and emits Rust artifacts via syn/quote."
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["warp", "echo", "codegen", "wesley", "wasm"]
+categories = ["development-tools", "command-line-utilities", "encoding", "wasm"]
+
+[dependencies]
+anyhow = "1.0"
+blake3 = "1.5"
+cap-fs-ext = "=4.0.2"
+cap-std = "=4.0.2"
+cddl-cat = { version = "0.7.1", default-features = false, features = ["ciborium"] }
+ciborium = "0.2.2"
+clap = { version = "4.4", features = ["derive"] }
+echo-edict-canonical = { workspace = true }
+hex = "0.4"
+proc-macro2 = "1.0"
+quote = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+prettyplease = "0.2"
+warp-core = { workspace = true }
+wesley-core = "=0.3.0-alpha.1"
+
+[lints]
+workspace = true

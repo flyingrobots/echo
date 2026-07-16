@@ -29,16 +29,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const SOURCE: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/echo-provider-semantics-v1.json");
-const SETTINGS: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/generation-settings-v1.json");
+const SOURCE: &[u8] = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
+const SETTINGS: &[u8] = include_bytes!("../assets/v1/edict-provider/generation-settings-v1.json");
 const CONTRACT_CDDL: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
-    include_bytes!("../../../schemas/edict-provider/contracts/v1/manifest.json");
+    include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
 
-const GENERATOR_SOURCE_PATHS: [&str; 16] = [
+const GENERATOR_SOURCE_PATHS: [&str; 17] = [
     "Cargo.lock",
     "Cargo.toml",
     "crates/echo-edict-canonical/Cargo.toml",
@@ -50,6 +48,7 @@ const GENERATOR_SOURCE_PATHS: [&str; 16] = [
     "crates/echo-wesley-gen/src/provider_canonical.rs",
     "crates/echo-wesley-gen/src/provider_contract_pack.rs",
     "crates/echo-wesley-gen/src/provider_corpus.rs",
+    "crates/echo-wesley-gen/src/provider_corpus_fs.rs",
     "crates/echo-wesley-gen/src/provider_generation.rs",
     "crates/echo-wesley-gen/src/provider_provenance.rs",
     "crates/echo-wesley-gen/src/provider_review.rs",
@@ -624,7 +623,7 @@ fn check_mode_classifies_a_non_regular_expected_leaf_without_following_it() {
 #[test]
 fn checked_first_corpus_matches_the_renderer_without_missing_or_extra_files() {
     let corpus_root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/edict-provider/generated/v1");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/v1/edict-provider/package/v1/generated");
     let output = Command::new(env!("CARGO_BIN_EXE_echo-edict-provider-artifacts"))
         .arg("--check")
         .arg("--out")

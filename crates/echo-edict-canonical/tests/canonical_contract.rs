@@ -5,7 +5,8 @@
 
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1,
-    CanonicalValueErrorKind, CanonicalValueV1, MAX_CANONICAL_NESTING_DEPTH_V1,
+    CanonicalValueErrorKind, CanonicalValueV1, MAX_CANONICAL_DECODE_NODES_V1,
+    MAX_CANONICAL_NESTING_DEPTH_V1,
 };
 
 fn text(value: &str) -> CanonicalValueV1 {
@@ -265,5 +266,41 @@ fn unsupported_cbor_and_digest_domains_fail_closed() {
     assert_ne!(
         digest_canonical_value_v1("test.first/v1", &value).expect("first digest computes"),
         digest_canonical_value_v1("test.second/v1", &value).expect("second digest computes")
+    );
+}
+
+#[test]
+fn decoded_node_budget_rejects_compact_container_amplification_before_reserve() {
+    let node_limit = u32::try_from(MAX_CANONICAL_DECODE_NODES_V1)
+        .expect("canonical decode-node limit fits the CBOR u32 length form");
+
+    let mut array = vec![0x9a];
+    array.extend_from_slice(&node_limit.to_be_bytes());
+    array.resize(array.len() + MAX_CANONICAL_DECODE_NODES_V1, 0xf6);
+    let array_error = decode_canonical_cbor_v1(&array)
+        .expect_err("an array that exhausts the child-node budget rejects before reserve");
+    assert_eq!(
+        array_error.kind(),
+        CanonicalValueErrorKind::UnsupportedValue
+    );
+    assert_eq!(
+        array_error.detail(),
+        "canonical CBOR decoded node budget exceeded"
+    );
+
+    let map_entries = node_limit / 2;
+    let mut map = vec![0xb9];
+    map.extend_from_slice(
+        &u16::try_from(map_entries)
+            .expect("half the canonical decode-node limit fits the CBOR u16 length form")
+            .to_be_bytes(),
+    );
+    map.resize(map.len() + MAX_CANONICAL_DECODE_NODES_V1, 0xf6);
+    let map_error = decode_canonical_cbor_v1(&map)
+        .expect_err("a map that exhausts the key/value-node budget rejects before reserve");
+    assert_eq!(map_error.kind(), CanonicalValueErrorKind::UnsupportedValue);
+    assert_eq!(
+        map_error.detail(),
+        "canonical CBOR decoded node budget exceeded"
     );
 }

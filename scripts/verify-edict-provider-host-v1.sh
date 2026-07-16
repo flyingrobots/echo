@@ -48,6 +48,12 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
   cargo +1.94.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
+    --test package_contract
+
+CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
+  cargo +1.94.0 test \
+    --manifest-path "$MANIFEST" \
+    --locked \
     --test verifier_resource_sync
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \

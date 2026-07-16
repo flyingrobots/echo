@@ -29,9 +29,10 @@ use crate::provider_contract_pack::{
 };
 use crate::provider_generation::ProviderGenerationInputV1;
 use crate::provider_semantics::{
-    ArtifactResourceDeclaration, ArtifactResourceProvision, AuthorityClass,
-    AuthorityFactSourceKind, EffectKindHint, ExecutionClass, GeneratedArtifactDeclaration,
-    GeneratedArtifactKind, LawpackVerifierDeclaration, OpticKind, ProviderSemanticSourceV1,
+    generated_resource_root, ArtifactResourceDeclaration, ArtifactResourceProvision,
+    AuthorityClass, AuthorityFactSourceKind, EffectKindHint, ExecutionClass,
+    GeneratedArtifactDeclaration, GeneratedArtifactKind, LawpackVerifierDeclaration, OpticKind,
+    ProviderSemanticSourceV1,
 };
 
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
@@ -898,30 +899,13 @@ fn required_generated_roots(source: &ProviderSemanticSourceV1) -> Vec<&str> {
 }
 
 fn resource_root(role: &str) -> Result<&'static str, ProviderArtifactGenerationError> {
-    let root = match role {
-        "resource.conformance-corpus" => "echo-provider-conformance-corpus",
-        "resource.lawpack-compatibility" => "echo-provider-lawpack-compatibility",
-        "resource.lawpack-exports" => "lawpack-exports",
-        "resource.lawpack-target-adapter" => "echo-provider-lawpack-target-adapter",
-        "resource.lawpack-verifier" => "echo-provider-lawpack-verifier",
-        "resource.target-bundle-profile" => "echo-dpo-bundle",
-        "resource.target-cost-algebra" => "echo-dpo-cost",
-        "resource.target-footprint-algebra" => "echo-dpo-footprint",
-        "resource.target-intrinsics" => "intrinsics-document",
-        "resource.target-ir" => "echo-span-ir",
-        "resource.target-lowerer-contract" => "echo-dpo-lowerer",
-        "resource.target-obstruction-taxonomy" => "echo-dpo-obstructions",
-        "resource.target-operation-profiles" => "operation-profiles-document",
-        "resource.target-verifier-contract" => "echo-dpo-verifier",
-        _ => {
-            return Err(ProviderArtifactGenerationError::new(
-                ProviderArtifactGenerationErrorKind::ResourceClosureMismatch,
-                role,
-                "generated-resource-root",
-            ));
-        }
-    };
-    Ok(root)
+    generated_resource_root(role).ok_or_else(|| {
+        ProviderArtifactGenerationError::new(
+            ProviderArtifactGenerationErrorKind::ResourceClosureMismatch,
+            role,
+            "generated-resource-root",
+        )
+    })
 }
 
 fn resource_edict_contract(role: &str) -> Option<&'static str> {

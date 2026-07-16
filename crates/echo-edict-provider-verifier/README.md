@@ -16,8 +16,15 @@ every CDDL alternative remains the Edict host's owning-schema check before the
 component runs; decoding this native model's result is never admission.
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Reproducible component packaging and admitted
-host replay remain separate gates.
+transport-to-model conversion. Its reproducibly built 183,513-byte checked
+component has SHA-256
+`61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9`.
+Component identity and admitted host replay remain separate propositions: the
+pinned Edict host preflights the request artifacts and declared output schema,
+invokes the checked component, then admits and manifests each returned accepted
+or rejected report. It preserves an unsupported output-role overclaim as a typed
+refusal without a response or manifest and replays all three completed outcome
+classes identically in independent fresh stores.
 
 For this first one-operation closure, the exact checked target profile, exact
 lowerability facts, and exact `echo.dpo@1.replace` intrinsic jointly bind the

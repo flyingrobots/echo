@@ -38,6 +38,24 @@
   witness binding them to the checked generated corpus. Its full package gate
   follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
   and translate provider semantics; they confer no Echo runtime authority.
+- Echo now provides the exact `edict:target-provider/verifier@1.0.0`
+  Component Model implementation for the checked provider closure. The pure
+  verifier independently compares explicit digest-bound Core and Target IR
+  artifacts under the exact target profile and ordered semantic inputs. It
+  emits a canonical accepted report for the reviewed relation, admits a
+  well-formed intrinsic disagreement as a rejected report with an error
+  diagnostic and host-authored output manifest, and preserves an unsupported
+  output-role overclaim as a typed provider refusal with neither response nor
+  manifest. The 183,513-byte checked component has SHA-256
+  `61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9`
+  and reproduces byte-for-byte across independently provisioned designated
+  `linux/amd64` builders. The isolated pinned Edict host preflights the exact
+  request artifacts and declared output schema, invokes that checked component,
+  then schema-admits each returned accepted or rejected report and authors its
+  output manifest. It replays accepted, rejected, and refused completed outcomes
+  identically in independent fresh stores. These witnesses prove provider
+  verification and host replay only; they do not install, authorize, execute, or
+  observe an operation in Echo.
 - `echo-edict-canonical` now owns the shared pure implementation of Edict's
   canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a

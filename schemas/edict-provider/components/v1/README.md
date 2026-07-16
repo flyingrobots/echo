@@ -61,10 +61,14 @@ Two independently provisioned containers with fresh target and controlled Cargo
 home directories must produce byte-identical bytes for each component
 independently. Builds on other hosts are local structural and semantic witnesses;
 Rust/LLVM cross-host code generation is not claimed to be byte-identical. The
-standalone Edict-host witness currently audits and invokes the checked lowerer;
-verifier host replay remains a separate admission gate. Exact component identity
-is build evidence for its translation or verification crossing only; it is not
-runtime Echo authority.
+standalone witness audits and invokes both checked components through the pinned
+Edict host. Before verifier invocation, the host preflights the exact request
+artifacts and declared report schema; afterward, it admits and manifests each
+returned accepted or well-formed rejected report. A typed output-role refusal
+has neither response nor manifest. Fresh-store replay reproduces each completed
+verifier outcome identically. Exact component identity is build evidence for
+its translation or verification crossing only; neither host replay nor identity
+is runtime Echo authority.
 
 After two designated-builder candidates compare exactly, promote either explicit
 candidate through the same structural admission boundary:

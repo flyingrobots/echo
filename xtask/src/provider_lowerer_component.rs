@@ -758,6 +758,14 @@ pub(crate) fn require_verifier_checked_identity() -> Result<&'static str> {
     require_approved_checked_digest(&VERIFIER_SPEC).map_err(|error| error.for_spec(&VERIFIER_SPEC))
 }
 
+/// Binds one already authenticated lowerer component to the approved identity.
+pub(crate) fn require_lowerer_component_identity(
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    require_component_identity_for(&LOWERER_SPEC, component)
+        .map_err(|error| error.for_spec(&LOWERER_SPEC))
+}
+
 /// Binds one already authenticated verifier component to the approved identity.
 pub(crate) fn require_verifier_component_identity(
     component: &ProviderLowererComponent,
@@ -1772,8 +1780,16 @@ mod tests {
     }
 
     #[test]
-    fn provider_verifier_checked_identity_is_exact(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn provider_checked_identities_are_exact() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let lowerer = authenticated_component_for(
+            &LOWERER_SPEC,
+            include_bytes!(
+                "../../schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm"
+            )
+            .to_vec(),
+        )?;
+        require_lowerer_component_identity(&lowerer)?;
         assert_eq!(
             require_approved_checked_digest(&VERIFIER_SPEC)?,
             APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256

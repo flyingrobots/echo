@@ -546,7 +546,9 @@ impl ProviderComponentKind {
         component: &provider_lowerer_component::ProviderLowererComponent,
     ) -> provider_lowerer_component::Result<()> {
         match self {
-            Self::Lowerer => Ok(()),
+            Self::Lowerer => {
+                provider_lowerer_component::require_lowerer_component_identity(component)
+            }
             Self::Verifier => {
                 provider_lowerer_component::require_verifier_component_identity(component)
             }

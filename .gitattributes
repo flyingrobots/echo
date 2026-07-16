@@ -4,3 +4,8 @@ AGENTS.md merge=union
 # Preserve exact checked provider corpus bytes across checkout configurations.
 schemas/edict-provider/generated/v1/** -text
 schemas/edict-provider/generated/v1/**/*.cbor binary
+
+# Preserve the exact digest-locked provider distribution across checkouts.
+schemas/edict-provider/package/v1/** -text
+schemas/edict-provider/package/v1/**/*.cbor binary
+schemas/edict-provider/package/v1/**/*.wasm binary

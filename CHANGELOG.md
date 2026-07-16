@@ -17,7 +17,14 @@
   provenance/review, component bounds, and an external expected provider pin
   all fail closed through structured errors. This is package-occurrence
   authentication only; Edict schema/component preflight and Echo runtime
-  installation remain separate authority crossings.
+  installation remain separate authority crossings. A dedicated publisher now
+  checks that all 22 generated members exactly reproduce the checked #652
+  corpus before writing the two components and derived manifest as a
+  self-contained 25-file distribution. Its capability-oriented filesystem
+  boundary refuses invalid expected inventories before resolving the root,
+  bounds actual-tree enumeration and expected-byte reads, never opens an
+  unexpected regular file, and makes `--check` report sorted drift without
+  creating, deleting, or rewriting package material.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,

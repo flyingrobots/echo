@@ -9,7 +9,9 @@ use echo_wesley_gen::provider_artifacts::{
 use echo_wesley_gen::provider_contract_pack::{
     admit_provider_contract_pack_v1, AdmittedProviderContractPackV1,
 };
-use echo_wesley_gen::provider_corpus::checked_provider_generator_source_bundle_v1;
+use echo_wesley_gen::provider_corpus::{
+    checked_provider_artifact_corpus_v1, checked_provider_generator_source_bundle_v1,
+};
 use echo_wesley_gen::provider_generation::{
     build_provider_generation_input_v1, ProviderGenerationInputV1,
 };
@@ -180,6 +182,23 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
             .expect("exact package admits against its external identity");
     assert_eq!(admitted.provider_reference(), package.provider_reference());
     assert_eq!(admitted.manifest(), package.manifest());
+}
+
+#[test]
+fn package_generated_members_are_the_exact_checked_652_corpus() {
+    let package = assemble(false);
+    let checked = checked_provider_artifact_corpus_v1()
+        .expect("checked #652 provider artifact corpus is an exact bounded value");
+    assert_eq!(checked.files().len(), 22);
+    for checked_file in checked.files() {
+        let package_path = format!("generated/{}", checked_file.relative_path());
+        let packaged = package
+            .files()
+            .iter()
+            .find(|file| file.relative_path() == package_path)
+            .expect("every checked #652 file is a package member");
+        assert_eq!(packaged.bytes(), checked_file.bytes());
+    }
 }
 
 #[test]

@@ -199,5 +199,12 @@ packaged provenance/review and requires an external expected provider
 reference. This is package-occurrence evidence, not Edict component or schema
 compatibility proof and not Echo runtime installation or authority.
 
+The exact 25-file distribution is checked under
+[`package/v1/`](package/README.md). Its dedicated publisher first requires its
+22 `generated/` members to equal the checked #652 corpus byte-for-byte, then
+writes only the two exact components, those generated members, and the derived
+manifest. Run `echo-edict-provider-package --check` to report drift without
+creating, deleting, or rewriting package files.
+
 All generated files are derived artifacts. Their digests and review renderings
 must never be copied back into this file as authored semantic facts.

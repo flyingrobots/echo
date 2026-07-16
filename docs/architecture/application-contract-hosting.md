@@ -199,6 +199,14 @@ That boundary still proves only the distribution occurrence: the Edict-owned
 schema registry and component host must separately admit roots, bytes,
 attestations, imports, exports, and WIT types before guest execution.
 
+The checked distribution is a self-contained 25-file publication: the exact
+22-file #652 corpus under `generated/`, the exact lowerer and verifier under
+`components/`, and the derived manifest. Publication refuses before filesystem
+access if the generated members are not byte-identical to the checked source
+corpus. Its check mode inventories the exact tree through retained no-follow
+directory capabilities and reports drift without repair. This distribution
+copy is a release occurrence, not a second semantic authority.
+
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package
 manifest separately binds the exact provider-owned components and their frozen

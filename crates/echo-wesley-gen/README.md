@@ -127,6 +127,18 @@ Edict schema-registry construction and component contract preflight remain
 separate required crossings before guest execution, and Echo runtime admission
 remains later still.
 
+`echo-edict-provider-package` is the explicit publication boundary for that
+distribution. Before any filesystem action it proves that the package's 22
+`generated/` members are the exact checked #652 corpus, then writes the two
+checked components and derived manifest through the same no-follow,
+unexpected-entry-refusing filesystem boundary used by the artifact corpus. The
+checked 25-file result lives under `schemas/edict-provider/package/v1/`.
+`--check` reports sorted missing, changed, or unexpected package members and
+never repairs or creates them. The shared boundary validates a strictly sorted,
+unique expected inventory before resolving the root, caps that inventory at 256
+files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
+an unexpected regular file.
+
 The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
 boundary. The caller-supplied `--out` path is resolved once under ambient
 filesystem authority; its final corpus-root entry is opened or created without
@@ -166,6 +178,14 @@ cargo +1.90.0 run --locked -p echo-wesley-gen \
 # Report checked-corpus drift without rewriting anything
 cargo +1.90.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts -- --check
+
+# Publish the self-contained digest-locked provider package
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-package --
+
+# Report package drift without rewriting anything
+cargo +1.90.0 run --locked -p echo-wesley-gen \
+  --bin echo-edict-provider-package -- --check
 ```
 
 ## Notes

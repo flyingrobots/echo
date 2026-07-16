@@ -349,7 +349,7 @@ pub fn build_provider_generator_source_bundle_v1(
 /// contract. No filesystem or environment discovery is performed.
 pub fn checked_provider_generator_source_bundle_v1(
 ) -> Result<ProviderGeneratorSourceBundleV1, ProviderArtifactCorpusError> {
-    let sources: [(&str, &[u8]); 16] = [
+    let sources: [(&str, &[u8]); 17] = [
         ("Cargo.lock", include_bytes!("../../../Cargo.lock")),
         ("Cargo.toml", include_bytes!("../../../Cargo.toml")),
         (
@@ -387,6 +387,10 @@ pub fn checked_provider_generator_source_bundle_v1(
         (
             "crates/echo-wesley-gen/src/provider_corpus.rs",
             include_bytes!("provider_corpus.rs"),
+        ),
+        (
+            "crates/echo-wesley-gen/src/provider_corpus_fs.rs",
+            include_bytes!("provider_corpus_fs.rs"),
         ),
         (
             "crates/echo-wesley-gen/src/provider_generation.rs",
@@ -476,6 +480,158 @@ impl ProviderArtifactCorpusV1 {
             .iter()
             .find(|file| file.relative_path == relative_path)
     }
+}
+
+/// Loads the exact checked 22-file #652 corpus from compile-time repository bytes.
+///
+/// This is an explicit source boundary for later package assembly. It performs
+/// no filesystem, registry, environment, process, clock, or network discovery.
+///
+/// # Errors
+///
+/// Returns a structured error if a checked logical path no longer satisfies the
+/// bounded v1 corpus grammar.
+pub fn checked_provider_artifact_corpus_v1(
+) -> Result<ProviderArtifactCorpusV1, ProviderArtifactCorpusError> {
+    let checked: [(&str, &[u8]); EXPECTED_CORPUS_FILE_COUNT] = [
+        (
+            "evidence/provenance.provider-generation.json",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/evidence/provenance.provider-generation.json"
+            ),
+        ),
+        (
+            "evidence/review.provider-generation.json",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/evidence/review.provider-generation.json"
+            ),
+        ),
+        (
+            "primary/authority-facts.echo-dpo.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"
+            ),
+        ),
+        (
+            "primary/authority-facts.echo-lawpack.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"
+            ),
+        ),
+        (
+            "primary/generated-artifact-profile.echo-dpo-registration.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+            ),
+        ),
+        (
+            "primary/lawpack.echo-dpo.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor"
+            ),
+        ),
+        (
+            "primary/schema.echo-provider-artifacts.cddl",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
+            ),
+        ),
+        (
+            "primary/target-profile.echo-dpo.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
+            ),
+        ),
+        (
+            "resources/resource.conformance-corpus.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.conformance-corpus.cbor"
+            ),
+        ),
+        (
+            "resources/resource.lawpack-compatibility.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-compatibility.cbor"
+            ),
+        ),
+        (
+            "resources/resource.lawpack-exports.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-exports.cbor"
+            ),
+        ),
+        (
+            "resources/resource.lawpack-target-adapter.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-target-adapter.cbor"
+            ),
+        ),
+        (
+            "resources/resource.lawpack-verifier.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.lawpack-verifier.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-bundle-profile.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-bundle-profile.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-cost-algebra.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-cost-algebra.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-footprint-algebra.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-footprint-algebra.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-intrinsics.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-intrinsics.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-ir.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-ir.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-lowerer-contract.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-lowerer-contract.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-obstruction-taxonomy.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-obstruction-taxonomy.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-operation-profiles.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-operation-profiles.cbor"
+            ),
+        ),
+        (
+            "resources/resource.target-verifier-contract.cbor",
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/resources/resource.target-verifier-contract.cbor"
+            ),
+        ),
+    ];
+    let files = checked
+        .into_iter()
+        .map(|(path, bytes)| ProviderArtifactCorpusFileV1::new(path, bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ProviderArtifactCorpusV1 { files })
 }
 
 /// Stable kinds of checked-corpus drift.
@@ -620,7 +776,23 @@ pub fn diff_provider_artifact_corpus_v1(
     expected: &ProviderArtifactCorpusV1,
     actual: &[ProviderArtifactCorpusFileV1],
 ) -> Result<Vec<ProviderArtifactCorpusDriftV1>, ProviderArtifactCorpusError> {
-    let expected_by_path = corpus_inventory(&expected.files, "expected-corpus")?;
+    diff_exact_corpus_files_v1(&expected.files, actual)
+}
+
+/// Compares two exact file inventories without imposing a corpus-specific size.
+///
+/// The returned drift is sorted first by `missing`, `changed`, `unexpected`,
+/// and then lexicographically by relative path. This function is pure and does
+/// not read, write, create, normalize, or delete filesystem entries.
+///
+/// # Errors
+///
+/// Returns a stable failure if either inventory repeats a relative path.
+pub fn diff_exact_corpus_files_v1(
+    expected: &[ProviderArtifactCorpusFileV1],
+    actual: &[ProviderArtifactCorpusFileV1],
+) -> Result<Vec<ProviderArtifactCorpusDriftV1>, ProviderArtifactCorpusError> {
+    let expected_by_path = corpus_inventory(expected, "expected-corpus")?;
     let actual_by_path = corpus_inventory(actual, "actual-corpus")?;
     let mut drift = Vec::new();
 

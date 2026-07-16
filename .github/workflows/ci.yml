@@ -177,6 +177,8 @@ jobs:
                       .
             - name: cargo test (workspace sans warp-core)
               run: cargo test --workspace --exclude warp-core
+            - name: checked Edict provider package is current
+              run: cargo +1.90.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package -- --check
             - name: package publishable Edict canonical leaf
               run: cargo package -p echo-edict-canonical --locked
 

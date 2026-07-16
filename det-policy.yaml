@@ -46,7 +46,7 @@ crates:
   echo-edict-provider-lowerer:
     class: DET_CRITICAL
     owner_role: "Tooling Engineer"
-    paths: ["crates/echo-edict-provider-lowerer/**", "schemas/edict-provider/components/v1/**", "tests/edict-provider-host-v1/**"]
+    paths: ["crates/echo-edict-provider-lowerer/**", "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm", "tests/edict-provider-host-v1/**"]
   echo-edict-provider-verifier:
     class: DET_CRITICAL
     owner_role: "Tooling Engineer"

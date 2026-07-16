@@ -54,12 +54,19 @@ target-bundle profile, not an Edict contract-bundle occurrence.
 Final `edict.bundle.semantic/v1` and `edict.bundle.release/v1` identities are
 supplied only after assembly. Generated `bind_contract_bundle` checks their
 typed SHA-256 form and domains, expected-versus-actual bundle digests, and the
-operation, Target IR, target-profile, and target-bundle-profile identities. It
-is a pure equality and consistency preflight: it does not authenticate the
-expected pin, admit or install a package, or confer registration or runtime
-authority. This behavior currently belongs to the native model; rebuilding and
-promoting the checked component and proving host-side admission under the
-owning Edict CDDL roots are separate #656 steps.
+operation coordinate, Target IR, Echo ABI, helper API,
+provider/input/output/effect-failure/obstruction schemas,
+target/generated/operation profiles, and abstract footprint obligation and
+algebra identities. Every framed identity is compared as a complete
+coordinate/domain/digest proposition. The footprint binding does not invent a concrete static
+read/write set. `bind_contract_bundle` remains a pure equality and consistency
+preflight: it does not authenticate the expected pin, admit or install a
+package, or confer registration or runtime authority. This behavior currently
+belongs to the native model. A generic persisted operation-id law must first be
+carried by the generated profile/package, and a codec identity must wait for
+matching generated codec implementations. Registry layout and package preflight,
+checked-component promotion, and host-side admission under the owning Edict
+CDDL roots are also separate #656 steps.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

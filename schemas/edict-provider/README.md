@@ -199,8 +199,17 @@ artifact output and digest domain. `echo.dpo.bundle/v1` is a target-bundle
 profile rather than a contract-bundle occurrence. Final semantic and release
 bundle identities are compared explicitly after assembly using the separate
 `edict.bundle.semantic/v1` and `edict.bundle.release/v1` propositions. That
-comparison grants no admission, installation, or runtime authority. Runtime
-`reviewPayload` also remains distinct from Wesley `GenerationReviewV1`.
+comparison also checks the semantic operation, Echo ABI and helper API, provider
+and operation schemas, generated and operation profiles, and
+the exact abstract
+footprint obligation/algebra. It does not claim a concrete static read/write
+footprint. Every framed resource is checked as a complete
+coordinate/domain/digest identity. The comparison grants no admission,
+installation, or runtime authority. The
+persisted operation id and invocation codec remain deliberately absent until a
+generic operation-id law is carried by the canonical profile/package and the
+generated codecs prove their byte contract. Runtime `reviewPayload` also
+remains distinct from Wesley `GenerationReviewV1`.
 Checked-component promotion and actual host validation of these new envelopes
 under the owning CDDL roots are still required before they are admitted provider
 outputs.

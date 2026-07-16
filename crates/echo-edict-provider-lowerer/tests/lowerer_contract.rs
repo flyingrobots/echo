@@ -905,9 +905,20 @@ fn generated_bundle_binding_is_a_bounded_executable_consumer_contract() {
     let consumer = r#"
 use echo_dpo::{
     bind_contract_bundle, BindingMismatchKind, ContractBundleIdentityV1,
-    ExpectedContractBundleIdentityV1, OPERATION_COORDINATE,
+    ExpectedContractBundleIdentityV1, CONTRACT_HOST_HELPER_API_VERSION,
+    ECHO_CONTRACT_ABI_VERSION, EFFECT_FAILURE_SCHEMA, FOOTPRINT_ALGEBRA,
+    FOOTPRINT_ALGEBRA_DIGEST, FOOTPRINT_ALGEBRA_DIGEST_DOMAIN, FOOTPRINT_OBLIGATION,
+    GENERATED_ARTIFACT_PROFILE, GENERATED_ARTIFACT_PROFILE_DIGEST,
+    GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN, INPUT_SCHEMA, OBSTRUCTION_COORDINATE,
+    OBSTRUCTION_DOMAIN, OBSTRUCTION_PAYLOAD_SCHEMA, OPERATION_COORDINATE, OPERATION_DOMAIN,
+    OPERATION_PROFILE, OPERATION_PROFILES_COORDINATE, OPERATION_PROFILES_DIGEST,
+    OPERATION_PROFILES_DIGEST_DOMAIN, OPERATION_PROFILE_DOMAIN, OUTPUT_SCHEMA,
+    PROVIDER_SCHEMA_COORDINATE, PROVIDER_SCHEMA_SHA256_HEX,
     RELEASE_BUNDLE_DIGEST_DOMAIN, SEMANTIC_BUNDLE_DIGEST_DOMAIN,
-    TARGET_BUNDLE_PROFILE_DIGEST, TARGET_IR_DIGEST, TARGET_PROFILE_DIGEST,
+    TARGET_BUNDLE_PROFILE_COORDINATE, TARGET_BUNDLE_PROFILE_DIGEST,
+    TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN, TARGET_IR_COORDINATE, TARGET_IR_DIGEST,
+    TARGET_IR_DIGEST_DOMAIN, TARGET_PROFILE_COORDINATE, TARGET_PROFILE_DIGEST,
+    TARGET_PROFILE_DIGEST_DOMAIN, TYPE_SCHEMA_DOMAIN,
 };
 
 const SEMANTIC_DIGEST: &str =
@@ -933,9 +944,39 @@ fn matching_identity() -> ContractBundleIdentityV1<'static> {
         release_digest_domain: RELEASE_BUNDLE_DIGEST_DOMAIN,
         release_digest: RELEASE_DIGEST,
         operation_coordinate: OPERATION_COORDINATE,
+        operation_domain: OPERATION_DOMAIN,
+        target_ir_coordinate: TARGET_IR_COORDINATE,
+        target_ir_digest_domain: TARGET_IR_DIGEST_DOMAIN,
         target_ir_digest: TARGET_IR_DIGEST,
+        target_profile_coordinate: TARGET_PROFILE_COORDINATE,
+        target_profile_digest_domain: TARGET_PROFILE_DIGEST_DOMAIN,
         target_profile_digest: TARGET_PROFILE_DIGEST,
+        target_bundle_profile_coordinate: TARGET_BUNDLE_PROFILE_COORDINATE,
+        target_bundle_profile_digest_domain: TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
         target_bundle_profile_digest: TARGET_BUNDLE_PROFILE_DIGEST,
+        echo_contract_abi_version: ECHO_CONTRACT_ABI_VERSION,
+        helper_api_version: CONTRACT_HOST_HELPER_API_VERSION,
+        provider_schema_coordinate: PROVIDER_SCHEMA_COORDINATE,
+        provider_schema_sha256_hex: PROVIDER_SCHEMA_SHA256_HEX,
+        input_schema: INPUT_SCHEMA,
+        output_schema: OUTPUT_SCHEMA,
+        type_schema_domain: TYPE_SCHEMA_DOMAIN,
+        obstruction_coordinate: OBSTRUCTION_COORDINATE,
+        obstruction_domain: OBSTRUCTION_DOMAIN,
+        effect_failure_schema: EFFECT_FAILURE_SCHEMA,
+        obstruction_payload_schema: OBSTRUCTION_PAYLOAD_SCHEMA,
+        generated_artifact_profile: GENERATED_ARTIFACT_PROFILE,
+        generated_artifact_profile_digest_domain: GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
+        generated_artifact_profile_digest: GENERATED_ARTIFACT_PROFILE_DIGEST,
+        operation_profile: OPERATION_PROFILE,
+        operation_profile_domain: OPERATION_PROFILE_DOMAIN,
+        operation_profiles_coordinate: OPERATION_PROFILES_COORDINATE,
+        operation_profiles_digest_domain: OPERATION_PROFILES_DIGEST_DOMAIN,
+        operation_profiles_digest: OPERATION_PROFILES_DIGEST,
+        footprint_obligation: FOOTPRINT_OBLIGATION,
+        footprint_algebra: FOOTPRINT_ALGEBRA,
+        footprint_algebra_digest_domain: FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
+        footprint_algebra_digest: FOOTPRINT_ALGEBRA_DIGEST,
     }
 }
 
@@ -997,7 +1038,28 @@ fn main() {
     );
     expect_mismatch(
         ContractBundleIdentityV1 {
+            operation_domain: "wrong.operation/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::Operation,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
             target_ir_digest: OTHER_DIGEST,
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetIr,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            target_ir_coordinate: "wrong.target-ir/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetIr,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            target_ir_digest_domain: "wrong.target-ir-artifact/v1",
             ..matching_identity()
         },
         BindingMismatchKind::TargetIr,
@@ -1011,11 +1073,156 @@ fn main() {
     );
     expect_mismatch(
         ContractBundleIdentityV1 {
+            target_profile_coordinate: "wrong.target-profile@1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetProfile,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            target_profile_digest_domain: "wrong.target-profile/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetProfile,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
             target_bundle_profile_digest: OTHER_DIGEST,
             ..matching_identity()
         },
         BindingMismatchKind::TargetBundleProfile,
     );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            target_bundle_profile_coordinate: "wrong.bundle-profile/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetBundleProfile,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            target_bundle_profile_digest_domain: "wrong.bundle-profile-domain/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::TargetBundleProfile,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            echo_contract_abi_version: ECHO_CONTRACT_ABI_VERSION + 1,
+            ..matching_identity()
+        },
+        BindingMismatchKind::EchoAbi,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            helper_api_version: CONTRACT_HOST_HELPER_API_VERSION + 1,
+            ..matching_identity()
+        },
+        BindingMismatchKind::HelperApi,
+    );
+    for schema_mismatch in [
+        ContractBundleIdentityV1 {
+            provider_schema_coordinate: "wrong.provider-schema@1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            provider_schema_sha256_hex: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            input_schema: "a.b@1.WrongInput",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            output_schema: "a.b@1.WrongOutput",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            type_schema_domain: "wrong.value/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            obstruction_coordinate: "domain.WrongObstruction",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            obstruction_domain: "wrong.obstruction/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            effect_failure_schema: "target.wrong.rejected",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            obstruction_payload_schema: "domain.WrongObstruction.Payload",
+            ..matching_identity()
+        },
+    ] {
+        expect_mismatch(schema_mismatch, BindingMismatchKind::Schema);
+    }
+    for profile_mismatch in [
+        ContractBundleIdentityV1 {
+            generated_artifact_profile: "wrong.registration/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            generated_artifact_profile_digest: OTHER_DIGEST,
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            generated_artifact_profile_digest_domain: "wrong.generated-profile/v1",
+            ..matching_identity()
+        },
+    ] {
+        expect_mismatch(
+            profile_mismatch,
+            BindingMismatchKind::GeneratedArtifactProfile,
+        );
+    }
+    for profile_mismatch in [
+        ContractBundleIdentityV1 {
+            operation_profile: "wrong.operation-profile/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            operation_profiles_digest: OTHER_DIGEST,
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            operation_profile_domain: "wrong.operation-profile-member/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            operation_profiles_coordinate: "wrong.operation-profiles/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            operation_profiles_digest_domain: "wrong.operation-profiles-domain/v1",
+            ..matching_identity()
+        },
+    ] {
+        expect_mismatch(profile_mismatch, BindingMismatchKind::OperationProfile);
+    }
+    for footprint_mismatch in [
+        ContractBundleIdentityV1 {
+            footprint_obligation: "wrong.footprint",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            footprint_algebra: "wrong.footprint/v1",
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            footprint_algebra_digest: OTHER_DIGEST,
+            ..matching_identity()
+        },
+        ContractBundleIdentityV1 {
+            footprint_algebra_digest_domain: "wrong.footprint-domain/v1",
+            ..matching_identity()
+        },
+    ] {
+        expect_mismatch(footprint_mismatch, BindingMismatchKind::Footprint);
+    }
 }
 "#;
     let execution = compile_and_run_generated_consumer(&format!("{source}\n{consumer}"));

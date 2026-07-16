@@ -80,10 +80,14 @@
   It emits canonical-CBOR generated and review envelopes at
   `generated/echo_dpo.rs` and `review/echo_dpo.json`, and refuses unknown,
   mismatched, duplicate, or out-of-order role claims with typed
-  `UnsupportedOutputRole`. The generated Rust binds the operation, Target IR,
-  target profile, and target-bundle-profile identities, then performs only an
+  `UnsupportedOutputRole`. The generated Rust binds the semantic operation,
+  Target IR, Echo ABI and helper API, provider and operation schemas, target and
+  generated profiles, and abstract footprint
+  obligation/algebra. It then performs only an
   explicit post-assembly equality and consistency comparison between an
-  independent expected pin and untrusted Edict semantic/release bundle claims.
+  independent expected pin and untrusted Edict semantic/release bundle claims,
+  with typed refusal for every identity class. Every domain-framed resource is
+  compared as a complete coordinate/domain/digest proposition.
   The permanently non-authoritative review is bound to the exact generated
   artifact. Neither projection authenticates a pin, admits or installs a
   package, or grants Echo runtime authority; checked-component promotion and

@@ -758,6 +758,22 @@ fn render_generated_source(target_ir_digest: &Digest, target_profile_digest: &Di
 pub mod echo_dpo {
     /// Exact Edict-authored semantic operation coordinate.
     pub const OPERATION_COORDINATE: &str = "a.b@1.t";
+    /// Semantic domain owning the operation coordinate.
+    pub const OPERATION_DOMAIN: &str = "echo.edict-provider/operation/v1";
+    /// Exact input schema coordinate owned by the generated-artifact profile.
+    pub const INPUT_SCHEMA: &str = "a.b@1.Input";
+    /// Exact output schema coordinate owned by the generated-artifact profile.
+    pub const OUTPUT_SCHEMA: &str = "a.b@1.Output";
+    /// Shared semantic domain owning the exact operation type schemas.
+    pub const TYPE_SCHEMA_DOMAIN: &str = "echo.edict-provider/value/v1";
+    /// Exact typed obstruction coordinate for the reviewed failure mapping.
+    pub const OBSTRUCTION_COORDINATE: &str = "domain.WriteRejected";
+    /// Semantic domain owning the typed obstruction coordinate.
+    pub const OBSTRUCTION_DOMAIN: &str = "echo.edict-provider/obstruction/v1";
+    /// Exact target failure payload schema before obstruction mapping.
+    pub const EFFECT_FAILURE_SCHEMA: &str = "target.replace.rejected";
+    /// Exact domain obstruction payload schema after obstruction mapping.
+    pub const OBSTRUCTION_PAYLOAD_SCHEMA: &str = "domain.WriteRejected.Payload";
     /// Semantic coordinate carried by the emitted Target IR artifact.
     pub const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
     /// Digest-framing domain for the complete Target IR artifact envelope.
@@ -765,13 +781,55 @@ pub mod echo_dpo {
     /// Exact domain-framed identity of the emitted Target IR artifact.
     pub const TARGET_IR_DIGEST: &str = "__TARGET_IR_DIGEST__";
     /// Exact target-profile coordinate.
-    pub const TARGET_PROFILE: &str = "echo.dpo@1";
+    pub const TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
+    /// Digest-framing domain for the target-profile artifact.
+    pub const TARGET_PROFILE_DIGEST_DOMAIN: &str = "edict.target-profile/v1";
     /// Exact domain-framed identity of the target profile.
     pub const TARGET_PROFILE_DIGEST: &str = "__TARGET_PROFILE_DIGEST__";
     /// Semantic profile for Echo contract bundles; not a bundle occurrence.
-    pub const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
+    pub const TARGET_BUNDLE_PROFILE_COORDINATE: &str = "echo.dpo.bundle/v1";
+    /// Digest-framing domain for the target-bundle profile artifact.
+    pub const TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN: &str = "echo.dpo.bundle/v1";
     /// Exact domain-framed identity of the target-bundle profile.
     pub const TARGET_BUNDLE_PROFILE_DIGEST: &str = "__TARGET_BUNDLE_PROFILE_DIGEST__";
+    /// Echo contract ABI targeted by this generated helper.
+    pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1;
+    /// Contract-host helper API targeted by this generated helper.
+    pub const CONTRACT_HOST_HELPER_API_VERSION: u32 = 1;
+    /// Exact self-contained provider CDDL coordinate.
+    pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
+    /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
+    pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
+        "19901cc33bea0699334af3cb4f9889f752652e35b81a2a9c91e7e31a52b803af";
+    /// Exact generated-artifact profile coordinate owning operation schemas.
+    pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
+    /// Digest-framing domain for the generated-artifact profile.
+    pub const GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN: &str =
+        "echo.generated-artifact-profile/v1";
+    /// Domain-framed identity of the generated-artifact profile.
+    pub const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
+        "sha256:3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab";
+    /// Exact semantic operation profile selected by the authored operation.
+    pub const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
+    /// Semantic domain owning the selected operation profile.
+    pub const OPERATION_PROFILE_DOMAIN: &str =
+        "echo.edict-provider/operation-profile/v1";
+    /// Exact operation-profiles document coordinate.
+    pub const OPERATION_PROFILES_COORDINATE: &str = "echo.dpo.operation-profiles/v1";
+    /// Digest-framing domain for the operation-profiles document.
+    pub const OPERATION_PROFILES_DIGEST_DOMAIN: &str = "echo.dpo.operation-profiles/v1";
+    /// Domain-framed identity of the operation-profiles document.
+    pub const OPERATION_PROFILES_DIGEST: &str =
+        "sha256:53256c51f6c817a77cc8694458bf9d3891abd15b9c94f79ca97d920d3c5f0416";
+    /// Abstract footprint obligation carried across lowering.
+    pub const FOOTPRINT_OBLIGATION: &str = "target.replace.footprint";
+    /// Exact target footprint-algebra coordinate.
+    pub const FOOTPRINT_ALGEBRA: &str = "echo.dpo.footprint/v1";
+    /// Digest-framing domain for the target footprint algebra.
+    pub const FOOTPRINT_ALGEBRA_DIGEST_DOMAIN: &str = "echo.dpo.footprint/v1";
+    /// Domain-framed identity of the target footprint algebra.
+    pub const FOOTPRINT_ALGEBRA_DIGEST: &str =
+        "sha256:f47bb65867e78099ddcfd6ae7af83870df8823f974a496a111ed94e5d785c769";
     /// Edict domain for the semantic contract-bundle digest proposition.
     pub const SEMANTIC_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.semantic/v1";
     /// Edict domain for the release contract-bundle digest proposition.
@@ -805,12 +863,72 @@ pub mod echo_dpo {
         pub release_digest: &'a str,
         /// Semantic operation coordinate carried by the bundle.
         pub operation_coordinate: &'a str,
+        /// Semantic domain owning the operation coordinate.
+        pub operation_domain: &'a str,
+        /// Semantic coordinate carried by the Target IR artifact.
+        pub target_ir_coordinate: &'a str,
+        /// Digest-framing domain for the Target IR artifact.
+        pub target_ir_digest_domain: &'a str,
         /// Target IR digest carried by the bundle.
         pub target_ir_digest: &'a str,
+        /// Target-profile coordinate carried by the bundle.
+        pub target_profile_coordinate: &'a str,
+        /// Digest-framing domain for the target-profile artifact.
+        pub target_profile_digest_domain: &'a str,
         /// Target-profile digest carried by the bundle.
         pub target_profile_digest: &'a str,
+        /// Target-bundle-profile coordinate carried by the bundle.
+        pub target_bundle_profile_coordinate: &'a str,
+        /// Digest-framing domain for the target-bundle-profile artifact.
+        pub target_bundle_profile_digest_domain: &'a str,
         /// Target-bundle-profile digest carried by the bundle.
         pub target_bundle_profile_digest: &'a str,
+        /// Echo contract ABI claimed by the generated registry.
+        pub echo_contract_abi_version: u32,
+        /// Contract-host helper API claimed by the generated registry.
+        pub helper_api_version: u32,
+        /// Provider CDDL coordinate claimed by the assembled bundle.
+        pub provider_schema_coordinate: &'a str,
+        /// Raw provider CDDL SHA-256 claimed by the assembled bundle.
+        pub provider_schema_sha256_hex: &'a str,
+        /// Input schema coordinate claimed for this operation.
+        pub input_schema: &'a str,
+        /// Output schema coordinate claimed for this operation.
+        pub output_schema: &'a str,
+        /// Semantic domain owning all claimed operation type schemas.
+        pub type_schema_domain: &'a str,
+        /// Typed obstruction coordinate claimed for the reviewed failure.
+        pub obstruction_coordinate: &'a str,
+        /// Semantic domain owning the typed obstruction coordinate.
+        pub obstruction_domain: &'a str,
+        /// Target failure payload schema claimed before obstruction mapping.
+        pub effect_failure_schema: &'a str,
+        /// Domain obstruction payload schema claimed after obstruction mapping.
+        pub obstruction_payload_schema: &'a str,
+        /// Generated-artifact profile coordinate claimed by the bundle.
+        pub generated_artifact_profile: &'a str,
+        /// Digest-framing domain for the generated-artifact profile.
+        pub generated_artifact_profile_digest_domain: &'a str,
+        /// Generated-artifact profile digest claimed by the bundle.
+        pub generated_artifact_profile_digest: &'a str,
+        /// Semantic operation profile claimed by the bundle.
+        pub operation_profile: &'a str,
+        /// Semantic domain owning the operation profile.
+        pub operation_profile_domain: &'a str,
+        /// Operation-profiles document coordinate claimed by the bundle.
+        pub operation_profiles_coordinate: &'a str,
+        /// Digest-framing domain for the operation-profiles document.
+        pub operation_profiles_digest_domain: &'a str,
+        /// Operation-profiles document digest claimed by the bundle.
+        pub operation_profiles_digest: &'a str,
+        /// Abstract footprint obligation claimed for this operation.
+        pub footprint_obligation: &'a str,
+        /// Footprint-algebra coordinate claimed by the bundle.
+        pub footprint_algebra: &'a str,
+        /// Digest-framing domain for the footprint algebra.
+        pub footprint_algebra_digest_domain: &'a str,
+        /// Footprint-algebra digest claimed by the bundle.
+        pub footprint_algebra_digest: &'a str,
     }
 
     /// Stable reason an assembled bundle cannot bind this generated helper.
@@ -832,6 +950,18 @@ pub mod echo_dpo {
         TargetProfile,
         /// The bundle names a different target-bundle profile.
         TargetBundleProfile,
+        /// The generated registry targets a different Echo contract ABI.
+        EchoAbi,
+        /// The generated registry targets a different contract-host helper API.
+        HelperApi,
+        /// The bundle names different provider or operation schema identities.
+        Schema,
+        /// The bundle names a different generated-artifact profile.
+        GeneratedArtifactProfile,
+        /// The bundle names a different semantic operation profile.
+        OperationProfile,
+        /// The bundle names a different footprint obligation or algebra.
+        Footprint,
     }
 
     /// Exact generated registration binding, still without runtime authority.
@@ -877,17 +1007,70 @@ pub mod echo_dpo {
         if identity.release_digest != expected.release_digest {
             return Err(BindingMismatchKind::ReleaseBundleDigest);
         }
-        if identity.operation_coordinate != OPERATION_COORDINATE {
+        if identity.operation_coordinate != OPERATION_COORDINATE
+            || identity.operation_domain != OPERATION_DOMAIN
+        {
             return Err(BindingMismatchKind::Operation);
         }
-        if identity.target_ir_digest != TARGET_IR_DIGEST {
+        if identity.target_ir_coordinate != TARGET_IR_COORDINATE
+            || identity.target_ir_digest_domain != TARGET_IR_DIGEST_DOMAIN
+            || identity.target_ir_digest != TARGET_IR_DIGEST
+        {
             return Err(BindingMismatchKind::TargetIr);
         }
-        if identity.target_profile_digest != TARGET_PROFILE_DIGEST {
+        if identity.target_profile_coordinate != TARGET_PROFILE_COORDINATE
+            || identity.target_profile_digest_domain != TARGET_PROFILE_DIGEST_DOMAIN
+            || identity.target_profile_digest != TARGET_PROFILE_DIGEST
+        {
             return Err(BindingMismatchKind::TargetProfile);
         }
-        if identity.target_bundle_profile_digest != TARGET_BUNDLE_PROFILE_DIGEST {
+        if identity.target_bundle_profile_coordinate != TARGET_BUNDLE_PROFILE_COORDINATE
+            || identity.target_bundle_profile_digest_domain
+                != TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN
+            || identity.target_bundle_profile_digest != TARGET_BUNDLE_PROFILE_DIGEST
+        {
             return Err(BindingMismatchKind::TargetBundleProfile);
+        }
+        if identity.echo_contract_abi_version != ECHO_CONTRACT_ABI_VERSION {
+            return Err(BindingMismatchKind::EchoAbi);
+        }
+        if identity.helper_api_version != CONTRACT_HOST_HELPER_API_VERSION {
+            return Err(BindingMismatchKind::HelperApi);
+        }
+        if identity.provider_schema_coordinate != PROVIDER_SCHEMA_COORDINATE
+            || identity.provider_schema_sha256_hex != PROVIDER_SCHEMA_SHA256_HEX
+            || identity.input_schema != INPUT_SCHEMA
+            || identity.output_schema != OUTPUT_SCHEMA
+            || identity.type_schema_domain != TYPE_SCHEMA_DOMAIN
+            || identity.obstruction_coordinate != OBSTRUCTION_COORDINATE
+            || identity.obstruction_domain != OBSTRUCTION_DOMAIN
+            || identity.effect_failure_schema != EFFECT_FAILURE_SCHEMA
+            || identity.obstruction_payload_schema != OBSTRUCTION_PAYLOAD_SCHEMA
+        {
+            return Err(BindingMismatchKind::Schema);
+        }
+        if identity.generated_artifact_profile != GENERATED_ARTIFACT_PROFILE
+            || identity.generated_artifact_profile_digest_domain
+                != GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN
+            || identity.generated_artifact_profile_digest
+                != GENERATED_ARTIFACT_PROFILE_DIGEST
+        {
+            return Err(BindingMismatchKind::GeneratedArtifactProfile);
+        }
+        if identity.operation_profile != OPERATION_PROFILE
+            || identity.operation_profile_domain != OPERATION_PROFILE_DOMAIN
+            || identity.operation_profiles_coordinate != OPERATION_PROFILES_COORDINATE
+            || identity.operation_profiles_digest_domain != OPERATION_PROFILES_DIGEST_DOMAIN
+            || identity.operation_profiles_digest != OPERATION_PROFILES_DIGEST
+        {
+            return Err(BindingMismatchKind::OperationProfile);
+        }
+        if identity.footprint_obligation != FOOTPRINT_OBLIGATION
+            || identity.footprint_algebra != FOOTPRINT_ALGEBRA
+            || identity.footprint_algebra_digest_domain != FOOTPRINT_ALGEBRA_DIGEST_DOMAIN
+            || identity.footprint_algebra_digest != FOOTPRINT_ALGEBRA_DIGEST
+        {
+            return Err(BindingMismatchKind::Footprint);
         }
         Ok(RegistrationDescriptorV1 {
             contract_bundle: identity,

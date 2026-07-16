@@ -280,13 +280,21 @@ digest propositions, leaves their digest values absent, and declares
 `explicit-after-assembly` binding. After assembly, a caller supplies an
 independent expected pin and untrusted actual bundle claims. The generated
 helper checks exact domains, typed digest form, expected-versus-actual bundle
-digests, and the operation, Target IR, target profile, and target-bundle-profile
-identities before returning a descriptor with private state. This is an
-equality and semantic-consistency proof only: it does not authenticate the pin,
-schema-admit the outputs, construct or install an Echo package, or grant runtime
-authority. Codecs, invocation, ABI/schema/footprint binding, registry preflight,
-checked-component promotion, and pinned-host CDDL admission remain later #656
-crossings.
+digests, and the operation coordinate, Target IR, Echo ABI, helper API, provider
+and operation schemas, target/generated/operation profiles,
+and abstract footprint
+obligation/algebra identities before returning a descriptor with private state.
+Every framed resource claim includes and compares its coordinate, digest domain,
+and digest; a bare hash cannot stand in for that proposition.
+The footprint claim remains abstract; the helper does not counterfeit a static
+read/write certificate. This is an equality and semantic-consistency proof
+only: it does not authenticate the pin, schema-admit the outputs, construct or
+install an Echo package, or grant runtime authority. A separately versioned
+generic operation-id law must be carried by the canonical generated
+profile/package before emitted source may expose the persisted id; likewise a
+codec cannot be named until generated codecs implement that exact byte law.
+Invocation, registry-layout and package preflight, checked-component promotion, and
+pinned-host CDDL admission remain later #656 crossings.
 
 The first executable verifier independently implements the frozen
 `edict:target-provider/verifier@1.0.0` world. It compares the exact Core and

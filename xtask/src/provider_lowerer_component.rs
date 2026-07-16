@@ -57,9 +57,12 @@ pub(crate) const APPROVED_CHECKED_COMPONENT_SHA256: &str =
 pub(crate) const CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
 
-/// Repository path reserved for the future approved verifier component.
+/// Repository path reserved for the approved verifier component.
 pub(crate) const VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
+/// Approved SHA-256 identity of the checked verifier component.
+pub(crate) const APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256: &str =
+    "61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProviderComponentSpec {
@@ -95,7 +98,7 @@ const VERIFIER_SPEC: ProviderComponentSpec = ProviderComponentSpec {
     wit_source: VERIFIER_WIT_SOURCE,
     callable_export: VERIFY_EXPORT,
     checked_repository_path: VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH,
-    approved_sha256: None,
+    approved_sha256: Some(APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256),
 };
 
 fn export_missing_kind(spec: &ProviderComponentSpec) -> ProviderLowererComponentErrorKind {
@@ -1705,7 +1708,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_verifier_spec_is_exact_and_unapproved() {
+    fn provider_verifier_spec_is_exact_and_approved() {
         assert_eq!(VERIFIER_SPEC.package, "echo-edict-provider-verifier");
         assert_eq!(VERIFIER_SPEC.core_wasm, "echo_edict_provider_verifier.wasm");
         assert_eq!(VERIFIER_SPEC.world_name, "verifier");
@@ -1722,7 +1725,10 @@ mod tests {
             VERIFIER_SPEC.checked_repository_path,
             "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
         );
-        assert_eq!(VERIFIER_SPEC.approved_sha256, None);
+        assert_eq!(
+            VERIFIER_SPEC.approved_sha256,
+            Some(APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256)
+        );
         assert_eq!(
             sha256(VERIFIER_SPEC.wit_source.as_bytes()),
             sha256(LOWERER_SPEC.wit_source.as_bytes())
@@ -1730,20 +1736,15 @@ mod tests {
     }
 
     #[test]
-    fn provider_verifier_check_and_promotion_fail_closed_until_approved(
+    fn provider_verifier_checked_identity_is_exact(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let error = require_component_error(
-            require_approved_checked_digest(&VERIFIER_SPEC),
-            "an unapproved verifier identity must fail closed",
-        )?;
         assert_eq!(
-            error.kind(),
-            ProviderLowererComponentErrorKind::CheckedIdentityUnapproved
+            require_approved_checked_digest(&VERIFIER_SPEC)?,
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
         );
-        assert_eq!(error.subject(), VERIFIER_SPEC.contract_coordinate);
         assert_eq!(
-            error.reference(),
-            Some(VERIFIER_SPEC.checked_repository_path)
+            require_verifier_checked_identity()?,
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
         );
         Ok(())
     }
@@ -1885,24 +1886,28 @@ mod tests {
     }
 
     #[test]
-    fn unapproved_verifier_promotion_preserves_the_output(
+    fn checked_verifier_component_promotion_is_exact_and_idempotent(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let first = temporary_output("verifier-unapproved-a");
-        let second = temporary_output("verifier-unapproved-b");
-        let output = temporary_output("verifier-unapproved-output");
-        fs::write(&first, b"equal-candidate")?;
-        fs::write(&second, b"equal-candidate")?;
-        fs::write(&output, b"preserve-me")?;
-
-        let error = require_component_error(
-            promote_verifier_reproducible_candidates(&first, &second, &output),
-            "an unapproved verifier candidate must not be promoted",
-        )?;
-        assert_eq!(
-            error.kind(),
-            ProviderLowererComponentErrorKind::CheckedIdentityUnapproved
+        let bytes = include_bytes!(
+            "../../schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
         );
-        assert_eq!(fs::read(&output)?, b"preserve-me");
+        assert_eq!(
+            digest_hex(&sha256(bytes)),
+            APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
+        );
+        let first = temporary_output("verifier-promotion-valid-a");
+        let second = temporary_output("verifier-promotion-valid-b");
+        let output = temporary_output("verifier-promotion-output");
+        fs::write(&first, bytes)?;
+        fs::write(&second, bytes)?;
+
+        let (component, status) =
+            promote_verifier_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Written);
+        assert_eq!(component.bytes(), bytes);
+        let (_, status) = promote_verifier_reproducible_candidates(&first, &second, &output)?;
+        assert_eq!(status, ComponentOutputStatus::Current);
+        assert_eq!(fs::read(&output)?, bytes);
 
         fs::remove_file(first)?;
         fs::remove_file(second)?;

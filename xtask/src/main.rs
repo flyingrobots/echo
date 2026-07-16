@@ -6272,52 +6272,30 @@ mod tests {
         ]);
         assert!(missing_write.is_err());
 
-        let output = unique_temp_path("provider-verifier-unapproved-check");
-        let target_dir = unique_temp_path("provider-verifier-unapproved-target");
-        let check = Cli::try_parse_from([
+        let checked_verifier =
+            "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
+        let verifier_audit = Cli::try_parse_from([
             "xtask",
             "provider-verifier-component",
-            "check",
-            "--output",
-            output.to_string_lossy().as_ref(),
-            "--target-dir",
-            target_dir.to_string_lossy().as_ref(),
+            "audit",
+            "--input",
+            checked_verifier,
         ])?;
-        let Commands::ProviderVerifierComponent(args) = check.command else {
-            unreachable!("verifier check parsed into the wrong command family");
+        let Commands::ProviderVerifierComponent(args) = verifier_audit.command else {
+            unreachable!("verifier audit parsed into the wrong command family");
         };
-        let error = require_anyhow_error(
-            run_provider_verifier_component(args),
-            "verifier check must fail before builder invocation",
-        )?;
-        let component_error = error
-            .downcast_ref::<provider_lowerer_component::ProviderLowererComponentError>()
-            .ok_or_else(|| std::io::Error::other("verifier check returned the wrong error type"))?;
-        assert_eq!(
-            component_error.kind(),
-            provider_lowerer_component::ProviderLowererComponentErrorKind::CheckedIdentityUnapproved
-        );
-        assert_eq!(
-            component_error.subject(),
-            "edict:target-provider/verifier@1.0.0"
-        );
-        assert_eq!(
-            component_error.reference(),
-            Some(provider_lowerer_component::VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH)
-        );
-        assert!(!output.exists());
-        assert!(!target_dir.exists());
+        run_provider_verifier_component(args)?;
 
         let checked_lowerer =
             "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
-        let verifier_audit = Cli::try_parse_from([
+        let lowerer_as_verifier_audit = Cli::try_parse_from([
             "xtask",
             "provider-verifier-component",
             "audit",
             "--input",
             checked_lowerer,
         ])?;
-        let Commands::ProviderVerifierComponent(args) = verifier_audit.command else {
+        let Commands::ProviderVerifierComponent(args) = lowerer_as_verifier_audit.command else {
             unreachable!("verifier audit parsed into the wrong command family");
         };
         let error = require_anyhow_error(
@@ -6356,6 +6334,7 @@ mod tests {
         let verifier_checked = repository_root
             .join(provider_lowerer_component::VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH);
         let lowerer_before = fs::read(&lowerer_checked)?;
+        let verifier_before = fs::read(&verifier_checked)?;
 
         let lowerer_hard_link = unique_temp_path("provider-lowerer-checked-hard-link");
         fs::hard_link(&lowerer_checked, &lowerer_hard_link)?;
@@ -6467,7 +6446,7 @@ mod tests {
         }
 
         assert_eq!(fs::read(&lowerer_checked)?, lowerer_before);
-        assert!(!verifier_checked.exists());
+        assert_eq!(fs::read(&verifier_checked)?, verifier_before);
         fs::remove_file(lowerer_hard_link)?;
         Ok(())
     }

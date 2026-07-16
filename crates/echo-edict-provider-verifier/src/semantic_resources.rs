@@ -7,6 +7,8 @@ use std::fmt::Write as _;
 
 use echo_edict_canonical::{decode_canonical_cbor_v1, digest_canonical_value_v1, CanonicalValueV1};
 
+use super::DIAGNOSTIC_ABI;
+
 const PROFILE: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo@1",
     domain: "edict.target-profile/v1",
@@ -181,6 +183,16 @@ impl ResourceSet {
             TARGET_IR,
             &self.target_ir,
             "target-profile.targetIr",
+        )?;
+        assert_external_ref(
+            field(
+                &self.profile,
+                "diagnosticAbi",
+                "target-profile.diagnosticAbi",
+            )?,
+            DIAGNOSTIC_ABI.coordinate,
+            &DIAGNOSTIC_ABI.framed_sha256,
+            "target-profile.diagnosticAbi",
         )?;
         assert_ref(
             field(&self.profile, "intrinsics", "target-profile.intrinsics")?,
@@ -1316,6 +1328,30 @@ fn assert_ref(
     Ok(())
 }
 
+fn assert_external_ref(
+    reference: &CanonicalValueV1,
+    coordinate: &str,
+    framed_sha256: &[u8; 32],
+    subject: &'static str,
+) -> Result<(), SemanticResourceError> {
+    let map = super::as_map(reference).ok_or_else(|| reference_mismatch(subject))?;
+    if map.len() != 2
+        || super::map_field(reference, "id").and_then(super::as_text) != Some(coordinate)
+    {
+        return Err(reference_mismatch(subject));
+    }
+    let digest = match super::map_field(reference, "digest") {
+        Some(CanonicalValueV1::Array(digest)) if digest.len() == 2 => digest,
+        _ => return Err(reference_mismatch(subject)),
+    };
+    if super::as_text(&digest[0]) != Some("sha256")
+        || !matches!(&digest[1], CanonicalValueV1::Bytes(bytes) if bytes == framed_sha256)
+    {
+        return Err(reference_mismatch(subject));
+    }
+    Ok(())
+}
+
 fn validate_algebra(
     resource: &CanonicalValueV1,
     template_field: &'static str,
@@ -1643,6 +1679,27 @@ mod tests {
             reference.kind(),
             SemanticResourceErrorKind::ReferenceMismatch
         );
+    }
+
+    #[test]
+    fn diagnostic_abi_reference_cannot_diverge_from_the_report_identity() {
+        let mut resources = ResourceSet::decode_packaged().expect("resources decode");
+        set_ref_digest(
+            field_mut(&mut resources.profile, "diagnosticAbi"),
+            vec![0; 32],
+        );
+        let profile_digest = digest_bytes(PROFILE.domain, &resources.profile);
+        let adapters = array_mut(field_mut(&mut resources.lawpack, "targetAdapters"));
+        set_ref_digest(
+            field_mut(&mut adapters[0], "acceptedTargetProfile"),
+            profile_digest,
+        );
+
+        let error = resources
+            .validate_references()
+            .expect_err("a rebound diagnostic ABI must fail closed");
+        assert_eq!(error.kind(), SemanticResourceErrorKind::ReferenceMismatch);
+        assert_eq!(error.subject(), "target-profile.diagnosticAbi");
     }
 
     #[test]

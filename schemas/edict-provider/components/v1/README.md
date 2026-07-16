@@ -34,9 +34,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 183,513 bytes
+`wit-component` version recorded above. Its checked component is 188,736 bytes
 with SHA-256
-`61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9`.
+`e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's

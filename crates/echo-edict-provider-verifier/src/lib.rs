@@ -4,8 +4,9 @@
 //!
 //! This crate compares only explicit, digest-bound canonical artifacts. It
 //! performs no discovery or I/O and grants no Echo runtime authority.
-//! Reports bind only the exact Target IR reference they name; the provider
-//! package binds that proposition to its Core, profile, closure, and component.
+//! Reports bind only the exact Target IR reference they name. The Edict host
+//! manifest binds each invocation's Core, profile, semantic closure, and report;
+//! the provider package separately binds the static closure and component.
 
 #![deny(unsafe_code)]
 
@@ -52,10 +53,20 @@ const FAILURE_PAYLOAD_TYPE: &str = "target.replace.rejected";
 const DOMAIN_OBSTRUCTION: &str = "domain.WriteRejected";
 const MAX_EXPRESSION_DEPTH: usize = 64;
 
-const DIAGNOSTIC_ABI_DIGEST: [u8; 32] = [
-    0x28, 0xfd, 0x72, 0xa9, 0x82, 0x23, 0x15, 0x39, 0x82, 0xca, 0x08, 0x4c, 0x29, 0xdb, 0xb1, 0xb2,
-    0xd4, 0x30, 0x62, 0x39, 0x67, 0xab, 0x3b, 0x6d, 0xb9, 0xd7, 0xfe, 0xe6, 0x68, 0xe6, 0x14, 0xb9,
-];
+#[derive(Clone, Copy)]
+struct PinnedResourceIdentity {
+    coordinate: &'static str,
+    framed_sha256: [u8; 32],
+}
+
+const DIAGNOSTIC_ABI: PinnedResourceIdentity = PinnedResourceIdentity {
+    coordinate: "edict.diagnostics/v1",
+    framed_sha256: [
+        0x28, 0xfd, 0x72, 0xa9, 0x82, 0x23, 0x15, 0x39, 0x82, 0xca, 0x08, 0x4c, 0x29, 0xdb, 0xb1,
+        0xb2, 0xd4, 0x30, 0x62, 0x39, 0x67, 0xab, 0x3b, 0x6d, 0xb9, 0xd7, 0xfe, 0xe6, 0x68, 0xe6,
+        0x14, 0xb9,
+    ],
+};
 
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
@@ -684,7 +695,8 @@ fn validate_target_intent_shape(value: &CanonicalValueV1) -> bool {
             "result",
         ],
     ) || text_field(value, "operationProfile").is_none_or(str::is_empty)
-        || array_field(value, "inputConstraints").is_none()
+        || !array_field(value, "inputConstraints")
+            .is_some_and(|constraints| constraints.iter().all(validate_input_constraint_shape))
         || !map_field(value, "coreEvaluationBudget").is_some_and(validate_budget_shape)
         || !array_field(value, "requirements")
             .is_some_and(|requirements| requirements.iter().all(validate_requirement_shape))
@@ -693,6 +705,14 @@ fn validate_target_intent_shape(value: &CanonicalValueV1) -> bool {
         return false;
     }
     map_field(value, "result").is_some_and(validate_target_expr_shape)
+}
+
+fn validate_input_constraint_shape(value: &CanonicalValueV1) -> bool {
+    has_exact_fields(value, &["coordinate", "source", "predicate"])
+        && text_field(value, "coordinate").is_some_and(|coordinate| !coordinate.is_empty())
+        && matches!(text_field(value, "source"), Some("where" | "compiler"))
+        && map_field(value, "predicate")
+            .is_some_and(|predicate| preflight_predicate(predicate, MAX_EXPRESSION_DEPTH).is_ok())
 }
 
 fn validate_budget_shape(value: &CanonicalValueV1) -> bool {
@@ -709,8 +729,11 @@ fn validate_budget_shape(value: &CanonicalValueV1) -> bool {
 fn validate_requirement_shape(value: &CanonicalValueV1) -> bool {
     has_exact_fields(value, &["id", "predicate", "onFailure"])
         && text_field(value, "id").is_some_and(|id| !id.is_empty())
-        && map_field(value, "predicate").and_then(as_map).is_some()
-        && map_field(value, "onFailure").and_then(as_map).is_some()
+        && map_field(value, "predicate")
+            .is_some_and(|predicate| preflight_predicate(predicate, MAX_EXPRESSION_DEPTH).is_ok())
+        && map_field(value, "onFailure").is_some_and(|on_failure| {
+            preflight_require_failure(on_failure, MAX_EXPRESSION_DEPTH).is_ok()
+        })
 }
 
 fn validate_step_shape(value: &CanonicalValueV1) -> bool {
@@ -733,7 +756,7 @@ fn validate_step_shape(value: &CanonicalValueV1) -> bool {
         || !array_field(value, "obstructionFailures").is_some_and(|failures| {
             failures
                 .iter()
-                .all(|failure| as_text(failure).is_some_and(|failure| !failure.is_empty()))
+                .all(|failure| as_text(failure).is_some_and(is_failure_ident))
         })
     {
         return false;
@@ -742,7 +765,7 @@ fn validate_step_shape(value: &CanonicalValueV1) -> bool {
         .and_then(as_map)
         .is_some_and(|arms| {
             arms.iter().all(|(failure, arm)| {
-                as_text(failure).is_some_and(|failure| !failure.is_empty())
+                as_text(failure).is_some_and(is_failure_ident)
                     && has_exact_fields(arm, &["binder", "value"])
                     && map_field(arm, "binder").is_some_and(validate_local)
                     && map_field(arm, "value").is_some_and(validate_target_expr_shape)
@@ -952,10 +975,10 @@ fn build_report(target_ir: &ResourceRef, outcome: &str) -> Result<Vec<u8>, ()> {
         (
             "diagnosticAbi",
             resource_ref_value(&ResourceRef {
-                coordinate: "edict.diagnostics/v1".to_owned(),
+                coordinate: DIAGNOSTIC_ABI.coordinate.to_owned(),
                 digest: Digest {
                     algorithm: DigestAlgorithm::Sha256,
-                    bytes: DIAGNOSTIC_ABI_DIGEST.to_vec(),
+                    bytes: DIAGNOSTIC_ABI.framed_sha256.to_vec(),
                 },
             })?,
         ),
@@ -1158,6 +1181,7 @@ fn preflight_expr(
             }
             preflight_core_value(
                 map_field(value, "value").ok_or(ExpressionPreflightError::InvalidShape)?,
+                remaining_depth - 1,
             )
         }
         "record" => {
@@ -1167,13 +1191,17 @@ fn preflight_expr(
             let fields = map_field(value, "fields")
                 .and_then(as_map)
                 .ok_or(ExpressionPreflightError::InvalidShape)?;
+            let mut unsupported = false;
             for (key, field) in fields {
                 if as_text(key).is_none_or(str::is_empty) {
                     return Err(ExpressionPreflightError::InvalidShape);
                 }
-                preflight_expr(field, remaining_depth - 1)?;
+                note_preflight_result(
+                    &mut unsupported,
+                    preflight_expr(field, remaining_depth - 1),
+                )?;
             }
-            Ok(())
+            finish_preflight(unsupported)
         }
         "field" => {
             if !has_exact_fields(value, &["kind", "base", "field"])
@@ -1201,17 +1229,253 @@ fn preflight_expr(
                 return Err(ExpressionPreflightError::InvalidShape);
             }
             let args = array_field(value, "args").ok_or(ExpressionPreflightError::InvalidShape)?;
+            let mut unsupported = false;
             for argument in args {
-                preflight_expr(argument, remaining_depth - 1)?;
+                note_preflight_result(
+                    &mut unsupported,
+                    preflight_expr(argument, remaining_depth - 1),
+                )?;
             }
-            Ok(())
+            finish_preflight(unsupported)
         }
-        "variant" | "match" | "list" | "map" | "if" => Err(ExpressionPreflightError::Unsupported),
+        "variant" => {
+            if !(has_exact_fields(value, &["kind", "type", "case"])
+                || has_exact_fields(value, &["kind", "type", "case", "payload"]))
+                || text_field(value, "type").is_none_or(str::is_empty)
+                || text_field(value, "case").is_none_or(str::is_empty)
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            if let Some(payload) = map_field(value, "payload") {
+                require_valid_expression_shape(preflight_expr(payload, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "match" => {
+            if !has_exact_fields(value, &["kind", "scrutinee", "arms"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            require_valid_expression_shape(preflight_expr(
+                map_field(value, "scrutinee").ok_or(ExpressionPreflightError::InvalidShape)?,
+                remaining_depth - 1,
+            ))?;
+            let arms = array_field(value, "arms")
+                .filter(|arms| !arms.is_empty())
+                .ok_or(ExpressionPreflightError::InvalidShape)?;
+            for arm in arms {
+                if !(has_exact_fields(arm, &["case", "body"])
+                    || has_exact_fields(arm, &["case", "binder", "body"]))
+                    || text_field(arm, "case").is_none_or(str::is_empty)
+                    || map_field(arm, "binder").is_some_and(|binder| !validate_local(binder))
+                {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                }
+                require_valid_expression_shape(preflight_expr(
+                    map_field(arm, "body").ok_or(ExpressionPreflightError::InvalidShape)?,
+                    remaining_depth - 1,
+                ))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "list" => {
+            if !has_exact_fields(value, &["kind", "values"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for item in
+                array_field(value, "values").ok_or(ExpressionPreflightError::InvalidShape)?
+            {
+                require_valid_expression_shape(preflight_expr(item, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "map" => {
+            if !has_exact_fields(value, &["kind", "entries"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for entry in
+                array_field(value, "entries").ok_or(ExpressionPreflightError::InvalidShape)?
+            {
+                let CanonicalValueV1::Array(pair) = entry else {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                };
+                let [key, entry_value] = pair.as_slice() else {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                };
+                require_valid_expression_shape(preflight_expr(key, remaining_depth - 1))?;
+                require_valid_expression_shape(preflight_expr(entry_value, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "if" => {
+            if !has_exact_fields(value, &["kind", "predicate", "then", "else"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            preflight_predicate(
+                map_field(value, "predicate").ok_or(ExpressionPreflightError::InvalidShape)?,
+                remaining_depth - 1,
+            )?;
+            for branch in ["then", "else"] {
+                require_valid_expression_shape(preflight_expr(
+                    map_field(value, branch).ok_or(ExpressionPreflightError::InvalidShape)?,
+                    remaining_depth - 1,
+                ))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
         _ => Err(ExpressionPreflightError::InvalidDiscriminator),
     }
 }
 
-fn preflight_core_value(value: &CanonicalValueV1) -> Result<(), ExpressionPreflightError> {
+fn note_preflight_result(
+    unsupported: &mut bool,
+    result: Result<(), ExpressionPreflightError>,
+) -> Result<(), ExpressionPreflightError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(ExpressionPreflightError::Unsupported) => {
+            *unsupported = true;
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn finish_preflight(unsupported: bool) -> Result<(), ExpressionPreflightError> {
+    if unsupported {
+        Err(ExpressionPreflightError::Unsupported)
+    } else {
+        Ok(())
+    }
+}
+
+fn require_valid_expression_shape(
+    result: Result<(), ExpressionPreflightError>,
+) -> Result<(), ExpressionPreflightError> {
+    match result {
+        Ok(()) | Err(ExpressionPreflightError::Unsupported) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn preflight_predicate(
+    value: &CanonicalValueV1,
+    remaining_depth: usize,
+) -> Result<(), ExpressionPreflightError> {
+    if remaining_depth == 0 {
+        return Err(ExpressionPreflightError::DepthExceeded);
+    }
+    let kind = text_field(value, "kind").ok_or(ExpressionPreflightError::InvalidDiscriminator)?;
+    match kind {
+        "true" | "false" if has_exact_fields(value, &["kind"]) => Ok(()),
+        "true" | "false" => Err(ExpressionPreflightError::InvalidShape),
+        "not" => {
+            if !has_exact_fields(value, &["kind", "value"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            preflight_predicate(
+                map_field(value, "value").ok_or(ExpressionPreflightError::InvalidShape)?,
+                remaining_depth - 1,
+            )
+        }
+        "all" | "any" => {
+            if !has_exact_fields(value, &["kind", "values"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            let values = array_field(value, "values")
+                .filter(|values| !values.is_empty())
+                .ok_or(ExpressionPreflightError::InvalidShape)?;
+            for predicate in values {
+                preflight_predicate(predicate, remaining_depth - 1)?;
+            }
+            Ok(())
+        }
+        "compare" => {
+            if !has_exact_fields(value, &["kind", "op", "left", "right"])
+                || !matches!(
+                    text_field(value, "op"),
+                    Some("==" | "!=" | "<" | "<=" | ">" | ">=")
+                )
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for operand in ["left", "right"] {
+                require_valid_expression_shape(preflight_expr(
+                    map_field(value, operand).ok_or(ExpressionPreflightError::InvalidShape)?,
+                    remaining_depth - 1,
+                ))?;
+            }
+            Ok(())
+        }
+        "call" => {
+            if !has_exact_fields(value, &["kind", "predicate", "args"])
+                || text_field(value, "predicate").is_none_or(str::is_empty)
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for argument in
+                array_field(value, "args").ok_or(ExpressionPreflightError::InvalidShape)?
+            {
+                require_valid_expression_shape(preflight_expr(argument, remaining_depth - 1))?;
+            }
+            Ok(())
+        }
+        "obstruction" => {
+            if !has_exact_fields(value, &["kind", "coordinate", "payload"])
+                || text_field(value, "coordinate")
+                    .is_none_or(|coordinate| !is_failure_ident(coordinate))
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            require_valid_expression_shape(preflight_expr(
+                map_field(value, "payload").ok_or(ExpressionPreflightError::InvalidShape)?,
+                remaining_depth - 1,
+            ))
+        }
+        _ => Err(ExpressionPreflightError::InvalidDiscriminator),
+    }
+}
+
+fn preflight_require_failure(
+    value: &CanonicalValueV1,
+    remaining_depth: usize,
+) -> Result<(), ExpressionPreflightError> {
+    if remaining_depth == 0 {
+        return Err(ExpressionPreflightError::DepthExceeded);
+    }
+    if !matches!(
+        text_field(value, "kind"),
+        Some("terminal" | "continueObstructed")
+    ) {
+        return Err(ExpressionPreflightError::InvalidDiscriminator);
+    }
+    if !has_exact_fields(value, &["kind", "reason"]) {
+        return Err(ExpressionPreflightError::InvalidShape);
+    }
+    let reason = map_field(value, "reason").ok_or(ExpressionPreflightError::InvalidShape)?;
+    if !has_exact_fields(reason, &["reasonKind", "payload"])
+        || text_field(reason, "reasonKind").is_none_or(str::is_empty)
+    {
+        return Err(ExpressionPreflightError::InvalidShape);
+    }
+    let payload = map_field(reason, "payload")
+        .and_then(as_map)
+        .ok_or(ExpressionPreflightError::InvalidShape)?;
+    for (key, expression) in payload {
+        if as_text(key).is_none_or(str::is_empty) {
+            return Err(ExpressionPreflightError::InvalidShape);
+        }
+        require_valid_expression_shape(preflight_expr(expression, remaining_depth - 1))?;
+    }
+    Ok(())
+}
+
+fn preflight_core_value(
+    value: &CanonicalValueV1,
+    remaining_depth: usize,
+) -> Result<(), ExpressionPreflightError> {
+    if remaining_depth == 0 {
+        return Err(ExpressionPreflightError::DepthExceeded);
+    }
     let kind = text_field(value, "kind").ok_or(ExpressionPreflightError::InvalidDiscriminator)?;
     match kind {
         "string"
@@ -1220,9 +1484,106 @@ fn preflight_core_value(value: &CanonicalValueV1) -> Result<(), ExpressionPrefli
         {
             Ok(())
         }
-        "string" => Err(ExpressionPreflightError::InvalidShape),
-        "null" | "bool" | "int" | "bytes" | "record" | "variant" | "list" | "map"
-        | "capability" => Err(ExpressionPreflightError::Unsupported),
+        "null" if has_exact_fields(value, &["kind"]) => Err(ExpressionPreflightError::Unsupported),
+        "bool"
+            if has_exact_fields(value, &["kind", "value"])
+                && matches!(map_field(value, "value"), Some(CanonicalValueV1::Bool(_))) =>
+        {
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "int"
+            if has_exact_fields(value, &["kind", "width", "value"])
+                && text_field(value, "width").is_some()
+                && matches!(
+                    map_field(value, "value"),
+                    Some(CanonicalValueV1::Integer(_))
+                ) =>
+        {
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "bytes"
+            if has_exact_fields(value, &["kind", "value"])
+                && matches!(map_field(value, "value"), Some(CanonicalValueV1::Bytes(_))) =>
+        {
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "string" | "null" | "bool" | "int" | "bytes" => Err(ExpressionPreflightError::InvalidShape),
+        "record" => {
+            if !has_exact_fields(value, &["kind", "fields"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            let fields = map_field(value, "fields")
+                .and_then(as_map)
+                .ok_or(ExpressionPreflightError::InvalidShape)?;
+            for (key, field) in fields {
+                if as_text(key).is_none_or(str::is_empty) {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                }
+                require_valid_expression_shape(preflight_core_value(field, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "variant" => {
+            if !(has_exact_fields(value, &["kind", "type", "case"])
+                || has_exact_fields(value, &["kind", "type", "case", "payload"]))
+                || text_field(value, "type").is_none_or(str::is_empty)
+                || text_field(value, "case").is_none_or(str::is_empty)
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            if let Some(payload) = map_field(value, "payload") {
+                require_valid_expression_shape(preflight_core_value(payload, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "list" => {
+            if !has_exact_fields(value, &["kind", "values"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for item in
+                array_field(value, "values").ok_or(ExpressionPreflightError::InvalidShape)?
+            {
+                require_valid_expression_shape(preflight_core_value(item, remaining_depth - 1))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "map" => {
+            if !has_exact_fields(value, &["kind", "entries"]) {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            for entry in
+                array_field(value, "entries").ok_or(ExpressionPreflightError::InvalidShape)?
+            {
+                let CanonicalValueV1::Array(pair) = entry else {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                };
+                let [key, entry_value] = pair.as_slice() else {
+                    return Err(ExpressionPreflightError::InvalidShape);
+                };
+                require_valid_expression_shape(preflight_core_value(key, remaining_depth - 1))?;
+                require_valid_expression_shape(preflight_core_value(
+                    entry_value,
+                    remaining_depth - 1,
+                ))?;
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
+        "capability" => {
+            if !has_exact_fields(value, &["kind", "receipt"])
+                || !map_field(value, "receipt").is_some_and(|receipt| {
+                    matches!(
+                        receipt,
+                        CanonicalValueV1::Array(values)
+                            if matches!(values.as_slice(),
+                                [CanonicalValueV1::Text(algorithm), CanonicalValueV1::Bytes(bytes)]
+                                    if algorithm == "sha256" && bytes.len() == 32)
+                    )
+                })
+            {
+                return Err(ExpressionPreflightError::InvalidShape);
+            }
+            Err(ExpressionPreflightError::Unsupported)
+        }
         _ => Err(ExpressionPreflightError::InvalidDiscriminator),
     }
 }
@@ -1391,6 +1752,15 @@ fn validate_local(value: &CanonicalValueV1) -> bool {
         && text_field(value, "id").is_some_and(|value| !value.is_empty())
         && text_field(value, "alphaName").is_some_and(|value| !value.is_empty())
         && text_field(value, "type").is_some_and(|value| !value.is_empty())
+}
+
+fn is_failure_ident(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn has_exact_fields(value: &CanonicalValueV1, fields: &[&str]) -> bool {

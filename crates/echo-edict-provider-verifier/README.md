@@ -13,12 +13,17 @@ A supported but semantically false Target IR produces a rejected verifier
 report; malformed input in the selected native closure and unsupported source
 semantics produce typed provider refusals. Complete structural admission for
 every CDDL alternative remains the Edict host's owning-schema check before the
-component runs; decoding this native model's result is never admission.
+component runs; decoding this native model's result is never admission. Before
+classifying a known but unsupported expression as semantic disagreement, the
+native verifier checks its complete expression, predicate, input-constraint,
+require-failure, and Core-value shape under the fixed recursion bound. The
+target profile's diagnostic ABI and every emitted report consume one shared
+admitted identity.
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 183,513-byte checked
+transport-to-model conversion. Its reproducibly built 188,736-byte checked
 component has SHA-256
-`61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9`.
+`e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted
@@ -41,7 +46,11 @@ package-local copies equal the CDDL-admitted checked corpus.
 
 A verifier report's proposition is deliberately narrow: the fixed verifier
 accepted or rejected the exact Target IR reference named by that report. The
-report alone does not identify the Core, target profile, or semantic closure;
-the digest-locked package assembled by the next campaign goalpost binds those
-inputs and the verifier component together. Neither artifact grants Echo
-runtime installation, execution, or consequence authority.
+report alone does not identify the Core, target profile, or semantic closure.
+For each successful invocation, the pinned Edict host's output manifest binds
+the exact Core, target profile, Target IR, ordered semantic inputs, requested
+output, and admitted report digest. That per-invocation envelope is distinct
+from the digest-locked package assembled by the next campaign goalpost, which
+binds the static inputs and verifier component together. Neither proposition
+has an Echo causal site or witnessed hologram, and neither grants Echo runtime
+installation, execution, or consequence authority.

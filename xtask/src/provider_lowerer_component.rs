@@ -62,7 +62,7 @@ pub(crate) const VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
 /// Approved SHA-256 identity of the checked verifier component.
 pub(crate) const APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256: &str =
-    "61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9";
+    "e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProviderComponentSpec {
@@ -756,6 +756,42 @@ pub(crate) fn promote_verifier_reproducible_candidates(
 /// Requires the verifier's checked identity to have been explicitly approved.
 pub(crate) fn require_verifier_checked_identity() -> Result<&'static str> {
     require_approved_checked_digest(&VERIFIER_SPEC).map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+/// Binds one already authenticated verifier component to the approved identity.
+pub(crate) fn require_verifier_component_identity(
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    require_component_identity_for(&VERIFIER_SPEC, component)
+        .map_err(|error| error.for_spec(&VERIFIER_SPEC))
+}
+
+fn require_component_identity_for(
+    spec: &ProviderComponentSpec,
+    component: &ProviderLowererComponent,
+) -> Result<()> {
+    let approved_sha256 = require_approved_checked_digest(spec)?;
+    if approved_sha256.len() != 64
+        || !approved_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid,
+            approved_sha256,
+            Some("lowercase-sha256".to_owned()),
+        ));
+    }
+
+    let observed_sha256 = component.sha256_hex();
+    if observed_sha256 != approved_sha256 {
+        return Err(ProviderLowererComponentError::new(
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch,
+            approved_sha256,
+            Some(observed_sha256),
+        ));
+    }
+    Ok(())
 }
 
 fn require_approved_checked_digest(spec: &ProviderComponentSpec) -> Result<&'static str> {
@@ -1745,6 +1781,47 @@ mod tests {
         assert_eq!(
             require_verifier_checked_identity()?,
             APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn authenticated_verifier_requires_a_well_formed_approved_digest(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let component = authenticated_component_for(
+            &VERIFIER_SPEC,
+            include_bytes!(
+                "../../schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm"
+            )
+            .to_vec(),
+        )?;
+
+        let stale_spec = ProviderComponentSpec {
+            approved_sha256: Some(
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            ),
+            ..VERIFIER_SPEC
+        };
+        let stale = require_component_error(
+            require_component_identity_for(&stale_spec, &component),
+            "a stale approved verifier digest must reject the authenticated component",
+        )?;
+        assert_eq!(
+            stale.kind(),
+            ProviderLowererComponentErrorKind::CandidateDigestMismatch
+        );
+
+        let malformed_spec = ProviderComponentSpec {
+            approved_sha256: Some("not-a-lowercase-sha256"),
+            ..VERIFIER_SPEC
+        };
+        let malformed = require_component_error(
+            require_component_identity_for(&malformed_spec, &component),
+            "a malformed approved verifier digest must reject the authenticated component",
+        )?;
+        assert_eq!(
+            malformed.kind(),
+            ProviderLowererComponentErrorKind::ExpectedDigestInvalid
         );
         Ok(())
     }

@@ -386,6 +386,18 @@ fn exact_one_operation_relation_is_accepted() {
 }
 
 #[test]
+fn report_diagnostic_abi_matches_the_admitted_target_profile() {
+    let target_profile = decode_canonical_cbor_v1(TARGET_PROFILE).expect("profile is canonical");
+    let success = verify(request()).expect("the exact reviewed relation verifies");
+    let report = report(&success);
+
+    assert_eq!(
+        map_field(&report, "diagnosticAbi"),
+        map_field(&target_profile, "diagnosticAbi")
+    );
+}
+
+#[test]
 fn packaged_semantic_resource_bytes_are_pinned() {
     let resources = [
         (
@@ -611,6 +623,18 @@ fn target_only_claims_are_rejected() {
     let mut case = request();
     bind_target_ir(&mut case, &extra_requirement);
     assert_rejected(case, "echo.verifier.introduced-claim");
+
+    let mut unsupported_result = target_ir_value();
+    let reviewed_result = map_field(target_intent_mut(&mut unsupported_result), "result").clone();
+    *map_field_mut(target_intent_mut(&mut unsupported_result), "result") = map([
+        ("kind", text("if")),
+        ("predicate", map([("kind", text("true"))])),
+        ("then", reviewed_result.clone()),
+        ("else", reviewed_result),
+    ]);
+    let mut case = request();
+    bind_target_ir(&mut case, &unsupported_result);
+    assert_rejected(case, "echo.verifier.result-mismatch");
 }
 
 #[test]
@@ -629,6 +653,24 @@ fn silent_loss_is_rejected() {
 }
 
 #[test]
+fn well_formed_input_constraint_is_semantic_disagreement_not_malformed() {
+    let mut target_ir = target_ir_value();
+    array_mut(map_field_mut(
+        target_intent_mut(&mut target_ir),
+        "inputConstraints",
+    ))
+    .push(map([
+        ("coordinate", text("constraint.0")),
+        ("source", text("where")),
+        ("predicate", map([("kind", text("true"))])),
+    ]));
+
+    let mut case = request();
+    bind_target_ir(&mut case, &target_ir);
+    assert_rejected(case, "echo.verifier.semantic-relation-mismatch");
+}
+
+#[test]
 fn canonical_decoding_does_not_admit_a_malformed_target_ir() {
     let mut missing_kind = target_ir_value();
     remove_map_field(&mut missing_kind, "kind");
@@ -640,17 +682,138 @@ fn canonical_decoding_does_not_admit_a_malformed_target_ir() {
     let mut invalid_step = target_ir_value();
     *map_field_mut(target_intent_mut(&mut invalid_step), "steps") =
         CanonicalValueV1::Array(vec![CanonicalValueV1::Null]);
-    let mut invalid_result = target_ir_value();
-    *map_field_mut(target_intent_mut(&mut invalid_result), "result") =
-        map([("kind", text("unknown"))]);
-
-    for malformed in [
+    let mut malformed_target_irs = vec![
         CanonicalValueV1::Text("not-target-ir".to_owned()),
         missing_kind,
         invalid_profile_ref,
         invalid_step,
-        invalid_result,
+    ];
+    for malformed_expr in [
+        map([("kind", text("unknown"))]),
+        map([("kind", text("variant"))]),
+        map([("kind", text("match"))]),
+        map([("kind", text("list"))]),
+        map([("kind", text("map"))]),
+        map([("kind", text("if"))]),
+        map([
+            ("kind", text("if")),
+            ("predicate", map([("kind", text("true"))])),
+            (
+                "then",
+                map([
+                    ("kind", text("const")),
+                    (
+                        "value",
+                        map([("kind", text("string")), ("value", text("valid"))]),
+                    ),
+                ]),
+            ),
+            ("else", map([("kind", text("variant"))])),
+        ]),
     ] {
+        let mut invalid_result = target_ir_value();
+        *map_field_mut(target_intent_mut(&mut invalid_result), "result") = malformed_expr;
+        malformed_target_irs.push(invalid_result);
+    }
+    let malformed_requirement = |predicate, on_failure| {
+        let mut target_ir = target_ir_value();
+        array_mut(map_field_mut(
+            target_intent_mut(&mut target_ir),
+            "requirements",
+        ))
+        .push(map([
+            ("id", text("guard.0")),
+            ("predicate", predicate),
+            ("onFailure", on_failure),
+        ]));
+        target_ir
+    };
+    let valid_on_failure = map([
+        ("kind", text("terminal")),
+        (
+            "reason",
+            map([
+                ("reasonKind", text("domain.GuardRejected")),
+                ("payload", CanonicalValueV1::Map(Vec::new())),
+            ]),
+        ),
+    ]);
+    malformed_target_irs.push(malformed_requirement(
+        map([("kind", text("if"))]),
+        valid_on_failure,
+    ));
+    malformed_target_irs.push(malformed_requirement(
+        map([("kind", text("true"))]),
+        map([("kind", text("terminal"))]),
+    ));
+    let malformed_constraint = |predicate| {
+        let mut target_ir = target_ir_value();
+        array_mut(map_field_mut(
+            target_intent_mut(&mut target_ir),
+            "inputConstraints",
+        ))
+        .push(map([
+            ("coordinate", text("constraint.0")),
+            ("source", text("where")),
+            ("predicate", predicate),
+        ]));
+        target_ir
+    };
+    malformed_target_irs.push(malformed_constraint(map([("kind", text("if"))])));
+    let mut deep_predicate = map([("kind", text("true"))]);
+    for _ in 0..72 {
+        deep_predicate = map([("kind", text("not")), ("value", deep_predicate)]);
+    }
+    malformed_target_irs.push(malformed_constraint(deep_predicate));
+    let mut invalid_failure_start = target_ir_value();
+    *map_field_mut(
+        target_step_mut(&mut invalid_failure_start),
+        "obstructionFailures",
+    ) = CanonicalValueV1::Array(vec![text("1bad")]);
+    malformed_target_irs.push(invalid_failure_start);
+    let mut invalid_failure_continuation = target_ir_value();
+    let CanonicalValueV1::Map(arms) = map_field_mut(
+        target_step_mut(&mut invalid_failure_continuation),
+        "obstructionArms",
+    ) else {
+        panic!("obstruction arms are a map");
+    };
+    arms[0].0 = text("bad-name");
+    malformed_target_irs.push(invalid_failure_continuation);
+    let mut invalid_obstruction_predicate = target_ir_value();
+    let reviewed_result = map_field(
+        target_intent_mut(&mut invalid_obstruction_predicate),
+        "result",
+    )
+    .clone();
+    *map_field_mut(
+        target_intent_mut(&mut invalid_obstruction_predicate),
+        "result",
+    ) = map([
+        ("kind", text("if")),
+        (
+            "predicate",
+            map([
+                ("kind", text("obstruction")),
+                ("coordinate", text("bad-name")),
+                (
+                    "payload",
+                    map([
+                        ("kind", text("const")),
+                        (
+                            "value",
+                            map([("kind", text("string")), ("value", text("payload"))]),
+                        ),
+                    ]),
+                ),
+            ]),
+        ),
+        ("then", reviewed_result.clone()),
+        ("else", reviewed_result),
+    ]);
+    malformed_target_irs.push(invalid_obstruction_predicate);
+
+    for malformed in malformed_target_irs {
         let mut case = request();
         bind_target_ir(&mut case, &malformed);
         let refusal = verify(case).expect_err("malformed Target IR must refuse");
@@ -762,6 +925,29 @@ fn string_bound_counts_unicode_scalar_values() {
 
     let success = verify(case).expect("sixteen Unicode scalar values remain within the bound");
     assert_accepted(&success, &target_ir_reference);
+
+    let overlong = "🦀".repeat(17);
+    let overlong_input = map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([("kind", text("string")), ("value", text(&overlong))]),
+        ),
+    ]);
+    let mut core = core_value();
+    *map_field_mut(core_effect_mut(&mut core), "input") = overlong_input.clone();
+    let mut target_ir = target_ir_value();
+    *map_field_mut(target_step_mut(&mut target_ir), "input") = overlong_input;
+    let mut case = request();
+    bind_core(&mut case, &core);
+    bind_target_ir(&mut case, &target_ir);
+
+    let refusal = verify(case).expect_err("seventeen Unicode scalar values must refuse");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.verifier.unsupported-semantics"
+    );
 }
 
 #[test]
@@ -915,7 +1101,13 @@ fn recursive_expression_dispatch_is_bounded_and_order_independent() {
         assert_eq!(refusal.diagnostics[0].code, expected_code);
     }
 
-    let mut deep_child = map([("kind", text("unknown"))]);
+    let mut deep_child = map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([("kind", text("string")), ("value", text("leaf"))]),
+        ),
+    ]);
     for _ in 0..72 {
         deep_child = map([
             ("kind", text("field")),
@@ -923,16 +1115,28 @@ fn recursive_expression_dispatch_is_bounded_and_order_independent() {
             ("field", text("x")),
         ]);
     }
-    let malicious_outer = map([("kind", text("unknown")), ("base", deep_child)]);
+    let malicious_outer = map([("kind", text("unknown")), ("base", deep_child.clone())]);
     let mut malicious_core = core_value();
     *core_result_mut(&mut malicious_core) = malicious_outer;
-    let mut request = request();
-    bind_core(&mut request, &malicious_core);
-    let refusal = verify(request).expect_err("the outer discriminator must fail closed");
+    let mut mismatching_request = request();
+    bind_core(&mut mismatching_request, &malicious_core);
+    let refusal =
+        verify(mismatching_request).expect_err("the outer discriminator must fail closed");
     assert_eq!(refusal.kind, ProviderRefusalKind::InvalidSemanticArtifact);
     assert_eq!(
         refusal.diagnostics[0].code,
         "echo.verifier.invalid-expression-discriminator"
+    );
+
+    let mut malicious_core = core_value();
+    *core_result_mut(&mut malicious_core) = deep_child;
+    let mut deep_request = request();
+    bind_core(&mut deep_request, &malicious_core);
+    let refusal = verify(deep_request).expect_err("the recursive field chain must fail closed");
+    assert_eq!(refusal.kind, ProviderRefusalKind::InvalidSemanticArtifact);
+    assert_eq!(
+        refusal.diagnostics[0].code,
+        "echo.verifier.expression-depth-exceeded"
     );
 }
 

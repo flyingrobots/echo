@@ -541,11 +541,14 @@ impl ProviderComponentKind {
         }
     }
 
-    fn require_checked_identity(self) -> provider_lowerer_component::Result<()> {
+    fn require_checked_identity(
+        self,
+        component: &provider_lowerer_component::ProviderLowererComponent,
+    ) -> provider_lowerer_component::Result<()> {
         match self {
             Self::Lowerer => Ok(()),
             Self::Verifier => {
-                provider_lowerer_component::require_verifier_checked_identity().map(|_| ())
+                provider_lowerer_component::require_verifier_component_identity(component)
             }
         }
     }
@@ -653,10 +656,10 @@ fn run_provider_component(
             );
         }
         ProviderLowererComponentCommand::Check(args) => {
-            kind.require_checked_identity()?;
-            let builder = kind.require_checked_builder()?;
             let output_path = repository_path(&repository_root, args.output);
+            let builder = kind.require_checked_builder()?;
             let component = kind.build(&repository_root, &args.target_dir, &builder)?;
+            kind.require_checked_identity(&component)?;
             let status = kind.sync_output(
                 &output_path,
                 component.bytes(),

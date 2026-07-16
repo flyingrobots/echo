@@ -46,8 +46,12 @@
   well-formed intrinsic disagreement as a rejected report with an error
   diagnostic and host-authored output manifest, and preserves an unsupported
   output-role overclaim as a typed provider refusal with neither response nor
-  manifest. The 183,513-byte checked component has SHA-256
-  `61c833dddb1919a4b92b55b984baf01116b82f6b7d6dc23760b7ecba01dc52c9`
+  manifest. Its bounded native preflight validates complete known expression,
+  predicate, input-constraint, require-failure, and Core-value shapes before
+  separating malformed artifacts from well-formed unsupported semantics, and
+  one admitted diagnostic-ABI identity now binds both the target profile and
+  every emitted report. The 188,736-byte checked component has SHA-256
+  `e13eda6e02d5a46d2aecdec0546d53a7bf66f2580f8d5ec06e5d76710716a27b`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

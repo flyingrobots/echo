@@ -14,7 +14,10 @@ report; malformed input in the selected native closure and unsupported source
 semantics produce typed provider refusals. Complete structural admission for
 every CDDL alternative remains the Edict host's owning-schema check before the
 component runs; decoding this native model's result is never admission.
-Component packaging and the frozen WIT adapter follow in a later slice.
+The `wasm32` guest adapter vendors Edict's exact frozen
+`edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
+transport-to-model conversion. Reproducible component packaging and admitted
+host replay remain separate gates.
 
 For this first one-operation closure, the exact checked target profile, exact
 lowerability facts, and exact `echo.dpo@1.replace` intrinsic jointly bind the

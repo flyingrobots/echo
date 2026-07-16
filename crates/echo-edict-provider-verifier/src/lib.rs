@@ -9,6 +9,9 @@
 
 #![deny(unsafe_code)]
 
+#[cfg(target_arch = "wasm32")]
+mod component;
+
 use std::fmt::Write as _;
 
 use echo_edict_canonical::{

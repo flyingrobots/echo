@@ -30,6 +30,16 @@ const REPORT_ROLE: &str = "verifier-report.echo-dpo";
 const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 
+#[test]
+fn vendored_wit_is_the_frozen_edict_verifier_contract() {
+    let bytes = include_bytes!("../wit/edict-target-provider.wit");
+    assert_eq!(bytes.len(), 7392);
+    assert_eq!(
+        hex::encode(Sha256::digest(bytes)),
+        "2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e"
+    );
+}
+
 fn text(value: &str) -> CanonicalValueV1 {
     CanonicalValueV1::Text(value.to_owned())
 }

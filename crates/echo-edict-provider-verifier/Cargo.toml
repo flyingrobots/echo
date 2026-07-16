@@ -18,6 +18,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 echo-edict-canonical = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc"] }
+
 [dev-dependencies]
 hex = "0.4"
 sha2 = "0.10"

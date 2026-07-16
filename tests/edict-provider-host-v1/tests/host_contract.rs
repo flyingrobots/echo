@@ -1045,6 +1045,123 @@ fn echo_observation() -> String {
     )
 }
 
+fn echo_verifier_observation() -> String {
+    let core = echo_core();
+    let (accepted_target_ir, _) = oracle_target_ir(&core);
+    let accepted = echo_verifier_harness(&core, &accepted_target_ir);
+    let accepted_outcome = accepted
+        .host
+        .invoke_verifier(
+            &accepted.prepared,
+            &accepted.request,
+            accepted.schema,
+            host_limits(),
+        )
+        .expect("accepted verifier observation crosses complete Edict host admission");
+    assert!(accepted_outcome.refusal().is_none());
+    let accepted_response = accepted_outcome
+        .response()
+        .expect("accepted verifier observation returns a response");
+    let accepted_manifest = accepted_outcome
+        .manifest()
+        .expect("accepted verifier observation has a host-authored manifest");
+    assert_admitted_verifier_success(&accepted, accepted_response, accepted_manifest, "accepted");
+
+    let rejected_target_ir = target_ir_with_mismatched_intrinsic(&core);
+    let rejected = echo_verifier_harness(&core, &rejected_target_ir);
+    let rejected_outcome = rejected
+        .host
+        .invoke_verifier(
+            &rejected.prepared,
+            &rejected.request,
+            rejected.schema,
+            host_limits(),
+        )
+        .expect("rejected verifier observation crosses complete Edict host admission");
+    assert!(rejected_outcome.refusal().is_none());
+    let rejected_response = rejected_outcome
+        .response()
+        .expect("rejected verifier observation returns a response");
+    let rejected_manifest = rejected_outcome
+        .manifest()
+        .expect("rejected verifier observation has a host-authored manifest");
+    assert_admitted_verifier_success(&rejected, rejected_response, rejected_manifest, "rejected");
+    let [rejected_diagnostic] = rejected_response.diagnostics.as_slice() else {
+        panic!("rejected verifier observation has one diagnostic");
+    };
+    assert_eq!(
+        rejected_diagnostic.code,
+        "echo.verifier.target-intrinsic-mismatch"
+    );
+    assert_eq!(
+        rejected_diagnostic.severity,
+        ProviderDiagnosticSeverity::Error
+    );
+    assert_eq!(
+        rejected_diagnostic.message,
+        "Target IR uses an intrinsic outside the reviewed Echo capability"
+    );
+    assert_eq!(rejected_diagnostic.repair, None);
+
+    let (refused_contract, mut refused_request) =
+        echo_verification_request(&core, &accepted_target_ir);
+    refused_request
+        .requested_outputs
+        .push(ProviderVerificationOutputRequest {
+            role: "verifier-report.unreviewed".to_owned(),
+            kind: ProviderVerificationOutputKind::VerifierReport,
+            domain: VERIFIER_REPORT_DOMAIN.to_owned(),
+        });
+    let refused = echo_verifier_harness_with_request(refused_contract, refused_request);
+    let refused_outcome = refused
+        .host
+        .invoke_verifier(
+            &refused.prepared,
+            &refused.request,
+            refused.schema,
+            host_limits(),
+        )
+        .expect("refused verifier observation crosses the WIT transport");
+    assert!(refused_outcome.response().is_none());
+    assert!(refused_outcome.manifest().is_none());
+    let refusal = refused_outcome
+        .refusal()
+        .expect("refused verifier observation preserves a typed refusal");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedOutputRole);
+    assert_eq!(
+        refusal.subject.as_deref(),
+        Some("verifier-report.unreviewed")
+    );
+    let [refusal_diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("refused verifier observation has one diagnostic");
+    };
+    assert_eq!(
+        refusal_diagnostic.code,
+        "echo.verifier.unsupported-output-role"
+    );
+    assert_eq!(
+        refusal_diagnostic.severity,
+        ProviderDiagnosticSeverity::Error
+    );
+    assert_eq!(
+        refusal_diagnostic.message,
+        "the first verifier serves exactly one verifier-report.echo-dpo output"
+    );
+    assert_eq!(refusal_diagnostic.repair, None);
+
+    format!(
+        "{}:{}:{}:{}:{}:{}:{}:{}",
+        raw_sha256(echo_verifier_component_bytes()),
+        raw_sha256(&accepted_response.outputs[0].artifact.bytes),
+        hex(&accepted_manifest.outputs()[0].digest.bytes),
+        raw_sha256(&rejected_response.outputs[0].artifact.bytes),
+        hex(&rejected_manifest.outputs()[0].digest.bytes),
+        rejected_diagnostic.code,
+        "unsupported-output-role",
+        refusal_diagnostic.code,
+    )
+}
+
 fn oracle_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
     let facts = TargetIrLoweringFacts {
         target_profile: ResourceRef {
@@ -1587,4 +1704,41 @@ fn echo_verifier_component_replays_all_completed_outcome_classes_identically() {
             assert!(outcome.refusal().is_none());
         }
     }
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the verifier independent-process witness"]
+fn emit_echo_verifier_host_observation() {
+    println!("{OBSERVATION_MARKER}{}", echo_verifier_observation());
+}
+
+#[test]
+fn independent_processes_reproduce_the_same_echo_verifier_observation() {
+    let executable = std::env::current_exe().expect("current test executable is discoverable");
+    let run_child = || {
+        let output = Command::new(&executable)
+            .arg("emit_echo_verifier_host_observation")
+            .args(["--exact", "--ignored", "--nocapture", "--test-threads=1"])
+            .output()
+            .expect("child verifier host process launches");
+        assert!(
+            output.status.success(),
+            "child verifier host witness failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("child output is UTF-8");
+        stdout
+            .lines()
+            .find_map(|line| {
+                line.split_once(OBSERVATION_MARKER)
+                    .map(|(_, observation)| observation)
+            })
+            .unwrap_or_else(|| panic!("child omitted stable verifier observation:\n{stdout}"))
+            .to_owned()
+    };
+
+    let first = run_child();
+    let second = run_child();
+    assert_eq!(first, second);
 }

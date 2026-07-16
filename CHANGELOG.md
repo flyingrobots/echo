@@ -86,8 +86,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 189,213-byte checked component has SHA-256
-  `c013636422f56d359d80437cc39499198b201e219ba4e119db096e99a1aa4f07`
+  every emitted report. The 189,515-byte checked component has SHA-256
+  `11fcaf291ffacac62800ab3fc198e29a23a591bcd30ca98828fa10a8ad1f1952`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,
@@ -101,8 +101,10 @@
   leaf. `echo-wesley-gen` retains its existing compatibility surface through a
   re-export, while executable provider components use the same codec without
   depending on generator or Wesley APIs. Its decoder now applies a 65,536-node
-  host materialization ceiling, charging map keys and values separately and
-  rejecting oversized direct containers before reserving their storage.
+  host materialization ceiling, charging map keys and values separately. A
+  matching cumulative reservation budget rejects both oversized direct
+  containers and nested declarations that attempt to reuse the same capacity
+  allowance before reserving their storage.
 - `echo-wesley-gen` now checks in the first exact 22-file Edict provider
   artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
   resources, the self-contained CDDL, Wesley provenance JSON, and

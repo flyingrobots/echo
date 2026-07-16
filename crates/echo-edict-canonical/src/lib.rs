@@ -369,14 +369,20 @@ struct Decoder<'a> {
     bytes: &'a [u8],
     position: usize,
     remaining_nodes: usize,
+    remaining_reserved_nodes: usize,
 }
 
 impl<'a> Decoder<'a> {
     const fn new(bytes: &'a [u8]) -> Self {
+        Self::with_node_budget(bytes, MAX_CANONICAL_DECODE_NODES_V1)
+    }
+
+    const fn with_node_budget(bytes: &'a [u8], node_budget: usize) -> Self {
         Self {
             bytes,
             position: 0,
-            remaining_nodes: MAX_CANONICAL_DECODE_NODES_V1,
+            remaining_nodes: node_budget,
+            remaining_reserved_nodes: node_budget,
         }
     }
 
@@ -416,6 +422,7 @@ impl<'a> Decoder<'a> {
                 check_container_depth(depth)?;
                 let length = self.length(additional)?;
                 self.ensure_nodes_available(length)?;
+                self.reserve_nodes(length)?;
                 let mut values = Vec::with_capacity(length);
                 for _ in 0..length {
                     values.push(self.value(depth + 1)?);
@@ -427,6 +434,7 @@ impl<'a> Decoder<'a> {
                 let length = self.length(additional)?;
                 let child_nodes = length.checked_mul(2).ok_or_else(node_budget_error)?;
                 self.ensure_nodes_available(child_nodes)?;
+                self.reserve_nodes(child_nodes)?;
                 let mut entries = Vec::with_capacity(length);
                 let mut encoded_keys = BTreeSet::new();
                 for _ in 0..length {
@@ -501,6 +509,14 @@ impl<'a> Decoder<'a> {
         Ok(())
     }
 
+    fn reserve_nodes(&mut self, count: usize) -> Result<(), CanonicalValueError> {
+        self.remaining_reserved_nodes = self
+            .remaining_reserved_nodes
+            .checked_sub(count)
+            .ok_or_else(node_budget_error)?;
+        Ok(())
+    }
+
     fn byte(&mut self) -> Result<u8, CanonicalValueError> {
         let Some(value) = self.bytes.get(self.position).copied() else {
             return Err(CanonicalValueError::new(
@@ -545,7 +561,7 @@ fn node_budget_error() -> CanonicalValueError {
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_collection_length, CanonicalValueError, CanonicalValueErrorKind};
+    use super::{checked_collection_length, CanonicalValueError, CanonicalValueErrorKind, Decoder};
 
     #[test]
     fn declared_length_bounds_precede_host_width_conversion() {
@@ -555,6 +571,24 @@ mod tests {
                 CanonicalValueErrorKind::UnexpectedEof,
                 "canonical CBOR declared length exceeds the remaining bytes"
             ))
+        );
+    }
+
+    #[test]
+    fn nested_container_reservations_are_cumulatively_bounded() {
+        let bytes = [0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81, 0xf6];
+        let mut decoder = Decoder::with_node_budget(&bytes, 8);
+
+        assert_eq!(
+            decoder.value(0),
+            Err(CanonicalValueError::new(
+                CanonicalValueErrorKind::UnsupportedValue,
+                "canonical CBOR decoded node budget exceeded"
+            ))
+        );
+        assert_eq!(
+            decoder.position, 2,
+            "the second container must be refused before its capacity is reserved"
         );
     }
 }

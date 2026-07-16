@@ -51,7 +51,7 @@
   wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
   reads, rebound operations, unresolved authored optics, changed type bindings,
   Core type definitions, evaluation budgets, out-of-scope locals, intrinsics,
-  and output roles. Local admission distinguishes pre-effect, obstruction-arm,
+  and undeclared or malformed output-role claims. Local admission distinguishes pre-effect, obstruction-arm,
   and post-effect scope from the exact input, effect-result, and obstruction
   declarations before cloning any expression into Target IR. The first closure
   also requires an empty input-constraint set and the exact zero-argument
@@ -74,6 +74,20 @@
   witness binding them to the checked generated corpus. Its full package gate
   follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
   and translate provider semantics; they confer no Echo runtime authority.
+- The native Echo Edict lowerer model now accepts any exact, lexicographically
+  sorted subset of the declared `generated.echo-dpo` generated artifact,
+  `review.echo-dpo` review payload, and `target-ir.echo-dpo` Target IR roles.
+  It emits canonical-CBOR generated and review envelopes at
+  `generated/echo_dpo.rs` and `review/echo_dpo.json`, and refuses unknown,
+  mismatched, duplicate, or out-of-order role claims with typed
+  `UnsupportedOutputRole`. The generated Rust binds the operation, Target IR,
+  target profile, and target-bundle-profile identities, then performs only an
+  explicit post-assembly equality and consistency comparison between an
+  independent expected pin and untrusted Edict semantic/release bundle claims.
+  The permanently non-authoritative review is bound to the exact generated
+  artifact. Neither projection authenticates a pin, admits or installs a
+  package, or grants Echo runtime authority; checked-component promotion and
+  host-side CDDL admission remain separate crossings.
 - Echo now provides the exact `edict:target-provider/verifier@1.0.0`
   Component Model implementation for the checked provider closure. The pure
   verifier independently compares explicit digest-bound Core and Target IR

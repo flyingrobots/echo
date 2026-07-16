@@ -8,7 +8,8 @@
 #![deny(unsafe_code)]
 
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1, CanonicalValueV1,
+    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
+    encode_canonical_cbor_v1, CanonicalValueV1,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -28,9 +29,25 @@ const LAWPACK_DOMAIN: &str = "edict.lawpack/v1";
 const AUTHORITY_DOMAIN: &str = "edict.authority-facts/v1";
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const LOWERABILITY_COORDINATE: &str = "echo.dpo-lowerability@1";
-const OUTPUT_DOMAIN: &str = "edict.target-ir.artifact/v1";
-const INNER_TARGET_IR_DOMAIN: &str = "echo.span-ir/v1";
+const TARGET_IR_ARTIFACT_DOMAIN: &str = "edict.target-ir.artifact/v1";
+const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
+const GENERATED_ARTIFACT_DOMAIN: &str = "echo.generated-artifact/v1";
+const REVIEW_PAYLOAD_DOMAIN: &str = "echo.review-payload/v1";
+const GENERATED_ARTIFACT_ROLE: &str = "generated.echo-dpo";
+const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
+const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
+const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
+    "sha256:3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab";
+const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
+const TARGET_BUNDLE_PROFILE_DIGEST: &str =
+    "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
+const SEMANTIC_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.semantic/v1";
+const RELEASE_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.release/v1";
+const GENERATED_SOURCE_MEDIA_TYPE: &str = "text/rust; charset=utf-8";
+const REVIEW_MEDIA_TYPE: &str = "application/json";
+const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
+const REVIEW_PATH: &str = "review/echo_dpo.json";
 const OPERATION_COORDINATE: &str = "a.b@1.t";
 const OPERATION_INPUT_TYPE: &str = "a.b@1.Input";
 const OPERATION_OUTPUT_TYPE: &str = "a.b@1.Output";
@@ -253,9 +270,11 @@ pub type LoweringResultV1 = Result<LoweringSuccessV1, ProviderRefusalV1>;
 
 /// Lowers the explicit canonical Echo provider closure without discovery or I/O.
 ///
-/// The function emits no authoritative digest or runtime authority. A future
-/// Edict host remains responsible for validating the returned bytes against the
-/// owning Target IR schema and computing their authoritative digest.
+/// The function may embed deterministic, non-authoritative byte identities in
+/// generated and review projections. The Edict host remains responsible for
+/// validating every returned artifact against its owning schema, recomputing
+/// host-authored output identities, and admitting any later bundle occurrence.
+/// No output grants Echo runtime authority.
 ///
 /// # Errors
 ///
@@ -281,27 +300,11 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
     validate_requested_outputs(&request.requested_outputs)?;
     let target_ir = lower_core(&request.core, &request.target_profile.reference.digest)?;
 
-    let outputs = if request.requested_outputs.is_empty() {
-        Vec::new()
-    } else {
-        let bytes = encode_canonical_cbor_v1(&target_ir).map_err(|_| {
-            refusal(
-                ProviderRefusalKind::InvalidSemanticArtifact,
-                TARGET_IR_ROLE,
-                "echo.provider.target-ir-encoding",
-                "the lowered Target IR could not be canonically encoded",
-            )
-        })?;
-        vec![LoweringOutputArtifact {
-            role: TARGET_IR_ROLE.to_owned(),
-            kind: LoweringOutputKind::TargetIr,
-            artifact: Artifact {
-                domain: OUTPUT_DOMAIN.to_owned(),
-                bytes,
-            },
-            logical_path: None,
-        }]
-    };
+    let outputs = build_requested_outputs(
+        &request.requested_outputs,
+        &target_ir,
+        &request.target_profile.reference.digest,
+    )?;
 
     // Response limits are deliberately host-owned. Canonical provider output is
     // invariant under limit changes and the host decides whether it fits.
@@ -498,32 +501,489 @@ fn canonical_sorted_map<'a>(
 }
 
 fn validate_requested_outputs(requests: &[LoweringOutputRequest]) -> Result<(), ProviderRefusalV1> {
-    match requests {
-        [] => Ok(()),
-        [request]
-            if request.role == TARGET_IR_ROLE
-                && request.kind == LoweringOutputKind::TargetIr
-                && request.domain == OUTPUT_DOMAIN =>
+    let mut previous_role: Option<&str> = None;
+    for request in requests {
+        if previous_role.is_some_and(|previous| previous.as_bytes() >= request.role.as_bytes())
+            || !is_declared_output(request)
         {
-            Ok(())
-        }
-        [request, remaining @ ..] => {
-            let unsupported = if request.role == TARGET_IR_ROLE
-                && request.kind == LoweringOutputKind::TargetIr
-                && request.domain == OUTPUT_DOMAIN
-            {
-                remaining.first().unwrap_or(request)
-            } else {
-                request
-            };
-            Err(refusal(
+            return Err(refusal(
                 ProviderRefusalKind::UnsupportedOutputRole,
-                &unsupported.role,
+                &request.role,
                 "echo.provider.unsupported-output-role",
-                "the first lowerer serves only target-ir.echo-dpo",
-            ))
+                "the lowerer serves only the exact sorted declared output roles",
+            ));
+        }
+        previous_role = Some(&request.role);
+    }
+    Ok(())
+}
+
+fn is_declared_output(request: &LoweringOutputRequest) -> bool {
+    matches!(
+        (request.role.as_str(), request.kind, request.domain.as_str()),
+        (
+            GENERATED_ARTIFACT_ROLE,
+            LoweringOutputKind::GeneratedArtifact,
+            GENERATED_ARTIFACT_DOMAIN
+        ) | (
+            REVIEW_PAYLOAD_ROLE,
+            LoweringOutputKind::ReviewPayload,
+            REVIEW_PAYLOAD_DOMAIN
+        ) | (
+            TARGET_IR_ROLE,
+            LoweringOutputKind::TargetIr,
+            TARGET_IR_ARTIFACT_DOMAIN
+        )
+    )
+}
+
+fn build_requested_outputs(
+    requests: &[LoweringOutputRequest],
+    target_ir: &CanonicalValueV1,
+    target_profile_digest: &Digest,
+) -> Result<Vec<LoweringOutputArtifact>, ProviderRefusalV1> {
+    if requests.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target_ir_bytes = encode_canonical_cbor_v1(target_ir).map_err(|_| {
+        invalid_output_artifact(
+            TARGET_IR_ROLE,
+            "echo.provider.target-ir-encoding",
+            "the lowered Target IR could not be canonically encoded",
+        )
+    })?;
+    let target_ir_digest_bytes =
+        digest_canonical_value_bytes_v1(TARGET_IR_ARTIFACT_DOMAIN, target_ir).map_err(|_| {
+            invalid_output_artifact(
+                TARGET_IR_ROLE,
+                "echo.provider.target-ir-digest",
+                "the lowered Target IR identity could not be computed",
+            )
+        })?;
+    let target_ir_digest = Digest {
+        algorithm: DigestAlgorithm::Sha256,
+        bytes: target_ir_digest_bytes.to_vec(),
+    };
+    let generated = requests
+        .iter()
+        .any(|request| request.kind != LoweringOutputKind::TargetIr)
+        .then(|| render_generated_artifact(&target_ir_digest, target_profile_digest))
+        .transpose()?;
+
+    requests
+        .iter()
+        .map(|request| match request.kind {
+            LoweringOutputKind::TargetIr => Ok(LoweringOutputArtifact {
+                role: request.role.clone(),
+                kind: request.kind,
+                artifact: Artifact {
+                    domain: request.domain.clone(),
+                    bytes: target_ir_bytes.clone(),
+                },
+                logical_path: None,
+            }),
+            LoweringOutputKind::GeneratedArtifact => {
+                let generated = generated.as_ref().ok_or_else(|| {
+                    invalid_output_artifact(
+                        GENERATED_ARTIFACT_ROLE,
+                        "echo.provider.generated-artifact-absent",
+                        "the generated artifact was not rendered",
+                    )
+                })?;
+                Ok(LoweringOutputArtifact {
+                    role: request.role.clone(),
+                    kind: request.kind,
+                    artifact: Artifact {
+                        domain: request.domain.clone(),
+                        bytes: generated.bytes.clone(),
+                    },
+                    logical_path: Some(GENERATED_SOURCE_PATH.to_owned()),
+                })
+            }
+            LoweringOutputKind::ReviewPayload => {
+                let generated = generated.as_ref().ok_or_else(|| {
+                    invalid_output_artifact(
+                        REVIEW_PAYLOAD_ROLE,
+                        "echo.provider.review-subject-absent",
+                        "the generated artifact review subject was not rendered",
+                    )
+                })?;
+                let review = render_review_payload(
+                    &target_ir_digest,
+                    target_profile_digest,
+                    &generated.digest,
+                );
+                let envelope = review_payload_envelope(&generated.digest, review.into_bytes())?;
+                Ok(LoweringOutputArtifact {
+                    role: request.role.clone(),
+                    kind: request.kind,
+                    artifact: Artifact {
+                        domain: request.domain.clone(),
+                        bytes: encode_output_envelope(request.role.as_str(), &envelope)?,
+                    },
+                    logical_path: Some(REVIEW_PATH.to_owned()),
+                })
+            }
+        })
+        .collect()
+}
+
+struct RenderedGeneratedArtifact {
+    bytes: Vec<u8>,
+    digest: Digest,
+}
+
+fn render_generated_artifact(
+    target_ir_digest: &Digest,
+    target_profile_digest: &Digest,
+) -> Result<RenderedGeneratedArtifact, ProviderRefusalV1> {
+    let source = render_generated_source(target_ir_digest, target_profile_digest);
+    let envelope = generated_artifact_envelope(source.into_bytes())?;
+    let bytes = encode_output_envelope(GENERATED_ARTIFACT_ROLE, &envelope)?;
+    let digest =
+        digest_canonical_value_bytes_v1(GENERATED_ARTIFACT_DOMAIN, &envelope).map_err(|_| {
+            invalid_output_artifact(
+                GENERATED_ARTIFACT_ROLE,
+                "echo.provider.generated-artifact-digest",
+                "the generated-artifact identity could not be computed",
+            )
+        })?;
+    Ok(RenderedGeneratedArtifact {
+        bytes,
+        digest: Digest {
+            algorithm: DigestAlgorithm::Sha256,
+            bytes: digest.to_vec(),
+        },
+    })
+}
+
+fn generated_artifact_envelope(
+    source_bytes: Vec<u8>,
+) -> Result<CanonicalValueV1, ProviderRefusalV1> {
+    let profile_digest =
+        decode_sha256_review(GENERATED_ARTIFACT_PROFILE_DIGEST).ok_or_else(|| {
+            invalid_output_artifact(
+                GENERATED_ARTIFACT_ROLE,
+                "echo.provider.generated-profile-digest",
+                "the checked generated-artifact profile digest is invalid",
+            )
+        })?;
+    canonical_sorted_map([
+        ("apiVersion", canonical_text(GENERATED_ARTIFACT_DOMAIN)),
+        (
+            "profile",
+            resource_ref_value(GENERATED_ARTIFACT_PROFILE, profile_digest)?,
+        ),
+        ("operation", canonical_text(OPERATION_COORDINATE)),
+        ("mediaType", canonical_text(GENERATED_SOURCE_MEDIA_TYPE)),
+        ("bytes", CanonicalValueV1::Bytes(source_bytes)),
+    ])
+    .map_err(|()| {
+        invalid_output_artifact(
+            GENERATED_ARTIFACT_ROLE,
+            "echo.provider.generated-envelope",
+            "the generated-artifact envelope could not be constructed",
+        )
+    })
+}
+
+fn review_payload_envelope(
+    generated_artifact_digest: &Digest,
+    review_bytes: Vec<u8>,
+) -> Result<CanonicalValueV1, ProviderRefusalV1> {
+    canonical_sorted_map([
+        ("apiVersion", canonical_text(REVIEW_PAYLOAD_DOMAIN)),
+        ("authoritative", CanonicalValueV1::Bool(false)),
+        (
+            "subject",
+            resource_ref_value(
+                GENERATED_ARTIFACT_ROLE,
+                generated_artifact_digest.bytes.clone(),
+            )?,
+        ),
+        ("mediaType", canonical_text(REVIEW_MEDIA_TYPE)),
+        ("bytes", CanonicalValueV1::Bytes(review_bytes)),
+    ])
+    .map_err(|()| {
+        invalid_output_artifact(
+            REVIEW_PAYLOAD_ROLE,
+            "echo.provider.review-envelope",
+            "the review-payload envelope could not be constructed",
+        )
+    })
+}
+
+fn resource_ref_value(
+    coordinate: &str,
+    digest_bytes: Vec<u8>,
+) -> Result<CanonicalValueV1, ProviderRefusalV1> {
+    canonical_sorted_map([
+        ("id", canonical_text(coordinate)),
+        (
+            "digest",
+            CanonicalValueV1::Array(vec![
+                canonical_text("sha256"),
+                CanonicalValueV1::Bytes(digest_bytes),
+            ]),
+        ),
+    ])
+    .map_err(|()| {
+        invalid_output_artifact(
+            coordinate,
+            "echo.provider.resource-reference",
+            "the output resource reference could not be constructed",
+        )
+    })
+}
+
+fn encode_output_envelope(
+    role: &str,
+    envelope: &CanonicalValueV1,
+) -> Result<Vec<u8>, ProviderRefusalV1> {
+    encode_canonical_cbor_v1(envelope).map_err(|_| {
+        invalid_output_artifact(
+            role,
+            "echo.provider.output-envelope-encoding",
+            "the output envelope could not be canonically encoded",
+        )
+    })
+}
+
+fn render_generated_source(target_ir_digest: &Digest, target_profile_digest: &Digest) -> String {
+    const TEMPLATE: &str = r#"// SPDX-License-Identifier: Apache-2.0
+//! Generated Echo helper projection for one admitted Edict operation.
+//! Final Edict contract-bundle identity is bound explicitly after assembly.
+
+pub mod echo_dpo {
+    /// Exact Edict-authored semantic operation coordinate.
+    pub const OPERATION_COORDINATE: &str = "a.b@1.t";
+    /// Semantic coordinate carried by the emitted Target IR artifact.
+    pub const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
+    /// Digest-framing domain for the complete Target IR artifact envelope.
+    pub const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
+    /// Exact domain-framed identity of the emitted Target IR artifact.
+    pub const TARGET_IR_DIGEST: &str = "__TARGET_IR_DIGEST__";
+    /// Exact target-profile coordinate.
+    pub const TARGET_PROFILE: &str = "echo.dpo@1";
+    /// Exact domain-framed identity of the target profile.
+    pub const TARGET_PROFILE_DIGEST: &str = "__TARGET_PROFILE_DIGEST__";
+    /// Semantic profile for Echo contract bundles; not a bundle occurrence.
+    pub const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
+    /// Exact domain-framed identity of the target-bundle profile.
+    pub const TARGET_BUNDLE_PROFILE_DIGEST: &str = "__TARGET_BUNDLE_PROFILE_DIGEST__";
+    /// Edict domain for the semantic contract-bundle digest proposition.
+    pub const SEMANTIC_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.semantic/v1";
+    /// Edict domain for the release contract-bundle digest proposition.
+    pub const RELEASE_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.release/v1";
+
+    /// Independent host pin for the final assembled bundle identity.
+    ///
+    /// This value is explicit expected evidence, not an admission token.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct ExpectedContractBundleIdentityV1<'a> {
+        /// Digest proposition domain for `semantic_digest`.
+        pub semantic_digest_domain: &'a str,
+        /// Exact semantic-layer bundle digest expected by the host.
+        pub semantic_digest: &'a str,
+        /// Digest proposition domain for `release_digest`.
+        pub release_digest_domain: &'a str,
+        /// Exact release-layer bundle digest expected by the host.
+        pub release_digest: &'a str,
+    }
+
+    /// Untrusted identity and semantic claims read from one assembled bundle.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct ContractBundleIdentityV1<'a> {
+        /// Digest proposition domain for `semantic_digest`.
+        pub semantic_digest_domain: &'a str,
+        /// Claimed semantic-layer bundle digest computed by Edict.
+        pub semantic_digest: &'a str,
+        /// Digest proposition domain for `release_digest`.
+        pub release_digest_domain: &'a str,
+        /// Claimed release-layer bundle digest computed by Edict.
+        pub release_digest: &'a str,
+        /// Semantic operation coordinate carried by the bundle.
+        pub operation_coordinate: &'a str,
+        /// Target IR digest carried by the bundle.
+        pub target_ir_digest: &'a str,
+        /// Target-profile digest carried by the bundle.
+        pub target_profile_digest: &'a str,
+        /// Target-bundle-profile digest carried by the bundle.
+        pub target_bundle_profile_digest: &'a str,
+    }
+
+    /// Stable reason an assembled bundle cannot bind this generated helper.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum BindingMismatchKind {
+        /// A bundle digest is framed under the wrong proposition domain.
+        BundleDigestDomain,
+        /// A semantic or release bundle digest is not a typed SHA-256 review value.
+        BundleDigest,
+        /// The assembled semantic-bundle digest differs from the host pin.
+        SemanticBundleDigest,
+        /// The assembled release-bundle digest differs from the host pin.
+        ReleaseBundleDigest,
+        /// The bundle names a different semantic operation.
+        Operation,
+        /// The bundle names a different Target IR artifact.
+        TargetIr,
+        /// The bundle names a different target profile.
+        TargetProfile,
+        /// The bundle names a different target-bundle profile.
+        TargetBundleProfile,
+    }
+
+    /// Exact generated registration binding, still without runtime authority.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RegistrationDescriptorV1<'a> {
+        contract_bundle: ContractBundleIdentityV1<'a>,
+    }
+
+    impl<'a> RegistrationDescriptorV1<'a> {
+        /// Return the exact bundle claims that matched the explicit host pin.
+        pub const fn contract_bundle(&self) -> &ContractBundleIdentityV1<'a> {
+            &self.contract_bundle
         }
     }
+
+    /// Compare assembled bundle claims to an independent exact host pin and to
+    /// this generated helper's semantic identities.
+    ///
+    /// This pure equality/consistency preflight neither authenticates the pin,
+    /// admits the bundle, nor installs a package. Those remain separate trusted
+    /// host and Echo runtime crossings.
+    pub fn bind_contract_bundle<'a>(
+        expected: ExpectedContractBundleIdentityV1<'a>,
+        identity: ContractBundleIdentityV1<'a>,
+    ) -> Result<RegistrationDescriptorV1<'a>, BindingMismatchKind> {
+        if expected.semantic_digest_domain != SEMANTIC_BUNDLE_DIGEST_DOMAIN
+            || identity.semantic_digest_domain != SEMANTIC_BUNDLE_DIGEST_DOMAIN
+            || expected.release_digest_domain != RELEASE_BUNDLE_DIGEST_DOMAIN
+            || identity.release_digest_domain != RELEASE_BUNDLE_DIGEST_DOMAIN
+        {
+            return Err(BindingMismatchKind::BundleDigestDomain);
+        }
+        if !is_sha256_review(expected.semantic_digest)
+            || !is_sha256_review(expected.release_digest)
+            || !is_sha256_review(identity.semantic_digest)
+            || !is_sha256_review(identity.release_digest)
+        {
+            return Err(BindingMismatchKind::BundleDigest);
+        }
+        if identity.semantic_digest != expected.semantic_digest {
+            return Err(BindingMismatchKind::SemanticBundleDigest);
+        }
+        if identity.release_digest != expected.release_digest {
+            return Err(BindingMismatchKind::ReleaseBundleDigest);
+        }
+        if identity.operation_coordinate != OPERATION_COORDINATE {
+            return Err(BindingMismatchKind::Operation);
+        }
+        if identity.target_ir_digest != TARGET_IR_DIGEST {
+            return Err(BindingMismatchKind::TargetIr);
+        }
+        if identity.target_profile_digest != TARGET_PROFILE_DIGEST {
+            return Err(BindingMismatchKind::TargetProfile);
+        }
+        if identity.target_bundle_profile_digest != TARGET_BUNDLE_PROFILE_DIGEST {
+            return Err(BindingMismatchKind::TargetBundleProfile);
+        }
+        Ok(RegistrationDescriptorV1 {
+            contract_bundle: identity,
+        })
+    }
+
+    fn is_sha256_review(value: &str) -> bool {
+        let Some(hex) = value.strip_prefix("sha256:") else {
+            return false;
+        };
+        hex.len() == 64
+            && hex
+                .as_bytes()
+                .iter()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    }
+}
+"#;
+
+    TEMPLATE
+        .replace("__TARGET_IR_DIGEST__", &digest_review(target_ir_digest))
+        .replace(
+            "__TARGET_PROFILE_DIGEST__",
+            &digest_review(target_profile_digest),
+        )
+        .replace(
+            "__TARGET_BUNDLE_PROFILE_DIGEST__",
+            TARGET_BUNDLE_PROFILE_DIGEST,
+        )
+}
+
+fn render_review_payload(
+    target_ir_digest: &Digest,
+    target_profile_digest: &Digest,
+    generated_artifact_digest: &Digest,
+) -> String {
+    format!(
+        concat!(
+            "{{\"apiVersion\":\"echo.generated-helper-review/v1\",",
+            "\"authoritative\":false,",
+            "\"operation\":\"a.b@1.t\",",
+            "\"targetIr\":{{\"coordinate\":\"{}\",\"digestDomain\":\"{}\",",
+            "\"digest\":\"{}\"}},",
+            "\"targetProfile\":{{\"id\":\"echo.dpo@1\",\"digest\":\"{}\"}},",
+            "\"targetBundleProfile\":{{\"id\":\"{}\",\"digest\":\"{}\"}},",
+            "\"generatedArtifact\":{{\"coordinate\":\"{}\",\"digestDomain\":\"{}\",",
+            "\"digest\":\"{}\"}},",
+            "\"contractBundle\":{{\"binding\":\"explicit-after-assembly\",",
+            "\"semanticDigestDomain\":\"{}\",\"semanticDigest\":null,",
+            "\"releaseDigestDomain\":\"{}\",\"releaseDigest\":null}},",
+            "\"runtimeAuthority\":false}}\n"
+        ),
+        TARGET_IR_COORDINATE,
+        TARGET_IR_ARTIFACT_DOMAIN,
+        digest_review(target_ir_digest),
+        digest_review(target_profile_digest),
+        TARGET_BUNDLE_PROFILE,
+        TARGET_BUNDLE_PROFILE_DIGEST,
+        GENERATED_ARTIFACT_ROLE,
+        GENERATED_ARTIFACT_DOMAIN,
+        digest_review(generated_artifact_digest),
+        SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        RELEASE_BUNDLE_DIGEST_DOMAIN,
+    )
+}
+
+fn decode_sha256_review(value: &str) -> Option<Vec<u8>> {
+    let hex = value.strip_prefix("sha256:")?;
+    if hex.len() != 64 {
+        return None;
+    }
+    hex.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = hex_nibble(pair[0])?;
+            let low = hex_nibble(pair[1])?;
+            Some((high << 4) | low)
+        })
+        .collect()
+}
+
+const fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn invalid_output_artifact(subject: &str, code: &str, message: &str) -> ProviderRefusalV1 {
+    refusal(
+        ProviderRefusalKind::InvalidSemanticArtifact,
+        subject,
+        code,
+        message,
+    )
 }
 
 fn lower_core(
@@ -589,7 +1049,7 @@ fn lower_core(
 
     Ok(canonical_map([
         ("kind", canonical_text("targetIrArtifact")),
-        ("domain", canonical_text(INNER_TARGET_IR_DOMAIN)),
+        ("domain", canonical_text(TARGET_IR_COORDINATE)),
         (
             "targetProfile",
             canonical_map([

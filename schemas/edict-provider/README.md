@@ -188,6 +188,23 @@ them with the generated semantic artifacts, and generates the package-root
 listed inside its own artifact inventory. Runtime `reviewPayload` invocation
 output is distinct from #652's build-time `reviewArtifact`.
 
+The #656 native lowerer model declares three exact sorted outputs:
+`generated.echo-dpo` / `echo.generated-artifact/v1`, `review.echo-dpo` /
+`echo.review-payload/v1`, and `target-ir.echo-dpo` /
+`edict.target-ir.artifact/v1`. The first two are canonical-CBOR envelopes at
+`generated/echo_dpo.rs` and `review/echo_dpo.json`; the non-authoritative review
+subjects the exact generated-artifact digest. `echo.span-ir/v1` remains the
+semantic Target IR coordinate and `edict.target-ir.artifact/v1` its distinct
+artifact output and digest domain. `echo.dpo.bundle/v1` is a target-bundle
+profile rather than a contract-bundle occurrence. Final semantic and release
+bundle identities are compared explicitly after assembly using the separate
+`edict.bundle.semantic/v1` and `edict.bundle.release/v1` propositions. That
+comparison grants no admission, installation, or runtime authority. Runtime
+`reviewPayload` also remains distinct from Wesley `GenerationReviewV1`.
+Checked-component promotion and actual host validation of these new envelopes
+under the owning CDDL roots are still required before they are admitted provider
+outputs.
+
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
 routes, 24 domain-to-root bindings (nine invocation domains, the generated

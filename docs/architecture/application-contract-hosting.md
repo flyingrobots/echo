@@ -132,6 +132,8 @@ Echo GraphQL and checked semantic declarations
   -> provider-owned lowerer and verifier components
   -> #655 generated provider manifest and digest-locked Echo provider package
   -> Edict's runtime-neutral provider host
+  -> exact requested Target IR, generated-helper, and non-authoritative review
+     projections after their own host admission
 ```
 
 The first checked non-GraphQL source is
@@ -258,6 +260,32 @@ imports; filesystem, network, environment, clock, randomness, registry,
 logging callback, WASI, and every other callable import are forbidden. This
 crossing proves translation only. Package admission, installation, invocation,
 commitment, observation, and receipt authority remain separate Echo runtime
+crossings.
+
+The #656 native lowerer model adds two projections beside the Target IR output:
+an exact generated Rust helper envelope and a permanently non-authoritative
+review envelope. Requested outputs must be an exact lexicographically sorted
+subset of the three declared role/kind/domain triples. The helper and review
+separately name the semantic Target IR coordinate `echo.span-ir/v1` and its
+artifact digest domain `edict.target-ir.artifact/v1`; neither identity may stand
+in for the other. The review subjects the exact generated artifact, so its
+evidence changes when the generated envelope changes.
+
+The `echo.dpo.bundle/v1` identity is only a target-bundle profile, not a final
+contract-bundle occurrence. Because the generated artifact participates in the
+bundle's semantic identity, embedding final bundle digests in that artifact or
+its review would create an identity cycle. The review therefore records
+`edict.bundle.semantic/v1` and `edict.bundle.release/v1` as the two bundle
+digest propositions, leaves their digest values absent, and declares
+`explicit-after-assembly` binding. After assembly, a caller supplies an
+independent expected pin and untrusted actual bundle claims. The generated
+helper checks exact domains, typed digest form, expected-versus-actual bundle
+digests, and the operation, Target IR, target profile, and target-bundle-profile
+identities before returning a descriptor with private state. This is an
+equality and semantic-consistency proof only: it does not authenticate the pin,
+schema-admit the outputs, construct or install an Echo package, or grant runtime
+authority. Codecs, invocation, ABI/schema/footprint binding, registry preflight,
+checked-component promotion, and pinned-host CDDL admission remain later #656
 crossings.
 
 The first executable verifier independently implements the frozen

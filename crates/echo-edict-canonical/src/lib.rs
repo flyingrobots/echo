@@ -187,6 +187,25 @@ pub fn digest_canonical_value_v1(
     domain: &str,
     value: &CanonicalValueV1,
 ) -> Result<String, CanonicalValueError> {
+    Ok(format!(
+        "sha256:{}",
+        hex::encode(digest_canonical_value_bytes_v1(domain, value)?)
+    ))
+}
+
+/// Computes the typed bytes of an Edict v1 domain-framed SHA-256 digest.
+///
+/// This is the wire-form counterpart of [`digest_canonical_value_v1`]. The
+/// preimage and authority boundary are identical; only the returned rendering
+/// differs.
+///
+/// # Errors
+///
+/// Returns a stable failure for an empty domain or an unencodable value.
+pub fn digest_canonical_value_bytes_v1(
+    domain: &str,
+    value: &CanonicalValueV1,
+) -> Result<[u8; 32], CanonicalValueError> {
     if domain.is_empty() {
         return Err(CanonicalValueError::new(
             CanonicalValueErrorKind::UnsupportedValue,
@@ -203,7 +222,7 @@ pub fn digest_canonical_value_v1(
     ))?);
     preimage.extend(encode_canonical_cbor_v1(value)?);
 
-    Ok(format!("sha256:{}", hex::encode(Sha256::digest(preimage))))
+    Ok(Sha256::digest(preimage).into())
 }
 
 fn encode_value(

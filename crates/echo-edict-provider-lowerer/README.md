@@ -27,7 +27,8 @@ coordinate, local intent key, input/output type bindings, Echo DPO target
 profile, and #652 lawpack, authority, and lowerability identities. Rebound
 operations, authored optics that this crossing cannot yet discharge, changed
 type bindings or definitions, evaluation budgets, unsupported Core ABI, target
-profiles, semantics, and output roles produce typed provider refusals. The
+profiles, semantics, and undeclared, mismatched, duplicate, or unsorted
+output-role claims produce typed provider refusals. The
 one-effect closure requires exactly the compiler-owned input, effect-result, and
 obstruction declarations, then validates pre-effect, obstruction-arm, and
 post-effect scope by their complete identities before cloning expressions into
@@ -37,6 +38,28 @@ intent results admit no call-expression callee in this closure; later
 constraint, constructor, or call semantics require explicit lowering laws. Reads remain
 unsupported and fail closed; the lowerer never represents a read as a synthetic
 mutation.
+
+The native model accepts exact sorted subsets of three output declarations:
+`generated.echo-dpo` / `GeneratedArtifact` / `echo.generated-artifact/v1`,
+`review.echo-dpo` / `ReviewPayload` / `echo.review-payload/v1`, and
+`target-ir.echo-dpo` / `TargetIr` / `edict.target-ir.artifact/v1`. The generated
+and review envelopes use `generated/echo_dpo.rs` and `review/echo_dpo.json`.
+The generated envelope binds profile `echo.dpo.registration/v1`, operation
+`a.b@1.t`, and the exact Rust source; the permanently non-authoritative review
+names the exact generated artifact as its subject. `echo.span-ir/v1` is the
+semantic Target IR coordinate, while `edict.target-ir.artifact/v1` is the
+artifact output and digest-framing domain. Likewise, `echo.dpo.bundle/v1` is a
+target-bundle profile, not an Edict contract-bundle occurrence.
+
+Final `edict.bundle.semantic/v1` and `edict.bundle.release/v1` identities are
+supplied only after assembly. Generated `bind_contract_bundle` checks their
+typed SHA-256 form and domains, expected-versus-actual bundle digests, and the
+operation, Target IR, target-profile, and target-bundle-profile identities. It
+is a pure equality and consistency preflight: it does not authenticate the
+expected pin, admit or install a package, or confer registration or runtime
+authority. This behavior currently belongs to the native model; rebuilding and
+promoting the checked component and proving host-side admission under the
+owning Edict CDDL roots are separate #656 steps.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

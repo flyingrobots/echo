@@ -1947,6 +1947,10 @@ assert_verifier_local_route \
   "shared Edict host changes" \
   tests/edict-provider-host-v1/tests/host_contract.rs \
   1
+assert_verifier_local_route \
+  "shared provider component-builder changes" \
+  xtask/src/provider_lowerer_component.rs \
+  1
 
 fake_warp_wasm_readme_output="$(run_fake_verify full crates/warp-wasm/README.md)"
 if printf '%s\n' "$fake_warp_wasm_readme_output" | grep -q 'critical local gate (tooling-only)'; then

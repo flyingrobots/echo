@@ -654,12 +654,12 @@ list_changed_critical_crates() {
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
-      crates/echo-edict-provider-verifier/wit/*|crates/echo-edict-provider-verifier/resources/*|schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh)
+      crates/echo-edict-provider-verifier/wit/*|crates/echo-edict-provider-verifier/resources/*|schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh|xtask/src/provider_lowerer_component.rs)
         printf '%s\n' "echo-edict-provider-verifier"
         ;;
     esac
     case "$file" in
-      crates/echo-edict-provider-lowerer/wit/*|schemas/edict-provider/components/v1/*|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh)
+      crates/echo-edict-provider-lowerer/wit/*|schemas/edict-provider/components/v1/*|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh|xtask/src/provider_lowerer_component.rs)
         printf '%s\n' "echo-edict-provider-lowerer"
         ;;
       crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)

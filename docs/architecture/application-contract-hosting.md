@@ -186,6 +186,19 @@ owning root in that authenticated CDDL. Passing both checks attests provider
 artifact shape only. It does not make authority-facts runtime Echo authority,
 install a package, admit an operation, or authorize a runtime consequence.
 
+The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
+not a hash of the completed JSON manifest. It binds the manifest role and
+coordinate, exact API and provider ABI, ten sorted semantic/component routes,
+nine sorted schema bindings, and raw exact-byte hashes for all 24 non-manifest
+members. The derived manifest carries that root and has its own independent raw
+content identity. Canonical-CBOR routes preserve their Edict domain-framed
+artifact digests while the package member table preserves raw occurrences, so
+neither proposition impersonates the other. Admission requires the caller's
+external provider pin and exact-reproduces packaged Wesley provenance/review.
+That boundary still proves only the distribution occurrence: the Edict-owned
+schema registry and component host must separately admit roots, bytes,
+attestations, imports, exports, and WIT types before guest execution.
+
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package
 manifest separately binds the exact provider-owned components and their frozen

@@ -36,6 +36,9 @@ pub mod provider_review;
 /// Exact generator source identity and checked provider artifact corpus.
 pub mod provider_corpus;
 
+/// Deterministic digest-locked Echo Edict provider package.
+pub mod provider_package;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {

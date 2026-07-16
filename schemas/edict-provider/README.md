@@ -188,5 +188,16 @@ them with the generated semantic artifacts, and generates the package-root
 listed inside its own artifact inventory. Runtime `reviewPayload` invocation
 output is distinct from #652's build-time `reviewArtifact`.
 
+The package closure contains the 22 generated files plus the exact lowerer and
+verifier components. Its Echo-owned provider digest binds the typed manifest
+routes, the nine domain-to-root bindings, and raw SHA-256 of all 24 physical
+members without hashing the derived manifest into itself. The five routed
+canonical-CBOR artifacts use their Edict domain-framed identities in the
+manifest, while CDDL, Wesley JSON evidence, and components use raw exact-byte
+identities. Pure digest admission also rebinds the generated routes to the
+packaged provenance/review and requires an external expected provider
+reference. This is package-occurrence evidence, not Edict component or schema
+compatibility proof and not Echo runtime installation or authority.
+
 All generated files are derived artifacts. Their digests and review renderings
 must never be copied back into this file as authored semantic facts.

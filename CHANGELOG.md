@@ -7,6 +7,17 @@
 
 ### Added
 
+- `echo-wesley-gen` now purely assembles and digest-admits the first complete
+  Echo Edict provider distribution from the verified 22-file generated corpus
+  and explicit lowerer/verifier bytes. The derived provider manifest carries ten
+  exact routes and nine schema bindings but never inventories itself. A
+  versioned canonical-CBOR package root binds those semantics plus raw hashes of
+  all 24 non-manifest members, while the exact 25-file inventory, deterministic
+  JSON rendering, mixed raw/domain-framed digest laws, packaged Wesley
+  provenance/review, component bounds, and an external expected provider pin
+  all fail closed through structured errors. This is package-occurrence
+  authentication only; Edict schema/component preflight and Echo runtime
+  installation remain separate authority crossings.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,

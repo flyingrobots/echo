@@ -689,7 +689,7 @@ fn validate_source_path(path: &str) -> Result<(), ProviderArtifactCorpusError> {
     Ok(())
 }
 
-fn validate_corpus_path(path: &str) -> Result<(), ProviderArtifactCorpusError> {
+pub(crate) fn validate_corpus_path(path: &str) -> Result<(), ProviderArtifactCorpusError> {
     if path.len() > MAX_CORPUS_PATH_BYTES {
         return Err(ProviderArtifactCorpusError::new(
             ProviderArtifactCorpusErrorKind::CorpusPathInvalid,

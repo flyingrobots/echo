@@ -112,6 +112,21 @@ semantic/settings/contract inputs already bound by Wesley and every generated
 output, preventing a circular generator identity. This is source/dependency-lock
 identity, not an executable-build or supply-chain attestation.
 
+`provider_package` purely assembles the 22 generated files and two explicit
+provider components into one 24-member, non-self-referential package closure,
+then derives the separate `edict.provider-manifest/v1` JSON file. The Echo-owned
+package root is a domain-framed canonical-CBOR value over the exact manifest
+routes, nine schema bindings, and raw SHA-256 of every non-manifest member.
+Canonical-CBOR artifact routes retain their Edict domain-framed identities;
+CDDL, Wesley evidence JSON, components, and every physical member retain raw
+exact-byte identities. Digest admission requires exact deterministic manifest
+JSON, one shared semantic-source/generator reference proven against the packaged
+Wesley provenance and review, the exact sorted 25-file inventory, and an
+external caller pin. The resulting proof authenticates package occurrence only.
+Edict schema-registry construction and component contract preflight remain
+separate required crossings before guest execution, and Echo runtime admission
+remains later still.
+
 The dedicated `echo-edict-provider-artifacts` binary is the explicit filesystem
 boundary. The caller-supplied `--out` path is resolved once under ambient
 filesystem authority; its final corpus-root entry is opened or created without

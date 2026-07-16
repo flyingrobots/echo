@@ -1895,6 +1895,59 @@ else
   printf '%s\n' "$fake_edict_host_script_output"
 fi
 
+assert_verifier_local_route() {
+  local description="$1"
+  local changed_file="$2"
+  local preserve_lowerer_route="${3:-0}"
+  local output
+  output="$(run_fake_verify full "$changed_file")"
+
+  if printf '%s\n' "$output" | grep -q 'critical local gate (targeted-rust)'; then
+    pass "$description selects the targeted Rust scope"
+  else
+    fail "$description should select the targeted Rust scope"
+    printf '%s\n' "$output"
+  fi
+  if printf '%s\n' "$output" | grep -q -- 'clippy -p echo-edict-provider-verifier --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs'; then
+    pass "$description runs verifier wasm-target strict Clippy"
+  else
+    fail "$description should run verifier wasm-target strict Clippy"
+    printf '%s\n' "$output"
+  fi
+  if printf '%s\n' "$output" | grep -q '^edict-provider-host-v1$'; then
+    pass "$description runs the isolated Edict host witness"
+  else
+    fail "$description should run the isolated Edict host witness"
+    printf '%s\n' "$output"
+  fi
+  if [[ "$preserve_lowerer_route" == "1" ]]; then
+    if printf '%s\n' "$output" | grep -q -- 'clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs'; then
+      pass "$description preserves the lowerer wasm-target route"
+    else
+      fail "$description should preserve the lowerer wasm-target route"
+      printf '%s\n' "$output"
+    fi
+  fi
+}
+
+assert_verifier_local_route \
+  "verifier crate changes" \
+  crates/echo-edict-provider-verifier/src/lib.rs
+assert_verifier_local_route \
+  "verifier semantic-resource changes" \
+  crates/echo-edict-provider-verifier/resources/resource.target-ir.cbor
+assert_verifier_local_route \
+  "verifier WIT changes" \
+  crates/echo-edict-provider-verifier/wit/edict-target-provider.wit
+assert_verifier_local_route \
+  "checked verifier component changes" \
+  schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm \
+  1
+assert_verifier_local_route \
+  "shared Edict host changes" \
+  tests/edict-provider-host-v1/tests/host_contract.rs \
+  1
+
 fake_warp_wasm_readme_output="$(run_fake_verify full crates/warp-wasm/README.md)"
 if printf '%s\n' "$fake_warp_wasm_readme_output" | grep -q 'critical local gate (tooling-only)'; then
   pass "non-rust critical crate docs stay off the Rust smoke lanes"

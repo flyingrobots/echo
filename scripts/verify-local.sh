@@ -259,6 +259,7 @@ readonly FULL_CRITICAL_PREFIXES=(
   "crates/echo-wasm-abi/"
   "crates/echo-edict-canonical/"
   "crates/echo-edict-provider-lowerer/"
+  "crates/echo-edict-provider-verifier/"
   "schemas/edict-provider/components/v1/"
   "tests/edict-provider-host-v1/"
   "crates/echo-scene-port/"
@@ -315,6 +316,7 @@ readonly FULL_LOCAL_PACKAGES=(
   "echo-wasm-abi"
   "echo-edict-canonical"
   "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
@@ -328,6 +330,7 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "warp-math"
   "echo-edict-canonical"
   "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-graph"
   "echo-scene-port"
   "echo-scene-codec"
@@ -346,6 +349,7 @@ readonly FULL_LOCAL_CLIPPY_CORE_PACKAGES=(
 readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
   "echo-edict-canonical"
   "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
@@ -364,6 +368,7 @@ readonly FULL_LOCAL_RUSTDOC_PACKAGES=(
   "warp-wasm"
   "echo-edict-canonical"
   "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
 )
 
 readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
@@ -648,6 +653,11 @@ list_changed_critical_crates() {
   local file crate
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/echo-edict-provider-verifier/wit/*|crates/echo-edict-provider-verifier/resources/*|schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh)
+        printf '%s\n' "echo-edict-provider-verifier"
+        ;;
+    esac
     case "$file" in
       crates/echo-edict-provider-lowerer/wit/*|schemas/edict-provider/components/v1/*|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh)
         printf '%s\n' "echo-edict-provider-lowerer"
@@ -1534,7 +1544,8 @@ prepare_full_scope() {
   FULL_SCOPE_WARP_MATH_RUN_PRNG=0
   FULL_SCOPE_RUN_EDICT_PROVIDER_HOST=0
 
-  if array_contains "echo-edict-provider-lowerer" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+  if array_contains "echo-edict-provider-lowerer" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"} \
+    || array_contains "echo-edict-provider-verifier" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     FULL_SCOPE_RUN_EDICT_PROVIDER_HOST=1
   fi
 
@@ -1826,12 +1837,20 @@ run_full_lane_edict_provider_host() {
 }
 
 run_full_lane_edict_provider_wasm_clippy() {
-  echo "[verify-local][clippy-edict-provider-wasm] strict wasm32 lowerer adapter"
+  echo "[verify-local][clippy-edict-provider-wasm] strict selected wasm32 provider adapters"
   rustup target add wasm32-unknown-unknown --toolchain "$PINNED"
-  lane_cargo "full-clippy-edict-provider-wasm" clippy \
-    -p echo-edict-provider-lowerer \
-    --target wasm32-unknown-unknown \
-    --lib -- -D warnings -D missing_docs
+  if array_contains "echo-edict-provider-lowerer" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    lane_cargo "full-clippy-edict-provider-wasm" clippy \
+      -p echo-edict-provider-lowerer \
+      --target wasm32-unknown-unknown \
+      --lib -- -D warnings -D missing_docs
+  fi
+  if array_contains "echo-edict-provider-verifier" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    lane_cargo "full-clippy-edict-provider-wasm" clippy \
+      -p echo-edict-provider-verifier \
+      --target wasm32-unknown-unknown \
+      --lib -- -D warnings -D missing_docs
+  fi
 }
 
 run_full_checks_sequential() {

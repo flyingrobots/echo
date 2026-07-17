@@ -11,12 +11,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod checked_generated_helper;
 
 use checked_generated_helper::echo_dpo as generated;
-use echo_registry_api::OpKind;
+use echo_registry_api::{
+    ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider,
+};
 use warp_core::{
-    make_node_id, make_type_id, propose_provider_contract_package_v1, ContractPackageIdentity,
-    EngineBuilder, Footprint, GeneratedProviderMutationDispatchV1, GraphStore, GraphView, NodeId,
-    NodeRecord, ProviderContractAdmissionErrorKind, ProviderContractAdmissionPolicyV1,
-    ProviderContractPackageProposalV1, ProviderMutationHooksV1, ProviderMutationHostV1,
+    make_node_id, make_type_id, propose_provider_contract_package_v1, ConflictPolicy,
+    ContractMutationHandler, ContractPackageIdentity, EngineBuilder, Footprint,
+    GeneratedProviderMutationDispatchV1, GraphStore, GraphView, InstalledContractPackage,
+    InstalledContractPackageError, NodeId, NodeRecord, PatternGraph,
+    ProviderContractAdmissionErrorKind, ProviderContractAdmissionPolicyV1,
+    ProviderContractInstallationErrorKind, ProviderContractPackageProposalV1,
+    ProviderMutationHooksV1, ProviderMutationHostV1, ProviderPackageReferenceV1, RewriteRule,
     SchedulerKind, TickDelta, TrustedRuntimeHost, WorldlineRuntime,
 };
 
@@ -30,10 +35,55 @@ const PACKAGE_ARTIFACT_SHA256: &str =
     "e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69";
 const UNAPPROVED_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const PROVIDER_PACKAGE_COORDINATE: &str = "echo.edict-provider@1";
+const LEGACY_SCHEMA_SHA256_HEX: &str =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const LEGACY_RULE_NAME: &str = "cmd/contract/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/3389142194/legacyCollision";
 
 static MATCHER_CALLS: AtomicUsize = AtomicUsize::new(0);
 static EXECUTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
 static FOOTPRINT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+static LEGACY_OPS: &[OpDef] = &[OpDef {
+    kind: OpKind::Mutation,
+    name: "legacyCollision",
+    op_id: generated::OPERATION_ID,
+    args: &[],
+    result_ty: "LegacyResult",
+    directives_json: "{}",
+    footprint_certificate: None,
+}];
+
+struct LegacyCollisionRegistry;
+
+impl RegistryProvider for LegacyCollisionRegistry {
+    fn info(&self) -> RegistryInfo {
+        RegistryInfo {
+            echo_abi_version: 1,
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: LEGACY_SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
+        }
+    }
+
+    fn op_by_id(&self, op_id: u32) -> Option<&'static OpDef> {
+        LEGACY_OPS.iter().find(|operation| operation.op_id == op_id)
+    }
+
+    fn all_ops(&self) -> &'static [OpDef] {
+        LEGACY_OPS
+    }
+
+    fn all_enums(&self) -> &'static [echo_registry_api::EnumDef] {
+        &[]
+    }
+
+    fn all_objects(&self) -> &'static [ObjectDef] {
+        &[]
+    }
+}
 
 fn bundle_pin(
     release_digest: &'static str,
@@ -111,17 +161,82 @@ fn counting_matcher(_view: GraphView<'_>, _scope: &NodeId) -> bool {
     true
 }
 
+fn counting_executor(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
+    EXECUTOR_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+fn counting_footprint(_view: GraphView<'_>, _scope: &NodeId) -> Footprint {
+    FOOTPRINT_CALLS.fetch_add(1, Ordering::SeqCst);
+    Footprint::default()
+}
+
 struct CountingHost;
 
 impl ProviderMutationHostV1 for CountingHost {
     fn execute(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
-        EXECUTOR_CALLS.fetch_add(1, Ordering::SeqCst);
+        counting_executor(_view, _scope, _delta);
     }
 
     fn effect_footprint(_view: GraphView<'_>, _scope: &NodeId) -> Footprint {
-        FOOTPRINT_CALLS.fetch_add(1, Ordering::SeqCst);
-        Footprint::default()
+        counting_footprint(_view, _scope)
     }
+}
+
+fn legacy_collision_package() -> InstalledContractPackage<'static> {
+    static REGISTRY: LegacyCollisionRegistry = LegacyCollisionRegistry;
+    InstalledContractPackage {
+        identity: ContractPackageIdentity {
+            package_name: "legacy-provider-collision",
+            package_version: "1.0.0",
+            artifact_hash_hex: LEGACY_SCHEMA_SHA256_HEX,
+        },
+        registry: &REGISTRY,
+        verification_policy: ContractArtifactVerificationPolicy {
+            echo_abi_version: 1,
+            codec_id: "cbor-canon-v1",
+            registry_version: 1,
+            schema_sha256_hex: LEGACY_SCHEMA_SHA256_HEX,
+            wesley_generator_version: "echo-wesley-gen/0.1.0",
+            helper_api_version: 1,
+            footprint_certificates: &[],
+            require_mutation_footprint_certificates: false,
+        },
+        mutation_handlers: vec![ContractMutationHandler {
+            op_id: generated::OPERATION_ID,
+            rule: RewriteRule {
+                id: make_type_id(LEGACY_RULE_NAME).0,
+                name: LEGACY_RULE_NAME,
+                left: PatternGraph { nodes: vec![] },
+                matcher: counting_matcher,
+                executor: counting_executor,
+                compute_footprint: counting_footprint,
+                factor_mask: 0,
+                conflict_policy: ConflictPolicy::Abort,
+                join_fn: None,
+            },
+        }],
+        inverse_handlers: vec![],
+        query_observers: vec![],
+    }
+}
+
+fn package_reference() -> ProviderPackageReferenceV1 {
+    ProviderPackageReferenceV1::new(
+        PROVIDER_PACKAGE_COORDINATE,
+        format!("sha256:{PACKAGE_ARTIFACT_SHA256}"),
+    )
+}
+
+fn reset_callback_counts() {
+    MATCHER_CALLS.store(0, Ordering::SeqCst);
+    EXECUTOR_CALLS.store(0, Ordering::SeqCst);
+    FOOTPRINT_CALLS.store(0, Ordering::SeqCst);
+}
+
+fn assert_no_callback() {
+    assert_eq!(MATCHER_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(EXECUTOR_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(FOOTPRINT_CALLS.load(Ordering::SeqCst), 0);
 }
 
 fn proposal(
@@ -129,15 +244,7 @@ fn proposal(
     artifact_hash_hex: &'static str,
 ) -> ProviderContractPackageProposalV1<'static> {
     let descriptor = descriptor(release_digest);
-    let rule_name = Box::leak(
-        format!(
-            "cmd/contract/{}/{}/{}",
-            generated::PROVIDER_SCHEMA_SHA256_HEX,
-            generated::OPERATION_ID,
-            generated::OPERATION_COORDINATE
-        )
-        .into_boxed_str(),
-    );
+    let rule_name = provider_rule_name();
     propose_provider_contract_package_v1(
         occurrence(artifact_hash_hex),
         descriptor.provider_registry(),
@@ -151,6 +258,18 @@ fn proposal(
         ),
     )
     .expect("self-consistent generated and host claims produce a proposal")
+}
+
+fn provider_rule_name() -> &'static str {
+    Box::leak(
+        format!(
+            "cmd/contract/{}/{}/{}",
+            generated::PROVIDER_SCHEMA_SHA256_HEX,
+            generated::OPERATION_ID,
+            generated::OPERATION_COORDINATE
+        )
+        .into_boxed_str(),
+    )
 }
 
 fn admission_policy() -> ProviderContractAdmissionPolicyV1<'static> {
@@ -175,6 +294,37 @@ fn empty_host() -> TrustedRuntimeHost {
         .build();
     TrustedRuntimeHost::new(WorldlineRuntime::new(), engine)
         .expect("trusted host initializes for proposal admission")
+}
+
+fn host_with_provider_rule_name_reserved() -> TrustedRuntimeHost {
+    let mut store = GraphStore::default();
+    let root = make_node_id("root");
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let mut engine = EngineBuilder::new(store, root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let rule_name = provider_rule_name();
+    engine
+        .register_rule(RewriteRule {
+            id: make_type_id(rule_name).0,
+            name: rule_name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: counting_matcher,
+            executor: counting_executor,
+            compute_footprint: counting_footprint,
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        })
+        .expect("the provider rule identity is reserved before package installation");
+    TrustedRuntimeHost::new(WorldlineRuntime::new(), engine)
+        .expect("trusted host initializes with the reserved provider rule")
 }
 
 fn assert_no_install_or_callback(host: &TrustedRuntimeHost) {
@@ -396,4 +546,176 @@ fn trusted_host_admits_only_the_exact_checked_provider_proposal_without_installi
         Some(UNAPPROVED_PACKAGE_ARTIFACT_SHA256)
     );
     assert_no_install_or_callback(&host);
+}
+
+#[test]
+fn legacy_first_provider_second_refuses_without_partial_provider_installation() {
+    reset_callback_counts();
+    let mut host = empty_host();
+    host.register_contract_package(legacy_collision_package())
+        .expect("the legacy collision fixture installs before the provider package");
+    assert!(host
+        .engine()
+        .installed_contract_mutation_evidence(generated::OPERATION_ID)
+        .is_some());
+
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256),
+        )
+        .expect("the exact provider proposal remains admissible independently of installation");
+    let package_reference = package_reference();
+    let error = host
+        .install_admitted_provider_contract_package_v1_trusted(package_reference.clone(), admitted)
+        .expect_err("a provider operation cannot capture a legacy-owned operation id");
+
+    assert_eq!(
+        error.kind(),
+        ProviderContractInstallationErrorKind::LegacyOperationConflict
+    );
+    assert_eq!(error.subject(), "legacy.contract.operation.id");
+    assert_eq!(
+        error.reference(),
+        Some(generated::OPERATION_ID.to_string().as_str())
+    );
+    assert!(host
+        .engine()
+        .installed_provider_contract_mutation_package_id(generated::OPERATION_ID)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_provider_contract_package_by_reference(&package_reference)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_contract_mutation_evidence(generated::OPERATION_ID)
+        .is_some());
+    assert_no_callback();
+}
+
+#[test]
+fn provider_first_legacy_second_refuses_without_partial_legacy_installation() {
+    reset_callback_counts();
+    let mut host = empty_host();
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256),
+        )
+        .expect("the exact provider proposal is independently admitted");
+    let package_reference = package_reference();
+    let installed = host
+        .install_admitted_provider_contract_package_v1_trusted(package_reference.clone(), admitted)
+        .expect("the provider package installs before the legacy collision fixture");
+
+    let error = host
+        .register_contract_package(legacy_collision_package())
+        .expect_err("a legacy package cannot capture a provider-owned operation id");
+    assert!(matches!(
+        error,
+        InstalledContractPackageError::ProviderOperationConflict { op_id }
+            if op_id == generated::OPERATION_ID
+    ));
+    assert!(host
+        .engine()
+        .installed_contract_mutation_package_id(generated::OPERATION_ID)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_contract_mutation_evidence(generated::OPERATION_ID)
+        .is_none());
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_mutation_package_id(generated::OPERATION_ID),
+        Some(installed.package_id())
+    );
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_package_by_reference(&package_reference),
+        Some(&installed)
+    );
+    assert_no_callback();
+}
+
+#[test]
+fn trusted_installation_lower_boundary_rejects_unproven_package_root_disagreement() {
+    let cases = [
+        (
+            "sha256:ABC",
+            ProviderContractInstallationErrorKind::MalformedPackageReferenceDigest,
+            "provider.package.reference.digest",
+            "sha256:ABC",
+        ),
+        (
+            "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            ProviderContractInstallationErrorKind::PackageArtifactDigestMismatch,
+            "provider.package.occurrence.artifact-hash",
+            PACKAGE_ARTIFACT_SHA256,
+        ),
+    ];
+
+    for (digest, expected_kind, expected_subject, expected_reference) in cases {
+        reset_callback_counts();
+        let mut host = empty_host();
+        let admitted = host
+            .admit_provider_contract_package_v1(
+                &admission_policy(),
+                proposal(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256),
+            )
+            .expect("the exact proposal is admitted independently of the root claim");
+        let reference = ProviderPackageReferenceV1::new("echo.edict-provider@1", digest);
+        let error = host
+            .install_admitted_provider_contract_package_v1_trusted(reference.clone(), admitted)
+            .expect_err("the trusted lower boundary must reject package-root disagreement");
+
+        assert_eq!(error.kind(), expected_kind);
+        assert_eq!(error.subject(), expected_subject);
+        assert_eq!(error.reference(), Some(expected_reference));
+        assert!(host
+            .engine()
+            .installed_provider_contract_package_by_reference(&reference)
+            .is_none());
+        assert!(host
+            .engine()
+            .installed_provider_contract_mutation_package_id(generated::OPERATION_ID)
+            .is_none());
+        assert_no_callback();
+    }
+}
+
+#[test]
+fn provider_rule_conflict_refuses_before_any_provider_index_changes() {
+    reset_callback_counts();
+    let mut host = host_with_provider_rule_name_reserved();
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256),
+        )
+        .expect("the exact proposal remains independently admissible");
+    let reference = package_reference();
+    let error = host
+        .install_admitted_provider_contract_package_v1_trusted(reference.clone(), admitted)
+        .expect_err("a provider package cannot capture an existing scheduler rule name");
+
+    assert_eq!(
+        error.kind(),
+        ProviderContractInstallationErrorKind::DuplicateRuleName
+    );
+    assert_eq!(error.subject(), "provider.mutation.rule.name");
+    assert_eq!(error.reference(), Some(provider_rule_name()));
+    assert!(host
+        .engine()
+        .installed_provider_contract_package_by_reference(&reference)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_provider_contract_mutation_package_id(generated::OPERATION_ID)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_contract_mutation_evidence(generated::OPERATION_ID)
+        .is_none());
+    assert_no_callback();
 }

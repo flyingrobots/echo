@@ -292,6 +292,12 @@ pub enum InstalledContractPackageError<'a> {
         /// Duplicated operation id.
         op_id: u32,
     },
+    /// Operation id is already owned by an installed provider-native package.
+    #[error("contract operation id already installed by a provider package: {op_id}")]
+    ProviderOperationConflict {
+        /// Conflicting provider-native operation id.
+        op_id: u32,
+    },
     /// Rewrite rule name is already installed.
     #[error("duplicate rewrite rule name: {name}")]
     DuplicateRuleName {

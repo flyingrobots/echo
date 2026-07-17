@@ -30,10 +30,11 @@ each semantic fact. In the first compatibility closure:
   `target-ir-artifact` root;
 - runtime GraphQL owns none of these first-operation facts; and
 - the checked lowerer and verifier prove the bounded provider translation and
-  semantic-verification crossings, while runtime authority for replace package
-  admission, installation, scheduling, execution, presence-sensitive
-  enforcement, commitment, receipts, readings, and observations remains
-  unresolved and Echo-owned.
+  semantic-verification crossings. Echo now owns and implements exact proposal
+  admission, package-occurrence corroboration, and the normal proof-carrying
+  provider-native installation path; runtime intent admission, scheduling, execution,
+  presence-sensitive enforcement, commitment, receipts, readings, and
+  observations remain unresolved and Echo-owned.
 
 The source deliberately selects native lowerability and declares no semantic
 effect-to-effect direct adapter. Its lawpack projection separately declares the
@@ -256,9 +257,23 @@ Only the exact `echo.edict-provider@1` coordinate and a strict lowercase
 `sha256:` package root whose raw suffix equals the admitted occurrence hash
 produce `DigestCorroboratedProviderContractPackageV1`. This second crossing
 corroborates package occurrence; it does not derive registry semantics or
-arbitrary callback correctness from package bytes. Neither token installs,
-registers, schedules, executes, persists, observes, receipts, or grants Echo
+arbitrary callback correctness from package bytes. Neither token installs by
+itself or schedules, executes, persists, observes, receipts, or grants Echo
 runtime authority.
+
+The proof-owning
+`install_digest_corroborated_provider_contract_package_v1(...)` adapter consumes
+the corroborated token through `warp-core`'s sealed runtime-owner installer
+port. Its `TrustedRuntimeHost` lower primitive does not authenticate package
+bytes; that proposition remains owned by the consumed proof, and no equivalent
+application surface exists. Installation retains the exact occurrence and
+provider reference, full owned provider registry, and mutation-rule identity in
+a provider-specific record. Provider package, root, mutation-operation, and
+shared scheduler-rule indexes update atomically. No legacy Wesley/GraphQL
+metadata or evidence is invented and no callback runs during installation.
+Provider-native intent ingress, invocation, WAL persistence, receipts, and
+observations remain separate future crossings. Authored reads likewise remain
+on their independent bounded observer/optic path.
 
 Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`.
 Both refreshed components have crossed checked promotion, and the actual pinned

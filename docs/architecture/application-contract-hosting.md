@@ -132,11 +132,13 @@ emits verified publication artifacts plus a pure helper projection with the
 profile-owned `le-binary-v1` typed codecs, canonical EINT packing, a borrowed
 provider-generic registry, and a fail-closed mutation package proposal that
 binds one explicit host implementation. The helper can bind and propose; it
-cannot authenticate or install its own proposal. A trusted Echo host still owns
-runtime package admission and installation. The current proposal is
-mutation-specific; generated reads remain a separate bounded observer/optic
-crossing. Neither compiler path may claim that generated authority facts are
-Echo runtime authority.
+cannot authenticate or install its own proposal. A trusted Echo host owns
+proposal admission, exact package corroboration, and provider-native
+installation. The proof-owning generator adapter now consumes the corroborated
+token through a sealed runtime-owner port; it is not an application capability.
+The current proposal and installed record are mutation-specific; generated
+reads remain a separate bounded observer/optic crossing. Neither compiler path
+may claim that generated authority facts are Echo runtime authority.
 
 ## External Edict Provider Artifacts
 
@@ -353,8 +355,16 @@ The exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
 package root must agree with the admitted occurrence's raw artifact hash before
 it returns an opaque `DigestCorroboratedProviderContractPackageV1`. This proves
 package-occurrence agreement only; it does not derive registry semantics from
-package bytes or install the package. Provider-native installation remains a
-separate Echo-owned crossing. The proposal constructor supports mutations and
+package bytes or install the package by itself. The proof-owning
+`echo-wesley-gen` adapter can now consume that token through `warp-core`'s sealed
+runtime-owner installer port. The `TrustedRuntimeHost` lower primitive does not
+authenticate package bytes and is not exposed to application code. It creates a
+distinct owned provider record retaining the exact occurrence and reference,
+complete provider registry, and mutation-rule identity, then atomically installs
+provider package, root, operation, and shared scheduler-rule indexes. It invokes
+no callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
+Provider-native ingress, invocation, WAL, receipts, and observations remain
+separate Echo crossings. The proposal constructor supports mutations and
 refuses a `Query`. Authored reads continue through a separate bounded
 observer/optic crossing and may not be encoded as synthetic mutations.
 
@@ -783,10 +793,14 @@ the second crossing admits a digest claim rather than rehashing package bytes.
 `echo-wesley-gen` now consumes that token with independently admitted exact
 package bytes and returns an opaque token only when the exact provider
 coordinate and lowercase SHA-256 package roots agree. That composition does not
-derive registry semantics from the bytes. The next crossing must consume the
-corroborated token through a provider-native installed record while reusing
-Echo's existing atomic engine indexes. It must not fabricate the GraphQL and
-Wesley metadata required by the legacy `InstalledContractPackage` surface.
+derive registry semantics from the bytes. Its proof-owning installation adapter
+now consumes the corroborated token through a sealed runtime-owner port and
+creates a provider-native installed record while reusing Echo's atomic engine
+indexes. The install retains the exact occurrence/reference, complete owned
+provider registry, and rule identity; invokes no callback; and does not
+fabricate the GraphQL and Wesley metadata required by the legacy
+`InstalledContractPackage` surface. Runtime intent admission and execution
+evidence remain the next provider-native crossings.
 
 ## Admission Security Ramp
 

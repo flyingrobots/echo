@@ -54,10 +54,14 @@ observation. Echo's existing `InstalledContractPackage` verification and
 `DigestAdmittedProviderPackageV1`; exact provider-coordinate and strict
 lowercase SHA-256 package-root agreement yields an opaque
 `DigestCorroboratedProviderContractPackageV1`. This corroborates occurrence
-only, not registry semantics or callback behavior. The next Edict crossing must
-consume that proof through a provider-native installed record that reuses
-Echo's atomic engine indexes rather than inventing a Wesley/GraphQL adapter.
-Generated code cannot install itself.
+only, not registry semantics or callback behavior. A proof-owning
+`echo-wesley-gen` adapter now consumes that token through `warp-core`'s sealed
+runtime-owner installer port. `TrustedRuntimeHost` creates a distinct owned
+provider record and atomically updates provider package, root, operation, and
+shared scheduler-rule indexes. It invokes no callback and invents no
+Wesley/GraphQL metadata or legacy installed-contract evidence. Generated code
+cannot install itself, and the application handle exposes no installation
+surface.
 
 `native_rule_bootstrap` is a Cargo feature gate and repository policy boundary.
 Default builds omit raw rule constructors and public registration methods, but
@@ -89,13 +93,14 @@ surface. Wesley needs a package emitter. Edict already emits a digest-locked
 provider publication package, codec-bound mutation client, borrowed registry,
 and fail-closed package proposal. Echo now admits the exact proposal claim under
 independent trusted-host policy, and `echo-wesley-gen` corroborates that token
-with independently admitted exact package bytes. Echo still needs a
-provider-native installed record, atomic index installation, runtime dispatch
-and evidence, and the separate generated bounded-observer path for authored
-reads. The current mutation proposal intentionally rejects `Query`; that refusal
-does not turn a read into a mutation or eliminate the independent observer/optic
-corridor. All installation work must reuse Echo's registration and execution
-path; it must not fabricate Wesley metadata or create a second execution engine.
+with independently admitted exact package bytes and consumes the corroborated
+proof into a provider-native installed record with atomic Echo-owned indexes.
+Echo still needs provider-native runtime dispatch and evidence, and the separate
+generated bounded-observer path for authored reads. The current mutation
+proposal intentionally rejects `Query`; that refusal does not turn a read into
+a mutation or eliminate the independent observer/optic corridor. Installation
+reuses Echo's registration indexes without fabricating Wesley metadata or
+creating a second execution engine.
 
 ## Footprint Honesty
 
@@ -108,10 +113,11 @@ cannot silently ship false declarations.
 The `footprint_enforce_release` qualification lane is not wired into CI.
 No Wesley or Edict package is currently footprint-release-qualified. The
 digest-locked Edict provider package proves publication identity and
-reproducibility, not runtime installation or footprint qualification. Each
-authoring path still needs a positive installed generated-pack witness plus a
-deliberately false-footprint negative oracle before it may claim that status;
-Wesley additionally still needs its package emitter.
+reproducibility, not runtime installation or footprint qualification. The Edict
+path now has a positive provider-native installation witness, but it still needs
+a deliberately false-footprint negative oracle before it may claim release
+qualification. Wesley still needs both a package emitter and its own positive
+installed generated-pack witness.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.

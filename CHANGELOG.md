@@ -7,6 +7,18 @@
 
 ### Added
 
+- `echo-wesley-gen` now owns the proof-consuming provider installation adapter:
+  it consumes `DigestCorroboratedProviderContractPackageV1` through
+  `warp-core`'s sealed runtime-owner installer port and delegates to a
+  `TrustedRuntimeHost` lower primitive that explicitly does not authenticate
+  package bytes itself. Installation creates a distinct owned provider record
+  retaining the exact occurrence, provider reference, complete provider
+  registry, and mutation-rule identity, then atomically installs
+  provider-package, package-root, operation, and shared scheduler-rule indexes.
+  It fabricates no legacy Wesley/GraphQL metadata or evidence, exposes no app
+  installation surface, and invokes no callbacks. Provider-native ingress,
+  invocation, WAL, receipts, observations, and the separate bounded-read path
+  remain subsequent crossings.
 - `echo-wesley-gen` can now consume a `DigestAdmittedProviderPackageV1` and an
   independently Echo-admitted `AdmittedProviderContractPackageV1`, require the
   exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
@@ -27,7 +39,7 @@
   release identities, ABI/helper versions, operations, codecs, Target IR,
   obstruction, profiles, and footprint claims—and returns stable typed
   mismatches. The resulting `AdmittedProviderContractPackageV1` retains private
-  proposal material for a later provider-native installation crossing but does
+  proposal material for the proof-owned provider installation crossing but does
   not rehash package bytes, mutate the engine registry, install handlers,
   invoke callbacks, schedule work, or grant application authority.
 - The checked Echo Edict provider conformance corpus now declares twelve

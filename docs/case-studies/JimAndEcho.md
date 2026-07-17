@@ -142,10 +142,13 @@ replay old receipts over it.
 
 ### 2. Propose, Then Install The Application Contract
 
-Existing trusted-host installation API (a later crossing):
+Provider-native proof-owned installation:
 
 ```rust
-host.register_contract_package(installed_package)?;
+let installed = install_digest_corroborated_provider_contract_package_v1(
+    &mut host,
+    corroborated_package,
+)?;
 ```
 
 Edict's generated helper and explicit host bindings produce an opaque
@@ -158,10 +161,13 @@ construct the legacy Wesley `InstalledContractPackage`, register anything, or
 mint execution authority. `echo-wesley-gen` now consumes that token with
 independently admitted exact package bytes and returns an opaque corroborated
 proof only when the provider coordinate and strict lowercase SHA-256 package
-roots agree. A later provider-native installation crossing must consume that
-proof and reuse Echo's existing engine indexes. Jim retains its domain meaning;
-until that later crossing Echo has only corroborated generic provider evidence,
-not an installed operation or authority to admit canonical runtime intents.
+roots agree. Its proof-owning adapter consumes that token through a sealed
+runtime-owner port. `TrustedRuntimeHost` then creates a distinct owned provider
+record and atomically installs provider package, root, mutation-operation, and
+shared scheduler-rule indexes without invoking the callback or inventing legacy
+Wesley/GraphQL metadata. Jim retains its domain meaning. The installed record is
+not yet provider-native ingress, invocation, WAL, receipt, or observation
+authority.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -742,7 +748,7 @@ The Jim example generalizes into a practical checklist.
 4. Define bounded observers and their evidence requirements.
 5. Keep application nouns out of Echo core.
 
-### Generate, Propose, And Later Install The Bridge
+### Generate, Propose, And Install The Bridge
 
 1. Author Jim operation semantics in Edict, keeping mutating DPO semantics
    distinct from bounded read/optic semantics.
@@ -754,9 +760,10 @@ The Jim example generalizes into a practical checklist.
    separate read path.
 4. Pass the preflighted proposal through independent trusted-host policy to
    obtain an opaque admitted token, then corroborate it with the independently
-   admitted exact package proof. A later crossing must consume that corroborated
-   proof, construct a provider-native installed record, and reuse Echo's existing
-   engine registration machinery before execution authority exists.
+   admitted exact package proof. Consume that proof through the sealed
+   runtime-owner installer to construct the provider-native owned record and
+   atomically populate Echo's package, root, operation, and scheduler-rule
+   indexes. This does not invoke the handler or fabricate runtime receipts.
 5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work

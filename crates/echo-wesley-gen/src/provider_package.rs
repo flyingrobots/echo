@@ -747,6 +747,38 @@ pub fn corroborate_admitted_provider_contract_package_v1(
     Ok(DigestCorroboratedProviderContractPackageV1 { package, proposal })
 }
 
+/// Installs an exactly corroborated provider package through Echo's runtime-owner port.
+///
+/// This is the normal proof-carrying installation path. It consumes both the
+/// independently digest-admitted package occurrence and the independently
+/// Echo-admitted provider proposal, then delegates the retained proposal and
+/// exact package reference to Echo's sealed runtime-owner installer. It does
+/// not execute provider callbacks, submit an intent, schedule a tick, persist a
+/// receipt, or claim that arbitrary host callbacks implement Edict semantics.
+///
+/// # Errors
+///
+/// Returns a structured Echo installation failure when the retained package
+/// reference is malformed or conflicts with admitted or installed runtime state.
+pub fn install_digest_corroborated_provider_contract_package_v1<I>(
+    installer: &mut I,
+    package: DigestCorroboratedProviderContractPackageV1<'_>,
+) -> Result<
+    warp_core::InstalledProviderContractPackageRecordV1,
+    warp_core::ProviderContractInstallationError,
+>
+where
+    I: warp_core::ProviderContractPackageInstallerV1,
+{
+    let DigestCorroboratedProviderContractPackageV1 { package, proposal } = package;
+    let provider_reference = package.provider_reference();
+    let provider_reference = warp_core::ProviderPackageReferenceV1::new(
+        provider_reference.coordinate.clone(),
+        provider_reference.digest.clone(),
+    );
+    installer.install_admitted_provider_contract_package_v1_trusted(provider_reference, proposal)
+}
+
 /// Assembles the deterministic package from verified generated values and exact components.
 ///
 /// This function is pure. It performs no filesystem, registry, environment,

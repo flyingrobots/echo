@@ -274,11 +274,19 @@ pub use payload::{
 };
 pub use provider_contract::{
     propose_provider_contract_package_v1, AdmittedProviderContractPackageV1,
-    GeneratedProviderMutationDispatchV1, ProviderContractAdmissionError,
-    ProviderContractAdmissionErrorKind, ProviderContractAdmissionPolicyV1,
+    GeneratedProviderMutationDispatchV1, InstalledProviderBundleIdentityV1,
+    InstalledProviderContractPackageIdV1, InstalledProviderContractPackageOccurrenceV1,
+    InstalledProviderContractPackageRecordV1, InstalledProviderDigestIdentityV1,
+    InstalledProviderFootprintIdentityV1, InstalledProviderMutationRuleIdentityV1,
+    InstalledProviderOperationV1, InstalledProviderRegistryV1, InstalledProviderSchemaIdentityV1,
+    InstalledProviderSemanticIdentityV1, InstalledProviderValueContractV1,
+    ProviderContractAdmissionError, ProviderContractAdmissionErrorKind,
+    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
+    ProviderContractInstallationErrorKind, ProviderContractPackageInstallerV1,
     ProviderContractPackageProposalV1, ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1,
     ProviderMutationHooksV1, ProviderMutationHostV1, ProviderMutationImplementationIdentityV1,
     ProviderMutationMatchFnV1, ProviderPackageProposalError, ProviderPackageProposalErrorKind,
+    ProviderPackageReferenceV1,
 };
 // --- Plurality law types ---
 pub use plurality_law::{

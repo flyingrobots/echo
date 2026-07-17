@@ -133,8 +133,22 @@ Echo-admitted `AdmittedProviderContractPackageV1`. Exact
 `echo.edict-provider@1` coordinate and strict lowercase `sha256:` package-root
 agreement produce an opaque `DigestCorroboratedProviderContractPackageV1`.
 This composition does not derive registry semantics from package bytes, install
-or invoke anything, or grant runtime authority. Provider-native installation,
-operation admission, and runtime authority remain later Echo crossings.
+or invoke anything, or grant runtime authority.
+
+`provider_package::install_digest_corroborated_provider_contract_package_v1(...)`
+is the proof-owning installation adapter. It consumes the corroborated token and
+delegates through `warp-core`'s sealed `ProviderContractPackageInstallerV1`
+runtime-owner port. The `TrustedRuntimeHost` lower primitive accepts the
+already-corroborated reference and admitted proposal; it does not authenticate
+package bytes and is not exposed through the application handle. A successful
+installation retains the exact occurrence and provider reference, complete
+owned provider registry, and mutation-rule identity in a distinct provider
+record. Echo atomically adds provider-package, package-root, mutation-operation,
+and shared scheduler-rule indexes without fabricating legacy Wesley/GraphQL
+metadata or installed-contract evidence. Installation invokes no callbacks.
+Provider-native ingress and invocation, WAL persistence, receipts,
+observations, and the separate generated bounded-read path remain subsequent
+Echo crossings.
 
 `echo-edict-provider-package` is the explicit publication boundary for that
 distribution. Before any filesystem action it proves that the package's 22

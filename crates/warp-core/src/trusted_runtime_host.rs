@@ -45,15 +45,16 @@ use crate::{
     ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
     IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
     InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
-    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
-    IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
-    ObservationService, OpticAdmissionTicket, ProvenanceEntry, ProvenanceService, ProvenanceStore,
-    ProviderContractAdmissionError, ProviderContractAdmissionPolicyV1,
-    ProviderContractPackageProposalV1, ReceiptCorrelationPersistenceRecord,
-    ReceiptCorrelationRecord, RetainedProvenanceError, RuntimeError, SchedulerCoordinator,
-    StepRecord, TickReceiptRejection, TicketedRuntimeIngressAuthority,
-    TicketedRuntimeIngressDisposition, WitnessedSubmissionPersistenceRecord,
-    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
+    IntentOutcomeObservation, IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact,
+    ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
+    ProvenanceEntry, ProvenanceService, ProvenanceStore, ProviderContractAdmissionError,
+    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
+    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
+    ProviderPackageReferenceV1, ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord,
+    RetainedProvenanceError, RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
+    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
 
@@ -705,6 +706,32 @@ impl TrustedRuntimeHost {
         admit_provider_contract_package_v1(policy, proposal)
     }
 
+    /// Installs an admitted provider package under a trusted caller's package-root claim.
+    ///
+    /// This is a runtime-owner lower primitive. It requires a nonempty
+    /// caller-asserted coordinate and verifies strict digest rendering and
+    /// equality with the admitted occurrence hash before performing atomic
+    /// Engine registration. It does not authenticate or compare the provider
+    /// coordinate, inspect, load, or hash package bytes, so calling it alone is
+    /// not package-byte admission evidence. The normal path is the
+    /// proof-consuming `echo-wesley-gen` adapter.
+    ///
+    /// Application-facing [`TrustedRuntimeApp`] handles cannot call this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured provider installation failure when the claim is
+    /// malformed or conflicts with admitted or already installed state.
+    #[doc(hidden)]
+    pub fn install_admitted_provider_contract_package_v1_trusted(
+        &mut self,
+        package_reference: ProviderPackageReferenceV1,
+        admitted: AdmittedProviderContractPackageV1<'_>,
+    ) -> Result<InstalledProviderContractPackageRecordV1, ProviderContractInstallationError> {
+        self.engine
+            .install_admitted_provider_contract_package_v1_trusted(package_reference, admitted)
+    }
+
     /// Registers a generated contract package through the trusted host boundary.
     ///
     /// # Errors
@@ -1153,6 +1180,22 @@ impl TrustedRuntimeHost {
             }
             report.committed_steps += steps.len();
         }
+    }
+}
+
+impl crate::provider_contract::SealedProviderContractPackageInstallerV1 for TrustedRuntimeHost {}
+
+impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
+    fn install_admitted_provider_contract_package_v1_trusted(
+        &mut self,
+        package_reference: ProviderPackageReferenceV1,
+        admitted: AdmittedProviderContractPackageV1<'_>,
+    ) -> Result<InstalledProviderContractPackageRecordV1, ProviderContractInstallationError> {
+        TrustedRuntimeHost::install_admitted_provider_contract_package_v1_trusted(
+            self,
+            package_reference,
+            admitted,
+        )
     }
 }
 

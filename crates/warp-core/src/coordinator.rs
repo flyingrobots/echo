@@ -3560,6 +3560,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                     hasher.update(b"duplicate-contract-query-observer");
                     hasher.update(&query_id.to_le_bytes());
                 }
+                EngineError::ProviderOperationConflict(operation_id) => {
+                    hasher.update(b"provider-operation-conflict");
+                    hasher.update(&operation_id.to_le_bytes());
+                }
                 EngineError::MissingJoinFn => {
                     hasher.update(b"missing-join-fn");
                 }
@@ -7330,6 +7334,23 @@ mod tests {
         expected.update(b"echo.scheduler-fault-cause.error");
         expected.update(b"unknown-scheduler-fault");
         expected.update(fault_id.as_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
+    fn provider_operation_conflict_fault_digest_uses_canonical_variant_tag() {
+        let operation_id = 0x0102_0304;
+        let digest = scheduler_error_cause_digest(&RuntimeError::Engine(
+            EngineError::ProviderOperationConflict(operation_id),
+        ));
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"engine");
+        expected.update(b"provider-operation-conflict");
+        expected.update(&operation_id.to_le_bytes());
 
         let expected: Hash = expected.finalize().into();
         assert_eq!(digest, expected);

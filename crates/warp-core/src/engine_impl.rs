@@ -25,6 +25,12 @@ use crate::observation::ContractQueryObserver;
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::parallel::merge_deltas;
 use crate::parallel::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+use crate::provider_contract::{
+    prepare_installed_provider_contract_package_v1, InstalledProviderContractPackageIdV1,
+    InstalledProviderContractPackageRecordV1, ProviderContractInstallationError,
+    ProviderContractInstallationErrorKind, ProviderPackageReferenceV1,
+};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
@@ -117,6 +123,9 @@ pub enum EngineError {
     /// Attempted to register a contract query observer for a duplicate query id.
     #[error("duplicate contract query observer for query id: {0}")]
     DuplicateContractQueryObserver(u32),
+    /// Attempted to register an operation identifier already owned by a provider package.
+    #[error("operation id already owned by provider package: {0}")]
+    ProviderOperationConflict(u32),
     /// Conflict policy Join requires a join function.
     #[error("missing join function for ConflictPolicy::Join")]
     MissingJoinFn,
@@ -427,6 +436,14 @@ pub struct Engine {
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    installed_provider_contract_packages:
+        BTreeMap<InstalledProviderContractPackageIdV1, InstalledProviderContractPackageRecordV1>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    installed_provider_contract_package_references:
+        BTreeMap<ProviderPackageReferenceV1, InstalledProviderContractPackageIdV1>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    provider_contract_mutation_packages: BTreeMap<u32, InstalledProviderContractPackageIdV1>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     contract_mutation_handlers: BTreeMap<u32, InstalledContractPackageId>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
@@ -861,6 +878,12 @@ impl Engine {
             rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_provider_contract_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_provider_contract_package_references: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            provider_contract_mutation_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
             contract_inverse_handlers: BTreeMap::new(),
             contract_query_observer_packages: BTreeMap::new(),
@@ -1055,6 +1078,12 @@ impl Engine {
             rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_provider_contract_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_provider_contract_package_references: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            provider_contract_mutation_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
             contract_inverse_handlers: BTreeMap::new(),
             contract_query_observer_packages: BTreeMap::new(),
@@ -1140,6 +1169,13 @@ impl Engine {
         &mut self,
         observer: ContractQueryObserver,
     ) -> Result<(), EngineError> {
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        if self
+            .provider_contract_mutation_packages
+            .contains_key(&observer.query_id)
+        {
+            return Err(EngineError::ProviderOperationConflict(observer.query_id));
+        }
         match self.contract_query_observers.entry(observer.query_id) {
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(observer);
@@ -1160,7 +1196,9 @@ impl Engine {
     ///
     /// # Errors
     /// Returns [`EngineError::DuplicateContractQueryObserver`] if a handler for
-    /// the same generated query id is already installed.
+    /// the same generated query id is already installed. Returns
+    /// [`EngineError::ProviderOperationConflict`] if an installed provider
+    /// mutation already owns that operation id.
     #[cfg(feature = "native_rule_bootstrap")]
     #[doc(hidden)]
     pub fn register_contract_query_observer(
@@ -1238,6 +1276,147 @@ impl Engine {
         Ok(prepared.record)
     }
 
+    /// Installs one provider-native contract package through the trusted runtime owner.
+    ///
+    /// The caller supplies an already admitted proposal and a package-root claim.
+    /// This lower boundary validates a nonempty coordinate, strict digest
+    /// rendering, and digest/occurrence hash equality. It does not load, hash,
+    /// or authenticate package bytes. The proof-owning adapter must perform
+    /// exact-byte corroboration before invoking it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured provider installation failure when preparation
+    /// fails or any package root, operation, or scheduler rule conflicts with
+    /// existing Engine-owned registry state.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn install_admitted_provider_contract_package_v1_trusted(
+        &mut self,
+        package_reference: ProviderPackageReferenceV1,
+        admitted: crate::AdmittedProviderContractPackageV1<'_>,
+    ) -> Result<InstalledProviderContractPackageRecordV1, ProviderContractInstallationError> {
+        let prepared = prepare_installed_provider_contract_package_v1(package_reference, admitted)?;
+        self.preflight_installed_provider_contract_package_v1(
+            &prepared.record,
+            &prepared.mutation_handler,
+        )?;
+
+        let package_id = prepared.record.package_id();
+        let package_reference = prepared.record.package_reference().clone();
+        let operation_id = prepared.mutation_handler.op_id;
+        self.register_rule_impl(prepared.mutation_handler.rule)
+            .map_err(Self::provider_contract_registration_error)?;
+        self.provider_contract_mutation_packages
+            .insert(operation_id, package_id);
+        self.installed_provider_contract_package_references
+            .insert(package_reference, package_id);
+        self.installed_provider_contract_packages
+            .insert(package_id, prepared.record.clone());
+        Ok(prepared.record)
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    fn provider_contract_registration_error(
+        error: EngineError,
+    ) -> ProviderContractInstallationError {
+        match error {
+            EngineError::DuplicateRuleName(name) => ProviderContractInstallationError::new(
+                ProviderContractInstallationErrorKind::DuplicateRuleName,
+                "provider.mutation.rule.name",
+                name,
+            ),
+            EngineError::DuplicateRuleId(_) => {
+                ProviderContractInstallationError::without_reference(
+                    ProviderContractInstallationErrorKind::DuplicateRuleId,
+                    "provider.mutation.rule.id",
+                )
+            }
+            EngineError::MissingJoinFn => ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::InvalidMutationRule,
+                "provider.mutation.rule.join",
+            ),
+            _ => ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::InternalRegistrationFailure,
+                "provider.engine.registration",
+            ),
+        }
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    fn preflight_installed_provider_contract_package_v1(
+        &self,
+        record: &InstalledProviderContractPackageRecordV1,
+        mutation_handler: &ContractMutationHandler,
+    ) -> Result<(), ProviderContractInstallationError> {
+        if self
+            .installed_provider_contract_packages
+            .contains_key(&record.package_id())
+        {
+            return Err(ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::DuplicatePackageId,
+                "provider.package.id",
+            ));
+        }
+        if self
+            .installed_provider_contract_package_references
+            .contains_key(record.package_reference())
+        {
+            return Err(ProviderContractInstallationError::new(
+                ProviderContractInstallationErrorKind::DuplicatePackageReference,
+                "provider.package.reference",
+                record.package_reference().digest(),
+            ));
+        }
+
+        for operation_id in record.mutation_operation_ids() {
+            if self
+                .provider_contract_mutation_packages
+                .contains_key(&operation_id)
+            {
+                return Err(ProviderContractInstallationError::new(
+                    ProviderContractInstallationErrorKind::DuplicateProviderOperationId,
+                    "provider.operation.id",
+                    operation_id.to_string(),
+                ));
+            }
+            if self.contract_mutation_handlers.contains_key(&operation_id)
+                || self
+                    .contract_query_observer_packages
+                    .contains_key(&operation_id)
+                || self.contract_query_observers.contains_key(&operation_id)
+            {
+                return Err(ProviderContractInstallationError::new(
+                    ProviderContractInstallationErrorKind::LegacyOperationConflict,
+                    "legacy.contract.operation.id",
+                    operation_id.to_string(),
+                ));
+            }
+        }
+
+        if self.rules.contains_key(mutation_handler.rule.name) {
+            return Err(ProviderContractInstallationError::new(
+                ProviderContractInstallationErrorKind::DuplicateRuleName,
+                "provider.mutation.rule.name",
+                mutation_handler.rule.name,
+            ));
+        }
+        if self.rules_by_id.contains_key(&mutation_handler.rule.id) {
+            return Err(ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::DuplicateRuleId,
+                "provider.mutation.rule.id",
+            ));
+        }
+        if matches!(mutation_handler.rule.conflict_policy, ConflictPolicy::Join)
+            && mutation_handler.rule.join_fn.is_none()
+        {
+            return Err(ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::InvalidMutationRule,
+                "provider.mutation.rule.join",
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "native_rule_bootstrap")]
     fn installed_contract_registration_error<'a>(
         error: EngineError,
@@ -1251,6 +1430,9 @@ impl Engine {
             }
             EngineError::DuplicateContractQueryObserver(op_id) => {
                 InstalledContractPackageError::DuplicateInstalledQueryOperation { op_id }
+            }
+            EngineError::ProviderOperationConflict(op_id) => {
+                InstalledContractPackageError::ProviderOperationConflict { op_id }
             }
             EngineError::MissingJoinFn => InstalledContractPackageError::MissingJoinFn,
             _ => InstalledContractPackageError::InternalRegistrationFailure {
@@ -1274,6 +1456,12 @@ impl Engine {
             });
         }
         for op_id in &record.mutation_op_ids {
+            #[cfg(feature = "trusted_runtime")]
+            if self.provider_contract_mutation_packages.contains_key(op_id) {
+                return Err(InstalledContractPackageError::ProviderOperationConflict {
+                    op_id: *op_id,
+                });
+            }
             if self.contract_mutation_handlers.contains_key(op_id) {
                 return Err(
                     InstalledContractPackageError::DuplicateInstalledMutationOperation {
@@ -1283,6 +1471,12 @@ impl Engine {
             }
         }
         for op_id in &record.query_op_ids {
+            #[cfg(feature = "trusted_runtime")]
+            if self.provider_contract_mutation_packages.contains_key(op_id) {
+                return Err(InstalledContractPackageError::ProviderOperationConflict {
+                    op_id: *op_id,
+                });
+            }
             if self.contract_query_observers.contains_key(op_id)
                 || self.contract_query_observer_packages.contains_key(op_id)
             {
@@ -1334,6 +1528,41 @@ impl Engine {
         self.installed_contract_packages
             .get(package_id)
             .map(|record| record.evidence_identity(op_id, crate::ContractOperationKind::Mutation))
+    }
+
+    /// Returns the provider-native package id that installed a mutation operation.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[must_use]
+    pub fn installed_provider_contract_mutation_package_id(
+        &self,
+        op_id: u32,
+    ) -> Option<InstalledProviderContractPackageIdV1> {
+        self.provider_contract_mutation_packages
+            .get(&op_id)
+            .copied()
+    }
+
+    /// Returns one installed provider-native package by its deterministic id.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[must_use]
+    pub fn installed_provider_contract_package(
+        &self,
+        package_id: &InstalledProviderContractPackageIdV1,
+    ) -> Option<&InstalledProviderContractPackageRecordV1> {
+        self.installed_provider_contract_packages.get(package_id)
+    }
+
+    /// Returns the installed provider-native package for an exact package root.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[must_use]
+    pub fn installed_provider_contract_package_by_reference(
+        &self,
+        package_reference: &ProviderPackageReferenceV1,
+    ) -> Option<&InstalledProviderContractPackageRecordV1> {
+        let package_id = self
+            .installed_provider_contract_package_references
+            .get(package_reference)?;
+        self.installed_provider_contract_packages.get(package_id)
     }
 
     /// Returns the installed read-only inverse law for a mutation operation.

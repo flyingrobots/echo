@@ -2370,13 +2370,13 @@ impl WorldlineRuntime {
         ticket: &OpticAdmissionTicket,
         envelope: IngressEnvelope,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
-        self.ingest_ticketed_invocation_inner(submission_id, ticket, envelope, None)
+        self.ingest_ticketed_invocation_inner(submission_id, ticket.ticket_digest, envelope, None)
     }
 
     fn ingest_ticketed_invocation_inner(
         &mut self,
         submission_id: Hash,
-        ticket: &OpticAdmissionTicket,
+        admission_digest: Hash,
         envelope: IngressEnvelope,
         contract: Option<crate::ContractEvidenceIdentity>,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
@@ -2393,7 +2393,7 @@ impl WorldlineRuntime {
 
         let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
             submission_id,
-            ticket.ticket_digest,
+            admission_digest,
             ingress_id,
             head_key,
         );
@@ -2421,7 +2421,7 @@ impl WorldlineRuntime {
         let record = TicketedRuntimeIngressRecord {
             ticketed_ingress_id,
             submission_id,
-            ticket_digest: ticket.ticket_digest,
+            ticket_digest: admission_digest,
             ingress_id,
             head_key,
             contract,
@@ -2462,7 +2462,40 @@ impl WorldlineRuntime {
             .installed_contract_mutation_evidence(op_id)
             .ok_or(RuntimeError::UnsupportedInstalledContractMutation { op_id })?;
 
-        self.ingest_ticketed_invocation_inner(submission_id, ticket, envelope, Some(contract))
+        self.ingest_ticketed_invocation_inner(
+            submission_id,
+            ticket.ticket_digest,
+            envelope,
+            Some(contract),
+        )
+    }
+
+    /// Stages a witnessed installed-contract mutation using an admission digest
+    /// derived by the trusted runtime host.
+    ///
+    /// This crate-private seam prevents application adapters from manufacturing
+    /// Echo admission authority while preserving the installed-package evidence
+    /// checks performed by the normal generated-contract path.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn ingest_host_admitted_installed_contract_invocation(
+        &mut self,
+        _authority: &TicketedRuntimeIngressAuthority,
+        engine: &Engine,
+        submission_id: Hash,
+        admission_digest: Hash,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let op_id = installed_contract_mutation_op_id(&envelope)?;
+        let contract = engine
+            .installed_contract_mutation_evidence(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledContractMutation { op_id })?;
+
+        self.ingest_ticketed_invocation_inner(
+            submission_id,
+            admission_digest,
+            envelope,
+            Some(contract),
+        )
     }
 
     /// Resolves an ingress envelope to a specific writer head and stores it in that inbox.

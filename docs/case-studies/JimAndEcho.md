@@ -142,22 +142,37 @@ replay old receipts over it.
 
 ### 2. Propose, Then Install The Application Contract
 
-Existing trusted-host installation API (a later crossing):
+Provider-native proof-owned installation:
 
 ```rust
-host.register_contract_package(installed_package)?;
+let installed = install_digest_corroborated_provider_contract_package_v1(
+    &mut host,
+    corroborated_package,
+)?;
 ```
 
-Edict's generated helper and explicit host bindings currently produce an opaque
+Edict's generated helper and explicit host bindings produce an opaque
 `ProviderContractPackageProposalV1`. The proposal retains generated registry
-metadata and one host-supplied mutation binding after pure identity preflight,
-but it does not authenticate the package occurrence, construct an
-`InstalledContractPackage`, register anything, or mint runtime authority. A
-separately tracked trusted-host admission flow must authenticate and admit the
-proposal, construct the runtime package, and only then call the installation API
-above. Jim retains its domain meaning; Echo receives an admitted generic
-contract operation, canonical intent bytes, declared support, and its host
-binding only after that later crossing.
+metadata and one host-supplied mutation binding after pure identity preflight.
+`TrustedRuntimeHost` can now compare that occurrence claim and complete registry
+with independent policy and return an opaque
+`AdmittedProviderContractPackageV1`. This does not load or rehash package bytes,
+construct the legacy Wesley `InstalledContractPackage`, register anything, or
+mint execution authority. `echo-wesley-gen` now consumes that token with
+independently admitted exact package bytes and returns an opaque corroborated
+proof only when the provider coordinate and strict lowercase SHA-256 package
+roots agree. Its proof-owning adapter consumes that token through a sealed
+runtime-owner port. `TrustedRuntimeHost` then creates a distinct owned provider
+record and atomically installs provider package, root, mutation-operation, and
+shared scheduler-rule indexes without invoking the callback or inventing legacy
+Wesley/GraphQL metadata. Jim retains its domain meaning. The installed record is
+not itself invocation or consequence authority. Echo's generic provider path
+can now separately admit a previously witnessed exact-kind EINT mutation,
+dispatch its installed rule through the shared scheduler, and retain exact
+package-, operation-, Target-IR-, and rule-bound evidence through the receipt
+and WAL. That capability does not mean a Jim operation has been authored,
+generated, admitted, installed, or authorized; this case study must still
+designate an actual Edict-authored Jim operation before claiming Jim execution.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -738,7 +753,7 @@ The Jim example generalizes into a practical checklist.
 4. Define bounded observers and their evidence requirements.
 5. Keep application nouns out of Echo core.
 
-### Generate, Propose, And Later Install The Bridge
+### Generate, Propose, And Install The Bridge
 
 1. Author Jim operation semantics in Edict, keeping mutating DPO semantics
    distinct from bounded read/optic semantics.
@@ -748,20 +763,27 @@ The Jim example generalizes into a practical checklist.
    digests, and provenance; bind supported mutation handlers into an opaque,
    non-installing provider proposal while keeping bounded observers on their
    separate read path.
-4. Pass the preflighted proposal into the separately tracked trusted-host
-   admission and installation flow; that later crossing must authenticate the
-   package occurrence, construct an `InstalledContractPackage`, and register it
-   before any runtime authority exists.
+4. Pass the preflighted proposal through independent trusted-host policy to
+   obtain an opaque admitted token, then corroborate it with the independently
+   admitted exact package proof. Consume that proof through the sealed
+   runtime-owner installer to construct the provider-native owned record and
+   atomically populate Echo's package, root, operation, and scheduler-rule
+   indexes. This does not invoke the handler or fabricate runtime receipts.
 5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work
 
-1. Build canonical intent bytes at an explicit application basis.
+1. Use the generated client to build canonical EINT v1 bytes at an explicit
+   application basis.
 2. Use `submit_intent_with_runtime_wal_ack(...)` for user-facing durable work.
 3. Treat the returned handle as accepted-submission evidence, not an applied
    result.
-4. Let trusted host control stage and tick.
-5. Observe the decided outcome by submission id.
+4. Let the trusted host admit the installed provider operation with
+   `admit_provider_contract_submission_v1(...)`; application code cannot stage
+   itself.
+5. Let the trusted host control scheduler cadence and tick.
+6. Observe the decided outcome by submission id, and require evidence from the
+   exact installed provider rule before presenting it as applied.
 
 ### Read State
 

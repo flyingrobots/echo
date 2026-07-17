@@ -257,7 +257,9 @@ fn replayable_state_delta_round_trips_every_operation_and_slot_variant() {
     let contract = fixture_contract();
     let record = WalRuntimeStateDeltaRecord::from_provenance_entry(
         receipt_digest,
-        Some(contract.clone()),
+        Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+            contract.clone(),
+        )),
         entry.clone(),
     )
     .expect("canonical local commit should be retainable");
@@ -268,11 +270,41 @@ fn replayable_state_delta_round_trips_every_operation_and_slot_variant() {
         .expect("retained state delta should decode");
 
     assert_eq!(decoded.receipt_digest(), receipt_digest);
-    assert_eq!(decoded.contract(), Some(&contract));
+    assert_eq!(
+        decoded.contract(),
+        Some(&warp_core::InstalledInvocationEvidence::LegacyContract(
+            contract
+        ))
+    );
     assert_eq!(decoded.provenance_entry(), &entry);
     assert_eq!(
         decoded.to_payload_bytes().expect("decoded record encodes"),
         bytes
+    );
+}
+
+#[test]
+fn legacy_contract_state_delta_encoding_remains_byte_stable() {
+    let entry = fixture_entry();
+    let record = WalRuntimeStateDeltaRecord::from_provenance_entry(
+        fixture_receipt_digest(&entry),
+        Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+            fixture_contract(),
+        )),
+        entry,
+    )
+    .expect("legacy contract evidence remains retainable");
+    let bytes = record
+        .to_payload_bytes()
+        .expect("legacy contract state delta encodes");
+
+    assert_eq!(&bytes[..8], b"ERSD0001");
+    assert_eq!(bytes[8 + 32], 1);
+    assert_eq!(
+        blake3::Hash::from_bytes(record.digest().expect("legacy state delta hashes"))
+            .to_hex()
+            .as_str(),
+        "ebb6913507264c872bb2fa95f187618a893e323113175ad1e6491a06ce049209"
     );
 }
 

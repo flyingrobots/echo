@@ -88,6 +88,10 @@ required-features = ["native_rule_bootstrap"]
 name = "installed_contract_intent_pipeline_tests"
 required-features = ["native_rule_bootstrap", "host_test"]
 
+[[test]]
+name = "provider_contract_admission_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
 [build-dependencies]
 blake3 = "1.0"
 

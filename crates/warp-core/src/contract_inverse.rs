@@ -270,6 +270,14 @@ pub enum ContractInverseObstruction {
         /// Requested exact target receipt coordinate.
         target_receipt_ref: Box<CausalTickReceiptRef>,
     },
+    /// Provider-native target evidence has no admitted inverse law in this path.
+    #[error(
+        "contract inverse does not support provider-native target evidence: {target_receipt_ref:?}"
+    )]
+    ProviderTargetUnsupported {
+        /// Requested exact provider-native target receipt coordinate.
+        target_receipt_ref: Box<CausalTickReceiptRef>,
+    },
     /// Retained contract evidence names a different operation than the target intent.
     #[error(
         "contract inverse target operation mismatch: retained {retained_op_id}, envelope {envelope_op_id}"

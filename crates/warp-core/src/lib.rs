@@ -220,7 +220,7 @@ pub use contract_inverse::{
 pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
     ContractPackageIdentity, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageId, InstalledContractPackageRecord,
+    InstalledContractPackageId, InstalledContractPackageRecord, InstalledInvocationEvidence,
 };
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
@@ -273,10 +273,20 @@ pub use payload::{
     motion_payload_type_id_v0,
 };
 pub use provider_contract::{
-    propose_provider_contract_package_v1, GeneratedProviderMutationDispatchV1,
-    ProviderContractPackageProposalV1, ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1,
-    ProviderMutationHooksV1, ProviderMutationHostV1, ProviderMutationImplementationIdentityV1,
-    ProviderMutationMatchFnV1, ProviderPackageProposalError, ProviderPackageProposalErrorKind,
+    propose_provider_contract_package_v1, AdmittedProviderContractPackageV1,
+    GeneratedProviderMutationDispatchV1, InstalledProviderBundleIdentityV1,
+    InstalledProviderContractPackageIdV1, InstalledProviderContractPackageOccurrenceV1,
+    InstalledProviderContractPackageRecordV1, InstalledProviderDigestIdentityV1,
+    InstalledProviderFootprintIdentityV1, InstalledProviderMutationRuleIdentityV1,
+    InstalledProviderOperationV1, InstalledProviderRegistryV1, InstalledProviderSchemaIdentityV1,
+    InstalledProviderSemanticIdentityV1, InstalledProviderValueContractV1,
+    ProviderContractAdmissionError, ProviderContractAdmissionErrorKind,
+    ProviderContractAdmissionPolicyV1, ProviderContractEvidenceIdentityV1,
+    ProviderContractInstallationError, ProviderContractInstallationErrorKind,
+    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
+    ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1, ProviderMutationHooksV1,
+    ProviderMutationHostV1, ProviderMutationImplementationIdentityV1, ProviderMutationMatchFnV1,
+    ProviderPackageProposalError, ProviderPackageProposalErrorKind, ProviderPackageReferenceV1,
 };
 // --- Plurality law types ---
 pub use plurality_law::{

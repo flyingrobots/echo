@@ -37,16 +37,16 @@ Out of scope unless an embedding profile adds a separate control:
 
 ## Attacker And Failure Classes
 
-| Class | Capability |
-| ----- | ---------- |
-| Untrusted application caller | Constructs arbitrary intent, query, anchor, capability-presentation, and payload bytes; retries and reorders requests; cites stale or unrelated identities. |
-| Malicious generated artifact | Attempts to misdeclare operations, footprints, effects, schemas, requirements, or native capability. |
-| Remote Continuum peer | Sends duplicate, reordered, stale, conflicting, malformed, or tampered suffix material and lies about local state. |
-| Unauthorized observer | Requests a wider aperture, different subject, hidden attachment, unsupported law, or privileged cached result. |
-| Storage fault or attacker | Truncates, corrupts, duplicates, reorders, deletes, or substitutes WAL, WSC, CAS, or manifest bytes. |
-| Replay or rollback attacker | Replays valid old proposals, receipts, bundles, or an internally valid older durable store. |
-| Resource attacker | Sends oversized or numerous requests, constructs expensive rules or queries, exhausts WAL/CAS space, or forces repeated recovery work. |
-| Accidental implementation fault | Produces noncanonical bytes, divergent replay, partial publication, stale cache use, identity confusion, or a false success posture. |
+| Class                           | Capability                                                                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Untrusted application caller    | Constructs arbitrary intent, query, anchor, capability-presentation, and payload bytes; retries and reorders requests; cites stale or unrelated identities. |
+| Malicious generated artifact    | Attempts to misdeclare operations, footprints, effects, schemas, requirements, or native capability.                                                        |
+| Remote Continuum peer           | Sends duplicate, reordered, stale, conflicting, malformed, or tampered suffix material and lies about local state.                                          |
+| Unauthorized observer           | Requests a wider aperture, different subject, hidden attachment, unsupported law, or privileged cached result.                                              |
+| Storage fault or attacker       | Truncates, corrupts, duplicates, reorders, deletes, or substitutes WAL, WSC, CAS, or manifest bytes.                                                        |
+| Replay or rollback attacker     | Replays valid old proposals, receipts, bundles, or an internally valid older durable store.                                                                 |
+| Resource attacker               | Sends oversized or numerous requests, constructs expensive rules or queries, exhausts WAL/CAS space, or forces repeated recovery work.                      |
+| Accidental implementation fault | Produces noncanonical bytes, divergent replay, partial publication, stale cache use, identity confusion, or a false success posture.                        |
 
 The current API split assumes application code cannot obtain the trusted-host
 handle by ordinary supported APIs. It is not a sandbox against hostile code
@@ -102,11 +102,13 @@ affected causal coordinate.
 
 **Current controls.** Canonical intent shape, reserved-operation checks,
 installed-package identity, and operation/package compatibility are enforced.
-Capability-grant validation can reject malformed, unbound, unknown, expired,
-artifact-mismatched, operation-mismatched, and requirements-mismatched
-presentations in its tested boundary. Expiry rejection currently depends on an
-explicit caller-supplied expiry posture; the validator does not parse the
-grant's expiry bytes.
+Installed provider mutation admission additionally requires the exact canonical
+EINT v1 outer intent kind and refuses an unknown provider operation before
+staging. Capability-grant validation can reject malformed, unbound, unknown,
+expired, artifact-mismatched, operation-mismatched, and
+requirements-mismatched presentations in its tested boundary. Expiry rejection
+currently depends on an explicit caller-supplied expiry posture; the validator
+does not parse the grant's expiry bytes.
 
 **Residual risk.** The current generic EINT path does not prove production
 authentication or end-to-end target authorization. The registry handshake is
@@ -172,7 +174,10 @@ required frame, mismatched transaction coordinate, or cross-wired evidence.
 digests, transaction roots, commit digests, previous-commit chaining, authority
 for transaction and record kinds, versioned canonical codecs, frame order and
 cardinality, and domain-specific cross-evidence invariants. Recovery excludes
-uncommitted tails and returns typed corruption or obstruction.
+uncommitted tails and returns typed corruption or obstruction. Provider-native
+invocation evidence has a distinct tag and rejects empty coordinates, reserved
+operation ids, and malformed package or Target IR digests during decode; the
+legacy installed-contract encoding remains byte-stable.
 
 **Residual risk.** Checksums are not cryptographic authentication. Unkeyed
 digests detect modification only relative to trusted roots and the collision
@@ -287,13 +292,21 @@ rule identity, declared footprint, native capability, or handler implementation.
 **Current controls.** Installed contract packages bind registry metadata,
 schema and artifact hashes, codec identity, operation ids, handlers, observers,
 and package rules. Unsupported operations, kind mismatches, rule/op mismatches,
-and duplicate identities fail before engine mutation. Generated semantic-source
-validation covers a broader set of internal consistency constraints.
+and duplicate identities fail before engine mutation. The Edict provider path
+separately admits the complete proposal claim under host policy, corroborates
+the exact package root, installs a distinct provider record atomically, and
+binds runtime evidence to the exact package, operation, Target IR, and scheduler
+rule. A same-scope system acknowledgement cannot stand in for execution of that
+provider rule. Generated semantic-source validation covers a broader set of
+internal consistency constraints.
 
 **Residual risk.** Digest verification is not publisher authentication or CI
 attestation. The production trust ramp from local development through verified
 generation and certified profiles is not complete. Echo must not trust
-caller-supplied footprints.
+caller-supplied footprints. Generic provider ingress does not yet validate
+codec-owned variables against the operation's declared input schema; that law
+must be enforced by an owning generated codec/handler boundary rather than
+silently assumed.
 
 ### TM-14: Parser and resource exhaustion
 
@@ -333,6 +346,8 @@ or reveal.
 
 **Current controls.** Echo uses distinct typed identities and accepted ADRs that
 separate storage, proof, semantic coordinates, capability, and admission.
+Provider proposal, proposal admission, package corroboration, installation,
+invocation evidence, and runtime receipt are separate values and crossings.
 
 **Residual risk.** This is primarily an integration threat. Adapters must check
 the authority required for the operation at the time of use. A proof can be

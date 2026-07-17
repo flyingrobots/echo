@@ -3,6 +3,14 @@
 #![allow(clippy::expect_used, clippy::panic)]
 //! Deterministic, digest-locked Echo Edict provider package.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[path = "../../echo-edict-provider-lowerer/tests/fixtures/generated_echo_dpo.rs"]
+mod checked_generated_helper;
+
+use checked_generated_helper::echo_dpo as generated;
 use echo_wesley_gen::provider_artifacts::{
     generate_provider_primary_artifacts_v1, ProviderPrimaryArtifactsV1,
 };
@@ -16,10 +24,13 @@ use echo_wesley_gen::provider_generation::{
     build_provider_generation_input_v1, ProviderGenerationInputV1,
 };
 use echo_wesley_gen::provider_package::{
-    admit_provider_package_v1, assemble_provider_package_v1, ProviderManifestArtifactKindV1,
+    admit_provider_package_v1, assemble_provider_package_v1,
+    corroborate_admitted_provider_contract_package_v1,
+    install_digest_corroborated_provider_contract_package_v1, ProviderManifestArtifactKindV1,
     ProviderManifestArtifactSourceV1, ProviderManifestResourceRefV1,
-    ProviderPackageComponentMaterialV1, ProviderPackageErrorKind, ProviderPackageFileV1,
-    ProviderPackageV1, ECHO_PROVIDER_MANIFEST_PATH_V1,
+    ProviderPackageComponentMaterialV1, ProviderPackageCorroborationErrorKind,
+    ProviderPackageErrorKind, ProviderPackageFileV1, ProviderPackageV1,
+    ECHO_PROVIDER_MANIFEST_PATH_V1,
 };
 use echo_wesley_gen::provider_provenance::{
     generate_provider_generation_provenance_v1, ProviderGenerationProvenanceV1,
@@ -27,6 +38,13 @@ use echo_wesley_gen::provider_provenance::{
 };
 use echo_wesley_gen::provider_review::{
     generate_provider_generation_review_v1, ProviderGenerationReviewV1,
+};
+use warp_core::{
+    make_node_id, make_type_id, ContractPackageIdentity, EngineBuilder, Footprint, GraphStore,
+    GraphView, NodeId, NodeRecord, ProviderContractAdmissionPolicyV1,
+    ProviderContractInstallationErrorKind, ProviderContractPackageProposalV1,
+    ProviderMutationHooksV1, ProviderMutationHostV1, ProviderPackageReferenceV1, SchedulerKind,
+    TickDelta, TrustedRuntimeHost, WorldlineRuntime,
 };
 use wesley_core::{compute_generation_artifact_digest_v1, GenerationContractErrorKind};
 
@@ -42,6 +60,169 @@ const LOWERER: &[u8] = include_bytes!(
 const VERIFIER: &[u8] = include_bytes!(
     "../assets/v1/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
+const SEMANTIC_DIGEST: &str =
+    "sha256:d3b9170373dc30369b1c7d3435f8c3d2183de063dc9e3b18d4b1f41eeac334c9";
+const RELEASE_DIGEST: &str =
+    "sha256:c39449495281b51f978468d08c21e93bcfa423176063b41675da61e4674b0066";
+const PACKAGE_ARTIFACT_SHA256: &str =
+    "e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69";
+const OTHER_PACKAGE_ARTIFACT_SHA256: &str =
+    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+static EXECUTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
+static FOOTPRINT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+fn bundle_pin() -> generated::ExpectedContractBundleIdentityV1<'static> {
+    generated::ExpectedContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: SEMANTIC_DIGEST,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: RELEASE_DIGEST,
+    }
+}
+
+fn bundle_identity() -> generated::ContractBundleIdentityV1<'static> {
+    generated::ContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: SEMANTIC_DIGEST,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: RELEASE_DIGEST,
+        operation_coordinate: generated::OPERATION_COORDINATE,
+        operation_domain: generated::OPERATION_DOMAIN,
+        operation_id_law: generated::OPERATION_ID_LAW,
+        operation_id: generated::OPERATION_ID,
+        value_codec: generated::VALUE_CODEC_ID,
+        target_ir_coordinate: generated::TARGET_IR_COORDINATE,
+        target_ir_digest_domain: generated::TARGET_IR_DIGEST_DOMAIN,
+        target_ir_digest: generated::TARGET_IR_DIGEST,
+        target_profile_coordinate: generated::TARGET_PROFILE_COORDINATE,
+        target_profile_digest_domain: generated::TARGET_PROFILE_DIGEST_DOMAIN,
+        target_profile_digest: generated::TARGET_PROFILE_DIGEST,
+        target_bundle_profile_coordinate: generated::TARGET_BUNDLE_PROFILE_COORDINATE,
+        target_bundle_profile_digest_domain: generated::TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
+        target_bundle_profile_digest: generated::TARGET_BUNDLE_PROFILE_DIGEST,
+        echo_contract_abi_version: generated::ECHO_CONTRACT_ABI_VERSION,
+        helper_api_version: generated::CONTRACT_HOST_HELPER_API_VERSION,
+        provider_schema_coordinate: generated::PROVIDER_SCHEMA_COORDINATE,
+        provider_schema_sha256_hex: generated::PROVIDER_SCHEMA_SHA256_HEX,
+        input_schema: generated::INPUT_SCHEMA,
+        output_schema: generated::OUTPUT_SCHEMA,
+        type_schema_domain: generated::TYPE_SCHEMA_DOMAIN,
+        obstruction_coordinate: generated::OBSTRUCTION_COORDINATE,
+        obstruction_domain: generated::OBSTRUCTION_DOMAIN,
+        effect_failure_schema: generated::EFFECT_FAILURE_SCHEMA,
+        obstruction_payload_schema: generated::OBSTRUCTION_PAYLOAD_SCHEMA,
+        generated_artifact_profile: generated::GENERATED_ARTIFACT_PROFILE,
+        generated_artifact_profile_digest_domain:
+            generated::GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
+        generated_artifact_profile_digest: generated::GENERATED_ARTIFACT_PROFILE_DIGEST,
+        operation_profile: generated::OPERATION_PROFILE,
+        operation_profile_domain: generated::OPERATION_PROFILE_DOMAIN,
+        operation_profiles_coordinate: generated::OPERATION_PROFILES_COORDINATE,
+        operation_profiles_digest_domain: generated::OPERATION_PROFILES_DIGEST_DOMAIN,
+        operation_profiles_digest: generated::OPERATION_PROFILES_DIGEST,
+        footprint_obligation: generated::FOOTPRINT_OBLIGATION,
+        footprint_algebra: generated::FOOTPRINT_ALGEBRA,
+        footprint_algebra_digest_domain: generated::FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
+        footprint_algebra_digest: generated::FOOTPRINT_ALGEBRA_DIGEST,
+    }
+}
+
+fn descriptor() -> generated::RegistrationDescriptorV1<'static> {
+    generated::bind_contract_bundle(bundle_pin(), &bundle_identity())
+        .expect("checked generated claims bind before Echo admission")
+}
+
+const fn occurrence(artifact_hash_hex: &'static str) -> ContractPackageIdentity<'static> {
+    ContractPackageIdentity {
+        package_name: "echo.edict-provider",
+        package_version: "1.0.0",
+        artifact_hash_hex,
+    }
+}
+
+struct CountingHost;
+
+impl ProviderMutationHostV1 for CountingHost {
+    fn execute(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
+        EXECUTOR_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn effect_footprint(_view: GraphView<'_>, _scope: &NodeId) -> Footprint {
+        FOOTPRINT_CALLS.fetch_add(1, Ordering::SeqCst);
+        Footprint::default()
+    }
+}
+
+fn proposal(artifact_hash_hex: &'static str) -> ProviderContractPackageProposalV1<'static> {
+    proposal_for_occurrence(occurrence(artifact_hash_hex))
+}
+
+fn proposal_for_occurrence(
+    occurrence: ContractPackageIdentity<'static>,
+) -> ProviderContractPackageProposalV1<'static> {
+    let descriptor = Box::leak(Box::new(descriptor()));
+    descriptor
+        .propose_contract_package(
+            occurrence,
+            ProviderMutationHooksV1::for_host::<CountingHost>(
+                descriptor.mutation_implementation_identity(),
+            ),
+        )
+        .expect("checked generated and host claims produce a proposal")
+}
+
+fn corroborated_package(
+    host: &TrustedRuntimeHost,
+    occurrence: ContractPackageIdentity<'static>,
+) -> echo_wesley_gen::provider_package::DigestCorroboratedProviderContractPackageV1<'static> {
+    let package = assemble(false);
+    let package_proof =
+        admit_provider_package_v1(package.files().to_vec(), package.provider_reference())
+            .expect("the checked 25-file package is independently digest-admitted");
+    let policy = ProviderContractAdmissionPolicyV1 {
+        expected_occurrence: occurrence,
+        expected_registry: descriptor().provider_registry(),
+    };
+    let admitted = host
+        .admit_provider_contract_package_v1(&policy, proposal_for_occurrence(occurrence))
+        .expect("the matching proposal is independently admitted by Echo policy");
+    corroborate_admitted_provider_contract_package_v1(package_proof, admitted)
+        .expect("the exact package proof and admitted occurrence corroborate")
+}
+
+fn admission_policy(artifact_hash_hex: &'static str) -> ProviderContractAdmissionPolicyV1<'static> {
+    ProviderContractAdmissionPolicyV1 {
+        expected_occurrence: occurrence(artifact_hash_hex),
+        expected_registry: descriptor().provider_registry(),
+    }
+}
+
+fn empty_host() -> TrustedRuntimeHost {
+    let mut store = GraphStore::default();
+    let root = make_node_id("root");
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(store, root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    TrustedRuntimeHost::new(WorldlineRuntime::new(), engine)
+        .expect("trusted host initializes for package corroboration")
+}
+
+fn assert_no_install_or_callback(host: &TrustedRuntimeHost) {
+    assert!(host
+        .engine()
+        .installed_contract_mutation_package_id(generated::OPERATION_ID)
+        .is_none());
+    assert_eq!(EXECUTOR_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(FOOTPRINT_CALLS.load(Ordering::SeqCst), 0);
+}
 
 fn admitted_pack() -> AdmittedProviderContractPackV1 {
     admit_provider_contract_pack_v1(CONTRACT_CDDL, CONTRACT_MANIFEST)
@@ -181,6 +362,187 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
             .expect("exact package admits against its external identity");
     assert_eq!(admitted.provider_reference(), package.provider_reference());
     assert_eq!(admitted.manifest(), package.manifest());
+}
+
+#[test]
+fn digest_admitted_package_corroborates_only_the_exact_host_admitted_occurrence() {
+    EXECUTOR_CALLS.store(0, Ordering::SeqCst);
+    FOOTPRINT_CALLS.store(0, Ordering::SeqCst);
+
+    let package = assemble(false);
+    let exact_proof =
+        admit_provider_package_v1(package.files().to_vec(), package.provider_reference())
+            .expect("the checked 25-file package is independently digest-admitted");
+    let host = empty_host();
+    let exact_policy = admission_policy(PACKAGE_ARTIFACT_SHA256);
+    let admitted = host
+        .admit_provider_contract_package_v1(&exact_policy, proposal(PACKAGE_ARTIFACT_SHA256))
+        .expect("the matching proposal is independently admitted by Echo policy");
+    let corroborated = corroborate_admitted_provider_contract_package_v1(exact_proof, admitted)
+        .expect("the exact package proof and admitted occurrence corroborate");
+
+    assert_eq!(
+        corroborated.provider_reference().coordinate,
+        "echo.edict-provider@1"
+    );
+    assert_eq!(
+        corroborated.provider_reference().digest,
+        format!("sha256:{PACKAGE_ARTIFACT_SHA256}")
+    );
+    assert_eq!(corroborated.occurrence(), &exact_policy.expected_occurrence);
+    assert_eq!(corroborated.registry(), &exact_policy.expected_registry);
+    assert_eq!(
+        corroborated.mutation_operation_ids().collect::<Vec<_>>(),
+        vec![generated::OPERATION_ID]
+    );
+    assert_no_install_or_callback(&host);
+
+    let mismatch_proof =
+        admit_provider_package_v1(package.files().to_vec(), package.provider_reference())
+            .expect("the same checked package can be independently admitted again");
+    let other_policy = admission_policy(OTHER_PACKAGE_ARTIFACT_SHA256);
+    let other_admitted = host
+        .admit_provider_contract_package_v1(&other_policy, proposal(OTHER_PACKAGE_ARTIFACT_SHA256))
+        .expect("the internally consistent alternate occurrence claim admits under its own policy");
+    let error = corroborate_admitted_provider_contract_package_v1(mismatch_proof, other_admitted)
+        .expect_err("a proposal naming different package bytes must not corroborate");
+    assert_eq!(
+        error.kind(),
+        ProviderPackageCorroborationErrorKind::PackageArtifactDigestMismatch
+    );
+    assert_eq!(error.subject(), "provider.package.artifact-hash");
+    assert_eq!(error.reference(), Some(OTHER_PACKAGE_ARTIFACT_SHA256));
+    assert_no_install_or_callback(&host);
+}
+
+#[test]
+fn digest_corroborated_package_installs_as_provider_native_evidence() {
+    EXECUTOR_CALLS.store(0, Ordering::SeqCst);
+    FOOTPRINT_CALLS.store(0, Ordering::SeqCst);
+
+    let package = assemble(false);
+    let package_proof =
+        admit_provider_package_v1(package.files().to_vec(), package.provider_reference())
+            .expect("the checked 25-file package is independently digest-admitted");
+    let mut host = empty_host();
+    let policy = admission_policy(PACKAGE_ARTIFACT_SHA256);
+    let admitted = host
+        .admit_provider_contract_package_v1(&policy, proposal(PACKAGE_ARTIFACT_SHA256))
+        .expect("the matching proposal is independently admitted by Echo policy");
+    let corroborated = corroborate_admitted_provider_contract_package_v1(package_proof, admitted)
+        .expect("the exact package proof and admitted occurrence corroborate");
+
+    let installed =
+        install_digest_corroborated_provider_contract_package_v1(&mut host, corroborated)
+            .expect("the corroborated package installs through the provider-native boundary");
+
+    assert_eq!(
+        installed.package_reference().coordinate(),
+        "echo.edict-provider@1"
+    );
+    assert_eq!(
+        installed.package_reference().digest(),
+        format!("sha256:{PACKAGE_ARTIFACT_SHA256}")
+    );
+    assert_eq!(installed.occurrence(), &policy.expected_occurrence);
+    assert_eq!(installed.registry(), &policy.expected_registry);
+    assert_eq!(
+        installed.mutation_operation_ids().collect::<Vec<_>>(),
+        vec![generated::OPERATION_ID]
+    );
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_mutation_package_id(generated::OPERATION_ID),
+        Some(installed.package_id())
+    );
+    assert!(host
+        .engine()
+        .installed_contract_mutation_package_id(generated::OPERATION_ID)
+        .is_none());
+    assert!(host
+        .engine()
+        .installed_contract_mutation_evidence(generated::OPERATION_ID)
+        .is_none());
+    assert_eq!(EXECUTOR_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(FOOTPRINT_CALLS.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn duplicate_provider_installation_refuses_without_changing_owned_indexes() {
+    EXECUTOR_CALLS.store(0, Ordering::SeqCst);
+    FOOTPRINT_CALLS.store(0, Ordering::SeqCst);
+
+    let mut host = empty_host();
+    let first = corroborated_package(&host, occurrence(PACKAGE_ARTIFACT_SHA256));
+    let installed = install_digest_corroborated_provider_contract_package_v1(&mut host, first)
+        .expect("the first exact provider occurrence installs");
+
+    let duplicate = corroborated_package(&host, occurrence(PACKAGE_ARTIFACT_SHA256));
+    let error = install_digest_corroborated_provider_contract_package_v1(&mut host, duplicate)
+        .expect_err("the same provider package id must not install twice");
+    assert_eq!(
+        error.kind(),
+        ProviderContractInstallationErrorKind::DuplicatePackageId
+    );
+    assert_eq!(error.subject(), "provider.package.id");
+    assert_eq!(error.reference(), None);
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_mutation_package_id(generated::OPERATION_ID),
+        Some(installed.package_id())
+    );
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_package(&installed.package_id()),
+        Some(&installed)
+    );
+    assert_eq!(EXECUTOR_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(FOOTPRINT_CALLS.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn one_exact_package_root_cannot_claim_two_runtime_occurrences() {
+    EXECUTOR_CALLS.store(0, Ordering::SeqCst);
+    FOOTPRINT_CALLS.store(0, Ordering::SeqCst);
+
+    let mut host = empty_host();
+    let first = corroborated_package(&host, occurrence(PACKAGE_ARTIFACT_SHA256));
+    let installed = install_digest_corroborated_provider_contract_package_v1(&mut host, first)
+        .expect("the first exact provider occurrence installs");
+
+    let alternate_occurrence = ContractPackageIdentity {
+        package_name: "echo.edict-provider",
+        package_version: "1.0.0-alternate-claim",
+        artifact_hash_hex: PACKAGE_ARTIFACT_SHA256,
+    };
+    let conflicting = corroborated_package(&host, alternate_occurrence);
+    let error = install_digest_corroborated_provider_contract_package_v1(&mut host, conflicting)
+        .expect_err("one exact package root must not acquire a second occurrence claim");
+    assert_eq!(
+        error.kind(),
+        ProviderContractInstallationErrorKind::DuplicatePackageReference
+    );
+    assert_eq!(error.subject(), "provider.package.reference");
+    assert_eq!(
+        error.reference(),
+        Some(format!("sha256:{PACKAGE_ARTIFACT_SHA256}").as_str())
+    );
+    let package_reference = ProviderPackageReferenceV1::new(
+        "echo.edict-provider@1",
+        format!("sha256:{PACKAGE_ARTIFACT_SHA256}"),
+    );
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_package_by_reference(&package_reference),
+        Some(&installed)
+    );
+    assert_eq!(
+        host.engine()
+            .installed_provider_contract_mutation_package_id(generated::OPERATION_ID),
+        Some(installed.package_id())
+    );
+    assert_eq!(EXECUTOR_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(FOOTPRINT_CALLS.load(Ordering::SeqCst), 0);
 }
 
 #[test]

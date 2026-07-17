@@ -19,6 +19,7 @@ use crate::head::{
 use crate::head_inbox::IngressPayload;
 use crate::head_inbox::{
     InboxAddress, InboxIngestResult, IngressCausalParent, IngressEnvelope, IngressTarget,
+    IntentKind,
 };
 use crate::ident::{Hash, NodeId};
 use crate::optic_artifact::OpticAdmissionTicket;
@@ -36,6 +37,9 @@ use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 use crate::CausalTickReceiptRef;
+
+#[cfg(feature = "native_rule_bootstrap")]
+const INSTALLED_CONTRACT_EINT_INTENT_KIND_LABEL: &str = "echo.intent/eint-v1";
 
 // =============================================================================
 // Runtime Errors and Ingress Disposition
@@ -129,10 +133,26 @@ pub enum RuntimeError {
     /// Installed contract runtime ingress received malformed canonical intent bytes.
     #[error("installed contract invocation is not a canonical EINT intent")]
     MalformedInstalledContractIntent,
+    /// Installed-contract ingress carried canonical EINT bytes under another
+    /// intent-kind domain.
+    #[error("installed contract invocation uses an unsupported intent kind")]
+    InstalledContractIntentKindMismatch {
+        /// Required stable EINT v1 intent kind.
+        expected: IntentKind,
+        /// Intent kind carried by the witnessed envelope.
+        actual: IntentKind,
+    },
     /// Installed contract runtime ingress named a mutation operation id that no
     /// installed package supports.
     #[error("unsupported installed contract mutation op id: {op_id}")]
     UnsupportedInstalledContractMutation {
+        /// The unsupported canonical EINT mutation operation id.
+        op_id: u32,
+    },
+    /// Provider-native ingress named a mutation operation id that no installed
+    /// provider package supports.
+    #[error("unsupported installed provider contract mutation op id: {op_id}")]
+    UnsupportedInstalledProviderContractMutation {
         /// The unsupported canonical EINT mutation operation id.
         op_id: u32,
     },
@@ -561,7 +581,7 @@ pub struct TicketedRuntimeIngressRecord {
     /// Resolved semantic writer-head target.
     pub head_key: WriterHeadKey,
     /// Installed contract package evidence for generated contract work.
-    pub contract: Option<crate::ContractEvidenceIdentity>,
+    pub contract: Option<crate::InstalledInvocationEvidence>,
 }
 
 /// Result of staging a ticketed invocation into runtime ingress.
@@ -600,7 +620,7 @@ pub struct ReceiptCorrelationRecord {
     /// Writer head that committed the ingress batch.
     pub head_key: WriterHeadKey,
     /// Installed contract package evidence for generated contract work.
-    pub contract: Option<crate::ContractEvidenceIdentity>,
+    pub contract: Option<crate::InstalledInvocationEvidence>,
     /// Runtime cycle stamp that produced the receipt.
     pub commit_global_tick: GlobalTick,
     /// Worldline frontier tick after the scheduler-owned commit.
@@ -641,7 +661,7 @@ pub struct ReceiptCorrelationPersistenceRecord {
     /// Commit hash emitted by the scheduler-owned tick.
     pub commit_hash: Hash,
     /// Installed contract evidence attached to the admitted transition.
-    pub contract: Option<crate::ContractEvidenceIdentity>,
+    pub contract: Option<crate::InstalledInvocationEvidence>,
     /// Canonical admitted tick receipts cited by the admitted intent.
     pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
@@ -735,7 +755,7 @@ pub struct IntentOutcomeReceipt {
     /// Writer head that committed the tick.
     pub head_key: WriterHeadKey,
     /// Installed contract evidence, when the work came from a generated package.
-    pub contract: Option<crate::ContractEvidenceIdentity>,
+    pub contract: Option<crate::InstalledInvocationEvidence>,
     /// Runtime cycle stamp that produced the receipt.
     pub commit_global_tick: GlobalTick,
     /// Worldline tick after the commit.
@@ -752,9 +772,11 @@ pub struct IntentOutcomeReceipt {
     pub rule_id: Hash,
     /// Retained receipt evidence posture for generated contract work.
     ///
-    /// This is empty for non-contract work. When contract evidence is present,
-    /// Echo reports the semantic receipt coordinate honestly even if no retained
-    /// descriptor has been written yet.
+    /// This is empty for non-contract work. Legacy contract work reports its
+    /// semantic receipt coordinate honestly even if no retained descriptor has
+    /// been written yet. Provider-native evidence remains empty until Echo owns
+    /// a provider-native retained-coordinate contract; it never fabricates a
+    /// legacy coordinate.
     pub retained_evidence: Vec<crate::RetainedEvidencePosture>,
 }
 
@@ -786,13 +808,16 @@ impl IntentOutcomeReceipt {
 fn contract_receipt_coordinate(
     correlation: &ReceiptCorrelationRecord,
 ) -> Option<crate::RetainedEvidenceCoordinate> {
-    correlation.contract.as_ref().map(|contract| {
-        crate::RetainedEvidenceCoordinate::new(
-            contract.clone(),
-            crate::RetainedEvidenceRole::ContractReceipt,
-            correlation.tick_receipt_digest,
-        )
-    })
+    let crate::InstalledInvocationEvidence::LegacyContract(contract) =
+        correlation.contract.as_ref()?
+    else {
+        return None;
+    };
+    Some(crate::RetainedEvidenceCoordinate::new(
+        contract.clone(),
+        crate::RetainedEvidenceRole::ContractReceipt,
+        correlation.tick_receipt_digest,
+    ))
 }
 
 fn retained_contract_receipt_evidence(
@@ -913,10 +938,29 @@ impl IntentOutcome {
                         tick_receipt_digest,
                     },
             } => {
-                let obstruction = contract_receipt_coordinate(&correlation).map_or_else(
-                    || crate::ContractObstruction::missing_retention(tick_receipt_digest),
-                    |coordinate| coordinate.missing_retention_obstruction(),
-                );
+                let obstruction = correlation
+                    .contract
+                    .as_ref()
+                    .and_then(crate::InstalledInvocationEvidence::provider_v1)
+                    .map_or_else(
+                        || {
+                            contract_receipt_coordinate(&correlation).map_or_else(
+                                || {
+                                    crate::ContractObstruction::missing_retention(
+                                        tick_receipt_digest,
+                                    )
+                                },
+                                |coordinate| coordinate.missing_retention_obstruction(),
+                            )
+                        },
+                        |provider| {
+                            crate::ContractObstruction::runtime_fault(
+                                crate::ContractObstructionSubject::Operation {
+                                    op_id: provider.operation_id(),
+                                },
+                            )
+                        },
+                    );
                 Self::Obstructed {
                     submission_id: correlation.submission_id,
                     obstruction,
@@ -1585,28 +1629,48 @@ impl WorldlineRuntime {
         }
 
         let ingress_node = NodeId(correlation.ingress_id);
-        for (idx, entry) in receipt.entries().iter().enumerate() {
-            if entry.scope.local_id != ingress_node {
-                continue;
-            }
-            let Ok(receipt_entry_index) = u32::try_from(idx) else {
+        let mut candidates = receipt
+            .entries()
+            .iter()
+            .enumerate()
+            .filter(|(_idx, entry)| entry.scope.local_id == ingress_node);
+        let candidate = if let Some(provider) = correlation
+            .contract
+            .as_ref()
+            .and_then(crate::InstalledInvocationEvidence::provider_v1)
+        {
+            let mut provider_candidates = candidates
+                .by_ref()
+                .filter(|(_idx, entry)| entry.rule_id == *provider.rule_id());
+            let Some(candidate) = provider_candidates.next() else {
                 return no_match();
             };
-            return match entry.disposition {
-                TickReceiptDisposition::Applied => IntentOutcomeDecision::Applied {
-                    receipt_entry_index,
-                    rule_id: entry.rule_id,
-                },
-                TickReceiptDisposition::Rejected(reason) => IntentOutcomeDecision::Rejected {
-                    receipt_entry_index,
-                    rule_id: entry.rule_id,
-                    reason,
-                    blocked_by: receipt.blocked_by(idx).to_vec(),
-                },
+            if provider_candidates.next().is_some() {
+                return no_match();
+            }
+            candidate
+        } else {
+            let Some(candidate) = candidates.next() else {
+                return no_match();
             };
+            candidate
+        };
+        let (idx, entry) = candidate;
+        let Ok(receipt_entry_index) = u32::try_from(idx) else {
+            return no_match();
+        };
+        match entry.disposition {
+            TickReceiptDisposition::Applied => IntentOutcomeDecision::Applied {
+                receipt_entry_index,
+                rule_id: entry.rule_id,
+            },
+            TickReceiptDisposition::Rejected(reason) => IntentOutcomeDecision::Rejected {
+                receipt_entry_index,
+                rule_id: entry.rule_id,
+                reason,
+                blocked_by: receipt.blocked_by(idx).to_vec(),
+            },
         }
-
-        no_match()
     }
 
     /// Returns the current correlation tick.
@@ -2378,7 +2442,7 @@ impl WorldlineRuntime {
         submission_id: Hash,
         admission_digest: Hash,
         envelope: IngressEnvelope,
-        contract: Option<crate::ContractEvidenceIdentity>,
+        contract: Option<crate::InstalledInvocationEvidence>,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
         let Some(submission) = self.witnessed_submissions.get(&submission_id) else {
             return Err(RuntimeError::UnknownIntentSubmission(submission_id));
@@ -2466,7 +2530,38 @@ impl WorldlineRuntime {
             submission_id,
             ticket.ticket_digest,
             envelope,
-            Some(contract),
+            Some(contract.into()),
+        )
+    }
+
+    /// Stages a witnessed provider-native mutation invocation into runtime ingress.
+    ///
+    /// This verifies canonical EINT bytes and provider-owned installed-operation
+    /// evidence before runtime visibility. It does not tick or execute work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed EINT, unsupported provider mutations, or
+    /// rejection by the shared ticketed-ingress boundary.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub fn ingest_provider_contract_invocation_v1(
+        &mut self,
+        _authority: &TicketedRuntimeIngressAuthority,
+        engine: &Engine,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let op_id = installed_contract_mutation_op_id(&envelope)?;
+        let contract = engine
+            .installed_provider_contract_mutation_evidence_v1(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledProviderContractMutation { op_id })?;
+
+        self.ingest_ticketed_invocation_inner(
+            submission_id,
+            ticket.ticket_digest,
+            envelope,
+            Some(crate::InstalledInvocationEvidence::ProviderV1(contract)),
         )
     }
 
@@ -2494,7 +2589,30 @@ impl WorldlineRuntime {
             submission_id,
             admission_digest,
             envelope,
-            Some(contract),
+            Some(contract.into()),
+        )
+    }
+
+    /// Stages provider-native work using trusted-host-derived admission evidence.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn ingest_host_admitted_provider_contract_invocation_v1(
+        &mut self,
+        _authority: &TicketedRuntimeIngressAuthority,
+        engine: &Engine,
+        submission_id: Hash,
+        admission_digest: Hash,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let op_id = installed_contract_mutation_op_id(&envelope)?;
+        let contract = engine
+            .installed_provider_contract_mutation_evidence_v1(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledProviderContractMutation { op_id })?;
+
+        self.ingest_ticketed_invocation_inner(
+            submission_id,
+            admission_digest,
+            envelope,
+            Some(crate::InstalledInvocationEvidence::ProviderV1(contract)),
         )
     }
 
@@ -2861,8 +2979,20 @@ fn derive_ticketed_runtime_ingress_id(
 }
 
 #[cfg(feature = "native_rule_bootstrap")]
-fn installed_contract_mutation_op_id(envelope: &IngressEnvelope) -> Result<u32, RuntimeError> {
-    let IngressPayload::LocalIntent { intent_bytes, .. } = envelope.payload();
+pub(crate) fn installed_contract_mutation_op_id(
+    envelope: &IngressEnvelope,
+) -> Result<u32, RuntimeError> {
+    let IngressPayload::LocalIntent {
+        intent_kind,
+        intent_bytes,
+    } = envelope.payload();
+    let expected = crate::head_inbox::make_intent_kind(INSTALLED_CONTRACT_EINT_INTENT_KIND_LABEL);
+    if *intent_kind != expected {
+        return Err(RuntimeError::InstalledContractIntentKindMismatch {
+            expected,
+            actual: *intent_kind,
+        });
+    }
     echo_wasm_abi::unpack_intent_v1(intent_bytes)
         .map(|(op_id, _vars)| op_id)
         .map_err(|_error| RuntimeError::MalformedInstalledContractIntent)
@@ -2938,7 +3068,9 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
         | RuntimeError::MalformedInstalledContractIntent
+        | RuntimeError::InstalledContractIntentKindMismatch { .. }
         | RuntimeError::UnsupportedInstalledContractMutation { .. }
+        | RuntimeError::UnsupportedInstalledProviderContractMutation { .. }
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
         }
@@ -3560,6 +3692,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                     hasher.update(b"duplicate-contract-query-observer");
                     hasher.update(&query_id.to_le_bytes());
                 }
+                EngineError::ProviderOperationConflict(operation_id) => {
+                    hasher.update(b"provider-operation-conflict");
+                    hasher.update(&operation_id.to_le_bytes());
+                }
                 EngineError::MissingJoinFn => {
                     hasher.update(b"missing-join-fn");
                 }
@@ -3674,8 +3810,17 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::MalformedInstalledContractIntent => {
             hasher.update(b"malformed-installed-contract-intent");
         }
+        RuntimeError::InstalledContractIntentKindMismatch { expected, actual } => {
+            hasher.update(b"installed-contract-intent-kind-mismatch");
+            hasher.update(expected.as_hash());
+            hasher.update(actual.as_hash());
+        }
         RuntimeError::UnsupportedInstalledContractMutation { op_id } => {
             hasher.update(b"unsupported-installed-contract-mutation");
+            hasher.update(&op_id.to_le_bytes());
+        }
+        RuntimeError::UnsupportedInstalledProviderContractMutation { op_id } => {
+            hasher.update(b"unsupported-installed-provider-contract-mutation");
             hasher.update(&op_id.to_le_bytes());
         }
         RuntimeError::TicketedIngressDuplicateRuntimeIngress {
@@ -6061,7 +6206,9 @@ mod tests {
             op_kind: crate::ContractOperationKind::Mutation,
         };
         let contract_correlation = ReceiptCorrelationRecord {
-            contract: Some(contract.clone()),
+            contract: Some(crate::InstalledInvocationEvidence::LegacyContract(
+                contract.clone(),
+            )),
             ..correlation
         };
         let applied_with_contract =
@@ -6075,7 +6222,12 @@ mod tests {
         let IntentOutcome::Applied { receipt, .. } = applied_with_contract else {
             panic!("expected applied contract outcome");
         };
-        assert_eq!(receipt.contract, Some(contract.clone()));
+        assert_eq!(
+            receipt.contract,
+            Some(crate::InstalledInvocationEvidence::LegacyContract(
+                contract.clone()
+            ))
+        );
         match receipt.retained_evidence.as_slice() {
             [crate::RetainedEvidencePosture::MissingCoordinate {
                 coordinate,
@@ -7330,6 +7482,61 @@ mod tests {
         expected.update(b"echo.scheduler-fault-cause.error");
         expected.update(b"unknown-scheduler-fault");
         expected.update(fault_id.as_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
+    fn provider_operation_conflict_fault_digest_uses_canonical_variant_tag() {
+        let operation_id = 0x0102_0304;
+        let digest = scheduler_error_cause_digest(&RuntimeError::Engine(
+            EngineError::ProviderOperationConflict(operation_id),
+        ));
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"engine");
+        expected.update(b"provider-operation-conflict");
+        expected.update(&operation_id.to_le_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
+    fn unsupported_provider_mutation_fault_digest_uses_canonical_variant_tag() {
+        let operation_id = 0x0102_0304;
+        let digest = scheduler_error_cause_digest(
+            &RuntimeError::UnsupportedInstalledProviderContractMutation {
+                op_id: operation_id,
+            },
+        );
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"unsupported-installed-provider-contract-mutation");
+        expected.update(&operation_id.to_le_bytes());
+
+        let expected: Hash = expected.finalize().into();
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
+    fn installed_contract_kind_mismatch_fault_digest_uses_canonical_variant_tag() {
+        let expected_kind = make_intent_kind("echo.intent/eint-v1");
+        let actual_kind = make_intent_kind("echo.intent/not-eint-v1");
+        let digest =
+            scheduler_error_cause_digest(&RuntimeError::InstalledContractIntentKindMismatch {
+                expected: expected_kind,
+                actual: actual_kind,
+            });
+
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo.scheduler-fault-cause.error");
+        expected.update(b"installed-contract-intent-kind-mismatch");
+        expected.update(expected_kind.as_hash());
+        expected.update(actual_kind.as_hash());
 
         let expected: Hash = expected.finalize().into();
         assert_eq!(digest, expected);

@@ -34,5 +34,9 @@ prettyplease = "0.2"
 warp-core = { workspace = true }
 wesley-core = "=0.3.0-alpha.1"
 
+[dev-dependencies]
+echo-wasm-abi = { workspace = true }
+warp-core = { workspace = true, features = ["native_rule_bootstrap", "trusted_runtime"] }
+
 [lints]
 workspace = true

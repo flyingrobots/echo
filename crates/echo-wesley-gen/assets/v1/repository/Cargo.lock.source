@@ -759,6 +759,7 @@ dependencies = [
  "clap",
  "echo-edict-canonical",
  "echo-registry-api",
+ "echo-wasm-abi",
  "hex",
  "prettyplease",
  "proc-macro2",

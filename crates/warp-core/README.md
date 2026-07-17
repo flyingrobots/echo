@@ -82,10 +82,35 @@ Echo-owned matcher reads. Matching identities and footprints are preflight
 claims, not proof that arbitrary host callback code implements the declared
 semantics.
 
-The proposal is deliberately non-installing: it grants no admission,
-registration, scheduling, execution, durability, receipt, or observation
-authority. A trusted Echo host must perform the later package admission and
-installation crossing. This constructor is mutation-specific and rejects query
+The proposal is deliberately non-installing. A trusted Echo host can now
+compare its complete occurrence and provider-registry claims with an
+independently constructed `ProviderContractAdmissionPolicyV1` and return an
+opaque `AdmittedProviderContractPackageV1`. Semantic and release mismatch are
+distinct typed failures, and neither success nor failure installs a handler or
+invokes a callback. This first Echo crossing admits pinned claims; it does not
+rehash the provider package bytes, register a rule, schedule work, emit a
+receipt, or grant application authority.
+
+Later crossings are now implemented without weakening that boundary. A sealed
+runtime-owner port consumes independently corroborated package evidence and
+atomically installs a distinct provider record plus package, root, mutation,
+and scheduler-rule indexes. A trusted host can then admit a witnessed canonical
+EINT v1 submission with `admit_provider_contract_submission_v1(...)`. Admission
+requires the exact EINT outer intent kind and an installed provider operation;
+it stages work through the shared scheduler rather than invoking callbacks
+directly. `InstalledInvocationEvidence::ProviderV1` binds the installed package
+id and exact reference, operation id and coordinate, Target IR identity, and
+scheduler rule id. Echo reports provider work as applied only when the exact
+bound rule appears in the tick receipt.
+
+Provider evidence has its own tagged WAL representation. Legacy contract
+evidence retains its existing bytes, malformed provider fields fail closed,
+and a fresh host can recover the same outcome after reinstalling the exact
+provider package as host configuration without rerunning callbacks. Provider
+evidence does not fabricate a legacy retained-contract coordinate. These facts
+do not authenticate callers, authorize application targets, validate
+codec-owned variables against an operation schema, or make package claims
+runtime authority. The mutation proposal constructor still rejects query
 operations. Authored reads remain on the separate bounded observer/optic path;
 they are never represented as synthetic mutations.
 

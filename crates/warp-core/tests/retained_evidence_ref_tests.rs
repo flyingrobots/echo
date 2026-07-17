@@ -78,7 +78,9 @@ fn receipt_correlation(contract: ContractEvidenceIdentity) -> ReceiptCorrelation
         ticket_digest: hash(23),
         ingress_id: hash(24),
         head_key,
-        contract: Some(contract),
+        contract: Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+            contract,
+        )),
         commit_global_tick: GlobalTick::from_raw(26),
         worldline_tick_after: WorldlineTick::from_raw(27),
         tick_receipt_digest: hash(28),
@@ -308,7 +310,12 @@ fn retained_reading_missing_payload_is_not_empty_success() {
         if let IntentOutcome::Applied { receipt, .. } | IntentOutcome::Rejected { receipt, .. } =
             outcome
         {
-            assert_eq!(receipt.contract, Some(receipt_contract.clone()));
+            assert_eq!(
+                receipt.contract,
+                Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+                    receipt_contract.clone()
+                ))
+            );
             assert!(matches!(
                 receipt.retained_evidence.as_slice(),
                 [RetainedEvidencePosture::MissingCoordinate { .. }]

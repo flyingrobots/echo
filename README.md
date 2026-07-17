@@ -103,8 +103,10 @@ model.
 
 ## How It Works
 
-Echo currently implements three adjacent generated-contract boundaries. They
-do not yet form one end-to-end application path.
+Echo currently implements two generated-contract paths. The first Edict
+mutation closure now spans publication through provider-native Echo execution
+and recovery. Wesley packaging and the generated bounded-read corridor remain
+separate incomplete paths.
 
 The Wesley compatibility path emits raw `RewriteRule` builders and generated
 helpers. Its integration fixture enables the policy-gated
@@ -127,14 +129,40 @@ The helper does not construct an `InstalledContractPackage`, register or
 install anything, invoke callbacks during proposal construction, schedule
 execution, or mint runtime authority.
 
-Echo separately verifies and registers host-constructed
-`InstalledContractPackage` values, dispatches registered handlers through the
-scheduler, and stamps rule-pack identity into runtime evidence.
-No generated bridge yet carries either compiler path across Echo's trusted-host
-installation boundary into native scheduler execution. The Edict mutation
-helper can encode typed input and pack a canonical intent for submission through
-a caller-owned Echo ingress; producing those bytes does not confer installation
-or execution authority.
+The trusted runtime host can now compare that proposal with an independently
+constructed `ProviderContractAdmissionPolicyV1`. Exact agreement on the
+host-owned occurrence claim and complete provider registry yields an opaque
+`AdmittedProviderContractPackageV1`; release, semantic, schema, operation, and
+other proposition drift fails with stable typed errors. This crossing admits
+the pinned proposal claim. It does not load or rehash the package, mutate the
+engine registry, install handlers, invoke callbacks, schedule work, or emit a
+runtime receipt.
+
+`echo-wesley-gen` can separately corroborate that admitted claim with exact
+package bytes and consume the resulting opaque proof through Echo's sealed
+runtime-owner installation port. `TrustedRuntimeHost` then installs a distinct
+provider record and the package, root, mutation-operation, and scheduler-rule
+indexes atomically, without invoking the handler or fabricating legacy
+Wesley/GraphQL metadata.
+
+After a generated client submits canonical EINT v1 bytes, the trusted host can
+admit a witnessed submission for an installed provider mutation. Echo requires
+the exact EINT intent-kind domain and an installed provider operation before it
+stages work through the shared scheduler. Runtime evidence binds the installed
+package id, exact package reference, semantic operation, Target IR, and
+scheduler rule. An applied outcome requires a receipt entry from that exact
+provider rule; a same-scope system acknowledgement cannot stand in for provider
+execution. The tagged WAL codec retains that evidence, and a fresh host can
+recover the same outcome after independently reinstalling the same package
+configuration without rerunning callbacks or duplicating work. Provider
+evidence never invents a legacy retained-contract coordinate.
+
+Those crossings prove the first local provider-mutation execution and recovery
+path. They do not authenticate a caller or session, authorize an application
+target, validate codec-owned input against an operation schema at Echo's generic
+ingress boundary, support provider-native reads, or turn package metadata into
+runtime authority. Echo separately retains the Wesley compatibility path for
+host-constructed `InstalledContractPackage` values.
 
 The following sequence is the existing Wesley bootstrap fixture:
 
@@ -156,17 +184,19 @@ sequenceDiagram
     Echo-->>Fixture: OpticReading or typed obstruction
 ```
 
-The package-shaped flow below is partially implemented, but is not yet a
-current end-to-end application path:
+The first Edict mutation branch of the package-shaped flow is now executable;
+Wesley packaging and generated bounded reads are not yet complete:
 
 ```text
 admitted Wesley or Edict source
 -> verified mutation Target IR or lawful read semantics
 -> generated handlers, observers, codecs, footprints, and package metadata
 -> opaque provider proposal with explicit host binding
--> trusted-host InstalledContractPackage admission and registration
+-> trusted-host exact proposal-claim admission
+-> exact package corroboration and provider-native installation
+-> exact EINT-kind and installed-operation admission
 -> scheduler-owned execution
--> receipts and readings bound to package identity
+-> receipts and WAL recovery bound to package, operation, Target IR, and rule
 ```
 
 ## Contracts And Boundaries

@@ -16,6 +16,7 @@ use echo_edict_canonical::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use warp_core::{AdmittedProviderContractPackageV1, ContractPackageIdentity};
 use wesley_core::{
     GenerationArtifactReferenceV1, GenerationContractError, GenerationContractErrorKind,
     GenerationProvenanceManifestV1, GenerationReviewV1,
@@ -576,6 +577,206 @@ impl DigestAdmittedProviderPackageV1 {
     pub fn files(&self) -> &[ProviderPackageFileV1] {
         &self.files
     }
+}
+
+/// Stable reason that an admitted package and admitted proposal cannot be corroborated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderPackageCorroborationErrorKind {
+    /// The digest proof names a provider coordinate other than the pinned Echo provider.
+    ProviderCoordinateMismatch,
+    /// The digest proof does not carry the exact lowercase `sha256:` rendering.
+    ProviderDigestMalformed,
+    /// The proposal occurrence names a different package artifact digest.
+    PackageArtifactDigestMismatch,
+}
+
+/// Structured failure to corroborate independently admitted provider-package evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderPackageCorroborationError {
+    kind: ProviderPackageCorroborationErrorKind,
+    subject: String,
+    reference: Option<String>,
+}
+
+impl ProviderPackageCorroborationError {
+    fn new(
+        kind: ProviderPackageCorroborationErrorKind,
+        subject: &str,
+        reference: Option<&str>,
+    ) -> Self {
+        Self {
+            kind,
+            subject: subject.to_owned(),
+            reference: reference.map(str::to_owned),
+        }
+    }
+
+    /// Returns the stable typed failure kind.
+    #[must_use]
+    pub const fn kind(&self) -> ProviderPackageCorroborationErrorKind {
+        self.kind
+    }
+
+    /// Returns the stable identity category that failed corroboration.
+    #[must_use]
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// Returns the offending identity, when one is available.
+    #[must_use]
+    pub fn reference(&self) -> Option<&str> {
+        self.reference.as_deref()
+    }
+}
+
+impl fmt::Display for ProviderPackageCorroborationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "provider package corroboration failed for {}",
+            self.subject
+        )?;
+        if let Some(reference) = &self.reference {
+            write!(formatter, ": {reference}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ProviderPackageCorroborationError {}
+
+/// Opaque composition of exact-byte admission and Echo proposal admission.
+///
+/// This proof establishes only that the independently Echo-admitted proposal
+/// names the exact package occurrence authenticated by the digest-admission
+/// proof. It does not install the package, grant runtime authority, execute a
+/// callback, or independently derive the admitted registry semantics from the
+/// package bytes.
+pub struct DigestCorroboratedProviderContractPackageV1<'a> {
+    package: DigestAdmittedProviderPackageV1,
+    proposal: AdmittedProviderContractPackageV1<'a>,
+}
+
+impl fmt::Debug for DigestCorroboratedProviderContractPackageV1<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DigestCorroboratedProviderContractPackageV1")
+            .field("provider_reference", self.provider_reference())
+            .field("occurrence", self.occurrence())
+            .field("registry", self.registry())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> DigestCorroboratedProviderContractPackageV1<'a> {
+    /// Returns the exact package root authenticated by digest admission.
+    #[must_use]
+    pub const fn provider_reference(&self) -> &ProviderManifestResourceRefV1 {
+        self.package.provider_reference()
+    }
+
+    /// Returns the package occurrence admitted by Echo policy.
+    #[must_use]
+    pub fn occurrence(&self) -> &ContractPackageIdentity<'a> {
+        self.proposal.occurrence()
+    }
+
+    /// Returns the complete registry claims admitted by Echo policy.
+    #[must_use]
+    pub fn registry(&self) -> &echo_registry_api::ProviderRegistryV1<'a> {
+        self.proposal.registry()
+    }
+
+    /// Returns the mutation operation identifiers admitted by Echo policy.
+    pub fn mutation_operation_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.proposal.mutation_operation_ids()
+    }
+}
+
+fn strict_raw_sha256_v1(digest: &str) -> Option<&str> {
+    let raw = digest.strip_prefix("sha256:")?;
+    (raw.len() == 64
+        && raw
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')))
+    .then_some(raw)
+}
+
+/// Corroborates an admitted proposal against its exact digest-admitted package occurrence.
+///
+/// This pure crossing compares the pinned provider coordinate and the exact
+/// lowercase SHA-256 package root. It performs no filesystem, registry,
+/// environment, process, clock, randomness, network, callback, installation,
+/// scheduling, execution, or receipt operation.
+///
+/// # Errors
+///
+/// Returns a stable structured failure when the digest proof names another
+/// provider coordinate, carries a malformed digest rendering, or disagrees
+/// with the independently admitted proposal occurrence.
+pub fn corroborate_admitted_provider_contract_package_v1(
+    package: DigestAdmittedProviderPackageV1,
+    proposal: AdmittedProviderContractPackageV1<'_>,
+) -> Result<DigestCorroboratedProviderContractPackageV1<'_>, ProviderPackageCorroborationError> {
+    let provider_reference = package.provider_reference();
+    if provider_reference.coordinate != PROVIDER_COORDINATE_V1 {
+        return Err(ProviderPackageCorroborationError::new(
+            ProviderPackageCorroborationErrorKind::ProviderCoordinateMismatch,
+            "provider.package.coordinate",
+            Some(&provider_reference.coordinate),
+        ));
+    }
+
+    let Some(package_hash_hex) = strict_raw_sha256_v1(&provider_reference.digest) else {
+        return Err(ProviderPackageCorroborationError::new(
+            ProviderPackageCorroborationErrorKind::ProviderDigestMalformed,
+            "provider.package.digest",
+            Some(&provider_reference.digest),
+        ));
+    };
+    let occurrence_hash_hex = proposal.occurrence().artifact_hash_hex;
+    if package_hash_hex != occurrence_hash_hex {
+        return Err(ProviderPackageCorroborationError::new(
+            ProviderPackageCorroborationErrorKind::PackageArtifactDigestMismatch,
+            "provider.package.artifact-hash",
+            Some(occurrence_hash_hex),
+        ));
+    }
+
+    Ok(DigestCorroboratedProviderContractPackageV1 { package, proposal })
+}
+
+/// Installs an exactly corroborated provider package through Echo's runtime-owner port.
+///
+/// This is the normal proof-carrying installation path. It consumes both the
+/// independently digest-admitted package occurrence and the independently
+/// Echo-admitted provider proposal, then delegates the retained proposal and
+/// exact package reference to Echo's sealed runtime-owner installer. It does
+/// not execute provider callbacks, submit an intent, schedule a tick, persist a
+/// receipt, or claim that arbitrary host callbacks implement Edict semantics.
+///
+/// # Errors
+///
+/// Returns a structured Echo installation failure when the retained package
+/// reference is malformed or conflicts with admitted or installed runtime state.
+pub fn install_digest_corroborated_provider_contract_package_v1<I>(
+    installer: &mut I,
+    package: DigestCorroboratedProviderContractPackageV1<'_>,
+) -> Result<
+    warp_core::InstalledProviderContractPackageRecordV1,
+    warp_core::ProviderContractInstallationError,
+>
+where
+    I: warp_core::ProviderContractPackageInstallerV1,
+{
+    let DigestCorroboratedProviderContractPackageV1 { package, proposal } = package;
+    let provider_reference = package.provider_reference();
+    let provider_reference = warp_core::ProviderPackageReferenceV1::new(
+        provider_reference.coordinate.clone(),
+        provider_reference.digest.clone(),
+    );
+    installer.install_admitted_provider_contract_package_v1_trusted(provider_reference, proposal)
 }
 
 /// Assembles the deterministic package from verified generated values and exact components.

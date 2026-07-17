@@ -44,6 +44,14 @@ mutation operation installed by that same package. Package preparation rejects:
 - handlers for query operations;
 - handlers whose target mutation is not installed by the package.
 
+That inverse-handler boundary is currently the legacy generated-contract
+family. Provider-native invocation evidence is preserved as its own proposition
+and is rejected with the typed `ProviderTargetUnsupported` obstruction. Echo
+does not reinterpret provider evidence as a legacy package coordinate, infer an
+inverse from Target IR, or invoke a provider callback under a law that was never
+admitted. A later provider inverse crossing must supply and verify its own exact
+law and evidence.
+
 The handler receives `ContractInverseContext`, which contains:
 
 - the exact target `CausalTickReceiptRef`;
@@ -118,6 +126,8 @@ Echo obstructs before submission when:
 - the target receipt records a rejected or otherwise non-applied outcome;
 - the target witnessed envelope is unavailable or malformed;
 - target contract evidence is absent or inconsistent;
+- the target carries provider-native evidence but no provider inverse law is
+  admitted;
 - the matching artifact or inverse handler is not installed;
 - the installed artifact differs from the artifact retained on the target;
 - the application's current frontier is stale;
@@ -144,10 +154,13 @@ undo map. An in-memory index may accelerate that traversal, but it is never
 authority and may be discarded and rebuilt at any time.
 
 The installed executable contract package is host configuration and must be
-reinstalled after restart. Echo compares its full retained evidence identity to
-the target transition before invoking its inverse law. Reinstalling a newer or
-otherwise different artifact produces `ContractVersionMismatch` rather than
-silently applying a different law to old history.
+reinstalled after restart. For the currently supported legacy inverse path,
+Echo compares its full retained evidence identity to the target transition
+before invoking its inverse law. Reinstalling a newer or otherwise different
+artifact produces `ContractVersionMismatch` rather than silently applying a
+different law to old history. Reinstalling a provider package makes future
+provider mutation dispatch possible but does not create provider inverse
+authority.
 
 ## Sequence Semantics
 

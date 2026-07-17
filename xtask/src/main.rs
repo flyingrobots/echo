@@ -857,6 +857,31 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "--test",
                 "external_consumer_contract_fixture_tests",
             ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "provider_contract_admission_tests",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_admitted_package_corroborates_only_the_exact_host_admitted_occurrence",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_corroborated_package_installs_as_provider_native_evidence",
+            ]),
         ],
         TestSlice::RuntimeWalAck => vec![
             cargo_command([
@@ -6526,7 +6551,7 @@ mod tests {
     #[test]
     fn test_slice_contract_path_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::ContractPathRelease);
-        assert_eq!(commands.len(), 3);
+        assert_eq!(commands.len(), 6);
 
         let (program, args) = command_program_and_args(&commands[0]);
         assert_eq!(program, "cargo");
@@ -6570,6 +6595,49 @@ mod tests {
                 "native_rule_bootstrap trusted_runtime",
                 "--test",
                 "external_consumer_contract_fixture_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[3]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "provider_contract_admission_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[4]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_admitted_package_corroborates_only_the_exact_host_admitted_occurrence",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[5]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_corroborated_package_installs_as_provider_native_evidence",
             ]
         );
     }

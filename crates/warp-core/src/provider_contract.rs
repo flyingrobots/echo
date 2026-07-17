@@ -545,6 +545,18 @@ impl InstalledProviderDigestIdentityV1 {
         }
     }
 
+    pub(crate) fn from_owned_parts(
+        coordinate: String,
+        digest_domain: String,
+        digest: String,
+    ) -> Self {
+        Self {
+            coordinate,
+            digest_domain,
+            digest,
+        }
+    }
+
     /// Return the provider artifact coordinate.
     #[must_use]
     pub fn coordinate(&self) -> &str {
@@ -1077,6 +1089,120 @@ impl InstalledProviderContractPackageRecordV1 {
     pub fn mutation_operation_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
         self.mutation_operation_ids.iter().copied()
     }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn mutation_evidence_v1(
+        &self,
+        operation_id: u32,
+    ) -> Option<ProviderContractEvidenceIdentityV1> {
+        if self.mutation_rule.operation_id() != operation_id {
+            return None;
+        }
+        let operation = self.registry.operations().iter().find(|operation| {
+            operation.operation_id() == operation_id && operation.kind() == OpKind::Mutation
+        })?;
+        Some(ProviderContractEvidenceIdentityV1 {
+            package_id: self.package_id,
+            package_reference: self.package_reference.clone(),
+            operation_id,
+            operation_coordinate: operation.coordinate().to_owned(),
+            target_ir: operation.target_ir().clone(),
+            mutation_rule_id: *self.mutation_rule.rule_id(),
+        })
+    }
+}
+
+/// Provider-native installed-operation evidence attached to invocation receipts.
+///
+/// This value binds the installed provider package, exact package root,
+/// semantic operation, Target IR, and scheduler rule used by Echo. It is
+/// evidence metadata only and grants no admission, execution, or observation
+/// authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderContractEvidenceIdentityV1 {
+    package_id: InstalledProviderContractPackageIdV1,
+    package_reference: ProviderPackageReferenceV1,
+    operation_id: u32,
+    operation_coordinate: String,
+    target_ir: InstalledProviderDigestIdentityV1,
+    mutation_rule_id: crate::Hash,
+}
+
+impl ProviderContractEvidenceIdentityV1 {
+    pub(crate) fn try_from_retained_parts(
+        package_id: InstalledProviderContractPackageIdV1,
+        package_reference: ProviderPackageReferenceV1,
+        operation_id: u32,
+        operation_coordinate: String,
+        target_ir: InstalledProviderDigestIdentityV1,
+        mutation_rule_id: crate::Hash,
+    ) -> Result<Self, &'static str> {
+        if package_reference.coordinate().is_empty() {
+            return Err("provider package reference coordinate");
+        }
+        if strict_prefixed_sha256(package_reference.digest()).is_none() {
+            return Err("provider package reference digest");
+        }
+        if is_reserved_operation_id(operation_id) {
+            return Err("provider operation id");
+        }
+        if operation_coordinate.is_empty() {
+            return Err("provider operation coordinate");
+        }
+        if target_ir.coordinate().is_empty() {
+            return Err("provider Target IR coordinate");
+        }
+        if target_ir.digest_domain().is_empty() {
+            return Err("provider Target IR digest domain");
+        }
+        if strict_prefixed_sha256(target_ir.digest()).is_none() {
+            return Err("provider Target IR digest");
+        }
+        Ok(Self {
+            package_id,
+            package_reference,
+            operation_id,
+            operation_coordinate,
+            target_ir,
+            mutation_rule_id,
+        })
+    }
+
+    /// Return the deterministic installed provider package id.
+    #[must_use]
+    pub const fn package_id(&self) -> InstalledProviderContractPackageIdV1 {
+        self.package_id
+    }
+
+    /// Return the exact provider package coordinate and digest.
+    #[must_use]
+    pub const fn package_reference(&self) -> &ProviderPackageReferenceV1 {
+        &self.package_reference
+    }
+
+    /// Return the invoked provider operation id.
+    #[must_use]
+    pub const fn operation_id(&self) -> u32 {
+        self.operation_id
+    }
+
+    /// Return the semantic provider operation coordinate.
+    #[must_use]
+    pub fn operation_coordinate(&self) -> &str {
+        &self.operation_coordinate
+    }
+
+    /// Return the exact Target IR artifact identity bound at installation.
+    #[must_use]
+    pub const fn target_ir(&self) -> &InstalledProviderDigestIdentityV1 {
+        &self.target_ir
+    }
+
+    /// Return the scheduler rule id bound to the installed mutation.
+    #[must_use]
+    pub const fn rule_id(&self) -> &crate::Hash {
+        &self.mutation_rule_id
+    }
 }
 
 /// Stable reason a provider-native contract package installation failed.
@@ -1322,7 +1448,6 @@ pub(crate) fn prepare_installed_provider_contract_package_v1(
     })
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn strict_prefixed_sha256(value: &str) -> Option<&str> {
     let raw = value.strip_prefix("sha256:")?;
     (is_raw_sha256(raw)).then_some(raw)

@@ -166,8 +166,13 @@ runtime-owner port. `TrustedRuntimeHost` then creates a distinct owned provider
 record and atomically installs provider package, root, mutation-operation, and
 shared scheduler-rule indexes without invoking the callback or inventing legacy
 Wesley/GraphQL metadata. Jim retains its domain meaning. The installed record is
-not yet provider-native ingress, invocation, WAL, receipt, or observation
-authority.
+not itself invocation or consequence authority. Echo's generic provider path
+can now separately admit a previously witnessed exact-kind EINT mutation,
+dispatch its installed rule through the shared scheduler, and retain exact
+package-, operation-, Target-IR-, and rule-bound evidence through the receipt
+and WAL. That capability does not mean a Jim operation has been authored,
+generated, admitted, installed, or authorized; this case study must still
+designate an actual Edict-authored Jim operation before claiming Jim execution.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -768,12 +773,17 @@ The Jim example generalizes into a practical checklist.
 
 ### Submit Work
 
-1. Build canonical intent bytes at an explicit application basis.
+1. Use the generated client to build canonical EINT v1 bytes at an explicit
+   application basis.
 2. Use `submit_intent_with_runtime_wal_ack(...)` for user-facing durable work.
 3. Treat the returned handle as accepted-submission evidence, not an applied
    result.
-4. Let trusted host control stage and tick.
-5. Observe the decided outcome by submission id.
+4. Let the trusted host admit the installed provider operation with
+   `admit_provider_contract_submission_v1(...)`; application code cannot stage
+   itself.
+5. Let the trusted host control scheduler cadence and tick.
+6. Observe the decided outcome by submission id, and require evidence from the
+   exact installed provider rule before presenting it as applied.
 
 ### Read State
 

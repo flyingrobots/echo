@@ -63,6 +63,8 @@ use crate::causal_wal::FilesystemWalFaultPlan;
 
 const INSTALLED_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
     b"echo:trusted-host-installed-contract-admission:v1\0";
+const PROVIDER_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
+    b"echo:trusted-host-provider-contract-admission:v1\0";
 
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
@@ -780,11 +782,17 @@ impl TrustedRuntimeHost {
                 submission_id: correlation.submission_id,
             },
         )?;
-        let target_contract = correlation.contract.as_ref().ok_or_else(|| {
+        let target_evidence = correlation.contract.as_ref().ok_or_else(|| {
             ContractInverseObstruction::TargetContractEvidenceUnavailable {
                 target_receipt_ref: Box::new(request.target_receipt_ref),
             }
         })?;
+        let crate::InstalledInvocationEvidence::LegacyContract(target_contract) = target_evidence
+        else {
+            return Err(ContractInverseObstruction::ProviderTargetUnsupported {
+                target_receipt_ref: Box::new(request.target_receipt_ref),
+            });
+        };
         if target_contract.op_kind != ContractOperationKind::Mutation {
             return Err(ContractInverseObstruction::TargetOperationKindMismatch {
                 actual: target_contract.op_kind,
@@ -1019,6 +1027,34 @@ impl TrustedRuntimeHost {
         )
     }
 
+    /// Stages one witnessed provider-native submission with a supplied ticket.
+    ///
+    /// This boundary retains provider-native installed-operation evidence and
+    /// does not tick or execute the operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a runtime error if the submission is unknown, malformed,
+    /// unsupported by an installed provider package, or rejected by ingress.
+    pub fn stage_provider_contract_submission_v1(
+        &mut self,
+        submission_id: Hash,
+        ticket: &OpticAdmissionTicket,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let envelope = self
+            .runtime
+            .witnessed_submission_envelope(&submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+        self.runtime.ingest_provider_contract_invocation_v1(
+            &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
+            &self.engine,
+            submission_id,
+            ticket,
+            envelope,
+        )
+    }
+
     /// Admits and stages one witnessed generated-contract submission under
     /// trusted-host policy.
     ///
@@ -1045,9 +1081,7 @@ impl TrustedRuntimeHost {
             .witnessed_submission_envelope(&submission_id)
             .cloned()
             .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
-        let IngressPayload::LocalIntent { intent_bytes, .. } = envelope.payload();
-        let (op_id, _vars) = decode_canonical_eint(intent_bytes)
-            .ok_or(RuntimeError::MalformedInstalledContractIntent)?;
+        let op_id = crate::coordinator::installed_contract_mutation_op_id(&envelope)?;
         let contract = self
             .engine
             .installed_contract_mutation_evidence(op_id)
@@ -1056,6 +1090,47 @@ impl TrustedRuntimeHost {
 
         self.runtime
             .ingest_host_admitted_installed_contract_invocation(
+                &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
+                &self.engine,
+                submission_id,
+                admission_digest,
+                envelope,
+            )
+    }
+
+    /// Admits and stages one witnessed provider-native mutation under host policy.
+    ///
+    /// Echo derives the admission digest from its witnessed submission and the
+    /// exact installed provider evidence. Application code supplies no ticket.
+    /// This method does not itself tick or execute the operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a runtime error if the submission is unknown, malformed, not
+    /// backed by an installed provider mutation, or rejected by ingress.
+    pub fn admit_provider_contract_submission_v1(
+        &mut self,
+        submission_id: Hash,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let submission = self
+            .runtime
+            .witnessed_submission(&submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+        let envelope = self
+            .runtime
+            .witnessed_submission_envelope(&submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+        let op_id = crate::coordinator::installed_contract_mutation_op_id(&envelope)?;
+        let contract = self
+            .engine
+            .installed_provider_contract_mutation_evidence_v1(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledProviderContractMutation { op_id })?;
+        let admission_digest = provider_contract_host_admission_digest(&submission, &contract);
+
+        self.runtime
+            .ingest_host_admitted_provider_contract_invocation_v1(
                 &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
                 &self.engine,
                 submission_id,
@@ -3140,6 +3215,26 @@ fn installed_contract_host_admission_digest(
     hasher.update(submission.head_key.head_id.as_bytes());
     hasher.update(contract.package_id.as_bytes());
     hasher.update(&contract.op_id.to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn provider_contract_host_admission_digest(
+    submission: &IntentSubmissionRecord,
+    contract: &crate::ProviderContractEvidenceIdentityV1,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(PROVIDER_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN);
+    hasher.update(&submission.submission_id);
+    hasher.update(&submission.ingress_id);
+    hasher.update(submission.head_key.worldline_id.as_bytes());
+    hasher.update(submission.head_key.head_id.as_bytes());
+    hasher.update(contract.package_id().as_bytes());
+    hasher.update(&(contract.package_reference().coordinate().len() as u64).to_le_bytes());
+    hasher.update(contract.package_reference().coordinate().as_bytes());
+    hasher.update(&(contract.package_reference().digest().len() as u64).to_le_bytes());
+    hasher.update(contract.package_reference().digest().as_bytes());
+    hasher.update(&contract.operation_id().to_le_bytes());
+    hasher.update(contract.rule_id());
     hasher.finalize().into()
 }
 

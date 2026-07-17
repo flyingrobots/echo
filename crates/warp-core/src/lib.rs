@@ -220,7 +220,7 @@ pub use contract_inverse::{
 pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
     ContractPackageIdentity, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageId, InstalledContractPackageRecord,
+    InstalledContractPackageId, InstalledContractPackageRecord, InstalledInvocationEvidence,
 };
 pub use dynamic_binding::{
     BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
@@ -281,12 +281,12 @@ pub use provider_contract::{
     InstalledProviderOperationV1, InstalledProviderRegistryV1, InstalledProviderSchemaIdentityV1,
     InstalledProviderSemanticIdentityV1, InstalledProviderValueContractV1,
     ProviderContractAdmissionError, ProviderContractAdmissionErrorKind,
-    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
-    ProviderContractInstallationErrorKind, ProviderContractPackageInstallerV1,
-    ProviderContractPackageProposalV1, ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1,
-    ProviderMutationHooksV1, ProviderMutationHostV1, ProviderMutationImplementationIdentityV1,
-    ProviderMutationMatchFnV1, ProviderPackageProposalError, ProviderPackageProposalErrorKind,
-    ProviderPackageReferenceV1,
+    ProviderContractAdmissionPolicyV1, ProviderContractEvidenceIdentityV1,
+    ProviderContractInstallationError, ProviderContractInstallationErrorKind,
+    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
+    ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1, ProviderMutationHooksV1,
+    ProviderMutationHostV1, ProviderMutationImplementationIdentityV1, ProviderMutationMatchFnV1,
+    ProviderPackageProposalError, ProviderPackageProposalErrorKind, ProviderPackageReferenceV1,
 };
 // --- Plurality law types ---
 pub use plurality_law::{

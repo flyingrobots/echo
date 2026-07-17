@@ -379,7 +379,7 @@ fn temp_runtime_wal_dir_preserves_colliding_directory() {
     let marker = collision.join("owner-marker");
     fs::write(&marker, b"owned elsewhere").expect("collision marker should be written");
 
-    let allocated = temp_runtime_wal_dir_in(&root, &label, &AtomicU64::new(0));
+    let allocated = temp_runtime_wal_dir_in(&root, label, &AtomicU64::new(0));
     let collision_preserved = marker.exists();
     fs::remove_dir_all(&allocated).expect("allocated test directory should be removable");
     if collision.exists() {
@@ -871,7 +871,8 @@ fn serious_external_consumer_fixture_proves_hosted_contract_path() {
     let receipt_contract = receipt_correlation
         .contract
         .as_ref()
-        .expect("external receipt should carry contract evidence");
+        .and_then(warp_core::InstalledInvocationEvidence::legacy_contract)
+        .expect("external legacy receipt should carry legacy contract evidence");
     assert_eq!(receipt_contract.op_kind, ContractOperationKind::Mutation);
     let receipt_coord = semantic_coordinate(
         receipt_contract,

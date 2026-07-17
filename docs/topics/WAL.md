@@ -65,13 +65,24 @@ envelope frame in each intake transaction.
 
 Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
 canonical local-commit provenance entry, its exact typed `TickReceipt`, and any
-installed-contract identity attached to the outcome. Filesystem WAL reopen
-loads that evidence into a fresh provenance service, replays the worldline from
-its deterministic registered boundary, restores receipt correlations, and only
-then publishes the reconstructed runtime. The recovery witness compares global
-tick, frontier tick, state root, provenance, receipt, contract evidence, and the
-app-facing outcome without running the scheduler or contract handler. A legacy
-digest-only state-delta record is inspectable but obstructs writable startup.
+installed-invocation identity attached to the outcome. That identity is a
+tagged proposition: the existing legacy Wesley/GraphQL evidence keeps its
+byte-stable tag-1 encoding, while tag 2 retains provider package id and exact
+reference, operation id and coordinate, Target IR identity, and scheduler rule
+id. Provider decoding rejects empty coordinates, reserved operation ids, and
+malformed package or Target IR digests rather than laundering structurally
+invalid fields through a valid WAL frame checksum. Provider evidence does not
+fabricate a legacy retained-contract coordinate.
+
+Filesystem WAL reopen loads that evidence into a fresh provenance service,
+replays the worldline from its deterministic registered boundary, restores
+receipt correlations, and only then publishes the reconstructed runtime. The
+recovery witness compares global tick, frontier tick, state root, provenance,
+receipt, contract evidence, and the app-facing outcome without running the
+scheduler or contract handler. A fresh host may then independently reinstall
+the same provider package as host configuration; recovered invocation remains
+idempotent and does not become duplicate scheduler work. A legacy digest-only
+state-delta record is inspectable but obstructs writable startup.
 Transaction construction also requires the receipt and correlation to name the
 same causal event and the retained state delta to bind that receipt's content
 commitment before the transaction can commit.

@@ -564,6 +564,9 @@ fn trusted_host_admits_installed_contract_submission_without_caller_ticket_autho
     let contract = receipt
         .contract
         .expect("installed mutation receipt should carry package evidence");
+    let contract = contract
+        .legacy_contract()
+        .expect("legacy installed mutation retains legacy contract evidence");
     assert_eq!(contract.op_id, MUTATION_OP_ID);
     assert_eq!(contract.op_kind, ContractOperationKind::Mutation);
     assert_eq!(contract.package_name, "reference-counter");

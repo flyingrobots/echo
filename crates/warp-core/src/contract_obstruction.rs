@@ -202,7 +202,8 @@ impl ContractObstruction {
     #[must_use]
     pub fn from_runtime_error(error: &RuntimeError) -> Self {
         match error {
-            RuntimeError::UnsupportedInstalledContractMutation { op_id } => {
+            RuntimeError::UnsupportedInstalledContractMutation { op_id }
+            | RuntimeError::UnsupportedInstalledProviderContractMutation { op_id } => {
                 Self::unsupported_operation(*op_id)
             }
             RuntimeError::SchedulerRuntimeFaultActive(fault_id)
@@ -213,6 +214,7 @@ impl ContractObstruction {
                 })
             }
             RuntimeError::MalformedInstalledContractIntent
+            | RuntimeError::InstalledContractIntentKindMismatch { .. }
             | RuntimeError::ContractInverseTargetRequiresContractAdmission
             | RuntimeError::UnknownIntentSubmission(_)
             | RuntimeError::TicketedIngressSubmissionMismatch(_)

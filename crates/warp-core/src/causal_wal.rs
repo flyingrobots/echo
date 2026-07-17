@@ -50,6 +50,7 @@ use crate::causal_anchor::{
 use crate::clock::WorldlineTick;
 use crate::contract_registry::{
     ContractEvidenceIdentity, ContractOperationKind, InstalledContractPackageId,
+    InstalledInvocationEvidence,
 };
 use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
@@ -58,6 +59,10 @@ use crate::provenance_codec::{
     decode_local_commit_v1, encode_local_commit_v1, RetainedProvenanceError,
 };
 use crate::provenance_store::ProvenanceEntry;
+use crate::provider_contract::{
+    InstalledProviderContractPackageIdV1, InstalledProviderDigestIdentityV1,
+    ProviderContractEvidenceIdentityV1, ProviderPackageReferenceV1,
+};
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
@@ -79,6 +84,12 @@ const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
 const WAL_RUNTIME_STATE_DELTA_DOMAIN: &[u8] = b"echo:causal_wal:runtime_state_delta:v1\0";
 const WAL_RUNTIME_STATE_DELTA_MAGIC_V1: &[u8; 8] = b"ERSD0001";
+// This tagged family is intentionally extensible under the v1 state-delta
+// envelope. Older decoders reject unknown tags instead of misinterpreting new
+// evidence, while tags 0 and 1 retain their exact historical byte layouts.
+const WAL_INVOCATION_EVIDENCE_NONE_TAG: u8 = 0;
+const WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG: u8 = 1;
+const WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG: u8 = 2;
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const WAL_PROJECTION_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:projection:root:v1\0";
 const WAL_PROJECTION_WRITER_EPOCH_DOMAIN: &[u8] = b"echo:causal_wal:projection:writer_epoch:v1\0";
@@ -2043,7 +2054,7 @@ impl WalSubmissionEnvelopeRecord {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalRuntimeStateDeltaRecord {
     receipt_digest: Hash,
-    contract: Option<ContractEvidenceIdentity>,
+    contract: Option<InstalledInvocationEvidence>,
     entry: ProvenanceEntry,
 }
 
@@ -2056,7 +2067,7 @@ impl WalRuntimeStateDeltaRecord {
     /// scheduler local commit.
     pub fn from_provenance_entry(
         receipt_digest: Hash,
-        contract: Option<ContractEvidenceIdentity>,
+        contract: Option<InstalledInvocationEvidence>,
         entry: ProvenanceEntry,
     ) -> Result<Self, RetainedProvenanceError> {
         encode_local_commit_v1(&entry)?;
@@ -2088,7 +2099,7 @@ impl WalRuntimeStateDeltaRecord {
 
     /// Returns installed-contract evidence attached to the admitted transition.
     #[must_use]
-    pub fn contract(&self) -> Option<&ContractEvidenceIdentity> {
+    pub fn contract(&self) -> Option<&InstalledInvocationEvidence> {
         self.contract.as_ref()
     }
 
@@ -2165,27 +2176,46 @@ impl WalRuntimeStateDeltaRecord {
     }
 }
 
-fn push_retained_contract_evidence(out: &mut Vec<u8>, contract: Option<&ContractEvidenceIdentity>) {
+fn push_retained_contract_evidence(
+    out: &mut Vec<u8>,
+    contract: Option<&InstalledInvocationEvidence>,
+) {
     let Some(contract) = contract else {
-        out.push(0);
+        out.push(WAL_INVOCATION_EVIDENCE_NONE_TAG);
         return;
     };
-    out.push(1);
-    out.extend_from_slice(contract.package_id.as_bytes());
-    out.extend_from_slice(&contract.echo_abi_version.to_le_bytes());
-    push_retained_string(out, &contract.package_name);
-    push_retained_string(out, &contract.package_version);
-    push_retained_string(out, &contract.artifact_hash_hex);
-    push_retained_string(out, &contract.codec_id);
-    out.extend_from_slice(&contract.registry_version.to_le_bytes());
-    push_retained_string(out, &contract.wesley_generator_version);
-    out.extend_from_slice(&contract.helper_api_version.to_le_bytes());
-    push_retained_string(out, &contract.schema_sha256_hex);
-    out.extend_from_slice(&contract.op_id.to_le_bytes());
-    out.push(match contract.op_kind {
-        ContractOperationKind::Mutation => 1,
-        ContractOperationKind::Query => 2,
-    });
+    match contract {
+        InstalledInvocationEvidence::LegacyContract(contract) => {
+            out.push(WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG);
+            out.extend_from_slice(contract.package_id.as_bytes());
+            out.extend_from_slice(&contract.echo_abi_version.to_le_bytes());
+            push_retained_string(out, &contract.package_name);
+            push_retained_string(out, &contract.package_version);
+            push_retained_string(out, &contract.artifact_hash_hex);
+            push_retained_string(out, &contract.codec_id);
+            out.extend_from_slice(&contract.registry_version.to_le_bytes());
+            push_retained_string(out, &contract.wesley_generator_version);
+            out.extend_from_slice(&contract.helper_api_version.to_le_bytes());
+            push_retained_string(out, &contract.schema_sha256_hex);
+            out.extend_from_slice(&contract.op_id.to_le_bytes());
+            out.push(match contract.op_kind {
+                ContractOperationKind::Mutation => 1,
+                ContractOperationKind::Query => 2,
+            });
+        }
+        InstalledInvocationEvidence::ProviderV1(contract) => {
+            out.push(WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG);
+            out.extend_from_slice(contract.package_id().as_bytes());
+            push_retained_string(out, contract.package_reference().coordinate());
+            push_retained_string(out, contract.package_reference().digest());
+            out.extend_from_slice(&contract.operation_id().to_le_bytes());
+            push_retained_string(out, contract.operation_coordinate());
+            push_retained_string(out, contract.target_ir().coordinate());
+            push_retained_string(out, contract.target_ir().digest_domain());
+            push_retained_string(out, contract.target_ir().digest());
+            out.extend_from_slice(contract.rule_id());
+        }
+    }
 }
 
 fn push_retained_string(out: &mut Vec<u8>, value: &str) {
@@ -2251,10 +2281,10 @@ impl<'a> RetainedStateDeltaCursor<'a> {
 
     fn read_contract_evidence(
         &mut self,
-    ) -> Result<Option<ContractEvidenceIdentity>, RetainedProvenanceError> {
+    ) -> Result<Option<InstalledInvocationEvidence>, RetainedProvenanceError> {
         match self.read_u8()? {
-            0 => Ok(None),
-            1 => {
+            WAL_INVOCATION_EVIDENCE_NONE_TAG => Ok(None),
+            WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG => {
                 let package_id = InstalledContractPackageId::from_bytes(self.read_hash()?);
                 let echo_abi_version = self.read_u32()?;
                 let package_name = self.read_string()?;
@@ -2276,20 +2306,47 @@ impl<'a> RetainedStateDeltaCursor<'a> {
                         })
                     }
                 };
-                Ok(Some(ContractEvidenceIdentity {
-                    package_id,
-                    echo_abi_version,
-                    package_name,
-                    package_version,
-                    artifact_hash_hex,
-                    codec_id,
-                    registry_version,
-                    wesley_generator_version,
-                    helper_api_version,
-                    schema_sha256_hex,
-                    op_id,
-                    op_kind,
-                }))
+                Ok(Some(InstalledInvocationEvidence::LegacyContract(
+                    ContractEvidenceIdentity {
+                        package_id,
+                        echo_abi_version,
+                        package_name,
+                        package_version,
+                        artifact_hash_hex,
+                        codec_id,
+                        registry_version,
+                        wesley_generator_version,
+                        helper_api_version,
+                        schema_sha256_hex,
+                        op_id,
+                        op_kind,
+                    },
+                )))
+            }
+            WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG => {
+                let package_id =
+                    InstalledProviderContractPackageIdV1::from_bytes(self.read_hash()?);
+                let package_reference =
+                    ProviderPackageReferenceV1::new(self.read_string()?, self.read_string()?);
+                let operation_id = self.read_u32()?;
+                let operation_coordinate = self.read_string()?;
+                let target_ir = InstalledProviderDigestIdentityV1::from_owned_parts(
+                    self.read_string()?,
+                    self.read_string()?,
+                    self.read_string()?,
+                );
+                let mutation_rule_id = self.read_hash()?;
+                Ok(Some(InstalledInvocationEvidence::ProviderV1(
+                    ProviderContractEvidenceIdentityV1::try_from_retained_parts(
+                        package_id,
+                        package_reference,
+                        operation_id,
+                        operation_coordinate,
+                        target_ir,
+                        mutation_rule_id,
+                    )
+                    .map_err(RetainedProvenanceError::Inconsistent)?,
+                )))
             }
             tag => Err(RetainedProvenanceError::UnknownTag {
                 family: "optional contract evidence",

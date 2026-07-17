@@ -98,6 +98,47 @@ pub struct ContractEvidenceIdentity {
     pub op_kind: ContractOperationKind,
 }
 
+/// Installed-operation evidence carried by mutation ingress and receipts.
+///
+/// The variants preserve distinct legacy generated-contract and provider-native
+/// propositions. Constructing either variant does not grant runtime authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InstalledInvocationEvidence {
+    /// Legacy Wesley/GraphQL generated-contract evidence.
+    LegacyContract(ContractEvidenceIdentity),
+    /// Provider-native Edict/Echo evidence.
+    ProviderV1(crate::provider_contract::ProviderContractEvidenceIdentityV1),
+}
+
+impl From<ContractEvidenceIdentity> for InstalledInvocationEvidence {
+    fn from(value: ContractEvidenceIdentity) -> Self {
+        Self::LegacyContract(value)
+    }
+}
+
+impl InstalledInvocationEvidence {
+    /// Return legacy generated-contract evidence when this is the legacy variant.
+    #[must_use]
+    pub const fn legacy_contract(&self) -> Option<&ContractEvidenceIdentity> {
+        match self {
+            Self::LegacyContract(value) => Some(value),
+            Self::ProviderV1(_) => None,
+        }
+    }
+
+    /// Return provider-native evidence when this is the provider-v1 variant.
+    #[must_use]
+    pub const fn provider_v1(
+        &self,
+    ) -> Option<&crate::provider_contract::ProviderContractEvidenceIdentityV1> {
+        match self {
+            Self::LegacyContract(_) => None,
+            Self::ProviderV1(value) => Some(value),
+        }
+    }
+}
+
 /// Host-owned package identity supplied when installing generated contract code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContractPackageIdentity<'a> {

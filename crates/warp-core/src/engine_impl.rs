@@ -1542,6 +1542,19 @@ impl Engine {
             .copied()
     }
 
+    /// Returns provider-native evidence for the installed package that owns a mutation.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[must_use]
+    pub fn installed_provider_contract_mutation_evidence_v1(
+        &self,
+        op_id: u32,
+    ) -> Option<crate::ProviderContractEvidenceIdentityV1> {
+        let package_id = self.provider_contract_mutation_packages.get(&op_id)?;
+        self.installed_provider_contract_packages
+            .get(package_id)?
+            .mutation_evidence_v1(op_id)
+    }
+
     /// Returns one installed provider-native package by its deterministic id.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     #[must_use]

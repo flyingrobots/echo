@@ -4,9 +4,10 @@
 # Generated Rule Authorship
 
 Product and application rules are authored in contract languages. Hand-written
-Rust rule registration is not a supported product authoring surface. The final
-package-shaped lowering corridor is partially implemented, but it is not yet
-current end-to-end runtime truth.
+Rust rule registration is not a supported product authoring surface. The first
+Edict mutation closure now reaches provider-native scheduling, receipts, and
+WAL recovery. Wesley packaging and the generated bounded-read corridor remain
+incomplete and must not borrow that mutation evidence.
 
 ## Current Implementation
 
@@ -63,6 +64,19 @@ Wesley/GraphQL metadata or legacy installed-contract evidence. Generated code
 cannot install itself, and the application handle exposes no installation
 surface.
 
+An installed provider mutation can now enter Echo through
+`TrustedRuntimeHost::admit_provider_contract_submission_v1(...)` after ordinary
+witnessed submission. The outer intent kind must be exactly canonical EINT v1,
+and the encoded operation id must resolve to the installed provider mutation
+before staging. Echo uses the existing scheduler and retains a distinct
+`ProviderV1` invocation-evidence proposition binding the installed package id,
+exact package reference, operation, Target IR, and scheduler rule. A provider
+outcome is applied only when the exact bound provider rule appears in the tick
+receipt; a system acknowledgement cannot satisfy that proposition. Provider
+evidence survives the tagged WAL and fresh-host recovery after the same package
+is reinstalled as host configuration, without fabricating legacy contract
+coordinates or rerunning work.
+
 `native_rule_bootstrap` is a Cargo feature gate and repository policy boundary.
 Default builds omit raw rule constructors and public registration methods, but
 a Rust dependency consumer can explicitly enable the feature.
@@ -84,23 +98,25 @@ Wesley or Edict source
 -> exact package corroboration
 -> provider-native installation
 -> existing atomic engine rule and operation indexes
+-> exact EINT-kind and installed-operation admission
 -> scheduler-owned execution
--> receipt / reading evidence carrying package and rule-pack identity
+-> receipt / WAL evidence carrying package, operation, Target IR, and rule identity
 ```
 
-Both authoring systems still need generated bridges into Echo's runtime package
-surface. Wesley needs a package emitter. Edict already emits a digest-locked
+Wesley still needs a package emitter. Edict already emits a digest-locked
 provider publication package, codec-bound mutation client, borrowed registry,
-and fail-closed package proposal. Echo now admits the exact proposal claim under
-independent trusted-host policy, and `echo-wesley-gen` corroborates that token
-with independently admitted exact package bytes and consumes the corroborated
-proof into a provider-native installed record with atomic Echo-owned indexes.
-Echo still needs provider-native runtime dispatch and evidence, and the separate
+and fail-closed package proposal. Echo admits the exact proposal claim under
+independent trusted-host policy; `echo-wesley-gen` corroborates that token with
+independently admitted exact package bytes and consumes the proof into a
+provider-native installed record with atomic Echo-owned indexes. Echo now
+admits and dispatches that installed mutation through the shared scheduler with
+provider-specific receipt and WAL evidence. It still needs the separate
 generated bounded-observer path for authored reads. The current mutation
 proposal intentionally rejects `Query`; that refusal does not turn a read into
 a mutation or eliminate the independent observer/optic corridor. Installation
-reuses Echo's registration indexes without fabricating Wesley metadata or
-creating a second execution engine.
+and invocation reuse Echo's existing indexes, scheduler, receipt, and WAL
+machinery without fabricating Wesley metadata or creating a second execution
+engine.
 
 ## Footprint Honesty
 
@@ -114,10 +130,10 @@ The `footprint_enforce_release` qualification lane is not wired into CI.
 No Wesley or Edict package is currently footprint-release-qualified. The
 digest-locked Edict provider package proves publication identity and
 reproducibility, not runtime installation or footprint qualification. The Edict
-path now has a positive provider-native installation witness, but it still needs
-a deliberately false-footprint negative oracle before it may claim release
-qualification. Wesley still needs both a package emitter and its own positive
-installed generated-pack witness.
+path now has positive provider-native installation and invocation witnesses,
+but it still needs a deliberately false-footprint negative oracle before it may
+claim release qualification. Wesley still needs both a package emitter and its
+own positive installed generated-pack witness.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.
@@ -135,5 +151,7 @@ trigger hidden retries or widen access.
 - Registry/package identity, operation identity, codec/schema compatibility,
   and footprint metadata are verified before the engine mutates registration
   state.
+- Provider invocation requires the exact EINT intent kind, an installed
+  provider operation, and receipt evidence from the exact bound scheduler rule.
 - Runtime patches and receipts retain the generated package or rule-pack
   identity needed to explain execution.

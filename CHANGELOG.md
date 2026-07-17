@@ -7,6 +7,24 @@
 
 ### Added
 
+- `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
+  installed Edict provider package with
+  `admit_provider_contract_submission_v1(...)`. The shared installed-contract
+  admission boundary requires the exact canonical EINT v1 outer kind and an
+  installed provider operation before staging. Provider invocation evidence
+  binds the installed package id, exact package reference, semantic operation,
+  Target IR, and scheduler rule; Echo reports an applied provider outcome only
+  when that exact rule appears in the tick receipt, so the same-scope system
+  acknowledgement cannot masquerade as application execution. A distinct
+  validated tag-2 WAL encoding retains the evidence without fabricating a
+  legacy contract coordinate, while the tag-1 legacy bytes remain stable. A
+  fresh filesystem-WAL host recovers the exact outcome after independently
+  reinstalling the provider package, without callback execution or duplicate
+  work. Unknown operations, malformed or relabeled EINT, structurally invalid
+  retained evidence, and provider inverse requests fail closed through stable
+  typed errors. This closure does not authenticate callers, authorize targets,
+  validate codec-owned input against an operation schema, or implement
+  provider-native reads.
 - `echo-wesley-gen` now owns the proof-consuming provider installation adapter:
   it consumes `DigestCorroboratedProviderContractPackageV1` through
   `warp-core`'s sealed runtime-owner installer port and delegates to a
@@ -16,9 +34,10 @@
   registry, and mutation-rule identity, then atomically installs
   provider-package, package-root, operation, and shared scheduler-rule indexes.
   It fabricates no legacy Wesley/GraphQL metadata or evidence, exposes no app
-  installation surface, and invokes no callbacks. Provider-native ingress,
-  invocation, WAL, receipts, observations, and the separate bounded-read path
-  remain subsequent crossings.
+  installation surface, and invokes no callbacks. Installation alone remains
+  distinct from the provider mutation admission, invocation, receipt, and WAL
+  crossings described above; generated bounded-read observations remain
+  subsequent work.
 - `echo-wesley-gen` can now consume a `DigestAdmittedProviderPackageV1` and an
   independently Echo-admitted `AdmittedProviderContractPackageV1`, require the
   exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
@@ -1185,6 +1204,22 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Public installed-contract evidence fields on runtime ingress, receipt
+  correlation, outcome, and WAL state-delta carriers now use
+  `Option<InstalledInvocationEvidence>` instead of
+  `Option<ContractEvidenceIdentity>`. This is an intentional pre-1.0 source
+  compatibility change: legacy callers wrap with `LegacyContract` or `.into()`
+  and inspect with `legacy_contract()`, while provider callers inspect
+  `provider_v1()`. The enum is non-exhaustive to match the extensible wire-tag
+  family, so direct downstream matches require a wildcard arm. The legacy tag-1
+  WAL encoding remains byte-identical.
+- The public `RuntimeError` enum now includes
+  `InstalledContractIntentKindMismatch` and
+  `UnsupportedInstalledProviderContractMutation`, and the public
+  `ContractInverseObstruction` enum now includes `ProviderTargetUnsupported`.
+  These are intentional pre-1.0 source-compatibility additions: downstream
+  exhaustive matches must handle the new variants (or use an appropriate
+  wildcard arm).
 - `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
   `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
   `import_registration_descriptor(...)` accepts

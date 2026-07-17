@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+repository = "https://github.com/flyingrobots/edict"
+commit = "c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+source = "crates/edict-syntax/tests/provider_lowering.rs::EFFECTFUL_REPLACE"
+license = "Apache-2.0"
+
+[fixture]
+file = "source.edict"
+coordinate = "echo.provider-conformance.source@1"
+note = "Materialized reviewed source fixture; whitespace is part of this exact Echo-owned occurrence."
+
+[canonicalization_profile]
+file = "canonicalization-profile.json"
+coordinate = "edict.canonical-cbor/v1"
+note = "Echo-owned descriptor binding the pinned Edict canonical ABI and admitted contract pack."

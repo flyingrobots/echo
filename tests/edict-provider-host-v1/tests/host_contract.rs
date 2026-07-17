@@ -42,18 +42,7 @@ use edict_syntax::{
 };
 use sha2::{Digest as _, Sha256};
 
-const ECHO_SOURCE: &str = "package a.b@1;\n\
-    type Input = { id: String<max=16>, };\n\
-    type Receipt = { id: String<max=16>, };\n\
-    type Output = { id: String<max=16>, };\n\
-    intent t(input: Input) returns Output\n\
-      profile p.effectful\n\
-      basis none\n\
-      budget <= p.tiny {\n\
-      let receipt: Receipt = target.replace(input.id)\n\
-        else { rejected(reason) => domain.WriteRejected };\n\
-      return { id: input.id };\n\
-    }";
+const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";

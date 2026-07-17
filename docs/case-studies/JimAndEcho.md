@@ -351,8 +351,8 @@ sequenceDiagram
     end
 
     Note over H,S: Host, not Jim UI, controls staging and tick cadence.
-    H->>H: Resolve installed operation support and Echo admission ticket
-    H->>R: Stage witnessed submission under trusted ticket
+    H->>H: Verify installed operation support and derive admission evidence
+    H->>R: Admit and stage witnessed installed operation
     H->>S: tick_once()
     S->>R: Pin candidates and deterministic order
     S->>C: Execute ReplaceRange against basis H41

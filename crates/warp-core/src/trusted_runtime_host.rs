@@ -57,6 +57,9 @@ use crate::{Hash, HistoryError};
 #[cfg(any(test, feature = "host_test"))]
 use crate::causal_wal::FilesystemWalFaultPlan;
 
+const INSTALLED_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
+    b"echo:trusted-host-installed-contract-admission:v1\0";
+
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
 pub enum TrustedRuntimeHostError {
@@ -967,6 +970,51 @@ impl TrustedRuntimeHost {
             ticket,
             envelope,
         )
+    }
+
+    /// Admits and stages one witnessed generated-contract submission under
+    /// trusted-host policy.
+    ///
+    /// Echo derives the admission digest from its witnessed submission record
+    /// and verified installed-package evidence. Application code neither
+    /// supplies nor observes an authority-bearing admission ticket. This method
+    /// does not tick or execute the installed operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a runtime error if the submission is unknown, malformed, not
+    /// backed by an installed mutation package, or rejected by runtime ingress.
+    pub fn admit_installed_contract_submission(
+        &mut self,
+        submission_id: Hash,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let submission = self
+            .runtime
+            .witnessed_submission(&submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+        let envelope = self
+            .runtime
+            .witnessed_submission_envelope(&submission_id)
+            .cloned()
+            .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+        let IngressPayload::LocalIntent { intent_bytes, .. } = envelope.payload();
+        let (op_id, _vars) = decode_canonical_eint(intent_bytes)
+            .ok_or(RuntimeError::MalformedInstalledContractIntent)?;
+        let contract = self
+            .engine
+            .installed_contract_mutation_evidence(op_id)
+            .ok_or(RuntimeError::UnsupportedInstalledContractMutation { op_id })?;
+        let admission_digest = installed_contract_host_admission_digest(&submission, &contract);
+
+        self.runtime
+            .ingest_host_admitted_installed_contract_invocation(
+                &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
+                &self.engine,
+                submission_id,
+                admission_digest,
+                envelope,
+            )
     }
 
     /// Runs one scheduler-owned pass.
@@ -3012,6 +3060,21 @@ fn submission_transaction_digest(
     hasher.update(&handle.submission_generation.as_u64().to_le_bytes());
     hasher.update(&record.canonical_envelope_digest);
     hasher.update(&record.acceptance_evidence_digest);
+    hasher.finalize().into()
+}
+
+fn installed_contract_host_admission_digest(
+    submission: &IntentSubmissionRecord,
+    contract: &crate::ContractEvidenceIdentity,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(INSTALLED_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN);
+    hasher.update(&submission.submission_id);
+    hasher.update(&submission.ingress_id);
+    hasher.update(submission.head_key.worldline_id.as_bytes());
+    hasher.update(submission.head_key.head_id.as_bytes());
+    hasher.update(contract.package_id.as_bytes());
+    hasher.update(&contract.op_id.to_le_bytes());
     hasher.finalize().into()
 }
 

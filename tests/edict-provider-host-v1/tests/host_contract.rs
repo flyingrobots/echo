@@ -727,6 +727,22 @@ fn target_ir_with_mismatched_intrinsic(core: &CoreModule) -> Vec<u8> {
     encode_canonical_cbor(&target_ir).expect("mismatched Target IR encodes canonically")
 }
 
+fn target_ir_without_obstruction_arm(core: &CoreModule) -> Vec<u8> {
+    let (target_ir_bytes, _) = oracle_target_ir(core);
+    let mut target_ir =
+        decode_canonical_cbor(&target_ir_bytes).expect("oracle Target IR decodes canonically");
+    let intent = canonical_map_field_mut(canonical_map_field_mut(&mut target_ir, "intents"), "t");
+    let CanonicalValue::Array(steps) = canonical_map_field_mut(intent, "steps") else {
+        panic!("Target IR steps are not an array");
+    };
+    let step = steps
+        .first_mut()
+        .expect("reviewed Target IR has one effect step");
+    *canonical_map_field_mut(step, "obstructionArms") = CanonicalValue::Map(Vec::new());
+    encode_canonical_cbor(&target_ir)
+        .expect("Target IR without obstruction arm encodes canonically")
+}
+
 fn resource_ref_value(reference: &ProviderResourceRef) -> CanonicalValue {
     assert_eq!(
         reference.digest.algorithm,
@@ -1809,6 +1825,40 @@ fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
     assert_eq!(
         diagnostic.message,
         "Target IR uses an intrinsic outside the reviewed Echo capability"
+    );
+    assert_eq!(diagnostic.repair, None);
+    let manifest = outcome
+        .manifest()
+        .expect("host authors the rejected verifier output manifest");
+    assert_admitted_verifier_success(&harness, response, manifest, "rejected");
+}
+
+#[test]
+fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
+    let core = echo_core();
+    let target_ir_bytes = target_ir_without_obstruction_arm(&core);
+    let harness = echo_verifier_harness(&core, &target_ir_bytes);
+    let outcome = harness
+        .host
+        .invoke_verifier(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("dropped obstruction remains a well-formed completed verification");
+    assert!(outcome.refusal().is_none());
+    let response = outcome
+        .response()
+        .expect("dropped obstruction returns a rejected verifier report");
+    let [diagnostic] = response.diagnostics.as_slice() else {
+        panic!("dropped obstruction produces one verifier diagnostic");
+    };
+    assert_eq!(diagnostic.code, "echo.verifier.obstruction-mismatch");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "Target IR does not preserve the exact Core obstruction relation"
     );
     assert_eq!(diagnostic.repair, None);
     let manifest = outcome

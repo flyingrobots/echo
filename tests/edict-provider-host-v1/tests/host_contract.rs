@@ -65,11 +65,11 @@ const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
-    "41ae7a1d95e5068cb09ec581f16a90cc6e26a80f83ec073e86d5108c3a61ea41";
+    "64453da4c0551e1f168a75cd6c3682cb59f3dd2a1d1b7d79a7e3cb9c8893d7d4";
 const DOMAIN_TARGET_IR_SHA256: &str =
-    "b0d9e218f00a102d1e951c73e5063a9bbe6077e6c7468d171ec08b420e7b47da";
+    "e55c4980841efaaaed510425e29b011f232d3c66e52ed05221c114d85877e341";
 const TARGET_PROFILE_SHA256: &str =
-    "f41df38156625a05c1ee8bce652ffddf04e71b54fe027eeab9d255d0d8322db0";
+    "1cf1bcd1ff06235a7b001f7cd3d121eef31e6fd0d2e4197e3c9dbca2d60a2aba";
 const OBSERVATION_MARKER: &str = "ECHO_EDICT_HOST_OBSERVATION=";
 
 const SCHEMA_BYTES: &[u8] = include_bytes!(

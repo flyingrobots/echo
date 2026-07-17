@@ -5,6 +5,7 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
+use echo_registry_api::is_reserved_operation_id;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
@@ -24,7 +25,6 @@ use ir::{OpKind, TypeKind, WesleyIR};
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
 const DEFAULT_CODEC_ID: &str = "le-binary-v1";
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
-const RESERVED_CONTROL_OP_ID: u32 = u32::MAX;
 const WESLEY_CORE_VERSION: &str = "0.3.0-alpha.1";
 
 #[derive(Parser)]
@@ -109,9 +109,9 @@ fn echo_ir_from_schema_sdl(schema_sdl: &str) -> Result<WesleyIR> {
                 operation.field_name
             );
         }
-        if op_id == RESERVED_CONTROL_OP_ID {
+        if is_reserved_operation_id(op_id) {
             bail!(
-                "generated operation id for {:?} `{}` uses Echo's reserved control op id; \
+                "generated operation id for {:?} `{}` uses reserved Echo protocol op id {op_id}; \
                  add explicit operation ids upstream before generating Echo artifacts",
                 operation.operation_type,
                 operation.field_name
@@ -1161,11 +1161,12 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
 fn validate_operation_ids(ir: &WesleyIR) -> Result<()> {
     for op in &ir.ops {
-        if op.op_id == RESERVED_CONTROL_OP_ID {
+        if is_reserved_operation_id(op.op_id) {
             bail!(
-                "operation `{}` uses Echo's reserved control op id {RESERVED_CONTROL_OP_ID}; \
-                 application contracts must not generate scheduler control intents",
-                op.name
+                "operation `{}` uses reserved Echo protocol op id {}; \
+                 application contracts must not generate Echo protocol intents",
+                op.name,
+                op.op_id
             );
         }
     }

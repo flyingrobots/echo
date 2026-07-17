@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const EXPECTED_ASSET_FILE_COUNT: usize = 35;
+const EXPECTED_ASSET_FILE_COUNT: usize = 37;
 static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct TestDirectory(PathBuf);

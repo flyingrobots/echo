@@ -800,6 +800,7 @@ target-ir-step = {
 generated-artifact-profile = {
   apiVersion: "echo.generated-artifact-profile/v1",
   targetProfile: tstr,
+  operationIdLaw: "echo.semantic-operation-id.fnv1-32/v1",
   types: { * tstr => echo-generated-type },
   operations: { * tstr => generated-operation },
 }
@@ -817,6 +818,7 @@ echo-generated-record = {
 echo-generated-record-field = { name: tstr, type: tstr }
 
 generated-operation = {
+  operationId: 0..4294967293,
   inputType: tstr,
   outputType: tstr,
   effect: tstr,

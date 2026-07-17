@@ -9,12 +9,16 @@
 //! generated self-contained schema and, when Edict owns the format, the
 //! independently admitted upstream root.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
 use cddl_cat::cbor::validate_cbor;
 use cddl_cat::context::BasicContext;
 use cddl_cat::flatten::flatten_from_str;
+use echo_registry_api::{
+    is_reserved_operation_id, stable_semantic_operation_id_v1, OpKind, SEMANTIC_OPERATION_ID_LAW_V1,
+};
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use wesley_core::{
     GenerationArtifactReferenceV1, GenerationContractError, GenerationContractErrorKind,
@@ -49,6 +53,7 @@ const PROVIDER_SCHEMA_SUFFIX: &str = r#"
 generated-artifact-profile = {
   apiVersion: "echo.generated-artifact-profile/v1",
   targetProfile: tstr,
+  operationIdLaw: "echo.semantic-operation-id.fnv1-32/v1",
   types: { * tstr => echo-generated-type },
   operations: { * tstr => generated-operation },
 }
@@ -66,6 +71,7 @@ echo-generated-record = {
 echo-generated-record-field = { name: tstr, type: tstr }
 
 generated-operation = {
+  operationId: 0..4294967293,
   inputType: tstr,
   outputType: tstr,
   effect: tstr,
@@ -235,6 +241,10 @@ pub enum ProviderArtifactGenerationErrorKind {
     DigestConstructionFailed,
     /// A validated semantic declaration needed by projection was absent.
     SemanticProjectionMismatch,
+    /// A semantic operation derived an Echo protocol-reserved operation id.
+    ReservedOperationId,
+    /// Two semantic operations derived the same persisted Echo operation id.
+    OperationIdCollision,
     /// Wesley rejected an emitted exact-byte content reference.
     WesleyContractRejected,
 }
@@ -249,6 +259,8 @@ impl ProviderArtifactGenerationErrorKind {
             Self::OwningRootRejected => "owning-root-rejected",
             Self::DigestConstructionFailed => "digest-construction-failed",
             Self::SemanticProjectionMismatch => "semantic-projection-mismatch",
+            Self::ReservedOperationId => "reserved-operation-id",
+            Self::OperationIdCollision => "operation-id-collision",
             Self::WesleyContractRejected => "wesley-contract-rejected",
         }
     }
@@ -1808,6 +1820,7 @@ fn build_generated_profile(
         );
     }
     let mut operations = JsonMap::new();
+    let mut operation_ids = BTreeMap::new();
     for operation in &source.operations {
         let profile = source
             .profiles
@@ -1820,10 +1833,28 @@ fn build_generated_profile(
                     &operation.profile,
                 )
             })?;
-        let invocation_kind = match profile.optic_template.optic_kind {
-            OpticKind::Revelation => "observer",
-            OpticKind::AffectReintegration => "mutation",
+        let (invocation_kind, operation_kind) = match profile.optic_template.optic_kind {
+            OpticKind::Revelation => ("observer", OpKind::Query),
+            OpticKind::AffectReintegration => ("mutation", OpKind::Mutation),
         };
+        let operation_id =
+            stable_semantic_operation_id_v1(operation_kind, &operation.identity.coordinate);
+        if is_reserved_operation_id(operation_id) {
+            return Err(ProviderArtifactGenerationError::new(
+                ProviderArtifactGenerationErrorKind::ReservedOperationId,
+                &operation.identity.coordinate,
+                SEMANTIC_OPERATION_ID_LAW_V1,
+            ));
+        }
+        if let Some(conflicting_coordinate) =
+            operation_ids.insert(operation_id, operation.identity.coordinate.as_str())
+        {
+            return Err(ProviderArtifactGenerationError::new(
+                ProviderArtifactGenerationErrorKind::OperationIdCollision,
+                &operation.identity.coordinate,
+                conflicting_coordinate,
+            ));
+        }
         let implementation = implementation_projection(operation)?;
         let obstruction_mappings = operation
             .obstruction_mappings
@@ -1838,6 +1869,7 @@ fn build_generated_profile(
         operations.insert(
             operation.identity.coordinate.clone(),
             json!({
+                "operationId": operation_id,
                 "inputType": operation.input_type,
                 "outputType": operation.output_type,
                 "effect": operation.effect,
@@ -1857,6 +1889,7 @@ fn build_generated_profile(
             source.target_profile_projection.id,
             source.target_profile_projection.version
         ),
+        "operationIdLaw": SEMANTIC_OPERATION_ID_LAW_V1,
         "types": types,
         "operations": operations,
     }))

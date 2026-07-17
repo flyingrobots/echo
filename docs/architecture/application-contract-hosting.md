@@ -221,14 +221,17 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 35-file package-local carrier tree
+The publishable Rust crate uses a separate 37-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;
 their package copies are corroborating release occurrences. This distinction
 permits staged regeneration without allowing a stale package to block the
 carrier update required to rebuild that package. Final checks require owner,
-carrier, package copy, and Cargo archive inventory to agree exactly.
+carrier, package copy, and Cargo archive inventory to agree exactly. The source
+closure explicitly includes the exact canonicalization and semantic-operation-id
+dependency manifests and implementations; a dependency implementation cannot
+move while the claimed generator occurrence remains fixed.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package
@@ -289,12 +292,21 @@ and digest; a bare hash cannot stand in for that proposition.
 The footprint claim remains abstract; the helper does not counterfeit a static
 read/write certificate. This is an equality and semantic-consistency proof
 only: it does not authenticate the pin, schema-admit the outputs, construct or
-install an Echo package, or grant runtime authority. A separately versioned
-generic operation-id law must be carried by the canonical generated
-profile/package before emitted source may expose the persisted id; likewise a
-codec cannot be named until generated codecs implement that exact byte law.
-Invocation, registry-layout and package preflight, checked-component promotion, and
-pinned-host CDDL admission remain later #656 crossings.
+install an Echo package, or grant runtime authority. The canonical generated
+profile/package now carries the separately versioned Echo-owned
+`echo.semantic-operation-id.fnv1-32/v1` law and exact persisted id derived from
+the semantic coordinate and generic query/mutation kind. The top two operation
+ids remain Echo-owned protocol reservations: `u32::MAX` for scheduler control
+and `u32::MAX - 1` for witnessed suffix import. Either reserved result and any
+package-local collision refuse without salting or probing. CDDL admission
+constrains the numeric application-id domain only; generation must independently
+recompute the coordinate-and-kind law and collision-check the complete set.
+Emitted source must consume that packaged proposition before exposing the id; it
+may not derive an independent runtime identity. Likewise, a codec cannot be
+named until generated codecs implement that exact byte law. The refreshed
+components have crossed reproducible checked promotion. Invocation,
+registry-layout and package preflight, and pinned-host CDDL admission of the
+generated/review envelopes remain later #656 crossings.
 
 The first executable verifier independently implements the frozen
 `edict:target-provider/verifier@1.0.0` world. It compares the exact Core and

@@ -205,14 +205,22 @@ the exact abstract
 footprint obligation/algebra. It does not claim a concrete static read/write
 footprint. Every framed resource is checked as a complete
 coordinate/domain/digest identity. The comparison grants no admission,
-installation, or runtime authority. The
-persisted operation id and invocation codec remain deliberately absent until a
-generic operation-id law is carried by the canonical profile/package and the
-generated codecs prove their byte contract. Runtime `reviewPayload` also
-remains distinct from Wesley `GenerationReviewV1`.
-Checked-component promotion and actual host validation of these new envelopes
-under the owning CDDL roots are still required before they are admitted provider
-outputs.
+installation, or runtime authority. The canonical generated-artifact profile
+now carries `operationIdLaw: "echo.semantic-operation-id.fnv1-32/v1"` and the
+exact persisted `operationId` for each semantic coordinate and generic
+query/mutation kind. The top two ids are Echo protocol reservations:
+`u32::MAX` for scheduler control and `u32::MAX - 1` for witnessed suffix import.
+Either reserved result and any package-local collision refuse without salting
+or probing. The owning CDDL limits `operationId` to `0..4294967293`, proving only
+the numeric application domain; semantic generation must still recompute the
+coordinate-and-kind law and collision-check the complete set. Generated source
+does not yet expose the id; that later descriptor must consume this packaged
+proposition rather than mint a new one. The invocation codec also remains absent
+until generated codecs prove its exact byte contract. Runtime `reviewPayload`
+remains distinct from Wesley `GenerationReviewV1`. The refreshed component has
+crossed checked promotion; actual host validation of the generated and review
+envelopes under their owning CDDL roots is still required before those outputs
+are admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest

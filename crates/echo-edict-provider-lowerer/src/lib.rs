@@ -38,7 +38,7 @@ const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
 const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-    "sha256:3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab";
+    "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
 const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
 const TARGET_BUNDLE_PROFILE_DIGEST: &str =
     "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
@@ -800,7 +800,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "19901cc33bea0699334af3cb4f9889f752652e35b81a2a9c91e7e31a52b803af";
+        "dcf2cc739bb855cb4c9578c2fbc35f0c99b58f8c83d5f290c51498dd658c8232";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -808,7 +808,7 @@ pub mod echo_dpo {
         "echo.generated-artifact-profile/v1";
     /// Domain-framed identity of the generated-artifact profile.
     pub const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-        "sha256:3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab";
+        "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
     /// Exact semantic operation profile selected by the authored operation.
     pub const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
     /// Semantic domain owning the selected operation profile.

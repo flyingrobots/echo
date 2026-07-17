@@ -3,6 +3,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 //! Deterministic primary artifact generation for the Echo Edict provider.
 
+use echo_registry_api::{stable_semantic_operation_id_v1, OpKind, SEMANTIC_OPERATION_ID_LAW_V1};
 use echo_wesley_gen::provider_artifacts::{
     generate_provider_primary_artifacts_v1, ProviderArtifactGenerationErrorKind,
     ProviderPrimaryArtifactsV1, SchemaValidatedCanonicalProviderOutputV1,
@@ -471,6 +472,77 @@ fn budget_change_moves_only_lawpack_authority_facts() {
 }
 
 #[test]
+fn generated_profile_carries_the_echo_owned_semantic_operation_id() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let registration = generated
+        .artifact("generated-artifact-profile.echo-dpo-registration")
+        .expect("registration profile exists")
+        .canonical_value();
+
+    assert_eq!(
+        text_value(map_field(registration, "operationIdLaw")),
+        SEMANTIC_OPERATION_ID_LAW_V1
+    );
+    let operation = map_field(map_field(registration, "operations"), "a.b@1.t");
+    assert_eq!(
+        integer_value(map_field(operation, "operationId")),
+        i128::from(stable_semantic_operation_id_v1(OpKind::Mutation, "a.b@1.t"))
+    );
+}
+
+#[test]
+fn semantic_operation_ids_fail_closed_on_reserved_and_colliding_results() {
+    let pack = admitted_pack();
+
+    for coordinate in ["a.b@1.cs2esoh", "a.b@1.0ctdaa8i"] {
+        let mut reserved = serde_json::from_slice::<Value>(SOURCE).expect("checked source is JSON");
+        reserved["operations"][0]["identity"]["coordinate"] = json!(coordinate);
+        let reserved_bytes = serde_json::to_vec(&reserved).expect("reserved-id source serializes");
+        let reserved_input = build_input(&reserved_bytes, &pack);
+        let reserved_error = generate_provider_primary_artifacts_v1(&reserved_input, &pack)
+            .expect_err("every Echo-reserved protocol id must refuse");
+        assert_eq!(
+            (
+                reserved_error.kind(),
+                reserved_error.subject(),
+                reserved_error.reference(),
+            ),
+            (
+                ProviderArtifactGenerationErrorKind::ReservedOperationId,
+                coordinate,
+                SEMANTIC_OPERATION_ID_LAW_V1,
+            )
+        );
+    }
+
+    let mut colliding = serde_json::from_slice::<Value>(SOURCE).expect("checked source is JSON");
+    let mut second = colliding["operations"][0].clone();
+    colliding["operations"][0]["identity"]["coordinate"] = json!("a.b@1.3n8plpiea7");
+    second["identity"]["coordinate"] = json!("a.b@1.lmdfcgrl2h");
+    colliding["operations"]
+        .as_array_mut()
+        .expect("operations are an array")
+        .push(second);
+    let colliding_bytes = serde_json::to_vec(&colliding).expect("colliding-id source serializes");
+    let colliding_input = build_input(&colliding_bytes, &pack);
+    let collision_error = generate_provider_primary_artifacts_v1(&colliding_input, &pack)
+        .expect_err("package-local operation-id collisions must refuse");
+    assert_eq!(
+        (
+            collision_error.kind(),
+            collision_error.subject(),
+            collision_error.reference(),
+        ),
+        (
+            ProviderArtifactGenerationErrorKind::OperationIdCollision,
+            "a.b@1.lmdfcgrl2h",
+            "a.b@1.3n8plpiea7",
+        )
+    );
+}
+
+#[test]
 fn revelation_profiles_generate_bounded_observer_invocations() {
     let pack = admitted_pack();
     let mut source = serde_json::from_slice::<Value>(SOURCE).expect("checked source is JSON");
@@ -493,6 +565,14 @@ fn revelation_profiles_generate_bounded_observer_invocations() {
     assert_eq!(
         text_value(map_field(operation, "invocationKind")),
         "observer"
+    );
+    assert_eq!(
+        integer_value(map_field(operation, "operationId")),
+        i128::from(stable_semantic_operation_id_v1(OpKind::Query, "a.b@1.t"))
+    );
+    assert_ne!(
+        integer_value(map_field(operation, "operationId")),
+        i128::from(stable_semantic_operation_id_v1(OpKind::Mutation, "a.b@1.t"))
     );
 
     let profiles = map_field(
@@ -1023,6 +1103,28 @@ fn generated_schema_distinguishes_canonical_wire_from_root_admission() {
             None,
         )
     );
+
+    for invalid_operation_id in [
+        i128::from(u32::MAX - 1),
+        i128::from(u32::MAX),
+        i128::from(u32::MAX) + 1,
+    ] {
+        let mut invalid_id = profile.canonical_value().clone();
+        *map_field_mut(
+            map_field_mut(map_field_mut(&mut invalid_id, "operations"), "a.b@1.t"),
+            "operationId",
+        ) = CanonicalValueV1::Integer(invalid_operation_id);
+        let invalid_id_bytes = encode_canonical_cbor_v1(&invalid_id)
+            .expect("invalid operation id remains canonical CBOR");
+        let invalid_id_error = generated
+            .schema()
+            .validate_root_bytes(profile.owning_root(), &invalid_id_bytes)
+            .expect_err("the owning root must constrain operation ids to application u32 values");
+        assert_eq!(
+            invalid_id_error.kind(),
+            ProviderArtifactGenerationErrorKind::OwningRootRejected
+        );
+    }
 
     let mut trailing = profile.canonical_bytes().to_vec();
     trailing.push(0xf6);

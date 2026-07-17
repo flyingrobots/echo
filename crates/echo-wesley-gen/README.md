@@ -142,7 +142,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 35-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 37-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -152,7 +152,10 @@ selects exactly the complete carrier inventory. Explicit `--write` mode copies
 authoritative owners without requiring the temporarily stale package copy,
 allowing the honest staged sequence artifact generation, carrier sync, package
 generation, then final carrier corroboration. It never discovers a preferred
-owner or normalizes authored bytes.
+owner or normalizes authored bytes. The source carriers include the exact
+manifest and implementation occurrences for both `echo-edict-canonical` and
+`echo-registry-api`, so provenance binds the canonicalization and operation-id
+laws actually executed by provider generation.
 
 The isolated `tests/edict-provider-host-v1` gate pins Edict revision
 `c75c3f550d049485ba00eae0dc272c6dd6aca11f` and consumes the exact checked
@@ -221,9 +224,20 @@ cargo +1.90.0 run --locked -p echo-wesley-gen \
   operation argument shape, and hosts can verify them through
   `echo_registry_api::verify_contract_artifact` before treating the generated
   artifact as compile-time-certified.
+- Edict provider profiles carry the Echo-owned
+  `echo.semantic-operation-id.fnv1-32/v1` law and exact `u32` id derived from
+  the semantic operation coordinate plus generic query/mutation kind. The law
+  is separate from GraphQL field identity and reserves the top two ids for Echo
+  protocol envelopes: `u32::MAX` for scheduler control and `u32::MAX - 1` for
+  witnessed suffix import. Generation refuses either reserved result and
+  package-local collisions without salting or probing. The generated CDDL
+  constrains `operationId` to `0..4294967293`; that numeric-domain proof does not
+  replace semantic recomputation of the coordinate-and-kind law or complete-set
+  collision checking. Carrying the id in canonical package content does not
+  register, install, authorize, or execute an operation.
 - GraphQL SDL operation ids are derived deterministically and fail closed on
-  collision. The generator never increments a collided id because operation ids
-  are persisted ABI.
+  collision or either Echo protocol reservation. The generator never increments
+  a collided id because operation ids are persisted ABI.
 - Generated query optic helpers use Echo ABI's domain-separated BLAKE3
   `query_vars_digest_v1(...)`; ad hoc variable digests are not accepted for
   retained reading identity.

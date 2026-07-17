@@ -12,6 +12,17 @@ stays generic; apps supply their own registry at build time.
 tooling can interpret entries such as `wes_footprint`, but this crate only
 carries the data so the generic runtime boundary stays application-neutral.
 
+## Operation identifiers
+
+`stable_semantic_operation_id_v1(...)` owns the generic, versioned derivation
+from an exact semantic coordinate and query/mutation kind. The top two `u32`
+values are reserved for Echo protocol envelopes: scheduler control at
+`u32::MAX` and witnessed suffix import at `u32::MAX - 1`.
+`is_reserved_operation_id(...)` is the shared fail-closed predicate for
+generators and application-blind envelope construction. Generators must also
+detect collisions across their complete operation set; a numeric schema range
+cannot prove either derivation or collision freedom.
+
 ## Contract artifact verification
 
 Hosts can call `verify_contract_artifact(...)` against a generated

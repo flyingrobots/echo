@@ -1405,8 +1405,9 @@ fn assert_generated_crate_checks(crate_dir: &Path) {
 }
 
 #[test]
-fn test_reserved_control_op_id_fails_closed() {
-    let ir = r#"{
+fn test_reserved_echo_protocol_op_ids_fail_closed() {
+    for op_id in [u32::MAX - 1, u32::MAX] {
+        let ir = r#"{
         "ir_version": "echo-ir/v1",
         "schema_sha256": "abc123",
         "codec_id": "le-binary-v1",
@@ -1420,24 +1421,26 @@ fn test_reserved_control_op_id_fails_closed() {
             {
                 "kind": "MUTATION",
                 "name": "startScheduler",
-                "op_id": 4294967295,
+                "op_id": __OP_ID__,
                 "args": [],
                 "result_type": "RunStatus"
             }
         ]
-    }"#;
+    }"#
+        .replace("__OP_ID__", &op_id.to_string());
 
-    let output = run_wesley_gen(ir);
-    assert!(
-        !output.status.success(),
-        "reserved control op id must fail closed"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("reserved control op id"),
-        "stderr did not explain reserved control id: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+        let output = run_wesley_gen(&ir);
+        assert!(
+            !output.status.success(),
+            "reserved Echo protocol op id {op_id} must fail closed"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("reserved Echo protocol op id"),
+            "stderr did not explain reserved Echo protocol id {op_id}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]

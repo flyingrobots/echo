@@ -43,7 +43,7 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 35] = [
+const ASSETS: [AssetSpec; 37] = [
     AssetSpec::new(
         "edict-provider/contracts/v1/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl",
@@ -193,6 +193,14 @@ const ASSETS: [AssetSpec; 35] = [
     AssetSpec::new(
         "repository/crates/echo-edict-canonical/src/lib.rs.source",
         "crates/echo-edict-canonical/src/lib.rs",
+    ),
+    AssetSpec::new(
+        "repository/crates/echo-registry-api/Cargo.toml.source",
+        "crates/echo-registry-api/Cargo.toml",
+    ),
+    AssetSpec::new(
+        "repository/crates/echo-registry-api/src/lib.rs.source",
+        "crates/echo-registry-api/src/lib.rs",
     ),
     AssetSpec::new(
         "repository/crates/echo-wesley-gen/Cargo.toml.source",

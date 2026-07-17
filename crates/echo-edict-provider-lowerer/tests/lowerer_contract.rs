@@ -22,6 +22,9 @@ const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-d
 const LAWPACK: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
+const PROVIDER_SCHEMA: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
+);
 
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";
@@ -37,7 +40,7 @@ const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
 const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-    "sha256:3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab";
+    "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
 const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
 const TARGET_BUNDLE_PROFILE_DIGEST: &str =
     "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
@@ -667,6 +670,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(core_bytes.len(), 1209);
     let mut request = request();
     request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
+    let target_profile_digest = request.target_profile.reference.digest.bytes.clone();
     assert_eq!(
         hex::encode(&request.core.reference.digest.bytes),
         "c3dbe413c78a82f6120e64c9a04bc94e2d79505f9e4b8a65c2bc26b408d775de"
@@ -676,8 +680,19 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert!(success.diagnostics.is_empty());
     assert_eq!(success.outputs.len(), 1);
     let output = &success.outputs[0];
-    let expected = hex::decode(EDICT_ORACLE_TARGET_IR_HEX).expect("oracle Target IR hex is valid");
-    assert_eq!(expected.len(), 848);
+    let prior_oracle =
+        hex::decode(EDICT_ORACLE_TARGET_IR_HEX).expect("oracle Target IR hex is valid");
+    assert_eq!(prior_oracle.len(), 848);
+    let mut expected = decode_canonical_cbor_v1(&prior_oracle)
+        .expect("reviewed Edict oracle is canonical Target IR");
+    *map_field_mut(map_field_mut(&mut expected, "targetProfile"), "digest") =
+        CanonicalValueV1::Array(vec![
+            text("sha256"),
+            CanonicalValueV1::Bytes(target_profile_digest),
+        ]);
+    let expected =
+        encode_canonical_cbor_v1(&expected).expect("rebound Edict oracle remains canonical");
+    assert_ne!(prior_oracle, expected);
     assert_eq!(output.artifact.bytes, expected);
 
     let output_value = decode_canonical_cbor_v1(&output.artifact.bytes)
@@ -685,7 +700,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(
         digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &output_value)
             .expect("oracle-parity output has a domain-framed digest"),
-        "sha256:b0d9e218f00a102d1e951c73e5063a9bbe6077e6c7468d171ec08b420e7b47da"
+        "sha256:e55c4980841efaaaed510425e29b011f232d3c66e52ed05221c114d85877e341"
     );
 }
 
@@ -897,6 +912,17 @@ fn generated_source_exposes_explicit_post_assembly_bundle_binding() {
             "generated source is missing `{required_surface}`"
         );
     }
+}
+
+#[test]
+fn generated_source_binds_the_exact_checked_provider_schema_occurrence() {
+    let source = generated_source();
+    let expected_sha256 = hex::encode(Sha256::digest(PROVIDER_SCHEMA));
+
+    assert!(
+        source.contains(&format!("\"{expected_sha256}\"")),
+        "generated source did not bind checked provider schema SHA-256 {expected_sha256}"
+    );
 }
 
 #[test]

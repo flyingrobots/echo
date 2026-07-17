@@ -36,13 +36,30 @@
   field swaps, authority-source disagreement, malformed schemas/components,
   and invalid requests all fail before guest execution. This proves package
   readiness only, never Echo installation, execution, or runtime authority.
-- `echo-wesley-gen` now carries a fixed 35-file package-local source and provider
+- `echo-wesley-gen` now carries a fixed 37-file package-local source and provider
   asset boundary, preserving original logical source labels while making its
   `.crate` archive independent of workspace-parent files. An explicit sync tool
   distinguishes authoritative generated/component owners from their checked
   package corroboration, supports staged regeneration without circularity, and
-  checks exact Cargo archive selection. The extracted archive compiles when its
-  still-unpublished Echo dependencies are supplied through local patches.
+  checks exact Cargo archive selection. The generator source identity includes
+  the exact manifest and implementation bytes of both its canonicalization and
+  operation-id-law dependencies. The extracted archive compiles when its still-
+  unpublished Echo dependencies are supplied through local patches.
+- Echo now owns the versioned semantic operation-id law
+  `echo.semantic-operation-id.fnv1-32/v1`. It derives a persisted `u32` from the
+  exact semantic coordinate and generic query/mutation kind, remains
+  domain-separated from Wesley's GraphQL-field-name law, and reserves the top
+  two ids for Echo protocol envelopes: `u32::MAX` for scheduler control and
+  `u32::MAX - 1` for witnessed suffix import. The canonical generated-artifact
+  profile carries both the law coordinate and each derived id; generation
+  refuses either reserved value and package-local collisions without salting,
+  probing, or renaming. Its CDDL bounds `operationId` to the remaining numeric
+  application range, but schema admission alone does not prove derivation or
+  collision freedom: semantic generation recomputes the law and checks the
+  complete operation set. This packages an exact operation-identity proposition
+  but does not register, install, authorize, or execute the operation, and
+  generated source does not expose the id until a later descriptor consumes
+  that packaged proposition.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,
@@ -104,8 +121,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 189,515-byte checked component has SHA-256
-  `11fcaf291ffacac62800ab3fc198e29a23a591bcd30ca98828fa10a8ad1f1952`
+  every emitted report. The 189,898-byte checked component has SHA-256
+  `49367c36b5150a157601f0062ce45b41d6c27c9ce44b81399292bd79c8b400c1`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

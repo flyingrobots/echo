@@ -72,13 +72,14 @@ mod witnessed_suffix_tests;
 pub mod codec;
 
 /// Reserved EINT op id for privileged control intents.
-pub const CONTROL_INTENT_V1_OP_ID: u32 = u32::MAX;
+pub const CONTROL_INTENT_V1_OP_ID: u32 = echo_registry_api::RESERVED_CONTROL_OPERATION_ID;
 
 /// Reserved Echo-owned EINT op id for proposing witnessed suffix import.
 ///
 /// Transport arrival is host I/O until the bundle is wrapped in this canonical
 /// intent envelope and admitted through Echo scheduling.
-pub const IMPORT_SUFFIX_INTENT_V1_OP_ID: u32 = u32::MAX - 1;
+pub const IMPORT_SUFFIX_INTENT_V1_OP_ID: u32 =
+    echo_registry_api::RESERVED_IMPORT_SUFFIX_OPERATION_ID;
 
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
@@ -93,7 +94,7 @@ pub enum EnvelopeError {
     Malformed,
     /// Payload length exceeds u32::MAX.
     PayloadTooLarge,
-    /// Public application envelopes may not use the reserved control op id.
+    /// Public application envelopes may not use Echo protocol-reserved op ids.
     ReservedOpId,
 }
 
@@ -105,7 +106,7 @@ impl core::fmt::Display for EnvelopeError {
             Self::LengthMismatch => f.write_str("envelope length mismatch"),
             Self::Malformed => f.write_str("malformed envelope"),
             Self::PayloadTooLarge => f.write_str("payload exceeds u32::MAX"),
-            Self::ReservedOpId => f.write_str("reserved control op id is not allowed here"),
+            Self::ReservedOpId => f.write_str("reserved Echo protocol op id is not allowed here"),
         }
     }
 }
@@ -128,10 +129,10 @@ fn pack_envelope_v1_raw(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeErro
 ///
 /// # Errors
 /// Returns [`EnvelopeError::PayloadTooLarge`] if `vars.len()` exceeds
-/// `u32::MAX`, or [`EnvelopeError::ReservedOpId`] if `op_id` is the reserved
-/// control envelope id.
+/// `u32::MAX`, or [`EnvelopeError::ReservedOpId`] if `op_id` is reserved for an
+/// Echo protocol envelope.
 pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
-    if op_id == CONTROL_INTENT_V1_OP_ID {
+    if echo_registry_api::is_reserved_operation_id(op_id) {
         return Err(EnvelopeError::ReservedOpId);
     }
     pack_envelope_v1_raw(op_id, vars)
@@ -227,7 +228,7 @@ pub fn pack_import_suffix_intent_v1(
     request: &kernel_port::ImportSuffixRequest,
 ) -> Result<Vec<u8>, EnvelopeError> {
     let bytes = encode_cbor(request).map_err(|_| EnvelopeError::Malformed)?;
-    pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &bytes)
+    pack_envelope_v1_raw(IMPORT_SUFFIX_INTENT_V1_OP_ID, &bytes)
 }
 
 /// Unpacks and validates a witnessed suffix import proposal from EINT v1 bytes.
@@ -506,11 +507,13 @@ mod tests {
     }
 
     #[test]
-    fn test_pack_intent_rejects_reserved_control_op_id() {
-        assert_eq!(
-            pack_intent_v1(CONTROL_INTENT_V1_OP_ID, b"reserved"),
-            Err(EnvelopeError::ReservedOpId)
-        );
+    fn test_pack_intent_rejects_reserved_echo_protocol_op_ids() {
+        for operation_id in [CONTROL_INTENT_V1_OP_ID, IMPORT_SUFFIX_INTENT_V1_OP_ID] {
+            assert_eq!(
+                pack_intent_v1(operation_id, b"reserved"),
+                Err(EnvelopeError::ReservedOpId)
+            );
+        }
     }
 
     #[test]
@@ -618,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_import_suffix_intent_rejects_malformed_payload() {
-        let packed = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+        let packed = pack_envelope_v1_raw(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
 
         assert_eq!(
             unpack_import_suffix_intent_v1(&packed),

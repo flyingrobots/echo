@@ -62,11 +62,20 @@ coordinate/domain/digest proposition. The footprint binding does not invent a co
 read/write set. `bind_contract_bundle` remains a pure equality and consistency
 preflight: it does not authenticate the expected pin, admit or install a
 package, or confer registration or runtime authority. This behavior currently
-belongs to the native model. A generic persisted operation-id law must first be
-carried by the generated profile/package, and a codec identity must wait for
-matching generated codec implementations. Registry layout and package preflight,
-checked-component promotion, and host-side admission under the owning Edict
-CDDL roots are also separate #656 steps.
+belongs to the native model. The canonical generated profile/package now carry
+the Echo-owned `echo.semantic-operation-id.fnv1-32/v1` law and exact persisted
+id for `a.b@1.t`; generation refuses both Echo protocol-reserved ids
+(`u32::MAX` scheduler control and `u32::MAX - 1` witnessed suffix import) and
+package-local collisions without salting or probing. The generated CDDL bounds
+the numeric application-id domain, while semantic generation independently
+recomputes the law and checks collision freedom; schema admission alone proves
+neither proposition. Emitted source deliberately does not yet expose that id
+until its registration descriptor consumes the packaged proposition, and a
+codec identity must wait for matching generated codec implementations. Registry
+layout and package preflight remain separate #656 steps. The refreshed checked
+component has crossed the reproducible promotion boundary, while host-side
+admission of the generated and review envelopes under their owning Edict CDDL
+roots remains an independent crossing.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

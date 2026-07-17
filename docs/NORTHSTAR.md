@@ -10,13 +10,17 @@ not "make Echo know editors." It is:
 
 ```text
 Applications hold product-facing capabilities.
-Wesley compiles lawful optic claims.
+Edict preserves authored operation semantics through admitted provider paths.
+Wesley compiles supported lawful optic claims.
 Echo registers, admits, obstructs, instruments, and witnesses those claims.
 ```
 
 Echo must stay runtime-shaped. Product nouns belong above Echo. Compiler
-authority belongs to Wesley. Protocol publication belongs later, after the seam
-has been proven locally.
+authority belongs to the compiler responsible for each crossing: Edict owns
+admitted operation semantics and provider contracts, while Wesley owns its
+optic and compatibility compiler artifacts. Echo owns Echo-specific meanings,
+runtime admission, installation, execution, and evidence. Protocol publication
+belongs later, after the seam has been proven locally.
 
 The graph is not the substrate. The graph is a reading. The substrate is
 witnessed causal history.
@@ -43,18 +47,22 @@ runtime boundary.
 
 ## Ownership boundaries
 
-| Object                        | Owner                          | Echo posture                                                                 |
-| :---------------------------- | :----------------------------- | :--------------------------------------------------------------------------- |
-| `OpticArtifact`               | Wesley                         | Echo verifies and stores it                                                  |
-| `OpticRegistrationDescriptor` | Wesley                         | Echo accepts it as registration input, not authority                         |
-| `OpticArtifactHandle`         | Echo                           | Echo returns it after verified registration                                  |
-| `OpticRequirements`           | Wesley-authored, Echo-enforced | Echo stores internally and checks at invocation                              |
-| `CapabilityGrant`             | Host, user, or quorum          | Echo validates it against stored artifact requirements                       |
-| `CapabilityPresentation`      | Caller                         | Echo checks it at invocation time                                            |
-| `LawWitness`                  | Echo                           | Echo emits runtime evidence                                                  |
-| `ReadingEnvelope`             | Echo                           | Echo returns observed runtime evidence and payload posture                   |
-| WARP-TTD                      | Debug observer                 | Inspects admission chains, witnesses, receipts, readings, and causal history |
-| WARPDrive                     | Materializer                   | Exposes filesystem-compatible readings for legacy tools                      |
+| Object                                  | Owner                          | Echo posture                                                                                      |
+| :-------------------------------------- | :----------------------------- | :------------------------------------------------------------------------------------------------ |
+| Edict semantic source                   | Application through Edict      | Echo accepts only admitted, explicitly supplied compiler input                                    |
+| Provider Target IR                      | Echo provider through Edict    | Generated and independently verified evidence, not installed runtime law                          |
+| Provider publication package/descriptor | Compiler-emitted               | Trusted host verifies publication claims and binds runtime material; it carries no Echo authority |
+| `InstalledContractPackage`              | Trusted host, then Echo        | Echo verifies it at installation; application code receives no install authority                  |
+| `OpticArtifact`                         | Wesley                         | Echo verifies and stores it                                                                       |
+| `OpticRegistrationDescriptor`           | Wesley                         | Echo accepts it as registration input, not authority                                              |
+| `OpticArtifactHandle`                   | Echo                           | Echo returns it after verified registration                                                       |
+| `OpticRequirements`                     | Wesley-authored, Echo-enforced | Echo stores internally and checks at invocation                                                   |
+| `CapabilityGrant`                       | Host, user, or quorum          | Echo validates it against stored artifact requirements                                            |
+| `CapabilityPresentation`                | Caller                         | Echo checks it at invocation time                                                                 |
+| `LawWitness`                            | Echo                           | Echo emits runtime evidence                                                                       |
+| `ReadingEnvelope`                       | Echo                           | Echo returns observed runtime evidence and payload posture                                        |
+| WARP-TTD                                | Debug observer                 | Inspects admission chains, witnesses, receipts, readings, and causal history                      |
+| WARPDrive                               | Materializer                   | Exposes filesystem-compatible readings for legacy tools                                           |
 
 The handle proves registration, not authority.
 
@@ -65,11 +73,21 @@ requirements.
 
 ## Platform flow
 
+Two compiler lanes meet Echo at explicit, independent crossings. For mutating
+provider operations, Edict admits exact authored semantics, the Echo provider
+lowers and independently verifies Echo Target IR, and the compiler publishes
+a digest-locked package and descriptor. That publication is not installation:
+a trusted host must still verify the package, bind an implementation, and ask
+Echo to install it. Authored reads must retain lawful read semantics and be
+executed through bounded observers; they must not become synthetic mutations.
+
+The optic/read registration target is:
+
 ```text
 Application declares GraphQL operation
   -> Wesley compiles OpticArtifact
   -> Wesley emits artifact hash and requirements digest
-  -> App registers artifact with Echo
+  -> Trusted host submits the verified artifact to Echo
   -> Echo verifies artifact identity
   -> Echo stores requirements internally
   -> Echo returns opaque OpticArtifactHandle
@@ -229,16 +247,22 @@ are replaceable.
 
 Next Echo work should proceed in this order:
 
-1. Land the artifact registration boundary.
-2. Accept a Wesley-style artifact registration descriptor.
-3. Verify artifact hash, schema id, operation id, and requirements digest.
-4. Store requirements internally.
-5. Return an opaque Echo-owned `OpticArtifactHandle`.
-6. Add an invocation skeleton using handle, variables, basis/aperture request, and capability presentation.
-7. Obstruct unknown handles, mismatched operation ids, missing capabilities, and expired capabilities.
-8. Emit specific `LawWitness` records for registration and admission checks.
-9. Keep jedit unchanged until Echo exposes the new boundary.
-10. Update jedit only below the optic/session adapter line.
+1. Accept a compiler-generated registration descriptor at the trusted-host
+   boundary.
+2. Verify exact package, Target IR, schema, codec where declared, operation,
+   and requirements identities.
+3. Bind host-supplied mutation executors or bounded read observers and install
+   them through Echo's existing package boundary.
+4. Store requirements internally and return an opaque Echo-owned handle only
+   after successful installation.
+5. Add invocation using the handle, canonical variables, explicit
+   basis/aperture request, and capability presentation.
+6. Obstruct unknown handles, mismatched operation ids, missing capabilities,
+   and expired capabilities.
+7. Emit specific `LawWitness` records for installation, admission, and
+   execution checks.
+8. Keep jedit unchanged until Echo exposes the generated boundary.
+9. Update jedit only below the optic/session adapter line.
 
 ## Non-goals
 
@@ -246,7 +270,7 @@ Do not implement these before the registration and invocation boundary is
 witnessed:
 
 - Continuum schema publication
-- public package or crate release
+- generalized runtime/plugin publication or mutable provider discovery
 - generalized plugin loading
 - dynamic contract execution
 - full collaboration semantics

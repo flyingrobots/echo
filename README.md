@@ -103,16 +103,29 @@ model.
 
 ## How It Works
 
-Echo currently implements two separate halves of the generated-contract path.
-Wesley currently emits raw `RewriteRule` builders and generated helpers. Its
-integration fixture enables the policy-gated `native_rule_bootstrap` feature
-and registers those rules directly. It does not emit an `InstalledContractPackage`
-or exercise package verification.
+Echo currently implements three adjacent generated-contract boundaries. They
+do not yet form one end-to-end application path.
 
-Echo separately verifies and registers `InstalledContractPackage` values,
-dispatches registered handlers through the scheduler, and stamps rule-pack
-identity into runtime evidence. No current Wesley or Edict generator connects
-compiler output to that package path.
+The Wesley compatibility path emits raw `RewriteRule` builders and generated
+helpers. Its integration fixture enables the policy-gated
+`native_rule_bootstrap` feature and registers those rules directly. It does
+not emit an `InstalledContractPackage` or exercise package verification.
+
+The Edict provider path admits exact semantic-source, contract-pack, and
+settings bytes; emits canonical semantic artifacts; runs a deterministic
+lowerer and an independent verifier; and publishes a digest-locked provider
+package plus a generated Rust helper projection. The helper can purely
+preflight explicit package-identity, Target IR, schema, and operation claims.
+It does not yet provide codec-bound invocation, construct an
+`InstalledContractPackage`, register anything, or mint runtime authority.
+
+Echo separately verifies and registers host-constructed
+`InstalledContractPackage` values, dispatches registered handlers through the
+scheduler, and stamps rule-pack identity into runtime evidence. No generated
+bridge yet joins either compiler path to trusted-host package installation and
+runtime invocation.
+
+The following sequence is the existing Wesley bootstrap fixture:
 
 ```mermaid
 sequenceDiagram
@@ -132,10 +145,11 @@ sequenceDiagram
     Echo-->>Fixture: OpticReading or typed obstruction
 ```
 
-The package-shaped flow below is the target corridor, not a current end-to-end application path:
+The package-shaped flow below is partially implemented, but is not yet a
+current end-to-end application path:
 
 ```text
-authored Wesley or Edict source
+admitted Wesley or Edict source
 -> verified compiler IR
 -> generated handlers, observers, footprints, and package metadata
 -> InstalledContractPackage verification
@@ -148,19 +162,25 @@ authored Wesley or Edict source
 Echo core is intentionally generic. Application nouns belong in authored
 contracts and generated adapters, not in the runtime kernel.
 
-- Wesley contract fixtures define nouns, operations, and queries in GraphQL and
-  use directives such as `@wes_op` and `@wes_footprint` for operation and
-  footprint claims.
-- The current generator emits Rust rule builders and helper code, not a
-  verified installable package or a supported external application SDK.
+- Wesley compatibility fixtures define nouns, operations, and queries in
+  GraphQL and use directives such as `@wes_op` and `@wes_footprint` for
+  operation and footprint claims.
+- Edict semantic sources define admitted operations, capabilities, lawpacks,
+  target profiles, and schemas. The Echo provider path deterministically
+  lowers and verifies that meaning into a digest-locked publication package
+  and generated helper projection.
+- The current Wesley compatibility generator emits Rust rule builders and
+  helper code, not a verified installable package or a supported external
+  application SDK.
 - Echo's package registry and scheduler path is implemented independently of
-  that fixture generator.
-- A package-qualified compiler must join those halves through the generic
-  package boundary; it must not create a second execution engine.
+  both compiler publication paths.
+- A trusted Echo host must verify compiler-emitted material, bind the
+  host-supplied executor or observer, and install it through the generic
+  package boundary. A compiler must not create a second execution engine.
 
 See [Generated Rule Authorship](docs/topics/GeneratedRules.md) for the exact
-current/target boundary, including the fixture-only Edict bridge and the absent
-release footprint-qualification lane.
+current/target boundary, including the separate Wesley compatibility and Edict
+provider paths and the absent release footprint-qualification lane.
 
 ```graphql
 type Mutation {
@@ -191,8 +211,8 @@ Echo enforces determinism by narrowing every application action into explicit,
 canonical evidence before the scheduler can act on it:
 
 - application input enters as canonical EINT bytes, not ad hoc callbacks;
-- Wesley-generated contract metadata names operation ids, codecs, and
-  footprint claims;
+- admitted compiler-generated metadata names operation ids, exact codecs where
+  declared, and footprint or requirements claims;
 - Echo-owned admission decides whether submitted work can become scheduler
   work;
 - the scheduler drains eligible work in deterministic order under explicit
@@ -224,7 +244,8 @@ You own:
 
 - domain semantics;
 - product policy and UI;
-- authored GraphQL contracts;
+- authored application contracts, including Edict semantic sources and
+  supported Wesley GraphQL contracts;
 - generated contract helpers and host integrations.
 
 ## FAQ
@@ -400,11 +421,11 @@ for coincidental text.
 
 ### How Does Schema Evolution Work?
 
-Contract identity, schema identity, operation ids, and generated helper
-identity are explicit in Wesley output. A schema change produces new contract
-artifact identity. Old readings name the schema and operation identity they
-used, so multiple contract versions can coexist without silently invalidating
-old receipts.
+Contract identity, schema identity, operation ids, and generated helper or
+package identity are explicit in admitted compiler output. A schema change
+produces new contract artifact identity. Old readings name the schema and
+operation identity they used, so multiple contract versions can coexist
+without silently invalidating old receipts.
 
 ### Where Should Contributors Start?
 
@@ -412,7 +433,8 @@ Start with `warp-core` and read
 [There Is No Graph](docs/architecture/there-is-no-graph.md) before changing
 runtime boundaries. Echo core must not grow application nouns such as
 `increment_counter`, `save_buffer`, or product-specific APIs. Those belong in
-authored Wesley contracts and generated adapters above the runtime boundary.
+authored application contracts and generated adapters above the runtime
+boundary.
 
 ## Quick Start For Contributors
 

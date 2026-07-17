@@ -7,18 +7,22 @@ This page explains how applications use Echo without turning Echo into an
 application framework.
 
 Echo is a deterministic witnessed causal substrate. Applications own product
-semantics. Wesley compiles authored GraphQL contracts into generated Rust code
-that can talk to Echo through generic intent and observation DTOs. A bounded
-optic is the product contract shape, but the current generated query execution
-path is still the lower-level observation primitive described below.
+semantics. Edict admits authored operation semantics and coordinates
+provider-specific lowering and verification. Wesley compiles supported
+GraphQL and optic contracts. Their generated artifacts can cross into Echo
+only through generic, trusted-host-controlled intent, observation, and package
+boundaries. A bounded optic is the read-contract shape, but the current Wesley
+query fixture still uses the lower-level observation primitive described
+below.
 
 This is Echo's concrete implementation of the WARP compiler seam: authored
-contract nouns lower into generated request helpers and contract-host helpers,
-while Echo core remains generic. See the current
+contract nouns lower through approved compiler paths into generated artifacts,
+request helpers, and contract-host helpers, while Echo core remains generic.
+See the current
 [WARP optics](../topics/WarpOptics.md) model for the WARP-paper-to-Echo noun
 map.
 
-The current installed-contract query path is:
+The current Wesley compatibility query fixture is:
 
 ```text
 Application UI / adapter
@@ -40,7 +44,7 @@ Echo must not gain privileged application nouns.
 
 Names such as `ReplaceRange`, `JeditBuffer`, `RenameSymbol`,
 `DeadSymbols`, `GraftProjection`, or `CounterIncrement` may appear in authored
-contracts, Wesley-generated code, tests for generated families, application
+contracts, compiler-generated code, tests for generated families, application
 adapters, and product documentation. They must not become Echo substrate APIs.
 
 Echo-owned APIs stay generic:
@@ -72,15 +76,18 @@ Echo, contracts, and applications have different jobs.
 flowchart TB
     app["Application"]
     contract["Authored contract"]
-    wesley["Wesley compiler"]
-    generated["Generated Rust client and registry"]
+    edict["Edict provider path"]
+    wesley["Wesley compatibility path"]
+    generated["Generated artifacts and adapters"]
     echo["Echo substrate"]
     cas["echo-cas"]
 
     app -->|"owns UI, workflows, product policy"| contract
-    contract -->|"declares domain nouns, ops, reads"| wesley
-    wesley -->|"emits DTOs, codecs, op ids, registry"| generated
-    generated -->|"packs EINT; builds raw and optic query DTOs"| echo
+    contract -->|"declares admitted operations and law"| edict
+    contract -->|"declares supported GraphQL and optics"| wesley
+    edict -->|"emits verified artifacts, package, helper"| generated
+    wesley -->|"emits DTOs, codecs, op ids, fixture registry"| generated
+    generated -->|"trusted host verifies, binds, and installs"| echo
     echo -->|"admits, schedules, witnesses, observes"| cas
     cas -->|"stores retained content, witnesses, cached readings"| echo
 
@@ -111,13 +118,21 @@ Contracts own:
 - domain emission law;
 - domain-specific reading payloads.
 
-Wesley-generated code owns the typed bridge between those contract nouns and
+Compiler-generated code owns the typed bridge between those contract nouns and
 Echo's generic runtime surfaces. That bridge has two separate faces:
 
 | Surface               | Responsibility                                                          |
 | :-------------------- | :---------------------------------------------------------------------- |
 | Application helpers   | Build EINT bytes plus raw and optic-shaped query request DTOs.          |
 | Contract-host helpers | Install generated mutation handler rules and read-only query observers. |
+
+The current implementations have not yet closed both faces. Wesley's
+compatibility fixture emits direct bootstrap helpers. The Edict provider path
+emits verified publication artifacts and a pure helper projection, but still
+needs exact codecs where applicable, registry/package layout preflight,
+host-supplied executor or observer binding, installation, and invocation.
+Neither compiler path may install itself or claim that generated authority
+facts are Echo runtime authority.
 
 ## External Edict Provider Artifacts
 
@@ -301,12 +316,16 @@ and `u32::MAX - 1` for witnessed suffix import. Either reserved result and any
 package-local collision refuse without salting or probing. CDDL admission
 constrains the numeric application-id domain only; generation must independently
 recompute the coordinate-and-kind law and collision-check the complete set.
-Emitted source must consume that packaged proposition before exposing the id; it
-may not derive an independent runtime identity. Likewise, a codec cannot be
-named until generated codecs implement that exact byte law. The refreshed
-components have crossed reproducible checked promotion. Invocation,
-registry-layout and package preflight, and pinned-host CDDL admission of the
-generated/review envelopes remain later #656 crossings.
+Emitted source carries public expected constants for that packaged proposition
+without re-derivation, checks the law and id as untrusted bundle claims, and lets
+the descriptor expose the matched id claim after the pure preflight succeeds.
+The descriptor remains evidence, not a registry entry, installation token, or
+runtime authority. Likewise, a codec cannot be named until generated codecs
+implement that exact byte law. The refreshed components have crossed
+reproducible checked promotion. The generated envelope now crosses pinned-host
+CDDL admission under its owning root. Invocation, registry layout, package
+preflight, and pinned-host admission of the review envelope remain later #656
+crossings.
 
 The first executable verifier independently implements the frozen
 `edict:target-provider/verifier@1.0.0` world. It compares the exact Core and
@@ -898,8 +917,8 @@ In words:
 Application:
   I know what the user wants.
 
-Generated Wesley code:
-  I know the contract schema and how to encode/decode operations.
+Generated contract code:
+  I know the authored contract schema and its exact encoding/decoding law.
 
 Echo ABI:
   I accept canonical intent bytes and explicit observation DTOs.
@@ -917,8 +936,12 @@ Application:
 For a `jedit`-style application:
 
 ```text
-jedit owns text/editor semantics.
-Wesley compiles those semantics into generated contract types and helpers.
+jedit owns text/editor domain meaning.
+Edict owns authored operation semantics and lowers supported mutations through
+verified Echo Target IR. Authored reads retain lawful read/optic semantics and
+execute through bounded observers; Wesley remains the neutral compiler owner
+for the supported optic and compatibility path. Generated contract code carries
+the exact types and helpers.
 Echo receives canonical intents and emits witnessed readings through the
 current raw query path. Generated optic queries remain typed obstructions.
 jedit renders buffers, cursors, diffs, diagnostics, history, and UI.

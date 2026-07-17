@@ -132,6 +132,24 @@ changed, update `CHANGELOG.md` when shipped behavior changed, run the narrow
 witness and directly relevant checks, and commit the result as a focused new
 commit. Record follow-on work in GitHub rather than in the repository.
 
+## Pre-PR Documentation Accuracy Gate
+
+Immediately before opening a pull request, and again after material review
+changes, compare the branch's actual behavior and artifacts with the current
+documentation. Revisit the relevant entrances and canonical owners:
+`README.md`, `GUIDE.md`, `docs/README.md`, `docs/architecture/`, `docs/spec/`,
+`docs/invariants/`, `docs/topics/`, and the evidence anchors of any applicable
+accepted ADRs.
+
+Search specifically for stale current-state claims such as “not implemented,”
+“fixture-only,” old ownership or authority boundaries, obsolete version or
+compatibility statements, and examples that still prescribe a superseded path.
+Correct inaccuracies in their owning documents before opening the PR. Do not
+create a status ledger or duplicate change-local implementation detail in
+multiple documents; keep durable boundaries in their canonical owners and link
+to them. If the review finds no documentation impact, say so explicitly in the
+pull-request body.
+
 ---
 
 **The goal is inevitability. Every feature is defined by its tests.**

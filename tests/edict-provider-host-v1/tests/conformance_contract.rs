@@ -152,6 +152,42 @@ fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
             "noncanonical-target-ir-output-denied",
         ),
     ));
+    entries.push((
+        text("unsupported-semantics"),
+        case_contract(
+            "lowering",
+            "unsupported-core-semantics",
+            "refused",
+            "unsupported-core-semantics-refused",
+        ),
+    ));
+    entries.push((
+        text("output-overclaim"),
+        case_contract(
+            "verification",
+            "unsupported-output-role-requested",
+            "refused",
+            "unsupported-verifier-output-role-refused",
+        ),
+    ));
+    entries.push((
+        text("wrong-intrinsic"),
+        case_contract(
+            "verification",
+            "target-intrinsic-changed",
+            "rejected",
+            "target-intrinsic-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("dropped-obstruction"),
+        case_contract(
+            "verification",
+            "obstruction-arm-removed",
+            "rejected",
+            "obstruction-relation-mismatch-rejected",
+        ),
+    ));
     let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
     let cases = decode_declared_cases(&bytes).expect("reviewed host laws have exact owners");
 
@@ -161,6 +197,22 @@ fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
     }));
     assert!(cases.iter().any(|case| {
         case.contract() == ExecutableContract::NoncanonicalTargetIrOutputDenied
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::UnsupportedCoreSemanticsRefused
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::UnsupportedVerifierOutputRoleRefused
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::TargetIntrinsicMismatchRejected
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ObstructionRelationMismatchRejected
             && case.owner() == ExecutorOwner::Host
     }));
 }

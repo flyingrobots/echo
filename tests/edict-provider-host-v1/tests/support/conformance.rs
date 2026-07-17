@@ -23,6 +23,10 @@ pub enum ExecutableContract {
     CompletedPackageParity,
     AmbientCapabilityPreflightDenied,
     NoncanonicalTargetIrOutputDenied,
+    UnsupportedCoreSemanticsRefused,
+    UnsupportedVerifierOutputRoleRefused,
+    TargetIntrinsicMismatchRejected,
+    ObstructionRelationMismatchRejected,
 }
 
 impl ExecutableContract {
@@ -31,6 +35,14 @@ impl ExecutableContract {
             "completed-package-parity" => Ok(Self::CompletedPackageParity),
             "ambient-capability-preflight-denied" => Ok(Self::AmbientCapabilityPreflightDenied),
             "noncanonical-target-ir-output-denied" => Ok(Self::NoncanonicalTargetIrOutputDenied),
+            "unsupported-core-semantics-refused" => Ok(Self::UnsupportedCoreSemanticsRefused),
+            "unsupported-verifier-output-role-refused" => {
+                Ok(Self::UnsupportedVerifierOutputRoleRefused)
+            }
+            "target-intrinsic-mismatch-rejected" => Ok(Self::TargetIntrinsicMismatchRejected),
+            "obstruction-relation-mismatch-rejected" => {
+                Ok(Self::ObstructionRelationMismatchRejected)
+            }
             _ => Err(CorpusContractError::new(
                 CorpusContractErrorKind::UnknownContract,
             )),
@@ -57,6 +69,34 @@ impl ExecutableContract {
                 id: "noncanonical-output",
                 crossing: "host-output-admission",
                 stimulus: "noncanonical-cbor-output",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Host,
+            },
+            Self::UnsupportedCoreSemanticsRefused => ExpectedDeclaration {
+                id: "unsupported-semantics",
+                crossing: "lowering",
+                stimulus: "unsupported-core-semantics",
+                required_disposition: "refused",
+                owner: ExecutorOwner::Host,
+            },
+            Self::UnsupportedVerifierOutputRoleRefused => ExpectedDeclaration {
+                id: "output-overclaim",
+                crossing: "verification",
+                stimulus: "unsupported-output-role-requested",
+                required_disposition: "refused",
+                owner: ExecutorOwner::Host,
+            },
+            Self::TargetIntrinsicMismatchRejected => ExpectedDeclaration {
+                id: "wrong-intrinsic",
+                crossing: "verification",
+                stimulus: "target-intrinsic-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Host,
+            },
+            Self::ObstructionRelationMismatchRejected => ExpectedDeclaration {
+                id: "dropped-obstruction",
+                crossing: "verification",
+                stimulus: "obstruction-arm-removed",
                 required_disposition: "rejected",
                 owner: ExecutorOwner::Host,
             },

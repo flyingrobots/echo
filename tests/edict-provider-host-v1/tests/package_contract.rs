@@ -1142,7 +1142,11 @@ fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
                         assert_completed_package_parity_contract(observation);
                     }
                     ExecutableContract::AmbientCapabilityPreflightDenied
-                    | ExecutableContract::NoncanonicalTargetIrOutputDenied => {
+                    | ExecutableContract::NoncanonicalTargetIrOutputDenied
+                    | ExecutableContract::UnsupportedCoreSemanticsRefused
+                    | ExecutableContract::UnsupportedVerifierOutputRoleRefused
+                    | ExecutableContract::TargetIntrinsicMismatchRejected
+                    | ExecutableContract::ObstructionRelationMismatchRejected => {
                         panic!("host-owned contract reached the package executor");
                     }
                 }

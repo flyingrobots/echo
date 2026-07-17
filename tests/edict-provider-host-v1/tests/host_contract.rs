@@ -31,9 +31,9 @@ use edict_syntax::{
     ProviderBoundArtifact, ProviderDiagnosticSeverity, ProviderDigest, ProviderDigestAlgorithm,
     ProviderInvocationKind, ProviderInvocationValidationFailureKind,
     ProviderLoweringInvocationContract, ProviderLoweringOutputKind, ProviderLoweringOutputRequest,
-    ProviderLoweringRequest, ProviderOutputManifest, ProviderRefusalKind, ProviderResourceRef,
-    ProviderResponseLimits, ProviderSchemaBinding, ProviderSchemaFormat, ProviderSemanticInput,
-    ProviderSemanticInputBinding, ProviderSemanticInputKind,
+    ProviderLoweringRequest, ProviderOutputManifest, ProviderRefusal, ProviderRefusalKind,
+    ProviderResourceRef, ProviderResponseLimits, ProviderSchemaBinding, ProviderSchemaFormat,
+    ProviderSemanticInput, ProviderSemanticInputBinding, ProviderSemanticInputKind,
     ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ProviderVerificationSuccess,
     ResourceRef, TargetEffectLowering, TargetIrLoweringFacts, TargetProviderManifest,
@@ -904,7 +904,7 @@ fn assert_echo_refusal(
     harness: &LowerHarness,
     expected_kind: ProviderRefusalKind,
     expected_subject: Option<&str>,
-) {
+) -> ProviderRefusal {
     let outcome = harness
         .host
         .invoke_lowerer(
@@ -937,6 +937,7 @@ fn assert_echo_refusal(
     assert_eq!(replayed.refusal(), Some(refusal));
     assert!(replayed.response().is_none());
     assert!(replayed.manifest().is_none());
+    refusal.clone()
 }
 
 fn fixture_manifest(component_bytes: &'static [u8]) -> &'static TargetProviderManifest {
@@ -1428,20 +1429,34 @@ fn echo_component_refuses_an_unsupported_profile_through_the_actual_host() {
     );
 }
 
-#[test]
-fn echo_component_refuses_unsupported_core_semantics_through_the_actual_host() {
+fn assert_unsupported_core_semantics_contract() {
     let mut core = echo_core();
-    core.coordinate = "x.y@1".to_owned();
+    "x.y@1".clone_into(&mut core.coordinate);
     let (mut contract, mut request) = echo_request(&core, TARGET_IR_ROLE);
     request.core.reference.coordinate = core.coordinate;
     contract.core = artifact_binding(&request.core);
     let harness = echo_harness_with_request(contract, request);
 
-    assert_echo_refusal(
+    let refusal = assert_echo_refusal(
         &harness,
         ProviderRefusalKind::UnsupportedSemantics,
         Some("x.y@1"),
     );
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("unsupported semantics produces one provider diagnostic");
+    };
+    assert_eq!(diagnostic.code, "echo.provider.unsupported-semantics");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "the supplied semantics are outside the exact first Echo lowering closure"
+    );
+    assert_eq!(diagnostic.repair, None);
+}
+
+#[test]
+fn echo_component_refuses_unsupported_core_semantics_through_the_actual_host() {
+    assert_unsupported_core_semantics_contract();
 }
 
 #[test]
@@ -1776,6 +1791,18 @@ fn declared_host_cases_execute_their_exact_typed_contracts() {
             ExecutableContract::NoncanonicalTargetIrOutputDenied => {
                 assert_noncanonical_target_ir_output_contract();
             }
+            ExecutableContract::UnsupportedCoreSemanticsRefused => {
+                assert_unsupported_core_semantics_contract();
+            }
+            ExecutableContract::UnsupportedVerifierOutputRoleRefused => {
+                assert_unsupported_verifier_output_role_contract();
+            }
+            ExecutableContract::TargetIntrinsicMismatchRejected => {
+                assert_target_intrinsic_mismatch_contract();
+            }
+            ExecutableContract::ObstructionRelationMismatchRejected => {
+                assert_obstruction_relation_mismatch_contract();
+            }
         }
         assert!(executed.insert(case.contract()));
     }
@@ -1844,8 +1871,7 @@ fn echo_verifier_component_admits_the_exact_relation_through_the_actual_host() {
     assert_admitted_verifier_success(&harness, response, manifest, "accepted");
 }
 
-#[test]
-fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
+fn assert_target_intrinsic_mismatch_contract() {
     let core = echo_core();
     let target_ir_bytes = target_ir_with_mismatched_intrinsic(&core);
     let harness = echo_verifier_harness(&core, &target_ir_bytes);
@@ -1878,7 +1904,11 @@ fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
 }
 
 #[test]
-fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
+fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
+    assert_target_intrinsic_mismatch_contract();
+}
+
+fn assert_obstruction_relation_mismatch_contract() {
     let core = echo_core();
     let target_ir_bytes = target_ir_without_obstruction_arm(&core);
     let harness = echo_verifier_harness(&core, &target_ir_bytes);
@@ -1912,7 +1942,11 @@ fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
 }
 
 #[test]
-fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
+fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
+    assert_obstruction_relation_mismatch_contract();
+}
+
+fn assert_unsupported_verifier_output_role_contract() {
     let core = echo_core();
     let (target_ir_bytes, _) = oracle_target_ir(&core);
     let (contract, mut request) = echo_verification_request(&core, &target_ir_bytes);
@@ -1952,6 +1986,11 @@ fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
         "the first verifier serves exactly one verifier-report.echo-dpo output"
     );
     assert_eq!(diagnostic.repair, None);
+}
+
+#[test]
+fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
+    assert_unsupported_verifier_output_role_contract();
 }
 
 #[test]

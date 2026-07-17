@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
 //! Edict-native pre-execution readiness witness for the checked Echo package.
 
 #[rustfmt::skip]
@@ -10,6 +15,7 @@ mod checked_generated_helper;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::process::Command;
 use std::sync::Arc;
 
 use edict_provider_host_wasmtime::{
@@ -56,6 +62,7 @@ const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
+const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
 const EXPECTED_SCHEMA_BINDING_COUNT: usize = 24;
 
 const MANIFEST_BYTES: &[u8] =
@@ -691,6 +698,57 @@ struct PackageConformanceObservation {
     external_lowerer: ResourceRef,
     external_verifier: ResourceRef,
     generated_helper_bound: bool,
+}
+
+impl PackageConformanceObservation {
+    fn render(&self) -> String {
+        format!(
+            concat!(
+                "target-ir={};semantic-bundle={};builtin-release={};external-release={};",
+                "lowerer={}#{};verifier={}#{};verifier-outcome={};helper-bound={}"
+            ),
+            self.target_ir_digest,
+            self.external_semantic_bundle_digest,
+            self.builtin_release_bundle_digest,
+            self.external_release_bundle_digest,
+            self.external_lowerer.coordinate,
+            self.external_lowerer
+                .digest
+                .as_deref()
+                .expect("the external lowerer observation is digest locked"),
+            self.external_verifier.coordinate,
+            self.external_verifier
+                .digest
+                .as_deref()
+                .expect("the external verifier observation is digest locked"),
+            self.verifier_outcome,
+            self.generated_helper_bound,
+        )
+    }
+}
+
+fn package_conformance_child_observation() -> String {
+    let executable = std::env::current_exe().expect("current test executable is discoverable");
+    let output = Command::new(executable)
+        .arg("emit_completed_package_conformance_observation")
+        .args(["--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .output()
+        .expect("child conformance process launches");
+    assert!(
+        output.status.success(),
+        "child conformance witness failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("child output is UTF-8");
+    stdout
+        .lines()
+        .find_map(|line| {
+            line.split_once(PACKAGE_OBSERVATION_MARKER)
+                .map(|(_, observation)| observation)
+        })
+        .unwrap_or_else(|| panic!("child omitted stable package observation:\n{stdout}"))
+        .to_owned()
 }
 
 fn contract_bundle_input(
@@ -1758,4 +1816,21 @@ fn checked_package_completes_external_builtin_parity_observation() {
         routed_resource(&checked_manifest(), VERIFIER_ROLE).clone()
     );
     assert!(observation.generated_helper_bound);
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the independent-process package witness"]
+fn emit_completed_package_conformance_observation() {
+    println!(
+        "{PACKAGE_OBSERVATION_MARKER}{}",
+        complete_package_conformance_observation().render()
+    );
+}
+
+#[test]
+fn independent_processes_reproduce_the_completed_package_observation() {
+    let first = package_conformance_child_observation();
+    let second = package_conformance_child_observation();
+
+    assert_eq!(first, second);
 }

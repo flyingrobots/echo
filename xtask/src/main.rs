@@ -844,7 +844,7 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "-p",
                 "warp-core",
                 "--features",
-                "native_rule_bootstrap trusted_runtime",
+                "native_rule_bootstrap trusted_runtime host_test",
                 "--test",
                 "trusted_runtime_host_loop_tests",
             ]),
@@ -6552,7 +6552,7 @@ mod tests {
                 "-p",
                 "warp-core",
                 "--features",
-                "native_rule_bootstrap trusted_runtime",
+                "native_rule_bootstrap trusted_runtime host_test",
                 "--test",
                 "trusted_runtime_host_loop_tests",
             ]

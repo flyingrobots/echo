@@ -39,7 +39,7 @@ The witness covers the current v0.1.0 local contract path:
 1. Register a generated-style package through the package boundary.
 2. Submit canonical EINT bytes through an app-facing handle.
 3. Keep the submission pending until trusted runtime-owned staging.
-4. Stage ticketed runtime ingress through the trusted host.
+4. Admit and stage installed-contract ingress through the trusted host.
 5. Run scheduler-owned ticks until idle.
 6. Observe applied and rejected intent outcomes.
 7. Query a bounded `QueryView` reading through a read-only observer.
@@ -60,7 +60,7 @@ let reading = app.observe(query_request)?;
 The app surface does not expose:
 
 - package registration;
-- ticketed runtime ingress staging;
+- installed-contract admission or runtime ingress staging;
 - `super_tick`;
 - scheduler pass or run-until-idle control;
 - scheduler fault recovery authority.
@@ -71,11 +71,15 @@ The trusted runtime owner uses the host surface:
 
 ```rust
 host.register_contract_package(package)?;
-host.stage_installed_contract_submission(submission.submission_id, &ticket)?;
+host.admit_installed_contract_submission(submission.submission_id)?;
 host.run_until_idle(4)?;
 ```
 
-That host role owns scheduler control. Wall-clock cadence is host policy; fixed
+That host role derives admission evidence from Echo's witnessed submission and
+the verified installed package. Applications do not construct admission tickets
+or admission digests for this path. The explicit caller-ticket API remains for
+Optic admissions, where a separately witnessed ticket is the relevant evidence.
+The host also owns scheduler control. Wall-clock cadence is host policy; fixed
 logical ticks are Echo semantic history.
 
 ## Compatibility Boundary

@@ -18,6 +18,13 @@
   refusals, and verifier disagreements. Corpus declarations and their executed
   provider evidence remain distinct from Echo installation, execution,
   observation, and runtime receipts.
+- `TrustedRuntimeHost` can now admit a witnessed installed-contract submission
+  without accepting caller-manufactured ticket authority. Echo derives a
+  domain-separated admission digest from its witnessed submission record and
+  verified installed-package identity, stages the operation through the same
+  package-evidence boundary, and binds the resulting receipt to that evidence.
+  The explicit ticketed staging API remains available for actual Optic
+  admissions; application-facing handles still cannot admit, stage, or tick.
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten

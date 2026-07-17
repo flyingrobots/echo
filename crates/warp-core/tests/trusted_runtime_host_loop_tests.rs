@@ -527,6 +527,49 @@ fn reference_host_loop_keeps_tick_authority_out_of_app_surface() {
 }
 
 #[test]
+fn trusted_host_admits_installed_contract_submission_without_caller_ticket_authority() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let submission = {
+        let mut app = host.app();
+        app.submit_intent(eint_envelope(worldline_id))
+            .expect("app should submit witnessed intent")
+    };
+
+    let staged = host
+        .admit_installed_contract_submission(submission.submission_id)
+        .expect("trusted host should derive admission evidence and stage installed work");
+    let admission_digest = match staged {
+        warp_core::TicketedRuntimeIngressDisposition::Staged { record, .. }
+        | warp_core::TicketedRuntimeIngressDisposition::Duplicate { record } => {
+            record.ticket_digest
+        }
+    };
+    assert_ne!(admission_digest, [0; 32]);
+
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+    let outcome = {
+        let app = host.app();
+        app.observe_intent_outcome(&submission.submission_id)
+    };
+    let IntentOutcome::Applied { receipt, .. } = outcome else {
+        panic!("expected applied outcome");
+    };
+    assert_eq!(receipt.ticket_digest, admission_digest);
+    let contract = receipt
+        .contract
+        .expect("installed mutation receipt should carry package evidence");
+    assert_eq!(contract.op_id, MUTATION_OP_ID);
+    assert_eq!(contract.op_kind, ContractOperationKind::Mutation);
+    assert_eq!(contract.package_name, "reference-counter");
+}
+
+#[test]
 fn runtime_wal_ack_submit_commits_acceptance_before_returning_handle() {
     let (runtime, worldline_id) = runtime();
     let mut host =

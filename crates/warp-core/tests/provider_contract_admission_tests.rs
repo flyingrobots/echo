@@ -27,7 +27,7 @@ const RELEASE_DIGEST: &str =
 const UNAPPROVED_RELEASE_DIGEST: &str =
     "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "fc00dd73a26bbd6699668ddb3ba1e3db9beb9bd7655e270824019d1e6e33f712";
+    "e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69";
 const UNAPPROVED_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 

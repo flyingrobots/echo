@@ -1374,6 +1374,7 @@ impl TrustedRuntimeWal {
         Self::from_config(TrustedRuntimeWalConfig::in_memory())
     }
 
+    #[cfg(any(test, feature = "host_test"))]
     fn new_in_memory_at_lsn(next_lsn: Lsn) -> Result<Self, TrustedRuntimeWalError> {
         Self::from_config(TrustedRuntimeWalConfig::in_memory().with_next_lsn(next_lsn))
     }
@@ -2010,6 +2011,7 @@ impl TrustedRuntimeWalStore {
         }
     }
 
+    #[cfg(any(test, feature = "host_test"))]
     fn append_uncommitted_frame(
         &mut self,
         epoch_id: WriterEpochId,

@@ -7,6 +7,19 @@
 
 ### Added
 
+- `echo-wesley-gen` can now consume a `DigestAdmittedProviderPackageV1` and an
+  independently Echo-admitted `AdmittedProviderContractPackageV1`, require the
+  exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
+  package-root agreement with the proposal occurrence, and return an opaque
+  `DigestCorroboratedProviderContractPackageV1`. Stable structured failures
+  distinguish coordinate, digest-rendering, and artifact-root disagreement.
+  This pure crossing corroborates package occurrence only: it does not derive
+  registry semantics from package bytes, install or mutate registry state,
+  invoke callbacks, schedule or execute work, emit receipts, or grant runtime
+  authority. The real-host witness extends the exact generator dependency
+  closure, so generation evidence and the checked provider occurrence refresh
+  to `sha256:e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69`;
+  the primary semantic and Target IR artifacts remain byte-identical.
 - `TrustedRuntimeHost` can now admit an opaque Edict provider proposal against
   an independently constructed `ProviderContractAdmissionPolicyV1`. The pure
   crossing compares the complete host-owned package occurrence claim and

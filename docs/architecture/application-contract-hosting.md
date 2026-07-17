@@ -347,11 +347,16 @@ complete occurrence and registry claims with an independently constructed
 `ProviderContractAdmissionPolicyV1` and retain an opaque
 `AdmittedProviderContractPackageV1`. This admits the pinned claim only: it does
 not rehash the distribution bytes, install a handler, mutate the engine,
-schedule work, or invoke a callback. Exact package-byte corroboration and the
-provider-native installation crossing remain separately owned. The proposal
-constructor supports mutations and refuses a `Query`. Authored reads continue
-through a separate bounded observer/optic crossing and may not be encoded as
-synthetic mutations.
+schedule work, or invoke a callback. `echo-wesley-gen` can separately consume
+that token with an independently produced `DigestAdmittedProviderPackageV1`.
+The exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
+package root must agree with the admitted occurrence's raw artifact hash before
+it returns an opaque `DigestCorroboratedProviderContractPackageV1`. This proves
+package-occurrence agreement only; it does not derive registry semantics from
+package bytes or install the package. Provider-native installation remains a
+separate Echo-owned crossing. The proposal constructor supports mutations and
+refuses a `Query`. Authored reads continue through a separate bounded
+observer/optic crossing and may not be encoded as synthetic mutations.
 
 Both refreshed components have crossed reproducible checked promotion. The
 lowerer is 189,668 bytes with SHA-256
@@ -775,10 +780,13 @@ retain an opaque package proposal. A trusted Echo host then independently pins
 the complete occurrence and provider registry before returning an opaque
 admitted token. Neither preflight validates arbitrary callback semantics, and
 the second crossing admits a digest claim rather than rehashing package bytes.
-The next crossing must corroborate exact package admission and consume the token
-through a provider-native installed record while reusing Echo's existing atomic
-engine indexes. It must not fabricate the GraphQL and Wesley metadata required
-by the legacy `InstalledContractPackage` surface.
+`echo-wesley-gen` now consumes that token with independently admitted exact
+package bytes and returns an opaque token only when the exact provider
+coordinate and lowercase SHA-256 package roots agree. That composition does not
+derive registry semantics from the bytes. The next crossing must consume the
+corroborated token through a provider-native installed record while reusing
+Echo's existing atomic engine indexes. It must not fabricate the GraphQL and
+Wesley metadata required by the legacy `InstalledContractPackage` surface.
 
 ## Admission Security Ramp
 

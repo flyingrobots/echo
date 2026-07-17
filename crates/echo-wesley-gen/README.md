@@ -127,8 +127,14 @@ JSON, one shared semantic-source/generator reference proven against the packaged
 Wesley provenance and review, the exact sorted 25-file inventory, and an
 external caller pin. The resulting proof authenticates package occurrence only.
 Edict schema-registry construction and component contract preflight remain
-separate required crossings before guest execution, and Echo runtime admission
-remains later still.
+separate required crossings before guest execution. `provider_package` can then
+consume that `DigestAdmittedProviderPackageV1` with an independently
+Echo-admitted `AdmittedProviderContractPackageV1`. Exact
+`echo.edict-provider@1` coordinate and strict lowercase `sha256:` package-root
+agreement produce an opaque `DigestCorroboratedProviderContractPackageV1`.
+This composition does not derive registry semantics from package bytes, install
+or invoke anything, or grant runtime authority. Provider-native installation,
+operation admission, and runtime authority remain later Echo crossings.
 
 `echo-edict-provider-package` is the explicit publication boundary for that
 distribution. Before any filesystem action it proves that the package's 22

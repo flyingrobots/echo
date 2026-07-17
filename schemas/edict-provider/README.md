@@ -248,6 +248,18 @@ or receipt anything; those remain trusted Echo crossings. Its constructor is
 mutation-specific and refuses a `Query`. Authored reads remain a separate
 bounded observer/optic path and must not be lowered as synthetic mutations.
 
+`TrustedRuntimeHost` can independently admit the proposal's complete occurrence
+and registry claims under `ProviderContractAdmissionPolicyV1`, yielding an
+opaque `AdmittedProviderContractPackageV1`. `echo-wesley-gen` can then consume
+that token with an independently produced `DigestAdmittedProviderPackageV1`.
+Only the exact `echo.edict-provider@1` coordinate and a strict lowercase
+`sha256:` package root whose raw suffix equals the admitted occurrence hash
+produce `DigestCorroboratedProviderContractPackageV1`. This second crossing
+corroborates package occurrence; it does not derive registry semantics or
+arbitrary callback correctness from package bytes. Neither token installs,
+registers, schedules, executes, persists, observes, receipts, or grants Echo
+runtime authority.
+
 Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`.
 Both refreshed components have crossed checked promotion, and the actual pinned
 host admits the generated envelope under its owning `generated-artifact` CDDL

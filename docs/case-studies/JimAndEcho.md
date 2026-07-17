@@ -155,11 +155,13 @@ metadata and one host-supplied mutation binding after pure identity preflight.
 with independent policy and return an opaque
 `AdmittedProviderContractPackageV1`. This does not load or rehash package bytes,
 construct the legacy Wesley `InstalledContractPackage`, register anything, or
-mint execution authority. A later provider-native installation crossing must
-corroborate the token with exact package admission and reuse Echo's existing
-engine indexes. Jim retains its domain meaning; Echo receives an admitted
-generic contract operation, canonical intent bytes, declared support, and its
-host binding only after that later crossing.
+mint execution authority. `echo-wesley-gen` now consumes that token with
+independently admitted exact package bytes and returns an opaque corroborated
+proof only when the provider coordinate and strict lowercase SHA-256 package
+roots agree. A later provider-native installation crossing must consume that
+proof and reuse Echo's existing engine indexes. Jim retains its domain meaning;
+until that later crossing Echo has only corroborated generic provider evidence,
+not an installed operation or authority to admit canonical runtime intents.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -751,9 +753,10 @@ The Jim example generalizes into a practical checklist.
    non-installing provider proposal while keeping bounded observers on their
    separate read path.
 4. Pass the preflighted proposal through independent trusted-host policy to
-   obtain an opaque admitted token. A later crossing must corroborate exact
-   package bytes, construct a provider-native installed record, and reuse Echo's
-   existing engine registration machinery before execution authority exists.
+   obtain an opaque admitted token, then corroborate it with the independently
+   admitted exact package proof. A later crossing must consume that corroborated
+   proof, construct a provider-native installed record, and reuse Echo's existing
+   engine registration machinery before execution authority exists.
 5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work

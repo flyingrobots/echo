@@ -49,9 +49,13 @@ distinct typed failures. This is claim admission, not package-byte admission:
 the crossing performs no package loading or rehashing. It also performs no
 installation, registry mutation, callback invocation, scheduling, receipt, or
 observation. Echo's existing `InstalledContractPackage` verification and
-`Engine::register_contract_package` remain the Wesley compatibility path. The
-next Edict crossing must corroborate the admitted token with exact package
-evidence and consume it through a provider-native installed record that reuses
+`Engine::register_contract_package` remain the Wesley compatibility path.
+`echo-wesley-gen` now consumes the admitted token with an independently produced
+`DigestAdmittedProviderPackageV1`; exact provider-coordinate and strict
+lowercase SHA-256 package-root agreement yields an opaque
+`DigestCorroboratedProviderContractPackageV1`. This corroborates occurrence
+only, not registry semantics or callback behavior. The next Edict crossing must
+consume that proof through a provider-native installed record that reuses
 Echo's atomic engine indexes rather than inventing a Wesley/GraphQL adapter.
 Generated code cannot install itself.
 
@@ -73,7 +77,8 @@ Wesley or Edict source
 -> generated typed codecs, EINT helpers, registry, and package metadata
 -> opaque provider package proposal with explicit host binding
 -> Echo-owned exact proposal-claim admission
--> exact package corroboration and provider-native installation
+-> exact package corroboration
+-> provider-native installation
 -> existing atomic engine rule and operation indexes
 -> scheduler-owned execution
 -> receipt / reading evidence carrying package and rule-pack identity
@@ -83,13 +88,14 @@ Both authoring systems still need generated bridges into Echo's runtime package
 surface. Wesley needs a package emitter. Edict already emits a digest-locked
 provider publication package, codec-bound mutation client, borrowed registry,
 and fail-closed package proposal. Echo now admits the exact proposal claim under
-independent trusted-host policy, but it still needs exact package
-corroboration, a provider-native installed record, and the separate generated
-bounded-observer path for authored reads. The current mutation proposal
-intentionally rejects `Query`; that refusal does not turn a read into a mutation
-or eliminate the independent observer/optic corridor. All installation work
-must reuse Echo's registration and execution path; it must not fabricate Wesley
-metadata or create a second execution engine.
+independent trusted-host policy, and `echo-wesley-gen` corroborates that token
+with independently admitted exact package bytes. Echo still needs a
+provider-native installed record, atomic index installation, runtime dispatch
+and evidence, and the separate generated bounded-observer path for authored
+reads. The current mutation proposal intentionally rejects `Query`; that refusal
+does not turn a read into a mutation or eliminate the independent observer/optic
+corridor. All installation work must reuse Echo's registration and execution
+path; it must not fabricate Wesley metadata or create a second execution engine.
 
 ## Footprint Honesty
 

@@ -5,6 +5,8 @@
 
 mod support;
 
+use std::collections::BTreeSet;
+
 use edict_syntax::{decode_canonical_cbor, encode_canonical_cbor, CanonicalValue};
 use support::conformance::{
     decode_declared_cases, CorpusContractErrorKind, ExecutableContract, ExecutorOwner,
@@ -57,20 +59,49 @@ fn parse_mutation(value: &CanonicalValue) -> CorpusContractErrorKind {
 }
 
 #[test]
-fn checked_declaration_has_one_exact_executable_owner() {
+fn checked_declarations_have_exact_executable_owners() {
     let cases = decode_declared_cases(CONFORMANCE_CORPUS_BYTES)
         .expect("checked declarations satisfy the executable-law inventory");
-    let [case] = cases.as_slice() else {
-        panic!("the current checked corpus has one declaration");
-    };
+    let expected_ids = BTreeSet::from([
+        "ambient-capability-denial",
+        "artifact-tamper",
+        "component-tamper",
+        "dropped-obstruction",
+        "helper-identity-mismatch",
+        "noncanonical-output",
+        "output-overclaim",
+        "package-parity",
+        "schema-tamper",
+        "source-occurrence-change",
+        "unsupported-semantics",
+        "wrong-intrinsic",
+    ]);
+    let actual_ids = cases
+        .iter()
+        .map(support::conformance::DeclaredCase::id)
+        .collect::<BTreeSet<_>>();
+    let contracts = cases
+        .iter()
+        .map(support::conformance::DeclaredCase::contract)
+        .collect::<BTreeSet<_>>();
 
-    assert_eq!(case.id(), "package-parity");
-    assert_eq!(case.crossing(), "pipeline");
-    assert_eq!(case.stimulus(), "baseline");
-    assert_eq!(case.required_disposition(), "accepted");
-    assert_eq!(case.contract(), ExecutableContract::CompletedPackageParity);
-    assert_eq!(case.owner(), ExecutorOwner::Package);
-    assert_ne!(case.owner(), ExecutorOwner::Host);
+    assert_eq!(cases.len(), 12);
+    assert_eq!(actual_ids, expected_ids);
+    assert_eq!(contracts.len(), 12);
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| case.owner() == ExecutorOwner::Package)
+            .count(),
+        6
+    );
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| case.owner() == ExecutorOwner::Host)
+            .count(),
+        6
+    );
 }
 
 #[test]
@@ -128,12 +159,22 @@ fn declaration_parser_rejects_empty_duplicate_or_result_shaped_cases() {
 }
 
 #[test]
-fn executable_registry_accepts_exact_laws_before_corpus_publication() {
+fn checked_corpus_matches_the_reviewed_executable_registry() {
     let mut value = checked_corpus_value();
     let cases = map_field_mut(&mut value, "cases");
     let CanonicalValue::Map(entries) = cases else {
         panic!("cases are a map");
     };
+    entries.clear();
+    entries.push((
+        text("package-parity"),
+        case_contract(
+            "pipeline",
+            "baseline",
+            "accepted",
+            "completed-package-parity",
+        ),
+    ));
     entries.push((
         text("ambient-capability-denial"),
         case_contract(
@@ -234,6 +275,7 @@ fn executable_registry_accepts_exact_laws_before_corpus_publication() {
         ),
     ));
     let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
+    assert_eq!(bytes, CONFORMANCE_CORPUS_BYTES);
     let cases = decode_declared_cases(&bytes).expect("reviewed executable laws have exact owners");
 
     assert!(cases.iter().any(|case| {

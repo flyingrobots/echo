@@ -349,23 +349,24 @@ crossing and may not be encoded as synthetic mutations.
 
 Both refreshed components have crossed reproducible checked promotion. The
 lowerer is 189,668 bytes with SHA-256
-`5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`; the
+`f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`; the
 verifier is 189,922 bytes with SHA-256
-`3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`.
+`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing
 proposal. Pinned-host admission of the review envelope remains a separate
 crossing.
 
-The generated conformance corpus now declares one opaque `package-parity` case
-contract. It names the baseline crossing and required accepted contract but
-contains no claimed result or evidence pointer. The isolated package-host
-executor requires an exact one-to-one match with that declaration, then proves
-Target IR parity, semantic/release identity behavior, helper binding, and
-fresh-process reproduction. Corpus declaration, schema admission, executed
-provider evidence, and later Echo runtime receipts remain four distinct
-propositions.
+The generated conformance corpus declares twelve reviewed obligations, divided
+exactly six to the isolated host executor and six to the package executor. Its
+closed vocabulary covers one accepted baseline, nine rejected admission,
+binding, and verification negatives, and two typed refusals for unsupported
+lowerer or verifier semantics. Each declaration names its crossing, stimulus, required
+disposition, and outcome contract, but contains no claimed result or evidence
+pointer. Each executor requires an exact one-to-one match with only its assigned
+owner set. Corpus declaration, schema admission, executed provider evidence,
+and later Echo runtime receipts remain distinct propositions.
 
 The first executable verifier independently implements the frozen
 `edict:target-provider/verifier@1.0.0` world. It compares the exact Core and

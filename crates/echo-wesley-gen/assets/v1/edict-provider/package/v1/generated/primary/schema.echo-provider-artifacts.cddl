@@ -841,10 +841,10 @@ echo-provider-conformance-corpus = {
 }
 
 echo-provider-conformance-case = {
-  crossing: "pipeline" / "host-environment" / "request-admission" /
-            "component-preflight" / "helper-binding" /
+  crossing: "pipeline" / "request-admission" / "component-preflight" /
+            "helper-binding" /
             "host-output-admission" / "verification" /
-            "schema-admission" / "source-occurrence-admission" / "lowering",
+            "schema-admission" / "lowering",
   stimulus: "baseline" / "ambient-capabilities-denied" /
             "artifact-bytes-changed" / "component-bytes-changed" /
             "bundle-identity-changed" / "noncanonical-cbor-output" /
@@ -853,7 +853,18 @@ echo-provider-conformance-case = {
             "obstruction-arm-removed" / "target-intrinsic-changed",
   requiredOutcome: {
     disposition: "accepted" / "rejected" / "refused",
-    contract: tstr,
+    contract: "completed-package-parity" /
+              "ambient-capability-preflight-denied" /
+              "noncanonical-target-ir-output-denied" /
+              "unsupported-core-semantics-refused" /
+              "unsupported-verifier-output-role-refused" /
+              "target-intrinsic-mismatch-rejected" /
+              "obstruction-relation-mismatch-rejected" /
+              "artifact-digest-mismatch-rejected" /
+              "schema-artifact-digest-mismatch-rejected" /
+              "component-digest-mismatch-rejected" /
+              "target-ir-helper-binding-mismatch-rejected" /
+              "baseline-release-binding-mismatch-rejected",
   },
 }
 

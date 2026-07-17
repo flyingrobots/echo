@@ -7,19 +7,17 @@
 
 ### Added
 
-- The checked Echo Edict provider conformance corpus now carries its first
-  executable contract instead of an empty placeholder. The declarative
-  `package-parity` case names a baseline pipeline crossing and requires the
-  `completed-package-parity` accepted outcome without embedding pass flags,
-  evidence paths, or implementation-local commands. The isolated pinned Edict
-  host consumes the exact checked corpus, requires exact agreement between the
-  declared case set and its executor, and proves external/built-in Target IR
-  byte and digest parity, equal semantic bundle identity, distinct release
-  identity, exact generated-helper binding, and byte-identical completed
-  observations from two fresh processes. Case identifiers do not encode their
-  expected disposition, and corpus-local contracts are not presented as
-  emitted diagnostic codes. This is provider conformance evidence only, not an
-  Echo installation, execution, observation, or runtime receipt.
+- The checked Echo Edict provider conformance corpus now declares twelve
+  reviewed executable obligations: exactly six owned by the isolated host
+  executor and six by the package executor, with one accepted, nine rejected,
+  and two refused dispositions. Each declaration names its crossing, stimulus,
+  required disposition, and outcome contract, but embeds no pass flag, result,
+  evidence pointer, implementation command, or runtime authority. The two
+  exact-set executors separately produce provider-conformance evidence for
+  baseline package parity, admission and binding failures, typed semantic
+  refusals, and verifier disagreements. Corpus declarations and their executed
+  provider evidence remain distinct from Echo installation, execution,
+  observation, and runtime receipts.
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten
@@ -102,7 +100,7 @@
   dependency source paths to `/cargo`, and atomically promotes only distinct
   candidates matching a reviewed repository digest. The promoted 189,668-byte
   component has SHA-256
-  `5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`.
+  `f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`.
   Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
@@ -158,7 +156,7 @@
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
   every emitted report. The 189,922-byte checked component has SHA-256
-  `3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`
+  `632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

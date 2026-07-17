@@ -130,15 +130,16 @@ Echo-owned resource documents use their declared schema API as their wire
 `apiVersion`; generated resource digests are framed by the resource coordinate.
 The lawpack and target-profile manifests bind those domain-framed identities,
 while later Wesley provenance binds exact-byte content references. The
-declarative conformance corpus now names one `package-parity` obligation whose
-exact case contract is consumed by the isolated pinned-host executor. It carries
-no pass flag, evidence path, or runtime receipt; execution evidence remains a
-separate crossing, and further cases enter the corpus only with typed executable
-witnesses. Direct-adapter routes bind the adapter and native capability, and
-operation-local failure mappings are not collapsed merely because two
-operations share one semantic effect. Read-class operations must use a
-revelation/projection optic and generate observer metadata rather than mutation
-metadata.
+declarative conformance corpus names twelve reviewed obligations: six consumed
+by the isolated host executor and six by the package executor, spanning one
+accepted, nine rejected, and two refused outcomes. It carries no pass flag, result,
+evidence path, or runtime receipt; declarations are obligations rather than
+evidence or runtime authority. Any future case must extend the owning closed
+CDDL vocabulary together with a typed executable witness. Direct-adapter routes
+bind the adapter and native capability, and operation-local failure mappings
+are not collapsed merely because two operations share one semantic effect.
+Read-class operations must use a revelation/projection optic and generate
+observer metadata rather than mutation metadata.
 
 The two authority-facts outputs use Edict's `edict.authority-facts/v1` domain
 and bind their contract owner to
@@ -168,9 +169,9 @@ reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
 189,668 bytes with SHA-256
-`5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`; the
+`f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`; the
 promoted verifier is 189,922 bytes with SHA-256
-`3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`.
+`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in

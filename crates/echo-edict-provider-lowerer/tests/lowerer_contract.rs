@@ -45,7 +45,7 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
-    "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c";
+    "9b88d04a8a4fc9c7f1cac77e5465340fbe1d1d14c604007344c14e7732c287cd";
 const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
 const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 
@@ -678,7 +678,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(
         digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &output_value)
             .expect("oracle-parity output has a domain-framed digest"),
-        "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc"
+        "sha256:01c7ac3e85c61bc3cfae56185353e313998f7bc30fabaca7f8b026db0a7001b3"
     );
 }
 

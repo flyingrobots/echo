@@ -408,19 +408,19 @@ fn packaged_semantic_resource_bytes_are_pinned() {
     let resources = [
         (
             TARGET_PROFILE,
-            "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85",
+            "9a7fb86b01ed2610114b5d75d093c5c10d905dc10629952b7fafe4405f5dcd77",
         ),
         (
             LAWPACK,
-            "679b090774088b46413a4697a646f10c3627d9f7f698380237db72e0b11739a1",
+            "1e001612bb10abd022a3e8e0e49569ddb1635efb48b2e71ee83f6362c22723ec",
         ),
         (
             TARGET_AUTHORITY,
-            "e4984d3ce0d9195f23ee30c2d36b46814d0872e294266ac30959a5a95b1f5f7e",
+            "6712f827b8cc23cd4f9e2487a9fe788771395c633cd074075b2971213e4129dd",
         ),
         (
             LAWPACK_AUTHORITY,
-            "022658a64fa8f693388e3f21354ebe3125eba0ea1fedf140b7c87f0c76cf08dc",
+            "e817873e8eafe6e97af32b7c8a0152c3700f112d812f40a3ea7927deaf515582",
         ),
     ];
 

@@ -50,13 +50,13 @@ pub mod echo_dpo {
     /// Digest-framing domain for the complete Target IR artifact envelope.
     pub const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
     /// Exact domain-framed identity of the emitted Target IR artifact.
-    pub const TARGET_IR_DIGEST: &str = "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc";
+    pub const TARGET_IR_DIGEST: &str = "sha256:01c7ac3e85c61bc3cfae56185353e313998f7bc30fabaca7f8b026db0a7001b3";
     /// Exact target-profile coordinate.
     pub const TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
     /// Digest-framing domain for the target-profile artifact.
     pub const TARGET_PROFILE_DIGEST_DOMAIN: &str = "edict.target-profile/v1";
     /// Exact domain-framed identity of the target profile.
-    pub const TARGET_PROFILE_DIGEST: &str = "sha256:ad7f10e1843f4b3d2c08b11d69df103f9c0b1b7388ae26bb364cc87106cd419e";
+    pub const TARGET_PROFILE_DIGEST: &str = "sha256:70a6b0ed2ab67eca5eeba55844a970e201957ab6cd91988c3959915f309c2b06";
     /// Semantic profile for Echo contract bundles; not a bundle occurrence.
     pub const TARGET_BUNDLE_PROFILE_COORDINATE: &str = "echo.dpo.bundle/v1";
     /// Digest-framing domain for the target-bundle profile artifact.
@@ -71,7 +71,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c";
+        "9b88d04a8a4fc9c7f1cac77e5465340fbe1d1d14c604007344c14e7732c287cd";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -108,7 +108,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c",
+        "9b88d04a8a4fc9c7f1cac77e5465340fbe1d1d14c604007344c14e7732c287cd",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {

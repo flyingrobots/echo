@@ -754,29 +754,93 @@ fn echo_owned_outputs_emit_their_declared_schema_api() {
 }
 
 #[test]
-fn declarative_conformance_resource_cannot_claim_unproven_cases() {
+fn declarative_conformance_resource_requires_at_least_one_case_contract() {
     let pack = admitted_pack();
     let (_, generated) = generate(SOURCE, &pack);
     let corpus = generated
         .resource("resource.conformance-corpus")
         .expect("conformance resource exists");
-    let mut fabricated = corpus.canonical_value().clone();
-    *map_field_mut(&mut fabricated, "cases") =
-        CanonicalValueV1::Array(vec![CanonicalValueV1::Null]);
-    let fabricated_bytes =
-        encode_canonical_cbor_v1(&fabricated).expect("fabricated value remains canonical CBOR");
+    let assert_root_rejected = |value: &CanonicalValueV1, reason: &str| {
+        let bytes = encode_canonical_cbor_v1(value).expect("mutated value remains canonical CBOR");
+        let error = generated
+            .schema()
+            .validate_root_bytes(corpus.owning_root(), &bytes)
+            .expect_err(reason);
+        assert_eq!(
+            (error.kind(), error.subject(), error.reference()),
+            (
+                ProviderArtifactGenerationErrorKind::OwningRootRejected,
+                "echo-provider-conformance-corpus",
+                "generated-provider-schema"
+            )
+        );
+    };
 
-    let error = generated
-        .schema()
-        .validate_root_bytes(corpus.owning_root(), &fabricated_bytes)
-        .expect_err("the empty corpus cannot fabricate executable parity evidence");
+    let mut empty = corpus.canonical_value().clone();
+    *map_field_mut(&mut empty, "cases") = CanonicalValueV1::Map(Vec::new());
+    assert_root_rejected(
+        &empty,
+        "the declarative corpus cannot omit every required case contract",
+    );
+
+    let mut malformed_outcome = corpus.canonical_value().clone();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(
+                map_field_mut(&mut malformed_outcome, "cases"),
+                "package-parity",
+            ),
+            "requiredOutcome",
+        ),
+        "disposition",
+    ) = CanonicalValueV1::Text("passed".to_owned());
+    assert_root_rejected(
+        &malformed_outcome,
+        "a result-shaped disposition is not a declared conformance obligation",
+    );
+
+    let mut fabricated_evidence = corpus.canonical_value().clone();
+    let CanonicalValueV1::Map(case_entries) = map_field_mut(
+        map_field_mut(&mut fabricated_evidence, "cases"),
+        "package-parity",
+    ) else {
+        panic!("package-parity case is a map");
+    };
+    case_entries.push((
+        CanonicalValueV1::Text("evidence".to_owned()),
+        CanonicalValueV1::Null,
+    ));
+    assert_root_rejected(
+        &fabricated_evidence,
+        "the declarative resource cannot claim execution evidence",
+    );
+}
+
+#[test]
+fn declarative_conformance_resource_names_the_reviewed_case_contracts() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let corpus = generated
+        .resource("resource.conformance-corpus")
+        .expect("conformance resource exists");
+    let cases = map_field(corpus.canonical_value(), "cases");
+    let mut case_ids = map_keys(cases);
+    case_ids.sort_unstable();
+
+    assert_eq!(case_ids, ["package-parity"]);
+
+    let case = map_field(cases, "package-parity");
+    assert_eq!(map_keys(case), ["crossing", "stimulus", "requiredOutcome"]);
+    assert_eq!(text_value(map_field(case, "crossing")), "pipeline");
+    assert_eq!(text_value(map_field(case, "stimulus")), "baseline");
+    let required_outcome = map_field(case, "requiredOutcome");
     assert_eq!(
-        (error.kind(), error.subject(), error.reference()),
-        (
-            ProviderArtifactGenerationErrorKind::OwningRootRejected,
-            "echo-provider-conformance-corpus",
-            "generated-provider-schema"
-        )
+        text_value(map_field(required_outcome, "disposition")),
+        "accepted"
+    );
+    assert_eq!(
+        text_value(map_field(required_outcome, "contract")),
+        "completed-package-parity"
     );
 }
 

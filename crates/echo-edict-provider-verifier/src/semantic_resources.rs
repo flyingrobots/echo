@@ -13,13 +13,13 @@ const PROFILE: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo@1",
     domain: "edict.target-profile/v1",
     bytes: include_bytes!("../resources/target-profile.echo-dpo.cbor"),
-    framed_sha256: "ad7f10e1843f4b3d2c08b11d69df103f9c0b1b7388ae26bb364cc87106cd419e",
+    framed_sha256: "70a6b0ed2ab67eca5eeba55844a970e201957ab6cd91988c3959915f309c2b06",
 };
 const LAWPACK: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo-lawpack@1",
     domain: "edict.lawpack/v1",
     bytes: include_bytes!("../resources/lawpack.echo-dpo.cbor"),
-    framed_sha256: "2a1631ae5fe2e11d09ccdfb94e3498f3236a3d615ee217e6cd5843efcd284987",
+    framed_sha256: "567de884c8a304f8527673eedc2b8c5cb15b83df8390868282a24a023f89160c",
 };
 const GENERATED_PROFILE: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo.registration/v1",
@@ -1583,11 +1583,11 @@ mod tests {
         let expected_raw = [
             (
                 PROFILE,
-                "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85",
+                "9a7fb86b01ed2610114b5d75d093c5c10d905dc10629952b7fafe4405f5dcd77",
             ),
             (
                 LAWPACK,
-                "679b090774088b46413a4697a646f10c3627d9f7f698380237db72e0b11739a1",
+                "1e001612bb10abd022a3e8e0e49569ddb1635efb48b2e71ee83f6362c22723ec",
             ),
             (
                 GENERATED_PROFILE,

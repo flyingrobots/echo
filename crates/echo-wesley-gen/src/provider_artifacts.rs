@@ -91,7 +91,24 @@ echo-provider-conformance-corpus = {
   operations: { * tstr => null },
   capabilities: { * tstr => null },
   semanticEffects: { * tstr => null },
-  cases: [],
+  cases: { 1* tstr => echo-provider-conformance-case },
+}
+
+echo-provider-conformance-case = {
+  crossing: "pipeline" / "host-environment" / "request-admission" /
+            "component-preflight" / "helper-binding" /
+            "host-output-admission" / "verification" /
+            "schema-admission" / "source-occurrence-admission" / "lowering",
+  stimulus: "baseline" / "ambient-capabilities-denied" /
+            "artifact-bytes-changed" / "component-bytes-changed" /
+            "bundle-identity-changed" / "noncanonical-cbor-output" /
+            "unsupported-output-role-requested" / "schema-bytes-changed" /
+            "exact-source-bytes-changed" / "unsupported-core-semantics" /
+            "obstruction-arm-removed" / "target-intrinsic-changed",
+  requiredOutcome: {
+    disposition: "accepted" / "rejected" / "refused",
+    contract: tstr,
+  },
 }
 
 echo-provider-lawpack-compatibility = {
@@ -1473,7 +1490,16 @@ fn build_resource_value(
             "operations": coordinate_set(source.operations.iter().map(|item| &item.identity.coordinate)),
             "capabilities": coordinate_set(source.capabilities.iter().map(|item| &item.identity.coordinate)),
             "semanticEffects": coordinate_set(source.effects.iter().map(|item| &item.identity.coordinate)),
-            "cases": [],
+            "cases": {
+                "package-parity": {
+                    "crossing": "pipeline",
+                    "stimulus": "baseline",
+                    "requiredOutcome": {
+                        "disposition": "accepted",
+                        "contract": "completed-package-parity",
+                    },
+                },
+            },
         })),
         "resource.lawpack-compatibility" => Ok(json!({
             "apiVersion": "echo.edict-provider.lawpack-compatibility/v1",

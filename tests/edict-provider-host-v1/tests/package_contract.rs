@@ -998,7 +998,11 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
             host_limits(),
         )
         .expect("the packaged verifier completes through Edict's bounded host");
-    assert!(verification_outcome.refusal().is_none());
+    assert!(
+        verification_outcome.refusal().is_none(),
+        "packaged verifier unexpectedly refused: {:?}",
+        verification_outcome.refusal()
+    );
     let verification_response = verification_outcome
         .response()
         .expect("the packaged verifier emits a verifier report");
@@ -1096,6 +1100,63 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
         external_verifier,
         generated_helper_bound,
     }
+}
+
+fn assert_declared_package_parity_case(observation: &PackageConformanceObservation) {
+    let corpus = GENERATED_RESOURCE_FIXTURES
+        .iter()
+        .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
+        .expect("the checked package declares its conformance corpus");
+    let corpus = decode_canonical_cbor(corpus.bytes)
+        .expect("the checked conformance corpus has canonical CBOR bytes");
+    let cases = required_field(&corpus, "cases").expect("the corpus declares case contracts");
+    let CanonicalValue::Map(cases) = cases else {
+        panic!("the conformance case closure must be a map");
+    };
+    let [(CanonicalValue::Text(case_id), contract)] = cases.as_slice() else {
+        panic!("the first executable corpus must declare exactly one reviewed case");
+    };
+    assert_eq!(case_id, "package-parity");
+
+    let CanonicalValue::Map(contract_fields) = contract else {
+        panic!("the package-parity declaration must be a case contract");
+    };
+    assert_eq!(contract_fields.len(), 3);
+    assert_eq!(
+        required_field(contract, "crossing").expect("package-parity names its crossing"),
+        &text("pipeline")
+    );
+    assert_eq!(
+        required_field(contract, "stimulus").expect("package-parity names its stimulus"),
+        &text("baseline")
+    );
+    let required_outcome = required_field(contract, "requiredOutcome")
+        .expect("package-parity declares its required outcome");
+    let CanonicalValue::Map(outcome_fields) = required_outcome else {
+        panic!("the package-parity required outcome must be a map");
+    };
+    assert_eq!(outcome_fields.len(), 2);
+    assert_eq!(
+        required_field(required_outcome, "disposition")
+            .expect("package-parity declares its disposition"),
+        &text("accepted")
+    );
+    assert_eq!(
+        required_field(required_outcome, "contract")
+            .expect("package-parity declares its executable contract"),
+        &text("completed-package-parity")
+    );
+
+    assert_eq!(observation.verifier_outcome, "accepted");
+    assert_eq!(
+        observation.builtin_semantic_bundle_digest,
+        observation.external_semantic_bundle_digest
+    );
+    assert_ne!(
+        observation.builtin_release_bundle_digest,
+        observation.external_release_bundle_digest
+    );
+    assert!(observation.generated_helper_bound);
 }
 
 fn routed_resource<'a>(manifest: &'a TargetProviderManifest, role: &str) -> &'a ResourceRef {
@@ -1794,9 +1855,11 @@ fn malformed_artifact_fails_before_component_execution() {
 fn checked_package_completes_external_builtin_parity_observation() {
     let observation = complete_package_conformance_observation();
 
+    assert_declared_package_parity_case(&observation);
+
     assert_eq!(
         observation.target_ir_digest,
-        "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc"
+        "sha256:01c7ac3e85c61bc3cfae56185353e313998f7bc30fabaca7f8b026db0a7001b3"
     );
     assert_eq!(observation.verifier_outcome, "accepted");
     assert_eq!(

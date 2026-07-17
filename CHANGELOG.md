@@ -7,6 +7,19 @@
 
 ### Added
 
+- The checked Echo Edict provider conformance corpus now carries its first
+  executable contract instead of an empty placeholder. The declarative
+  `package-parity` case names a baseline pipeline crossing and requires the
+  `completed-package-parity` accepted outcome without embedding pass flags,
+  evidence paths, or implementation-local commands. The isolated pinned Edict
+  host consumes the exact checked corpus, requires exact agreement between the
+  declared case set and its executor, and proves external/built-in Target IR
+  byte and digest parity, equal semantic bundle identity, distinct release
+  identity, exact generated-helper binding, and byte-identical completed
+  observations from two fresh processes. Case identifiers do not encode their
+  expected disposition, and corpus-local contracts are not presented as
+  emitted diagnostic codes. This is provider conformance evidence only, not an
+  Echo installation, execution, observation, or runtime receipt.
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten
@@ -89,7 +102,7 @@
   dependency source paths to `/cargo`, and atomically promotes only distinct
   candidates matching a reviewed repository digest. The promoted 189,668-byte
   component has SHA-256
-  `9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`.
+  `5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`.
   Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
@@ -145,7 +158,7 @@
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
   every emitted report. The 189,922-byte checked component has SHA-256
-  `4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`
+  `3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

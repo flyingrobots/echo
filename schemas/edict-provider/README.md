@@ -129,10 +129,13 @@ model.
 Echo-owned resource documents use their declared schema API as their wire
 `apiVersion`; generated resource digests are framed by the resource coordinate.
 The lawpack and target-profile manifests bind those domain-framed identities,
-while later Wesley provenance binds exact-byte content references. The empty
-declarative conformance corpus cannot carry cases until executable parity
-evidence exists. Direct-adapter routes bind the adapter and native capability,
-and operation-local failure mappings are not collapsed merely because two
+while later Wesley provenance binds exact-byte content references. The
+declarative conformance corpus now names one `package-parity` obligation whose
+exact case contract is consumed by the isolated pinned-host executor. It carries
+no pass flag, evidence path, or runtime receipt; execution evidence remains a
+separate crossing, and further cases enter the corpus only with typed executable
+witnesses. Direct-adapter routes bind the adapter and native capability, and
+operation-local failure mappings are not collapsed merely because two
 operations share one semantic effect. Read-class operations must use a
 revelation/projection optic and generate observer metadata rather than mutation
 metadata.
@@ -165,9 +168,9 @@ reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
 189,668 bytes with SHA-256
-`9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`; the
+`5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`; the
 promoted verifier is 189,922 bytes with SHA-256
-`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
+`3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in

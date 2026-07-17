@@ -349,14 +349,23 @@ crossing and may not be encoded as synthetic mutations.
 
 Both refreshed components have crossed reproducible checked promotion. The
 lowerer is 189,668 bytes with SHA-256
-`9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`; the
+`5add1efd007648c364a12786d3a1c7091d3cb8c363e2c525c5f8c93db9da544e`; the
 verifier is 189,922 bytes with SHA-256
-`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
+`3aca5c73a54f949726e65a1be902fce32cd1c0054f6a9ae3f839fa6b2a4462fc`.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing
 proposal. Pinned-host admission of the review envelope remains a separate
 crossing.
+
+The generated conformance corpus now declares one opaque `package-parity` case
+contract. It names the baseline crossing and required accepted contract but
+contains no claimed result or evidence pointer. The isolated package-host
+executor requires an exact one-to-one match with that declaration, then proves
+Target IR parity, semantic/release identity behavior, helper binding, and
+fresh-process reproduction. Corpus declaration, schema admission, executed
+provider evidence, and later Echo runtime receipts remain four distinct
+propositions.
 
 The first executable verifier independently implements the frozen
 `edict:target-provider/verifier@1.0.0` world. It compares the exact Core and

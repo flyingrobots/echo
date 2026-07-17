@@ -3,6 +3,11 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 //! Edict-native pre-execution readiness witness for the checked Echo package.
 
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[path = "../../../crates/echo-edict-provider-lowerer/tests/fixtures/generated_echo_dpo.rs"]
+mod checked_generated_helper;
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -21,8 +26,8 @@ use edict_syntax::{
     lower_with_builtin_lowerer, parse_module, select_provider_component,
     validate_provider_lowering_request, validate_provider_verification_request,
     BuiltinLowererRequest, BuiltinTargetLowerer, CanonicalValue, CompilerContext,
-    ContractBundleAssemblyFromTargetIrInput, ContractBundleSourceArtifact, CoreBudget, CoreModule,
-    DigestLockedResource, ProviderArtifact, ProviderArtifactBinding,
+    ContractBundleAssemblyFromTargetIrInput, ContractBundleManifest, ContractBundleSourceArtifact,
+    CoreBudget, CoreModule, DigestLockedResource, ProviderArtifact, ProviderArtifactBinding,
     ProviderArtifactSchemaValidator, ProviderArtifactSource, ProviderBoundArtifact, ProviderDigest,
     ProviderDigestAlgorithm, ProviderInvocationKind, ProviderInvocationValidationFailureKind,
     ProviderLoweringInvocationContract, ProviderLoweringOutputKind, ProviderLoweringOutputRequest,
@@ -37,6 +42,8 @@ use edict_syntax::{
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
+
+use checked_generated_helper::echo_dpo as generated;
 
 const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
@@ -683,6 +690,7 @@ struct PackageConformanceObservation {
     external_release_bundle_digest: String,
     external_lowerer: ResourceRef,
     external_verifier: ResourceRef,
+    generated_helper_bound: bool,
 }
 
 fn contract_bundle_input(
@@ -756,6 +764,84 @@ fn contract_bundle_input(
         ),
         assurance_evidence: Vec::new(),
     }
+}
+
+fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
+    assert_eq!(bundle.target_ir.coordinate, generated::TARGET_IR_COORDINATE);
+    assert_eq!(
+        bundle.target_ir.digest.as_deref(),
+        Some(generated::TARGET_IR_DIGEST)
+    );
+    assert_eq!(
+        bundle.target_profile.coordinate,
+        generated::TARGET_PROFILE_COORDINATE
+    );
+    assert_eq!(
+        bundle.target_profile.digest.as_deref(),
+        Some(generated::TARGET_PROFILE_DIGEST)
+    );
+
+    let expected = generated::ExpectedContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: &bundle.semantic_bundle_digest,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: &bundle.release_bundle_digest,
+    };
+    let identity = generated::ContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: &bundle.semantic_bundle_digest,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: &bundle.release_bundle_digest,
+        operation_coordinate: generated::OPERATION_COORDINATE,
+        operation_domain: generated::OPERATION_DOMAIN,
+        operation_id_law: generated::OPERATION_ID_LAW,
+        operation_id: generated::OPERATION_ID,
+        value_codec: generated::VALUE_CODEC_ID,
+        target_ir_coordinate: generated::TARGET_IR_COORDINATE,
+        target_ir_digest_domain: generated::TARGET_IR_DIGEST_DOMAIN,
+        target_ir_digest: generated::TARGET_IR_DIGEST,
+        target_profile_coordinate: generated::TARGET_PROFILE_COORDINATE,
+        target_profile_digest_domain: generated::TARGET_PROFILE_DIGEST_DOMAIN,
+        target_profile_digest: generated::TARGET_PROFILE_DIGEST,
+        target_bundle_profile_coordinate: generated::TARGET_BUNDLE_PROFILE_COORDINATE,
+        target_bundle_profile_digest_domain: generated::TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
+        target_bundle_profile_digest: generated::TARGET_BUNDLE_PROFILE_DIGEST,
+        echo_contract_abi_version: generated::ECHO_CONTRACT_ABI_VERSION,
+        helper_api_version: generated::CONTRACT_HOST_HELPER_API_VERSION,
+        provider_schema_coordinate: generated::PROVIDER_SCHEMA_COORDINATE,
+        provider_schema_sha256_hex: generated::PROVIDER_SCHEMA_SHA256_HEX,
+        input_schema: generated::INPUT_SCHEMA,
+        output_schema: generated::OUTPUT_SCHEMA,
+        type_schema_domain: generated::TYPE_SCHEMA_DOMAIN,
+        obstruction_coordinate: generated::OBSTRUCTION_COORDINATE,
+        obstruction_domain: generated::OBSTRUCTION_DOMAIN,
+        effect_failure_schema: generated::EFFECT_FAILURE_SCHEMA,
+        obstruction_payload_schema: generated::OBSTRUCTION_PAYLOAD_SCHEMA,
+        generated_artifact_profile: generated::GENERATED_ARTIFACT_PROFILE,
+        generated_artifact_profile_digest_domain:
+            generated::GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
+        generated_artifact_profile_digest: generated::GENERATED_ARTIFACT_PROFILE_DIGEST,
+        operation_profile: generated::OPERATION_PROFILE,
+        operation_profile_domain: generated::OPERATION_PROFILE_DOMAIN,
+        operation_profiles_coordinate: generated::OPERATION_PROFILES_COORDINATE,
+        operation_profiles_digest_domain: generated::OPERATION_PROFILES_DIGEST_DOMAIN,
+        operation_profiles_digest: generated::OPERATION_PROFILES_DIGEST,
+        footprint_obligation: generated::FOOTPRINT_OBLIGATION,
+        footprint_algebra: generated::FOOTPRINT_ALGEBRA,
+        footprint_algebra_digest_domain: generated::FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
+        footprint_algebra_digest: generated::FOOTPRINT_ALGEBRA_DIGEST,
+    };
+    let descriptor = generated::bind_contract_bundle(expected, &identity)
+        .expect("the generated helper binds the real assembled external bundle");
+    assert_eq!(
+        descriptor.contract_bundle().semantic_digest,
+        bundle.semantic_bundle_digest
+    );
+    assert_eq!(
+        descriptor.contract_bundle().release_digest,
+        bundle.release_bundle_digest
+    );
+    true
 }
 
 fn complete_package_conformance_observation() -> PackageConformanceObservation {
@@ -939,6 +1025,7 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
     );
     assert_eq!(external_bundle.lowerer, external_lowerer);
     assert_eq!(external_bundle.verifier, external_verifier);
+    let generated_helper_bound = bind_generated_helper_to_bundle(&external_bundle);
 
     PackageConformanceObservation {
         target_ir_digest: rendered_provider_digest(&builtin_target_ir_digest),
@@ -949,6 +1036,7 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
         external_release_bundle_digest: external_bundle.release_bundle_digest,
         external_lowerer,
         external_verifier,
+        generated_helper_bound,
     }
 }
 
@@ -1669,4 +1757,5 @@ fn checked_package_completes_external_builtin_parity_observation() {
         observation.external_verifier,
         routed_resource(&checked_manifest(), VERIFIER_ROLE).clone()
     );
+    assert!(observation.generated_helper_bound);
 }

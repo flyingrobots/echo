@@ -814,6 +814,22 @@ fn declarative_conformance_resource_requires_at_least_one_case_contract() {
         &fabricated_evidence,
         "the declarative resource cannot claim execution evidence",
     );
+
+    let mut unknown_contract = corpus.canonical_value().clone();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(
+                map_field_mut(&mut unknown_contract, "cases"),
+                "package-parity",
+            ),
+            "requiredOutcome",
+        ),
+        "contract",
+    ) = CanonicalValueV1::Text("unreviewed-contract".to_owned());
+    assert_root_rejected(
+        &unknown_contract,
+        "the declarative resource cannot name an unreviewed executable contract",
+    );
 }
 
 #[test]
@@ -827,21 +843,124 @@ fn declarative_conformance_resource_names_the_reviewed_case_contracts() {
     let mut case_ids = map_keys(cases);
     case_ids.sort_unstable();
 
-    assert_eq!(case_ids, ["package-parity"]);
+    assert_eq!(
+        case_ids,
+        [
+            "ambient-capability-denial",
+            "artifact-tamper",
+            "component-tamper",
+            "dropped-obstruction",
+            "helper-identity-mismatch",
+            "noncanonical-output",
+            "output-overclaim",
+            "package-parity",
+            "schema-tamper",
+            "source-occurrence-change",
+            "unsupported-semantics",
+            "wrong-intrinsic",
+        ]
+    );
 
-    let case = map_field(cases, "package-parity");
-    assert_eq!(map_keys(case), ["crossing", "stimulus", "requiredOutcome"]);
-    assert_eq!(text_value(map_field(case, "crossing")), "pipeline");
-    assert_eq!(text_value(map_field(case, "stimulus")), "baseline");
-    let required_outcome = map_field(case, "requiredOutcome");
-    assert_eq!(
-        text_value(map_field(required_outcome, "disposition")),
-        "accepted"
-    );
-    assert_eq!(
-        text_value(map_field(required_outcome, "contract")),
-        "completed-package-parity"
-    );
+    for (id, crossing, stimulus, disposition, contract) in [
+        (
+            "package-parity",
+            "pipeline",
+            "baseline",
+            "accepted",
+            "completed-package-parity",
+        ),
+        (
+            "ambient-capability-denial",
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+        (
+            "noncanonical-output",
+            "host-output-admission",
+            "noncanonical-cbor-output",
+            "rejected",
+            "noncanonical-target-ir-output-denied",
+        ),
+        (
+            "unsupported-semantics",
+            "lowering",
+            "unsupported-core-semantics",
+            "refused",
+            "unsupported-core-semantics-refused",
+        ),
+        (
+            "output-overclaim",
+            "verification",
+            "unsupported-output-role-requested",
+            "refused",
+            "unsupported-verifier-output-role-refused",
+        ),
+        (
+            "wrong-intrinsic",
+            "verification",
+            "target-intrinsic-changed",
+            "rejected",
+            "target-intrinsic-mismatch-rejected",
+        ),
+        (
+            "dropped-obstruction",
+            "verification",
+            "obstruction-arm-removed",
+            "rejected",
+            "obstruction-relation-mismatch-rejected",
+        ),
+        (
+            "artifact-tamper",
+            "request-admission",
+            "artifact-bytes-changed",
+            "rejected",
+            "artifact-digest-mismatch-rejected",
+        ),
+        (
+            "schema-tamper",
+            "schema-admission",
+            "schema-bytes-changed",
+            "rejected",
+            "schema-artifact-digest-mismatch-rejected",
+        ),
+        (
+            "component-tamper",
+            "component-preflight",
+            "component-bytes-changed",
+            "rejected",
+            "component-digest-mismatch-rejected",
+        ),
+        (
+            "helper-identity-mismatch",
+            "helper-binding",
+            "bundle-identity-changed",
+            "rejected",
+            "target-ir-helper-binding-mismatch-rejected",
+        ),
+        (
+            "source-occurrence-change",
+            "helper-binding",
+            "exact-source-bytes-changed",
+            "rejected",
+            "baseline-release-binding-mismatch-rejected",
+        ),
+    ] {
+        let case = map_field(cases, id);
+        assert_eq!(map_keys(case), ["crossing", "stimulus", "requiredOutcome"]);
+        assert_eq!(text_value(map_field(case, "crossing")), crossing);
+        assert_eq!(text_value(map_field(case, "stimulus")), stimulus);
+        let required_outcome = map_field(case, "requiredOutcome");
+        assert_eq!(
+            text_value(map_field(required_outcome, "disposition")),
+            disposition
+        );
+        assert_eq!(
+            text_value(map_field(required_outcome, "contract")),
+            contract
+        );
+    }
 }
 
 #[test]

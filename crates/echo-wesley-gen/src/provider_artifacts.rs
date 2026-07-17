@@ -95,10 +95,10 @@ echo-provider-conformance-corpus = {
 }
 
 echo-provider-conformance-case = {
-  crossing: "pipeline" / "host-environment" / "request-admission" /
-            "component-preflight" / "helper-binding" /
+  crossing: "pipeline" / "request-admission" / "component-preflight" /
+            "helper-binding" /
             "host-output-admission" / "verification" /
-            "schema-admission" / "source-occurrence-admission" / "lowering",
+            "schema-admission" / "lowering",
   stimulus: "baseline" / "ambient-capabilities-denied" /
             "artifact-bytes-changed" / "component-bytes-changed" /
             "bundle-identity-changed" / "noncanonical-cbor-output" /
@@ -107,7 +107,18 @@ echo-provider-conformance-case = {
             "obstruction-arm-removed" / "target-intrinsic-changed",
   requiredOutcome: {
     disposition: "accepted" / "rejected" / "refused",
-    contract: tstr,
+    contract: "completed-package-parity" /
+              "ambient-capability-preflight-denied" /
+              "noncanonical-target-ir-output-denied" /
+              "unsupported-core-semantics-refused" /
+              "unsupported-verifier-output-role-refused" /
+              "target-intrinsic-mismatch-rejected" /
+              "obstruction-relation-mismatch-rejected" /
+              "artifact-digest-mismatch-rejected" /
+              "schema-artifact-digest-mismatch-rejected" /
+              "component-digest-mismatch-rejected" /
+              "target-ir-helper-binding-mismatch-rejected" /
+              "baseline-release-binding-mismatch-rejected",
   },
 }
 
@@ -1479,6 +1490,99 @@ fn typed_digest(digest: &str) -> Result<JsonValue, ProviderArtifactGenerationErr
     Ok(json!(["sha256", { "$canonicalBytes": hex_digest }]))
 }
 
+fn conformance_case(
+    crossing: &str,
+    stimulus: &str,
+    disposition: &str,
+    contract: &str,
+) -> JsonValue {
+    json!({
+        "crossing": crossing,
+        "stimulus": stimulus,
+        "requiredOutcome": {
+            "disposition": disposition,
+            "contract": contract,
+        },
+    })
+}
+
+fn conformance_cases() -> JsonValue {
+    json!({
+        "package-parity": conformance_case(
+            "pipeline",
+            "baseline",
+            "accepted",
+            "completed-package-parity",
+        ),
+        "ambient-capability-denial": conformance_case(
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+        "noncanonical-output": conformance_case(
+            "host-output-admission",
+            "noncanonical-cbor-output",
+            "rejected",
+            "noncanonical-target-ir-output-denied",
+        ),
+        "unsupported-semantics": conformance_case(
+            "lowering",
+            "unsupported-core-semantics",
+            "refused",
+            "unsupported-core-semantics-refused",
+        ),
+        "output-overclaim": conformance_case(
+            "verification",
+            "unsupported-output-role-requested",
+            "refused",
+            "unsupported-verifier-output-role-refused",
+        ),
+        "wrong-intrinsic": conformance_case(
+            "verification",
+            "target-intrinsic-changed",
+            "rejected",
+            "target-intrinsic-mismatch-rejected",
+        ),
+        "dropped-obstruction": conformance_case(
+            "verification",
+            "obstruction-arm-removed",
+            "rejected",
+            "obstruction-relation-mismatch-rejected",
+        ),
+        "artifact-tamper": conformance_case(
+            "request-admission",
+            "artifact-bytes-changed",
+            "rejected",
+            "artifact-digest-mismatch-rejected",
+        ),
+        "schema-tamper": conformance_case(
+            "schema-admission",
+            "schema-bytes-changed",
+            "rejected",
+            "schema-artifact-digest-mismatch-rejected",
+        ),
+        "component-tamper": conformance_case(
+            "component-preflight",
+            "component-bytes-changed",
+            "rejected",
+            "component-digest-mismatch-rejected",
+        ),
+        "helper-identity-mismatch": conformance_case(
+            "helper-binding",
+            "bundle-identity-changed",
+            "rejected",
+            "target-ir-helper-binding-mismatch-rejected",
+        ),
+        "source-occurrence-change": conformance_case(
+            "helper-binding",
+            "exact-source-bytes-changed",
+            "rejected",
+            "baseline-release-binding-mismatch-rejected",
+        ),
+    })
+}
+
 fn build_resource_value(
     source: &ProviderSemanticSourceV1,
     declaration: &ArtifactResourceDeclaration,
@@ -1490,16 +1594,7 @@ fn build_resource_value(
             "operations": coordinate_set(source.operations.iter().map(|item| &item.identity.coordinate)),
             "capabilities": coordinate_set(source.capabilities.iter().map(|item| &item.identity.coordinate)),
             "semanticEffects": coordinate_set(source.effects.iter().map(|item| &item.identity.coordinate)),
-            "cases": {
-                "package-parity": {
-                    "crossing": "pipeline",
-                    "stimulus": "baseline",
-                    "requiredOutcome": {
-                        "disposition": "accepted",
-                        "contract": "completed-package-parity",
-                    },
-                },
-            },
+            "cases": conformance_cases(),
         })),
         "resource.lawpack-compatibility" => Ok(json!({
             "apiVersion": "echo.edict-provider.lawpack-compatibility/v1",

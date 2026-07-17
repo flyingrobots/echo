@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use edict_provider_host_wasmtime::{
-    ProviderComponentHost, ProviderHostFailureKind, ProviderHostPhase, ResolvedProviderComponent,
+    ProviderComponentHost, ProviderHostFailureKind, ProviderHostLimits, ProviderHostPhase,
+    ResolvedProviderComponent,
 };
 use edict_provider_schema::{
     ProviderArtifactSchemaRegistry, ProviderSchemaRegistryFailureKind,
@@ -616,6 +617,171 @@ const fn response_limits() -> ProviderResponseLimits {
         max_output_count: 8,
         max_diagnostic_count: 8,
         max_total_response_bytes: 64 * 1024,
+    }
+}
+
+const fn host_limits() -> ProviderHostLimits {
+    ProviderHostLimits {
+        max_input_bytes: 1024 * 1024,
+        max_output_bytes: 3 * 1024 * 1024,
+        max_diagnostic_bytes: 3 * 1024 * 1024,
+        max_wasm_memory_bytes: 16 * 1024 * 1024,
+        max_table_elements: 10_000,
+        max_instances: 100,
+        max_memories: 8,
+        max_tables: 8,
+        max_wasm_fuel: 50_000_000,
+        max_hostcall_bytes: 4 * 1024 * 1024,
+        max_host_diagnostic_bytes: 512,
+    }
+}
+
+struct PackageConformanceObservation {
+    target_ir_digest: String,
+    verifier_outcome: &'static str,
+}
+
+fn complete_package_conformance_observation() -> PackageConformanceObservation {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let registry = package_registry(&manifest);
+    let host = ProviderComponentHost::new().expect("the deterministic host configures");
+
+    let lowerer = select_provider_component(&proof, LOWERER_ROLE, ProviderInvocationKind::Lowering)
+        .expect("the checked package selects its lowerer");
+    let lowerer = ResolvedProviderComponent::new(lowerer, Arc::<[u8]>::from(LOWERER_BYTES));
+    let prepared_lowerer = host
+        .prepare(&lowerer)
+        .expect("the exact packaged lowerer passes Edict preflight");
+
+    let core = echo_core();
+    let (lowering_contract, lowering_request) = lowering_request(&core);
+    assert_request_semantics_are_package_routed(
+        &manifest,
+        &lowering_request.target_profile,
+        &lowering_request.semantic_inputs,
+    );
+    let lowering_request =
+        validate_provider_lowering_request(&registry, &lowering_contract, &lowering_request)
+            .expect("the package-routed lowering request has an Edict validation proof");
+    let lowering_outcome = host
+        .invoke_lowerer(
+            &prepared_lowerer,
+            &lowering_request,
+            &registry,
+            host_limits(),
+        )
+        .expect("the packaged lowerer completes through Edict's bounded host");
+    assert!(lowering_outcome.refusal().is_none());
+    let lowering_response = lowering_outcome
+        .response()
+        .expect("the packaged lowerer emits Target IR");
+    assert!(lowering_response.diagnostics.is_empty());
+    let [target_ir_output] = lowering_response.outputs.as_slice() else {
+        panic!("the packaged lowerer must emit exactly one Target IR output");
+    };
+    assert_eq!(target_ir_output.role, TARGET_IR_ROLE);
+    assert_eq!(target_ir_output.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(
+        target_ir_output.artifact.domain,
+        TARGET_IR_ARTIFACT_DIGEST_DOMAIN
+    );
+    assert_eq!(target_ir_output.logical_path, None);
+
+    let builtin_target_ir = oracle_target_ir(
+        &core,
+        routed_resource(&manifest, "target-profile.echo-dpo").clone(),
+    );
+    assert_eq!(target_ir_output.artifact.bytes, builtin_target_ir);
+    let builtin_target_ir_digest =
+        provider_digest(TARGET_IR_ARTIFACT_DIGEST_DOMAIN, &builtin_target_ir);
+    let lowering_manifest = lowering_outcome
+        .manifest()
+        .expect("the Edict host authors the external lowerer output manifest");
+    let [target_ir_entry] = lowering_manifest.outputs() else {
+        panic!("the lowerer manifest must bind exactly one Target IR output");
+    };
+    assert_eq!(target_ir_entry.role, TARGET_IR_ROLE);
+    assert_eq!(target_ir_entry.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(target_ir_entry.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
+    assert_eq!(target_ir_entry.digest, builtin_target_ir_digest);
+
+    let verifier =
+        select_provider_component(&proof, VERIFIER_ROLE, ProviderInvocationKind::Verification)
+            .expect("the checked package selects its verifier");
+    let verifier = ResolvedProviderComponent::new(verifier, Arc::<[u8]>::from(VERIFIER_BYTES));
+    let prepared_verifier = host
+        .prepare(&verifier)
+        .expect("the exact packaged verifier passes Edict preflight");
+    let (verification_contract, verification_request) =
+        verification_request(&core, &target_ir_output.artifact.bytes);
+    assert_request_semantics_are_package_routed(
+        &manifest,
+        &verification_request.target_profile,
+        &verification_request.semantic_inputs,
+    );
+    let verification_request = validate_provider_verification_request(
+        &registry,
+        &verification_contract,
+        &verification_request,
+    )
+    .expect("the package-routed verification request has an Edict validation proof");
+    let verification_outcome = host
+        .invoke_verifier(
+            &prepared_verifier,
+            &verification_request,
+            &registry,
+            host_limits(),
+        )
+        .expect("the packaged verifier completes through Edict's bounded host");
+    assert!(verification_outcome.refusal().is_none());
+    let verification_response = verification_outcome
+        .response()
+        .expect("the packaged verifier emits a verifier report");
+    assert!(verification_response.diagnostics.is_empty());
+    let [verifier_report] = verification_response.outputs.as_slice() else {
+        panic!("the packaged verifier must emit exactly one verifier report");
+    };
+    assert_eq!(verifier_report.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(
+        verifier_report.kind,
+        ProviderVerificationOutputKind::VerifierReport
+    );
+    assert_eq!(verifier_report.artifact.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(verifier_report.logical_path, None);
+    let verifier_report_value = decode_canonical_cbor(&verifier_report.artifact.bytes)
+        .expect("the admitted verifier report is canonical CBOR");
+    assert_eq!(
+        map_field(&verifier_report_value, "outcome"),
+        Some(&text("accepted"))
+    );
+    let target_ir_reference = map_field(&verifier_report_value, "targetIr")
+        .expect("the verifier report binds its exact Target IR subject");
+    let (target_ir_coordinate, target_ir_digest) = embedded_resource_ref(target_ir_reference)
+        .expect("the verifier report carries a strict Target IR reference");
+    assert_eq!(target_ir_coordinate, "echo.target-ir@1");
+    assert_eq!(target_ir_digest, builtin_target_ir_digest.bytes.as_slice());
+    let verification_manifest = verification_outcome
+        .manifest()
+        .expect("the Edict host authors the verifier output manifest");
+    let [verifier_entry] = verification_manifest.outputs() else {
+        panic!("the verifier manifest must bind exactly one report output");
+    };
+    assert_eq!(verifier_entry.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(
+        verifier_entry.kind,
+        ProviderVerificationOutputKind::VerifierReport
+    );
+    assert_eq!(verifier_entry.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(
+        verifier_entry.digest,
+        provider_digest(VERIFIER_REPORT_DOMAIN, &verifier_report.artifact.bytes)
+    );
+
+    PackageConformanceObservation {
+        target_ir_digest: rendered_provider_digest(&builtin_target_ir_digest),
+        verifier_outcome: "accepted",
     }
 }
 
@@ -1309,4 +1475,15 @@ fn malformed_artifact_fails_before_component_execution() {
     assert!(report.failures.iter().any(|failure| {
         failure.kind == ProviderInvocationValidationFailureKind::ArtifactSchemaMismatch
     }));
+}
+
+#[test]
+fn checked_package_completes_external_builtin_parity_observation() {
+    let observation = complete_package_conformance_observation();
+
+    assert_eq!(
+        observation.target_ir_digest,
+        "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc"
+    );
+    assert_eq!(observation.verifier_outcome, "accepted");
 }

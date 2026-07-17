@@ -1601,6 +1601,33 @@ else
   printf '%s\n' "$fake_pre_push_warp_core_recovery_output"
 fi
 
+fake_pre_push_provider_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/provider_contract_admission_tests.rs)"
+fake_pre_push_provider_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_provider_contract_output")"
+if printf '%s\n' "$fake_pre_push_provider_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --test provider_contract_admission_tests'; then
+  pass "pre-push keeps required provider admission features for the exact integration test"
+else
+  fail "pre-push should keep required provider admission features for provider_contract_admission_tests"
+  printf '%s\n' "$fake_pre_push_provider_contract_output"
+fi
+
+fake_pre_push_external_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/external_consumer_contract_fixture_tests.rs)"
+fake_pre_push_external_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_external_contract_output")"
+if printf '%s\n' "$fake_pre_push_external_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --test external_consumer_contract_fixture_tests'; then
+  pass "pre-push keeps required external contract features for the exact integration test"
+else
+  fail "pre-push should keep required external contract features for external_consumer_contract_fixture_tests"
+  printf '%s\n' "$fake_pre_push_external_contract_output"
+fi
+
+fake_pre_push_trusted_host_output="$(run_fake_verify pre-push crates/warp-core/tests/trusted_runtime_host_loop_tests.rs)"
+fake_pre_push_trusted_host_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_trusted_host_output")"
+if printf '%s\n' "$fake_pre_push_trusted_host_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test trusted_runtime_host_loop_tests'; then
+  pass "pre-push keeps required trusted-host features for the exact integration test"
+else
+  fail "pre-push should keep required trusted-host features for trusted_runtime_host_loop_tests"
+  printf '%s\n' "$fake_pre_push_trusted_host_output"
+fi
+
 fake_pre_push_warp_core_helper_output="$(run_fake_verify pre-push crates/warp-core/tests/common/mod.rs)"
 fake_pre_push_warp_core_helper_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_core_helper_output")"
 if printf '%s\n' "$fake_pre_push_warp_core_helper_cargo_log" | grep -q -- '--test mod'; then

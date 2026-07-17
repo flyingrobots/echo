@@ -54,6 +54,7 @@ const LEGACY_RULE_NAME: &str = "cmd/contract/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 static MATCHER_CALLS: AtomicUsize = AtomicUsize::new(0);
 static EXECUTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
 static FOOTPRINT_CALLS: AtomicUsize = AtomicUsize::new(0);
+static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static CALLBACK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 static LEGACY_OPS: &[OpDef] = &[OpDef {
@@ -263,14 +264,21 @@ fn assert_no_callback() {
 }
 
 fn temp_provider_wal_dir(label: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "echo-provider-native-{label}-{}",
-        std::process::id()
-    ));
-    if path.exists() {
-        std::fs::remove_dir_all(&path).expect("stale provider WAL fixture is removable");
+    let root = PathBuf::from("target").join("warp-core-test-tmp");
+    std::fs::create_dir_all(&root).expect("provider WAL fixture root is created");
+    for _ in 0..1024 {
+        let unique = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = root.join(format!("echo-provider-native-{label}-{unique}"));
+        match std::fs::create_dir(&path) {
+            Ok(()) => return path,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!(
+                "failed to create provider WAL fixture {}: {error}",
+                path.display()
+            ),
+        }
     }
-    path
+    panic!("exhausted deterministic provider WAL fixture attempts for {label}");
 }
 
 fn encoded_field_offset(bytes: &[u8], field: &[u8]) -> usize {

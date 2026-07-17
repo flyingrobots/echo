@@ -114,16 +114,27 @@ not emit an `InstalledContractPackage` or exercise package verification.
 The Edict provider path admits exact semantic-source, contract-pack, and
 settings bytes; emits canonical semantic artifacts; runs a deterministic
 lowerer and an independent verifier; and publishes a digest-locked provider
-package plus a generated Rust helper projection. The helper can purely
-preflight explicit package-identity, Target IR, schema, and operation claims.
-It does not yet provide codec-bound invocation, construct an
-`InstalledContractPackage`, register anything, or mint runtime authority.
+package plus a generated Rust helper projection.
+The helper performs pure, fail-closed preflight across exact package, Target
+IR, bundle, profile, schema,
+codec, obstruction, ABI, helper API, operation, and footprint claims. It
+exposes typed `Id`, `Input`, and `Output` codecs, packs typed input into
+canonical EINT v1, and builds a provider-generic borrowed registry plus an
+opaque, non-installing provider package proposal when explicitly bound to
+matching host callbacks. Matching callback claims are cross-binding evidence,
+not proof of callback semantics.
+The helper does not construct an `InstalledContractPackage`, register or
+install anything, invoke callbacks during proposal construction, schedule
+execution, or mint runtime authority.
 
 Echo separately verifies and registers host-constructed
 `InstalledContractPackage` values, dispatches registered handlers through the
-scheduler, and stamps rule-pack identity into runtime evidence. No generated
-bridge yet joins either compiler path to trusted-host package installation and
-runtime invocation.
+scheduler, and stamps rule-pack identity into runtime evidence.
+No generated bridge yet carries either compiler path across Echo's trusted-host
+installation boundary into native scheduler execution. The Edict mutation
+helper can encode typed input and pack a canonical intent for submission through
+a caller-owned Echo ingress; producing those bytes does not confer installation
+or execution authority.
 
 The following sequence is the existing Wesley bootstrap fixture:
 
@@ -150,9 +161,10 @@ current end-to-end application path:
 
 ```text
 admitted Wesley or Edict source
--> verified compiler IR
--> generated handlers, observers, footprints, and package metadata
--> InstalledContractPackage verification
+-> verified mutation Target IR or lawful read semantics
+-> generated handlers, observers, codecs, footprints, and package metadata
+-> opaque provider proposal with explicit host binding
+-> trusted-host InstalledContractPackage admission and registration
 -> scheduler-owned execution
 -> receipts and readings bound to package identity
 ```

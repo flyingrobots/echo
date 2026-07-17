@@ -1141,6 +1141,10 @@ fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
                     ExecutableContract::CompletedPackageParity => {
                         assert_completed_package_parity_contract(observation);
                     }
+                    ExecutableContract::AmbientCapabilityPreflightDenied
+                    | ExecutableContract::NoncanonicalTargetIrOutputDenied => {
+                        panic!("host-owned contract reached the package executor");
+                    }
                 }
                 assert!(executed.insert(case.contract()));
             }

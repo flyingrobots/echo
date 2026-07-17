@@ -15,6 +15,25 @@ fn text(value: &str) -> CanonicalValue {
     CanonicalValue::Text(value.to_owned())
 }
 
+fn case_contract(
+    crossing: &str,
+    stimulus: &str,
+    disposition: &str,
+    contract: &str,
+) -> CanonicalValue {
+    CanonicalValue::Map(vec![
+        (text("crossing"), text(crossing)),
+        (text("stimulus"), text(stimulus)),
+        (
+            text("requiredOutcome"),
+            CanonicalValue::Map(vec![
+                (text("disposition"), text(disposition)),
+                (text("contract"), text(contract)),
+            ]),
+        ),
+    ])
+}
+
 fn map_field_mut<'a>(value: &'a mut CanonicalValue, field: &str) -> &'a mut CanonicalValue {
     let CanonicalValue::Map(entries) = value else {
         panic!("canonical value is not a map");
@@ -106,4 +125,70 @@ fn declaration_parser_rejects_empty_duplicate_or_result_shaped_cases() {
         parse_mutation(&result_shaped),
         CorpusContractErrorKind::CaseClosureInvalid
     );
+}
+
+#[test]
+fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
+    let mut value = checked_corpus_value();
+    let cases = map_field_mut(&mut value, "cases");
+    let CanonicalValue::Map(entries) = cases else {
+        panic!("cases are a map");
+    };
+    entries.push((
+        text("ambient-capability-denial"),
+        case_contract(
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+    ));
+    entries.push((
+        text("noncanonical-output"),
+        case_contract(
+            "host-output-admission",
+            "noncanonical-cbor-output",
+            "rejected",
+            "noncanonical-target-ir-output-denied",
+        ),
+    ));
+    let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
+    let cases = decode_declared_cases(&bytes).expect("reviewed host laws have exact owners");
+
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::AmbientCapabilityPreflightDenied
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::NoncanonicalTargetIrOutputDenied
+            && case.owner() == ExecutorOwner::Host
+    }));
+}
+
+#[test]
+fn duplicate_case_ids_cannot_reach_executable_dispatch() {
+    let mut value = checked_corpus_value();
+    let cases = map_field_mut(&mut value, "cases");
+    let CanonicalValue::Map(entries) = cases else {
+        panic!("cases are a map");
+    };
+    entries.push((
+        text("package-parity"),
+        case_contract(
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+    ));
+
+    let Ok(bytes) = encode_canonical_cbor(&value) else {
+        return;
+    };
+    let error = decode_declared_cases(&bytes)
+        .expect_err("the decoder or executable parser rejects duplicate case IDs");
+    assert!(matches!(
+        error.kind(),
+        CorpusContractErrorKind::CanonicalCborInvalid | CorpusContractErrorKind::DuplicateCaseId
+    ));
 }

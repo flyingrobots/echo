@@ -10,6 +10,7 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,7 +45,9 @@ use edict_syntax::{
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
-use support::conformance::{decode_declared_cases, ExecutorOwner, CONFORMANCE_CORPUS_BYTES};
+use support::conformance::{
+    decode_declared_cases, ExecutableContract, ExecutorOwner, CONFORMANCE_CORPUS_BYTES,
+};
 
 const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
@@ -1617,8 +1620,7 @@ fn host_rejections_preserve_trap_lifting_and_envelope_identity() {
         .any(|item| { item.kind == ProviderInvocationValidationFailureKind::UndeclaredOutput }));
 }
 
-#[test]
-fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
+fn assert_noncanonical_target_ir_output_contract() {
     let core = echo_core();
     let (contract, request) = echo_request(&core, "fixture.noncanonical");
     let harness = echo_harness_with_request_and_component(contract, request, FIXTURE_LOWERER_BYTES);
@@ -1661,7 +1663,11 @@ fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
 }
 
 #[test]
-fn ambient_capability_imports_are_denied_during_preflight() {
+fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
+    assert_noncanonical_target_ir_output_contract();
+}
+
+fn assert_ambient_capability_preflight_contract() {
     for capability in [
         "wasi:filesystem/types@0.2.0",
         "wasi:sockets/tcp@0.2.0",
@@ -1723,6 +1729,11 @@ fn ambient_capability_imports_are_denied_during_preflight() {
 }
 
 #[test]
+fn ambient_capability_imports_are_denied_during_preflight() {
+    assert_ambient_capability_preflight_contract();
+}
+
+#[test]
 fn rejected_host_invocation_replays_with_the_same_typed_failure() {
     let harness = fixture_harness("fixture.trap");
     let replay = harness
@@ -1745,10 +1756,30 @@ fn rejected_host_invocation_replays_with_the_same_typed_failure() {
 fn declared_host_cases_execute_their_exact_typed_contracts() {
     let cases = decode_declared_cases(CONFORMANCE_CORPUS_BYTES)
         .expect("every checked declaration has one exact executable owner");
-    assert!(
-        !cases.iter().any(|case| case.owner() == ExecutorOwner::Host),
-        "the current checked singleton is package-owned"
-    );
+    let declared: BTreeSet<_> = cases
+        .iter()
+        .filter(|case| case.owner() == ExecutorOwner::Host)
+        .map(support::conformance::DeclaredCase::contract)
+        .collect();
+    let mut executed = BTreeSet::new();
+    for case in &cases {
+        if case.owner() != ExecutorOwner::Host {
+            continue;
+        }
+        match case.contract() {
+            ExecutableContract::CompletedPackageParity => {
+                panic!("package parity cannot be owned by the host executor");
+            }
+            ExecutableContract::AmbientCapabilityPreflightDenied => {
+                assert_ambient_capability_preflight_contract();
+            }
+            ExecutableContract::NoncanonicalTargetIrOutputDenied => {
+                assert_noncanonical_target_ir_output_contract();
+            }
+        }
+        assert!(executed.insert(case.contract()));
+    }
+    assert_eq!(executed, declared);
 }
 
 #[test]

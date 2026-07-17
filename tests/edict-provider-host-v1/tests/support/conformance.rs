@@ -21,12 +21,16 @@ pub const CONFORMANCE_CORPUS_BYTES: &[u8] = include_bytes!(
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ExecutableContract {
     CompletedPackageParity,
+    AmbientCapabilityPreflightDenied,
+    NoncanonicalTargetIrOutputDenied,
 }
 
 impl ExecutableContract {
     fn parse(value: &str) -> Result<Self, CorpusContractError> {
         match value {
             "completed-package-parity" => Ok(Self::CompletedPackageParity),
+            "ambient-capability-preflight-denied" => Ok(Self::AmbientCapabilityPreflightDenied),
+            "noncanonical-target-ir-output-denied" => Ok(Self::NoncanonicalTargetIrOutputDenied),
             _ => Err(CorpusContractError::new(
                 CorpusContractErrorKind::UnknownContract,
             )),
@@ -41,6 +45,20 @@ impl ExecutableContract {
                 stimulus: "baseline",
                 required_disposition: "accepted",
                 owner: ExecutorOwner::Package,
+            },
+            Self::AmbientCapabilityPreflightDenied => ExpectedDeclaration {
+                id: "ambient-capability-denial",
+                crossing: "component-preflight",
+                stimulus: "ambient-capabilities-denied",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Host,
+            },
+            Self::NoncanonicalTargetIrOutputDenied => ExpectedDeclaration {
+                id: "noncanonical-output",
+                crossing: "host-output-admission",
+                stimulus: "noncanonical-cbor-output",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Host,
             },
         }
     }

@@ -274,6 +274,22 @@ pub struct Footprint {
 }
 
 impl Footprint {
+    /// Add every resource claim from `other` to this footprint.
+    ///
+    /// Set membership is unioned and the coarse factor mask is combined with
+    /// bitwise OR. This operation never removes or weakens an existing claim.
+    pub fn union_assign(&mut self, other: &Self) {
+        self.n_read.0.extend(other.n_read.0.iter().copied());
+        self.n_write.0.extend(other.n_write.0.iter().copied());
+        self.e_read.0.extend(other.e_read.0.iter().copied());
+        self.e_write.0.extend(other.e_write.0.iter().copied());
+        self.a_read.0.extend(other.a_read.0.iter().copied());
+        self.a_write.0.extend(other.a_write.0.iter().copied());
+        self.b_in.0.extend(other.b_in.0.iter().copied());
+        self.b_out.0.extend(other.b_out.0.iter().copied());
+        self.factor_mask |= other.factor_mask;
+    }
+
     /// Derives the admission-side bounded site for this footprint.
     ///
     /// The first cut preserves the full declared claim and derives the site's
@@ -359,6 +375,84 @@ pub fn pack_port_key(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
 mod tests {
     use super::*;
     use crate::ident::make_warp_id;
+
+    #[test]
+    fn footprint_union_assign_preserves_every_resource_plane_and_mask_bit() {
+        let warp_id = make_warp_id("test/footprint/union");
+        let left_node = NodeId(blake3::hash(b"union-left-node").into());
+        let right_node = NodeId(blake3::hash(b"union-right-node").into());
+        let left_edge = EdgeId(blake3::hash(b"union-left-edge").into());
+        let right_edge = EdgeId(blake3::hash(b"union-right-edge").into());
+        let left_node_key = NodeKey {
+            warp_id,
+            local_id: left_node,
+        };
+        let right_node_key = NodeKey {
+            warp_id,
+            local_id: right_node,
+        };
+
+        let mut left = Footprint {
+            factor_mask: 0b0001,
+            ..Footprint::default()
+        };
+        left.n_read.insert(left_node_key);
+        left.n_write.insert(left_node_key);
+        left.e_read.insert(EdgeKey {
+            warp_id,
+            local_id: left_edge,
+        });
+        left.e_write.insert(EdgeKey {
+            warp_id,
+            local_id: left_edge,
+        });
+        left.a_read.insert(AttachmentKey::node_alpha(left_node_key));
+        left.a_write
+            .insert(AttachmentKey::node_alpha(left_node_key));
+        left.b_in
+            .insert(warp_id, pack_port_key(&left_node, 1, true));
+        left.b_out
+            .insert(warp_id, pack_port_key(&left_node, 2, false));
+
+        let mut right = Footprint {
+            factor_mask: 0b0100,
+            ..Footprint::default()
+        };
+        right.n_read.insert(right_node_key);
+        right.n_write.insert(right_node_key);
+        right.e_read.insert(EdgeKey {
+            warp_id,
+            local_id: right_edge,
+        });
+        right.e_write.insert(EdgeKey {
+            warp_id,
+            local_id: right_edge,
+        });
+        right
+            .a_read
+            .insert(AttachmentKey::node_alpha(right_node_key));
+        right
+            .a_write
+            .insert(AttachmentKey::node_alpha(right_node_key));
+        right
+            .b_in
+            .insert(warp_id, pack_port_key(&right_node, 3, true));
+        right
+            .b_out
+            .insert(warp_id, pack_port_key(&right_node, 4, false));
+
+        left.union_assign(&right);
+
+        assert_eq!(left.factor_mask, 0b0101);
+        assert_eq!(left.n_read.len(), 2);
+        assert_eq!(left.n_write.len(), 2);
+        assert_eq!(left.e_read.len(), 2);
+        assert_eq!(left.e_write.len(), 2);
+        assert_eq!(left.a_read.len(), 2);
+        assert_eq!(left.a_write.len(), 2);
+        assert_eq!(left.b_in.len(), 2);
+        assert_eq!(left.b_out.len(), 2);
+    }
 
     #[test]
     fn pack_port_key_is_stable_and_distinct_by_inputs() {

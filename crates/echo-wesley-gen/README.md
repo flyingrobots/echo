@@ -8,8 +8,9 @@ functions from Wesley contract data.
 
 Wesley is the compiler seam between authored application contracts and Echo's
 generic runtime. Generated application helpers build canonical intent/query
-requests. Generated contract-host helpers install mutation handlers and
-read-only query observers. Neither surface gives application code tick
+requests. Generated contract-host helpers build mutation-rule and read-only
+observer material for a trusted Echo host to inspect and install; the helpers
+do not install themselves. Neither surface gives application code tick
 authority.
 
 The preferred input is GraphQL SDL lowered directly through the published
@@ -142,7 +143,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 35-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 38-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -151,8 +152,21 @@ to match their checked package copies, and can prove that `cargo package --list`
 selects exactly the complete carrier inventory. Explicit `--write` mode copies
 authoritative owners without requiring the temporarily stale package copy,
 allowing the honest staged sequence artifact generation, carrier sync, package
-generation, then final carrier corroboration. It never discovers a preferred
-owner or normalizes authored bytes.
+generation, then final carrier corroboration. Each fixed owner leaf is opened
+without following its final symbolic link and read twice through the same
+retained descriptor; file-type, length, or byte disagreement refuses a moving
+owner. It never discovers a preferred owner or normalizes authored bytes. The
+20-file generator source closure and its carriers include the exact manifest
+and implementation occurrences for both `echo-edict-canonical` and
+`echo-registry-api`, including the provider-generic registry vocabulary, so
+provenance binds the canonicalization, operation-id, and registry laws actually
+executed by provider generation.
+
+`echo-edict-provider-assets -- --sync-component-resources` adds the lowerer and
+verifier resource trees to the ordinary package-carrier operation. Without
+`--write` it checks both the carrier and exact component resources; with
+`--write` it synchronizes both. `--check-package-list` composes with the same
+invocation, so no accepted flag is silently skipped.
 
 The isolated `tests/edict-provider-host-v1` gate pins Edict revision
 `c75c3f550d049485ba00eae0dc272c6dd6aca11f` and consumes the exact checked
@@ -190,8 +204,7 @@ cat ir.json | cargo run -p echo-wesley-gen --
 # Write to a file
 cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 
-# Emit std-only warp-core contract-host helpers for installed mutation handlers
-# and query observers
+# Emit std-only warp-core contract-host material for trusted host installation
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 
 # Rebuild the checked Edict provider artifact corpus from exact inputs
@@ -221,21 +234,43 @@ cargo +1.90.0 run --locked -p echo-wesley-gen \
   operation argument shape, and hosts can verify them through
   `echo_registry_api::verify_contract_artifact` before treating the generated
   artifact as compile-time-certified.
+- Edict provider profiles carry the Echo-owned
+  `echo.semantic-operation-id.fnv1-32/v1` law and exact `u32` id derived from
+  the semantic operation coordinate plus generic query/mutation kind. The law
+  is separate from GraphQL field identity and reserves the top two ids for Echo
+  protocol envelopes: `u32::MAX` for scheduler control and `u32::MAX - 1` for
+  witnessed suffix import. Generation refuses either reserved result and
+  package-local collisions without salting or probing. The generated CDDL
+  constrains `operationId` to `0..4294967293`; that numeric-domain proof does not
+  replace semantic recomputation of the coordinate-and-kind law or complete-set
+  collision checking. Carrying the id in canonical package content does not
+  register, install, authorize, or execute an operation.
+- The checked Edict helper implements the profile-owned `le-binary-v1` codec
+  with distinct bounded `Id`, `Input`, and `Output` types, fail-closed decoding,
+  and canonical EINT v1 packing. Its EINT `vars` bytes remain opaque and
+  codec-owned. After exact bundle binding it exposes a borrowed provider-generic
+  registry and can preflight one explicit host mutation implementation into an
+  opaque package proposal. The proposal cross-binds Target IR, bundle, profile,
+  value, obstruction, ABI, helper, rule, and footprint identities but neither
+  proves arbitrary callback semantics nor installs itself. Query refusal is
+  specific to this mutation proposal; authored reads remain a separate bounded
+  observer/optic path.
 - GraphQL SDL operation ids are derived deterministically and fail closed on
-  collision. The generator never increments a collided id because operation ids
-  are persisted ABI.
+  collision or either Echo protocol reservation. The generator never increments
+  a collided id because operation ids are persisted ABI.
 - Generated query optic helpers use Echo ABI's domain-separated BLAKE3
   `query_vars_digest_v1(...)`; ad hoc variable digests are not accepted for
   retained reading identity.
-- `--contract-host` emits opt-in, std-only mutation helpers for installing
-  generated operations as `warp-core` command rules. The generated surface
+- `--contract-host` emits opt-in, std-only mutation helpers that construct
+  `warp-core` command rules for trusted host installation. The generated surface
   matches scheduler-materialized EINT runtime ingress events by op id, decodes
   typed vars, provides the base runtime-ingress read footprint, and builds a
   `RewriteRule` from host-supplied executor and footprint functions. It does
   not generate the application mutation body or grant application code tick
   authority.
-- `--contract-host` also emits std-only query observer helpers for installing
-  generated queries as read-only `warp-core::ContractQueryObserver` instances.
+- `--contract-host` also emits std-only query observer helpers that construct
+  read-only `warp-core::ContractQueryObserver` instances for trusted host
+  installation.
   The generated surface stamps deterministic authored observer plan identity,
   decodes typed vars from observer context with `Result`, and accepts a host
   closure that returns `ContractQueryObserverResult` or

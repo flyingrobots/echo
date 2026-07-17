@@ -4,9 +4,10 @@
 # Echo Edict Provider Components v1
 
 This directory checks the first executable Echo provider components for the
-frozen Edict target-provider worlds. Issue #655 will bind these exact components
-into the digest-locked provider package; their presence here does not claim that
-Echo has installed, admitted, authorized, or executed them.
+frozen Edict target-provider worlds. The digest-locked package assembled under
+Issue #655 binds these exact components by digest. Checked presence and package
+binding do not claim that Echo has installed, admitted, authorized, or executed
+them.
 
 `lowerer.echo-dpo.component.wasm` implements
 `edict:target-provider/lowerer@1.0.0`. It was built from
@@ -22,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 131,458 bytes with SHA-256
-`d58a7838df9d7e65c72063aafad91df97cb21404be556c93e864234f3f846326`.
+The checked component is 189,668 bytes with SHA-256
+`9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -34,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 189,515 bytes
+`wit-component` version recorded above. Its checked component is 189,922 bytes
 with SHA-256
-`11fcaf291ffacac62800ab3fc198e29a23a591bcd30ca98828fa10a8ad1f1952`.
+`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's

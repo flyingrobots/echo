@@ -36,13 +36,34 @@
   field swaps, authority-source disagreement, malformed schemas/components,
   and invalid requests all fail before guest execution. This proves package
   readiness only, never Echo installation, execution, or runtime authority.
-- `echo-wesley-gen` now carries a fixed 35-file package-local source and provider
+- `echo-wesley-gen` now carries a fixed 38-file package-local source and provider
   asset boundary, preserving original logical source labels while making its
   `.crate` archive independent of workspace-parent files. An explicit sync tool
   distinguishes authoritative generated/component owners from their checked
   package corroboration, supports staged regeneration without circularity, and
-  checks exact Cargo archive selection. The extracted archive compiles when its
+  checks exact Cargo archive selection. Fixed owner leaves are opened without
+  following final symbolic links and read twice through one retained descriptor;
+  file-type, length, or byte disagreement refuses a moving owner. The generator
+  source identity now enumerates 20 files and includes the exact manifest and
+  implementation bytes of its canonicalization, operation-id-law, and
+  provider-registry dependencies. The extracted archive compiles when its
   still-unpublished Echo dependencies are supplied through local patches.
+- Echo now owns the versioned semantic operation-id law
+  `echo.semantic-operation-id.fnv1-32/v1`. It derives a persisted `u32` from the
+  exact semantic coordinate and generic query/mutation kind, remains
+  domain-separated from Wesley's GraphQL-field-name law, and reserves the top
+  two ids for Echo protocol envelopes: `u32::MAX` for scheduler control and
+  `u32::MAX - 1` for witnessed suffix import. The canonical generated-artifact
+  profile carries both the law coordinate and each derived id; generation
+  refuses either reserved value and package-local collisions without salting,
+  probing, or renaming. Its CDDL bounds `operationId` to the remaining numeric
+  application range, but schema admission alone does not prove derivation or
+  collision freedom: semantic generation recomputes the law and checks the
+  complete operation set. This packages an exact operation-identity proposition
+  but does not register, install, authorize, or execute the operation. Generated
+  source now carries public expected constants for the profile-owned law and id,
+  requires both as untrusted bundle claims, refuses disagreement, and exposes
+  the matched claim through the resulting private-state registration descriptor.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,
@@ -51,7 +72,7 @@
   wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
   reads, rebound operations, unresolved authored optics, changed type bindings,
   Core type definitions, evaluation budgets, out-of-scope locals, intrinsics,
-  and output roles. Local admission distinguishes pre-effect, obstruction-arm,
+  and undeclared or malformed output-role claims. Local admission distinguishes pre-effect, obstruction-arm,
   and post-effect scope from the exact input, effect-result, and obstruction
   declarations before cloning any expression into Target IR. The first closure
   also requires an empty input-constraint set and the exact zero-argument
@@ -66,7 +87,9 @@
   exact Rust and Cargo executables, binds Cargo to that compiler, owns the inner
   Cargo home, removes ambient Cargo profile/build/target overrides, remaps its
   dependency source paths to `/cargo`, and atomically promotes only distinct
-  candidates matching a reviewed repository digest.
+  candidates matching a reviewed repository digest. The promoted 189,668-byte
+  component has SHA-256
+  `9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`.
   Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
@@ -74,6 +97,41 @@
   witness binding them to the checked generated corpus. Its full package gate
   follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
   and translate provider semantics; they confer no Echo runtime authority.
+- The native Echo Edict lowerer model now accepts any exact, lexicographically
+  sorted subset of the declared `generated.echo-dpo` generated artifact,
+  `review.echo-dpo` review payload, and `target-ir.echo-dpo` Target IR roles.
+  It emits canonical-CBOR generated and review envelopes at
+  `generated/echo_dpo.rs` and `review/echo_dpo.json`, and refuses unknown,
+  mismatched, duplicate, or out-of-order role claims with typed
+  `UnsupportedOutputRole`. The generated Rust binds the semantic operation,
+  Target IR, Echo ABI and helper API, provider and operation schemas, target and
+  generated profiles, and abstract footprint
+  obligation/algebra. It then performs only an
+  explicit post-assembly equality and consistency comparison between an
+  independent expected pin and untrusted Edict semantic/release bundle claims,
+  with typed refusal for every identity class. Every domain-framed resource is
+  compared as a complete coordinate/domain/digest proposition.
+  The generated-artifact profile now owns `le-binary-v1`, and generated Rust
+  implements distinct bounded `Id`, `Input`, and `Output` types with fail-closed
+  decoding for malformed, over-bound, truncated, or trailing bytes. Descriptor
+  methods round-trip the exact input/output types and pack typed input into
+  canonical EINT v1; EINT `vars` remain codec-owned opaque bytes rather than a
+  universal canonical-CBOR value. The matched descriptor exposes a borrowed,
+  provider-generic registry and can bind its generated matcher to one explicitly
+  identified host mutation implementation. It returns only an opaque,
+  non-installing package proposal after checking the complete Target IR,
+  semantic/release bundle, target/generated/operation profile, provider/value
+  schema, codec, obstruction, operation-id, ABI, helper-API, rule-name, and
+  footprint identities. Echo adds the mandatory ingress matcher reads to the
+  host's effect footprint. Identity equality detects cross-binding but does not
+  prove arbitrary callback semantics. The mutation proposal fails closed for a
+  `Query`; authored reads remain a separate bounded observer/optic path. The
+  isolated actual-host fixture is green for binding, typed codec refusal and
+  round trips, EINT packing, the borrowed registry, and proposal preflight.
+  The permanently non-authoritative review is bound to the exact generated
+  artifact. Neither projection authenticates a pin, admits or installs a
+  package, or grants Echo runtime authority; checked-component promotion and
+  host-side CDDL admission remain separate crossings.
 - Echo now provides the exact `edict:target-provider/verifier@1.0.0`
   Component Model implementation for the checked provider closure. The pure
   verifier independently compares explicit digest-bound Core and Target IR
@@ -86,8 +144,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 189,515-byte checked component has SHA-256
-  `11fcaf291ffacac62800ab3fc198e29a23a591bcd30ca98828fa10a8ad1f1952`
+  every emitted report. The 189,922-byte checked component has SHA-256
+  `4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

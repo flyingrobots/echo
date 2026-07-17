@@ -163,7 +163,11 @@ unsupported output-role overclaim remains a typed refusal with neither response
 nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
-authority-facts documents are runtime Echo authority.
+authority-facts documents are runtime Echo authority. The promoted lowerer is
+189,668 bytes with SHA-256
+`9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`; the
+promoted verifier is 189,922 bytes with SHA-256
+`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in
@@ -187,6 +191,66 @@ them with the generated semantic artifacts, and generates the package-root
 `edict:target-provider@1.0.0`. The manifest is declared separately and is never
 listed inside its own artifact inventory. Runtime `reviewPayload` invocation
 output is distinct from #652's build-time `reviewArtifact`.
+
+The #656 native lowerer model declares three exact sorted outputs:
+`generated.echo-dpo` / `echo.generated-artifact/v1`, `review.echo-dpo` /
+`echo.review-payload/v1`, and `target-ir.echo-dpo` /
+`edict.target-ir.artifact/v1`. The first two are canonical-CBOR envelopes at
+`generated/echo_dpo.rs` and `review/echo_dpo.json`; the non-authoritative review
+subjects the exact generated-artifact digest. `echo.span-ir/v1` remains the
+semantic Target IR coordinate and `edict.target-ir.artifact/v1` its distinct
+artifact output and digest domain. `echo.dpo.bundle/v1` is a target-bundle
+profile rather than a contract-bundle occurrence. Final semantic and release
+bundle identities are compared explicitly after assembly using the separate
+`edict.bundle.semantic/v1` and `edict.bundle.release/v1` propositions. That
+comparison also checks the semantic operation, Echo ABI and helper API, provider
+and operation schemas, generated and operation profiles, and
+the exact abstract
+footprint obligation/algebra. It does not claim a concrete static read/write
+footprint. Every framed resource is checked as a complete
+coordinate/domain/digest identity. The comparison grants no admission,
+installation, or runtime authority. The canonical generated-artifact profile
+now carries `operationIdLaw: "echo.semantic-operation-id.fnv1-32/v1"` and the
+exact persisted `operationId` for each semantic coordinate and generic
+query/mutation kind. The top two ids are Echo protocol reservations:
+`u32::MAX` for scheduler control and `u32::MAX - 1` for witnessed suffix import.
+Either reserved result and any package-local collision refuse without salting
+or probing. The owning CDDL limits `operationId` to `0..4294967293`, proving only
+the numeric application domain; semantic generation must still recompute the
+coordinate-and-kind law and collision-check the complete set. Generated source
+now carries public expected constants for the packaged law and id, requires them
+as untrusted bundle claims, and refuses disagreement before returning a
+private-state descriptor that exposes the matched id claim. It does not
+independently derive a runtime identity.
+
+The generated-artifact profile owns the exact `le-binary-v1` value-codec claim.
+Generated Rust implements it with semantically distinct `Id`, `Input`, and
+`Output` types, preserves raw UTF-8 under the authored scalar bound, and fails
+closed on malformed, over-bound, truncated, or trailing bytes. Descriptor
+methods encode/decode the exact input and output and `pack_intent(...)` wraps
+the encoded input in canonical EINT v1. Echo treats the EINT `vars` bytes as
+opaque bytes owned by that selected codec; canonical CBOR is not a universal
+operation-variable law.
+
+The matched descriptor also exposes a borrowed provider-generic registry and
+can bind its generated matcher to one explicitly identified host mutation
+implementation. It produces only an opaque, non-installing package proposal
+after comparing every Target IR, semantic/release bundle, target/generated/
+operation profile, provider/value schema, codec, obstruction, operation-id,
+ABI, helper-API, rule-name, and footprint claim. Identity equality detects
+cross-binding but does not prove arbitrary callback semantics. The proposal
+does not authenticate, install, register, schedule, execute, persist, observe,
+or receipt anything; those remain trusted Echo crossings. Its constructor is
+mutation-specific and refuses a `Query`. Authored reads remain a separate
+bounded observer/optic path and must not be lowered as synthetic mutations.
+
+Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`.
+Both refreshed components have crossed checked promotion, and the actual pinned
+host admits the generated envelope under its owning `generated-artifact` CDDL
+root. The isolated host helper witness is green for exact bundle binding, typed
+codec round trips and refusal cases, EINT packing, the borrowed registry, and
+non-installing package proposal. The review envelope still requires its
+independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
@@ -216,10 +280,12 @@ proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact publication carrier for the same
-provider bytes plus the repository sources needed for generator provenance.
-Carrier paths are physical packaging details only; authored logical source paths
-remain unchanged. `echo-edict-provider-assets --check-package-list` proves
+The crate-local `assets/v1/` tree is an exact 38-file publication carrier for
+the same provider bytes plus the repository sources needed for generator
+provenance. The compile-time generator identity enumerates a 20-file source
+closure, including the provider-generic registry implementation. Carrier paths
+are physical packaging details only; authored logical source paths remain
+unchanged. `echo-edict-provider-assets --check-package-list` proves
 owner/carrier/package agreement and exact Cargo archive selection.
 
 All generated files are derived artifacts. Their digests and review renderings

@@ -8,12 +8,39 @@
 fn verifier_package_resources_equal_the_checked_generated_corpus() {
     let pairs: &[(&str, &[u8], &[u8])] = &[
         (
+            "authority-facts.echo-dpo.cbor",
+            include_bytes!(
+                "../../../crates/echo-edict-provider-verifier/resources/authority-facts.echo-dpo.cbor"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor"
+            ),
+        ),
+        (
+            "authority-facts.echo-lawpack.cbor",
+            include_bytes!(
+                "../../../crates/echo-edict-provider-verifier/resources/authority-facts.echo-lawpack.cbor"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor"
+            ),
+        ),
+        (
             "generated-artifact-profile.echo-dpo-registration.cbor",
             include_bytes!(
                 "../../../crates/echo-edict-provider-verifier/resources/generated-artifact-profile.echo-dpo-registration.cbor"
             ),
             include_bytes!(
                 "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+            ),
+        ),
+        (
+            "lawpack.echo-dpo.cbor",
+            include_bytes!(
+                "../../../crates/echo-edict-provider-verifier/resources/lawpack.echo-dpo.cbor"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor"
             ),
         ),
         (
@@ -104,6 +131,15 @@ fn verifier_package_resources_equal_the_checked_generated_corpus() {
             ),
             include_bytes!(
                 "../../../schemas/edict-provider/generated/v1/resources/resource.target-ir.cbor"
+            ),
+        ),
+        (
+            "target-profile.echo-dpo.cbor",
+            include_bytes!(
+                "../../../crates/echo-edict-provider-verifier/resources/target-profile.echo-dpo.cbor"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
             ),
         ),
     ];

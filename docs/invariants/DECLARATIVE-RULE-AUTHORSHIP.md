@@ -7,16 +7,20 @@
 
 ## Invariant
 
-Echo's deterministic execution path admits user-authored rewrite logic only as
-Wesley-compiled declarative IR. Native executable rewrite code is a
-trusted/bootstrap-only engine implementation surface, not a public user
-extension boundary.
+Echo's deterministic execution path admits user-authored operation law only as
+compiler-produced declarative semantics and verified Echo-targeted artifacts
+from an approved contract path. Current approved authoring systems include
+Edict and Wesley. Native executable rewrite code is a trusted/bootstrap-only
+engine implementation surface, not a public user extension boundary.
 
-For Echo, that declarative boundary is the GraphQL-authored shared family
-surface: graph entities, graph rewrites, declared footprints, and any types
-that cross Rust, TypeScript, WASM, process, or network boundaries. The rest of
-the runtime may remain handwritten Rust as long as it does not become a shadow
-authority for user-authored rewrite law.
+For Echo, that declarative boundary includes Edict-authored semantic operations,
+lawpacks, target profiles, and schemas as well as supported Wesley-authored
+GraphQL and optic contracts. Mutating operations may lower into Echo Span/DPO
+IR; effect-free operations must retain lawful read semantics and may execute
+through bounded observers. Declared footprints and any types that cross Rust,
+TypeScript, WASM, process, or network boundaries remain part of the authored
+contract. The rest of the runtime may remain handwritten Rust as long as it
+does not become a shadow authority for user-authored operation law.
 
 ## Rulings
 
@@ -25,29 +29,35 @@ RFC 2119 convention.
 
 ### R1 — User-authored rewrite law is declarative
 
-User-authored rewrite logic MUST enter Echo as Wesley-compiled declarative IR.
-User-authored rewrite law MUST NOT enter the deterministic path as handwritten
-native callbacks, function pointers, or ad hoc executable host code.
+User-authored operation law MUST enter Echo through an approved declarative
+compiler path, deterministic lowering, independent verification where required,
+digest-bound packaging, and explicit Echo admission. It MUST NOT enter the
+deterministic path as handwritten native callbacks, function pointers, or ad
+hoc executable host code.
 
-GraphQL-authored shared families are the intended source for user-authored
-graph entities, graph rewrites, declared footprints, and cross-boundary types
-that Echo exposes to hosts, `warp-ttd`, or other engines.
+Edict-authored operations and supported Wesley-authored GraphQL/optic contracts
+are current declarative sources. Their generated artifacts may describe
+semantic operations, reads, declared footprints, and cross-boundary types that
+Echo exposes to hosts, `warp-ttd`, or other engines. Compiler or package identity
+is evidence for its named crossing; it is not runtime installation, execution,
+or receipt authority.
 
 Echo MAY keep handwritten Rust for engine internals, storage, scheduler
 mechanics, and other local implementation details, but those details MUST NOT
-replace the shared family as the public authoring boundary for rewrite law or
-cross-boundary types.
+replace the approved declarative contract and compiler path as the public
+authoring boundary for rewrite law or cross-boundary types.
 
 ### R1a — Declared footprints are part of the authored boundary
 
-When a user-authored graph rewrite enters Echo through the shared family
-surface, its declared footprint is part of the contract, not optional
-commentary.
+When a user-authored graph rewrite enters Echo through an approved declarative
+contract and compiler path, its declared footprint is part of the contract,
+not optional commentary.
 
-The long-term target is for Wesley-generated Rust surfaces to make those
-capability boundaries explicit enough that dishonest footprint use becomes
-structurally impossible or a compile-time failure, rather than something Echo
-discovers only after arbitrary native code has already been admitted.
+The long-term target is for generated Rust, registry, and package surfaces from
+approved compiler paths to make those capability boundaries explicit enough
+that dishonest footprint use becomes structurally impossible or a compile-time
+failure, rather than something Echo discovers only after arbitrary native code
+has already been admitted.
 
 For dynamic rewrites, the declared boundary should be read as static at the
 level of slots, binding sources, closure operators, create/update surfaces,
@@ -103,19 +113,21 @@ native code, Echo cannot fully guarantee that ambient state, hidden callbacks,
 or impure helper code will stay out of deterministic execution.
 
 The correct closure is not "be careful." The correct closure is to narrow the
-user authoring boundary until it is declarative, inspectable, and compilable by
-Wesley into a lawful rewrite substrate.
+user authoring boundary until it is declarative, inspectable, deterministically
+lowerable, independently verifiable where required, and explicitly admitted.
 
-That does not require Wesley to compile the entire application. It requires
-Wesley to own the lawful graph/rewrite boundary so Echo can keep runtime
+That does not require one compiler to own the entire application. It requires
+approved compiler paths such as Edict and Wesley to preserve their authored
+semantic obligations through generated Echo artifacts so Echo can keep runtime
 internals handwritten without exposing arbitrary native author code on the
 deterministic path.
 
 ## Consequences
 
 - Echo may keep native `RewriteRule` internals for bootstrap and tests.
-- Echo MUST move user-facing rewrite authorship toward Wesley-generated
-  declarative IR instead of stabilizing native rule callbacks as product API.
+- Echo MUST move user-facing operation authorship through approved declarative
+  Edict or Wesley compiler paths instead of stabilizing native rule callbacks
+  as product API.
 - Determinism audit gates should scrutinize rule-authoring and host-boundary
   files more strictly than ordinary support code.
 - A sandboxed language is acceptable only as a front-end to the same
@@ -124,6 +136,7 @@ deterministic path.
 ## Cross-references
 
 - [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
+- [Registry, provider, and host boundary](../adr/0015-registry-provider-host-boundary.md)
 - [Generated rules](../topics/GeneratedRules.md)
 - [WARP optics](../topics/WarpOptics.md)
 - [FIXED-TIMESTEP](./FIXED-TIMESTEP.md)

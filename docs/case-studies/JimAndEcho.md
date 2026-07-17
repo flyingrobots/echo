@@ -20,10 +20,10 @@ which structures are projections, and what happens when a step fails.
 
 This document uses three labels:
 
-| Label | Meaning |
-| --- | --- |
-| Implemented | The named `warp-core` API and recovery behavior exist now. |
-| Application contract | Jim must provide this domain behavior; Echo stays generic. |
+| Label                     | Meaning                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Implemented               | The named `warp-core` API and recovery behavior exist now.                     |
+| Application contract      | Jim must provide this domain behavior; Echo stays generic.                     |
 | Architectural destination | The boundary is required, but the current implementation has not completed it. |
 
 That distinction prevents an example from becoming accidental architecture.
@@ -44,12 +44,12 @@ The stable application rule is narrower and already enforceable:
 
 Jim and Echo interact cleanly only when four different things remain distinct.
 
-| Kind | Jim example | Authority posture |
-| --- | --- | --- |
-| Witnessed causal history | The admitted replace operation, its text rewrite, receipt, and save anchor | Semantic history; Echo controls admission and causal ordering. |
-| Durable commit material | Runtime WAL transactions and commit markers | Current crash-recovery and linearization mechanism. |
-| Materialized reading | Rope projection, visible text window, syntax spans, line index, rendered screen | Derived from a named basis; rebuildable when support remains available. |
-| Disposable accelerator | Pending-intent index, layout cache, highlighted-line cache | Never authority; discard or rebuild on mismatch. |
+| Kind                     | Jim example                                                                     | Authority posture                                                       |
+| ------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Witnessed causal history | The admitted replace operation, its text rewrite, receipt, and save anchor      | Semantic history; Echo controls admission and causal ordering.          |
+| Durable commit material  | Runtime WAL transactions and commit markers                                     | Current crash-recovery and linearization mechanism.                     |
+| Materialized reading     | Rope projection, visible text window, syntax spans, line index, rendered screen | Derived from a named basis; rebuildable when support remains available. |
+| Disposable accelerator   | Pending-intent index, layout cache, highlighted-line cache                      | Never authority; discard or rebuild on mismatch.                        |
 
 A host file such as `notes.txt` is also a materialization. Writing it does not
 replace Echo history. Conversely, an accepted edit is not the same thing as a
@@ -64,7 +64,7 @@ framework. They meet through explicit contracts.
 flowchart TB
     user["User"]
     ui["Jim UI and interaction model<br/>JIM-OWNED"]
-    client["Generated contract client and Jim adapters<br/>JIM / WESLEY-OWNED"]
+    client["Generated contract client and Jim adapters<br/>EDICT-GENERATED / JIM ADAPTER"]
     app["TrustedRuntimeApp<br/>ECHO APP CAPABILITY"]
     host["TrustedRuntimeHost<br/>ECHO-OWNED"]
     contract["Installed Jim contract<br/>JIM SEMANTICS"]
@@ -89,18 +89,18 @@ flowchart TB
     wal -. "recovers committed history evidence" .-> history
 ```
 
-| Participant | Owns | Must not own |
-| --- | --- | --- |
-| Jim UI | Key interpretation, modes, commands, status text, viewport policy | Tick creation, WAL append, Echo receipt identity |
-| Jim contract | `ReplaceRange`, rope facts, text invariants, inverse law, domain checkpoint meaning | Generic scheduler policy, Echo admission claims |
-| Wesley-generated bridge | Typed operations, codecs, operation ids, package metadata | Handwritten product policy or hidden authority |
-| `TrustedRuntimeApp` | App-safe proposal and observation capability | Package installation, ticket fabrication, scheduler stepping, WAL mutation |
-| `TrustedRuntimeHost` | Package registration, WAL configuration, support policy, staging, scheduler cadence, recovery | Jim-specific text semantics |
-| Scheduler | Basis pinning, deterministic eligibility and order, tick opportunity | Meaning of a text replacement |
-| Installed Jim contract | Proposed DPO rewrite and typed refusal under Jim law | Commit publication or receipt minting |
-| Runtime WAL | Atomic recoverable transaction material | A second semantic model independent of causal history |
-| Observation service | Basis- and aperture-bounded readings with evidence posture | Ambient mutable access to all state |
-| CAS | Content-addressed bytes and artifacts | Meaning, admission, retention policy, or causal order by itself |
+| Participant               | Owns                                                                                                       | Must not own                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Jim UI                    | Key interpretation, modes, commands, status text, viewport policy                                          | Tick creation, WAL append, Echo receipt identity                                |
+| Jim contract              | `ReplaceRange`, rope facts, text invariants, inverse law, domain checkpoint meaning                        | Generic scheduler policy, Echo admission claims                                 |
+| Generated contract bridge | Typed Edict-authored operations, exact codecs where declared, operation ids, clients, and package metadata | Handwritten product policy, hidden authority, or Jim-specific runtime admission |
+| `TrustedRuntimeApp`       | App-safe proposal and observation capability                                                               | Package installation, ticket fabrication, scheduler stepping, WAL mutation      |
+| `TrustedRuntimeHost`      | Package registration, WAL configuration, support policy, staging, scheduler cadence, recovery              | Jim-specific text semantics                                                     |
+| Scheduler                 | Basis pinning, deterministic eligibility and order, tick opportunity                                       | Meaning of a text replacement                                                   |
+| Installed Jim contract    | Proposed DPO rewrite and typed refusal under Jim law                                                       | Commit publication or receipt minting                                           |
+| Runtime WAL               | Atomic recoverable transaction material                                                                    | A second semantic model independent of causal history                           |
+| Observation service       | Basis- and aperture-bounded readings with evidence posture                                                 | Ambient mutable access to all state                                             |
+| CAS                       | Content-addressed bytes and artifacts                                                                      | Meaning, admission, retention policy, or causal order by itself                 |
 
 ## Application Lifecycle
 
@@ -140,18 +140,24 @@ bootstrap evidence. Recovery must be able to reproduce or validate them; a
 fresh process may not silently choose a different starting document and then
 replay old receipts over it.
 
-### 2. Install The Jim Contract
+### 2. Propose, Then Install The Application Contract
 
-Implemented host API:
+Existing trusted-host installation API (a later crossing):
 
 ```rust
-host.register_contract_package(jim_package)?;
+host.register_contract_package(installed_package)?;
 ```
 
-The package contains generated registry metadata plus Jim-authored mutation
-handlers and query observers. Echo verifies and installs the package. Jim owns
-the meaning of operations such as `ReplaceRange`; Echo sees a verified generic
-contract operation, canonical intent bytes, declared support, and a handler.
+Edict's generated helper and explicit host bindings currently produce an opaque
+`ProviderContractPackageProposalV1`. The proposal retains generated registry
+metadata and one host-supplied mutation binding after pure identity preflight,
+but it does not authenticate the package occurrence, construct an
+`InstalledContractPackage`, register anything, or mint runtime authority. A
+separately tracked trusted-host admission flow must authenticate and admit the
+proposal, construct the runtime package, and only then call the installation API
+above. Jim retains its domain meaning; Echo receives an admitted generic
+contract operation, canonical intent bytes, declared support, and its host
+binding only after that later crossing.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -257,17 +263,17 @@ stateDiagram-v2
     NotAccepted --> [*]
 ```
 
-| Lifecycle term | Precise claim | Durable posture |
-| --- | --- | --- |
-| Proposed | Jim has canonical intent bytes in caller memory. | No |
-| Accepted pending | Echo committed acceptance plus the retained envelope. | Yes |
-| Staged | Trusted host projected accepted work into ticketed runtime ingress. | Rebuildable from retained evidence; not independent authority |
-| Eligible | At one pinned basis, support and scheduler policy permit consideration. | A reading, not an eternal flag |
-| Selected | Deterministic scheduler chose the intent for a tentative tick bundle. | Normally recorded with settlement, not a separate precommit fact |
-| Applied | The application rewrite and its receipt committed. | Yes |
-| Rejected | Named law produced a committed refusal or conflict outcome. | Yes |
-| Obstructed | Required support or evidence prevented a lawful success claim. | Retained when the corresponding outcome commits |
-| Deferred | The intent remains accepted but is not eligible at this basis. | Acceptance remains durable; eligibility is recomputed |
+| Lifecycle term   | Precise claim                                                           | Durable posture                                                  |
+| ---------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Proposed         | Jim has canonical intent bytes in caller memory.                        | No                                                               |
+| Accepted pending | Echo committed acceptance plus the retained envelope.                   | Yes                                                              |
+| Staged           | Trusted host projected accepted work into ticketed runtime ingress.     | Rebuildable from retained evidence; not independent authority    |
+| Eligible         | At one pinned basis, support and scheduler policy permit consideration. | A reading, not an eternal flag                                   |
+| Selected         | Deterministic scheduler chose the intent for a tentative tick bundle.   | Normally recorded with settlement, not a separate precommit fact |
+| Applied          | The application rewrite and its receipt committed.                      | Yes                                                              |
+| Rejected         | Named law produced a committed refusal or conflict outcome.             | Yes                                                              |
+| Obstructed       | Required support or evidence prevented a lawful success claim.          | Retained when the corresponding outcome commits                  |
+| Deferred         | The intent remains accepted but is not eligible at this basis.          | Acceptance remains durable; eligibility is recomputed            |
 
 `AcceptedPending` is the ACK boundary exposed by the current trusted runtime.
 `Eligible` can change when the scheduler basis changes, so Echo must derive it
@@ -311,7 +317,7 @@ sequenceDiagram
     autonumber
     actor U as User
     participant UI as Jim UI<br/>JIM-OWNED
-    participant GC as Generated Client<br/>JIM/WESLEY
+    participant GC as Generated Client<br/>EDICT-GENERATED / JIM ADAPTER
     participant A as TrustedRuntimeApp<br/>ECHO APP API
     participant R as WorldlineRuntime<br/>ECHO RUNTIME
     participant W as Runtime WAL<br/>ECHO DURABILITY
@@ -378,21 +384,21 @@ sequenceDiagram
 
 ### Step Table
 
-| Step | Owner | Input | Authoritative change | Failure behavior |
-| ---: | --- | --- | --- | --- |
-| 1 | Jim UI | Key event and current UI mode | None | Invalid key mapping remains a UI event. |
-| 2 | Jim | Cursor projection and rope reading | None | A stale or unavailable coordinate obstructs intent creation. |
-| 3 | Generated client | Typed `ReplaceRange` | None | Encoding failure produces no proposal. |
-| 4 | Echo app API | Canonical ingress envelope | Tentative runtime intake only | No WAL means explicit `RuntimeWalUnavailable`. |
-| 5 | Echo WAL | Acceptance record and retained envelope | Committed accepted-submission evidence | On failure, runtime intake rolls back. |
-| 6 | Trusted host | Submission id and Echo ticket | Ticketed ingress projection | Unknown or unsupported submission is rejected. |
-| 7 | Scheduler | Pinned runtime basis and candidates | Tentative tick plan | Jim cannot choose bundle membership. |
-| 8 | Jim contract | Basis `H41`, range, replacement | Proposed rope rewrite | Stale basis or invalid UTF-8 yields typed refusal. |
-| 9 | Echo | Contract result and causal parents | Tentative outcome, receipt, provenance | Inconsistent evidence aborts the tick. |
-| 10 | Echo WAL | Receipt, correlation, replayable state delta | Committed scheduler-tick evidence | Runtime and provenance roll back if commit fails. |
-| 11 | Jim | Submission id | None; reads committed outcome | Pending remains pending; missing is not rejection. |
-| 12 | Observer | Basis `H42`, aperture, budget | None; returns a reading | Missing support yields typed obstruction. |
-| 13 | Jim UI | Reading payload | Terminal pixels only | Rendering never mutates text authority. |
+| Step | Owner            | Input                                        | Authoritative change                   | Failure behavior                                             |
+| ---: | ---------------- | -------------------------------------------- | -------------------------------------- | ------------------------------------------------------------ |
+|    1 | Jim UI           | Key event and current UI mode                | None                                   | Invalid key mapping remains a UI event.                      |
+|    2 | Jim              | Cursor projection and rope reading           | None                                   | A stale or unavailable coordinate obstructs intent creation. |
+|    3 | Generated client | Typed `ReplaceRange`                         | None                                   | Encoding failure produces no proposal.                       |
+|    4 | Echo app API     | Canonical ingress envelope                   | Tentative runtime intake only          | No WAL means explicit `RuntimeWalUnavailable`.               |
+|    5 | Echo WAL         | Acceptance record and retained envelope      | Committed accepted-submission evidence | On failure, runtime intake rolls back.                       |
+|    6 | Trusted host     | Submission id and Echo ticket                | Ticketed ingress projection            | Unknown or unsupported submission is rejected.               |
+|    7 | Scheduler        | Pinned runtime basis and candidates          | Tentative tick plan                    | Jim cannot choose bundle membership.                         |
+|    8 | Jim contract     | Basis `H41`, range, replacement              | Proposed rope rewrite                  | Stale basis or invalid UTF-8 yields typed refusal.           |
+|    9 | Echo             | Contract result and causal parents           | Tentative outcome, receipt, provenance | Inconsistent evidence aborts the tick.                       |
+|   10 | Echo WAL         | Receipt, correlation, replayable state delta | Committed scheduler-tick evidence      | Runtime and provenance roll back if commit fails.            |
+|   11 | Jim              | Submission id                                | None; reads committed outcome          | Pending remains pending; missing is not rejection.           |
+|   12 | Observer         | Basis `H42`, aperture, budget                | None; returns a reading                | Missing support yields typed obstruction.                    |
+|   13 | Jim UI           | Reading payload                              | Terminal pixels only                   | Rendering never mutates text authority.                      |
 
 The current filesystem host accepts at most one newly correlated scheduler
 outcome per `tick_once()` call. If one pass would require multiple filesystem
@@ -612,13 +618,13 @@ shutdown gate based on Echo evidence, not classic dirty-buffer state.
 
 Before normal process exit, Jim should distinguish:
 
-| State | Exit meaning |
-| --- | --- |
-| Key exists only in UI event queue | Not durable; finish submission or report failure. |
-| Submission has WAL-backed acceptance | Recoverable as pending even if not yet applied. |
-| Scheduler receipt and replayable state delta committed | Applied edit and provenance are recoverable. |
-| Host file projection is older than current head | Text is safe in Echo, but external file is not current. |
-| Cursor/session projection is not modeled causally | Text recovers, but exact UI session does not. |
+| State                                                  | Exit meaning                                            |
+| ------------------------------------------------------ | ------------------------------------------------------- |
+| Key exists only in UI event queue                      | Not durable; finish submission or report failure.       |
+| Submission has WAL-backed acceptance                   | Recoverable as pending even if not yet applied.         |
+| Scheduler receipt and replayable state delta committed | Applied edit and provenance are recoverable.            |
+| Host file projection is older than current head        | Text is safe in Echo, but external file is not current. |
+| Cursor/session projection is not modeled causally      | Text recovers, but exact UI session does not.           |
 
 The ideal interactive loop submits each meaningful edit through the WAL-backed
 path before presenting it as safely accepted. It may batch rendering and
@@ -648,12 +654,12 @@ flowchart TD
 
 ### Recovery Outcomes
 
-| Recovered posture | Jim behavior |
-| --- | --- |
-| `accepted_pending` | Keep the intent pending and permit normal scheduler consideration after startup gates pass. |
-| `decided_applied` | Reconstruct the rope transition and show the resulting text reading. |
-| `decided_rejected` | Preserve the proposal and refusal evidence; do not apply text. |
-| `obstructed` | Explain missing or incompatible evidence; do not guess state. |
+| Recovered posture  | Jim behavior                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `accepted_pending` | Keep the intent pending and permit normal scheduler consideration after startup gates pass.  |
+| `decided_applied`  | Reconstruct the rope transition and show the resulting text reading.                         |
+| `decided_rejected` | Preserve the proposal and refusal evidence; do not apply text.                               |
+| `obstructed`       | Explain missing or incompatible evidence; do not guess state.                                |
 | `recovery_faulted` | Refuse writable startup until the durable-history problem is repaired or explicitly handled. |
 
 Recovery does not rerun Jim's contract to rediscover what probably happened.
@@ -666,23 +672,23 @@ performance event, not lost history.
 
 ## Failure Matrix
 
-| Failure | Required outcome |
-| --- | --- |
-| Intent encoding fails | No submission exists. |
-| Runtime WAL unavailable | WAL-backed app submission returns a typed error before acceptance. |
-| Acceptance append fails before commit | Restore pre-submission runtime; do not return a durable handle. |
-| Process dies after acceptance commit | Recover the exact retained envelope as accepted pending. |
-| Ticket/support resolution fails | Preserve accepted proposal; expose a typed obstruction or pending posture. |
-| Jim contract refuses stale basis | Commit the refusal posture as designed; do not rewrite current text. |
-| Scheduler evidence is internally inconsistent | Abort and restore pre-tick runtime/provenance. |
-| Tick append fails before commit | Do not expose the tentative applied outcome. |
-| Filesystem reports an error after commit | Re-scan; return success only if the exact committed evidence recovers. |
-| Observation cache is stale | Rebuild or return typed obstruction; never mutate authority to match cache. |
-| File export fails | Echo text history remains intact; save/export posture remains failed. |
-| Anchor basis is stale | Request the current basis and reconsider the save operation; do not silently retarget. |
-| Anchor root lacks host support | Refuse admission; application claims cannot grant their own support. |
-| Anchor WAL commit fails | Publish no anchor authority. |
-| Recovery finds malformed or incomplete evidence | Fail closed with a recovery obstruction. |
+| Failure                                         | Required outcome                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Intent encoding fails                           | No submission exists.                                                                  |
+| Runtime WAL unavailable                         | WAL-backed app submission returns a typed error before acceptance.                     |
+| Acceptance append fails before commit           | Restore pre-submission runtime; do not return a durable handle.                        |
+| Process dies after acceptance commit            | Recover the exact retained envelope as accepted pending.                               |
+| Ticket/support resolution fails                 | Preserve accepted proposal; expose a typed obstruction or pending posture.             |
+| Jim contract refuses stale basis                | Commit the refusal posture as designed; do not rewrite current text.                   |
+| Scheduler evidence is internally inconsistent   | Abort and restore pre-tick runtime/provenance.                                         |
+| Tick append fails before commit                 | Do not expose the tentative applied outcome.                                           |
+| Filesystem reports an error after commit        | Re-scan; return success only if the exact committed evidence recovers.                 |
+| Observation cache is stale                      | Rebuild or return typed obstruction; never mutate authority to match cache.            |
+| File export fails                               | Echo text history remains intact; save/export posture remains failed.                  |
+| Anchor basis is stale                           | Request the current basis and reconsider the save operation; do not silently retarget. |
+| Anchor root lacks host support                  | Refuse admission; application claims cannot grant their own support.                   |
+| Anchor WAL commit fails                         | Publish no anchor authority.                                                           |
+| Recovery finds malformed or incomplete evidence | Fail closed with a recovery obstruction.                                               |
 
 ## Current Implementation Versus Architectural Destination
 
@@ -732,12 +738,21 @@ The Jim example generalizes into a practical checklist.
 4. Define bounded observers and their evidence requirements.
 5. Keep application nouns out of Echo core.
 
-### Generate And Install The Bridge
+### Generate, Propose, And Later Install The Bridge
 
-1. Compile the authored contract with Wesley.
-2. Package generated registry metadata, codecs, handlers, and observers.
-3. Let the trusted host verify and register the package.
-4. Give product code only generated clients and `TrustedRuntimeApp`.
+1. Author Jim operation semantics in Edict, keeping mutating DPO semantics
+   distinct from bounded read/optic semantics.
+2. Admit the exact source and run the target-specific lowerer and independent
+   verifier without rediscovering or inventing meaning.
+3. Generate operation ids, exact codecs where declared, clients, descriptors,
+   digests, and provenance; bind supported mutation handlers into an opaque,
+   non-installing provider proposal while keeping bounded observers on their
+   separate read path.
+4. Pass the preflighted proposal into the separately tracked trusted-host
+   admission and installation flow; that later crossing must authenticate the
+   package occurrence, construct an `InstalledContractPackage`, and register it
+   before any runtime authority exists.
+5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work
 
@@ -802,19 +817,19 @@ Specific violations include:
 
 ## Source Map
 
-| Concern | Current implementation or documentation |
-| --- | --- |
-| App-safe and host-owned runtime surfaces | [`trusted_runtime_host.rs`](../../crates/warp-core/src/trusted_runtime_host.rs) |
-| Runtime scheduling and ingress | [`coordinator.rs`](../../crates/warp-core/src/coordinator.rs) |
-| Causal WAL transaction and recovery contracts | [`causal_wal.rs`](../../crates/warp-core/src/causal_wal.rs) |
-| Causal-anchor values and identity | [`causal_anchor.rs`](../../crates/warp-core/src/causal_anchor.rs) |
-| Causal-anchor architecture | [Causal Anchors](../topics/CausalAnchors.md) |
-| WAL durability and recovery | [WAL](../topics/WAL.md) |
-| Application package boundary | [Application Contract Hosting](../architecture/application-contract-hosting.md) |
-| Bounded observation model | [WARP Optics](../topics/WarpOptics.md) |
-| Inverse intent admission | [Contract Inverse Admission](../topics/ContractInverseAdmission.md) |
-| Executable trusted-host witnesses | [`trusted_runtime_host_loop_tests.rs`](../../crates/warp-core/tests/trusted_runtime_host_loop_tests.rs) |
-| External anchor consumer witness | [`causal_anchor_external_consumer_tests.rs`](../../crates/warp-core/tests/causal_anchor_external_consumer_tests.rs) |
+| Concern                                       | Current implementation or documentation                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| App-safe and host-owned runtime surfaces      | [`trusted_runtime_host.rs`](../../crates/warp-core/src/trusted_runtime_host.rs)                                     |
+| Runtime scheduling and ingress                | [`coordinator.rs`](../../crates/warp-core/src/coordinator.rs)                                                       |
+| Causal WAL transaction and recovery contracts | [`causal_wal.rs`](../../crates/warp-core/src/causal_wal.rs)                                                         |
+| Causal-anchor values and identity             | [`causal_anchor.rs`](../../crates/warp-core/src/causal_anchor.rs)                                                   |
+| Causal-anchor architecture                    | [Causal Anchors](../topics/CausalAnchors.md)                                                                        |
+| WAL durability and recovery                   | [WAL](../topics/WAL.md)                                                                                             |
+| Application package boundary                  | [Application Contract Hosting](../architecture/application-contract-hosting.md)                                     |
+| Bounded observation model                     | [WARP Optics](../topics/WarpOptics.md)                                                                              |
+| Inverse intent admission                      | [Contract Inverse Admission](../topics/ContractInverseAdmission.md)                                                 |
+| Executable trusted-host witnesses             | [`trusted_runtime_host_loop_tests.rs`](../../crates/warp-core/tests/trusted_runtime_host_loop_tests.rs)             |
+| External anchor consumer witness              | [`causal_anchor_external_consumer_tests.rs`](../../crates/warp-core/tests/causal_anchor_external_consumer_tests.rs) |
 
 ## Final Model
 

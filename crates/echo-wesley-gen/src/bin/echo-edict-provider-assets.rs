@@ -4,10 +4,16 @@
 //! Synchronizes exact package-local assets for the Echo Edict provider tools.
 
 use anyhow::{anyhow, bail, Context, Result};
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use clap::Parser;
 use echo_wesley_gen::provider_corpus::{diff_exact_corpus_files_v1, ProviderArtifactCorpusFileV1};
 use echo_wesley_gen::provider_corpus_fs::{read_actual_corpus, write_corpus};
 use std::ffi::OsString;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -43,7 +49,7 @@ impl AssetSpec {
     }
 }
 
-const ASSETS: [AssetSpec; 35] = [
+const ASSETS: [AssetSpec; 38] = [
     AssetSpec::new(
         "edict-provider/contracts/v1/edict-provider-contracts.cddl",
         "schemas/edict-provider/contracts/v1/edict-provider-contracts.cddl",
@@ -195,12 +201,106 @@ const ASSETS: [AssetSpec; 35] = [
         "crates/echo-edict-canonical/src/lib.rs",
     ),
     AssetSpec::new(
+        "repository/crates/echo-registry-api/Cargo.toml.source",
+        "crates/echo-registry-api/Cargo.toml",
+    ),
+    AssetSpec::new(
+        "repository/crates/echo-registry-api/src/lib.rs.source",
+        "crates/echo-registry-api/src/lib.rs",
+    ),
+    AssetSpec::new(
+        "repository/crates/echo-registry-api/src/provider.rs.source",
+        "crates/echo-registry-api/src/provider.rs",
+    ),
+    AssetSpec::new(
         "repository/crates/echo-wesley-gen/Cargo.toml.source",
         "crates/echo-wesley-gen/Cargo.toml",
     ),
     AssetSpec::new(
         "repository/rust-toolchain.toml.source",
         "rust-toolchain.toml",
+    ),
+];
+
+const LOWERER_RESOURCES: [AssetSpec; 4] = [
+    AssetSpec::new(
+        "authority-facts.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor",
+    ),
+    AssetSpec::new(
+        "authority-facts.echo-lawpack.cbor",
+        "schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor",
+    ),
+    AssetSpec::new(
+        "lawpack.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor",
+    ),
+    AssetSpec::new(
+        "target-profile.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor",
+    ),
+];
+
+const VERIFIER_RESOURCES: [AssetSpec; 15] = [
+    AssetSpec::new(
+        "authority-facts.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/authority-facts.echo-dpo.cbor",
+    ),
+    AssetSpec::new(
+        "authority-facts.echo-lawpack.cbor",
+        "schemas/edict-provider/generated/v1/primary/authority-facts.echo-lawpack.cbor",
+    ),
+    AssetSpec::new(
+        "generated-artifact-profile.echo-dpo-registration.cbor",
+        "schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor",
+    ),
+    AssetSpec::new(
+        "lawpack.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/lawpack.echo-dpo.cbor",
+    ),
+    AssetSpec::new(
+        "resource.lawpack-exports.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.lawpack-exports.cbor",
+    ),
+    AssetSpec::new(
+        "resource.lawpack-target-adapter.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.lawpack-target-adapter.cbor",
+    ),
+    AssetSpec::new(
+        "resource.lawpack-verifier.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.lawpack-verifier.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-cost-algebra.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-cost-algebra.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-footprint-algebra.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-footprint-algebra.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-intrinsics.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-intrinsics.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-ir.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-ir.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-obstruction-taxonomy.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-obstruction-taxonomy.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-operation-profiles.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-operation-profiles.cbor",
+    ),
+    AssetSpec::new(
+        "resource.target-verifier-contract.cbor",
+        "schemas/edict-provider/generated/v1/resources/resource.target-verifier-contract.cbor",
+    ),
+    AssetSpec::new(
+        "target-profile.echo-dpo.cbor",
+        "schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor",
     ),
 ];
 
@@ -226,6 +326,18 @@ struct Args {
     /// Override the carrier root, primarily for isolated check/write witnesses.
     #[arg(long)]
     assets_root: Option<PathBuf>,
+
+    /// Also synchronize the exact lowerer and verifier component resources.
+    #[arg(long)]
+    sync_component_resources: bool,
+
+    /// Override the lowerer resource root for an isolated witness.
+    #[arg(long, requires = "sync_component_resources")]
+    lowerer_resources_root: Option<PathBuf>,
+
+    /// Override the verifier resource root for an isolated witness.
+    #[arg(long, requires = "sync_component_resources")]
+    verifier_resources_root: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -238,6 +350,12 @@ fn main() -> Result<()> {
     let assets_root = args
         .assets_root
         .unwrap_or_else(|| crate_root.join("assets/v1"));
+    let lowerer_resources_root = args
+        .lowerer_resources_root
+        .unwrap_or_else(|| workspace_root.join("crates/echo-edict-provider-lowerer/resources"));
+    let verifier_resources_root = args
+        .verifier_resources_root
+        .unwrap_or_else(|| workspace_root.join("crates/echo-edict-provider-verifier/resources"));
     // Write mode intentionally permits a stale package copy so authoritative
     // generated/component owners can break the regeneration cycle. Read-only
     // check mode still requires every distribution copy to corroborate them.
@@ -255,6 +373,27 @@ fn main() -> Result<()> {
         check_package_list(&workspace_root, &expected)?;
         println!("Cargo package selects the exact provider asset tree");
     }
+    if args.sync_component_resources {
+        let lowerer_resources = load_expected_files(&workspace_root, &LOWERER_RESOURCES, false)?;
+        let verifier_resources = load_expected_files(&workspace_root, &VERIFIER_RESOURCES, false)?;
+        if args.write {
+            write_corpus(&lowerer_resources_root, &lowerer_resources)?;
+            write_corpus(&verifier_resources_root, &verifier_resources)?;
+            println!("Provider component resources synchronized");
+        } else {
+            check_exact_files(
+                &lowerer_resources_root,
+                &lowerer_resources,
+                "Lowerer component resource",
+            )?;
+            check_exact_files(
+                &verifier_resources_root,
+                &verifier_resources,
+                "Verifier component resource",
+            )?;
+            println!("Provider component resources are current");
+        }
+    }
     Ok(())
 }
 
@@ -262,9 +401,17 @@ fn load_expected_assets(
     root: &Path,
     require_corroboration: bool,
 ) -> Result<Vec<ProviderArtifactCorpusFileV1>> {
-    let mut files = Vec::with_capacity(ASSETS.len());
+    load_expected_files(root, &ASSETS, require_corroboration)
+}
+
+fn load_expected_files(
+    root: &Path,
+    specs: &[AssetSpec],
+    require_corroboration: bool,
+) -> Result<Vec<ProviderArtifactCorpusFileV1>> {
+    let mut files = Vec::with_capacity(specs.len());
     let mut total_bytes = 0usize;
-    for spec in ASSETS {
+    for spec in specs {
         let bytes = read_owner(root, spec.owner)?;
         total_bytes = total_bytes
             .checked_add(bytes.len())
@@ -292,10 +439,36 @@ fn load_expected_assets(
 }
 
 fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
+    read_owner_with_between_reads_hook(root, relative_path, || Ok(()))
+}
+
+fn read_owner_with_between_reads_hook(
+    root: &Path,
+    relative_path: &str,
+    between_reads_hook: impl FnOnce() -> Result<()>,
+) -> Result<Vec<u8>> {
     let path = root.join(relative_path);
-    let metadata = std::fs::symlink_metadata(&path)
+    let directory = Dir::open_ambient_dir(root, ambient_authority()).with_context(|| {
+        format!(
+            "failed to open provider asset owner root {}",
+            root.display()
+        )
+    })?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    options.follow(FollowSymlinks::No);
+    let mut file = directory
+        .open_with(relative_path, &options)
+        .with_context(|| {
+            format!(
+                "failed to open provider asset owner without following symbolic links: {}",
+                path.display()
+            )
+        })?;
+    let metadata = file
+        .metadata()
         .with_context(|| format!("failed to inspect provider asset owner {}", path.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
+    if !metadata.is_file() {
         bail!(
             "provider asset owner is not a regular non-symlink file: {}",
             path.display()
@@ -307,11 +480,41 @@ fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
             path.display()
         );
     }
-    let bytes = std::fs::read(&path)
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_OWNER_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
         .with_context(|| format!("failed to read provider asset owner {}", path.display()))?;
-    if bytes.len() as u64 != metadata.len() {
+    between_reads_hook()?;
+    file.seek(SeekFrom::Start(0)).with_context(|| {
+        format!(
+            "failed to rewind provider asset owner for corroborating read {}",
+            path.display()
+        )
+    })?;
+    let mut corroborating_bytes = Vec::with_capacity(bytes.len());
+    (&mut file)
+        .take(MAX_OWNER_FILE_BYTES + 1)
+        .read_to_end(&mut corroborating_bytes)
+        .with_context(|| {
+            format!(
+                "failed to corroborate provider asset owner bytes {}",
+                path.display()
+            )
+        })?;
+    let final_metadata = file.metadata().with_context(|| {
+        format!(
+            "failed to re-inspect provider asset owner {}",
+            path.display()
+        )
+    })?;
+    if !final_metadata.is_file()
+        || final_metadata.len() != metadata.len()
+        || bytes.len() as u64 != metadata.len()
+        || corroborating_bytes != bytes
+    {
         bail!(
-            "provider asset owner changed length while being read: {}",
+            "provider asset owner changed while being read: {}",
             path.display()
         );
     }
@@ -319,17 +522,25 @@ fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
 }
 
 fn check_assets(root: &Path, expected: &[ProviderArtifactCorpusFileV1]) -> Result<()> {
+    check_exact_files(root, expected, "Package-local provider asset")
+}
+
+fn check_exact_files(
+    root: &Path,
+    expected: &[ProviderArtifactCorpusFileV1],
+    label: &str,
+) -> Result<()> {
     let actual = read_actual_corpus(root, expected)?;
     let drift = diff_exact_corpus_files_v1(expected, &actual)?;
     if drift.is_empty() {
         return Ok(());
     }
 
-    eprintln!("Package-local provider asset drift:");
+    eprintln!("{label} drift:");
     for entry in &drift {
         eprintln!("  {}: {}", entry.kind().as_str(), entry.relative_path());
     }
-    bail!("package-local provider assets are not current")
+    bail!("{label} files are not current")
 }
 
 fn check_package_list(
@@ -390,8 +601,12 @@ fn check_package_asset_inventory(
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{check_package_asset_inventory, load_expected_assets, ASSETS};
+    use super::{
+        check_package_asset_inventory, load_expected_assets, read_owner,
+        read_owner_with_between_reads_hook, ASSETS,
+    };
     use anyhow::Result;
+    use std::io::{Seek, SeekFrom, Write};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -452,6 +667,57 @@ mod tests {
 
         std::fs::copy(root.join(generated.owner), &package_copy)?;
         assert!(load_expected_assets(&root, true).is_ok());
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_read_refuses_final_symlink_at_open_boundary() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
+        let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "echo-provider-asset-owner-symlink-{}-{sequence}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(root.join("owner"), b"exact owner bytes")?;
+        symlink("owner", root.join("carrier"))?;
+
+        let error = read_owner(&root, "carrier").expect_err("final symlink must be refused");
+        assert!(format!("{error:#}")
+            .contains("failed to open provider asset owner without following symbolic links"));
+
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn owner_read_refuses_same_length_in_place_rewrite() -> Result<()> {
+        let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "echo-provider-asset-owner-rewrite-{}-{sequence}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root)?;
+        let owner = root.join("owner");
+        let original = [b'a'; 4096];
+        let replacement = [b'b'; 4096];
+        std::fs::write(&owner, original)?;
+
+        let error = read_owner_with_between_reads_hook(&root, "owner", || {
+            let mut writer = std::fs::OpenOptions::new().write(true).open(&owner)?;
+            writer.seek(SeekFrom::Start(0))?;
+            writer.write_all(&replacement)?;
+            writer.flush()?;
+            Ok(())
+        })
+        .expect_err("same-length in-place owner rewrite must be refused");
+        assert!(error
+            .to_string()
+            .contains("provider asset owner changed while being read"));
+
         std::fs::remove_dir_all(root)?;
         Ok(())
     }

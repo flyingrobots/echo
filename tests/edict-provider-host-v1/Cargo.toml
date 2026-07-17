@@ -16,6 +16,9 @@ resolver = "2"
 edict-provider-host-wasmtime = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
 edict-provider-schema = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
 edict-syntax = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
+echo-registry-api = { path = "../../crates/echo-registry-api" }
+echo-wasm-abi = { path = "../../crates/echo-wasm-abi" }
+warp-core = { path = "../../crates/warp-core" }
 serde_json = "=1.0.150"
 sha2 = "=0.10.9"
 

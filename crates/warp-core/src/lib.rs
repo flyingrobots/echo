@@ -152,6 +152,7 @@ mod plurality_law;
 pub mod proof;
 mod provenance_codec;
 mod provenance_store;
+mod provider_contract;
 mod receipt;
 mod record;
 mod retained_evidence;
@@ -270,6 +271,12 @@ pub use payload::{
     encode_motion_atom_payload, encode_motion_atom_payload_v0, encode_motion_payload,
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
+};
+pub use provider_contract::{
+    propose_provider_contract_package_v1, GeneratedProviderMutationDispatchV1,
+    ProviderContractPackageProposalV1, ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1,
+    ProviderMutationHooksV1, ProviderMutationHostV1, ProviderMutationImplementationIdentityV1,
+    ProviderMutationMatchFnV1, ProviderPackageProposalError, ProviderPackageProposalErrorKind,
 };
 // --- Plurality law types ---
 pub use plurality_law::{

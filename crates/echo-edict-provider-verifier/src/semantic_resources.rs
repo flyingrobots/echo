@@ -13,19 +13,19 @@ const PROFILE: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo@1",
     domain: "edict.target-profile/v1",
     bytes: include_bytes!("../resources/target-profile.echo-dpo.cbor"),
-    framed_sha256: "f41df38156625a05c1ee8bce652ffddf04e71b54fe027eeab9d255d0d8322db0",
+    framed_sha256: "ad7f10e1843f4b3d2c08b11d69df103f9c0b1b7388ae26bb364cc87106cd419e",
 };
 const LAWPACK: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo-lawpack@1",
     domain: "edict.lawpack/v1",
     bytes: include_bytes!("../resources/lawpack.echo-dpo.cbor"),
-    framed_sha256: "47006be4c2b569f13759078c560fe508e158b429cd9d4c5e47d9a7ea86b983b2",
+    framed_sha256: "2a1631ae5fe2e11d09ccdfb94e3498f3236a3d615ee217e6cd5843efcd284987",
 };
 const GENERATED_PROFILE: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo.registration/v1",
     domain: "echo.generated-artifact-profile/v1",
     bytes: include_bytes!("../resources/generated-artifact-profile.echo-dpo-registration.cbor"),
-    framed_sha256: "3377304d8634681821cd958427e0b8baccc37b7b08bfb342d988a08571eb83ab",
+    framed_sha256: "ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d",
 };
 const LAWPACK_EXPORTS: ResourceSpec = ResourceSpec {
     coordinate: "echo.dpo-lawpack.exports@1",
@@ -1583,15 +1583,15 @@ mod tests {
         let expected_raw = [
             (
                 PROFILE,
-                "95626e5be6e6b2c1c8aa1858277f1c67487ab6724b08408eb3c0054adce6b1eb",
+                "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85",
             ),
             (
                 LAWPACK,
-                "df62a4ff2b56f9553c80cf400728cab3717f5f442c4c2fc415d2c89c21c41dad",
+                "679b090774088b46413a4697a646f10c3627d9f7f698380237db72e0b11739a1",
             ),
             (
                 GENERATED_PROFILE,
-                "8cc385a3f287ad6ea522766d7b4e92bc5164226586eef6b3f2ac6c5253370dd3",
+                "4ef3aaad0d2131ba7129a3e2ae178d10c44f7e9b062af2c1fe211de781462f34",
             ),
             (
                 LAWPACK_EXPORTS,

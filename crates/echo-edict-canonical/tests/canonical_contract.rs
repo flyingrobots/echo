@@ -4,9 +4,9 @@
 //! Public contract witnesses for the independently publishable canonical leaf.
 
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1,
-    CanonicalValueErrorKind, CanonicalValueV1, MAX_CANONICAL_DECODE_NODES_V1,
-    MAX_CANONICAL_NESTING_DEPTH_V1,
+    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, digest_canonical_value_v1,
+    encode_canonical_cbor_v1, CanonicalValueErrorKind, CanonicalValueV1,
+    MAX_CANONICAL_DECODE_NODES_V1, MAX_CANONICAL_NESTING_DEPTH_V1,
 };
 
 fn text(value: &str) -> CanonicalValueV1 {
@@ -66,6 +66,52 @@ fn nested_empty_map_bytes(container_count: usize) -> Vec<u8> {
     }
     bytes.push(0xa0);
     bytes
+}
+
+#[test]
+fn typed_digest_bytes_and_review_rendering_are_the_same_proposition() {
+    let ordinary = string_map([
+        ("apiVersion", text("fixture/v1")),
+        ("payload", CanonicalValueV1::Bytes(vec![0, 1, 2, 255])),
+    ]);
+    let maximum_depth = nested_empty_array(MAX_CANONICAL_NESTING_DEPTH_V1);
+
+    for value in [&ordinary, &maximum_depth] {
+        let bytes = digest_canonical_value_bytes_v1("fixture.digest/v1", value)
+            .expect("typed digest bytes are computed");
+        let review = digest_canonical_value_v1("fixture.digest/v1", value)
+            .expect("digest review rendering is computed");
+        assert_eq!(review, format!("sha256:{}", hex::encode(bytes)));
+    }
+
+    for value in [&ordinary, &maximum_depth] {
+        assert_eq!(
+            digest_canonical_value_bytes_v1("", value)
+                .expect_err("empty byte-digest domain refuses")
+                .kind(),
+            CanonicalValueErrorKind::UnsupportedValue
+        );
+        assert_eq!(
+            digest_canonical_value_v1("", value)
+                .expect_err("empty review-digest domain refuses")
+                .kind(),
+            CanonicalValueErrorKind::UnsupportedValue
+        );
+    }
+
+    let too_deep = nested_empty_array(MAX_CANONICAL_NESTING_DEPTH_V1 + 1);
+    assert_eq!(
+        digest_canonical_value_bytes_v1("fixture.digest/v1", &too_deep)
+            .expect_err("unencodable byte digest refuses")
+            .kind(),
+        CanonicalValueErrorKind::NestingLimitExceeded
+    );
+    assert_eq!(
+        digest_canonical_value_v1("fixture.digest/v1", &too_deep)
+            .expect_err("unencodable review digest refuses")
+            .kind(),
+        CanonicalValueErrorKind::NestingLimitExceeded
+    );
 }
 
 #[test]

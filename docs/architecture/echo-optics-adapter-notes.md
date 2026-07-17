@@ -77,10 +77,11 @@ still lower into Echo as generic Optics requests:
 - generated decoding helpers decode observer payload bytes after Echo has
   emitted a reading.
 
-Generated contract-host helpers are a separate surface. They install host-owned
-mutation rule constructors and read-only query observer constructors against
-generic `warp-core` boundaries. They must not become application tick authority
-or application-owned runtime control.
+Generated contract-host helpers are a separate surface. They expose host-owned
+mutation-rule and read-only query-observer constructors against generic
+`warp-core` boundaries for a trusted Echo host to inspect and install. The
+helpers do not confer installation authority and must not become application
+tick authority or application-owned runtime control.
 
 Authored optics may declare retained consequence obligations, including
 receipt obligations. They do not create ticks or tick receipts. Echo's trusted

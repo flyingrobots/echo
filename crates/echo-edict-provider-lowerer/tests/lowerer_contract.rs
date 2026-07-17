@@ -7,9 +7,9 @@ use echo_edict_canonical::{
     decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1, CanonicalValueV1,
 };
 use echo_edict_provider_lowerer::{
-    lower, Artifact, BoundArtifact, Digest, DigestAlgorithm, LoweringOutputKind,
-    LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1, ProviderRefusalKind, ResourceRef,
-    ResponseLimitsV1, SemanticInput, SemanticInputKind,
+    lower, Artifact, BoundArtifact, Digest, DigestAlgorithm, LoweringOutputArtifact,
+    LoweringOutputKind, LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1,
+    ProviderRefusalKind, ResourceRef, ResponseLimitsV1, SemanticInput, SemanticInputKind,
 };
 use sha2::{Digest as ShaDigest, Sha256};
 
@@ -17,6 +17,9 @@ const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-d
 const LAWPACK: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
+const GENERATED_ARTIFACT_PROFILE_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+);
 
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";
@@ -25,7 +28,26 @@ const AUTHORITY_DOMAIN: &str = "edict.authority-facts/v1";
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const OUTER_TARGET_IR_DOMAIN: &str = "edict.target-ir.artifact/v1";
 const INNER_TARGET_IR_DOMAIN: &str = "echo.span-ir/v1";
+const GENERATED_ARTIFACT_DOMAIN: &str = "echo.generated-artifact/v1";
+const REVIEW_PAYLOAD_DOMAIN: &str = "echo.review-payload/v1";
+const GENERATED_ARTIFACT_ROLE: &str = "generated.echo-dpo";
+const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
+const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
+const GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN: &str = "echo.generated-artifact-profile/v1";
+const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
+    "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d";
+const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
+const TARGET_BUNDLE_PROFILE_DIGEST: &str =
+    "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
+const GENERATED_SOURCE_MEDIA_TYPE: &str = "text/rust; charset=utf-8";
+const REVIEW_MEDIA_TYPE: &str = "application/json";
+const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
+const REVIEW_PATH: &str = "review/echo_dpo.json";
+const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
+    "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c";
+const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
+const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 
 const EDICT_ORACLE_CORE_HEX: &str = concat!(
     "a6657479706573a665496e707574a2646b696e64665265636f7264666669656c6473a16269646e612e6240312e496e70",
@@ -399,6 +421,125 @@ fn request() -> LoweringRequestV1 {
     request_with_core(core_value(ordinary_result(), Some("target.replace")))
 }
 
+fn reviewed_edict_request() -> LoweringRequestV1 {
+    let core_bytes = hex::decode(EDICT_ORACLE_CORE_HEX).expect("oracle Core hex is valid");
+    let mut request = request();
+    request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
+    request
+}
+
+fn output_request(role: &str, kind: LoweringOutputKind, domain: &str) -> LoweringOutputRequest {
+    LoweringOutputRequest {
+        role: role.to_owned(),
+        kind,
+        domain: domain.to_owned(),
+    }
+}
+
+fn generated_artifact_request() -> LoweringOutputRequest {
+    output_request(
+        GENERATED_ARTIFACT_ROLE,
+        LoweringOutputKind::GeneratedArtifact,
+        GENERATED_ARTIFACT_DOMAIN,
+    )
+}
+
+fn review_payload_request() -> LoweringOutputRequest {
+    output_request(
+        REVIEW_PAYLOAD_ROLE,
+        LoweringOutputKind::ReviewPayload,
+        REVIEW_PAYLOAD_DOMAIN,
+    )
+}
+
+fn target_ir_request() -> LoweringOutputRequest {
+    output_request(
+        TARGET_IR_ROLE,
+        LoweringOutputKind::TargetIr,
+        OUTER_TARGET_IR_DOMAIN,
+    )
+}
+
+fn assert_exact_outputs(
+    outputs: &[LoweringOutputArtifact],
+    expected: &[(&str, LoweringOutputKind, &str)],
+) {
+    assert_eq!(outputs.len(), expected.len());
+    for (output, (role, kind, domain)) in outputs.iter().zip(expected) {
+        assert_eq!(output.role, *role);
+        assert_eq!(output.kind, *kind);
+        assert_eq!(output.artifact.domain, *domain);
+    }
+}
+
+fn output_by_role<'a>(
+    outputs: &'a [LoweringOutputArtifact],
+    role: &str,
+) -> &'a LoweringOutputArtifact {
+    outputs
+        .iter()
+        .find(|output| output.role == role)
+        .unwrap_or_else(|| panic!("output role `{role}` is absent"))
+}
+
+fn output_envelope(output: &LoweringOutputArtifact) -> CanonicalValueV1 {
+    decode_canonical_cbor_v1(&output.artifact.bytes)
+        .unwrap_or_else(|_| panic!("output role `{}` is not canonical CBOR", output.role))
+}
+
+fn bytes_field<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a [u8] {
+    let CanonicalValueV1::Bytes(bytes) = map_field(value, field) else {
+        panic!("map field `{field}` is not bytes");
+    };
+    bytes
+}
+
+fn assert_sha256_resource_ref(value: &CanonicalValueV1, id: &str, digest: &str) {
+    assert_eq!(text_value(map_field(value, "id")), id);
+    let digest_bytes = hex::decode(
+        digest
+            .strip_prefix("sha256:")
+            .expect("expected review digest uses sha256"),
+    )
+    .expect("expected review digest is hexadecimal");
+    assert_eq!(
+        map_field(value, "digest"),
+        &CanonicalValueV1::Array(vec![text("sha256"), CanonicalValueV1::Bytes(digest_bytes),])
+    );
+}
+
+fn generated_source_from(mut request: LoweringRequestV1) -> String {
+    request.requested_outputs = vec![generated_artifact_request()];
+    let success = lower(request).expect("generated source lowers");
+    let envelope = output_envelope(output_by_role(&success.outputs, GENERATED_ARTIFACT_ROLE));
+    String::from_utf8(bytes_field(&envelope, "bytes").to_vec()).expect("generated source is UTF-8")
+}
+
+fn generated_source() -> String {
+    generated_source_from(request())
+}
+
+fn reviewed_edict_generated_source() -> String {
+    generated_source_from(reviewed_edict_request())
+}
+
+#[test]
+#[ignore = "explicit checked generated-helper regeneration"]
+fn regenerate_checked_generated_helper() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/generated_echo_dpo.rs");
+    std::fs::write(&path, reviewed_edict_generated_source())
+        .expect("failed to replace the checked generated-helper fixture");
+}
+
+fn review_json() -> String {
+    let mut request = request();
+    request.requested_outputs = vec![review_payload_request()];
+    let success = lower(request).expect("review payload lowers");
+    let envelope = output_envelope(output_by_role(&success.outputs, REVIEW_PAYLOAD_ROLE));
+    String::from_utf8(bytes_field(&envelope, "bytes").to_vec()).expect("review payload is UTF-8")
+}
+
 fn map_field<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a CanonicalValueV1 {
     let CanonicalValueV1::Map(entries) = value else {
         panic!("value is not a map");
@@ -507,6 +648,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(core_bytes.len(), 1209);
     let mut request = request();
     request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
+    let target_profile_digest = request.target_profile.reference.digest.bytes.clone();
     assert_eq!(
         hex::encode(&request.core.reference.digest.bytes),
         "c3dbe413c78a82f6120e64c9a04bc94e2d79505f9e4b8a65c2bc26b408d775de"
@@ -516,8 +658,19 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert!(success.diagnostics.is_empty());
     assert_eq!(success.outputs.len(), 1);
     let output = &success.outputs[0];
-    let expected = hex::decode(EDICT_ORACLE_TARGET_IR_HEX).expect("oracle Target IR hex is valid");
-    assert_eq!(expected.len(), 848);
+    let prior_oracle =
+        hex::decode(EDICT_ORACLE_TARGET_IR_HEX).expect("oracle Target IR hex is valid");
+    assert_eq!(prior_oracle.len(), 848);
+    let mut expected = decode_canonical_cbor_v1(&prior_oracle)
+        .expect("reviewed Edict oracle is canonical Target IR");
+    *map_field_mut(map_field_mut(&mut expected, "targetProfile"), "digest") =
+        CanonicalValueV1::Array(vec![
+            text("sha256"),
+            CanonicalValueV1::Bytes(target_profile_digest),
+        ]);
+    let expected =
+        encode_canonical_cbor_v1(&expected).expect("rebound Edict oracle remains canonical");
+    assert_ne!(prior_oracle, expected);
     assert_eq!(output.artifact.bytes, expected);
 
     let output_value = decode_canonical_cbor_v1(&output.artifact.bytes)
@@ -525,7 +678,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(
         digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &output_value)
             .expect("oracle-parity output has a domain-framed digest"),
-        "sha256:b0d9e218f00a102d1e951c73e5063a9bbe6077e6c7468d171ec08b420e7b47da"
+        "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc"
     );
 }
 
@@ -540,17 +693,428 @@ fn vendored_wit_is_the_frozen_edict_lowerer_contract() {
 }
 
 #[test]
-fn output_overclaim_identifies_the_first_unsupported_role() {
-    let mut request = request();
-    request.requested_outputs.push(LoweringOutputRequest {
-        role: "review.echo-dpo".to_owned(),
-        kind: LoweringOutputKind::ReviewPayload,
-        domain: "edict.review-payload/v1".to_owned(),
-    });
+fn target_ir_only_remains_an_exact_single_output() {
+    let success = lower(request()).expect("the existing Target IR-only request remains supported");
+    assert_exact_outputs(
+        &success.outputs,
+        &[(
+            TARGET_IR_ROLE,
+            LoweringOutputKind::TargetIr,
+            OUTER_TARGET_IR_DOMAIN,
+        )],
+    );
+}
 
-    let refusal = lower(request).expect_err("a second output role is outside this lowerer");
-    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedOutputRole);
-    assert_eq!(refusal.subject.as_deref(), Some("review.echo-dpo"));
+#[test]
+fn generated_artifact_only_emits_the_exact_declared_envelope() {
+    let mut request = request();
+    request.requested_outputs = vec![generated_artifact_request()];
+
+    let success = lower(request).expect("the declared generated-artifact role is supported");
+    assert_exact_outputs(
+        &success.outputs,
+        &[(
+            GENERATED_ARTIFACT_ROLE,
+            LoweringOutputKind::GeneratedArtifact,
+            GENERATED_ARTIFACT_DOMAIN,
+        )],
+    );
+}
+
+#[test]
+fn review_payload_only_emits_the_exact_declared_envelope() {
+    let mut request = request();
+    request.requested_outputs = vec![review_payload_request()];
+
+    let success = lower(request).expect("the declared review-payload role is supported");
+    assert_exact_outputs(
+        &success.outputs,
+        &[(
+            REVIEW_PAYLOAD_ROLE,
+            LoweringOutputKind::ReviewPayload,
+            REVIEW_PAYLOAD_DOMAIN,
+        )],
+    );
+}
+
+#[test]
+fn all_declared_outputs_emit_exact_sorted_correspondence() {
+    let mut request = request();
+    request.requested_outputs = vec![
+        generated_artifact_request(),
+        review_payload_request(),
+        target_ir_request(),
+    ];
+
+    let success = lower(request).expect("the exact declared output set is supported");
+    assert_exact_outputs(
+        &success.outputs,
+        &[
+            (
+                GENERATED_ARTIFACT_ROLE,
+                LoweringOutputKind::GeneratedArtifact,
+                GENERATED_ARTIFACT_DOMAIN,
+            ),
+            (
+                REVIEW_PAYLOAD_ROLE,
+                LoweringOutputKind::ReviewPayload,
+                REVIEW_PAYLOAD_DOMAIN,
+            ),
+            (
+                TARGET_IR_ROLE,
+                LoweringOutputKind::TargetIr,
+                OUTER_TARGET_IR_DOMAIN,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn generated_artifact_profile_identity_is_domain_framed_not_a_raw_file_hash() {
+    let profile = decode_canonical_cbor_v1(GENERATED_ARTIFACT_PROFILE_BYTES)
+        .expect("the checked generated-artifact profile is canonical CBOR");
+    let domain_framed =
+        digest_canonical_value_v1(GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN, &profile)
+            .expect("the checked profile has a domain-framed identity");
+    let raw = format!(
+        "sha256:{}",
+        hex::encode(Sha256::digest(GENERATED_ARTIFACT_PROFILE_BYTES))
+    );
+
+    assert_eq!(domain_framed, GENERATED_ARTIFACT_PROFILE_DIGEST);
+    assert_ne!(raw, GENERATED_ARTIFACT_PROFILE_DIGEST);
+}
+
+#[test]
+fn generated_and_review_envelopes_bind_exact_projection_metadata() {
+    let mut request = request();
+    request.requested_outputs = vec![
+        generated_artifact_request(),
+        review_payload_request(),
+        target_ir_request(),
+    ];
+    let success = lower(request).expect("the exact declared output set lowers");
+
+    let generated = output_by_role(&success.outputs, GENERATED_ARTIFACT_ROLE);
+    assert_eq!(
+        generated.logical_path.as_deref(),
+        Some(GENERATED_SOURCE_PATH)
+    );
+    let generated_envelope = output_envelope(generated);
+    let CanonicalValueV1::Map(generated_fields) = &generated_envelope else {
+        panic!("generated artifact envelope is not a map");
+    };
+    assert_eq!(generated_fields.len(), 5);
+    assert_eq!(
+        text_value(map_field(&generated_envelope, "apiVersion")),
+        GENERATED_ARTIFACT_DOMAIN
+    );
+    assert_sha256_resource_ref(
+        map_field(&generated_envelope, "profile"),
+        GENERATED_ARTIFACT_PROFILE,
+        GENERATED_ARTIFACT_PROFILE_DIGEST,
+    );
+    assert_eq!(
+        text_value(map_field(&generated_envelope, "operation")),
+        "a.b@1.t"
+    );
+    assert_eq!(
+        text_value(map_field(&generated_envelope, "mediaType")),
+        GENERATED_SOURCE_MEDIA_TYPE
+    );
+    assert!(bytes_field(&generated_envelope, "bytes")
+        .starts_with(b"// SPDX-License-Identifier: Apache-2.0\n"));
+
+    let review = output_by_role(&success.outputs, REVIEW_PAYLOAD_ROLE);
+    assert_eq!(review.logical_path.as_deref(), Some(REVIEW_PATH));
+    let review_envelope = output_envelope(review);
+    let CanonicalValueV1::Map(review_fields) = &review_envelope else {
+        panic!("review payload envelope is not a map");
+    };
+    assert_eq!(review_fields.len(), 5);
+    assert_eq!(
+        text_value(map_field(&review_envelope, "apiVersion")),
+        REVIEW_PAYLOAD_DOMAIN
+    );
+    assert_eq!(
+        map_field(&review_envelope, "authoritative"),
+        &CanonicalValueV1::Bool(false)
+    );
+    let generated_digest =
+        digest_canonical_value_v1(GENERATED_ARTIFACT_DOMAIN, &generated_envelope)
+            .expect("the corresponding generated artifact has a domain-framed digest");
+    assert_sha256_resource_ref(
+        map_field(&review_envelope, "subject"),
+        GENERATED_ARTIFACT_ROLE,
+        &generated_digest,
+    );
+    assert_eq!(
+        text_value(map_field(&review_envelope, "mediaType")),
+        REVIEW_MEDIA_TYPE
+    );
+    let review_bytes = bytes_field(&review_envelope, "bytes");
+    assert!(review_bytes.starts_with(b"{\"apiVersion\":\"echo.generated-helper-review/v1\""));
+    let target_ir = output_by_role(&success.outputs, TARGET_IR_ROLE);
+    let target_ir_value = decode_canonical_cbor_v1(&target_ir.artifact.bytes)
+        .expect("the corresponding Target IR output is canonical CBOR");
+    let target_ir_digest = digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &target_ir_value)
+        .expect("the corresponding Target IR has a domain-framed digest");
+    assert!(String::from_utf8_lossy(review_bytes).contains(&target_ir_digest));
+    assert!(String::from_utf8_lossy(review_bytes).contains(&generated_digest));
+    assert!(review_bytes.ends_with(b"}\n"));
+}
+
+#[test]
+fn generated_and_review_bytes_are_invariant_under_requested_output_supersets() {
+    let mut generated_request = request();
+    generated_request.requested_outputs = vec![generated_artifact_request()];
+    let generated_only = lower(generated_request).expect("generated-only request lowers");
+
+    let mut review_request = request();
+    review_request.requested_outputs = vec![review_payload_request()];
+    let review_only = lower(review_request).expect("review-only request lowers");
+
+    let mut all_request = request();
+    all_request.requested_outputs = vec![
+        generated_artifact_request(),
+        review_payload_request(),
+        target_ir_request(),
+    ];
+    let all = lower(all_request).expect("full sorted request lowers");
+
+    assert_eq!(
+        output_by_role(&generated_only.outputs, GENERATED_ARTIFACT_ROLE),
+        output_by_role(&all.outputs, GENERATED_ARTIFACT_ROLE)
+    );
+    assert_eq!(
+        output_by_role(&review_only.outputs, REVIEW_PAYLOAD_ROLE),
+        output_by_role(&all.outputs, REVIEW_PAYLOAD_ROLE)
+    );
+}
+
+#[test]
+fn generated_source_exposes_explicit_post_assembly_bundle_binding() {
+    let source = generated_source();
+    for required_surface in [
+        "pub struct ContractBundleIdentityV1",
+        "pub struct RegistrationDescriptorV1",
+        "pub enum BindingMismatchKind",
+        "pub fn bind_contract_bundle",
+    ] {
+        assert!(
+            source.contains(required_surface),
+            "generated source is missing `{required_surface}`"
+        );
+    }
+}
+
+#[test]
+fn generated_source_binds_the_expected_provider_schema_identity() {
+    let source = generated_source();
+
+    assert!(
+        source.contains(&format!("\"{EXPECTED_PROVIDER_SCHEMA_SHA256_HEX}\"")),
+        "generated source did not bind expected provider schema SHA-256 \
+         {EXPECTED_PROVIDER_SCHEMA_SHA256_HEX}"
+    );
+}
+
+#[test]
+fn generated_source_exposes_the_expected_profile_owned_operation_identity() {
+    let source = generated_source();
+
+    assert!(
+        source.contains(&format!(
+            "pub const OPERATION_ID_LAW: &str = \"{EXPECTED_OPERATION_ID_LAW}\";"
+        )),
+        "generated source did not expose the expected operation-id law"
+    );
+    assert!(
+        source.contains("pub const OPERATION_ID: u32 = 3_389_142_194;"),
+        "generated source did not expose the expected operation id"
+    );
+    assert_eq!(EXPECTED_OPERATION_ID, 3_389_142_194);
+}
+
+#[test]
+fn generated_source_exposes_the_profile_bound_value_codec() {
+    let source = generated_source();
+
+    for required_surface in [
+        "pub const VALUE_CODEC_ID: &str = \"le-binary-v1\";",
+        "pub struct Id",
+        "pub struct Input",
+        "pub struct Output",
+        "pub fn encode_input",
+        "pub fn decode_output",
+        "pub fn pack_intent",
+    ] {
+        assert!(
+            source.contains(required_surface),
+            "generated source is missing `{required_surface}`"
+        );
+    }
+}
+
+#[test]
+fn generated_source_constructs_a_non_authoritative_provider_package_proposal() {
+    let source = generated_source();
+
+    for required_surface in [
+        "ProviderRegistryV1",
+        "ProviderMutationImplementationIdentityV1",
+        "pub const fn provider_registry",
+        "pub const fn mutation_implementation_identity",
+        "pub fn propose_contract_package",
+        "GeneratedProviderMutationDispatchV1::new",
+        "propose_provider_contract_package_v1",
+    ] {
+        assert!(
+            source.contains(required_surface),
+            "generated source is missing `{required_surface}`"
+        );
+    }
+
+    for forbidden_surface in [
+        "RegistryProvider",
+        "OpDef",
+        "RewriteRule",
+        "InstalledContractPackage",
+        "Engine",
+        "TrustedRuntimeHost",
+        "register_contract_package",
+        "dispatch_optic_intent",
+        "submit_intent",
+        "tick_once",
+    ] {
+        assert!(
+            !source.contains(forbidden_surface),
+            "generated source exposes forbidden authority or facade `{forbidden_surface}`"
+        );
+    }
+}
+
+#[test]
+fn generated_bundle_binding_is_a_bounded_executable_consumer_contract() {
+    let source = reviewed_edict_generated_source();
+    assert_eq!(
+        source,
+        include_str!("fixtures/generated_echo_dpo.rs"),
+        "the checked generated helper must match the lowerer's exact output"
+    );
+
+    for forbidden_surface in [
+        "pack_intent_raw_vars",
+        "raw_vars",
+        "register_contract_package",
+        "dispatch_optic_intent",
+        "submit_intent",
+        "tick_once",
+    ] {
+        assert!(
+            !source.contains(forbidden_surface),
+            "generated source exposes forbidden authority or bypass `{forbidden_surface}`"
+        );
+    }
+}
+
+#[test]
+fn contract_bundle_binding_separates_semantic_and_release_digests() {
+    let source = generated_source();
+    for line in source
+        .lines()
+        .filter(|line| line.contains(TARGET_BUNDLE_PROFILE_DIGEST))
+    {
+        assert!(
+            !line.contains("CONTRACT_BUNDLE_DIGEST"),
+            "the target-bundle-profile digest was mislabeled as a final contract-bundle digest"
+        );
+    }
+    assert!(source.contains(TARGET_BUNDLE_PROFILE));
+    assert!(source.contains("TARGET_BUNDLE_PROFILE_DIGEST"));
+    assert!(
+        source.contains("semantic_digest"),
+        "contract-bundle identity lacks its semantic digest"
+    );
+    assert!(
+        source.contains("release_digest"),
+        "contract-bundle identity lacks its release digest"
+    );
+}
+
+#[test]
+fn review_declares_explicit_post_assembly_contract_bundle_binding() {
+    let review = review_json();
+    assert!(review.contains(&format!(
+        "\"targetBundleProfile\":{{\"id\":\"{TARGET_BUNDLE_PROFILE}\",\"digest\":\"{TARGET_BUNDLE_PROFILE_DIGEST}\"}}"
+    )));
+    assert!(
+        review.contains("\"contractBundle\":"),
+        "review does not distinguish the final contract bundle from its target-bundle profile"
+    );
+    assert!(
+        review.contains("\"binding\":\"explicit-after-assembly\""),
+        "review does not state the explicit post-assembly binding law"
+    );
+}
+
+#[test]
+fn invalid_output_requests_refuse_with_the_stable_first_subject() {
+    let cases = [
+        (
+            "wrong domain",
+            vec![output_request(
+                TARGET_IR_ROLE,
+                LoweringOutputKind::TargetIr,
+                "wrong.target-ir/v1",
+            )],
+            TARGET_IR_ROLE,
+        ),
+        (
+            "wrong kind",
+            vec![output_request(
+                TARGET_IR_ROLE,
+                LoweringOutputKind::GeneratedArtifact,
+                OUTER_TARGET_IR_DOMAIN,
+            )],
+            TARGET_IR_ROLE,
+        ),
+        (
+            "unknown role",
+            vec![output_request(
+                "unknown.echo-dpo",
+                LoweringOutputKind::TargetIr,
+                OUTER_TARGET_IR_DOMAIN,
+            )],
+            "unknown.echo-dpo",
+        ),
+        (
+            "duplicate role",
+            vec![target_ir_request(), target_ir_request()],
+            TARGET_IR_ROLE,
+        ),
+        (
+            "out-of-order roles",
+            vec![target_ir_request(), generated_artifact_request()],
+            GENERATED_ARTIFACT_ROLE,
+        ),
+    ];
+
+    for (label, requested_outputs, expected_subject) in cases {
+        let mut request = request();
+        request.requested_outputs = requested_outputs;
+        let refusal = lower(request).expect_err(label);
+        assert_eq!(
+            refusal.kind,
+            ProviderRefusalKind::UnsupportedOutputRole,
+            "{label}"
+        );
+        assert_eq!(
+            refusal.subject.as_deref(),
+            Some(expected_subject),
+            "{label}"
+        );
+    }
 }
 
 #[test]

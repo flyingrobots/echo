@@ -183,11 +183,7 @@ fn request_with_target_ir(
 }
 
 fn request() -> VerificationRequestV1 {
-    request_with_target_ir(
-        hex::decode(include_str!("fixtures/edict-target-ir.hex").trim())
-            .expect("Target IR fixture hex is valid"),
-        limits(64 * 1024),
-    )
+    request_with_target_ir(canonical_bytes(&target_ir_value()), limits(64 * 1024))
 }
 
 fn core_value() -> CanonicalValueV1 {
@@ -199,11 +195,21 @@ fn core_value() -> CanonicalValueV1 {
 }
 
 fn target_ir_value() -> CanonicalValueV1 {
-    decode_canonical_cbor_v1(
+    let mut target_ir = decode_canonical_cbor_v1(
         &hex::decode(include_str!("fixtures/edict-target-ir.hex").trim())
             .expect("Target IR fixture hex is valid"),
     )
-    .expect("Target IR fixture is canonical")
+    .expect("Target IR fixture is canonical");
+    let target_profile_digest = bound("echo.dpo@1", TARGET_PROFILE_DOMAIN, TARGET_PROFILE.to_vec())
+        .reference
+        .digest
+        .bytes;
+    *map_field_mut(map_field_mut(&mut target_ir, "targetProfile"), "digest") =
+        CanonicalValueV1::Array(vec![
+            text("sha256"),
+            CanonicalValueV1::Bytes(target_profile_digest),
+        ]);
+    target_ir
 }
 
 fn bind_core(request: &mut VerificationRequestV1, core: &CanonicalValueV1) {
@@ -402,19 +408,19 @@ fn packaged_semantic_resource_bytes_are_pinned() {
     let resources = [
         (
             TARGET_PROFILE,
-            "95626e5be6e6b2c1c8aa1858277f1c67487ab6724b08408eb3c0054adce6b1eb",
+            "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85",
         ),
         (
             LAWPACK,
-            "df62a4ff2b56f9553c80cf400728cab3717f5f442c4c2fc415d2c89c21c41dad",
+            "679b090774088b46413a4697a646f10c3627d9f7f698380237db72e0b11739a1",
         ),
         (
             TARGET_AUTHORITY,
-            "d17b03810ecc53f288aa1de457a5ba295c537c4f64046f8e3777b8f98ff3fc86",
+            "e4984d3ce0d9195f23ee30c2d36b46814d0872e294266ac30959a5a95b1f5f7e",
         ),
         (
             LAWPACK_AUTHORITY,
-            "3911de5075d3709a3ba40419e4b67f1226961f3520ba9dfbbad78278c9bb0e96",
+            "022658a64fa8f693388e3f21354ebe3125eba0ea1fedf140b7c87f0c76cf08dc",
         ),
     ];
 
@@ -425,11 +431,7 @@ fn packaged_semantic_resource_bytes_are_pinned() {
 
 #[test]
 fn changed_target_intrinsic_is_rejected() {
-    let mut target_ir = decode_canonical_cbor_v1(
-        &hex::decode(include_str!("fixtures/edict-target-ir.hex").trim())
-            .expect("Target IR fixture hex is valid"),
-    )
-    .expect("Target IR fixture is canonical");
+    let mut target_ir = target_ir_value();
     let intent = map_field_mut(map_field_mut(&mut target_ir, "intents"), "t");
     let CanonicalValueV1::Array(steps) = map_field_mut(intent, "steps") else {
         panic!("steps is not an array");
@@ -470,8 +472,7 @@ fn output_overclaim_names_the_first_unsupported_role() {
 fn repeated_verification_is_byte_identical() {
     let first = verify(request()).expect("first verification succeeds");
     let second = verify(request_with_target_ir(
-        hex::decode(include_str!("fixtures/edict-target-ir.hex").trim())
-            .expect("Target IR fixture hex is valid"),
+        canonical_bytes(&target_ir_value()),
         limits(1024 * 1024),
     ))
     .expect("second verification succeeds");

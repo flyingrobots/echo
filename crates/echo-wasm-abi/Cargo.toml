@@ -13,6 +13,7 @@ keywords = ["echo", "warp", "wasm", "abi", "dto"]
 categories = ["wasm", "encoding", "data-structures"]
 
 [dependencies]
+echo-registry-api = { workspace = true }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 ciborium = { version = "0.2", default-features = false }
 serde-value = { version = "0.7" }

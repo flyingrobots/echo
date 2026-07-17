@@ -18,3 +18,4 @@ std-env crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture temp di
 std-fs crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture I/O only.
 std-process crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture temp directory disambiguation only.
 std-fs crates/warp-math/tests/trig_golden_vectors.rs golden-vector fixture read/write only.
+std-fs crates/echo-edict-provider-lowerer/tests/lowerer_contract.rs explicit ignored checked generated-helper fixture regeneration only.

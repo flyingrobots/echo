@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const EXPECTED_ASSET_FILE_COUNT: usize = 35;
+const EXPECTED_ASSET_FILE_COUNT: usize = 38;
+const EXPECTED_LOWERER_RESOURCE_COUNT: usize = 4;
+const EXPECTED_VERIFIER_RESOURCE_COUNT: usize = 15;
 static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct TestDirectory(PathBuf);
@@ -106,4 +108,73 @@ fn asset_check_reports_drift_without_repair_and_write_restores_exact_bytes() {
         "restored provider assets do not check:\n{}",
         String::from_utf8_lossy(&final_check.stderr)
     );
+}
+
+#[test]
+fn component_resource_check_reports_drift_and_write_restores_exact_bytes() {
+    let directory = TestDirectory::new("component-resources");
+    let assets_root = directory.path().join("assets-v1");
+    let lowerer_root = directory.path().join("lowerer-resources");
+    let verifier_root = directory.path().join("verifier-resources");
+    let assets_root_text = assets_root.to_string_lossy();
+    let lowerer_root_text = lowerer_root.to_string_lossy();
+    let verifier_root_text = verifier_root.to_string_lossy();
+    let roots = [
+        "--assets-root",
+        assets_root_text.as_ref(),
+        "--check-package-list",
+        "--sync-component-resources",
+        "--lowerer-resources-root",
+        lowerer_root_text.as_ref(),
+        "--verifier-resources-root",
+        verifier_root_text.as_ref(),
+    ];
+
+    let mut write_arguments = vec!["--write"];
+    write_arguments.extend(roots);
+    let written = run_assets(&write_arguments);
+    assert!(
+        written.status.success(),
+        "component resource write failed:\n{}",
+        String::from_utf8_lossy(&written.stderr)
+    );
+    let written_stdout = String::from_utf8_lossy(&written.stdout);
+    assert!(written_stdout.contains("Package-local provider assets synchronized"));
+    assert!(written_stdout.contains("Cargo package selects the exact provider asset tree"));
+    assert!(written_stdout.contains("Provider component resources synchronized"));
+    assert_eq!(count_files(&assets_root), EXPECTED_ASSET_FILE_COUNT);
+    assert_eq!(count_files(&lowerer_root), EXPECTED_LOWERER_RESOURCE_COUNT);
+    assert_eq!(
+        count_files(&verifier_root),
+        EXPECTED_VERIFIER_RESOURCE_COUNT
+    );
+
+    let changed_path = verifier_root.join("generated-artifact-profile.echo-dpo-registration.cbor");
+    std::fs::write(&changed_path, b"tampered verifier resource")
+        .expect("verifier resource is deliberately changed");
+    let checked = run_assets(&roots);
+    assert!(!checked.status.success());
+    assert!(String::from_utf8_lossy(&checked.stderr)
+        .contains("changed: generated-artifact-profile.echo-dpo-registration.cbor"));
+    assert_eq!(
+        std::fs::read(&changed_path).expect("changed verifier resource remains readable"),
+        b"tampered verifier resource"
+    );
+
+    let restored = run_assets(&write_arguments);
+    assert!(
+        restored.status.success(),
+        "component resource restore failed:\n{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let final_check = run_assets(&roots);
+    assert!(
+        final_check.status.success(),
+        "restored component resources do not check:\n{}",
+        String::from_utf8_lossy(&final_check.stderr)
+    );
+    let final_stdout = String::from_utf8_lossy(&final_check.stdout);
+    assert!(final_stdout.contains("Package-local provider assets are current"));
+    assert!(final_stdout.contains("Cargo package selects the exact provider asset tree"));
+    assert!(final_stdout.contains("Provider component resources are current"));
 }

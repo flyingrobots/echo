@@ -60,9 +60,9 @@ only, not registry semantics or callback behavior. A proof-owning
 runtime-owner installer port. `TrustedRuntimeHost` creates a distinct owned
 provider record and atomically updates provider package, root, operation, and
 shared scheduler-rule indexes. It invokes no callback and invents no
-Wesley/GraphQL metadata or legacy installed-contract evidence. Generated code
-cannot install itself, and the application handle exposes no installation
-surface.
+Wesley/GraphQL metadata or legacy installed-contract evidence.
+Generated code cannot install itself. The application handle exposes no
+installation surface.
 
 An installed provider mutation can now enter Echo through
 `TrustedRuntimeHost::admit_provider_contract_submission_v1(...)` after ordinary

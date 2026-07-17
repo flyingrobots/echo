@@ -342,10 +342,16 @@ canonical rule name to one independently identified host mutation
 implementation, then return an opaque `ProviderContractPackageProposalV1` only
 when every claim agrees. This is fail-closed cross-binding, not proof that
 arbitrary callback code implements the declared semantics. The proposal does
-not authenticate or install itself; a trusted Echo host still owns package
-admission and installation. Its constructor supports mutations and refuses a
-`Query`. Authored reads continue through a separate bounded observer/optic
-crossing and may not be encoded as synthetic mutations.
+not authenticate or install itself. `TrustedRuntimeHost` can now compare its
+complete occurrence and registry claims with an independently constructed
+`ProviderContractAdmissionPolicyV1` and retain an opaque
+`AdmittedProviderContractPackageV1`. This admits the pinned claim only: it does
+not rehash the distribution bytes, install a handler, mutate the engine,
+schedule work, or invoke a callback. Exact package-byte corroboration and the
+provider-native installation crossing remain separately owned. The proposal
+constructor supports mutations and refuses a `Query`. Authored reads continue
+through a separate bounded observer/optic crossing and may not be encoded as
+synthetic mutations.
 
 Both refreshed components have crossed reproducible checked promotion. The
 lowerer is 189,668 bytes with SHA-256
@@ -765,10 +771,14 @@ host boundary.
 
 For the current Edict mutation path, the generated descriptor and an explicit
 host implementation must agree on every registry identity before Echo will even
-retain an opaque package proposal. That preflight neither validates arbitrary
-callback semantics nor installs the proposal. A trusted Echo host remains
-responsible for authenticating the occurrence and crossing into
-`InstalledContractPackage`.
+retain an opaque package proposal. A trusted Echo host then independently pins
+the complete occurrence and provider registry before returning an opaque
+admitted token. Neither preflight validates arbitrary callback semantics, and
+the second crossing admits a digest claim rather than rehashing package bytes.
+The next crossing must corroborate exact package admission and consume the token
+through a provider-native installed record while reusing Echo's existing atomic
+engine indexes. It must not fabricate the GraphQL and Wesley metadata required
+by the legacy `InstalledContractPackage` surface.
 
 ## Admission Security Ramp
 

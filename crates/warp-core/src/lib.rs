@@ -273,7 +273,9 @@ pub use payload::{
     motion_payload_type_id_v0,
 };
 pub use provider_contract::{
-    propose_provider_contract_package_v1, GeneratedProviderMutationDispatchV1,
+    propose_provider_contract_package_v1, AdmittedProviderContractPackageV1,
+    GeneratedProviderMutationDispatchV1, ProviderContractAdmissionError,
+    ProviderContractAdmissionErrorKind, ProviderContractAdmissionPolicyV1,
     ProviderContractPackageProposalV1, ProviderMutationExecuteFnV1, ProviderMutationFootprintFnV1,
     ProviderMutationHooksV1, ProviderMutationHostV1, ProviderMutationImplementationIdentityV1,
     ProviderMutationMatchFnV1, ProviderPackageProposalError, ProviderPackageProposalErrorKind,

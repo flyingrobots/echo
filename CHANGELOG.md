@@ -7,6 +7,16 @@
 
 ### Added
 
+- `TrustedRuntimeHost` can now admit an opaque Edict provider proposal against
+  an independently constructed `ProviderContractAdmissionPolicyV1`. The pure
+  crossing compares the complete host-owned package occurrence claim and
+  provider registry—including schema, target-bundle profile, semantic and
+  release identities, ABI/helper versions, operations, codecs, Target IR,
+  obstruction, profiles, and footprint claims—and returns stable typed
+  mismatches. The resulting `AdmittedProviderContractPackageV1` retains private
+  proposal material for a later provider-native installation crossing but does
+  not rehash package bytes, mutate the engine registry, install handlers,
+  invoke callbacks, schedule work, or grant application authority.
 - The checked Echo Edict provider conformance corpus now declares twelve
   reviewed executable obligations: exactly six owned by the isolated host
   executor and six by the package executor, with one accepted, nine rejected,

@@ -148,16 +148,18 @@ Existing trusted-host installation API (a later crossing):
 host.register_contract_package(installed_package)?;
 ```
 
-Edict's generated helper and explicit host bindings currently produce an opaque
+Edict's generated helper and explicit host bindings produce an opaque
 `ProviderContractPackageProposalV1`. The proposal retains generated registry
-metadata and one host-supplied mutation binding after pure identity preflight,
-but it does not authenticate the package occurrence, construct an
-`InstalledContractPackage`, register anything, or mint runtime authority. A
-separately tracked trusted-host admission flow must authenticate and admit the
-proposal, construct the runtime package, and only then call the installation API
-above. Jim retains its domain meaning; Echo receives an admitted generic
-contract operation, canonical intent bytes, declared support, and its host
-binding only after that later crossing.
+metadata and one host-supplied mutation binding after pure identity preflight.
+`TrustedRuntimeHost` can now compare that occurrence claim and complete registry
+with independent policy and return an opaque
+`AdmittedProviderContractPackageV1`. This does not load or rehash package bytes,
+construct the legacy Wesley `InstalledContractPackage`, register anything, or
+mint execution authority. A later provider-native installation crossing must
+corroborate the token with exact package admission and reuse Echo's existing
+engine indexes. Jim retains its domain meaning; Echo receives an admitted
+generic contract operation, canonical intent bytes, declared support, and its
+host binding only after that later crossing.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -748,10 +750,10 @@ The Jim example generalizes into a practical checklist.
    digests, and provenance; bind supported mutation handlers into an opaque,
    non-installing provider proposal while keeping bounded observers on their
    separate read path.
-4. Pass the preflighted proposal into the separately tracked trusted-host
-   admission and installation flow; that later crossing must authenticate the
-   package occurrence, construct an `InstalledContractPackage`, and register it
-   before any runtime authority exists.
+4. Pass the preflighted proposal through independent trusted-host policy to
+   obtain an opaque admitted token. A later crossing must corroborate exact
+   package bytes, construct a provider-native installed record, and reuse Echo's
+   existing engine registration machinery before execution authority exists.
 5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work

@@ -243,6 +243,113 @@ impl fmt::Display for ProviderPackageProposalError {
 
 impl std::error::Error for ProviderPackageProposalError {}
 
+/// Independently pinned Echo policy for admitting one provider proposal.
+///
+/// The policy is a runtime-owner claim. It does not derive expectations from
+/// the proposal it evaluates and grants no installation or execution authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProviderContractAdmissionPolicyV1<'a> {
+    /// Exact host-approved package occurrence claim.
+    pub expected_occurrence: ContractPackageIdentity<'a>,
+    /// Exact host-approved provider registry proposition.
+    pub expected_registry: ProviderRegistryV1<'a>,
+}
+
+/// Stable reason an Echo provider-proposal admission failed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderContractAdmissionErrorKind {
+    /// The runtime package name differed from policy.
+    PackageNameMismatch,
+    /// The runtime package version differed from policy.
+    PackageVersionMismatch,
+    /// The exact package artifact hash differed from policy.
+    PackageArtifactHashMismatch,
+    /// The package occurrence differed in a field without a narrower classifier.
+    PackageOccurrenceMismatch,
+    /// The Echo contract ABI version differed from policy.
+    EchoAbiMismatch,
+    /// The contract-host helper API version differed from policy.
+    HelperApiMismatch,
+    /// The provider schema coordinate or exact raw digest differed from policy.
+    ProviderSchemaMismatch,
+    /// The target-bundle-profile identity differed from policy.
+    TargetBundleProfileMismatch,
+    /// The semantic bundle identity differed from policy.
+    SemanticBundleMismatch,
+    /// The release bundle identity differed from policy.
+    ReleaseBundleMismatch,
+    /// The provider operation set differed from policy.
+    OperationSetMismatch,
+    /// The provider registry differed in a field without a narrower classifier.
+    RegistryMismatch,
+}
+
+/// Structured failure from Echo-owned provider-proposal admission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderContractAdmissionError {
+    kind: ProviderContractAdmissionErrorKind,
+    subject: String,
+    reference: Option<String>,
+}
+
+impl ProviderContractAdmissionError {
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    fn new(
+        kind: ProviderContractAdmissionErrorKind,
+        subject: &'static str,
+        reference: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            subject: subject.to_owned(),
+            reference: Some(reference.into()),
+        }
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    fn without_reference(kind: ProviderContractAdmissionErrorKind, subject: &'static str) -> Self {
+        Self {
+            kind,
+            subject: subject.to_owned(),
+            reference: None,
+        }
+    }
+
+    /// Return the stable typed failure reason.
+    #[must_use]
+    pub const fn kind(&self) -> ProviderContractAdmissionErrorKind {
+        self.kind
+    }
+
+    /// Return the stable proposition subject that failed admission.
+    #[must_use]
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// Return the rejected value when one is available.
+    #[must_use]
+    pub fn reference(&self) -> Option<&str> {
+        self.reference.as_deref()
+    }
+}
+
+impl fmt::Display for ProviderContractAdmissionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "provider contract admission failed for {}",
+            self.subject
+        )?;
+        if let Some(reference) = &self.reference {
+            write!(formatter, " ({reference})")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ProviderContractAdmissionError {}
+
 /// Opaque provider package proposal with no runtime installation authority.
 pub struct ProviderContractPackageProposalV1<'a> {
     occurrence: ContractPackageIdentity<'a>,
@@ -267,6 +374,198 @@ impl<'a> ProviderContractPackageProposalV1<'a> {
     pub fn mutation_operation_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
         core::iter::once(self.mutation_handler.op_id)
     }
+}
+
+/// Opaque provider package admitted by an Echo runtime owner.
+///
+/// This token retains the exact proposal material for a later trusted
+/// installation crossing. It does not install handlers, mutate a registry,
+/// schedule work, execute callbacks, or grant application authority.
+pub struct AdmittedProviderContractPackageV1<'a> {
+    proposal: ProviderContractPackageProposalV1<'a>,
+}
+
+impl<'a> AdmittedProviderContractPackageV1<'a> {
+    /// Return the exact host-admitted package occurrence claim.
+    #[must_use]
+    pub const fn occurrence(&self) -> &ContractPackageIdentity<'a> {
+        self.proposal.occurrence()
+    }
+
+    /// Return the exact host-admitted provider registry proposition.
+    #[must_use]
+    pub const fn registry(&self) -> &ProviderRegistryV1<'a> {
+        self.proposal.registry()
+    }
+
+    /// Iterate the mutation operation identifiers retained for later installation.
+    pub fn mutation_operation_ids(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.proposal.mutation_operation_ids()
+    }
+}
+
+impl fmt::Debug for AdmittedProviderContractPackageV1<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdmittedProviderContractPackageV1")
+            .field("occurrence", self.occurrence())
+            .field("registry", self.registry())
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+fn provider_operation_set_reference(operations: &[ProviderOperationV1<'_>]) -> String {
+    if operations.is_empty() {
+        return "<empty>".to_owned();
+    }
+    operations
+        .iter()
+        .map(|operation| format!("{}#{}", operation.coordinate, operation.operation_id))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Admit one exact provider proposal under independently supplied Echo policy.
+///
+/// This pure validator compares the complete occurrence and provider-registry
+/// proposition before retaining the opaque proposal. It performs no registry,
+/// scheduler, filesystem, environment, process, clock, randomness, or network
+/// operation.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn admit_provider_contract_package_v1<'a>(
+    policy: &ProviderContractAdmissionPolicyV1<'_>,
+    proposal: ProviderContractPackageProposalV1<'a>,
+) -> Result<AdmittedProviderContractPackageV1<'a>, ProviderContractAdmissionError> {
+    let actual_occurrence = proposal.occurrence();
+    let expected_occurrence = &policy.expected_occurrence;
+    if actual_occurrence.package_name != expected_occurrence.package_name {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::PackageNameMismatch,
+            "provider.package.name",
+            actual_occurrence.package_name,
+        ));
+    }
+    if actual_occurrence.package_version != expected_occurrence.package_version {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::PackageVersionMismatch,
+            "provider.package.version",
+            actual_occurrence.package_version,
+        ));
+    }
+    if actual_occurrence.artifact_hash_hex != expected_occurrence.artifact_hash_hex {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::PackageArtifactHashMismatch,
+            "provider.package.artifact-hash",
+            actual_occurrence.artifact_hash_hex,
+        ));
+    }
+    // Whole-value equality is the authoritative gate. The classifiers above
+    // preserve useful current diagnostics; this fallback makes future fields
+    // fail closed until they receive an intentional stable classification.
+    if actual_occurrence != expected_occurrence {
+        return Err(ProviderContractAdmissionError::without_reference(
+            ProviderContractAdmissionErrorKind::PackageOccurrenceMismatch,
+            "provider.package.occurrence",
+        ));
+    }
+
+    let actual = proposal.registry();
+    let expected = &policy.expected_registry;
+    if actual.echo_contract_abi_version != expected.echo_contract_abi_version {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::EchoAbiMismatch,
+            "provider.registry.echo-contract-abi-version",
+            actual.echo_contract_abi_version.to_string(),
+        ));
+    }
+    if actual.helper_api_version != expected.helper_api_version {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::HelperApiMismatch,
+            "provider.registry.helper-api-version",
+            actual.helper_api_version.to_string(),
+        ));
+    }
+    if actual.provider_schema.coordinate != expected.provider_schema.coordinate {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::ProviderSchemaMismatch,
+            "provider.registry.schema.coordinate",
+            actual.provider_schema.coordinate,
+        ));
+    }
+    if actual.provider_schema.raw_sha256_hex != expected.provider_schema.raw_sha256_hex {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::ProviderSchemaMismatch,
+            "provider.registry.schema.raw-sha256",
+            actual.provider_schema.raw_sha256_hex,
+        ));
+    }
+    if actual.target_bundle_profile.coordinate != expected.target_bundle_profile.coordinate {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::TargetBundleProfileMismatch,
+            "provider.registry.target-bundle-profile.coordinate",
+            actual.target_bundle_profile.coordinate,
+        ));
+    }
+    if actual.target_bundle_profile.digest_domain != expected.target_bundle_profile.digest_domain {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::TargetBundleProfileMismatch,
+            "provider.registry.target-bundle-profile.digest-domain",
+            actual.target_bundle_profile.digest_domain,
+        ));
+    }
+    if actual.target_bundle_profile.digest != expected.target_bundle_profile.digest {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::TargetBundleProfileMismatch,
+            "provider.registry.target-bundle-profile.digest",
+            actual.target_bundle_profile.digest,
+        ));
+    }
+    if actual.bundle.semantic_digest_domain != expected.bundle.semantic_digest_domain {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::SemanticBundleMismatch,
+            "provider.registry.bundle.semantic",
+            actual.bundle.semantic_digest_domain,
+        ));
+    }
+    if actual.bundle.semantic_digest != expected.bundle.semantic_digest {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::SemanticBundleMismatch,
+            "provider.registry.bundle.semantic",
+            actual.bundle.semantic_digest,
+        ));
+    }
+    if actual.bundle.release_digest_domain != expected.bundle.release_digest_domain {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::ReleaseBundleMismatch,
+            "provider.registry.bundle.release",
+            actual.bundle.release_digest_domain,
+        ));
+    }
+    if actual.bundle.release_digest != expected.bundle.release_digest {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::ReleaseBundleMismatch,
+            "provider.registry.bundle.release",
+            actual.bundle.release_digest,
+        ));
+    }
+    if actual.operations != expected.operations {
+        return Err(ProviderContractAdmissionError::new(
+            ProviderContractAdmissionErrorKind::OperationSetMismatch,
+            "provider.registry.operations",
+            provider_operation_set_reference(actual.operations),
+        ));
+    }
+    // As above, admit only the complete registry proposition, including fields
+    // added after this classifier list was written.
+    if actual != expected {
+        return Err(ProviderContractAdmissionError::without_reference(
+            ProviderContractAdmissionErrorKind::RegistryMismatch,
+            "provider.registry",
+        ));
+    }
+
+    Ok(AdmittedProviderContractPackageV1 { proposal })
 }
 
 /// Construct one pure provider mutation package proposal.

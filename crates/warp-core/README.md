@@ -82,12 +82,18 @@ Echo-owned matcher reads. Matching identities and footprints are preflight
 claims, not proof that arbitrary host callback code implements the declared
 semantics.
 
-The proposal is deliberately non-installing: it grants no admission,
-registration, scheduling, execution, durability, receipt, or observation
-authority. A trusted Echo host must perform the later package admission and
-installation crossing. This constructor is mutation-specific and rejects query
-operations. Authored reads remain on the separate bounded observer/optic path;
-they are never represented as synthetic mutations.
+The proposal is deliberately non-installing. A trusted Echo host can now
+compare its complete occurrence and provider-registry claims with an
+independently constructed `ProviderContractAdmissionPolicyV1` and return an
+opaque `AdmittedProviderContractPackageV1`. Semantic and release mismatch are
+distinct typed failures, and neither success nor failure installs a handler or
+invokes a callback. This first Echo crossing admits pinned claims; it does not
+rehash the provider package bytes, register a rule, schedule work, emit a
+receipt, or grant application authority. Exact package-byte corroboration and
+provider-native installation remain later crossings. The mutation proposal
+constructor still rejects query operations. Authored reads remain on the
+separate bounded observer/optic path; they are never represented as synthetic
+mutations.
 
 ## Documentation
 

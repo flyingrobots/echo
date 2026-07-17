@@ -37,16 +37,19 @@ use crate::{
         TRUSTED_RUNTIME_WAL_DOMAIN,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
-    CausalAnchorAdmissionRequest, CausalAnchorClaim, CausalAnchorError, CausalAnchorId,
-    CausalAnchorRootSupportPolicy, CausalAnchorSupportError, CausalFrontierRef,
-    ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseDerivation,
-    ContractInverseHistoryObstruction, ContractInverseObstruction, ContractOperationKind, Engine,
-    IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
-    IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
-    InstalledContractPackageRecord, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
-    IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact, ObservationError,
-    ObservationRequest, ObservationService, OpticAdmissionTicket, ProvenanceEntry,
-    ProvenanceService, ProvenanceStore, ReceiptCorrelationPersistenceRecord,
+    provider_contract::admit_provider_contract_package_v1,
+    AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
+    CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
+    CausalFrontierRef, ContractInverseAdmissionRequest, ContractInverseContext,
+    ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
+    ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
+    IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
+    InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
+    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
+    IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
+    ObservationService, OpticAdmissionTicket, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+    ProviderContractAdmissionError, ProviderContractAdmissionPolicyV1,
+    ProviderContractPackageProposalV1, ReceiptCorrelationPersistenceRecord,
     ReceiptCorrelationRecord, RetainedProvenanceError, RuntimeError, SchedulerCoordinator,
     StepRecord, TickReceiptRejection, TicketedRuntimeIngressAuthority,
     TicketedRuntimeIngressDisposition, WitnessedSubmissionPersistenceRecord,
@@ -683,6 +686,23 @@ impl TrustedRuntimeHost {
     /// scheduler faults.
     pub fn app(&mut self) -> TrustedRuntimeApp<'_> {
         TrustedRuntimeApp { host: self }
+    }
+
+    /// Admits an exact provider proposal under independently pinned host policy.
+    ///
+    /// This crossing retains an opaque admitted token only. It does not install
+    /// handlers, mutate the engine registry, schedule work, or invoke callbacks.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured admission error when any package occurrence or
+    /// provider-registry proposition differs from policy.
+    pub fn admit_provider_contract_package_v1<'a>(
+        &self,
+        policy: &ProviderContractAdmissionPolicyV1<'_>,
+        proposal: ProviderContractPackageProposalV1<'a>,
+    ) -> Result<AdmittedProviderContractPackageV1<'a>, ProviderContractAdmissionError> {
+        admit_provider_contract_package_v1(policy, proposal)
     }
 
     /// Registers a generated contract package through the trusted host boundary.

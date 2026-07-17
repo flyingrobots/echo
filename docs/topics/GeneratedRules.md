@@ -31,23 +31,29 @@ the typed input into canonical EINT v1. The EINT `vars` payload remains opaque,
 codec-owned bytes rather than a universal canonical-CBOR value.
 
 That provider package and descriptor are compiler/publication artifacts. They
-are not an Echo registry entry, `InstalledContractPackage`, installation token,
-submitted intent, execution receipt, or observation. The descriptor exposes a
-borrowed, provider-generic registry and can combine its generated matcher with
-one explicitly identity-bound host implementation to produce an opaque,
-non-installing provider package proposal. Proposal preflight fails closed across
-the complete operation, Target IR, bundle, profile, schema, codec, obstruction,
-ABI, helper API, and footprint claims. Matching callback claims are
-cross-binding evidence, not proof that arbitrary callback code implements the
-claimed semantics.
+are not an Echo registry entry, installed package, submitted intent, execution
+receipt, or observation. The descriptor exposes a borrowed, provider-generic
+registry and can combine its generated matcher with one explicitly
+identity-bound host implementation to produce an opaque, non-installing
+provider package proposal. Proposal preflight fails closed across the complete
+operation, Target IR, bundle, profile, schema, codec, obstruction, ABI, helper
+API, and footprint claims. Matching callback claims are cross-binding evidence,
+not proof that arbitrary callback code implements the claimed semantics.
+The result is a non-installing provider package proposal.
 
-Echo separately implements `InstalledContractPackage` verification,
-`Engine::register_contract_package`, scheduler-owned execution for registered
-handlers, and `rule_pack_id` stamping. A trusted Echo host still has to consume
-the opaque provider proposal, make its own admission decision, and perform the
-actual installation crossing; generated code cannot install itself. The Edict
-provider package is admitted by its compiler/host contracts, but it is not
-thereby admitted or installed by Echo.
+`TrustedRuntimeHost` can now consume that proposal under an independently
+constructed `ProviderContractAdmissionPolicyV1`. Exact agreement on the
+host-owned occurrence claim and complete provider registry yields an opaque
+`AdmittedProviderContractPackageV1`; semantic and release mismatches remain
+distinct typed failures. This is claim admission, not package-byte admission:
+the crossing performs no package loading or rehashing. It also performs no
+installation, registry mutation, callback invocation, scheduling, receipt, or
+observation. Echo's existing `InstalledContractPackage` verification and
+`Engine::register_contract_package` remain the Wesley compatibility path. The
+next Edict crossing must corroborate the admitted token with exact package
+evidence and consume it through a provider-native installed record that reuses
+Echo's atomic engine indexes rather than inventing a Wesley/GraphQL adapter.
+Generated code cannot install itself.
 
 `native_rule_bootstrap` is a Cargo feature gate and repository policy boundary.
 Default builds omit raw rule constructors and public registration methods, but
@@ -66,8 +72,9 @@ Wesley or Edict source
 -> generated Rust handlers, bounded observers, and footprints
 -> generated typed codecs, EINT helpers, registry, and package metadata
 -> opaque provider package proposal with explicit host binding
--> InstalledContractPackage verification
--> Engine::register_contract_package
+-> Echo-owned exact proposal-claim admission
+-> exact package corroboration and provider-native installation
+-> existing atomic engine rule and operation indexes
 -> scheduler-owned execution
 -> receipt / reading evidence carrying package and rule-pack identity
 ```
@@ -75,13 +82,14 @@ Wesley or Edict source
 Both authoring systems still need generated bridges into Echo's runtime package
 surface. Wesley needs a package emitter. Edict already emits a digest-locked
 provider publication package, codec-bound mutation client, borrowed registry,
-and fail-closed package proposal. It still needs the trusted host crossing that
-admits and installs that proposal as an `InstalledContractPackage`, plus the
-separate generated bounded-observer path for authored reads. The current
-mutation proposal intentionally rejects `Query`; that refusal does not turn a
-read into a mutation or eliminate the independent observer/optic corridor. All
-installation work must reuse Echo's registration and execution path; it must
-not create a second execution engine.
+and fail-closed package proposal. Echo now admits the exact proposal claim under
+independent trusted-host policy, but it still needs exact package
+corroboration, a provider-native installed record, and the separate generated
+bounded-observer path for authored reads. The current mutation proposal
+intentionally rejects `Query`; that refusal does not turn a read into a mutation
+or eliminate the independent observer/optic corridor. All installation work
+must reuse Echo's registration and execution path; it must not fabricate Wesley
+metadata or create a second execution engine.
 
 ## Footprint Honesty
 
@@ -108,9 +116,10 @@ trigger hidden retries or widen access.
   registration.
 - Product and adapter crates do not enable `native_rule_bootstrap`.
 - Generators emit artifacts, descriptors, and opaque proposals without
-  registering themselves. Trusted hosts register package-qualified generated
-  material through `InstalledContractPackage`, not an app-specific engine
-  escape hatch.
+  registering themselves. Trusted hosts independently admit proposal claims,
+  corroborate exact package evidence, and register package-qualified generated
+  material through the appropriate provider-native or Wesley compatibility
+  record—not an app-specific engine escape hatch.
 - Registry/package identity, operation identity, codec/schema compatibility,
   and footprint metadata are verified before the engine mutates registration
   state.

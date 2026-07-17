@@ -57,9 +57,10 @@
   application range, but schema admission alone does not prove derivation or
   collision freedom: semantic generation recomputes the law and checks the
   complete operation set. This packages an exact operation-identity proposition
-  but does not register, install, authorize, or execute the operation, and
-  generated source does not expose the id until a later descriptor consumes
-  that packaged proposition.
+  but does not register, install, authorize, or execute the operation. Generated
+  source now carries public expected constants for the profile-owned law and id,
+  requires both as untrusted bundle claims, refuses disagreement, and exposes
+  the matched claim through the resulting private-state registration descriptor.
 - Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
   Component Model implementation for the first checked provider closure. The
   pure lowerer accepts only explicit digest-bound Core, target-profile,

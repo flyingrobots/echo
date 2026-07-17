@@ -214,13 +214,16 @@ Either reserved result and any package-local collision refuse without salting
 or probing. The owning CDDL limits `operationId` to `0..4294967293`, proving only
 the numeric application domain; semantic generation must still recompute the
 coordinate-and-kind law and collision-check the complete set. Generated source
-does not yet expose the id; that later descriptor must consume this packaged
-proposition rather than mint a new one. The invocation codec also remains absent
-until generated codecs prove its exact byte contract. Runtime `reviewPayload`
-remains distinct from Wesley `GenerationReviewV1`. The refreshed component has
-crossed checked promotion; actual host validation of the generated and review
-envelopes under their owning CDDL roots is still required before those outputs
-are admitted.
+now carries public expected constants for the packaged law and id, requires them
+as untrusted bundle claims, and refuses disagreement before returning a
+private-state descriptor that exposes the matched id claim. It does not
+independently derive a runtime identity or construct a registry. The invocation
+codec also remains absent until generated codecs prove its exact byte contract.
+Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`. The
+refreshed component has crossed checked promotion, and the actual pinned host
+admits the generated envelope under its owning `generated-artifact` CDDL root.
+The review envelope still requires its independent host-side CDDL admission
+before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest

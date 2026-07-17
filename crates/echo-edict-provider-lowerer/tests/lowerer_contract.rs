@@ -22,9 +22,6 @@ const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-d
 const LAWPACK: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
-const PROVIDER_SCHEMA: &[u8] = include_bytes!(
-    "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
-);
 
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";
@@ -48,6 +45,10 @@ const GENERATED_SOURCE_MEDIA_TYPE: &str = "text/rust; charset=utf-8";
 const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
+const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
+    "dcf2cc739bb855cb4c9578c2fbc35f0c99b58f8c83d5f290c51498dd658c8232";
+const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
+const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -915,13 +916,31 @@ fn generated_source_exposes_explicit_post_assembly_bundle_binding() {
 }
 
 #[test]
-fn generated_source_binds_the_exact_checked_provider_schema_occurrence() {
+fn generated_source_binds_the_expected_provider_schema_identity() {
     let source = generated_source();
-    let expected_sha256 = hex::encode(Sha256::digest(PROVIDER_SCHEMA));
 
     assert!(
-        source.contains(&format!("\"{expected_sha256}\"")),
-        "generated source did not bind checked provider schema SHA-256 {expected_sha256}"
+        source.contains(&format!("\"{EXPECTED_PROVIDER_SCHEMA_SHA256_HEX}\"")),
+        "generated source did not bind expected provider schema SHA-256 \
+         {EXPECTED_PROVIDER_SCHEMA_SHA256_HEX}"
+    );
+}
+
+#[test]
+fn generated_source_exposes_the_expected_profile_owned_operation_identity() {
+    let source = generated_source();
+
+    assert!(
+        source.contains(&format!(
+            "pub const OPERATION_ID_LAW: &str = \"{EXPECTED_OPERATION_ID_LAW}\";"
+        )),
+        "generated source did not expose the expected operation-id law"
+    );
+    assert!(
+        source.contains(&format!(
+            "pub const OPERATION_ID: u32 = {EXPECTED_OPERATION_ID};"
+        )),
+        "generated source did not expose the expected operation id"
     );
 }
 
@@ -937,7 +956,8 @@ use echo_dpo::{
     GENERATED_ARTIFACT_PROFILE, GENERATED_ARTIFACT_PROFILE_DIGEST,
     GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN, INPUT_SCHEMA, OBSTRUCTION_COORDINATE,
     OBSTRUCTION_DOMAIN, OBSTRUCTION_PAYLOAD_SCHEMA, OPERATION_COORDINATE, OPERATION_DOMAIN,
-    OPERATION_PROFILE, OPERATION_PROFILES_COORDINATE, OPERATION_PROFILES_DIGEST,
+    OPERATION_ID, OPERATION_ID_LAW, OPERATION_PROFILE, OPERATION_PROFILES_COORDINATE,
+    OPERATION_PROFILES_DIGEST,
     OPERATION_PROFILES_DIGEST_DOMAIN, OPERATION_PROFILE_DOMAIN, OUTPUT_SCHEMA,
     PROVIDER_SCHEMA_COORDINATE, PROVIDER_SCHEMA_SHA256_HEX,
     RELEASE_BUNDLE_DIGEST_DOMAIN, SEMANTIC_BUNDLE_DIGEST_DOMAIN,
@@ -971,6 +991,8 @@ fn matching_identity() -> ContractBundleIdentityV1<'static> {
         release_digest: RELEASE_DIGEST,
         operation_coordinate: OPERATION_COORDINATE,
         operation_domain: OPERATION_DOMAIN,
+        operation_id_law: OPERATION_ID_LAW,
+        operation_id: OPERATION_ID,
         target_ir_coordinate: TARGET_IR_COORDINATE,
         target_ir_digest_domain: TARGET_IR_DIGEST_DOMAIN,
         target_ir_digest: TARGET_IR_DIGEST,
@@ -1018,6 +1040,7 @@ fn main() {
     let descriptor = bind_contract_bundle(exact_pin(), matching)
         .expect("bundle claims match the independent host pin");
     assert_eq!(*descriptor.contract_bundle(), matching);
+    assert_eq!(descriptor.operation_id(), OPERATION_ID);
 
     expect_mismatch(
         ContractBundleIdentityV1 {
@@ -1068,6 +1091,20 @@ fn main() {
             ..matching_identity()
         },
         BindingMismatchKind::Operation,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            operation_id_law: "wrong.operation-id-law/v1",
+            ..matching_identity()
+        },
+        BindingMismatchKind::OperationId,
+    );
+    expect_mismatch(
+        ContractBundleIdentityV1 {
+            operation_id: OPERATION_ID + 1,
+            ..matching_identity()
+        },
+        BindingMismatchKind::OperationId,
     );
     expect_mismatch(
         ContractBundleIdentityV1 {

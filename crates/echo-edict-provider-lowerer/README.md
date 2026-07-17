@@ -69,13 +69,16 @@ id for `a.b@1.t`; generation refuses both Echo protocol-reserved ids
 package-local collisions without salting or probing. The generated CDDL bounds
 the numeric application-id domain, while semantic generation independently
 recomputes the law and checks collision freedom; schema admission alone proves
-neither proposition. Emitted source deliberately does not yet expose that id
-until its registration descriptor consumes the packaged proposition, and a
-codec identity must wait for matching generated codec implementations. Registry
-layout and package preflight remain separate #656 steps. The refreshed checked
-component has crossed the reproducible promotion boundary, while host-side
-admission of the generated and review envelopes under their owning Edict CDDL
-roots remains an independent crossing.
+neither proposition. Emitted source carries public expected constants for that
+exact law and id without re-deriving them, requires both as untrusted bundle
+claims, and refuses a disagreement before its private-state registration
+descriptor exposes the matched id claim. This is still not registry construction
+or runtime authority. A codec identity must wait for matching generated codec
+implementations. Registry layout and package preflight remain separate #656
+steps. The refreshed checked component has crossed the reproducible promotion
+boundary, and the pinned Edict host admits its generated envelope under the
+owning `generated-artifact` CDDL root. Host-side admission of the review envelope
+remains an independent crossing.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

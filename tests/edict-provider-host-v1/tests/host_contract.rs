@@ -57,6 +57,8 @@ const ECHO_SOURCE: &str = "package a.b@1;\n\
 
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
+const GENERATED_ARTIFACT_ROLE: &str = "generated.echo-dpo";
+const GENERATED_ARTIFACT_DOMAIN: &str = "echo.generated-artifact/v1";
 const LOWERER_ROLE: &str = "lowerer.echo-dpo";
 const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
@@ -74,6 +76,9 @@ const OBSERVATION_MARKER: &str = "ECHO_EDICT_HOST_OBSERVATION=";
 
 const SCHEMA_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/generated/v1/primary/schema.echo-provider-artifacts.cddl"
+);
+const GENERATED_ARTIFACT_PROFILE_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
 );
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
@@ -367,6 +372,7 @@ fn echo_manifest(component_bytes: &'static [u8]) -> &'static TargetProviderManif
             },
         ],
         schema_bindings: [
+            (GENERATED_ARTIFACT_DOMAIN, "generated-artifact"),
             (AUTHORITY_FACTS_API_VERSION, "authority-facts"),
             (CORE_MODULE_DIGEST_DOMAIN, "core-module"),
             (PROVIDER_LAWPACK_ARTIFACT_DOMAIN, "lawpack-manifest"),
@@ -397,6 +403,7 @@ fn echo_registry(
                 bytes: Arc::from(SCHEMA_BYTES),
             }],
             [
+                GENERATED_ARTIFACT_DOMAIN,
                 AUTHORITY_FACTS_API_VERSION,
                 CORE_MODULE_DIGEST_DOMAIN,
                 PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
@@ -692,6 +699,16 @@ fn canonical_map_field_mut<'a>(
     };
     entries
         .iter_mut()
+        .find_map(|(key, value)| (key == &text(field)).then_some(value))
+        .unwrap_or_else(|| panic!("canonical map field `{field}` is absent"))
+}
+
+fn canonical_map_field<'a>(value: &'a CanonicalValue, field: &str) -> &'a CanonicalValue {
+    let CanonicalValue::Map(entries) = value else {
+        panic!("canonical value is not a map");
+    };
+    entries
+        .iter()
         .find_map(|(key, value)| (key == &text(field)).then_some(value))
         .unwrap_or_else(|| panic!("canonical map field `{field}` is absent"))
 }
@@ -1259,6 +1276,71 @@ fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
     assert_eq!(replayed.response(), outcome.response());
     assert_eq!(replayed.manifest(), outcome.manifest());
     assert!(replayed.refusal().is_none());
+}
+
+#[test]
+fn echo_component_emits_profile_owned_operation_identity_through_the_actual_host() {
+    let core = echo_core();
+    let (contract, mut request) = echo_request(&core, TARGET_IR_ROLE);
+    request.requested_outputs = vec![ProviderLoweringOutputRequest {
+        role: GENERATED_ARTIFACT_ROLE.to_owned(),
+        kind: ProviderLoweringOutputKind::GeneratedArtifact,
+        domain: GENERATED_ARTIFACT_DOMAIN.to_owned(),
+    }];
+    let harness = echo_harness_with_request(contract, request);
+    let outcome = harness
+        .host
+        .invoke_lowerer(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("generated artifact crosses complete Edict host admission");
+    assert!(outcome.refusal().is_none());
+    let response = outcome.response().expect("component returns success");
+    assert!(response.diagnostics.is_empty());
+    assert_eq!(response.outputs.len(), 1);
+    let output = &response.outputs[0];
+    assert_eq!(output.role, GENERATED_ARTIFACT_ROLE);
+    assert_eq!(output.kind, ProviderLoweringOutputKind::GeneratedArtifact);
+    assert_eq!(output.artifact.domain, GENERATED_ARTIFACT_DOMAIN);
+    assert_eq!(
+        output.logical_path.as_deref(),
+        Some("generated/echo_dpo.rs")
+    );
+
+    let envelope = decode_canonical_cbor(&output.artifact.bytes)
+        .expect("generated-artifact envelope is canonical CBOR");
+    let CanonicalValue::Bytes(source_bytes) = canonical_map_field(&envelope, "bytes") else {
+        panic!("generated-artifact bytes field is not a byte string");
+    };
+    let source = std::str::from_utf8(source_bytes).expect("generated source is UTF-8");
+    let expected_schema_sha256 = raw_sha256(SCHEMA_BYTES);
+    let profile = decode_canonical_cbor(GENERATED_ARTIFACT_PROFILE_BYTES)
+        .expect("generated-artifact profile is canonical CBOR");
+    let CanonicalValue::Text(operation_id_law) = canonical_map_field(&profile, "operationIdLaw")
+    else {
+        panic!("operation-id law is not text");
+    };
+    let operation = canonical_map_field(canonical_map_field(&profile, "operations"), "a.b@1.t");
+    let CanonicalValue::Integer(operation_id) = canonical_map_field(operation, "operationId")
+    else {
+        panic!("operation id is not an integer");
+    };
+
+    assert!(source.contains(&format!("\"{expected_schema_sha256}\"")));
+    assert!(source.contains(&format!(
+        "pub const OPERATION_ID_LAW: &str = \"{operation_id_law}\";"
+    )));
+    assert!(source.contains(&format!("pub const OPERATION_ID: u32 = {operation_id};")));
+
+    let manifest = outcome.manifest().expect("host authors an output manifest");
+    assert_eq!(manifest.outputs().len(), 1);
+    let entry = &manifest.outputs()[0];
+    assert_eq!(entry.role, GENERATED_ARTIFACT_ROLE);
+    assert_eq!(entry.kind, ProviderLoweringOutputKind::GeneratedArtifact);
+    assert_eq!(entry.domain, GENERATED_ARTIFACT_DOMAIN);
 }
 
 #[test]

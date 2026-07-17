@@ -760,6 +760,10 @@ pub mod echo_dpo {
     pub const OPERATION_COORDINATE: &str = "a.b@1.t";
     /// Semantic domain owning the operation coordinate.
     pub const OPERATION_DOMAIN: &str = "echo.edict-provider/operation/v1";
+    /// Echo-owned law that derives the persisted operation id.
+    pub const OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
+    /// Exact persisted operation id carried by the generated-artifact profile.
+    pub const OPERATION_ID: u32 = 3389142194;
     /// Exact input schema coordinate owned by the generated-artifact profile.
     pub const INPUT_SCHEMA: &str = "a.b@1.Input";
     /// Exact output schema coordinate owned by the generated-artifact profile.
@@ -865,6 +869,10 @@ pub mod echo_dpo {
         pub operation_coordinate: &'a str,
         /// Semantic domain owning the operation coordinate.
         pub operation_domain: &'a str,
+        /// Operation-id law claimed by the generated-artifact profile.
+        pub operation_id_law: &'a str,
+        /// Persisted operation id claimed by the generated-artifact profile.
+        pub operation_id: u32,
         /// Semantic coordinate carried by the Target IR artifact.
         pub target_ir_coordinate: &'a str,
         /// Digest-framing domain for the Target IR artifact.
@@ -944,6 +952,8 @@ pub mod echo_dpo {
         ReleaseBundleDigest,
         /// The bundle names a different semantic operation.
         Operation,
+        /// The bundle names a different persisted operation-id proposition.
+        OperationId,
         /// The bundle names a different Target IR artifact.
         TargetIr,
         /// The bundle names a different target profile.
@@ -974,6 +984,11 @@ pub mod echo_dpo {
         /// Return the exact bundle claims that matched the explicit host pin.
         pub const fn contract_bundle(&self) -> &ContractBundleIdentityV1<'a> {
             &self.contract_bundle
+        }
+
+        /// Return the exact persisted operation id matched by this descriptor.
+        pub const fn operation_id(&self) -> u32 {
+            self.contract_bundle.operation_id
         }
     }
 
@@ -1011,6 +1026,9 @@ pub mod echo_dpo {
             || identity.operation_domain != OPERATION_DOMAIN
         {
             return Err(BindingMismatchKind::Operation);
+        }
+        if identity.operation_id_law != OPERATION_ID_LAW || identity.operation_id != OPERATION_ID {
+            return Err(BindingMismatchKind::OperationId);
         }
         if identity.target_ir_coordinate != TARGET_IR_COORDINATE
             || identity.target_ir_digest_domain != TARGET_IR_DIGEST_DOMAIN

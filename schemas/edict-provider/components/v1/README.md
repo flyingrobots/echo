@@ -4,9 +4,10 @@
 # Echo Edict Provider Components v1
 
 This directory checks the first executable Echo provider components for the
-frozen Edict target-provider worlds. Issue #655 will bind these exact components
-into the digest-locked provider package; their presence here does not claim that
-Echo has installed, admitted, authorized, or executed them.
+frozen Edict target-provider worlds. The digest-locked package assembled under
+Issue #655 binds these exact components by digest. Checked presence and package
+binding do not claim that Echo has installed, admitted, authorized, or executed
+them.
 
 `lowerer.echo-dpo.component.wasm` implements
 `edict:target-provider/lowerer@1.0.0`. It was built from
@@ -22,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 174,820 bytes with SHA-256
-`b0c53a6d305c0b3314f198fe9403310d25d19c5ea1b25ea52dfc37734a4bd9db`.
+The checked component is 175,764 bytes with SHA-256
+`257ab30e76903a2e979a79f59e9eb6382764e292539b968a044d345be57c2c34`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's

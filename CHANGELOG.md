@@ -41,11 +41,13 @@
   `.crate` archive independent of workspace-parent files. An explicit sync tool
   distinguishes authoritative generated/component owners from their checked
   package corroboration, supports staged regeneration without circularity, and
-  checks exact Cargo archive selection. The generator source identity now
-  enumerates 20 files and includes the exact manifest and implementation bytes
-  of its canonicalization, operation-id-law, and provider-registry dependencies.
-  The extracted archive compiles when its still-unpublished Echo dependencies
-  are supplied through local patches.
+  checks exact Cargo archive selection. Fixed owner leaves are opened without
+  following final symbolic links and read twice through one retained descriptor;
+  file-type, length, or byte disagreement refuses a moving owner. The generator
+  source identity now enumerates 20 files and includes the exact manifest and
+  implementation bytes of its canonicalization, operation-id-law, and
+  provider-registry dependencies. The extracted archive compiles when its
+  still-unpublished Echo dependencies are supplied through local patches.
 - Echo now owns the versioned semantic operation-id law
   `echo.semantic-operation-id.fnv1-32/v1`. It derives a persisted `u32` from the
   exact semantic coordinate and generic query/mutation kind, remains

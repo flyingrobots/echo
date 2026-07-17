@@ -13,7 +13,7 @@ use clap::Parser;
 use echo_wesley_gen::provider_corpus::{diff_exact_corpus_files_v1, ProviderArtifactCorpusFileV1};
 use echo_wesley_gen::provider_corpus_fs::{read_actual_corpus, write_corpus};
 use std::ffi::OsString;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -439,6 +439,14 @@ fn load_expected_files(
 }
 
 fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
+    read_owner_with_between_reads_hook(root, relative_path, || Ok(()))
+}
+
+fn read_owner_with_between_reads_hook(
+    root: &Path,
+    relative_path: &str,
+    between_reads_hook: impl FnOnce() -> Result<()>,
+) -> Result<Vec<u8>> {
     let path = root.join(relative_path);
     let directory = Dir::open_ambient_dir(root, ambient_authority()).with_context(|| {
         format!(
@@ -477,6 +485,23 @@ fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
         .take(MAX_OWNER_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .with_context(|| format!("failed to read provider asset owner {}", path.display()))?;
+    between_reads_hook()?;
+    file.seek(SeekFrom::Start(0)).with_context(|| {
+        format!(
+            "failed to rewind provider asset owner for corroborating read {}",
+            path.display()
+        )
+    })?;
+    let mut corroborating_bytes = Vec::with_capacity(bytes.len());
+    (&mut file)
+        .take(MAX_OWNER_FILE_BYTES + 1)
+        .read_to_end(&mut corroborating_bytes)
+        .with_context(|| {
+            format!(
+                "failed to corroborate provider asset owner bytes {}",
+                path.display()
+            )
+        })?;
     let final_metadata = file.metadata().with_context(|| {
         format!(
             "failed to re-inspect provider asset owner {}",
@@ -486,6 +511,7 @@ fn read_owner(root: &Path, relative_path: &str) -> Result<Vec<u8>> {
     if !final_metadata.is_file()
         || final_metadata.len() != metadata.len()
         || bytes.len() as u64 != metadata.len()
+        || corroborating_bytes != bytes
     {
         bail!(
             "provider asset owner changed while being read: {}",
@@ -575,8 +601,12 @@ fn check_package_asset_inventory(
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{check_package_asset_inventory, load_expected_assets, read_owner, ASSETS};
+    use super::{
+        check_package_asset_inventory, load_expected_assets, read_owner,
+        read_owner_with_between_reads_hook, ASSETS,
+    };
     use anyhow::Result;
+    use std::io::{Seek, SeekFrom, Write};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -658,6 +688,35 @@ mod tests {
         let error = read_owner(&root, "carrier").expect_err("final symlink must be refused");
         assert!(format!("{error:#}")
             .contains("failed to open provider asset owner without following symbolic links"));
+
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn owner_read_refuses_same_length_in_place_rewrite() -> Result<()> {
+        let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "echo-provider-asset-owner-rewrite-{}-{sequence}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root)?;
+        let owner = root.join("owner");
+        let original = [b'a'; 4096];
+        let replacement = [b'b'; 4096];
+        std::fs::write(&owner, original)?;
+
+        let error = read_owner_with_between_reads_hook(&root, "owner", || {
+            let mut writer = std::fs::OpenOptions::new().write(true).open(&owner)?;
+            writer.seek(SeekFrom::Start(0))?;
+            writer.write_all(&replacement)?;
+            writer.flush()?;
+            Ok(())
+        })
+        .expect_err("same-length in-place owner rewrite must be refused");
+        assert!(error
+            .to_string()
+            .contains("provider asset owner changed while being read"));
 
         std::fs::remove_dir_all(root)?;
         Ok(())

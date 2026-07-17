@@ -152,12 +152,15 @@ to match their checked package copies, and can prove that `cargo package --list`
 selects exactly the complete carrier inventory. Explicit `--write` mode copies
 authoritative owners without requiring the temporarily stale package copy,
 allowing the honest staged sequence artifact generation, carrier sync, package
-generation, then final carrier corroboration. It never discovers a preferred
-owner or normalizes authored bytes. The 20-file generator source closure and
-its carriers include the exact manifest and implementation occurrences for
-both `echo-edict-canonical` and `echo-registry-api`, including the
-provider-generic registry vocabulary, so provenance binds the canonicalization,
-operation-id, and registry laws actually executed by provider generation.
+generation, then final carrier corroboration. Each fixed owner leaf is opened
+without following its final symbolic link and read twice through the same
+retained descriptor; file-type, length, or byte disagreement refuses a moving
+owner. It never discovers a preferred owner or normalizes authored bytes. The
+20-file generator source closure and its carriers include the exact manifest
+and implementation occurrences for both `echo-edict-canonical` and
+`echo-registry-api`, including the provider-generic registry vocabulary, so
+provenance binds the canonicalization, operation-id, and registry laws actually
+executed by provider generation.
 
 `echo-edict-provider-assets -- --sync-component-resources` adds the lowerer and
 verifier resource trees to the ordinary package-carrier operation. Without

@@ -822,7 +822,14 @@ fn echo_harness_with_request(
     contract: ProviderLoweringInvocationContract,
     request: ProviderLoweringRequest,
 ) -> LowerHarness {
-    let component = echo_component_bytes();
+    echo_harness_with_request_and_component(contract, request, echo_component_bytes())
+}
+
+fn echo_harness_with_request_and_component(
+    contract: ProviderLoweringInvocationContract,
+    request: ProviderLoweringRequest,
+    component: &'static [u8],
+) -> LowerHarness {
     let manifest = echo_manifest(component);
     let manifest_proof = Box::leak(Box::new(
         bind_target_provider_manifest(manifest).expect("Echo provider manifest validates"),
@@ -1588,6 +1595,53 @@ fn host_rejections_preserve_trap_lifting_and_envelope_identity() {
         .failures
         .iter()
         .any(|item| { item.kind == ProviderInvocationValidationFailureKind::UndeclaredOutput }));
+}
+
+#[test]
+fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
+    let core = echo_core();
+    let (contract, request) = echo_request(&core, "fixture.noncanonical");
+    let harness = echo_harness_with_request_and_component(
+        contract,
+        request,
+        FIXTURE_LOWERER_BYTES,
+    );
+
+    let requested = &harness.request.request().requested_outputs[0];
+    assert_eq!(requested.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(requested.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
+
+    let failure = harness
+        .host
+        .invoke_lowerer(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect_err("noncanonical Target IR must not cross host admission");
+
+    assert_eq!(
+        failure.kind(),
+        ProviderHostFailureKind::ResponseEnvelopeInvalid
+    );
+    assert_eq!(failure.phase(), ProviderHostPhase::ValidateResponse);
+
+    let report = failure
+        .validation_report()
+        .expect("response rejection retains structured validation evidence");
+    assert_eq!(report.failures.len(), 1);
+    let item = &report.failures[0];
+    assert_eq!(
+        item.kind,
+        ProviderInvocationValidationFailureKind::NonCanonicalArtifact
+    );
+    assert_eq!(item.field, "outputs.artifact");
+    assert_eq!(item.role.as_deref(), Some("fixture.noncanonical"));
+    assert_eq!(
+        item.obligation,
+        "canonical artifact bytes within the deterministic nesting bound"
+    );
 }
 
 #[test]

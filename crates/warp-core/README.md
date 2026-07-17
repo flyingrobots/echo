@@ -59,6 +59,33 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.
 
+## Generated provider package proposals
+
+`warp-core` now accepts the provider-neutral registry emitted by the Edict
+helper and can preflight one mutation into an opaque
+`ProviderContractPackageProposalV1`. The constructor fails closed unless the
+runtime package occurrence, generated dispatch, and explicit host implementation
+agree on the complete operation id, Target IR, semantic/release bundles,
+target/generated/operation profiles, provider and value schemas,
+`le-binary-v1` codec, obstruction mapping, ABI, helper API, rule name, and
+footprint identities.
+
+The generated helper owns the distinct typed input/output codecs and canonical
+EINT construction; `warp-core` treats EINT `vars` as codec-owned opaque bytes.
+The host supplies only its semantic mutation effects. Echo always adds the
+generated matcher's mandatory ingress-EINT read to the proposed rule footprint
+and conservatively enables every factor bit, so a host cannot omit those
+Echo-owned matcher reads. Matching identities and footprints are preflight
+claims, not proof that arbitrary host callback code implements the declared
+semantics.
+
+The proposal is deliberately non-installing: it grants no admission,
+registration, scheduling, execution, durability, receipt, or observation
+authority. A trusted Echo host must perform the later package admission and
+installation crossing. This constructor is mutation-specific and rejects query
+operations. Authored reads remain on the separate bounded observer/optic path;
+they are never represented as synthetic mutations.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

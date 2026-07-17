@@ -21,9 +21,9 @@ target profile's diagnostic ABI and every emitted report consume one shared
 admitted identity.
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 189,898-byte checked
+transport-to-model conversion. Its reproducibly built 189,922-byte checked
 component has SHA-256
-`49367c36b5150a157601f0062ce45b41d6c27c9ce44b81399292bd79c8b400c1`.
+`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

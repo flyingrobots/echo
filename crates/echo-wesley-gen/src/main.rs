@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use echo_registry_api::is_reserved_operation_id;
+use echo_registry_api::{is_reserved_operation_id, LITTLE_ENDIAN_CODEC_V1_ID};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
@@ -23,7 +23,7 @@ mod ir;
 use ir::{OpKind, TypeKind, WesleyIR};
 
 const ECHO_IR_VERSION: &str = "echo-ir/v1";
-const DEFAULT_CODEC_ID: &str = "le-binary-v1";
+const DEFAULT_CODEC_ID: &str = LITTLE_ENDIAN_CODEC_V1_ID;
 const DEFAULT_REGISTRY_VERSION: u32 = 1;
 const WESLEY_CORE_VERSION: &str = "0.3.0-alpha.1";
 

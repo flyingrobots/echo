@@ -67,11 +67,13 @@ const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
-    "64453da4c0551e1f168a75cd6c3682cb59f3dd2a1d1b7d79a7e3cb9c8893d7d4";
+    "5922fe337e04d2df0b62f32b04b19409609dafbcc672d6e4ea593c83f4ffac53";
 const DOMAIN_TARGET_IR_SHA256: &str =
-    "e55c4980841efaaaed510425e29b011f232d3c66e52ed05221c114d85877e341";
-const TARGET_PROFILE_SHA256: &str =
-    "1cf1bcd1ff06235a7b001f7cd3d121eef31e6fd0d2e4197e3c9dbca2d60a2aba";
+    "2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc";
+const RAW_TARGET_PROFILE_SHA256: &str =
+    "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85";
+const DOMAIN_TARGET_PROFILE_SHA256: &str =
+    "ad7f10e1843f4b3d2c08b11d69df103f9c0b1b7388ae26bb364cc87106cd419e";
 const OBSERVATION_MARKER: &str = "ECHO_EDICT_HOST_OBSERVATION=";
 
 const SCHEMA_BYTES: &[u8] = include_bytes!(
@@ -79,6 +81,9 @@ const SCHEMA_BYTES: &[u8] = include_bytes!(
 );
 const GENERATED_ARTIFACT_PROFILE_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+);
+const CHECKED_GENERATED_HELPER_BYTES: &[u8] = include_bytes!(
+    "../../../crates/echo-edict-provider-lowerer/tests/fixtures/generated_echo_dpo.rs"
 );
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/generated/v1/primary/target-profile.echo-dpo.cbor"
@@ -1183,7 +1188,7 @@ fn oracle_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
     let facts = TargetIrLoweringFacts {
         target_profile: ResourceRef {
             coordinate: ECHO_DPO_TARGET_PROFILE.to_owned(),
-            digest: Some(format!("sha256:{TARGET_PROFILE_SHA256}")),
+            digest: Some(format!("sha256:{DOMAIN_TARGET_PROFILE_SHA256}")),
         },
         target_ir_domain: ECHO_SPAN_IR_DOMAIN.to_owned(),
         operation_profiles: vec!["continuum.profile.write/v1".to_owned()],
@@ -1223,9 +1228,10 @@ fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
         hex(&provider_digest(CORE_MODULE_DIGEST_DOMAIN, &core_bytes).bytes),
         "c3dbe413c78a82f6120e64c9a04bc94e2d79505f9e4b8a65c2bc26b408d775de"
     );
+    assert_eq!(raw_sha256(TARGET_PROFILE_BYTES), RAW_TARGET_PROFILE_SHA256);
     assert_eq!(
         hex(&provider_digest(TARGET_PROFILE_API_VERSION, TARGET_PROFILE_BYTES).bytes),
-        TARGET_PROFILE_SHA256
+        DOMAIN_TARGET_PROFILE_SHA256
     );
 
     let (oracle_bytes, oracle_digest) = oracle_target_ir(&core);
@@ -1328,12 +1334,29 @@ fn echo_component_emits_profile_owned_operation_identity_through_the_actual_host
     else {
         panic!("operation id is not an integer");
     };
+    let CanonicalValue::Text(value_codec) = canonical_map_field(operation, "valueCodec") else {
+        panic!("operation value codec is not text");
+    };
 
+    assert_eq!(source_bytes.as_slice(), CHECKED_GENERATED_HELPER_BYTES);
     assert!(source.contains(&format!("\"{expected_schema_sha256}\"")));
     assert!(source.contains(&format!(
         "pub const OPERATION_ID_LAW: &str = \"{operation_id_law}\";"
     )));
-    assert!(source.contains(&format!("pub const OPERATION_ID: u32 = {operation_id};")));
+    let generated_operation_id = source
+        .lines()
+        .find_map(|line| {
+            let literal = line
+                .trim()
+                .strip_prefix("pub const OPERATION_ID: u32 = ")?
+                .strip_suffix(';')?;
+            literal.replace('_', "").parse::<i128>().ok()
+        })
+        .expect("generated source declares one parseable operation id");
+    assert_eq!(generated_operation_id, *operation_id);
+    assert!(source.contains(&format!(
+        "pub const VALUE_CODEC_ID: &str = \"{value_codec}\";"
+    )));
 
     let manifest = outcome.manifest().expect("host authors an output manifest");
     assert_eq!(manifest.outputs().len(), 1);

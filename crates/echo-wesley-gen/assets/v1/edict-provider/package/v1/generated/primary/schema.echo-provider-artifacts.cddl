@@ -819,6 +819,7 @@ echo-generated-record-field = { name: tstr, type: tstr }
 
 generated-operation = {
   operationId: 0..4294967293,
+  valueCodec: "le-binary-v1",
   inputType: tstr,
   outputType: tstr,
   effect: tstr,

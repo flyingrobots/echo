@@ -64,19 +64,18 @@ pub fn eint_vars_for_op<'a>(
 ///
 /// Contract handlers should extend this footprint with any handler-specific
 /// graph, edge, attachment, or port writes they emit. This helper deliberately
-/// declares no write authority by itself.
+/// declares no write authority by itself. The scope and attachment reads are
+/// unconditional because observing their absence is still a read.
 #[must_use]
 pub fn runtime_ingress_eint_read_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_read = AttachmentSet::default();
-    if view.node(scope).is_some() {
-        n_read.insert_with_warp(warp_id, *scope);
-        a_read.insert(AttachmentKey::node_alpha(NodeKey {
-            warp_id,
-            local_id: *scope,
-        }));
-    }
+    n_read.insert_with_warp(warp_id, *scope);
+    a_read.insert(AttachmentKey::node_alpha(NodeKey {
+        warp_id,
+        local_id: *scope,
+    }));
     Footprint {
         n_read,
         n_write: NodeSet::default(),

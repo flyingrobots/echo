@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Minimal, generic registry interface for Echo WASM helpers.
+//! Provider-neutral registry vocabulary for Echo-generated helpers.
 //!
-//! The registry provider is supplied by the application (generated from the
-//! GraphQL/Wesley IR). Echo core and `warp-wasm` depend only on this crate and
-//! **must not** embed app-specific registries.
+//! The crate keeps two surfaces separate: the application-supplied
+//! [`RegistryProvider`] compatibility interface generated from GraphQL/Wesley
+//! IR, and the borrowed provider-generic [`ProviderRegistryV1`] evidence emitted
+//! from admitted Edict artifacts. Neither surface owns application semantics or
+//! grants runtime installation authority. Echo core and `warp-wasm` depend only
+//! on this crate and **must not** embed app-specific registries.
 
 #![no_std]
+
+mod provider;
+
+pub use provider::{
+    ProviderBundleIdentityV1, ProviderDigestIdentityV1, ProviderFootprintIdentityV1,
+    ProviderOperationV1, ProviderRegistryV1, ProviderSchemaIdentityV1, ProviderSemanticIdentityV1,
+    ProviderValueContractV1,
+};
 
 /// Local contract ABI version supported by this registry API.
 pub const ECHO_CONTRACT_ABI_VERSION: u32 = 1;
@@ -219,6 +230,11 @@ pub enum OpKind {
     /// State-mutating operation.
     Mutation,
 }
+
+/// Stable identifier for Echo's versioned universal little-endian value codec.
+///
+/// The byte law is owned by ADR 0017 and implemented by `echo-wasm-abi`.
+pub const LITTLE_ENDIAN_CODEC_V1_ID: &str = "le-binary-v1";
 
 /// Versioned Echo law for deriving persisted operation ids from semantic
 /// coordinates and generic operation kinds.

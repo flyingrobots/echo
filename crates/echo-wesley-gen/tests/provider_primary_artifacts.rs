@@ -3,7 +3,10 @@
 #![allow(clippy::expect_used, clippy::panic)]
 //! Deterministic primary artifact generation for the Echo Edict provider.
 
-use echo_registry_api::{stable_semantic_operation_id_v1, OpKind, SEMANTIC_OPERATION_ID_LAW_V1};
+use echo_registry_api::{
+    stable_semantic_operation_id_v1, OpKind, LITTLE_ENDIAN_CODEC_V1_ID,
+    SEMANTIC_OPERATION_ID_LAW_V1,
+};
 use echo_wesley_gen::provider_artifacts::{
     generate_provider_primary_artifacts_v1, ProviderArtifactGenerationErrorKind,
     ProviderPrimaryArtifactsV1, SchemaValidatedCanonicalProviderOutputV1,
@@ -488,6 +491,22 @@ fn generated_profile_carries_the_echo_owned_semantic_operation_id() {
     assert_eq!(
         integer_value(map_field(operation, "operationId")),
         i128::from(stable_semantic_operation_id_v1(OpKind::Mutation, "a.b@1.t"))
+    );
+}
+
+#[test]
+fn generated_profile_binds_the_exact_echo_value_codec() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let registration = generated
+        .artifact("generated-artifact-profile.echo-dpo-registration")
+        .expect("registration profile exists")
+        .canonical_value();
+    let operation = map_field(map_field(registration, "operations"), "a.b@1.t");
+
+    assert_eq!(
+        text_value(map_field(operation, "valueCodec")),
+        LITTLE_ENDIAN_CODEC_V1_ID
     );
 }
 

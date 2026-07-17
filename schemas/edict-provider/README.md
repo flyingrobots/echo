@@ -163,7 +163,11 @@ unsupported output-role overclaim remains a typed refusal with neither response
 nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
-authority-facts documents are runtime Echo authority.
+authority-facts documents are runtime Echo authority. The promoted lowerer is
+189,668 bytes with SHA-256
+`9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`; the
+promoted verifier is 189,922 bytes with SHA-256
+`4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in
@@ -217,13 +221,36 @@ coordinate-and-kind law and collision-check the complete set. Generated source
 now carries public expected constants for the packaged law and id, requires them
 as untrusted bundle claims, and refuses disagreement before returning a
 private-state descriptor that exposes the matched id claim. It does not
-independently derive a runtime identity or construct a registry. The invocation
-codec also remains absent until generated codecs prove its exact byte contract.
-Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`. The
-refreshed component has crossed checked promotion, and the actual pinned host
-admits the generated envelope under its owning `generated-artifact` CDDL root.
-The review envelope still requires its independent host-side CDDL admission
-before that output is admitted.
+independently derive a runtime identity.
+
+The generated-artifact profile owns the exact `le-binary-v1` value-codec claim.
+Generated Rust implements it with semantically distinct `Id`, `Input`, and
+`Output` types, preserves raw UTF-8 under the authored scalar bound, and fails
+closed on malformed, over-bound, truncated, or trailing bytes. Descriptor
+methods encode/decode the exact input and output and `pack_intent(...)` wraps
+the encoded input in canonical EINT v1. Echo treats the EINT `vars` bytes as
+opaque bytes owned by that selected codec; canonical CBOR is not a universal
+operation-variable law.
+
+The matched descriptor also exposes a borrowed provider-generic registry and
+can bind its generated matcher to one explicitly identified host mutation
+implementation. It produces only an opaque, non-installing package proposal
+after comparing every Target IR, semantic/release bundle, target/generated/
+operation profile, provider/value schema, codec, obstruction, operation-id,
+ABI, helper-API, rule-name, and footprint claim. Identity equality detects
+cross-binding but does not prove arbitrary callback semantics. The proposal
+does not authenticate, install, register, schedule, execute, persist, observe,
+or receipt anything; those remain trusted Echo crossings. Its constructor is
+mutation-specific and refuses a `Query`. Authored reads remain a separate
+bounded observer/optic path and must not be lowered as synthetic mutations.
+
+Runtime `reviewPayload` remains distinct from Wesley `GenerationReviewV1`.
+Both refreshed components have crossed checked promotion, and the actual pinned
+host admits the generated envelope under its owning `generated-artifact` CDDL
+root. The isolated host helper witness is green for exact bundle binding, typed
+codec round trips and refusal cases, EINT packing, the borrowed registry, and
+non-installing package proposal. The review envelope still requires its
+independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
@@ -253,10 +280,12 @@ proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact publication carrier for the same
-provider bytes plus the repository sources needed for generator provenance.
-Carrier paths are physical packaging details only; authored logical source paths
-remain unchanged. `echo-edict-provider-assets --check-package-list` proves
+The crate-local `assets/v1/` tree is an exact 38-file publication carrier for
+the same provider bytes plus the repository sources needed for generator
+provenance. The compile-time generator identity enumerates a 20-file source
+closure, including the provider-generic registry implementation. Carrier paths
+are physical packaging details only; authored logical source paths remain
+unchanged. `echo-edict-provider-assets --check-package-list` proves
 owner/carrier/package agreement and exact Cargo archive selection.
 
 All generated files are derived artifacts. Their digests and review renderings

@@ -38,7 +38,7 @@ const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
 const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-    "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
+    "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d";
 const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
 const TARGET_BUNDLE_PROFILE_DIGEST: &str =
     "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
@@ -752,10 +752,28 @@ fn encode_output_envelope(
 
 fn render_generated_source(target_ir_digest: &Digest, target_profile_digest: &Digest) -> String {
     const TEMPLATE: &str = r#"// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generated Echo helper projection for one admitted Edict operation.
 //! Final Edict contract-bundle identity is bound explicitly after assembly.
 
+/// Namespaced generated contract and invocation surface for `a.b@1.t`.
 pub mod echo_dpo {
+    use echo_registry_api::{
+        OpKind, ProviderBundleIdentityV1, ProviderDigestIdentityV1,
+        ProviderFootprintIdentityV1, ProviderOperationV1, ProviderRegistryV1,
+        ProviderSchemaIdentityV1, ProviderSemanticIdentityV1, ProviderValueContractV1,
+    };
+    use echo_wasm_abi::codec::{
+        decode_from_bytes, encode_to_vec, CodecError, Decode, Encode, Reader, Writer,
+    };
+    use echo_wasm_abi::{pack_intent_v1, EnvelopeError};
+    use warp_core::{
+        matches_eint_op, propose_provider_contract_package_v1, ContractPackageIdentity,
+        GeneratedProviderMutationDispatchV1, GraphView, NodeId,
+        ProviderContractPackageProposalV1, ProviderMutationHooksV1,
+        ProviderMutationImplementationIdentityV1, ProviderPackageProposalError,
+    };
+
     /// Exact Edict-authored semantic operation coordinate.
     pub const OPERATION_COORDINATE: &str = "a.b@1.t";
     /// Semantic domain owning the operation coordinate.
@@ -763,7 +781,9 @@ pub mod echo_dpo {
     /// Echo-owned law that derives the persisted operation id.
     pub const OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
     /// Exact persisted operation id carried by the generated-artifact profile.
-    pub const OPERATION_ID: u32 = 3389142194;
+    pub const OPERATION_ID: u32 = 3_389_142_194;
+    /// Exact Echo value codec carried by the generated-artifact profile.
+    pub const VALUE_CODEC_ID: &str = "le-binary-v1";
     /// Exact input schema coordinate owned by the generated-artifact profile.
     pub const INPUT_SCHEMA: &str = "a.b@1.Input";
     /// Exact output schema coordinate owned by the generated-artifact profile.
@@ -804,7 +824,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "dcf2cc739bb855cb4c9578c2fbc35f0c99b58f8c83d5f290c51498dd658c8232";
+        "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -812,7 +832,7 @@ pub mod echo_dpo {
         "echo.generated-artifact-profile/v1";
     /// Domain-framed identity of the generated-artifact profile.
     pub const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-        "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
+        "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d";
     /// Exact semantic operation profile selected by the authored operation.
     pub const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
     /// Semantic domain owning the selected operation profile.
@@ -838,6 +858,198 @@ pub mod echo_dpo {
     pub const SEMANTIC_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.semantic/v1";
     /// Edict domain for the release contract-bundle digest proposition.
     pub const RELEASE_BUNDLE_DIGEST_DOMAIN: &str = "edict.bundle.release/v1";
+
+    const MUTATION_RULE_NAME: &str = concat!(
+        "cmd/contract/",
+        "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c",
+        "/3389142194/a.b@1.t"
+    );
+    const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {
+        coordinate: OPERATION_COORDINATE,
+        semantic_domain: OPERATION_DOMAIN,
+        kind: OpKind::Mutation,
+        operation_id_law: OPERATION_ID_LAW,
+        operation_id: OPERATION_ID,
+        input: ProviderValueContractV1 {
+            schema_coordinate: INPUT_SCHEMA,
+            schema_domain: TYPE_SCHEMA_DOMAIN,
+            codec_id: VALUE_CODEC_ID,
+        },
+        output: ProviderValueContractV1 {
+            schema_coordinate: OUTPUT_SCHEMA,
+            schema_domain: TYPE_SCHEMA_DOMAIN,
+            codec_id: VALUE_CODEC_ID,
+        },
+        target_failure_schema: EFFECT_FAILURE_SCHEMA,
+        obstruction: ProviderSemanticIdentityV1 {
+            coordinate: OBSTRUCTION_COORDINATE,
+            semantic_domain: OBSTRUCTION_DOMAIN,
+        },
+        obstruction_payload_schema: OBSTRUCTION_PAYLOAD_SCHEMA,
+        target_ir: ProviderDigestIdentityV1 {
+            coordinate: TARGET_IR_COORDINATE,
+            digest_domain: TARGET_IR_DIGEST_DOMAIN,
+            digest: TARGET_IR_DIGEST,
+        },
+        target_profile: ProviderDigestIdentityV1 {
+            coordinate: TARGET_PROFILE_COORDINATE,
+            digest_domain: TARGET_PROFILE_DIGEST_DOMAIN,
+            digest: TARGET_PROFILE_DIGEST,
+        },
+        generated_artifact_profile: ProviderDigestIdentityV1 {
+            coordinate: GENERATED_ARTIFACT_PROFILE,
+            digest_domain: GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
+            digest: GENERATED_ARTIFACT_PROFILE_DIGEST,
+        },
+        operation_profile: ProviderSemanticIdentityV1 {
+            coordinate: OPERATION_PROFILE,
+            semantic_domain: OPERATION_PROFILE_DOMAIN,
+        },
+        operation_profiles: ProviderDigestIdentityV1 {
+            coordinate: OPERATION_PROFILES_COORDINATE,
+            digest_domain: OPERATION_PROFILES_DIGEST_DOMAIN,
+            digest: OPERATION_PROFILES_DIGEST,
+        },
+        footprint: ProviderFootprintIdentityV1 {
+            obligation: FOOTPRINT_OBLIGATION,
+            algebra_coordinate: FOOTPRINT_ALGEBRA,
+            algebra_digest_domain: FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
+            algebra_digest: FOOTPRINT_ALGEBRA_DIGEST,
+        },
+    }];
+
+    const ID_MAX_SCALAR_VALUES: usize = 16;
+    const ID_MAX_UTF8_BYTES: usize = ID_MAX_SCALAR_VALUES * 4;
+
+    /// Exact bounded value of semantic type `a.b@1.Id`.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct Id(String);
+
+    impl Id {
+        /// Construct an id after enforcing the authored Unicode-scalar bound.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError::StringTooLong`] when `value` contains more
+        /// than sixteen Unicode scalar values.
+        pub fn new(value: impl Into<String>) -> Result<Self, CodecError> {
+            let value = value.into();
+            if value.chars().count() > ID_MAX_SCALAR_VALUES {
+                return Err(CodecError::StringTooLong);
+            }
+            Ok(Self(value))
+        }
+
+        /// Borrow the exact raw UTF-8 value without normalization.
+        pub fn as_str(&self) -> &str {
+            &self.0
+        }
+
+        /// Consume this value and return its exact raw UTF-8 string.
+        pub fn into_string(self) -> String {
+            self.0
+        }
+    }
+
+    impl Encode for Id {
+        fn encode(&self, writer: &mut Writer) -> Result<(), CodecError> {
+            if self.0.chars().count() > ID_MAX_SCALAR_VALUES {
+                return Err(CodecError::StringTooLong);
+            }
+            writer.write_len_prefixed_bytes(self.0.as_bytes())
+        }
+    }
+
+    impl Decode for Id {
+        fn decode(reader: &mut Reader<'_>) -> Result<Self, CodecError> {
+            let bytes = reader.read_len_prefixed_bytes(ID_MAX_UTF8_BYTES)?;
+            let value = core::str::from_utf8(bytes).map_err(|_| CodecError::InvalidUtf8)?;
+            Self::new(String::from(value))
+        }
+    }
+
+    /// Exact typed input for semantic operation `a.b@1.t`.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct Input {
+        id: Id,
+    }
+
+    impl Input {
+        /// Construct a validated operation input.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError::StringTooLong`] when `id` exceeds its
+        /// authored Unicode-scalar bound.
+        pub fn new(id: impl Into<String>) -> Result<Self, CodecError> {
+            Ok(Self { id: Id::new(id)? })
+        }
+
+        /// Borrow the exact raw UTF-8 id.
+        pub fn id(&self) -> &str {
+            self.id.as_str()
+        }
+    }
+
+    impl Encode for Input {
+        fn encode(&self, writer: &mut Writer) -> Result<(), CodecError> {
+            self.id.encode(writer)
+        }
+    }
+
+    impl Decode for Input {
+        fn decode(reader: &mut Reader<'_>) -> Result<Self, CodecError> {
+            Ok(Self {
+                id: Id::decode(reader)?,
+            })
+        }
+    }
+
+    /// Exact typed output for semantic operation `a.b@1.t`.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct Output {
+        id: Id,
+    }
+
+    impl Output {
+        /// Construct a validated operation output.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError::StringTooLong`] when `id` exceeds its
+        /// authored Unicode-scalar bound.
+        pub fn new(id: impl Into<String>) -> Result<Self, CodecError> {
+            Ok(Self { id: Id::new(id)? })
+        }
+
+        /// Borrow the exact raw UTF-8 id.
+        pub fn id(&self) -> &str {
+            self.id.as_str()
+        }
+    }
+
+    impl Encode for Output {
+        fn encode(&self, writer: &mut Writer) -> Result<(), CodecError> {
+            self.id.encode(writer)
+        }
+    }
+
+    impl Decode for Output {
+        fn decode(reader: &mut Reader<'_>) -> Result<Self, CodecError> {
+            Ok(Self {
+                id: Id::decode(reader)?,
+            })
+        }
+    }
+
+    /// Stable failure produced while constructing one canonical invocation.
+    #[derive(Debug, Eq, PartialEq)]
+    pub enum GeneratedInvocationError {
+        /// The typed input violates its generated codec contract.
+        Codec(CodecError),
+        /// The canonical Echo intent envelope could not be constructed.
+        Envelope(EnvelopeError),
+    }
 
     /// Independent host pin for the final assembled bundle identity.
     ///
@@ -873,6 +1085,8 @@ pub mod echo_dpo {
         pub operation_id_law: &'a str,
         /// Persisted operation id claimed by the generated-artifact profile.
         pub operation_id: u32,
+        /// Echo value codec claimed by the generated-artifact profile.
+        pub value_codec: &'a str,
         /// Semantic coordinate carried by the Target IR artifact.
         pub target_ir_coordinate: &'a str,
         /// Digest-framing domain for the Target IR artifact.
@@ -954,6 +1168,8 @@ pub mod echo_dpo {
         Operation,
         /// The bundle names a different persisted operation-id proposition.
         OperationId,
+        /// The bundle names a different Echo value codec.
+        Codec,
         /// The bundle names a different Target IR artifact.
         TargetIr,
         /// The bundle names a different target profile.
@@ -990,6 +1206,147 @@ pub mod echo_dpo {
         pub const fn operation_id(&self) -> u32 {
             self.contract_bundle.operation_id
         }
+
+        /// Return the exact provider-generic registry claims retained by this
+        /// already matched descriptor.
+        ///
+        /// This constructs descriptive evidence only. It does not admit or
+        /// install a registry.
+        pub const fn provider_registry(&self) -> ProviderRegistryV1<'a> {
+            ProviderRegistryV1 {
+                echo_contract_abi_version: ECHO_CONTRACT_ABI_VERSION,
+                helper_api_version: CONTRACT_HOST_HELPER_API_VERSION,
+                provider_schema: ProviderSchemaIdentityV1 {
+                    coordinate: PROVIDER_SCHEMA_COORDINATE,
+                    raw_sha256_hex: PROVIDER_SCHEMA_SHA256_HEX,
+                },
+                target_bundle_profile: ProviderDigestIdentityV1 {
+                    coordinate: TARGET_BUNDLE_PROFILE_COORDINATE,
+                    digest_domain: TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
+                    digest: TARGET_BUNDLE_PROFILE_DIGEST,
+                },
+                bundle: ProviderBundleIdentityV1 {
+                    semantic_digest_domain: self.contract_bundle.semantic_digest_domain,
+                    semantic_digest: self.contract_bundle.semantic_digest,
+                    release_digest_domain: self.contract_bundle.release_digest_domain,
+                    release_digest: self.contract_bundle.release_digest,
+                },
+                operations: &PROVIDER_OPERATIONS,
+            }
+        }
+
+        /// Return the exact identity a host implementation must independently
+        /// claim before its callbacks can be proposed for this operation.
+        pub const fn mutation_implementation_identity(
+            &self,
+        ) -> ProviderMutationImplementationIdentityV1<'a> {
+            let registry = self.provider_registry();
+            ProviderMutationImplementationIdentityV1 {
+                echo_contract_abi_version: registry.echo_contract_abi_version,
+                helper_api_version: registry.helper_api_version,
+                provider_schema: registry.provider_schema,
+                target_bundle_profile: registry.target_bundle_profile,
+                bundle: registry.bundle,
+                operation: PROVIDER_OPERATIONS[0],
+            }
+        }
+
+        /// Construct one opaque package proposal from exact matched claims and
+        /// an explicit host executor/footprint binding.
+        ///
+        /// The result grants no runtime admission, registration, installation,
+        /// scheduling, execution, durability, or receipt authority.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`ProviderPackageProposalError`] when occurrence metadata,
+        /// generated dispatch identity, or any host implementation claim does
+        /// not exactly match this descriptor.
+        pub fn propose_contract_package<'proposal>(
+            &'proposal self,
+            occurrence: ContractPackageIdentity<'proposal>,
+            hooks: ProviderMutationHooksV1<'proposal>,
+        ) -> Result<ProviderContractPackageProposalV1<'proposal>, ProviderPackageProposalError>
+        where
+            'a: 'proposal,
+        {
+            let registry: ProviderRegistryV1<'proposal> = self.provider_registry();
+            propose_provider_contract_package_v1(
+                occurrence,
+                registry,
+                GeneratedProviderMutationDispatchV1::new(
+                    OPERATION_ID,
+                    MUTATION_RULE_NAME,
+                    matches_operation,
+                ),
+                hooks,
+            )
+        }
+
+        /// Encode one exact typed input under the matched value-codec claim.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError`] when the typed value violates its generated
+        /// bound or cannot be represented by the selected codec.
+        #[allow(clippy::unused_self)]
+        pub fn encode_input(&self, input: &Input) -> Result<Vec<u8>, CodecError> {
+            encode_to_vec(input)
+        }
+
+        /// Decode one exact typed input under the matched value-codec claim.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError`] for malformed, over-bound, truncated, or
+        /// trailing bytes.
+        #[allow(clippy::unused_self)]
+        pub fn decode_input(&self, bytes: &[u8]) -> Result<Input, CodecError> {
+            decode_from_bytes(bytes)
+        }
+
+        /// Encode one exact typed output under the matched value-codec claim.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError`] when the typed value violates its generated
+        /// bound or cannot be represented by the selected codec.
+        #[allow(clippy::unused_self)]
+        pub fn encode_output(&self, output: &Output) -> Result<Vec<u8>, CodecError> {
+            encode_to_vec(output)
+        }
+
+        /// Decode one exact typed output under the matched value-codec claim.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`CodecError`] for malformed, over-bound, truncated, or
+        /// trailing bytes.
+        #[allow(clippy::unused_self)]
+        pub fn decode_output(&self, bytes: &[u8]) -> Result<Output, CodecError> {
+            decode_from_bytes(bytes)
+        }
+
+        /// Encode a typed input and wrap it in the canonical Echo EINT v1
+        /// envelope for this matched operation id.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`GeneratedInvocationError::Codec`] when the input violates
+        /// its generated value contract, or
+        /// [`GeneratedInvocationError::Envelope`] when Echo refuses envelope
+        /// construction.
+        pub fn pack_intent(&self, input: &Input) -> Result<Vec<u8>, GeneratedInvocationError> {
+            let vars = self
+                .encode_input(input)
+                .map_err(GeneratedInvocationError::Codec)?;
+            pack_intent_v1(self.operation_id(), &vars)
+                .map_err(GeneratedInvocationError::Envelope)
+        }
+    }
+
+    fn matches_operation(view: GraphView<'_>, scope: &NodeId) -> bool {
+        matches_eint_op(view, scope, OPERATION_ID)
     }
 
     /// Compare assembled bundle claims to an independent exact host pin and to
@@ -1000,7 +1357,7 @@ pub mod echo_dpo {
     /// host and Echo runtime crossings.
     pub fn bind_contract_bundle<'a>(
         expected: ExpectedContractBundleIdentityV1<'a>,
-        identity: ContractBundleIdentityV1<'a>,
+        identity: &ContractBundleIdentityV1<'a>,
     ) -> Result<RegistrationDescriptorV1<'a>, BindingMismatchKind> {
         if expected.semantic_digest_domain != SEMANTIC_BUNDLE_DIGEST_DOMAIN
             || identity.semantic_digest_domain != SEMANTIC_BUNDLE_DIGEST_DOMAIN
@@ -1029,6 +1386,9 @@ pub mod echo_dpo {
         }
         if identity.operation_id_law != OPERATION_ID_LAW || identity.operation_id != OPERATION_ID {
             return Err(BindingMismatchKind::OperationId);
+        }
+        if identity.value_codec != VALUE_CODEC_ID {
+            return Err(BindingMismatchKind::Codec);
         }
         if identity.target_ir_coordinate != TARGET_IR_COORDINATE
             || identity.target_ir_digest_domain != TARGET_IR_DIGEST_DOMAIN
@@ -1091,7 +1451,7 @@ pub mod echo_dpo {
             return Err(BindingMismatchKind::Footprint);
         }
         Ok(RegistrationDescriptorV1 {
-            contract_bundle: identity,
+            contract_bundle: *identity,
         })
     }
 

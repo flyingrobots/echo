@@ -17,7 +17,8 @@ use cddl_cat::cbor::validate_cbor;
 use cddl_cat::context::BasicContext;
 use cddl_cat::flatten::flatten_from_str;
 use echo_registry_api::{
-    is_reserved_operation_id, stable_semantic_operation_id_v1, OpKind, SEMANTIC_OPERATION_ID_LAW_V1,
+    is_reserved_operation_id, stable_semantic_operation_id_v1, OpKind, LITTLE_ENDIAN_CODEC_V1_ID,
+    SEMANTIC_OPERATION_ID_LAW_V1,
 };
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use wesley_core::{
@@ -72,6 +73,7 @@ echo-generated-record-field = { name: tstr, type: tstr }
 
 generated-operation = {
   operationId: 0..4294967293,
+  valueCodec: "le-binary-v1",
   inputType: tstr,
   outputType: tstr,
   effect: tstr,
@@ -1870,6 +1872,7 @@ fn build_generated_profile(
             operation.identity.coordinate.clone(),
             json!({
                 "operationId": operation_id,
+                "valueCodec": LITTLE_ENDIAN_CODEC_V1_ID,
                 "inputType": operation.input_type,
                 "outputType": operation.output_type,
                 "effect": operation.effect,

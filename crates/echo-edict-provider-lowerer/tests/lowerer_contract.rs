@@ -12,16 +12,14 @@ use echo_edict_provider_lowerer::{
     ProviderRefusalKind, ResourceRef, ResponseLimitsV1, SemanticInput, SemanticInputKind,
 };
 use sha2::{Digest as ShaDigest, Sha256};
-use std::fs::{create_dir_all, remove_dir_all, write};
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const LAWPACK: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
 const TARGET_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-dpo.cbor");
 const LAWPACK_AUTHORITY: &[u8] = include_bytes!("../resources/authority-facts.echo-lawpack.cbor");
+const GENERATED_ARTIFACT_PROFILE_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/generated/v1/primary/generated-artifact-profile.echo-dpo-registration.cbor"
+);
 
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";
@@ -36,8 +34,9 @@ const GENERATED_ARTIFACT_ROLE: &str = "generated.echo-dpo";
 const REVIEW_PAYLOAD_ROLE: &str = "review.echo-dpo";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
+const GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN: &str = "echo.generated-artifact-profile/v1";
 const GENERATED_ARTIFACT_PROFILE_DIGEST: &str =
-    "sha256:7b2d8216222e95dbcc9310f7aac924938545665aded578e060af13cbd79d7ac9";
+    "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d";
 const TARGET_BUNDLE_PROFILE: &str = "echo.dpo.bundle/v1";
 const TARGET_BUNDLE_PROFILE_DIGEST: &str =
     "sha256:aa0438bcc6ef14ee6cb6d4976622f6080381d731459dcb7b9102595c9bed92c0";
@@ -46,11 +45,9 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
-    "dcf2cc739bb855cb4c9578c2fbc35f0c99b58f8c83d5f290c51498dd658c8232";
+    "e4d9239715011fb03891aaf710455ac6ef68d787fa1f27f7c3153df48337871c";
 const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
 const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const EDICT_ORACLE_CORE_HEX: &str = concat!(
     "a6657479706573a665496e707574a2646b696e64665265636f7264666669656c6473a16269646e612e6240312e496e70",
@@ -424,6 +421,13 @@ fn request() -> LoweringRequestV1 {
     request_with_core(core_value(ordinary_result(), Some("target.replace")))
 }
 
+fn reviewed_edict_request() -> LoweringRequestV1 {
+    let core_bytes = hex::decode(EDICT_ORACLE_CORE_HEX).expect("oracle Core hex is valid");
+    let mut request = request();
+    request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
+    request
+}
+
 fn output_request(role: &str, kind: LoweringOutputKind, domain: &str) -> LoweringOutputRequest {
     LoweringOutputRequest {
         role: role.to_owned(),
@@ -504,55 +508,28 @@ fn assert_sha256_resource_ref(value: &CanonicalValueV1, id: &str, digest: &str) 
     );
 }
 
-fn generated_source() -> String {
-    let mut request = request();
+fn generated_source_from(mut request: LoweringRequestV1) -> String {
     request.requested_outputs = vec![generated_artifact_request()];
     let success = lower(request).expect("generated source lowers");
     let envelope = output_envelope(output_by_role(&success.outputs, GENERATED_ARTIFACT_ROLE));
     String::from_utf8(bytes_field(&envelope, "bytes").to_vec()).expect("generated source is UTF-8")
 }
 
-fn compile_and_run_generated_consumer(source: &str) -> std::process::Output {
-    let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before unix epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "echo-edict-provider-lowerer-binding-proof-{}-{}-{}",
-        std::process::id(),
-        nanos,
-        unique
-    ));
-    create_dir_all(&dir).expect("failed to create generated-consumer temp dir");
+fn generated_source() -> String {
+    generated_source_from(request())
+}
 
-    let src_path: PathBuf = dir.join("proof.rs");
-    let out_path: PathBuf = dir.join("proof");
-    write(&src_path, source).expect("failed to write generated-consumer source");
+fn reviewed_edict_generated_source() -> String {
+    generated_source_from(reviewed_edict_request())
+}
 
-    let compile = Command::new("rustc")
-        .args([
-            "--edition",
-            "2021",
-            src_path.to_str().expect("non-utf8 source path"),
-            "-o",
-            out_path.to_str().expect("non-utf8 output path"),
-        ])
-        .output()
-        .expect("failed to invoke rustc");
-    if !compile.status.success() {
-        remove_dir_all(&dir).expect("failed to remove generated-consumer temp dir");
-        panic!(
-            "generated consumer failed to compile: {}",
-            String::from_utf8_lossy(&compile.stderr)
-        );
-    }
-
-    let execution = Command::new(&out_path)
-        .output()
-        .expect("failed to execute generated consumer");
-    remove_dir_all(&dir).expect("failed to remove generated-consumer temp dir");
-    execution
+#[test]
+#[ignore = "explicit checked generated-helper regeneration"]
+fn regenerate_checked_generated_helper() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/generated_echo_dpo.rs");
+    std::fs::write(&path, reviewed_edict_generated_source())
+        .expect("failed to replace the checked generated-helper fixture");
 }
 
 fn review_json() -> String {
@@ -701,7 +678,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(
         digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &output_value)
             .expect("oracle-parity output has a domain-framed digest"),
-        "sha256:e55c4980841efaaaed510425e29b011f232d3c66e52ed05221c114d85877e341"
+        "sha256:2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc"
     );
 }
 
@@ -790,6 +767,22 @@ fn all_declared_outputs_emit_exact_sorted_correspondence() {
             ),
         ],
     );
+}
+
+#[test]
+fn generated_artifact_profile_identity_is_domain_framed_not_a_raw_file_hash() {
+    let profile = decode_canonical_cbor_v1(GENERATED_ARTIFACT_PROFILE_BYTES)
+        .expect("the checked generated-artifact profile is canonical CBOR");
+    let domain_framed =
+        digest_canonical_value_v1(GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN, &profile)
+            .expect("the checked profile has a domain-framed identity");
+    let raw = format!(
+        "sha256:{}",
+        hex::encode(Sha256::digest(GENERATED_ARTIFACT_PROFILE_BYTES))
+    );
+
+    assert_eq!(domain_framed, GENERATED_ARTIFACT_PROFILE_DIGEST);
+    assert_ne!(raw, GENERATED_ARTIFACT_PROFILE_DIGEST);
 }
 
 #[test]
@@ -937,386 +930,91 @@ fn generated_source_exposes_the_expected_profile_owned_operation_identity() {
         "generated source did not expose the expected operation-id law"
     );
     assert!(
-        source.contains(&format!(
-            "pub const OPERATION_ID: u32 = {EXPECTED_OPERATION_ID};"
-        )),
+        source.contains("pub const OPERATION_ID: u32 = 3_389_142_194;"),
         "generated source did not expose the expected operation id"
     );
+    assert_eq!(EXPECTED_OPERATION_ID, 3_389_142_194);
+}
+
+#[test]
+fn generated_source_exposes_the_profile_bound_value_codec() {
+    let source = generated_source();
+
+    for required_surface in [
+        "pub const VALUE_CODEC_ID: &str = \"le-binary-v1\";",
+        "pub struct Id",
+        "pub struct Input",
+        "pub struct Output",
+        "pub fn encode_input",
+        "pub fn decode_output",
+        "pub fn pack_intent",
+    ] {
+        assert!(
+            source.contains(required_surface),
+            "generated source is missing `{required_surface}`"
+        );
+    }
+}
+
+#[test]
+fn generated_source_constructs_a_non_authoritative_provider_package_proposal() {
+    let source = generated_source();
+
+    for required_surface in [
+        "ProviderRegistryV1",
+        "ProviderMutationImplementationIdentityV1",
+        "pub const fn provider_registry",
+        "pub const fn mutation_implementation_identity",
+        "pub fn propose_contract_package",
+        "GeneratedProviderMutationDispatchV1::new",
+        "propose_provider_contract_package_v1",
+    ] {
+        assert!(
+            source.contains(required_surface),
+            "generated source is missing `{required_surface}`"
+        );
+    }
+
+    for forbidden_surface in [
+        "RegistryProvider",
+        "OpDef",
+        "RewriteRule",
+        "InstalledContractPackage",
+        "Engine",
+        "TrustedRuntimeHost",
+        "register_contract_package",
+        "dispatch_optic_intent",
+        "submit_intent",
+        "tick_once",
+    ] {
+        assert!(
+            !source.contains(forbidden_surface),
+            "generated source exposes forbidden authority or facade `{forbidden_surface}`"
+        );
+    }
 }
 
 #[test]
 fn generated_bundle_binding_is_a_bounded_executable_consumer_contract() {
-    let source = generated_source();
-    let consumer = r#"
-use echo_dpo::{
-    bind_contract_bundle, BindingMismatchKind, ContractBundleIdentityV1,
-    ExpectedContractBundleIdentityV1, CONTRACT_HOST_HELPER_API_VERSION,
-    ECHO_CONTRACT_ABI_VERSION, EFFECT_FAILURE_SCHEMA, FOOTPRINT_ALGEBRA,
-    FOOTPRINT_ALGEBRA_DIGEST, FOOTPRINT_ALGEBRA_DIGEST_DOMAIN, FOOTPRINT_OBLIGATION,
-    GENERATED_ARTIFACT_PROFILE, GENERATED_ARTIFACT_PROFILE_DIGEST,
-    GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN, INPUT_SCHEMA, OBSTRUCTION_COORDINATE,
-    OBSTRUCTION_DOMAIN, OBSTRUCTION_PAYLOAD_SCHEMA, OPERATION_COORDINATE, OPERATION_DOMAIN,
-    OPERATION_ID, OPERATION_ID_LAW, OPERATION_PROFILE, OPERATION_PROFILES_COORDINATE,
-    OPERATION_PROFILES_DIGEST,
-    OPERATION_PROFILES_DIGEST_DOMAIN, OPERATION_PROFILE_DOMAIN, OUTPUT_SCHEMA,
-    PROVIDER_SCHEMA_COORDINATE, PROVIDER_SCHEMA_SHA256_HEX,
-    RELEASE_BUNDLE_DIGEST_DOMAIN, SEMANTIC_BUNDLE_DIGEST_DOMAIN,
-    TARGET_BUNDLE_PROFILE_COORDINATE, TARGET_BUNDLE_PROFILE_DIGEST,
-    TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN, TARGET_IR_COORDINATE, TARGET_IR_DIGEST,
-    TARGET_IR_DIGEST_DOMAIN, TARGET_PROFILE_COORDINATE, TARGET_PROFILE_DIGEST,
-    TARGET_PROFILE_DIGEST_DOMAIN, TYPE_SCHEMA_DOMAIN,
-};
-
-const SEMANTIC_DIGEST: &str =
-    "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-const RELEASE_DIGEST: &str =
-    "sha256:2222222222222222222222222222222222222222222222222222222222222222";
-const OTHER_DIGEST: &str =
-    "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-
-fn exact_pin() -> ExpectedContractBundleIdentityV1<'static> {
-    ExpectedContractBundleIdentityV1 {
-        semantic_digest_domain: SEMANTIC_BUNDLE_DIGEST_DOMAIN,
-        semantic_digest: SEMANTIC_DIGEST,
-        release_digest_domain: RELEASE_BUNDLE_DIGEST_DOMAIN,
-        release_digest: RELEASE_DIGEST,
-    }
-}
-
-fn matching_identity() -> ContractBundleIdentityV1<'static> {
-    ContractBundleIdentityV1 {
-        semantic_digest_domain: SEMANTIC_BUNDLE_DIGEST_DOMAIN,
-        semantic_digest: SEMANTIC_DIGEST,
-        release_digest_domain: RELEASE_BUNDLE_DIGEST_DOMAIN,
-        release_digest: RELEASE_DIGEST,
-        operation_coordinate: OPERATION_COORDINATE,
-        operation_domain: OPERATION_DOMAIN,
-        operation_id_law: OPERATION_ID_LAW,
-        operation_id: OPERATION_ID,
-        target_ir_coordinate: TARGET_IR_COORDINATE,
-        target_ir_digest_domain: TARGET_IR_DIGEST_DOMAIN,
-        target_ir_digest: TARGET_IR_DIGEST,
-        target_profile_coordinate: TARGET_PROFILE_COORDINATE,
-        target_profile_digest_domain: TARGET_PROFILE_DIGEST_DOMAIN,
-        target_profile_digest: TARGET_PROFILE_DIGEST,
-        target_bundle_profile_coordinate: TARGET_BUNDLE_PROFILE_COORDINATE,
-        target_bundle_profile_digest_domain: TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
-        target_bundle_profile_digest: TARGET_BUNDLE_PROFILE_DIGEST,
-        echo_contract_abi_version: ECHO_CONTRACT_ABI_VERSION,
-        helper_api_version: CONTRACT_HOST_HELPER_API_VERSION,
-        provider_schema_coordinate: PROVIDER_SCHEMA_COORDINATE,
-        provider_schema_sha256_hex: PROVIDER_SCHEMA_SHA256_HEX,
-        input_schema: INPUT_SCHEMA,
-        output_schema: OUTPUT_SCHEMA,
-        type_schema_domain: TYPE_SCHEMA_DOMAIN,
-        obstruction_coordinate: OBSTRUCTION_COORDINATE,
-        obstruction_domain: OBSTRUCTION_DOMAIN,
-        effect_failure_schema: EFFECT_FAILURE_SCHEMA,
-        obstruction_payload_schema: OBSTRUCTION_PAYLOAD_SCHEMA,
-        generated_artifact_profile: GENERATED_ARTIFACT_PROFILE,
-        generated_artifact_profile_digest_domain: GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
-        generated_artifact_profile_digest: GENERATED_ARTIFACT_PROFILE_DIGEST,
-        operation_profile: OPERATION_PROFILE,
-        operation_profile_domain: OPERATION_PROFILE_DOMAIN,
-        operation_profiles_coordinate: OPERATION_PROFILES_COORDINATE,
-        operation_profiles_digest_domain: OPERATION_PROFILES_DIGEST_DOMAIN,
-        operation_profiles_digest: OPERATION_PROFILES_DIGEST,
-        footprint_obligation: FOOTPRINT_OBLIGATION,
-        footprint_algebra: FOOTPRINT_ALGEBRA,
-        footprint_algebra_digest_domain: FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
-        footprint_algebra_digest: FOOTPRINT_ALGEBRA_DIGEST,
-    }
-}
-
-fn expect_mismatch(
-    identity: ContractBundleIdentityV1<'static>,
-    expected: BindingMismatchKind,
-) {
-    assert_eq!(bind_contract_bundle(exact_pin(), identity), Err(expected));
-}
-
-fn main() {
-    let matching = matching_identity();
-    let descriptor = bind_contract_bundle(exact_pin(), matching)
-        .expect("bundle claims match the independent host pin");
-    assert_eq!(*descriptor.contract_bundle(), matching);
-    assert_eq!(descriptor.operation_id(), OPERATION_ID);
-
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            semantic_digest_domain: "wrong.bundle.semantic/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::BundleDigestDomain,
+    let source = reviewed_edict_generated_source();
+    assert_eq!(
+        source,
+        include_str!("fixtures/generated_echo_dpo.rs"),
+        "the checked generated helper must match the lowerer's exact output"
     );
 
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            semantic_digest: "sha256:not-hex",
-            ..matching_identity()
-        },
-        BindingMismatchKind::BundleDigest,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            release_digest: "sha256:ABCDEF",
-            ..matching_identity()
-        },
-        BindingMismatchKind::BundleDigest,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            semantic_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        BindingMismatchKind::SemanticBundleDigest,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            release_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        BindingMismatchKind::ReleaseBundleDigest,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            operation_coordinate: "a.b@1.other",
-            ..matching_identity()
-        },
-        BindingMismatchKind::Operation,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            operation_domain: "wrong.operation/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::Operation,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            operation_id_law: "wrong.operation-id-law/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::OperationId,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            operation_id: OPERATION_ID + 1,
-            ..matching_identity()
-        },
-        BindingMismatchKind::OperationId,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_ir_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetIr,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_ir_coordinate: "wrong.target-ir/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetIr,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_ir_digest_domain: "wrong.target-ir-artifact/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetIr,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_profile_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_profile_coordinate: "wrong.target-profile@1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_profile_digest_domain: "wrong.target-profile/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_bundle_profile_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetBundleProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_bundle_profile_coordinate: "wrong.bundle-profile/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetBundleProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            target_bundle_profile_digest_domain: "wrong.bundle-profile-domain/v1",
-            ..matching_identity()
-        },
-        BindingMismatchKind::TargetBundleProfile,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            echo_contract_abi_version: ECHO_CONTRACT_ABI_VERSION + 1,
-            ..matching_identity()
-        },
-        BindingMismatchKind::EchoAbi,
-    );
-    expect_mismatch(
-        ContractBundleIdentityV1 {
-            helper_api_version: CONTRACT_HOST_HELPER_API_VERSION + 1,
-            ..matching_identity()
-        },
-        BindingMismatchKind::HelperApi,
-    );
-    for schema_mismatch in [
-        ContractBundleIdentityV1 {
-            provider_schema_coordinate: "wrong.provider-schema@1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            provider_schema_sha256_hex: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            input_schema: "a.b@1.WrongInput",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            output_schema: "a.b@1.WrongOutput",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            type_schema_domain: "wrong.value/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            obstruction_coordinate: "domain.WrongObstruction",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            obstruction_domain: "wrong.obstruction/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            effect_failure_schema: "target.wrong.rejected",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            obstruction_payload_schema: "domain.WrongObstruction.Payload",
-            ..matching_identity()
-        },
-    ] {
-        expect_mismatch(schema_mismatch, BindingMismatchKind::Schema);
-    }
-    for profile_mismatch in [
-        ContractBundleIdentityV1 {
-            generated_artifact_profile: "wrong.registration/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            generated_artifact_profile_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            generated_artifact_profile_digest_domain: "wrong.generated-profile/v1",
-            ..matching_identity()
-        },
-    ] {
-        expect_mismatch(
-            profile_mismatch,
-            BindingMismatchKind::GeneratedArtifactProfile,
-        );
-    }
-    for profile_mismatch in [
-        ContractBundleIdentityV1 {
-            operation_profile: "wrong.operation-profile/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            operation_profiles_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            operation_profile_domain: "wrong.operation-profile-member/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            operation_profiles_coordinate: "wrong.operation-profiles/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            operation_profiles_digest_domain: "wrong.operation-profiles-domain/v1",
-            ..matching_identity()
-        },
-    ] {
-        expect_mismatch(profile_mismatch, BindingMismatchKind::OperationProfile);
-    }
-    for footprint_mismatch in [
-        ContractBundleIdentityV1 {
-            footprint_obligation: "wrong.footprint",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            footprint_algebra: "wrong.footprint/v1",
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            footprint_algebra_digest: OTHER_DIGEST,
-            ..matching_identity()
-        },
-        ContractBundleIdentityV1 {
-            footprint_algebra_digest_domain: "wrong.footprint-domain/v1",
-            ..matching_identity()
-        },
-    ] {
-        expect_mismatch(footprint_mismatch, BindingMismatchKind::Footprint);
-    }
-}
-"#;
-    let execution = compile_and_run_generated_consumer(&format!("{source}\n{consumer}"));
-    assert!(
-        execution.status.success(),
-        "generated consumer failed at runtime: {}",
-        String::from_utf8_lossy(&execution.stderr)
-    );
-
-    let forbidden_public_symbols = [
-        "rewriterule",
-        "scheduler",
-        "tick",
-        "wal",
-        "recovery",
-        "install_contract",
-        "install_package",
+    for forbidden_surface in [
+        "pack_intent_raw_vars",
+        "raw_vars",
         "register_contract_package",
-        "register_rule",
-    ];
-    for public_line in source
-        .lines()
-        .filter(|line| line.trim_start().starts_with("pub "))
-    {
-        let normalized = public_line.to_ascii_lowercase();
-        for forbidden in forbidden_public_symbols {
-            assert!(
-                !normalized.contains(forbidden),
-                "generated source exposes forbidden public runtime symbol `{forbidden}` in `{public_line}`"
-            );
-        }
+        "dispatch_optic_intent",
+        "submit_intent",
+        "tick_once",
+    ] {
+        assert!(
+            !source.contains(forbidden_surface),
+            "generated source exposes forbidden authority or bypass `{forbidden_surface}`"
+        );
     }
 }
 

@@ -24,19 +24,30 @@ digest-locked provider package with exact provenance and non-authoritative
 review evidence. The lowerer also emits a requested-only Rust helper that binds
 the exact Target IR, bundle propositions, profiles, schemas, ABI versions,
 footprint obligation, obstruction mapping, and semantic operation identity
-through a pure descriptor preflight.
+through a pure descriptor preflight. The generated-artifact profile owns the
+`le-binary-v1` value codec; the helper implements distinct typed `Id`, `Input`,
+and `Output` encoders/decoders, rejects malformed or trailing bytes, and packs
+the typed input into canonical EINT v1. The EINT `vars` payload remains opaque,
+codec-owned bytes rather than a universal canonical-CBOR value.
 
 That provider package and descriptor are compiler/publication artifacts. They
 are not an Echo registry entry, `InstalledContractPackage`, installation token,
-submitted intent, execution receipt, or observation. The generated helper does
-not yet name a value codec or construct a complete invocation.
+submitted intent, execution receipt, or observation. The descriptor exposes a
+borrowed, provider-generic registry and can combine its generated matcher with
+one explicitly identity-bound host implementation to produce an opaque,
+non-installing provider package proposal. Proposal preflight fails closed across
+the complete operation, Target IR, bundle, profile, schema, codec, obstruction,
+ABI, helper API, and footprint claims. Matching callback claims are
+cross-binding evidence, not proof that arbitrary callback code implements the
+claimed semantics.
 
 Echo separately implements `InstalledContractPackage` verification,
 `Engine::register_contract_package`, scheduler-owned execution for registered
-handlers, and `rule_pack_id` stamping. No current generated Wesley or Edict
-client closes the remaining compiler-descriptor-to-trusted-host installation
-crossing. The Edict provider package is admitted by its compiler/host contracts;
-it is not thereby admitted or installed by Echo.
+handlers, and `rule_pack_id` stamping. A trusted Echo host still has to consume
+the opaque provider proposal, make its own admission decision, and perform the
+actual installation crossing; generated code cannot install itself. The Edict
+provider package is admitted by its compiler/host contracts, but it is not
+thereby admitted or installed by Echo.
 
 `native_rule_bootstrap` is a Cargo feature gate and repository policy boundary.
 Default builds omit raw rule constructors and public registration methods, but
@@ -53,7 +64,8 @@ The required end state is:
 Wesley or Edict source
 -> verified mutation Target IR or lawful read/observer semantics
 -> generated Rust handlers, bounded observers, and footprints
--> generated registry and package metadata
+-> generated typed codecs, EINT helpers, registry, and package metadata
+-> opaque provider package proposal with explicit host binding
 -> InstalledContractPackage verification
 -> Engine::register_contract_package
 -> scheduler-owned execution
@@ -62,11 +74,14 @@ Wesley or Edict source
 
 Both authoring systems still need generated bridges into Echo's runtime package
 surface. Wesley needs a package emitter. Edict already emits a digest-locked
-provider publication package, but still needs codec-bound clients and a
-registry/package adapter that a trusted host can verify, bind to an executor or
-observer, and install as an `InstalledContractPackage`. That work must reuse
-Echo's registration and execution path; it must not create a second execution
-engine.
+provider publication package, codec-bound mutation client, borrowed registry,
+and fail-closed package proposal. It still needs the trusted host crossing that
+admits and installs that proposal as an `InstalledContractPackage`, plus the
+separate generated bounded-observer path for authored reads. The current
+mutation proposal intentionally rejects `Query`; that refusal does not turn a
+read into a mutation or eliminate the independent observer/optic corridor. All
+installation work must reuse Echo's registration and execution path; it must
+not create a second execution engine.
 
 ## Footprint Honesty
 
@@ -92,9 +107,10 @@ trigger hidden retries or widen access.
 - Default builds do not expose raw `RewriteRule` construction or public raw
   registration.
 - Product and adapter crates do not enable `native_rule_bootstrap`.
-- Generators emit artifacts and descriptors without registering themselves.
-  Trusted hosts register package-qualified generated material through
-  `InstalledContractPackage`, not an app-specific engine escape hatch.
+- Generators emit artifacts, descriptors, and opaque proposals without
+  registering themselves. Trusted hosts register package-qualified generated
+  material through `InstalledContractPackage`, not an app-specific engine
+  escape hatch.
 - Registry/package identity, operation identity, codec/schema compatibility,
   and footprint metadata are verified before the engine mutates registration
   state.

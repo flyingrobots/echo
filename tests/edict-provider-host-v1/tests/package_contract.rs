@@ -8,12 +8,14 @@
 )]
 //! Edict-native pre-execution readiness witness for the checked Echo package.
 
+mod support;
+
 #[rustfmt::skip]
 #[allow(dead_code)]
 #[path = "../../../crates/echo-edict-provider-lowerer/tests/fixtures/generated_echo_dpo.rs"]
 mod checked_generated_helper;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::process::Command;
 use std::sync::Arc;
@@ -50,6 +52,9 @@ use edict_syntax::{
 use sha2::{Digest as _, Sha256};
 
 use checked_generated_helper::echo_dpo as generated;
+use support::conformance::{
+    decode_declared_cases, ExecutableContract, ExecutorOwner, CONFORMANCE_CORPUS_BYTES,
+};
 
 const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
@@ -1102,51 +1107,7 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
     }
 }
 
-fn assert_declared_package_parity_case(observation: &PackageConformanceObservation) {
-    let corpus = GENERATED_RESOURCE_FIXTURES
-        .iter()
-        .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
-        .expect("the checked package declares its conformance corpus");
-    let corpus = decode_canonical_cbor(corpus.bytes)
-        .expect("the checked conformance corpus has canonical CBOR bytes");
-    let cases = required_field(&corpus, "cases").expect("the corpus declares case contracts");
-    let CanonicalValue::Map(cases) = cases else {
-        panic!("the conformance case closure must be a map");
-    };
-    let [(CanonicalValue::Text(case_id), contract)] = cases.as_slice() else {
-        panic!("the first executable corpus must declare exactly one reviewed case");
-    };
-    assert_eq!(case_id, "package-parity");
-
-    let CanonicalValue::Map(contract_fields) = contract else {
-        panic!("the package-parity declaration must be a case contract");
-    };
-    assert_eq!(contract_fields.len(), 3);
-    assert_eq!(
-        required_field(contract, "crossing").expect("package-parity names its crossing"),
-        &text("pipeline")
-    );
-    assert_eq!(
-        required_field(contract, "stimulus").expect("package-parity names its stimulus"),
-        &text("baseline")
-    );
-    let required_outcome = required_field(contract, "requiredOutcome")
-        .expect("package-parity declares its required outcome");
-    let CanonicalValue::Map(outcome_fields) = required_outcome else {
-        panic!("the package-parity required outcome must be a map");
-    };
-    assert_eq!(outcome_fields.len(), 2);
-    assert_eq!(
-        required_field(required_outcome, "disposition")
-            .expect("package-parity declares its disposition"),
-        &text("accepted")
-    );
-    assert_eq!(
-        required_field(required_outcome, "contract")
-            .expect("package-parity declares its executable contract"),
-        &text("completed-package-parity")
-    );
-
+fn assert_completed_package_parity_contract(observation: &PackageConformanceObservation) {
     assert_eq!(observation.verifier_outcome, "accepted");
     assert_eq!(
         observation.builtin_semantic_bundle_digest,
@@ -1157,6 +1118,36 @@ fn assert_declared_package_parity_case(observation: &PackageConformanceObservati
         observation.external_release_bundle_digest
     );
     assert!(observation.generated_helper_bound);
+}
+
+fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
+    let corpus = GENERATED_RESOURCE_FIXTURES
+        .iter()
+        .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
+        .expect("the checked package declares its conformance corpus");
+    assert_eq!(corpus.bytes, CONFORMANCE_CORPUS_BYTES);
+    let cases = decode_declared_cases(corpus.bytes)
+        .expect("every checked declaration has one exact executable owner");
+    let declared: BTreeSet<_> = cases
+        .iter()
+        .filter(|case| case.owner() == ExecutorOwner::Package)
+        .map(support::conformance::DeclaredCase::contract)
+        .collect();
+    let mut executed = BTreeSet::new();
+    for case in &cases {
+        match case.owner() {
+            ExecutorOwner::Package => {
+                match case.contract() {
+                    ExecutableContract::CompletedPackageParity => {
+                        assert_completed_package_parity_contract(observation);
+                    }
+                }
+                assert!(executed.insert(case.contract()));
+            }
+            ExecutorOwner::Host => {}
+        }
+    }
+    assert_eq!(executed, declared);
 }
 
 fn routed_resource<'a>(manifest: &'a TargetProviderManifest, role: &str) -> &'a ResourceRef {
@@ -1852,10 +1843,10 @@ fn malformed_artifact_fails_before_component_execution() {
 }
 
 #[test]
-fn checked_package_completes_external_builtin_parity_observation() {
+fn declared_package_cases_execute_their_exact_typed_contracts() {
     let observation = complete_package_conformance_observation();
 
-    assert_declared_package_parity_case(&observation);
+    execute_declared_package_cases(&observation);
 
     assert_eq!(
         observation.target_ir_digest,

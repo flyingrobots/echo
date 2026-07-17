@@ -8,6 +8,8 @@
 )]
 //! Standalone Rust 1.94 witness for the frozen Edict provider-host contract.
 
+mod support;
+
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,6 +44,7 @@ use edict_syntax::{
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
+use support::conformance::{decode_declared_cases, ExecutorOwner, CONFORMANCE_CORPUS_BYTES};
 
 const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
@@ -1736,6 +1739,16 @@ fn rejected_host_invocation_replays_with_the_same_typed_failure() {
     };
     assert_eq!(failure.kind(), ProviderHostFailureKind::GuestTrap);
     assert_eq!(failure.phase(), ProviderHostPhase::Lower);
+}
+
+#[test]
+fn declared_host_cases_execute_their_exact_typed_contracts() {
+    let cases = decode_declared_cases(CONFORMANCE_CORPUS_BYTES)
+        .expect("every checked declaration has one exact executable owner");
+    assert!(
+        !cases.iter().any(|case| case.owner() == ExecutorOwner::Host),
+        "the current checked singleton is package-owned"
+    );
 }
 
 #[test]

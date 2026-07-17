@@ -7,18 +7,22 @@ This page explains how applications use Echo without turning Echo into an
 application framework.
 
 Echo is a deterministic witnessed causal substrate. Applications own product
-semantics. Wesley compiles authored GraphQL contracts into generated Rust code
-that can talk to Echo through generic intent and observation DTOs. A bounded
-optic is the product contract shape, but the current generated query execution
-path is still the lower-level observation primitive described below.
+semantics. Edict admits authored operation semantics and coordinates
+provider-specific lowering and verification. Wesley compiles supported
+GraphQL and optic contracts. Their generated artifacts can cross into Echo
+only through generic, trusted-host-controlled intent, observation, and package
+boundaries. A bounded optic is the read-contract shape, but the current Wesley
+query fixture still uses the lower-level observation primitive described
+below.
 
 This is Echo's concrete implementation of the WARP compiler seam: authored
-contract nouns lower into generated request helpers and contract-host helpers,
-while Echo core remains generic. See the current
+contract nouns lower through approved compiler paths into generated artifacts,
+request helpers, and contract-host helpers, while Echo core remains generic.
+See the current
 [WARP optics](../topics/WarpOptics.md) model for the WARP-paper-to-Echo noun
 map.
 
-The current installed-contract query path is:
+The current Wesley compatibility query fixture is:
 
 ```text
 Application UI / adapter
@@ -40,7 +44,7 @@ Echo must not gain privileged application nouns.
 
 Names such as `ReplaceRange`, `JeditBuffer`, `RenameSymbol`,
 `DeadSymbols`, `GraftProjection`, or `CounterIncrement` may appear in authored
-contracts, Wesley-generated code, tests for generated families, application
+contracts, compiler-generated code, tests for generated families, application
 adapters, and product documentation. They must not become Echo substrate APIs.
 
 Echo-owned APIs stay generic:
@@ -72,15 +76,18 @@ Echo, contracts, and applications have different jobs.
 flowchart TB
     app["Application"]
     contract["Authored contract"]
-    wesley["Wesley compiler"]
-    generated["Generated Rust client and registry"]
+    edict["Edict provider path"]
+    wesley["Wesley compatibility path"]
+    generated["Generated artifacts and adapters"]
     echo["Echo substrate"]
     cas["echo-cas"]
 
     app -->|"owns UI, workflows, product policy"| contract
-    contract -->|"declares domain nouns, ops, reads"| wesley
-    wesley -->|"emits DTOs, codecs, op ids, registry"| generated
-    generated -->|"packs EINT; builds raw and optic query DTOs"| echo
+    contract -->|"declares admitted operations and law"| edict
+    contract -->|"declares supported GraphQL and optics"| wesley
+    edict -->|"emits verified artifacts, package, helper"| generated
+    wesley -->|"emits DTOs, codecs, op ids, fixture registry"| generated
+    generated -->|"trusted host verifies, binds, and installs"| echo
     echo -->|"admits, schedules, witnesses, observes"| cas
     cas -->|"stores retained content, witnesses, cached readings"| echo
 
@@ -111,13 +118,31 @@ Contracts own:
 - domain emission law;
 - domain-specific reading payloads.
 
-Wesley-generated code owns the typed bridge between those contract nouns and
+Compiler-generated code owns the typed bridge between those contract nouns and
 Echo's generic runtime surfaces. That bridge has two separate faces:
 
-| Surface               | Responsibility                                                          |
-| :-------------------- | :---------------------------------------------------------------------- |
-| Application helpers   | Build EINT bytes plus raw and optic-shaped query request DTOs.          |
-| Contract-host helpers | Install generated mutation handler rules and read-only query observers. |
+| Surface               | Responsibility                                                           |
+| :-------------------- | :----------------------------------------------------------------------- |
+| Application helpers   | Encode typed values, build EINT bytes, and build bounded read requests.  |
+| Contract-host helpers | Bind host implementations and propose mutation or read package material. |
+
+The current implementations have not yet closed every branch. Wesley's
+compatibility fixture emits direct bootstrap helpers. The Edict provider path
+emits verified publication artifacts plus a pure helper projection with the
+profile-owned `le-binary-v1` typed codecs, canonical EINT packing, a borrowed
+provider-generic registry, and a fail-closed mutation package proposal that
+binds one explicit host implementation. The helper can bind and propose; it
+cannot authenticate or install its own proposal. A trusted Echo host owns
+proposal admission, exact package corroboration, provider-native installation,
+runtime admission, scheduling, receipts, and recovery. The proof-owning
+generator adapter consumes the corroborated token through a sealed
+runtime-owner port; it is not an application capability. After installation,
+the host can admit a witnessed exact-kind EINT submission for the installed
+provider mutation and retain package-, operation-, Target-IR-, and rule-bound
+evidence through the shared scheduler and WAL. The current closure is
+mutation-specific; generated reads remain a separate bounded observer/optic
+crossing. Neither compiler path may claim that generated authority facts are
+Echo runtime authority.
 
 ## External Edict Provider Artifacts
 
@@ -132,6 +157,8 @@ Echo GraphQL and checked semantic declarations
   -> provider-owned lowerer and verifier components
   -> #655 generated provider manifest and digest-locked Echo provider package
   -> Edict's runtime-neutral provider host
+  -> exact requested Target IR, generated-helper, and non-authoritative review
+     projections after their own host admission
 ```
 
 The first checked non-GraphQL source is
@@ -175,8 +202,62 @@ own artifact list. Two authority-facts documents preserve Edict's one-source
 rule: lawpack facts carry budgets, while target-profile facts carry operation
 profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
-declarations carry no output digests. Standard Edict resources are explicit
-trusted inputs whose canonical publication is tracked by Edict #158.
+declarations carry no output digests. Standard Edict resources and the
+self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
+contract pack merged in Edict PR #162. Echo admits its exact CDDL, manifest,
+contract/domain inventories, resource bytes, digests, and provenance before
+generation without searching a filesystem, registry, or network. Schema
+instance validation is a separate output-admission step: exact
+`edict.canonical-cbor/v1` decoding is followed by validation against the named
+owning root in that authenticated CDDL. Passing both checks attests provider
+artifact shape only. It does not make authority-facts runtime Echo authority,
+install a package, admit an operation, or authorize a runtime consequence.
+
+The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
+not a hash of the completed JSON manifest. It binds the manifest role and
+coordinate, exact API and provider ABI, ten sorted semantic/component routes,
+24 sorted schema bindings—nine invocation domains, the generated artifact
+profile, and 14 generated-resource domains—and raw exact-byte hashes for all 24
+non-manifest members. The derived manifest carries that root and has its own
+independent raw content identity. Canonical-CBOR routes preserve their Edict domain-framed
+artifact digests while the package member table preserves raw occurrences, so
+neither proposition impersonates the other. Admission requires the caller's
+external provider pin and exact-reproduces packaged Wesley provenance/review.
+That boundary still proves only the distribution occurrence: the Edict-owned
+schema registry and component host must separately admit roots, bytes,
+attestations, imports, exports, and WIT types before guest execution.
+
+The checked distribution is a self-contained 25-file publication: the current
+22-file provider corpus introduced by #652 under `generated/`, the exact lowerer and verifier under
+`components/`, and the derived manifest. Publication refuses before filesystem
+access if the generated members are not byte-identical to the checked source
+corpus. Its check mode inventories the exact tree through retained no-follow
+directory capabilities and reports drift without repair. This distribution
+copy is a release occurrence, not a second semantic authority.
+
+Native readiness is a later, independent crossing pinned to Edict revision
+`c75c3f550d049485ba00eae0dc272c6dd6aca11f`. The exact manifest constructs the
+immutable schema registry; all five canonical primaries and 14 generated
+resources validate under their owning roots; every lawpack/target-profile field
+is bound to the expected coordinate and independently recomputed domain-framed
+digest; adjacent primary references agree; and both exact components pass host
+preflight before both request kinds are validated. No guest is invoked. These
+proofs establish schema, identity-graph, component-contract, and request
+readiness only. They still do not install, authorize, schedule, execute, commit,
+observe, or receipt anything in Echo.
+
+The publishable Rust crate uses a separate 38-file package-local carrier tree
+for exact repository sources and provider bytes that would otherwise live above
+the crate root. Carrier locations never replace the logical authored paths in
+generation provenance. Generated artifacts and components remain authoritative;
+their package copies are corroborating release occurrences. This distinction
+permits staged regeneration without allowing a stale package to block the
+carrier update required to rebuild that package. Final checks require owner,
+carrier, package copy, and Cargo archive inventory to agree exactly. The source
+closure explicitly enumerates 20 files, including the exact canonicalization,
+semantic-operation-id, and provider-registry dependency manifests and
+implementations; a dependency implementation cannot move while the claimed
+generator occurrence remains fixed.
 
 The target-profile lowerer and verifier resources are generated declarative
 contract documents. They do not select executable implementations. The package
@@ -184,10 +265,243 @@ manifest separately binds the exact provider-owned components and their frozen
 WIT world attestations, preserving independent lowerers and component upgrades
 without target-profile semantic churn.
 
+The first executable lowerer implements the frozen
+`edict:target-provider/lowerer@1.0.0` world as a pure component over explicit
+request bytes. It recognizes only the checked mutation closure for local Core
+intent `t` (global semantic coordinate `a.b@1.t`) and emits the exact canonical
+Target IR bytes produced by Edict's built-in Echo compatibility wrapper. An
+effect-free operation is refused as unsupported semantics rather than encoded
+as a synthetic mutation. The same fail-closed rule applies to a rebound Core
+module, changed operation type binding, or authored Core optic that this first
+crossing cannot faithfully discharge. The lowerer authenticates the complete
+reviewed Core type-definition map and exact evaluation budget because neither
+may disappear or broaden across Target IR projection. It also derives bounded
+pre-effect, obstruction-arm, and post-effect local scopes from exactly one input,
+one effect-result, and one obstruction declaration. Every local expression must
+resolve to one complete compiler-owned identity before the expression is copied.
+This first closure admits no input constraints and only the reviewed
+zero-argument `domain.WriteRejected` obstruction constructor; non-empty
+constraints or a different construction fail closed until their own semantic
+crossings are implemented. The complete semantic closure includes the exact
+lowerability coordinate as well as its canonical bytes and digest.
+The component's protocol instance and request/result aliases are type-only
+imports; filesystem, network, environment, clock, randomness, registry,
+logging callback, WASI, and every other callable import are forbidden. This
+crossing proves translation only. Package admission, installation, invocation,
+commitment, observation, and receipt authority remain separate Echo runtime
+crossings.
+
+The #656 native lowerer model adds two projections beside the Target IR output:
+an exact generated Rust helper envelope and a permanently non-authoritative
+review envelope. Requested outputs must be an exact lexicographically sorted
+subset of the three declared role/kind/domain triples. The helper and review
+separately name the semantic Target IR coordinate `echo.span-ir/v1` and its
+artifact digest domain `edict.target-ir.artifact/v1`; neither identity may stand
+in for the other. The review subjects the exact generated artifact, so its
+evidence changes when the generated envelope changes.
+
+The `echo.dpo.bundle/v1` identity is only a target-bundle profile, not a final
+contract-bundle occurrence. Because the generated artifact participates in the
+bundle's semantic identity, embedding final bundle digests in that artifact or
+its review would create an identity cycle. The review therefore records
+`edict.bundle.semantic/v1` and `edict.bundle.release/v1` as the two bundle
+digest propositions, leaves their digest values absent, and declares
+`explicit-after-assembly` binding. After assembly, a caller supplies an
+independent expected pin and untrusted actual bundle claims. The generated
+helper checks exact domains, typed digest form, expected-versus-actual bundle
+digests, and the operation coordinate, Target IR, Echo ABI, helper API, provider
+and operation schemas, target/generated/operation profiles,
+and abstract footprint
+obligation/algebra identities before returning a descriptor with private state.
+Every framed resource claim includes and compares its coordinate, digest domain,
+and digest; a bare hash cannot stand in for that proposition.
+The footprint claim remains abstract; the helper does not counterfeit a static
+read/write certificate. This is an equality and semantic-consistency proof
+only: it does not authenticate the pin, schema-admit the outputs, construct or
+install an Echo package, or grant runtime authority. The canonical generated
+profile/package now carries the separately versioned Echo-owned
+`echo.semantic-operation-id.fnv1-32/v1` law and exact persisted id derived from
+the semantic coordinate and generic query/mutation kind. The top two operation
+ids remain Echo-owned protocol reservations: `u32::MAX` for scheduler control
+and `u32::MAX - 1` for witnessed suffix import. Either reserved result and any
+package-local collision refuse without salting or probing. CDDL admission
+constrains the numeric application-id domain only; generation must independently
+recompute the coordinate-and-kind law and collision-check the complete set.
+Emitted source carries public expected constants for that packaged proposition
+without re-derivation, checks the law and id as untrusted bundle claims, and lets
+the descriptor expose the matched id claim after the pure preflight succeeds.
+The descriptor remains evidence, not a registry entry, installation token, or
+runtime authority. The generated-artifact profile now owns the exact
+`le-binary-v1` byte law. Generated Rust implements distinct `Id`, `Input`, and
+`Output` types, preserves raw UTF-8 under the authored scalar bound, and rejects
+malformed, over-bound, truncated, or trailing bytes. The descriptor exposes
+typed encode/decode methods and packs an `Input` into canonical EINT v1 under
+the matched operation id. Echo treats EINT `vars` as codec-owned opaque bytes;
+canonical CBOR is specific to the Wesley path rather than a universal
+operation-variable contract.
+
+The descriptor also exposes a borrowed `ProviderRegistryV1` whose operation
+record retains the complete Target IR, bundle, target/generated/operation
+profile, provider/value schema, codec, obstruction, operation-id, ABI,
+helper-API, and footprint proposition. It can bind the generated matcher and
+canonical rule name to one independently identified host mutation
+implementation, then return an opaque `ProviderContractPackageProposalV1` only
+when every claim agrees. This is fail-closed cross-binding, not proof that
+arbitrary callback code implements the declared semantics. The proposal does
+not authenticate or install itself. `TrustedRuntimeHost` can now compare its
+complete occurrence and registry claims with an independently constructed
+`ProviderContractAdmissionPolicyV1` and retain an opaque
+`AdmittedProviderContractPackageV1`. This admits the pinned claim only: it does
+not rehash the distribution bytes, install a handler, mutate the engine,
+schedule work, or invoke a callback. `echo-wesley-gen` can separately consume
+that token with an independently produced `DigestAdmittedProviderPackageV1`.
+The exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
+package root must agree with the admitted occurrence's raw artifact hash before
+it returns an opaque `DigestCorroboratedProviderContractPackageV1`. This proves
+package-occurrence agreement only; it does not derive registry semantics from
+package bytes or install the package by itself. The proof-owning
+`echo-wesley-gen` adapter can now consume that token through `warp-core`'s sealed
+runtime-owner installer port. The `TrustedRuntimeHost` lower primitive does not
+authenticate package bytes and is not exposed to application code. It creates a
+distinct owned provider record retaining the exact occurrence and reference,
+complete provider registry, and mutation-rule identity, then atomically installs
+provider package, root, operation, and shared scheduler-rule indexes. It invokes
+no callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
+Those separation laws continue after installation. A trusted host may admit a
+previously witnessed provider submission only when its outer intent kind is the
+exact canonical EINT v1 domain and its encoded operation id names the installed
+provider mutation. Echo stages it through the shared scheduler, reports an
+applied outcome only for the exact installed provider rule, and carries a
+distinct provider evidence variant through the receipt and tagged WAL. That
+evidence binds package id and exact package reference, operation id and
+coordinate, Target IR, and rule id. Fresh-host recovery reopens the committed
+outcome after the same package is independently reinstalled as host
+configuration; it does not rerun the callback. Provider evidence fabricates no
+legacy retained-contract coordinate and grants no authority beyond the
+transition Echo actually admitted and recorded.
+
+The proposal constructor supports mutations and refuses a `Query`. Authored
+reads continue through a separate bounded observer/optic crossing and may not
+be encoded as synthetic mutations. Caller authentication, target authorization,
+and operation-specific validation of codec-owned EINT variables also remain
+outside this generic provider invocation closure.
+
+Both refreshed components have crossed reproducible checked promotion. The
+lowerer is 189,668 bytes with SHA-256
+`f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`; the
+verifier is 189,922 bytes with SHA-256
+`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
+The generated envelope crosses pinned-host CDDL admission under its owning
+root, and the isolated host helper witness covers exact binding, codec refusal
+and round trips, EINT packing, the borrowed registry, and the non-installing
+proposal. Pinned-host admission of the review envelope remains a separate
+crossing.
+
+The generated conformance corpus declares twelve reviewed obligations, divided
+exactly six to the isolated host executor and six to the package executor. Its
+closed vocabulary covers one accepted baseline, nine rejected admission,
+binding, and verification negatives, and two typed refusals for unsupported
+lowerer or verifier semantics. Each declaration names its crossing, stimulus, required
+disposition, and outcome contract, but contains no claimed result or evidence
+pointer. Each executor requires an exact one-to-one match with only its assigned
+owner set. Corpus declaration, schema admission, executed provider evidence,
+and later Echo runtime receipts remain distinct propositions.
+
+The first executable verifier independently implements the frozen
+`edict:target-provider/verifier@1.0.0` world. It compares the exact Core and
+Target IR relation under the target profile and ordered semantic inputs rather
+than trusting the lowerer's construction. The pinned Edict host preflights the
+request artifacts and declared output schema before invoking the checked
+verifier. After invocation, it schema-validates each returned accepted or
+well-formed rejected report before authoring its manifest. An unsupported
+output-role overclaim remains a typed provider refusal with neither response nor
+manifest. Independent fresh-store replay and separate host processes reproduce
+all three completed outcomes identically. The report binds its named Target IR
+reference; the
+host-authored manifest separately binds the Core, target profile, Target IR,
+semantic inputs, output request, output bytes, and domain-framed output digest.
+This crossing proves provider semantic verification and host replay only. It
+does not install a package, authorize or execute an operation, observe a
+consequence, or mint an Echo receipt.
+
 The package-root projection pins `echo.edict-provider@1` to exact component
 world `edict:target-provider@1.0.0`. Generated provenance is a generic Edict
 `generationProvenance` package member whose document contract remains owned by
 Wesley #728.
+
+The generation invocation itself is a pure Wesley extension input. It binds
+the exact Echo semantic-source file, admitted Edict CDDL and manifest, and
+versioned generator settings as content-addressed inputs. The first closure has
+no GraphQL Shape authority, so its Wesley Shape and root-operation catalog are
+empty; the Echo semantic operation is not projected into a synthetic GraphQL
+operation. Primary lawpack, target-profile, facts, registration-profile, and
+schema roles are selected before provenance. Provenance and review are derived
+after primary output digests exist, preventing self-referential digest sets.
+Set-like source reordering preserves normalized semantic projections but moves
+the exact-source generation-input identity, as honest provenance requires.
+
+Primary provider generation is a pure digest DAG. Echo first emits and
+owning-root-validates the declarative resource closure and generated operation
+profile, then the target profile, then the lawpack, and finally the two
+source-partitioned authority-facts documents. The target profile binds the
+generated profile and resource domain digests; the lawpack binds the completed
+target-profile digest; authority facts bind their completed source artifact.
+No primary artifact binds review or provenance, so the graph has no
+self-reference. Wesley content references separately bind exact output bytes.
+Neither digest form installs an artifact or turns generated authority facts
+into runtime Echo authority.
+
+The derived Wesley provenance manifest binds the exact semantic-source, Edict
+CDDL, Edict manifest, settings, and caller-supplied generator component bytes.
+Its emitted closure is exactly the five canonical primary artifacts plus the
+raw self-contained CDDL. Construction immediately re-verifies all three source
+and six output byte identities. The fourteen resource documents remain
+transitively covered by the primary manifest DAG; restating them as primary
+emissions would misrepresent the projection boundary. The generator API never
+discovers an executable, path, environment, process, registry, clock, or
+network input. A primary closure retains the exact Wesley input digest that
+produced it, so outputs from another invocation cannot be falsely attributed
+merely because their role closure matches. The generator coordinate must also
+be disjoint from every exact source artifact, declared generated artifact,
+resource, provider, and package coordinate.
+
+The deterministic review JSON is Wesley's `GenerationReviewV1`, derived only
+after the provenance wrapper has verified exact materials. It copies the input,
+provenance, generator, projection roles, sources, and primary emissions for
+inspection, but its `authoritative` posture is permanently false. Review does
+not become a second contract, provenance proof, package admission, or runtime
+authority surface.
+
+The checked provider corpus materializes that digest DAG as exactly 22 files:
+five canonical-CBOR primary artifacts, fourteen canonical-CBOR resources, raw
+self-contained CDDL, canonical provenance JSON, and canonical review JSON. Its
+generator identity is the Wesley digest of a versioned binary frame containing
+an explicit compile-time inventory of provider generator source, Cargo
+manifests and lockfile, and the pinned Rust toolchain. Authored semantic,
+settings, CDDL, and contract-manifest bytes remain separate Wesley inputs, and
+generated corpus bytes never re-enter generator identity. The frame therefore
+attests the source/dependency-lock closure without claiming a reproducible
+executable or creating a circular output digest.
+
+Corpus comparison is an exact-byte, exact-path check. Missing, changed, and
+unexpected entries are reported in stable order. Check mode performs no
+directory creation, write, deletion, normalization, or symlink traversal;
+the caller's `--out` path is an ambient locator, while its final corpus-root
+entry and every descendant are opened without following symlinks and retained as
+directory capabilities. Generation refuses every unexpected entry it observes
+before creating or replacing an expected path and leaves that entry for explicit
+operator disposition. Each temporary write, sync, replacement, and failure
+cleanup remains relative to the validated parent handle. Unrelated ancestors
+used to locate the requested root are outside this capability boundary. This
+checked build artifact remains provider evidence. Echo runtime admission and
+installation are still separate acts.
+
+The generated operation profile preserves native versus direct-adapter
+selection, operation-local obstruction mappings, and the target optic contract.
+Invocation posture is derived from admitted optic semantics: mutation-capable
+write classes require affect/reintegration, while non-mutating classes require
+revelation/projection and remain bounded observers. This rule is generic and
+does not encode application- or editor-specific behavior.
 
 The first capability distinguishes two nested domains. `echo.span-ir/v1` is
 the inner Echo target IR domain selected by `echo.dpo@1.replace`.
@@ -197,8 +511,9 @@ crosses the Edict provider WIT boundary and is validated through the declared
 
 This source contract does not claim that Echo currently executes the declared
 replace operation. Runtime mutation, admission, receipts, and presence-sensitive
-replace enforcement remain runtime implementation authority and must be proven
-by the lowerer, verifier, and admitted-execution slices.
+replace enforcement remain runtime implementation authority and must still be
+proven by admitted execution. The completed lowerer and verifier witnesses prove
+their translation, semantic-verification, and Edict-host replay crossings only.
 
 Applications own:
 
@@ -271,14 +586,14 @@ contract helpers.
 ```mermaid
 sequenceDiagram
     participant UI as Application UI
-    participant Gen as Wesley-generated client
+    participant Gen as Generated contract client
     participant ABI as echo-wasm-abi
     participant Echo as Echo KernelPort
     participant Runtime as Echo runtime
 
-    UI->>Gen: build typed contract operation variables
-    Gen->>ABI: encode_cbor(contract operation variables)
-    ABI-->>Gen: canonical vars bytes
+    UI->>Gen: build typed contract operation input
+    Gen->>Gen: encode with the profile-owned value codec
+    Gen-->>Gen: exact opaque vars bytes
     Gen->>ABI: pack_intent_v1(op_id, vars bytes)
     ABI-->>Gen: EINT v1 bytes
     Gen->>Echo: dispatch_intent(EINT bytes)
@@ -288,7 +603,7 @@ sequenceDiagram
     Gen-->>UI: application-level result handling
 ```
 
-For a toy mutation:
+For a toy Wesley mutation:
 
 ```graphql
 mutation increment(input: IncrementInput): CounterValue
@@ -302,19 +617,32 @@ let intent = pack_increment_intent(&__echo_wesley_generated::IncrementVars {
 })?;
 ```
 
-The generated helper performs the deterministic boundary work:
+The Wesley helper performs this deterministic boundary work:
 
 ```text
 __echo_wesley_generated::IncrementVars
   -> encode_cbor(...)
-  -> canonical vars bytes
+  -> canonical-CBOR vars bytes selected by that Wesley contract
   -> pack_intent_v1(OP_INCREMENT, &vars_bytes)
+  -> EINT v1 bytes
+```
+
+The checked Edict helper follows the same EINT envelope law but a different,
+profile-owned value law:
+
+```text
+echo_dpo::Input
+  -> le-binary-v1 typed encoding
+  -> exact opaque vars bytes
+  -> RegistrationDescriptorV1::pack_intent(...)
   -> EINT v1 bytes
 ```
 
 Echo receives the EINT bytes. Echo does not need to know that the operation was
 called `increment` or that the payload contained an `IncrementInput`. That
-meaning belongs to the generated contract layer and the application.
+meaning and the `vars` codec belong to the generated contract layer and the
+application. Canonical EINT framing does not make every operation payload
+canonical CBOR.
 
 ## Dispatch Is Synchronous In Code, Not A Domain RPC
 
@@ -353,8 +681,8 @@ must not hide app mutation in unrecorded global state.
 
 ## Read Path
 
-The product contract shape is a bounded optic, but the two generated query
-surfaces have different current behavior:
+The product contract shape is a bounded optic, but the two Wesley-generated
+query surfaces have different current behavior:
 
 - `*_observation_request(...)` builds a raw `ObservationRequest`. The installed
   contract host can execute this lower-level QueryView path through
@@ -369,10 +697,19 @@ application path. Raw observation is the current integration primitive, while
 the bounded optic remains the product contract shape.
 
 Generated contract-host query observer helpers are separate from application
-query request builders. They install read-only host observers behind
-`warp-core`'s `ContractQueryObserver` boundary. Those observers receive
-read-only context; they do not receive mutable runtime, scheduler control,
-`TickDelta`, or write authority.
+query request builders. They describe read-only observers that a trusted Echo
+host may install behind `warp-core`'s `ContractQueryObserver` boundary; the
+helpers do not confer installation authority themselves. Those observers
+receive read-only context; they do not receive mutable runtime, scheduler
+control, `TickDelta`, or write authority.
+
+The current Edict `ProviderContractPackageProposalV1` constructor is a different,
+mutation-only surface. Its typed `UnsupportedOperationKind` refusal for a
+`Query` applies only to mutation proposal construction. It is not a claim that
+all provider operations are mutations. An authored read must lower into lawful
+target read semantics—potentially an optic executed through a bounded
+observer—and use the separate read installation and observation path. It must
+not be wrapped in a no-op or synthetic mutation.
 
 ```mermaid
 sequenceDiagram
@@ -382,7 +719,7 @@ sequenceDiagram
     participant Runtime as Echo runtime
 
     UI->>Gen: request generated query
-    Gen->>Gen: canonicalize query variables
+    Gen->>Gen: encode query variables with the Wesley codec
     Gen->>Gen: build raw ObservationRequest
     Gen->>Echo: observe(request)
     Echo->>Runtime: resolve QueryView coordinate and projection
@@ -417,9 +754,10 @@ capability/law posture of a separate optic request.
 ## Registry Handshake
 
 Applications need to know whether their generated client matches the installed
-host.
+host. Echo currently has two separate registry vocabularies; they must not be
+collapsed merely because both describe operations.
 
-Echo already exposes registry metadata surfaces:
+The existing WASM/Wesley compatibility path exposes host metadata surfaces:
 
 - `get_registry_info`;
 - `get_codec_id`;
@@ -434,7 +772,15 @@ Wesley-generated code already exposes generated registry information:
 - enum and object descriptors;
 - static `REGISTRY`.
 
-The first handshake is intentionally small:
+The Edict provider path instead exposes a borrowed `ProviderRegistryV1` only
+after exact bundle binding. It is provider-generic and carries no GraphQL
+facade or Wesley generator metadata. Each operation record binds the semantic
+coordinate and kind, persisted id, distinct input/output codec contracts,
+failure and obstruction identities, Target IR, profiles, bundle identities,
+and abstract footprint claim. Duplicate operation-id lookup fails closed. This
+registry is proposal evidence, not installed-host metadata or a runtime token.
+
+The first Wesley handshake is intentionally small:
 
 ```mermaid
 flowchart LR
@@ -456,6 +802,28 @@ reserved control-op usage. Host-side generated-payload validation is deferred
 until a RED proves that Echo itself must reject malformed app payloads at the
 host boundary.
 
+For the current Edict mutation path, the generated descriptor and an explicit
+host implementation must agree on every registry identity before Echo will even
+retain an opaque package proposal. A trusted Echo host then independently pins
+the complete occurrence and provider registry before returning an opaque
+admitted token. Neither preflight validates arbitrary callback semantics, and
+the second crossing admits a digest claim rather than rehashing package bytes.
+`echo-wesley-gen` now consumes that token with independently admitted exact
+package bytes and returns an opaque token only when the exact provider
+coordinate and lowercase SHA-256 package roots agree. That composition does not
+derive registry semantics from the bytes. Its proof-owning installation adapter
+now consumes the corroborated token through a sealed runtime-owner port and
+creates a provider-native installed record while reusing Echo's atomic engine
+indexes. The install retains the exact occurrence/reference, complete owned
+provider registry, and rule identity; invokes no callback; and does not
+fabricate the GraphQL and Wesley metadata required by the legacy
+`InstalledContractPackage` surface. The trusted host now admits witnessed
+canonical EINT v1 submissions for installed provider mutations, dispatches them
+through the shared scheduler, and retains exact provider evidence through
+receipts and WAL recovery. That runtime evidence is distinct from the borrowed
+registry and from every proposal, admission, corroboration, and installation
+proof that preceded it.
+
 ## Admission Security Ramp
 
 The registry handshake is compatibility evidence, not production security.
@@ -474,7 +842,7 @@ sequenceDiagram
     participant Policy as Observer/ingress policy
     participant Echo as Echo runtime
 
-    Gen->>Gen: canonicalize op vars
+    Gen->>Gen: encode vars with the declared profile codec
     Gen->>Gen: bind op, vars, artifact, target, session
     Gen->>Host: authenticated intent submission
     Host->>Policy: verify artifact posture and session authority
@@ -682,8 +1050,8 @@ In words:
 Application:
   I know what the user wants.
 
-Generated Wesley code:
-  I know the contract schema and how to encode/decode operations.
+Generated contract code:
+  I know the authored contract schema and its exact encoding/decoding law.
 
 Echo ABI:
   I accept canonical intent bytes and explicit observation DTOs.
@@ -701,8 +1069,12 @@ Application:
 For a `jedit`-style application:
 
 ```text
-jedit owns text/editor semantics.
-Wesley compiles those semantics into generated contract types and helpers.
+jedit owns text/editor domain meaning.
+Edict owns authored operation semantics and lowers supported mutations through
+verified Echo Target IR. Authored reads retain lawful read/optic semantics and
+execute through bounded observers; Wesley remains the neutral compiler owner
+for the supported optic and compatibility path. Generated contract code carries
+the exact types and helpers.
 Echo receives canonical intents and emits witnessed readings through the
 current raw query path. Generated optic queries remain typed obstructions.
 jedit renders buffers, cursors, diffs, diagnostics, history, and UI.

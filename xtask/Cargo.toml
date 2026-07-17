@@ -19,10 +19,15 @@ hex = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+same-file = "1"
 sha2 = "0.10"
 time = { version = "0.3.47", features = ["formatting", "parsing"] }
+wasm-encoder = "=0.251.0"
+wasmparser = { version = "=0.251.0", features = ["component-model", "validate"] }
 warp-cli = { path = "../crates/warp-cli", version = "0.1.0" }
 warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
+wit-component = "=0.251.0"
+wit-parser = "=0.251.0"
 
 
 [lints]

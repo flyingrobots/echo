@@ -297,6 +297,7 @@ fn register_contract(engine: &mut Engine) {
                     rule: conflict_rule(),
                 },
             ],
+            inverse_handlers: vec![],
             query_observers: vec![query_observer()],
         })
         .expect("contract package should install");
@@ -436,7 +437,10 @@ fn receipt_correlation_material(correlation: &ReceiptCorrelationRecord) -> Vec<u
     bytes.extend_from_slice(&correlation.tick_receipt_digest);
     bytes.extend_from_slice(&correlation.commit_hash);
     match &correlation.contract {
-        Some(contract) => {
+        Some(evidence) => {
+            let contract = evidence
+                .legacy_contract()
+                .expect("this legacy receipt material helper requires legacy evidence");
             bytes.push(1);
             bytes.extend_from_slice(contract.package_id.as_bytes());
             push_len_prefixed_bytes(&mut bytes, contract.package_name.as_bytes());
@@ -525,7 +529,8 @@ fn installed_contract_mutation_dispatches_only_through_ticketed_scheduler_tick()
     let contract = correlation
         .contract
         .as_ref()
-        .expect("installed mutation receipt correlation must carry contract evidence");
+        .and_then(warp_core::InstalledInvocationEvidence::legacy_contract)
+        .expect("installed legacy mutation must carry legacy contract evidence");
     assert_eq!(contract.op_id, MUTATION_OP_ID);
     assert_eq!(contract.op_kind, warp_core::ContractOperationKind::Mutation);
     assert_eq!(contract.schema_sha256_hex, SCHEMA_SHA256_HEX);
@@ -578,6 +583,54 @@ fn unsupported_installed_contract_mutation_cannot_enter_ticketed_runtime_ingress
         RuntimeError::UnsupportedInstalledContractMutation {
             op_id: UNKNOWN_OP_ID
         }
+    ));
+    assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
+    assert_eq!(
+        runtime
+            .heads()
+            .get(&head)
+            .expect("head should exist")
+            .inbox()
+            .pending_count(),
+        0
+    );
+}
+
+#[test]
+fn relabeled_eint_cannot_enter_installed_contract_runtime_ingress() {
+    let (mut runtime, engine, worldline_id, head) = pipeline_runtime();
+    let expected_kind = make_intent_kind("echo.intent/eint-v1");
+    let actual_kind = make_intent_kind("echo.intent/not-eint-v1");
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        actual_kind,
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, MUTATION_VARS)
+            .expect("relabeled fixture still has canonical EINT bytes"),
+    );
+    let submission = match runtime
+        .submit_intent(envelope.clone())
+        .expect("relabeled submission is witnessed before contract admission")
+    {
+        IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+        IntentSubmissionDisposition::Duplicate { .. } => {
+            panic!("first relabeled submission should not be duplicate")
+        }
+    };
+
+    let error = runtime
+        .ingest_installed_contract_invocation(
+            &ticketed_authority(),
+            &engine,
+            submission,
+            &admission_ticket(9),
+            envelope,
+        )
+        .expect_err("outer intent kind must agree with canonical EINT bytes");
+
+    assert!(matches!(
+        error,
+        RuntimeError::InstalledContractIntentKindMismatch { expected, actual }
+            if expected == expected_kind && actual == actual_kind
     ));
     assert_eq!(runtime.ticketed_runtime_ingress_count(), 0);
     assert_eq!(
@@ -1022,7 +1075,8 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
     let receipt_contract = correlation
         .contract
         .as_ref()
-        .expect("external fixture receipt must carry contract evidence");
+        .and_then(warp_core::InstalledInvocationEvidence::legacy_contract)
+        .expect("external legacy fixture receipt must carry legacy contract evidence");
     let receipt_coord = semantic_coordinate(
         receipt_contract,
         RetainedBlobRole::ContractReceipt,

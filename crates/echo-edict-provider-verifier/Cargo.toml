@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-edict-provider-verifier"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Pure Echo semantic verifier for Edict's frozen Component Model boundary."
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "edict", "wasm", "verification", "compiler"]
+categories = ["compilers", "wasm", "development-tools"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+echo-edict-canonical = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc"] }
+
+[dev-dependencies]
+hex = "0.4"
+sha2 = "0.10"
+
+[lints]
+workspace = true

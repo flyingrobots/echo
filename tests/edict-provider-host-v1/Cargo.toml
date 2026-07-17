@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+[package]
+name = "echo-edict-provider-host-v1-witness"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.94"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+edict-provider-host-wasmtime = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
+edict-provider-schema = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
+edict-syntax = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
+echo-registry-api = { path = "../../crates/echo-registry-api" }
+echo-wasm-abi = { path = "../../crates/echo-wasm-abi" }
+warp-core = { path = "../../crates/warp-core" }
+serde_json = "=1.0.150"
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+wat = "=1.251.0"
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+too_many_lines = "allow"
+multiple_crate_versions = "allow"

@@ -15,6 +15,33 @@
 /// Strict Echo-owned semantic source for generated Edict provider artifacts.
 pub mod provider_semantics;
 
+/// Explicit admission boundary for the Edict-owned provider contract pack.
+pub mod provider_contract_pack;
+
+/// Edict canonical values, CBOR encoding, and domain-framed artifact digests.
+pub mod provider_canonical;
+
+/// Canonical Wesley input assembly for Echo provider artifact generation.
+pub mod provider_generation;
+
+/// Deterministic, schema-validated primary Edict provider artifacts.
+pub mod provider_artifacts;
+
+/// Exact-material Wesley provenance for provider artifact generation.
+pub mod provider_provenance;
+
+/// Deterministic non-authoritative Wesley review of provider generation.
+pub mod provider_review;
+
+/// Exact generator source identity and checked provider artifact corpus.
+pub mod provider_corpus;
+
+/// Capability-bounded check/write boundary for exact provider corpora.
+pub mod provider_corpus_fs;
+
+/// Deterministic digest-locked Echo Edict provider package.
+pub mod provider_package;
+
 /// Imported Wesley runtime optic artifact ready for Echo registration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedRuntimeOpticArtifact {
@@ -30,7 +57,7 @@ pub struct ImportedRuntimeOpticArtifact {
 /// verifies the descriptor through [`warp_core::OpticArtifactRegistry`] and
 /// returns the opaque runtime-local handle only after registration succeeds.
 pub fn import_runtime_optic_artifact(
-    artifact: &wesley_core::OpticArtifact,
+    artifact: &wesley_core::OperationArtifact,
 ) -> anyhow::Result<ImportedRuntimeOpticArtifact> {
     if artifact.requirements_digest != artifact.requirements_artifact.digest {
         anyhow::bail!(
@@ -59,7 +86,7 @@ pub fn import_runtime_optic_artifact(
 
 /// Imports a Wesley registration descriptor into Echo's registration shape.
 pub fn import_registration_descriptor(
-    descriptor: &wesley_core::OpticRegistrationDescriptor,
+    descriptor: &wesley_core::OperationRegistrationDescriptor,
 ) -> warp_core::OpticRegistrationDescriptor {
     warp_core::OpticRegistrationDescriptor {
         artifact_id: descriptor.artifact_id.clone(),

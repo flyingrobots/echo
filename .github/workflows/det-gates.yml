@@ -220,57 +220,146 @@ jobs:
             perf.log
             perf-report.json
 
-  build-repro:
-    name: G4 build reproducibility (wasm)
+  build-repro-candidate:
+    name: G4 build candidate ${{ matrix.candidate }}
     needs: classify-changes
     if: needs.classify-changes.outputs.run_g4 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: docker.io/library/rust@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
+      options: --platform linux/amd64
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [1, 2]
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build isolated candidate
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+        run: |
+          repo_root="$(pwd -P)"
+          export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"
+          cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
+          sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > "hash${CANDIDATE}.txt"
+          cp target/wasm32-unknown-unknown/release/warp_wasm.wasm "build${CANDIDATE}.wasm"
+          cargo xtask provider-lowerer-component designated-build \
+            --target-dir target/provider-lowerer-repro \
+            --output target/lowerer.echo-dpo.component.wasm
+          sha256sum target/lowerer.echo-dpo.component.wasm > "lowerer-hash${CANDIDATE}.txt"
+          cp target/lowerer.echo-dpo.component.wasm "build${CANDIDATE}.lowerer.component.wasm"
+          cargo xtask provider-verifier-component designated-build \
+            --target-dir target/provider-verifier-repro \
+            --output target/verifier.echo-dpo.component.wasm
+          sha256sum target/verifier.echo-dpo.component.wasm > "verifier-hash${CANDIDATE}.txt"
+          cp target/verifier.echo-dpo.component.wasm "build${CANDIDATE}.verifier.component.wasm"
+      - name: Upload isolated candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-repro-candidate-${{ matrix.candidate }}
+          overwrite: true
+          path: |
+            hash${{ matrix.candidate }}.txt
+            build${{ matrix.candidate }}.wasm
+            lowerer-hash${{ matrix.candidate }}.txt
+            build${{ matrix.candidate }}.lowerer.component.wasm
+            verifier-hash${{ matrix.candidate }}.txt
+            build${{ matrix.candidate }}.verifier.component.wasm
+
+  build-repro:
+    name: G4 independent build comparison
+    needs:
+      - classify-changes
+      - build-repro-candidate
+    if: needs.classify-changes.outputs.run_g4 == 'true' && needs.build-repro-candidate.result == 'success'
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Setup Rust (Global)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Checkout Build 1
+      - name: Checkout exact candidate source
         uses: actions/checkout@v4
         with:
-          path: build1
-      - name: Build 1
-        run: |
-          cd build1
-          rustup target add wasm32-unknown-unknown
-          repo_root="$(pwd -P)"
-          export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"
-          cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
-          sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash1.txt
-          cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build1.wasm
-      - name: Checkout Build 2
-        uses: actions/checkout@v4
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Rust for portable promotion
+        uses: dtolnay/rust-toolchain@1.90.0
+      - name: Download candidate 1
+        uses: actions/download-artifact@v4
         with:
-          path: build2
-      - name: Build 2
+          name: build-repro-candidate-1
+          path: candidate1
+      - name: Download candidate 2
+        uses: actions/download-artifact@v4
+        with:
+          name: build-repro-candidate-2
+          path: candidate2
+      - name: Assemble exact evidence names
         run: |
-          cd build2
-          rustup target add wasm32-unknown-unknown
-          repo_root="$(pwd -P)"
-          export RUSTFLAGS="--remap-path-prefix=${repo_root}=/workspace"
-          cargo build --release --target wasm32-unknown-unknown -p warp-wasm --features engine
-          sha256sum target/wasm32-unknown-unknown/release/warp_wasm.wasm > ../hash2.txt
-          cp target/wasm32-unknown-unknown/release/warp_wasm.wasm ../build2.wasm
-      - name: Compare hashes
+          cp candidate1/hash1.txt hash1.txt
+          cp candidate2/hash2.txt hash2.txt
+          cp candidate1/build1.wasm build1.wasm
+          cp candidate2/build2.wasm build2.wasm
+          cp candidate1/lowerer-hash1.txt lowerer-hash1.txt
+          cp candidate2/lowerer-hash2.txt lowerer-hash2.txt
+          cp candidate1/build1.lowerer.component.wasm build1.lowerer.component.wasm
+          cp candidate2/build2.lowerer.component.wasm build2.lowerer.component.wasm
+          cp candidate1/verifier-hash1.txt verifier-hash1.txt
+          cp candidate2/verifier-hash2.txt verifier-hash2.txt
+          cp candidate1/build1.verifier.component.wasm build1.verifier.component.wasm
+          cp candidate2/build2.verifier.component.wasm build2.verifier.component.wasm
+      - name: Compare, promote, and check exact bytes
         run: |
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
+          diff lowerer-hash1.txt lowerer-hash2.txt || (echo "Lowerer reproducibility failure: Hashes differ!" && exit 1)
+          cmp build1.wasm build2.wasm
+          cmp build1.lowerer.component.wasm build2.lowerer.component.wasm
+          cargo xtask provider-lowerer-component promote \
+            --candidate-a build1.lowerer.component.wasm \
+            --candidate-b build2.lowerer.component.wasm \
+            --output target/lowerer.echo-dpo.promoted.component.wasm \
+            --write
+          cmp build1.lowerer.component.wasm target/lowerer.echo-dpo.promoted.component.wasm
+          cmp build1.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+          cmp build2.lowerer.component.wasm schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
+          diff verifier-hash1.txt verifier-hash2.txt || (echo "Verifier reproducibility failure: Hashes differ!" && exit 1)
+          cmp build1.verifier.component.wasm build2.verifier.component.wasm
+          cargo xtask provider-verifier-component promote \
+            --candidate-a build1.verifier.component.wasm \
+            --candidate-b build2.verifier.component.wasm \
+            --output target/verifier.echo-dpo.promoted.component.wasm \
+            --write
+          cmp build1.verifier.component.wasm target/verifier.echo-dpo.promoted.component.wasm
+          cmp build1.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
+          cmp build2.verifier.component.wasm schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
           echo "Hashes match: $(cat hash1.txt)"
+          echo "Lowerer hashes match: $(cat lowerer-hash1.txt)"
+          echo "Verifier hashes match: $(cat verifier-hash1.txt)"
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-repro-artifacts
+          overwrite: true
           path: |
             hash1.txt
             hash2.txt
             build1.wasm
             build2.wasm
+            lowerer-hash1.txt
+            lowerer-hash2.txt
+            build1.lowerer.component.wasm
+            build2.lowerer.component.wasm
+            verifier-hash1.txt
+            verifier-hash2.txt
+            build1.verifier.component.wasm
+            build2.verifier.component.wasm
 
   validate-evidence:
     name: Evidence artifact presence
@@ -349,6 +438,14 @@ jobs:
               gathered-artifacts/build-repro-artifacts/hash2.txt
               gathered-artifacts/build-repro-artifacts/build1.wasm
               gathered-artifacts/build-repro-artifacts/build2.wasm
+              gathered-artifacts/build-repro-artifacts/lowerer-hash1.txt
+              gathered-artifacts/build-repro-artifacts/lowerer-hash2.txt
+              gathered-artifacts/build-repro-artifacts/build1.lowerer.component.wasm
+              gathered-artifacts/build-repro-artifacts/build2.lowerer.component.wasm
+              gathered-artifacts/build-repro-artifacts/verifier-hash1.txt
+              gathered-artifacts/build-repro-artifacts/verifier-hash2.txt
+              gathered-artifacts/build-repro-artifacts/build1.verifier.component.wasm
+              gathered-artifacts/build-repro-artifacts/build2.verifier.component.wasm
             )
           fi
 

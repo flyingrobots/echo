@@ -23,6 +23,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 mod hello_echo;
+mod provider_lowerer_component;
 
 #[derive(Parser)]
 #[command(
@@ -47,6 +48,10 @@ enum Commands {
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
     PrSnapshot(PrSnapshotArgs),
+    /// Build or check the exact Echo Edict provider lowerer component.
+    ProviderLowererComponent(ProviderLowererComponentArgs),
+    /// Build or check the exact Echo Edict provider verifier component.
+    ProviderVerifierComponent(ProviderLowererComponentArgs),
     /// List, reply to, or resolve PR review threads via `gh`.
     PrThreads(PrThreadsArgs),
     /// Run the high-signal local gate before opening a PR.
@@ -73,6 +78,67 @@ struct TestSliceArgs {
     /// Print the exact commands without running them.
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentArgs {
+    /// Exact component operation to perform.
+    #[command(subcommand)]
+    command: ProviderLowererComponentCommand,
+}
+
+#[derive(Subcommand)]
+enum ProviderLowererComponentCommand {
+    /// Build and audit local bytes without claiming checked cross-host identity.
+    Build(ProviderLowererComponentLocalBuildArgs),
+    /// Build and write candidate bytes on the exact designated host.
+    DesignatedBuild(ProviderLowererComponentBuildArgs),
+    /// Build on the designated host and compare exact checked bytes.
+    Check(ProviderLowererComponentBuildArgs),
+    /// Audit an explicit existing component without rebuilding it.
+    Audit(ProviderLowererComponentAuditArgs),
+    /// Audit and intentionally promote an explicit candidate to an output.
+    Promote(ProviderLowererComponentPromoteArgs),
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentLocalBuildArgs {
+    /// Explicit Cargo target directory, relative to the repository root unless absolute.
+    #[arg(long)]
+    target_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentBuildArgs {
+    /// Explicit output path, relative to the repository root unless absolute.
+    #[arg(long)]
+    output: PathBuf,
+    /// Explicit Cargo target directory, relative to the repository root unless absolute.
+    #[arg(long)]
+    target_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentAuditArgs {
+    /// Explicit component path, relative to the repository root unless absolute.
+    #[arg(long)]
+    input: PathBuf,
+}
+
+#[derive(Args)]
+struct ProviderLowererComponentPromoteArgs {
+    /// First explicit candidate path, relative to the repository root unless absolute.
+    #[arg(long)]
+    candidate_a: PathBuf,
+    /// Second distinct candidate path, relative to the repository root unless absolute.
+    #[arg(long)]
+    candidate_b: PathBuf,
+    /// Explicit checked output path, relative to the repository root unless absolute.
+    #[arg(long)]
+    output: PathBuf,
+    /// Confirm the intentional checked-artifact write.
+    #[arg(long, required = true)]
+    write: bool,
 }
 
 #[derive(Args)]
@@ -370,6 +436,8 @@ fn main() -> Result<()> {
         Commands::HelloEcho(args) => run_hello_echo(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
+        Commands::ProviderLowererComponent(args) => run_provider_lowerer_component(args),
+        Commands::ProviderVerifierComponent(args) => run_provider_verifier_component(args),
         Commands::PrThreads(args) => run_pr_threads(args),
         Commands::PrPreflight(args) => run_pr_preflight(args),
         Commands::Dind(args) => run_dind(args),
@@ -378,6 +446,295 @@ fn main() -> Result<()> {
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
         Commands::TestSlice(args) => run_test_slice(args),
+    }
+}
+
+fn run_provider_lowerer_component(args: ProviderLowererComponentArgs) -> Result<()> {
+    run_provider_component(ProviderComponentKind::Lowerer, args)
+}
+
+fn run_provider_verifier_component(args: ProviderLowererComponentArgs) -> Result<()> {
+    run_provider_component(ProviderComponentKind::Verifier, args)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProviderComponentKind {
+    Lowerer,
+    Verifier,
+}
+
+impl ProviderComponentKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Lowerer => "lowerer",
+            Self::Verifier => "verifier",
+        }
+    }
+
+    const fn checked_repository_path(self) -> &'static str {
+        match self {
+            Self::Lowerer => provider_lowerer_component::CHECKED_COMPONENT_REPOSITORY_PATH,
+            Self::Verifier => {
+                provider_lowerer_component::VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH
+            }
+        }
+    }
+
+    const fn other_checked_repository_path(self) -> &'static str {
+        match self {
+            Self::Lowerer => provider_lowerer_component::VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH,
+            Self::Verifier => provider_lowerer_component::CHECKED_COMPONENT_REPOSITORY_PATH,
+        }
+    }
+
+    fn pinned_toolchain(
+        self,
+    ) -> provider_lowerer_component::Result<provider_lowerer_component::PinnedRustToolchain> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::pinned_rust_toolchain(),
+            Self::Verifier => provider_lowerer_component::pinned_verifier_rust_toolchain(),
+        }
+    }
+
+    fn require_checked_builder(
+        self,
+    ) -> provider_lowerer_component::Result<provider_lowerer_component::PinnedRustToolchain> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::require_checked_builder(),
+            Self::Verifier => provider_lowerer_component::require_verifier_checked_builder(),
+        }
+    }
+
+    fn ensure_designated_candidate_output(
+        self,
+        output_path: &Path,
+        checked_path: &Path,
+    ) -> provider_lowerer_component::Result<()> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::ensure_designated_candidate_output(
+                output_path,
+                checked_path,
+            ),
+            Self::Verifier => {
+                provider_lowerer_component::ensure_verifier_designated_candidate_output(
+                    output_path,
+                    checked_path,
+                )
+            }
+        }
+    }
+
+    fn ensure_reserved_checked_output(
+        self,
+        output_path: &Path,
+        reserved_path: &Path,
+    ) -> provider_lowerer_component::Result<()> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::ensure_reserved_checked_output(
+                output_path,
+                reserved_path,
+            ),
+            Self::Verifier => provider_lowerer_component::ensure_verifier_reserved_checked_output(
+                output_path,
+                reserved_path,
+            ),
+        }
+    }
+
+    fn require_checked_identity(
+        self,
+        component: &provider_lowerer_component::ProviderLowererComponent,
+    ) -> provider_lowerer_component::Result<()> {
+        match self {
+            Self::Lowerer => {
+                provider_lowerer_component::require_lowerer_component_identity(component)
+            }
+            Self::Verifier => {
+                provider_lowerer_component::require_verifier_component_identity(component)
+            }
+        }
+    }
+
+    fn build(
+        self,
+        repository_root: &Path,
+        target_directory: &Path,
+        toolchain: &provider_lowerer_component::PinnedRustToolchain,
+    ) -> provider_lowerer_component::Result<provider_lowerer_component::ProviderLowererComponent>
+    {
+        match self {
+            Self::Lowerer => provider_lowerer_component::build_component(
+                repository_root,
+                target_directory,
+                toolchain,
+            ),
+            Self::Verifier => provider_lowerer_component::build_verifier_component(
+                repository_root,
+                target_directory,
+                toolchain,
+            ),
+        }
+    }
+
+    fn read(
+        self,
+        input_path: &Path,
+    ) -> provider_lowerer_component::Result<provider_lowerer_component::ProviderLowererComponent>
+    {
+        match self {
+            Self::Lowerer => provider_lowerer_component::read_component(input_path),
+            Self::Verifier => provider_lowerer_component::read_verifier_component(input_path),
+        }
+    }
+
+    fn sync_output(
+        self,
+        output_path: &Path,
+        bytes: &[u8],
+        mode: provider_lowerer_component::ComponentOutputMode,
+    ) -> provider_lowerer_component::Result<provider_lowerer_component::ComponentOutputStatus> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::sync_output(output_path, bytes, mode),
+            Self::Verifier => {
+                provider_lowerer_component::sync_verifier_output(output_path, bytes, mode)
+            }
+        }
+    }
+
+    fn promote(
+        self,
+        candidate_a: &Path,
+        candidate_b: &Path,
+        output_path: &Path,
+    ) -> provider_lowerer_component::Result<(
+        provider_lowerer_component::ProviderLowererComponent,
+        provider_lowerer_component::ComponentOutputStatus,
+    )> {
+        match self {
+            Self::Lowerer => provider_lowerer_component::promote_reproducible_candidates(
+                candidate_a,
+                candidate_b,
+                output_path,
+            ),
+            Self::Verifier => provider_lowerer_component::promote_verifier_reproducible_candidates(
+                candidate_a,
+                candidate_b,
+                output_path,
+            ),
+        }
+    }
+}
+
+fn run_provider_component(
+    kind: ProviderComponentKind,
+    args: ProviderLowererComponentArgs,
+) -> Result<()> {
+    let repository_root = find_repo_root()?;
+    match args.command {
+        ProviderLowererComponentCommand::Build(args) => {
+            let toolchain = kind.pinned_toolchain()?;
+            let component = kind.build(&repository_root, &args.target_dir, &toolchain)?;
+            print_provider_component(kind, "local-build", None, &component, None);
+        }
+        ProviderLowererComponentCommand::DesignatedBuild(args) => {
+            let output_path = repository_path(&repository_root, args.output);
+            let checked_path = repository_root.join(kind.checked_repository_path());
+            let other_checked_path = repository_root.join(kind.other_checked_repository_path());
+            kind.ensure_designated_candidate_output(&output_path, &checked_path)?;
+            kind.ensure_reserved_checked_output(&output_path, &other_checked_path)?;
+            let builder = kind.require_checked_builder()?;
+            let component = kind.build(&repository_root, &args.target_dir, &builder)?;
+            let status = kind.sync_output(
+                &output_path,
+                component.bytes(),
+                provider_lowerer_component::ComponentOutputMode::Write,
+            )?;
+            print_provider_component(
+                kind,
+                &format!("designated-build:{}", builder.host()),
+                Some(&output_path),
+                &component,
+                Some(status),
+            );
+        }
+        ProviderLowererComponentCommand::Check(args) => {
+            let output_path = repository_path(&repository_root, args.output);
+            let builder = kind.require_checked_builder()?;
+            let component = kind.build(&repository_root, &args.target_dir, &builder)?;
+            kind.require_checked_identity(&component)?;
+            let status = kind.sync_output(
+                &output_path,
+                component.bytes(),
+                provider_lowerer_component::ComponentOutputMode::Check,
+            )?;
+            print_provider_component(
+                kind,
+                &format!("checked-build:{}", builder.host()),
+                Some(&output_path),
+                &component,
+                Some(status),
+            );
+        }
+        ProviderLowererComponentCommand::Audit(args) => {
+            let input_path = repository_path(&repository_root, args.input);
+            let component = kind.read(&input_path)?;
+            print_provider_component(kind, "audited", Some(&input_path), &component, None);
+        }
+        ProviderLowererComponentCommand::Promote(args) => {
+            if !args.write {
+                bail!("provider {} promotion requires --write", kind.label());
+            }
+            let candidate_a = repository_path(&repository_root, args.candidate_a);
+            let candidate_b = repository_path(&repository_root, args.candidate_b);
+            let output_path = repository_path(&repository_root, args.output);
+            let other_checked_path = repository_root.join(kind.other_checked_repository_path());
+            kind.ensure_reserved_checked_output(&output_path, &other_checked_path)?;
+            let (component, status) = kind.promote(&candidate_a, &candidate_b, &output_path)?;
+            print_provider_component(
+                kind,
+                "promoted",
+                Some(&output_path),
+                &component,
+                Some(status),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn repository_path(repository_root: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        repository_root.join(path)
+    }
+}
+
+fn print_provider_component(
+    kind: ProviderComponentKind,
+    action: &str,
+    path: Option<&Path>,
+    component: &provider_lowerer_component::ProviderLowererComponent,
+    status: Option<provider_lowerer_component::ComponentOutputStatus>,
+) {
+    let status = match status {
+        Some(provider_lowerer_component::ComponentOutputStatus::Current) => "; current",
+        Some(provider_lowerer_component::ComponentOutputStatus::Written) => "; written",
+        None => "",
+    };
+    if let Some(path) = path {
+        println!(
+            "provider {} component: {action}{status}; sha256:{}; {}",
+            kind.label(),
+            component.sha256_hex(),
+            path.display()
+        );
+    } else {
+        println!(
+            "provider {} component: {action}{status}; sha256:{}",
+            kind.label(),
+            component.sha256_hex()
+        );
     }
 }
 
@@ -487,7 +844,7 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "-p",
                 "warp-core",
                 "--features",
-                "native_rule_bootstrap trusted_runtime",
+                "native_rule_bootstrap trusted_runtime host_test",
                 "--test",
                 "trusted_runtime_host_loop_tests",
             ]),
@@ -499,6 +856,31 @@ fn build_test_slice_commands(slice: TestSlice) -> Vec<Command> {
                 "native_rule_bootstrap trusted_runtime",
                 "--test",
                 "external_consumer_contract_fixture_tests",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "provider_contract_admission_tests",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_admitted_package_corroborates_only_the_exact_host_admitted_occurrence",
+            ]),
+            cargo_command([
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_corroborated_package_installs_as_provider_native_evidence",
             ]),
         ],
         TestSlice::RuntimeWalAck => vec![
@@ -5832,6 +6214,16 @@ mod tests {
         }
     }
 
+    fn require_anyhow_error<T>(
+        result: Result<T>,
+        message: &str,
+    ) -> std::result::Result<anyhow::Error, Box<dyn std::error::Error>> {
+        match result {
+            Err(error) => Ok(error),
+            Ok(_) => Err(std::io::Error::other(message).into()),
+        }
+    }
+
     fn command_program_and_args(command: &Command) -> (String, Vec<String>) {
         let program = command.get_program().to_string_lossy().into_owned();
         let args = command
@@ -5839,6 +6231,278 @@ mod tests {
             .map(|value| value.to_string_lossy().into_owned())
             .collect();
         (program, args)
+    }
+
+    #[test]
+    fn provider_component_cli_routes_verifier_and_lowerer_independently(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        for arguments in [
+            vec![
+                "xtask",
+                "provider-verifier-component",
+                "build",
+                "--target-dir",
+                "target/verifier-local",
+            ],
+            vec![
+                "xtask",
+                "provider-verifier-component",
+                "designated-build",
+                "--output",
+                "target/verifier-a.wasm",
+                "--target-dir",
+                "target/verifier-a",
+            ],
+            vec![
+                "xtask",
+                "provider-verifier-component",
+                "check",
+                "--output",
+                "target/verifier-checked.wasm",
+                "--target-dir",
+                "target/verifier-check",
+            ],
+            vec![
+                "xtask",
+                "provider-verifier-component",
+                "audit",
+                "--input",
+                "target/verifier-a.wasm",
+            ],
+            vec![
+                "xtask",
+                "provider-verifier-component",
+                "promote",
+                "--candidate-a",
+                "target/verifier-a.wasm",
+                "--candidate-b",
+                "target/verifier-b.wasm",
+                "--output",
+                "target/verifier-checked.wasm",
+                "--write",
+            ],
+        ] {
+            let parsed = Cli::try_parse_from(arguments)?;
+            assert!(matches!(
+                parsed.command,
+                Commands::ProviderVerifierComponent(_)
+            ));
+        }
+
+        let missing_write = Cli::try_parse_from([
+            "xtask",
+            "provider-verifier-component",
+            "promote",
+            "--candidate-a",
+            "target/verifier-a.wasm",
+            "--candidate-b",
+            "target/verifier-b.wasm",
+            "--output",
+            "target/verifier-checked.wasm",
+        ]);
+        assert!(missing_write.is_err());
+
+        let checked_verifier =
+            "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
+        let verifier_audit = Cli::try_parse_from([
+            "xtask",
+            "provider-verifier-component",
+            "audit",
+            "--input",
+            checked_verifier,
+        ])?;
+        let Commands::ProviderVerifierComponent(args) = verifier_audit.command else {
+            unreachable!("verifier audit parsed into the wrong command family");
+        };
+        run_provider_verifier_component(args)?;
+
+        let checked_lowerer =
+            "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm";
+        let lowerer_as_verifier_audit = Cli::try_parse_from([
+            "xtask",
+            "provider-verifier-component",
+            "audit",
+            "--input",
+            checked_lowerer,
+        ])?;
+        let Commands::ProviderVerifierComponent(args) = lowerer_as_verifier_audit.command else {
+            unreachable!("verifier audit parsed into the wrong command family");
+        };
+        let error = require_anyhow_error(
+            run_provider_verifier_component(args),
+            "checked lowerer bytes must not authenticate as a verifier",
+        )?;
+        let component_error = error
+            .downcast_ref::<provider_lowerer_component::ProviderLowererComponentError>()
+            .ok_or_else(|| std::io::Error::other("verifier audit returned the wrong error type"))?;
+        assert_eq!(
+            component_error.kind(),
+            provider_lowerer_component::ProviderLowererComponentErrorKind::ComponentImportForbidden
+        );
+        assert_eq!(component_error.subject(), "lowering-request-v1");
+
+        let lowerer_audit = Cli::try_parse_from([
+            "xtask",
+            "provider-lowerer-component",
+            "audit",
+            "--input",
+            checked_lowerer,
+        ])?;
+        let Commands::ProviderLowererComponent(args) = lowerer_audit.command else {
+            unreachable!("lowerer audit parsed into the wrong command family");
+        };
+        run_provider_lowerer_component(args)?;
+        Ok(())
+    }
+
+    #[test]
+    fn provider_component_routes_protect_each_others_checked_outputs(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let repository_root = find_repo_root()?;
+        let lowerer_checked =
+            repository_root.join(provider_lowerer_component::CHECKED_COMPONENT_REPOSITORY_PATH);
+        let verifier_checked = repository_root
+            .join(provider_lowerer_component::VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH);
+        let lowerer_before = fs::read(&lowerer_checked)?;
+        let verifier_before = fs::read(&verifier_checked)?;
+
+        let lowerer_hard_link = unique_temp_path("provider-lowerer-checked-hard-link");
+        fs::hard_link(&lowerer_checked, &lowerer_hard_link)?;
+
+        let verifier_designated = Cli::try_parse_from(vec![
+            "xtask".to_owned(),
+            "provider-verifier-component".to_owned(),
+            "designated-build".to_owned(),
+            "--output".to_owned(),
+            lowerer_hard_link.display().to_string(),
+            "--target-dir".to_owned(),
+            unique_temp_path("verifier-cross-designated-target")
+                .display()
+                .to_string(),
+        ])?;
+        let Commands::ProviderVerifierComponent(args) = verifier_designated.command else {
+            unreachable!("verifier designated build parsed into the wrong command family");
+        };
+        let error = require_anyhow_error(
+            run_provider_verifier_component(args),
+            "verifier designated build must reject a lowerer checked-output hard link",
+        )?;
+        let component_error = error
+            .downcast_ref::<provider_lowerer_component::ProviderLowererComponentError>()
+            .ok_or_else(|| std::io::Error::other("cross-output guard returned the wrong error"))?;
+        assert_eq!(
+            component_error.kind(),
+            provider_lowerer_component::ProviderLowererComponentErrorKind::ReservedCheckedOutputForbidden
+        );
+
+        let normalized_verifier_checked = verifier_checked
+            .parent()
+            .ok_or_else(|| std::io::Error::other("verifier checked path has no parent"))?
+            .join("..")
+            .join("v1")
+            .join("verifier.echo-dpo.component.wasm");
+        let lowerer_designated = Cli::try_parse_from(vec![
+            "xtask".to_owned(),
+            "provider-lowerer-component".to_owned(),
+            "designated-build".to_owned(),
+            "--output".to_owned(),
+            normalized_verifier_checked.display().to_string(),
+            "--target-dir".to_owned(),
+            unique_temp_path("lowerer-cross-designated-target")
+                .display()
+                .to_string(),
+        ])?;
+        let Commands::ProviderLowererComponent(args) = lowerer_designated.command else {
+            unreachable!("lowerer designated build parsed into the wrong command family");
+        };
+        let error = require_anyhow_error(
+            run_provider_lowerer_component(args),
+            "lowerer designated build must reject the normalized verifier checked path",
+        )?;
+        let component_error = error
+            .downcast_ref::<provider_lowerer_component::ProviderLowererComponentError>()
+            .ok_or_else(|| std::io::Error::other("cross-output guard returned the wrong error"))?;
+        assert_eq!(
+            component_error.kind(),
+            provider_lowerer_component::ProviderLowererComponentErrorKind::ReservedCheckedOutputForbidden
+        );
+
+        for (command, output) in [
+            (
+                "provider-verifier-component",
+                lowerer_hard_link.display().to_string(),
+            ),
+            (
+                "provider-lowerer-component",
+                normalized_verifier_checked.display().to_string(),
+            ),
+        ] {
+            let promote = Cli::try_parse_from(vec![
+                "xtask".to_owned(),
+                command.to_owned(),
+                "promote".to_owned(),
+                "--candidate-a".to_owned(),
+                unique_temp_path("cross-promote-missing-a")
+                    .display()
+                    .to_string(),
+                "--candidate-b".to_owned(),
+                unique_temp_path("cross-promote-missing-b")
+                    .display()
+                    .to_string(),
+                "--output".to_owned(),
+                output,
+                "--write".to_owned(),
+            ])?;
+            let error = match promote.command {
+                Commands::ProviderLowererComponent(args) => require_anyhow_error(
+                    run_provider_lowerer_component(args),
+                    "lowerer promotion must reject the verifier checked path",
+                )?,
+                Commands::ProviderVerifierComponent(args) => require_anyhow_error(
+                    run_provider_verifier_component(args),
+                    "verifier promotion must reject the lowerer checked path",
+                )?,
+                _ => unreachable!("promotion parsed into an unrelated command family"),
+            };
+            let component_error = error
+                .downcast_ref::<provider_lowerer_component::ProviderLowererComponentError>()
+                .ok_or_else(|| {
+                    std::io::Error::other("cross-output guard returned the wrong error")
+                })?;
+            assert_eq!(
+                component_error.kind(),
+                provider_lowerer_component::ProviderLowererComponentErrorKind::ReservedCheckedOutputForbidden
+            );
+        }
+
+        assert_eq!(fs::read(&lowerer_checked)?, lowerer_before);
+        assert_eq!(fs::read(&verifier_checked)?, verifier_before);
+        fs::remove_file(lowerer_hard_link)?;
+        Ok(())
+    }
+
+    #[test]
+    fn verifier_audit_read_failures_keep_the_verifier_prefix(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let missing = unique_temp_path("provider-verifier-definitely-missing");
+        let audit = Cli::try_parse_from(vec![
+            "xtask".to_owned(),
+            "provider-verifier-component".to_owned(),
+            "audit".to_owned(),
+            "--input".to_owned(),
+            missing.display().to_string(),
+        ])?;
+        let Commands::ProviderVerifierComponent(args) = audit.command else {
+            unreachable!("verifier audit parsed into the wrong command family");
+        };
+        let error = require_anyhow_error(
+            run_provider_verifier_component(args),
+            "a missing verifier audit input must fail",
+        )?;
+        assert!(error
+            .to_string()
+            .starts_with("provider-verifier-component:component-read-failed:"));
+        Ok(())
     }
 
     #[test]
@@ -5887,7 +6551,7 @@ mod tests {
     #[test]
     fn test_slice_contract_path_release_stays_explicit() {
         let commands = build_test_slice_commands(TestSlice::ContractPathRelease);
-        assert_eq!(commands.len(), 3);
+        assert_eq!(commands.len(), 6);
 
         let (program, args) = command_program_and_args(&commands[0]);
         assert_eq!(program, "cargo");
@@ -5913,7 +6577,7 @@ mod tests {
                 "-p",
                 "warp-core",
                 "--features",
-                "native_rule_bootstrap trusted_runtime",
+                "native_rule_bootstrap trusted_runtime host_test",
                 "--test",
                 "trusted_runtime_host_loop_tests",
             ]
@@ -5931,6 +6595,49 @@ mod tests {
                 "native_rule_bootstrap trusted_runtime",
                 "--test",
                 "external_consumer_contract_fixture_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[3]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "warp-core",
+                "--features",
+                "native_rule_bootstrap trusted_runtime",
+                "--test",
+                "provider_contract_admission_tests",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[4]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_admitted_package_corroborates_only_the_exact_host_admitted_occurrence",
+            ]
+        );
+
+        let (program, args) = command_program_and_args(&commands[5]);
+        assert_eq!(program, "cargo");
+        assert_eq!(
+            args,
+            vec![
+                "test",
+                "-p",
+                "echo-wesley-gen",
+                "--test",
+                "provider_package",
+                "digest_corroborated_package_installs_as_provider_native_evidence",
             ]
         );
     }

@@ -65,6 +65,38 @@ fn unsupported_installed_mutation_maps_to_operation_obstruction() {
 }
 
 #[test]
+fn unsupported_provider_mutation_maps_to_operation_obstruction() {
+    let obstruction = ContractObstruction::from_runtime_error(
+        &RuntimeError::UnsupportedInstalledProviderContractMutation { op_id: 7002 },
+    );
+
+    assert_eq!(
+        obstruction.kind,
+        ContractObstructionKind::UnsupportedOperation
+    );
+    assert_eq!(
+        obstruction.subject,
+        ContractObstructionSubject::Operation { op_id: 7002 }
+    );
+}
+
+#[test]
+fn installed_contract_kind_mismatch_maps_to_admission_obstruction() {
+    let obstruction = ContractObstruction::from_runtime_error(
+        &RuntimeError::InstalledContractIntentKindMismatch {
+            expected: warp_core::make_intent_kind("echo.intent/eint-v1"),
+            actual: warp_core::make_intent_kind("echo.intent/not-eint-v1"),
+        },
+    );
+
+    assert_eq!(
+        obstruction.kind,
+        ContractObstructionKind::AdmissionObstruction
+    );
+    assert_eq!(obstruction.subject, ContractObstructionSubject::Unspecified);
+}
+
+#[test]
 fn scheduler_fault_maps_to_runtime_fault_obstruction() {
     let fault_id = SchedulerFaultId::from_bytes([9; 32]);
     let obstruction = ContractObstruction::from_runtime_error(

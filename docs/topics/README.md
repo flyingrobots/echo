@@ -11,10 +11,12 @@ ADR.
 ## Index
 
 - [Causal anchors](CausalAnchors.md)
+- [Contract inverse admission](ContractInverseAdmission.md)
 - [Generated rule authorship](GeneratedRules.md)
 - [Obstructions](Obstructions.md)
 - [Runtime authority](RuntimeAuthority.md)
 - [Runtime constellation](RuntimeConstellation.md)
+- [Security posture and threat models](security/README.md)
 - [Strands and braids](StrandsAndBraids.md)
 - [WAL truth boundary](WAL.md)
 - [WARP optics](WarpOptics.md)

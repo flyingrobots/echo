@@ -20,6 +20,10 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Continuum transport](architecture/continuum-transport.md)
 - [Echo optics adapter notes](architecture/echo-optics-adapter-notes.md)
 
+## Case Studies
+
+- [Jim and Echo](case-studies/JimAndEcho.md)
+
 ## Living Topics
 
 - [Topic map](topics/README.md)
@@ -29,8 +33,10 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Strands and braids](topics/StrandsAndBraids.md)
 - [Obstructions](topics/Obstructions.md)
 - [Causal anchors](topics/CausalAnchors.md)
+- [Contract inverse admission](topics/ContractInverseAdmission.md)
 - [WAL](topics/WAL.md)
 - [Runtime constellation](topics/RuntimeConstellation.md)
+- [Security posture and threat models](topics/security/README.md)
 
 ## Durable Decisions
 

@@ -8,13 +8,14 @@ use warp_core::causal_wal::{
     RecoveredRetentionIndexError, RetainedMaterialKind, RetainedMaterialRecord,
 };
 use warp_core::{
-    make_head_id, ContractEvidenceIdentity, ContractObstruction, ContractObstructionKind,
-    ContractObstructionSubject, ContractOperationKind, GlobalTick, InstalledContractPackageId,
-    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, ReceiptCorrelationRecord,
-    RetainedEvidenceAccess, RetainedEvidenceBoundaryPosture, RetainedEvidenceCompleteness,
-    RetainedEvidenceCoordinate, RetainedEvidenceLayer, RetainedEvidenceOrigin,
-    RetainedEvidencePosture, RetainedEvidenceProofStrength, RetainedEvidenceRef,
-    RetainedEvidenceRole, TickReceiptRejection, WorldlineId, WorldlineTick, WriterHeadKey,
+    make_head_id, CausalTickReceiptRef, ContractEvidenceIdentity, ContractObstruction,
+    ContractObstructionKind, ContractObstructionSubject, ContractOperationKind, GlobalTick,
+    InstalledContractPackageId, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
+    ReceiptCorrelationRecord, RetainedEvidenceAccess, RetainedEvidenceBoundaryPosture,
+    RetainedEvidenceCompleteness, RetainedEvidenceCoordinate, RetainedEvidenceLayer,
+    RetainedEvidenceOrigin, RetainedEvidencePosture, RetainedEvidenceProofStrength,
+    RetainedEvidenceRef, RetainedEvidenceRole, TickReceiptRejection, WorldlineId, WorldlineTick,
+    WriterHeadKey,
 };
 
 fn hash(seed: u8) -> [u8; 32] {
@@ -70,17 +71,30 @@ fn writer_head(seed: u8) -> WriterHeadKey {
 }
 
 fn receipt_correlation(contract: ContractEvidenceIdentity) -> ReceiptCorrelationRecord {
+    let head_key = writer_head(25);
     ReceiptCorrelationRecord {
         ticketed_ingress_id: hash(21),
         submission_id: hash(22),
         ticket_digest: hash(23),
         ingress_id: hash(24),
-        head_key: writer_head(25),
-        contract: Some(contract),
+        head_key,
+        contract: Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+            contract,
+        )),
         commit_global_tick: GlobalTick::from_raw(26),
         worldline_tick_after: WorldlineTick::from_raw(27),
         tick_receipt_digest: hash(28),
         commit_hash: hash(29),
+        causal_receipt_ref: CausalTickReceiptRef {
+            worldline_id: head_key.worldline_id,
+            worldline_tick_after: WorldlineTick::from_raw(27),
+            commit_global_tick: GlobalTick::from_raw(26),
+            commit_hash: hash(29),
+            submission_id: hash(22),
+            ticket_digest: hash(23),
+            receipt_content_digest: hash(28),
+        },
+        causal_parent_receipts: Vec::new(),
     }
 }
 
@@ -296,7 +310,12 @@ fn retained_reading_missing_payload_is_not_empty_success() {
         if let IntentOutcome::Applied { receipt, .. } | IntentOutcome::Rejected { receipt, .. } =
             outcome
         {
-            assert_eq!(receipt.contract, Some(receipt_contract.clone()));
+            assert_eq!(
+                receipt.contract,
+                Some(warp_core::InstalledInvocationEvidence::LegacyContract(
+                    receipt_contract.clone()
+                ))
+            );
             assert!(matches!(
                 receipt.retained_evidence.as_slice(),
                 [RetainedEvidencePosture::MissingCoordinate { .. }]

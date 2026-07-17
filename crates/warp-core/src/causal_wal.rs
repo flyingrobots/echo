@@ -10,6 +10,22 @@
 //! Transactions are committed.
 //! History begins at WalTransactionCommit.
 //! ```
+//!
+//! Causal-anchor admission transaction construction is an admission-kernel
+//! authority and is intentionally absent from the downstream API. The public
+//! transaction builder carries no admission capability even when a caller
+//! selects the observable admission enum labels:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::build_causal_anchor_admission_transaction;
+//! ```
+//!
+//! Likewise, arbitrary recovery reports can only produce observation evidence;
+//! sealing local recovered authority is reserved for the trusted runtime:
+//!
+//! ```compile_fail
+//! use warp_core::causal_wal::recover_causal_anchor_admissions;
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
@@ -22,24 +38,58 @@ use thiserror::Error;
 use crate::attachment::{AtomPayload, AttachmentValue};
 use crate::braid::{BraidEvent, BraidStatus};
 use crate::braid_shell::BraidMemberRef;
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+use crate::causal_anchor::{prepare_causal_anchor_admission, CausalAnchorClaim};
+use crate::causal_anchor::{
+    validate_causal_anchor_admission_evidence, CausalAnchorAdmissionReceipt, CausalAnchorError,
+    CausalAnchorFact, CausalAnchorId, CausalFrontierRef,
+};
 use crate::clock::WorldlineTick;
+use crate::contract_registry::{
+    ContractEvidenceIdentity, ContractOperationKind, InstalledContractPackageId,
+    InstalledInvocationEvidence,
+};
 use crate::graph::GraphStore;
 use crate::head::{HeadId, WriterHeadKey};
 use crate::ident::{EdgeId, Hash, NodeId};
+use crate::provenance_codec::{
+    decode_local_commit_v1, encode_local_commit_v1, RetainedProvenanceError,
+};
+use crate::provenance_store::ProvenanceEntry;
+use crate::provider_contract::{
+    InstalledProviderContractPackageIdV1, InstalledProviderDigestIdentityV1,
+    ProviderContractEvidenceIdentityV1, ProviderPackageReferenceV1,
+};
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::revelation::{AuthorityDomainId, AuthorityDomainRef, OriginId};
 use crate::strand::StrandId;
 use crate::worldline::WorldlineId;
 use crate::wsc::{validate_wsc, WscFile};
+use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
+const WAL_TICK_RECEIPT_MAGIC_V2: &[u8; 8] = b"ETICK002";
+const WAL_RECEIPT_CORRELATION_MAGIC_V2: &[u8; 8] = b"ERCOR002";
+const LEGACY_TICK_RECEIPT_PAYLOAD_LEN: usize = 3 * core::mem::size_of::<Hash>() + 1;
+const LEGACY_RECEIPT_CORRELATION_PREFIX_LEN: usize = 3 * core::mem::size_of::<Hash>();
 const WAL_RECORDS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:records_root:v1\0";
 const WAL_FRONTIERS_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:frontiers_root:v1\0";
 const WAL_COMMIT_DOMAIN: &[u8] = b"echo:causal_wal:commit:v1\0";
 const WAL_RECOVERED_INDEX_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:recovered_index_root:v1\0";
 const WAL_HEADER_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:header_checksum:v1\0";
 const WAL_FRAME_CHECKSUM_DOMAIN: &[u8] = b"echo:causal_wal:frame_checksum:v1\0";
+const WAL_RUNTIME_STATE_DELTA_DOMAIN: &[u8] = b"echo:causal_wal:runtime_state_delta:v1\0";
+const WAL_RUNTIME_STATE_DELTA_MAGIC_V1: &[u8; 8] = b"ERSD0001";
+// This tagged family is intentionally extensible under the v1 state-delta
+// envelope. Older decoders reject unknown tags instead of misinterpreting new
+// evidence, while tags 0 and 1 retain their exact historical byte layouts.
+const WAL_INVOCATION_EVIDENCE_NONE_TAG: u8 = 0;
+const WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG: u8 = 1;
+const WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG: u8 = 2;
 const WAL_DISK_RECORD_DOMAIN: &[u8] = b"echo:causal_wal:disk_record:v1\0";
 const WAL_PROJECTION_ROOT_DOMAIN: &[u8] = b"echo:causal_wal:projection:root:v1\0";
 const WAL_PROJECTION_WRITER_EPOCH_DOMAIN: &[u8] = b"echo:causal_wal:projection:writer_epoch:v1\0";
@@ -54,6 +104,7 @@ const WRITER_HEAD_KEY_PAYLOAD_LEN: usize = 64;
 const CHECKPOINT_FILE_MAGIC: &[u8; 8] = b"ECWALCP1";
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
 const WAL_SEGMENTS_DIR: &str = "segments";
+pub(crate) const TRUSTED_RUNTIME_WAL_DOMAIN: &[u8] = b"echo:trusted-runtime-wal:v1\0";
 
 /// WSC schema label for materialized WAL projection graph facts.
 pub const WAL_PROJECTION_GRAPH_SCHEMA: &str = "echo/wal-projection-graph/schema/v1";
@@ -252,6 +303,8 @@ pub enum WalAppendAuthority {
     TrustedScheduler,
     /// Trusted runtime-control authority.
     RuntimeControl,
+    /// Echo admission-kernel authority.
+    AdmissionKernel,
     /// Recovery authority.
     Recovery,
 }
@@ -271,10 +324,14 @@ pub enum WalTransactionKind {
     MaterializationOutbox,
     /// Topology-changing strand, braid, or suffix-import intent evidence.
     TopologyIntent,
+    /// Echo-owned causal-anchor admission.
+    CausalAnchorAdmission,
 }
 
 impl WalTransactionKind {
-    fn code(self) -> u8 {
+    /// Returns the stable numeric code persisted in the WAL.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionIntake => 1,
             Self::SchedulerTick => 2,
@@ -282,7 +339,12 @@ impl WalTransactionKind {
             Self::Checkpoint => 4,
             Self::MaterializationOutbox => 5,
             Self::TopologyIntent => 6,
+            Self::CausalAnchorAdmission => 7,
         }
+    }
+
+    fn code(self) -> u8 {
+        self.stable_code()
     }
 
     fn required_authority(self) -> WalAppendAuthority {
@@ -292,6 +354,7 @@ impl WalTransactionKind {
                 WalAppendAuthority::TrustedScheduler
             }
             Self::RuntimePosture => WalAppendAuthority::RuntimeControl,
+            Self::CausalAnchorAdmission => WalAppendAuthority::AdmissionKernel,
             Self::Checkpoint => WalAppendAuthority::Recovery,
         }
     }
@@ -304,6 +367,7 @@ impl WalTransactionKind {
             4 => Ok(Self::Checkpoint),
             5 => Ok(Self::MaterializationOutbox),
             6 => Ok(Self::TopologyIntent),
+            7 => Ok(Self::CausalAnchorAdmission),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -319,6 +383,8 @@ pub enum WalRecordKind {
     SubmissionAcceptedRecorded,
     /// Echo recorded submission acceptance evidence.
     SubmissionAcceptanceEvidenceRecorded,
+    /// Echo retained the canonical submission envelope needed for replay.
+    SubmissionEnvelopeRetained,
     /// Trusted runtime recorded a law witness.
     RuntimeLawWitnessRecorded,
     /// Trusted runtime issued runtime admission-ticket evidence.
@@ -357,6 +423,10 @@ pub enum WalRecordKind {
     TopologyBraidShellRetained,
     /// Runtime recorded witnessed suffix import topology evidence.
     TopologySuffixImportRecorded,
+    /// Echo admission kernel recorded an admitted causal-anchor fact.
+    CausalAnchorFactRecorded,
+    /// Echo admission kernel recorded the matching causal-anchor receipt.
+    CausalAnchorAdmissionReceiptRecorded,
 }
 
 impl WalRecordKind {
@@ -365,6 +435,7 @@ impl WalRecordKind {
         match self {
             Self::SubmissionAcceptedRecorded => "SubmissionAcceptedRecorded",
             Self::SubmissionAcceptanceEvidenceRecorded => "SubmissionAcceptanceEvidenceRecorded",
+            Self::SubmissionEnvelopeRetained => "SubmissionEnvelopeRetained",
             Self::RuntimeLawWitnessRecorded => "RuntimeLawWitnessRecorded",
             Self::RuntimeAdmissionTicketIssued => "RuntimeAdmissionTicketIssued",
             Self::TicketedRuntimeIngressRecorded => "TicketedRuntimeIngressRecorded",
@@ -384,15 +455,17 @@ impl WalRecordKind {
             Self::TopologyBraidEventRecorded => "TopologyBraidEventRecorded",
             Self::TopologyBraidShellRetained => "TopologyBraidShellRetained",
             Self::TopologySuffixImportRecorded => "TopologySuffixImportRecorded",
+            Self::CausalAnchorFactRecorded => "CausalAnchorFactRecorded",
+            Self::CausalAnchorAdmissionReceiptRecorded => "CausalAnchorAdmissionReceiptRecorded",
         }
     }
 
     /// Returns the append authority required for this record kind.
     pub const fn required_authority(self) -> WalAppendAuthority {
         match self {
-            Self::SubmissionAcceptedRecorded | Self::SubmissionAcceptanceEvidenceRecorded => {
-                WalAppendAuthority::SubmissionIntake
-            }
+            Self::SubmissionAcceptedRecorded
+            | Self::SubmissionAcceptanceEvidenceRecorded
+            | Self::SubmissionEnvelopeRetained => WalAppendAuthority::SubmissionIntake,
             Self::RuntimeLawWitnessRecorded
             | Self::RuntimeAdmissionTicketIssued
             | Self::TicketedRuntimeIngressRecorded
@@ -411,6 +484,9 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
+            Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
+                WalAppendAuthority::AdmissionKernel
+            }
             Self::CheckpointPublicationRecorded | Self::RecoveryPostureRecorded => {
                 WalAppendAuthority::Recovery
             }
@@ -423,6 +499,12 @@ impl WalRecordKind {
     }
 
     fn code(self) -> u8 {
+        self.stable_code()
+    }
+
+    /// Returns the stable numeric code persisted in the WAL.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionAcceptedRecorded => 1,
             Self::SubmissionAcceptanceEvidenceRecorded => 2,
@@ -445,6 +527,9 @@ impl WalRecordKind {
             Self::TopologyBraidEventRecorded => 19,
             Self::TopologyBraidShellRetained => 20,
             Self::TopologySuffixImportRecorded => 21,
+            Self::SubmissionEnvelopeRetained => 22,
+            Self::CausalAnchorFactRecorded => 23,
+            Self::CausalAnchorAdmissionReceiptRecorded => 24,
         }
     }
 
@@ -471,6 +556,9 @@ impl WalRecordKind {
             19 => Ok(Self::TopologyBraidEventRecorded),
             20 => Ok(Self::TopologyBraidShellRetained),
             21 => Ok(Self::TopologySuffixImportRecorded),
+            22 => Ok(Self::SubmissionEnvelopeRetained),
+            23 => Ok(Self::CausalAnchorFactRecorded),
+            24 => Ok(Self::CausalAnchorAdmissionReceiptRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -596,10 +684,14 @@ pub enum AffectedFrontierKind {
     CheckpointIndex,
     /// Topology recovery index frontier.
     TopologyIndex,
+    /// Causal-anchor admission index frontier.
+    CausalAnchorIndex,
 }
 
 impl AffectedFrontierKind {
-    fn code(self) -> u8 {
+    /// Returns the stable numeric code committed into frontier roots.
+    #[must_use]
+    pub const fn stable_code(self) -> u8 {
         match self {
             Self::SubmissionQueue => 1,
             Self::RuntimeState => 2,
@@ -608,7 +700,12 @@ impl AffectedFrontierKind {
             Self::RuntimeControl => 5,
             Self::CheckpointIndex => 6,
             Self::TopologyIndex => 7,
+            Self::CausalAnchorIndex => 8,
         }
+    }
+
+    fn code(self) -> u8 {
+        self.stable_code()
     }
 }
 
@@ -883,11 +980,16 @@ pub struct WalCommittedTransaction {
     pub affected_frontiers: Vec<AffectedFrontier>,
     /// Commit marker.
     pub commit: WalTransactionCommit,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalCommittedTransaction {
     /// Validates the transaction's structural and semantic commit invariants.
     pub fn validate(&self) -> Result<(), WalValidationError> {
+        validate_admission_kernel_capability(
+            self.commit.transaction_kind,
+            self.admission_kernel_capability,
+        )?;
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
         validate_transaction_frontiers(&self.affected_frontiers, self.commit.transaction_kind)?;
@@ -900,6 +1002,19 @@ impl WalCommittedTransaction {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdmissionKernelCapability;
+
+fn validate_admission_kernel_capability(
+    transaction_kind: WalTransactionKind,
+    capability: Option<AdmissionKernelCapability>,
+) -> Result<(), WalValidationError> {
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission && capability.is_none() {
+        return Err(WalValidationError::AdmissionKernelCapabilityRequired);
+    }
+    Ok(())
 }
 
 /// Builder for a contiguous WAL transaction.
@@ -922,10 +1037,11 @@ pub struct WalTransactionBuilder {
     digest_domain: Hash,
     frames: Vec<WalFrame>,
     closed: bool,
+    admission_kernel_capability: Option<AdmissionKernelCapability>,
 }
 
 impl WalTransactionBuilder {
-    /// Creates a transaction builder.
+    /// Creates a transaction builder without Echo admission-kernel authority.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         writer_epoch: WriterEpochId,
@@ -942,6 +1058,82 @@ impl WalTransactionBuilder {
         payload_schema_version: u16,
         canonical_encoding_version: u16,
         digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            transaction_kind,
+            authority,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            None,
+        )
+    }
+
+    /// Creates an admission-kernel-authorized causal-anchor transaction builder.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_causal_anchor_admission(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+    ) -> Self {
+        Self::new_with_admission_kernel_capability(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            WalTransactionKind::CausalAnchorAdmission,
+            WalAppendAuthority::AdmissionKernel,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            Some(AdmissionKernelCapability),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_admission_kernel_capability(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        transaction_kind: WalTransactionKind,
+        authority: WalAppendAuthority,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
     ) -> Self {
         Self {
             writer_epoch,
@@ -961,6 +1153,7 @@ impl WalTransactionBuilder {
             digest_domain,
             frames: Vec::new(),
             closed: false,
+            admission_kernel_capability,
         }
     }
 
@@ -972,6 +1165,11 @@ impl WalTransactionBuilder {
     ) -> Result<(), WalBuildError> {
         if self.closed {
             return Err(WalBuildError::TransactionClosed);
+        }
+        if kind.required_authority() == WalAppendAuthority::AdmissionKernel
+            && self.admission_kernel_capability.is_none()
+        {
+            return Err(WalBuildError::AdmissionKernelCapabilityRequired);
         }
         if kind.required_authority() != self.authority {
             return Err(WalBuildError::WrongAppendAuthority {
@@ -1055,6 +1253,7 @@ impl WalTransactionBuilder {
             frames: self.frames,
             affected_frontiers,
             commit,
+            admission_kernel_capability: self.admission_kernel_capability,
         };
         transaction.validate()?;
         Ok(transaction)
@@ -1077,6 +1276,10 @@ pub trait WalStorePort {
     ) -> Result<(), WalStoreError>;
 
     /// Flushes a transaction commit marker under the store's durability mode.
+    ///
+    /// Raw store callers cannot flush admission-kernel transaction kinds. Those
+    /// commits require the private capability carried by a validated Echo
+    /// transaction and must use the concrete store's transaction append path.
     fn flush_commit(
         &mut self,
         epoch_id: WriterEpochId,
@@ -1514,11 +1717,37 @@ impl InMemoryWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.commits.push(commit);
+        Ok(())
     }
 
     /// Appends a frame without a commit marker to simulate an uncommitted tail.
@@ -1573,22 +1802,7 @@ impl WalStorePort for InMemoryWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.commits.push(commit);
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -1788,6 +2002,368 @@ impl SubmissionAcceptanceRecord {
     }
 }
 
+/// WAL record carrying canonical material for one witnessed submission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalSubmissionEnvelopeRecord {
+    /// Stable submission id associated with the retained envelope.
+    pub submission_id: Hash,
+    /// Canonical ingress digest committed by submission acceptance.
+    pub canonical_envelope_digest: Hash,
+    /// Echo-owned submission generation needed for deterministic ledger replay.
+    pub submission_generation: u64,
+    /// Resolved writer head against which the submission id was derived.
+    pub head_key: WriterHeadKey,
+    /// Versioned retained ingress envelope bytes.
+    pub retained_envelope_bytes: Vec<u8>,
+}
+
+impl WalSubmissionEnvelopeRecord {
+    /// Encodes the retained submission material deterministically.
+    #[must_use]
+    pub fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_hash(&mut out, &self.submission_id);
+        push_hash(&mut out, &self.canonical_envelope_digest);
+        out.extend_from_slice(&self.submission_generation.to_le_bytes());
+        push_writer_head_key(&mut out, self.head_key);
+        out.extend_from_slice(&len_u64(self.retained_envelope_bytes.len()).to_le_bytes());
+        out.extend_from_slice(&self.retained_envelope_bytes);
+        out
+    }
+
+    /// Decodes retained submission material with payload-bounded allocation.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        let submission_id = cursor.read_hash()?;
+        let canonical_envelope_digest = cursor.read_hash()?;
+        let submission_generation = cursor.read_u64()?;
+        let head_key = cursor.read_writer_head_key()?;
+        let retained_envelope_bytes = cursor.read_vec()?;
+        cursor.finish()?;
+        Ok(Self {
+            submission_id,
+            canonical_envelope_digest,
+            submission_generation,
+            head_key,
+            retained_envelope_bytes,
+        })
+    }
+}
+
+/// WAL record carrying one replayable scheduler-produced provenance entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalRuntimeStateDeltaRecord {
+    receipt_digest: Hash,
+    contract: Option<InstalledInvocationEvidence>,
+    entry: ProvenanceEntry,
+}
+
+impl WalRuntimeStateDeltaRecord {
+    /// Validates and wraps one local-commit provenance entry for retention.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error when the entry is not a canonical, replayable
+    /// scheduler local commit.
+    pub fn from_provenance_entry(
+        receipt_digest: Hash,
+        contract: Option<InstalledInvocationEvidence>,
+        entry: ProvenanceEntry,
+    ) -> Result<Self, RetainedProvenanceError> {
+        encode_local_commit_v1(&entry)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns the tick receipt that admitted this retained state transition.
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Hash {
+        self.receipt_digest
+    }
+
+    /// Returns the retained provenance entry.
+    #[must_use]
+    pub fn provenance_entry(&self) -> &ProvenanceEntry {
+        &self.entry
+    }
+
+    /// Returns installed-contract evidence attached to the admitted transition.
+    #[must_use]
+    pub fn contract(&self) -> Option<&InstalledInvocationEvidence> {
+        self.contract.as_ref()
+    }
+
+    /// Encodes the validated entry as canonical retained bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn to_payload_bytes(&self) -> Result<Vec<u8>, RetainedProvenanceError> {
+        let entry_bytes = encode_local_commit_v1(&self.entry)?;
+        let mut out = Vec::new();
+        out.extend_from_slice(WAL_RUNTIME_STATE_DELTA_MAGIC_V1);
+        out.extend_from_slice(&self.receipt_digest);
+        push_retained_contract_evidence(&mut out, self.contract.as_ref());
+        out.extend_from_slice(&(entry_bytes.len() as u64).to_le_bytes());
+        out.extend_from_slice(&entry_bytes);
+        Ok(out)
+    }
+
+    /// Decodes replayable retained state-delta material without applying it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error for malformed, truncated, non-canonical, or
+    /// commitment-inconsistent material.
+    pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, RetainedProvenanceError> {
+        let magic = bytes
+            .get(..WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len())
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        if magic != WAL_RUNTIME_STATE_DELTA_MAGIC_V1 {
+            return Err(RetainedProvenanceError::InvalidMagic);
+        }
+        let receipt_start = WAL_RUNTIME_STATE_DELTA_MAGIC_V1.len();
+        let receipt_end = receipt_start + core::mem::size_of::<Hash>();
+        let receipt_digest = bytes
+            .get(receipt_start..receipt_end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)?;
+        let mut cursor = RetainedStateDeltaCursor::new(bytes, receipt_end);
+        let contract = cursor.read_contract_evidence()?;
+        let entry_len = cursor.read_u64()?;
+        let entry_len =
+            usize::try_from(entry_len).map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        let entry_bytes = cursor.read_exact(entry_len)?;
+        cursor.finish()?;
+        let entry = decode_local_commit_v1(entry_bytes)?;
+        if entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|receipt| receipt.digest() != receipt_digest)
+        {
+            return Err(RetainedProvenanceError::Inconsistent("state-delta receipt"));
+        }
+        Ok(Self {
+            receipt_digest,
+            contract,
+            entry,
+        })
+    }
+
+    /// Returns a content digest for the retained state-delta record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a codec error if an invalid record was constructed internally.
+    pub fn digest(&self) -> Result<Hash, RetainedProvenanceError> {
+        let bytes = self.to_payload_bytes()?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(WAL_RUNTIME_STATE_DELTA_DOMAIN);
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+        Ok(hasher.finalize().into())
+    }
+}
+
+fn push_retained_contract_evidence(
+    out: &mut Vec<u8>,
+    contract: Option<&InstalledInvocationEvidence>,
+) {
+    let Some(contract) = contract else {
+        out.push(WAL_INVOCATION_EVIDENCE_NONE_TAG);
+        return;
+    };
+    match contract {
+        InstalledInvocationEvidence::LegacyContract(contract) => {
+            out.push(WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG);
+            out.extend_from_slice(contract.package_id.as_bytes());
+            out.extend_from_slice(&contract.echo_abi_version.to_le_bytes());
+            push_retained_string(out, &contract.package_name);
+            push_retained_string(out, &contract.package_version);
+            push_retained_string(out, &contract.artifact_hash_hex);
+            push_retained_string(out, &contract.codec_id);
+            out.extend_from_slice(&contract.registry_version.to_le_bytes());
+            push_retained_string(out, &contract.wesley_generator_version);
+            out.extend_from_slice(&contract.helper_api_version.to_le_bytes());
+            push_retained_string(out, &contract.schema_sha256_hex);
+            out.extend_from_slice(&contract.op_id.to_le_bytes());
+            out.push(match contract.op_kind {
+                ContractOperationKind::Mutation => 1,
+                ContractOperationKind::Query => 2,
+            });
+        }
+        InstalledInvocationEvidence::ProviderV1(contract) => {
+            out.push(WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG);
+            out.extend_from_slice(contract.package_id().as_bytes());
+            push_retained_string(out, contract.package_reference().coordinate());
+            push_retained_string(out, contract.package_reference().digest());
+            out.extend_from_slice(&contract.operation_id().to_le_bytes());
+            push_retained_string(out, contract.operation_coordinate());
+            push_retained_string(out, contract.target_ir().coordinate());
+            push_retained_string(out, contract.target_ir().digest_domain());
+            push_retained_string(out, contract.target_ir().digest());
+            out.extend_from_slice(contract.rule_id());
+        }
+    }
+}
+
+fn push_retained_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+struct RetainedStateDeltaCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> RetainedStateDeltaCursor<'a> {
+    const fn new(bytes: &'a [u8], offset: usize) -> Self {
+        Self { bytes, offset }
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], RetainedProvenanceError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(RetainedProvenanceError::LengthOverflow)?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(RetainedProvenanceError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn read_u8(&mut self) -> Result<u8, RetainedProvenanceError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
+    fn read_u32(&mut self) -> Result<u32, RetainedProvenanceError> {
+        Ok(u32::from_le_bytes(
+            self.read_exact(4)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, RetainedProvenanceError> {
+        Ok(u64::from_le_bytes(
+            self.read_exact(8)?
+                .try_into()
+                .map_err(|_| RetainedProvenanceError::UnexpectedEof)?,
+        ))
+    }
+
+    fn read_hash(&mut self) -> Result<Hash, RetainedProvenanceError> {
+        self.read_exact(core::mem::size_of::<Hash>())?
+            .try_into()
+            .map_err(|_| RetainedProvenanceError::UnexpectedEof)
+    }
+
+    fn read_string(&mut self) -> Result<String, RetainedProvenanceError> {
+        let len = usize::try_from(self.read_u64()?)
+            .map_err(|_| RetainedProvenanceError::LengthOverflow)?;
+        String::from_utf8(self.read_exact(len)?.to_vec())
+            .map_err(|_| RetainedProvenanceError::InvalidUtf8)
+    }
+
+    fn read_contract_evidence(
+        &mut self,
+    ) -> Result<Option<InstalledInvocationEvidence>, RetainedProvenanceError> {
+        match self.read_u8()? {
+            WAL_INVOCATION_EVIDENCE_NONE_TAG => Ok(None),
+            WAL_INVOCATION_EVIDENCE_LEGACY_CONTRACT_TAG => {
+                let package_id = InstalledContractPackageId::from_bytes(self.read_hash()?);
+                let echo_abi_version = self.read_u32()?;
+                let package_name = self.read_string()?;
+                let package_version = self.read_string()?;
+                let artifact_hash_hex = self.read_string()?;
+                let codec_id = self.read_string()?;
+                let registry_version = self.read_u32()?;
+                let wesley_generator_version = self.read_string()?;
+                let helper_api_version = self.read_u32()?;
+                let schema_sha256_hex = self.read_string()?;
+                let op_id = self.read_u32()?;
+                let op_kind = match self.read_u8()? {
+                    1 => ContractOperationKind::Mutation,
+                    2 => ContractOperationKind::Query,
+                    tag => {
+                        return Err(RetainedProvenanceError::UnknownTag {
+                            family: "contract operation kind",
+                            tag,
+                        })
+                    }
+                };
+                Ok(Some(InstalledInvocationEvidence::LegacyContract(
+                    ContractEvidenceIdentity {
+                        package_id,
+                        echo_abi_version,
+                        package_name,
+                        package_version,
+                        artifact_hash_hex,
+                        codec_id,
+                        registry_version,
+                        wesley_generator_version,
+                        helper_api_version,
+                        schema_sha256_hex,
+                        op_id,
+                        op_kind,
+                    },
+                )))
+            }
+            WAL_INVOCATION_EVIDENCE_PROVIDER_V1_TAG => {
+                let package_id =
+                    InstalledProviderContractPackageIdV1::from_bytes(self.read_hash()?);
+                let package_reference =
+                    ProviderPackageReferenceV1::new(self.read_string()?, self.read_string()?);
+                let operation_id = self.read_u32()?;
+                let operation_coordinate = self.read_string()?;
+                let target_ir = InstalledProviderDigestIdentityV1::from_owned_parts(
+                    self.read_string()?,
+                    self.read_string()?,
+                    self.read_string()?,
+                );
+                let mutation_rule_id = self.read_hash()?;
+                Ok(Some(InstalledInvocationEvidence::ProviderV1(
+                    ProviderContractEvidenceIdentityV1::try_from_retained_parts(
+                        package_id,
+                        package_reference,
+                        operation_id,
+                        operation_coordinate,
+                        target_ir,
+                        mutation_rule_id,
+                    )
+                    .map_err(RetainedProvenanceError::Inconsistent)?,
+                )))
+            }
+            tag => Err(RetainedProvenanceError::UnknownTag {
+                family: "optional contract evidence",
+                tag,
+            }),
+        }
+    }
+
+    fn finish(self) -> Result<(), RetainedProvenanceError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(RetainedProvenanceError::TrailingBytes)
+        }
+    }
+}
+
 /// Scheduler-owned tick decision captured by a WAL receipt record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalTickDecision {
@@ -1830,12 +2406,8 @@ impl WalTickDecision {
 /// WAL tick receipt record payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TickReceiptRecord {
-    /// Submission decided by the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
+    /// Exact causal coordinate of the admitted receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
     /// Scheduler decision.
     pub decision: WalTickDecision,
 }
@@ -1845,39 +2417,52 @@ impl TickReceiptRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_TICK_RECEIPT_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
         out.push(self.decision.code());
         out
     }
 
     /// Decodes a deterministic tick receipt payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_TICK_RECEIPT_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_TICK_RECEIPT_MAGIC_V2.len()] != WAL_TICK_RECEIPT_MAGIC_V2 {
+            return if bytes.len() == LEGACY_TICK_RECEIPT_PAYLOAD_LEN {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "tick-receipt",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "tick-receipt",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_TICK_RECEIPT_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
         let decision = WalTickDecision::from_code(cursor.read_u8()?)?;
         cursor.finish()?;
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
             decision,
         })
     }
 }
 
 /// WAL receipt correlation record payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalReceiptCorrelationRecord {
-    /// Submission correlated to the receipt.
-    pub submission_id: Hash,
-    /// Admission ticket digest.
-    pub ticket_digest: Hash,
-    /// Tick receipt digest.
-    pub receipt_digest: Hash,
+    /// Exact causal coordinate of the child receipt event.
+    pub receipt_ref: CausalTickReceiptRef,
+    /// Canonical admitted tick receipts cited by this receipt's intent.
+    pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
 }
 
 impl WalReceiptCorrelationRecord {
@@ -1885,25 +2470,106 @@ impl WalReceiptCorrelationRecord {
     #[must_use]
     pub fn to_payload_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        push_hash(&mut out, &self.submission_id);
-        push_hash(&mut out, &self.ticket_digest);
-        push_hash(&mut out, &self.receipt_digest);
+        out.extend_from_slice(WAL_RECEIPT_CORRELATION_MAGIC_V2);
+        out.extend_from_slice(&self.receipt_ref.to_canonical_bytes());
+        let mut causal_parent_receipts = self.causal_parent_receipts.clone();
+        causal_parent_receipts.sort_unstable();
+        causal_parent_receipts.dedup();
+        if !causal_parent_receipts.is_empty() {
+            out.extend_from_slice(&len_u64(causal_parent_receipts.len()).to_le_bytes());
+            for parent in causal_parent_receipts {
+                out.extend_from_slice(&parent.to_canonical_bytes());
+            }
+        }
         out
     }
 
     /// Decodes a deterministic receipt correlation payload.
     pub fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        if bytes.len() < WAL_RECEIPT_CORRELATION_MAGIC_V2.len() {
+            return Err(WalDecodeError::UnexpectedEof);
+        }
+        if &bytes[..WAL_RECEIPT_CORRELATION_MAGIC_V2.len()] != WAL_RECEIPT_CORRELATION_MAGIC_V2 {
+            return if is_legacy_receipt_correlation_payload(bytes) {
+                Err(WalDecodeError::LegacyCausalReceiptIdentityUnavailable {
+                    record_kind: "receipt-correlation",
+                })
+            } else {
+                Err(WalDecodeError::InvalidRecordMagic {
+                    record_kind: "receipt-correlation",
+                })
+            };
+        }
         let mut cursor = WalPayloadCursor::new(bytes);
-        let submission_id = cursor.read_hash()?;
-        let ticket_digest = cursor.read_hash()?;
-        let receipt_digest = cursor.read_hash()?;
+        cursor.read_exact(WAL_RECEIPT_CORRELATION_MAGIC_V2.len())?;
+        let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+            cursor
+                .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                .try_into()
+                .map_err(|_| WalDecodeError::UnexpectedEof)?,
+        );
+        let causal_parent_receipts = if cursor.remaining_len() == 0 {
+            Vec::new()
+        } else {
+            let parent_count =
+                usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+            if parent_count == 0 {
+                return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                    record_kind: "receipt-correlation",
+                });
+            }
+            if parent_count > cursor.remaining_len() / CAUSAL_TICK_RECEIPT_REF_LEN {
+                return Err(WalDecodeError::UnexpectedEof);
+            }
+            let mut parents = Vec::with_capacity(parent_count);
+            for _ in 0..parent_count {
+                parents.push(CausalTickReceiptRef::from_canonical_bytes(
+                    cursor
+                        .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                        .try_into()
+                        .map_err(|_| WalDecodeError::UnexpectedEof)?,
+                ));
+            }
+            parents
+        };
         cursor.finish()?;
+        if !causal_parent_receipts
+            .windows(2)
+            .all(|parents| parents[0] < parents[1])
+        {
+            return Err(WalDecodeError::NonCanonicalCausalParentReceipts {
+                record_kind: "receipt-correlation",
+            });
+        }
         Ok(Self {
-            submission_id,
-            ticket_digest,
-            receipt_digest,
+            receipt_ref,
+            causal_parent_receipts,
         })
     }
+}
+
+fn is_legacy_receipt_correlation_payload(bytes: &[u8]) -> bool {
+    if bytes.len() == LEGACY_RECEIPT_CORRELATION_PREFIX_LEN {
+        return true;
+    }
+    let Some(count_bytes) =
+        bytes.get(LEGACY_RECEIPT_CORRELATION_PREFIX_LEN..LEGACY_RECEIPT_CORRELATION_PREFIX_LEN + 8)
+    else {
+        return false;
+    };
+    let mut count = [0; 8];
+    count.copy_from_slice(count_bytes);
+    let Ok(count) = usize::try_from(u64::from_le_bytes(count)) else {
+        return false;
+    };
+    count
+        .checked_mul(core::mem::size_of::<Hash>())
+        .and_then(|parent_bytes| {
+            LEGACY_RECEIPT_CORRELATION_PREFIX_LEN
+                .checked_add(8)?
+                .checked_add(parent_bytes)
+        })
+        == Some(bytes.len())
 }
 
 /// Retained material family referenced by committed WAL history.
@@ -2196,8 +2862,8 @@ pub struct RecoveredSubmissionEntry {
     pub acceptance: SubmissionAcceptanceRecord,
     /// Current recovered posture.
     pub posture: RecoveredSubmissionPosture,
-    /// Deciding receipt digest, if any.
-    pub receipt_digest: Option<Hash>,
+    /// Exact deciding receipt coordinate, if any.
+    pub receipt_ref: Option<CausalTickReceiptRef>,
 }
 
 /// Recovered submission index.
@@ -2248,7 +2914,7 @@ impl RecoveredSubmissionIndex {
     {
         let mut index = Self::from_acceptance_records(acceptances)?;
         for receipt in receipts {
-            index.apply_tick_receipt_record(receipt);
+            index.apply_tick_receipt_record(receipt)?;
         }
         Ok(index)
     }
@@ -2273,28 +2939,51 @@ impl RecoveredSubmissionIndex {
             .or_insert(RecoveredSubmissionEntry {
                 acceptance: record,
                 posture: RecoveredSubmissionPosture::AcceptedPending,
-                receipt_digest: None,
+                receipt_ref: None,
             });
         Ok(())
     }
 
-    fn apply_tick_receipt_record(&mut self, receipt: TickReceiptRecord) {
-        if let Some(entry) = self.submissions.get_mut(&receipt.submission_id) {
-            entry.posture = match receipt.decision {
-                WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
-                WalTickDecision::RejectedFootprintConflict => {
-                    RecoveredSubmissionPosture::DecidedRejected
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let posture = match receipt.decision {
+            WalTickDecision::Applied => RecoveredSubmissionPosture::DecidedApplied,
+            WalTickDecision::RejectedFootprintConflict => {
+                RecoveredSubmissionPosture::DecidedRejected
+            }
+            WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+        };
+        if let Some(entry) = self.submissions.get_mut(&receipt.receipt_ref.submission_id) {
+            if let Some(existing) = entry.receipt_ref {
+                if existing != receipt.receipt_ref {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                        submission_id: receipt.receipt_ref.submission_id,
+                    });
                 }
-                WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
-            };
-            entry.receipt_digest = Some(receipt.receipt_digest);
+                if entry.posture != posture {
+                    return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                        receipt_identity_digest: receipt.receipt_ref.identity_digest(),
+                    });
+                }
+                return Ok(());
+            }
+            entry.posture = posture;
+            entry.receipt_ref = Some(receipt.receipt_ref);
         }
+        Ok(())
     }
 
     /// Returns a recovered submission entry.
     #[must_use]
     pub fn get(&self, submission_id: &Hash) -> Option<&RecoveredSubmissionEntry> {
         self.submissions.get(submission_id)
+    }
+
+    /// Iterates recovered submissions in deterministic submission-id order.
+    pub fn entries(&self) -> impl Iterator<Item = (&Hash, &RecoveredSubmissionEntry)> {
+        self.submissions.iter()
     }
 
     /// Returns the number of recovered submissions.
@@ -2372,10 +3061,10 @@ pub fn recovered_submission_receipt_index_root(
         }
         hasher.update(&entry.acceptance.acceptance_evidence_digest);
         hasher.update(&[recovered_submission_posture_code(entry.posture)]);
-        match entry.receipt_digest {
-            Some(digest) => {
+        match entry.receipt_ref {
+            Some(receipt_ref) => {
                 hasher.update(&[1]);
-                hasher.update(&digest);
+                hasher.update(&receipt_ref.to_canonical_bytes());
             }
             None => {
                 hasher.update(&[0]);
@@ -2392,16 +3081,16 @@ pub fn recovered_submission_receipt_index_root(
         }
     }
     hasher.update(&len_u64(receipts.receipt_by_submission.len()).to_le_bytes());
-    for (submission_id, receipt_digest) in &receipts.receipt_by_submission {
+    for (submission_id, receipt_ref) in &receipts.receipt_by_submission {
         hasher.update(b"receipt-by-submission");
         hasher.update(submission_id);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.receipt_by_ticket.len()).to_le_bytes());
-    for (ticket_digest, receipt_digest) in &receipts.receipt_by_ticket {
+    for (ticket_digest, receipt_ref) in &receipts.receipt_by_ticket {
         hasher.update(b"receipt-by-ticket");
         hasher.update(ticket_digest);
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
     }
     hasher.update(&len_u64(receipts.ticket_by_submission.len()).to_le_bytes());
     for (submission_id, ticket_digest) in &receipts.ticket_by_submission {
@@ -2410,10 +3099,30 @@ pub fn recovered_submission_receipt_index_root(
         hasher.update(ticket_digest);
     }
     hasher.update(&len_u64(receipts.decisions_by_receipt.len()).to_le_bytes());
-    for (receipt_digest, decision) in &receipts.decisions_by_receipt {
+    for (receipt_ref, decision) in &receipts.decisions_by_receipt {
         hasher.update(b"decision-by-receipt");
-        hasher.update(receipt_digest);
+        hasher.update(&receipt_ref.to_canonical_bytes());
         hasher.update(&[decision.code()]);
+    }
+    let causal_parent_count = receipts
+        .causal_parent_receipts_by_receipt
+        .values()
+        .filter(|parents| !parents.is_empty())
+        .count();
+    if causal_parent_count != 0 {
+        hasher.update(b"causal-parents-by-receipt:v2\0");
+        hasher.update(&len_u64(causal_parent_count).to_le_bytes());
+        for (receipt_ref, parents) in receipts
+            .causal_parent_receipts_by_receipt
+            .iter()
+            .filter(|(_, parents)| !parents.is_empty())
+        {
+            hasher.update(&receipt_ref.to_canonical_bytes());
+            hasher.update(&len_u64(parents.len()).to_le_bytes());
+            for parent in parents {
+                hasher.update(&parent.to_canonical_bytes());
+            }
+        }
     }
     hasher.finalize().into()
 }
@@ -2432,13 +3141,17 @@ fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredReceiptIndex {
     /// Receipt by submission id.
-    pub receipt_by_submission: BTreeMap<Hash, Hash>,
+    pub receipt_by_submission: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Receipt by admission ticket digest.
-    pub receipt_by_ticket: BTreeMap<Hash, Hash>,
+    pub receipt_by_ticket: BTreeMap<Hash, CausalTickReceiptRef>,
     /// Ticket by submission id.
     pub ticket_by_submission: BTreeMap<Hash, Hash>,
-    /// Decisions by receipt digest.
-    pub decisions_by_receipt: BTreeMap<Hash, WalTickDecision>,
+    /// Decisions by exact causal receipt coordinate.
+    pub decisions_by_receipt: BTreeMap<CausalTickReceiptRef, WalTickDecision>,
+    /// Canonical causal parent receipt coordinates by child receipt.
+    causal_parent_receipts_by_receipt: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
+    /// Canonical child receipt coordinates by cited parent receipt coordinate.
+    receipts_by_causal_parent: BTreeMap<CausalTickReceiptRef, Vec<CausalTickReceiptRef>>,
 }
 
 impl RecoveredReceiptIndex {
@@ -2447,39 +3160,170 @@ impl RecoveredReceiptIndex {
     /// Tick receipt records carry decision posture. Correlation records can
     /// restore ticket/submission/receipt lookup handles when decision material
     /// is not present in the same source.
-    #[must_use]
-    pub fn from_receipt_correlation_records<I, J>(receipts: I, correlations: J) -> Self
+    pub fn from_receipt_correlation_records<I, J>(
+        receipts: I,
+        correlations: J,
+    ) -> Result<Self, WalRecoveryIndexError>
     where
         I: IntoIterator<Item = TickReceiptRecord>,
         J: IntoIterator<Item = WalReceiptCorrelationRecord>,
     {
         let mut index = Self::default();
         for receipt in receipts {
-            index
-                .receipt_by_submission
-                .insert(receipt.submission_id, receipt.receipt_digest);
-            index
-                .receipt_by_ticket
-                .insert(receipt.ticket_digest, receipt.receipt_digest);
-            index
-                .ticket_by_submission
-                .insert(receipt.submission_id, receipt.ticket_digest);
-            index
-                .decisions_by_receipt
-                .insert(receipt.receipt_digest, receipt.decision);
+            index.apply_tick_receipt_record(receipt)?;
         }
         for correlation in correlations {
-            index
-                .receipt_by_submission
-                .insert(correlation.submission_id, correlation.receipt_digest);
-            index
-                .receipt_by_ticket
-                .insert(correlation.ticket_digest, correlation.receipt_digest);
-            index
-                .ticket_by_submission
-                .insert(correlation.submission_id, correlation.ticket_digest);
+            index.apply_correlation_record(correlation)?;
         }
-        index
+        Ok(index)
+    }
+
+    fn apply_tick_receipt_record(
+        &mut self,
+        receipt: TickReceiptRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let receipt_ref = receipt.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
+        }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .decisions_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != receipt.decision)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptDecision {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
+        self.decisions_by_receipt
+            .entry(receipt_ref)
+            .or_insert(receipt.decision);
+        Ok(())
+    }
+
+    fn apply_correlation_record(
+        &mut self,
+        correlation: WalReceiptCorrelationRecord,
+    ) -> Result<(), WalRecoveryIndexError> {
+        let mut parents = correlation.causal_parent_receipts;
+        parents.sort_unstable();
+        parents.dedup();
+        let receipt_ref = correlation.receipt_ref;
+        if self
+            .receipt_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .receipt_by_ticket
+            .get(&receipt_ref.ticket_digest)
+            .is_some_and(|existing| *existing != receipt_ref)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptForTicket {
+                ticket_digest: receipt_ref.ticket_digest,
+            });
+        }
+        if self
+            .ticket_by_submission
+            .get(&receipt_ref.submission_id)
+            .is_some_and(|existing| *existing != receipt_ref.ticket_digest)
+        {
+            return Err(WalRecoveryIndexError::ConflictingTicketForSubmission {
+                submission_id: receipt_ref.submission_id,
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .get(&receipt_ref)
+            .is_some_and(|existing| *existing != parents)
+        {
+            return Err(WalRecoveryIndexError::ConflictingReceiptCausalParents {
+                receipt_identity_digest: receipt_ref.identity_digest(),
+            });
+        }
+        if self
+            .causal_parent_receipts_by_receipt
+            .contains_key(&receipt_ref)
+        {
+            return Ok(());
+        }
+        self.receipt_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref);
+        self.receipt_by_ticket
+            .entry(receipt_ref.ticket_digest)
+            .or_insert(receipt_ref);
+        self.ticket_by_submission
+            .entry(receipt_ref.submission_id)
+            .or_insert(receipt_ref.ticket_digest);
+        self.causal_parent_receipts_by_receipt
+            .insert(receipt_ref, parents.clone());
+        for parent in parents {
+            let children = self.receipts_by_causal_parent.entry(parent).or_default();
+            children.push(receipt_ref);
+            children.sort_unstable();
+            children.dedup();
+        }
+        Ok(())
+    }
+
+    /// Returns canonical causal parent receipt coordinates cited by a receipt.
+    #[must_use]
+    pub fn causal_parent_receipts(
+        &self,
+        receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
+        self.causal_parent_receipts_by_receipt
+            .get(receipt_ref)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Returns canonical receipts whose intents cite the supplied receipt coordinate.
+    #[must_use]
+    pub fn receipts_citing(
+        &self,
+        parent_receipt_ref: &CausalTickReceiptRef,
+    ) -> &[CausalTickReceiptRef] {
+        self.receipts_by_causal_parent
+            .get(parent_receipt_ref)
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -4477,11 +5321,60 @@ impl FilesystemWalStore {
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
+        let admission_kernel_capability = transaction.admission_kernel_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit(epoch_id, transaction.commit)
+        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+    }
+
+    fn flush_commit_with_capability(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        admission_kernel_capability: Option<AdmissionKernelCapability>,
+    ) -> Result<(), WalStoreError> {
+        let active_epoch = self
+            .active_epoch
+            .as_ref()
+            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
+        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
+            return Err(WalStoreError::WriterEpochMismatch);
+        }
+        validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::FlushCommit)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL flush_commit failure".to_owned(),
+            ));
+        }
+        let transaction_id = commit.transaction_id;
+        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
+        self.epoch_closures.insert(
+            epoch_id,
+            WriterEpochClosure {
+                final_lsn: Some(commit.last_lsn),
+                final_commit_digest: Some(commit.commit_digest),
+            },
+        );
+        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
+            FilesystemSyncBoundary::CommitFileSynced,
+            transaction_id,
+        ));
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL commit_marker_synced failure".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     /// Appends an uncommitted frame to simulate a torn transaction tail.
@@ -4580,45 +5473,7 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        let active_epoch = self
-            .active_epoch
-            .as_ref()
-            .ok_or(WalStoreError::NoActiveWriterEpoch)?;
-        if active_epoch.epoch_id != epoch_id || commit.writer_epoch != epoch_id {
-            return Err(WalStoreError::WriterEpochMismatch);
-        }
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::FlushCommit)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL flush_commit failure".to_owned(),
-            ));
-        }
-        let transaction_id = commit.transaction_id;
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
-        self.epoch_closures.insert(
-            epoch_id,
-            WriterEpochClosure {
-                final_lsn: Some(commit.last_lsn),
-                final_commit_digest: Some(commit.commit_digest),
-            },
-        );
-        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
-            FilesystemSyncBoundary::CommitFileSynced,
-            transaction_id,
-        ));
-        #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL commit_marker_synced failure".to_owned(),
-            ));
-        }
-        Ok(())
+        self.flush_commit_with_capability(epoch_id, commit, None)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -6822,6 +7677,14 @@ pub fn build_submission_acceptance_transaction(
     record: SubmissionAcceptanceRecord,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_submission_acceptance_records(
+    builder: &mut WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+) -> Result<(), WalBuildError> {
     builder.push_record(
         WalRecordKind::SubmissionAcceptedRecorded,
         record.to_payload_bytes(),
@@ -6829,6 +7692,26 @@ pub fn build_submission_acceptance_transaction(
     builder.push_record(
         WalRecordKind::SubmissionAcceptanceEvidenceRecorded,
         record.acceptance_evidence_digest.to_vec(),
+    )?;
+    Ok(())
+}
+
+/// Builds a submission acceptance transaction with replayable envelope material.
+pub fn build_submission_acceptance_with_material_transaction(
+    mut builder: WalTransactionBuilder,
+    record: SubmissionAcceptanceRecord,
+    material: WalSubmissionEnvelopeRecord,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    if record.submission_id != material.submission_id
+        || record.canonical_envelope_digest != material.canonical_envelope_digest
+    {
+        return Err(WalBuildError::SubmissionMaterialMismatch);
+    }
+    push_submission_acceptance_records(&mut builder, record)?;
+    builder.push_record(
+        WalRecordKind::SubmissionEnvelopeRetained,
+        material.to_payload_bytes(),
     )?;
     builder.commit(affected_frontiers)
 }
@@ -6841,6 +7724,43 @@ pub fn build_tick_transaction(
     state_delta_digest: Hash,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        state_delta_digest.to_vec(),
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds a scheduler-owned tick transaction with replayable state-delta material.
+pub fn build_replayable_tick_transaction(
+    mut builder: WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: WalReceiptCorrelationRecord,
+    retained_state_delta_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(&retained_state_delta_bytes)
+        .map_err(|_| WalBuildError::RuntimeStateDeltaInvalid)?;
+    if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+        return Err(WalBuildError::RuntimeStateDeltaReceiptMismatch);
+    }
+    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    builder.push_record(
+        WalRecordKind::RuntimeStateDeltaRecorded,
+        retained_state_delta_bytes,
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+fn push_tick_receipt_records(
+    builder: &mut WalTransactionBuilder,
+    receipt: TickReceiptRecord,
+    correlation: &WalReceiptCorrelationRecord,
+) -> Result<(), WalBuildError> {
+    if receipt.receipt_ref != correlation.receipt_ref {
+        return Err(WalBuildError::ReceiptCorrelationMismatch);
+    }
     builder.push_record(
         WalRecordKind::TickReceiptRecorded,
         receipt.to_payload_bytes(),
@@ -6849,9 +7769,42 @@ pub fn build_tick_transaction(
         WalRecordKind::ReceiptCorrelationRecorded,
         correlation.to_payload_bytes(),
     )?;
+    Ok(())
+}
+
+/// Builds one atomic Echo-owned causal-anchor admission transaction.
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
+pub(crate) fn build_causal_anchor_admission_transaction(
+    mut builder: WalTransactionBuilder,
+    claim: CausalAnchorClaim,
+    support_policy_digest: Hash,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    if !builder.frames.is_empty() {
+        return Err(WalBuildError::CausalAnchorAdmissionRequiresEmptyTransaction);
+    }
+    if affected_frontiers.len() != 1
+        || affected_frontiers[0].kind != AffectedFrontierKind::CausalAnchorIndex
+    {
+        return Err(WalBuildError::CausalAnchorAdmissionFrontierMismatch);
+    }
+    let (fact, receipt) = prepare_causal_anchor_admission(
+        claim,
+        support_policy_digest,
+        builder.writer_epoch.as_hash(),
+        builder.transaction_id.as_hash(),
+        builder.next_lsn.as_u64(),
+    );
     builder.push_record(
-        WalRecordKind::RuntimeStateDeltaRecorded,
-        state_delta_digest.to_vec(),
+        WalRecordKind::CausalAnchorFactRecorded,
+        fact.to_payload_bytes(),
+    )?;
+    builder.push_record(
+        WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
+        receipt.to_payload_bytes(),
     )?;
     builder.commit(affected_frontiers)
 }
@@ -6947,6 +7900,415 @@ pub fn read_checkpoint_record(
     parse_checkpoint_file_bytes(&bytes)
 }
 
+/// One causal-anchor admission observed in a structurally valid WAL report.
+///
+/// This type preserves fact, receipt, and remote WAL coordinates without
+/// conferring local Echo admission authority. Arbitrary recovery reports and
+/// imported segment material can produce observations, never sealed local
+/// admissions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservedCausalAnchorAdmission {
+    fact: CausalAnchorFact,
+    receipt: CausalAnchorAdmissionReceipt,
+    transaction_id: WalTransactionId,
+    committed_lsn: Lsn,
+    commit_digest: Hash,
+}
+
+impl ObservedCausalAnchorAdmission {
+    pub(crate) const fn from_validated_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            fact,
+            receipt,
+            transaction_id,
+            committed_lsn,
+            commit_digest,
+        }
+    }
+
+    /// Returns the observed causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        &self.fact
+    }
+
+    /// Returns the observed admission receipt.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        &self.receipt
+    }
+
+    /// Returns the observed WAL transaction identity.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.transaction_id
+    }
+
+    /// Returns the observed committed LSN.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.committed_lsn
+    }
+
+    /// Returns the observed commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        &self.commit_digest
+    }
+}
+
+/// One causal-anchor admission reconstructed from trusted local WAL authority.
+///
+/// Committed coordinates are read-only evidence. External code cannot rebuild
+/// this type with substituted WAL coordinates:
+///
+/// ```compile_fail
+/// use warp_core::{
+///     causal_wal::{Lsn, WalTransactionId},
+///     RecoveredCausalAnchorAdmission,
+/// };
+///
+/// fn substitute_coordinates(
+///     genuine: RecoveredCausalAnchorAdmission,
+/// ) -> RecoveredCausalAnchorAdmission {
+///     RecoveredCausalAnchorAdmission {
+///         fact: genuine.fact,
+///         receipt: genuine.receipt,
+///         transaction_id: WalTransactionId::from_hash([0; 32]),
+///         committed_lsn: Lsn::from_raw(0),
+///         commit_digest: [0; 32],
+///     }
+/// }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveredCausalAnchorAdmission {
+    observation: ObservedCausalAnchorAdmission,
+}
+
+impl RecoveredCausalAnchorAdmission {
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) const fn from_committed_wal_evidence(
+        fact: CausalAnchorFact,
+        receipt: CausalAnchorAdmissionReceipt,
+        transaction_id: WalTransactionId,
+        committed_lsn: Lsn,
+        commit_digest: Hash,
+    ) -> Self {
+        Self {
+            observation: ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+                fact,
+                receipt,
+                transaction_id,
+                committed_lsn,
+                commit_digest,
+            ),
+        }
+    }
+
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    pub(crate) const fn from_observation(observation: ObservedCausalAnchorAdmission) -> Self {
+        Self { observation }
+    }
+
+    /// Returns this trusted admission as observation-only evidence.
+    #[must_use]
+    pub const fn observation(&self) -> &ObservedCausalAnchorAdmission {
+        &self.observation
+    }
+
+    /// Returns the Echo-admitted causal-anchor fact.
+    #[must_use]
+    pub const fn fact(&self) -> &CausalAnchorFact {
+        self.observation.fact()
+    }
+
+    /// Returns the admission receipt committed atomically with the fact.
+    #[must_use]
+    pub const fn receipt(&self) -> &CausalAnchorAdmissionReceipt {
+        self.observation.receipt()
+    }
+
+    /// Returns the WAL transaction that ordered the admission.
+    #[must_use]
+    pub const fn transaction_id(&self) -> WalTransactionId {
+        self.observation.transaction_id()
+    }
+
+    /// Returns the last committed LSN of the admission transaction.
+    #[must_use]
+    pub const fn committed_lsn(&self) -> Lsn {
+        self.observation.committed_lsn()
+    }
+
+    /// Returns the admission transaction's commit-marker digest.
+    #[must_use]
+    pub const fn commit_digest(&self) -> &Hash {
+        self.observation.commit_digest()
+    }
+}
+
+impl From<&RecoveredCausalAnchorAdmission> for ObservedCausalAnchorAdmission {
+    fn from(admission: &RecoveredCausalAnchorAdmission) -> Self {
+        admission.observation.clone()
+    }
+}
+
+/// Observes fully committed and internally consistent causal-anchor evidence.
+///
+/// The returned values do not confer local Echo admission authority. Trusted
+/// local WAL recovery seals the same validated evidence through a private path.
+pub fn observe_causal_anchor_admissions(
+    report: &RecoveryScanReport,
+) -> Result<Vec<ObservedCausalAnchorAdmission>, WalRecoveryIndexError> {
+    let mut admissions = Vec::new();
+    for transaction in &report.transactions {
+        if transaction.commit.transaction_kind != WalTransactionKind::CausalAnchorAdmission {
+            continue;
+        }
+        let fact_frame = unique_causal_anchor_frame(
+            transaction,
+            WalRecordKind::CausalAnchorFactRecorded,
+            CausalAnchorFrameRole::Fact,
+        )?;
+        let receipt_frame = unique_causal_anchor_frame(
+            transaction,
+            WalRecordKind::CausalAnchorAdmissionReceiptRecorded,
+            CausalAnchorFrameRole::Receipt,
+        )?;
+        if transaction.frames.len() != 2
+            || transaction.frames[0].header.record_kind != WalRecordKind::CausalAnchorFactRecorded
+            || transaction.frames[1].header.record_kind
+                != WalRecordKind::CausalAnchorAdmissionReceiptRecorded
+        {
+            return Err(
+                WalRecoveryIndexError::NonCanonicalCausalAnchorAdmissionFrameOrder {
+                    transaction_id: transaction.commit.transaction_id,
+                },
+            );
+        }
+        let fact = CausalAnchorFact::from_payload_bytes(&fact_frame.payload.canonical_bytes)?;
+        let receipt = CausalAnchorAdmissionReceipt::from_payload_bytes(
+            &receipt_frame.payload.canonical_bytes,
+        )?;
+        validate_causal_anchor_admission_evidence(&fact, &receipt)?;
+        if receipt.writer_epoch_id() != &transaction.commit.writer_epoch.as_hash()
+            || receipt.wal_transaction_id() != &transaction.commit.transaction_id.as_hash()
+            || receipt.wal_first_lsn() != transaction.commit.first_lsn.as_u64()
+        {
+            return Err(WalRecoveryIndexError::CausalAnchorPayload(
+                CausalAnchorError::AdmissionEvidenceMismatch,
+            ));
+        }
+        admissions.push(ObservedCausalAnchorAdmission::from_validated_wal_evidence(
+            fact,
+            receipt,
+            transaction.commit.transaction_id,
+            transaction.commit.last_lsn,
+            transaction.commit.commit_digest,
+        ));
+    }
+    Ok(admissions)
+}
+
+/// Observation-only anchor evidence after validating its exact WAL history.
+///
+/// This traversal does not confer local admission authority. It centralizes the
+/// basis, frontier, and identity checks shared by trusted recovery and WSC
+/// import validation.
+#[derive(Clone, Debug)]
+pub(crate) struct ValidatedCausalAnchorHistory {
+    pub(crate) admissions: Vec<(ObservedCausalAnchorAdmission, usize)>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) causal_history_frontiers: Vec<CausalFrontierRef>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) causal_anchor_frontier_digest: Hash,
+}
+
+pub(crate) fn validate_recovered_causal_anchor_history(
+    report: &RecoveryScanReport,
+) -> Result<ValidatedCausalAnchorHistory, WalRecoveryIndexError> {
+    let recovered = observe_causal_anchor_admissions(report)?;
+    let mut by_transaction = recovered
+        .into_iter()
+        .map(|admission| (admission.transaction_id(), admission))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_anchor_ids = BTreeSet::new();
+    let mut admissions = Vec::new();
+    let mut current_frontier = causal_history_genesis_frontier_digest();
+    let mut current_causal_anchor_frontier = causal_anchor_genesis_frontier_digest();
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    let mut frontiers = vec![CausalFrontierRef::from_digest(current_frontier)];
+
+    for (index, transaction) in report.transactions.iter().enumerate() {
+        let basis_before = CausalFrontierRef::from_digest(current_frontier);
+        let next_frontier = logical_causal_history_frontier_digest(
+            current_frontier,
+            transaction.commit.transaction_kind,
+            &transaction.frames,
+        );
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        let basis_after = CausalFrontierRef::from_digest(next_frontier);
+        if transaction.commit.transaction_kind == WalTransactionKind::CausalAnchorAdmission {
+            let admission = by_transaction
+                .remove(&transaction.commit.transaction_id)
+                .ok_or(WalRecoveryIndexError::CausalAnchorAdmissionMissing {
+                    transaction_id: transaction.commit.transaction_id,
+                })?;
+            let claimed_basis = admission.fact().claim().basis_frontier();
+            if claimed_basis != &basis_before {
+                return Err(WalRecoveryIndexError::CausalAnchorBasisMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    claimed: claimed_basis.frontier_digest,
+                    recovered: basis_before.frontier_digest,
+                });
+            }
+            let next_causal_anchor_frontier = causal_anchor_frontier_digest_from_evidence(
+                current_causal_anchor_frontier,
+                admission.fact(),
+                admission.receipt(),
+            );
+            let expected_frontiers_root = affected_frontiers_root(&[AffectedFrontier {
+                kind: AffectedFrontierKind::CausalAnchorIndex,
+                before_digest: current_causal_anchor_frontier,
+                after_digest: next_causal_anchor_frontier,
+            }]);
+            if transaction.commit.affected_frontiers_root != expected_frontiers_root {
+                return Err(WalRecoveryIndexError::CausalAnchorFrontierMismatch {
+                    transaction_id: transaction.commit.transaction_id,
+                    expected: expected_frontiers_root,
+                    actual: transaction.commit.affected_frontiers_root,
+                });
+            }
+            current_causal_anchor_frontier = next_causal_anchor_frontier;
+            let anchor_id = *admission.fact().anchor_id();
+            if !seen_anchor_ids.insert(anchor_id) {
+                return Err(WalRecoveryIndexError::CausalAnchorIdConflict { anchor_id });
+            }
+            admissions.push((admission, index));
+        }
+        current_frontier = next_frontier;
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        frontiers.push(basis_after);
+    }
+
+    Ok(ValidatedCausalAnchorHistory {
+        admissions,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        causal_history_frontiers: frontiers,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        causal_anchor_frontier_digest: current_causal_anchor_frontier,
+    })
+}
+
+pub(crate) fn trusted_runtime_wal_digest(label: &str) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_history_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-history-frontier:genesis")
+}
+
+pub(crate) fn causal_anchor_genesis_frontier_digest() -> Hash {
+    trusted_runtime_wal_digest("causal-anchor-frontier:genesis")
+}
+
+pub(crate) fn logical_causal_history_frontier_digest(
+    previous: Hash,
+    transaction_kind: WalTransactionKind,
+    frames: &[WalFrame],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-history-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(&[transaction_kind.stable_code()]);
+    hasher.update(&(frames.len() as u64).to_le_bytes());
+    for frame in frames {
+        hasher.update(&frame.header.payload_schema_id.as_hash());
+        hasher.update(&frame.header.payload_schema_version.to_le_bytes());
+        hasher.update(&frame.header.canonical_encoding_version.to_le_bytes());
+        hasher.update(&frame.header.digest_domain);
+        hasher.update(&frame.payload.digest());
+    }
+    hasher.finalize().into()
+}
+
+pub(crate) fn causal_anchor_frontier_digest_from_evidence(
+    previous: Hash,
+    fact: &CausalAnchorFact,
+    receipt: &CausalAnchorAdmissionReceipt,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:causal-anchor-frontier:v1\0");
+    hasher.update(&previous);
+    hasher.update(fact.anchor_digest());
+    hasher.update(receipt.receipt_id().as_bytes());
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+pub(crate) fn recover_causal_anchor_admissions(
+    report: &RecoveryScanReport,
+) -> Result<Vec<RecoveredCausalAnchorAdmission>, WalRecoveryIndexError> {
+    Ok(observe_causal_anchor_admissions(report)?
+        .into_iter()
+        .map(RecoveredCausalAnchorAdmission::from_observation)
+        .collect())
+}
+
+#[derive(Clone, Copy)]
+enum CausalAnchorFrameRole {
+    Fact,
+    Receipt,
+}
+
+fn unique_causal_anchor_frame(
+    transaction: &WalRecoveredTransaction,
+    record_kind: WalRecordKind,
+    role: CausalAnchorFrameRole,
+) -> Result<&WalFrame, WalRecoveryIndexError> {
+    let mut matching = transaction
+        .frames
+        .iter()
+        .filter(|frame| frame.header.record_kind == record_kind);
+    let Some(frame) = matching.next() else {
+        return Err(match role {
+            CausalAnchorFrameRole::Fact => WalRecoveryIndexError::MissingCausalAnchorFactFrame {
+                transaction_id: transaction.commit.transaction_id,
+            },
+            CausalAnchorFrameRole::Receipt => {
+                WalRecoveryIndexError::MissingCausalAnchorAdmissionReceiptFrame {
+                    transaction_id: transaction.commit.transaction_id,
+                }
+            }
+        });
+    };
+    if matching.next().is_some() {
+        return Err(match role {
+            CausalAnchorFrameRole::Fact => WalRecoveryIndexError::DuplicateCausalAnchorFactFrame {
+                transaction_id: transaction.commit.transaction_id,
+            },
+            CausalAnchorFrameRole::Receipt => {
+                WalRecoveryIndexError::DuplicateCausalAnchorAdmissionReceiptFrame {
+                    transaction_id: transaction.commit.transaction_id,
+                }
+            }
+        });
+    }
+    Ok(frame)
+}
+
 /// Recovers submission posture from committed WAL transactions.
 pub fn recover_submission_index(
     report: &RecoveryScanReport,
@@ -6964,7 +8326,7 @@ pub fn recover_submission_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index.apply_tick_receipt_record(receipt);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 _ => {}
             }
@@ -6984,32 +8346,13 @@ pub fn recover_receipt_index(
                 WalRecordKind::TickReceiptRecorded => {
                     let receipt =
                         TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index
-                        .receipt_by_submission
-                        .insert(receipt.submission_id, receipt.receipt_digest);
-                    index
-                        .receipt_by_ticket
-                        .insert(receipt.ticket_digest, receipt.receipt_digest);
-                    index
-                        .ticket_by_submission
-                        .insert(receipt.submission_id, receipt.ticket_digest);
-                    index
-                        .decisions_by_receipt
-                        .insert(receipt.receipt_digest, receipt.decision);
+                    index.apply_tick_receipt_record(receipt)?;
                 }
                 WalRecordKind::ReceiptCorrelationRecorded => {
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
                         &frame.payload.canonical_bytes,
                     )?;
-                    index
-                        .receipt_by_submission
-                        .insert(correlation.submission_id, correlation.receipt_digest);
-                    index
-                        .receipt_by_ticket
-                        .insert(correlation.ticket_digest, correlation.receipt_digest);
-                    index
-                        .ticket_by_submission
-                        .insert(correlation.submission_id, correlation.ticket_digest);
+                    index.apply_correlation_record(correlation)?;
                 }
                 _ => {}
             }
@@ -7390,6 +8733,9 @@ pub enum WalBuildError {
     /// Transaction already closed.
     #[error("WAL transaction is already closed")]
     TransactionClosed,
+    /// Public builders do not carry Echo's causal-anchor admission capability.
+    #[error("Echo admission-kernel capability is required")]
+    AdmissionKernelCapabilityRequired,
     /// Record requires a different append authority.
     #[error(
         "wrong append authority for {record_kind:?}: required {required:?}, actual {actual:?}"
@@ -7411,6 +8757,24 @@ pub enum WalBuildError {
     /// Empty transaction.
     #[error("WAL transaction has no records")]
     EmptyTransaction,
+    /// Causal-anchor admission must own the entire WAL transaction.
+    #[error("causal-anchor admission requires an empty WAL transaction builder")]
+    CausalAnchorAdmissionRequiresEmptyTransaction,
+    /// Causal-anchor admission must advance exactly one anchor-index frontier.
+    #[error("causal-anchor admission requires exactly one causal-anchor index frontier")]
+    CausalAnchorAdmissionFrontierMismatch,
+    /// Submission acceptance and retained material name different evidence.
+    #[error("WAL submission acceptance does not match retained material")]
+    SubmissionMaterialMismatch,
+    /// Tick receipt and correlation name different causal receipt events.
+    #[error("WAL tick receipt does not match its receipt correlation")]
+    ReceiptCorrelationMismatch,
+    /// Replayable runtime state-delta bytes are not a valid retained record.
+    #[error("WAL replayable runtime state delta is invalid")]
+    RuntimeStateDeltaInvalid,
+    /// Replayable runtime state delta names a different receipt commitment.
+    #[error("WAL replayable runtime state delta does not match the tick receipt")]
+    RuntimeStateDeltaReceiptMismatch,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),
@@ -7419,6 +8783,9 @@ pub enum WalBuildError {
 /// WAL validation errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalValidationError {
+    /// A causal-anchor transaction lacks Echo's private admission capability.
+    #[error("WAL causal-anchor transaction lacks Echo admission-kernel capability")]
+    AdmissionKernelCapabilityRequired,
     /// Frame payload kind does not match header kind.
     #[error("WAL frame record kind mismatch")]
     RecordKindMismatch,
@@ -7434,6 +8801,9 @@ pub enum WalValidationError {
     /// Record kind does not match transaction kind authority.
     #[error("WAL record kind authority does not match transaction kind")]
     RecordAuthorityMismatch,
+    /// Causal-anchor admission does not contain exactly one fact followed by one receipt.
+    #[error("WAL causal-anchor admission frame shape is invalid")]
+    CausalAnchorAdmissionFrameShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -7632,6 +9002,24 @@ pub enum WalDecodeError {
     /// Encoded frame failed embedded integrity validation.
     #[error("encoded WAL frame failed embedded integrity validation")]
     InvalidEmbeddedFrame,
+    /// Versioned causal receipt material did not carry the required magic.
+    #[error("invalid {record_kind} WAL payload magic")]
+    InvalidRecordMagic {
+        /// Retained record family whose version marker is malformed.
+        record_kind: &'static str,
+    },
+    /// Legacy receipt material names content but not one admitted event.
+    #[error("legacy {record_kind} payload lacks an exact causal receipt identity")]
+    LegacyCausalReceiptIdentityUnavailable {
+        /// Retained record family that cannot be upgraded without ambiguity.
+        record_kind: &'static str,
+    },
+    /// Causal parent receipts were duplicated or not in canonical order.
+    #[error("non-canonical causal parent receipts in {record_kind} WAL payload")]
+    NonCanonicalCausalParentReceipts {
+        /// Retained record family whose parent set was not canonical.
+        record_kind: &'static str,
+    },
 }
 
 /// WAL recovered index errors.
@@ -7640,11 +9028,112 @@ pub enum WalRecoveryIndexError {
     /// Payload decode failed.
     #[error(transparent)]
     Decode(#[from] WalDecodeError),
+    /// Causal-anchor fact or receipt payload failed validation.
+    #[error(transparent)]
+    CausalAnchorPayload(#[from] CausalAnchorError),
+    /// Recovery omitted canonical evidence for an anchor transaction.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted recovered evidence")]
+    CausalAnchorAdmissionMissing {
+        /// Transaction whose canonical anchor evidence was unavailable.
+        transaction_id: WalTransactionId,
+    },
+    /// A recovered anchor claim named a basis other than its transaction basis.
+    #[error(
+        "causal-anchor basis mismatched transaction {transaction_id:?}: claimed {claimed:?}, recovered {recovered:?}"
+    )]
+    CausalAnchorBasisMismatch {
+        /// Transaction carrying the inconsistent anchor admission.
+        transaction_id: WalTransactionId,
+        /// Basis encoded in the recovered anchor claim and receipt.
+        claimed: Hash,
+        /// Logical causal-history frontier immediately before the transaction.
+        recovered: Hash,
+    },
+    /// Recovered anchor evidence was not bound to its exact frontier transition.
+    #[error(
+        "causal-anchor frontier mismatched transaction {transaction_id:?}: expected {expected:?}, actual {actual:?}"
+    )]
+    CausalAnchorFrontierMismatch {
+        /// Transaction carrying the unattested anchor-index transition.
+        transaction_id: WalTransactionId,
+        /// Root of the exact reconstructed causal-anchor frontier transition.
+        expected: Hash,
+        /// Affected-frontier root carried by the recovered commit marker.
+        actual: Hash,
+    },
+    /// Distinct recovered admissions claimed the same stable anchor identity.
+    #[error("recovered duplicate causal-anchor id {anchor_id:?}")]
+    CausalAnchorIdConflict {
+        /// Anchor identity claimed by more than one admission.
+        anchor_id: CausalAnchorId,
+    },
+    /// A causal-anchor admission transaction omitted its required fact frame.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted its fact frame")]
+    MissingCausalAnchorFactFrame {
+        /// Transaction missing the required frame.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction omitted its required receipt frame.
+    #[error("causal-anchor admission transaction {transaction_id:?} omitted its receipt frame")]
+    MissingCausalAnchorAdmissionReceiptFrame {
+        /// Transaction missing the required frame.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction contained duplicate fact frames.
+    #[error("causal-anchor admission transaction {transaction_id:?} duplicated its fact frame")]
+    DuplicateCausalAnchorFactFrame {
+        /// Transaction containing duplicate frames.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction contained duplicate receipt frames.
+    #[error("causal-anchor admission transaction {transaction_id:?} duplicated its receipt frame")]
+    DuplicateCausalAnchorAdmissionReceiptFrame {
+        /// Transaction containing duplicate frames.
+        transaction_id: WalTransactionId,
+    },
+    /// A causal-anchor admission transaction did not encode fact then receipt.
+    #[error(
+        "causal-anchor admission transaction {transaction_id:?} used noncanonical frame order"
+    )]
+    NonCanonicalCausalAnchorAdmissionFrameOrder {
+        /// Transaction whose required frames were out of order.
+        transaction_id: WalTransactionId,
+    },
     /// Submission id was reused with a different canonical envelope digest.
     #[error("submission id was reused with a different canonical envelope digest")]
     SubmissionEnvelopeConflict {
         /// Conflicting submission id.
         submission_id: Hash,
+    },
+    /// One submission id mapped to conflicting exact receipt coordinates.
+    #[error("submission id mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForSubmission {
+        /// Submission whose recovered receipt evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One admission ticket mapped to conflicting exact receipt coordinates.
+    #[error("admission ticket mapped to conflicting causal receipt coordinates")]
+    ConflictingReceiptForTicket {
+        /// Ticket whose recovered receipt evidence conflicted.
+        ticket_digest: Hash,
+    },
+    /// One submission id mapped to conflicting admission tickets.
+    #[error("submission id mapped to conflicting admission tickets")]
+    ConflictingTicketForSubmission {
+        /// Submission whose recovered ticket evidence conflicted.
+        submission_id: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting decisions.
+    #[error("causal receipt coordinate carried conflicting decisions")]
+    ConflictingReceiptDecision {
+        /// Identity digest of the receipt coordinate whose decision conflicted.
+        receipt_identity_digest: Hash,
+    },
+    /// One exact receipt coordinate carried conflicting causal parent sets.
+    #[error("causal receipt coordinate carried conflicting causal parent sets")]
+    ConflictingReceiptCausalParents {
+        /// Identity digest of the receipt coordinate whose parents conflicted.
+        receipt_identity_digest: Hash,
     },
     /// Strand fork evidence conflicted for one strand id.
     #[error("strand fork evidence conflicted for strand {strand_id:?}")]
@@ -7803,6 +9292,13 @@ fn validate_transaction_semantics(
             return Err(WalValidationError::RecordAuthorityMismatch);
         }
     }
+    if transaction_kind == WalTransactionKind::CausalAnchorAdmission
+        && (frames.len() != 2
+            || frames[0].header.record_kind != WalRecordKind::CausalAnchorFactRecorded
+            || frames[1].header.record_kind != WalRecordKind::CausalAnchorAdmissionReceiptRecorded)
+    {
+        return Err(WalValidationError::CausalAnchorAdmissionFrameShapeMismatch);
+    }
     Ok(())
 }
 
@@ -7844,6 +9340,9 @@ fn frontier_kind_allowed_for_transaction(
         WalTransactionKind::TopologyIntent => {
             matches!(frontier_kind, AffectedFrontierKind::TopologyIndex)
         }
+        WalTransactionKind::CausalAnchorAdmission => {
+            matches!(frontier_kind, AffectedFrontierKind::CausalAnchorIndex)
+        }
     }
 }
 
@@ -7857,7 +9356,7 @@ fn records_root(frames: &[WalFrame]) -> Hash {
     h.finalize().into()
 }
 
-fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
+pub(crate) fn affected_frontiers_root(frontiers: &[AffectedFrontier]) -> Hash {
     let mut sorted = frontiers.to_vec();
     sorted.sort_by_key(|frontier| frontier.kind);
     let mut h = blake3::Hasher::new();
@@ -8310,6 +9809,19 @@ impl<'a> WalPayloadCursor<'a> {
 
     fn remaining_len(&self) -> usize {
         self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], WalDecodeError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(WalDecodeError::UnexpectedEof)?;
+        self.offset = end;
+        Ok(bytes)
     }
 
     fn read_u8(&mut self) -> Result<u8, WalDecodeError> {

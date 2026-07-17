@@ -7,6 +7,328 @@
 
 ### Added
 
+- `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
+  installed Edict provider package with
+  `admit_provider_contract_submission_v1(...)`. The shared installed-contract
+  admission boundary requires the exact canonical EINT v1 outer kind and an
+  installed provider operation before staging. Provider invocation evidence
+  binds the installed package id, exact package reference, semantic operation,
+  Target IR, and scheduler rule; Echo reports an applied provider outcome only
+  when that exact rule appears in the tick receipt, so the same-scope system
+  acknowledgement cannot masquerade as application execution. A distinct
+  validated tag-2 WAL encoding retains the evidence without fabricating a
+  legacy contract coordinate, while the tag-1 legacy bytes remain stable. A
+  fresh filesystem-WAL host recovers the exact outcome after independently
+  reinstalling the provider package, without callback execution or duplicate
+  work. Unknown operations, malformed or relabeled EINT, structurally invalid
+  retained evidence, and provider inverse requests fail closed through stable
+  typed errors. This closure does not authenticate callers, authorize targets,
+  validate codec-owned input against an operation schema, or implement
+  provider-native reads.
+- `echo-wesley-gen` now owns the proof-consuming provider installation adapter:
+  it consumes `DigestCorroboratedProviderContractPackageV1` through
+  `warp-core`'s sealed runtime-owner installer port and delegates to a
+  `TrustedRuntimeHost` lower primitive that explicitly does not authenticate
+  package bytes itself. Installation creates a distinct owned provider record
+  retaining the exact occurrence, provider reference, complete provider
+  registry, and mutation-rule identity, then atomically installs
+  provider-package, package-root, operation, and shared scheduler-rule indexes.
+  It fabricates no legacy Wesley/GraphQL metadata or evidence, exposes no app
+  installation surface, and invokes no callbacks. Installation alone remains
+  distinct from the provider mutation admission, invocation, receipt, and WAL
+  crossings described above; generated bounded-read observations remain
+  subsequent work.
+- `echo-wesley-gen` can now consume a `DigestAdmittedProviderPackageV1` and an
+  independently Echo-admitted `AdmittedProviderContractPackageV1`, require the
+  exact `echo.edict-provider@1` coordinate and strict lowercase `sha256:`
+  package-root agreement with the proposal occurrence, and return an opaque
+  `DigestCorroboratedProviderContractPackageV1`. Stable structured failures
+  distinguish coordinate, digest-rendering, and artifact-root disagreement.
+  This pure crossing corroborates package occurrence only: it does not derive
+  registry semantics from package bytes, install or mutate registry state,
+  invoke callbacks, schedule or execute work, emit receipts, or grant runtime
+  authority. The real-host witness extends the exact generator dependency
+  closure, so generation evidence and the checked provider occurrence refresh
+  to `sha256:e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69`;
+  the primary semantic and Target IR artifacts remain byte-identical.
+- `TrustedRuntimeHost` can now admit an opaque Edict provider proposal against
+  an independently constructed `ProviderContractAdmissionPolicyV1`. The pure
+  crossing compares the complete host-owned package occurrence claim and
+  provider registry—including schema, target-bundle profile, semantic and
+  release identities, ABI/helper versions, operations, codecs, Target IR,
+  obstruction, profiles, and footprint claims—and returns stable typed
+  mismatches. The resulting `AdmittedProviderContractPackageV1` retains private
+  proposal material for the proof-owned provider installation crossing but does
+  not rehash package bytes, mutate the engine registry, install handlers,
+  invoke callbacks, schedule work, or grant application authority.
+- The checked Echo Edict provider conformance corpus now declares twelve
+  reviewed executable obligations: exactly six owned by the isolated host
+  executor and six by the package executor, with one accepted, nine rejected,
+  and two refused dispositions. Each declaration names its crossing, stimulus,
+  required disposition, and outcome contract, but embeds no pass flag, result,
+  evidence pointer, implementation command, or runtime authority. The two
+  exact-set executors separately produce provider-conformance evidence for
+  baseline package parity, admission and binding failures, typed semantic
+  refusals, and verifier disagreements. Corpus declarations and their executed
+  provider evidence remain distinct from Echo installation, execution,
+  observation, and runtime receipts.
+- `TrustedRuntimeHost` can now admit a witnessed installed-contract submission
+  without accepting caller-manufactured ticket authority. Echo derives a
+  domain-separated admission digest from its witnessed submission record and
+  verified installed-package identity, stages the operation through the same
+  package-evidence boundary, and binds the resulting receipt to that evidence.
+  The explicit ticketed staging API remains available for actual Optic
+  admissions; application-facing handles still cannot admit, stage, or tick.
+- `echo-wesley-gen` now purely assembles and digest-admits the first complete
+  Echo Edict provider distribution from the verified 22-file generated corpus
+  and explicit lowerer/verifier bytes. The derived provider manifest carries ten
+  exact routes and 24 schema bindings—nine invocation domains, the generated
+  artifact profile, and 14 generated-resource domains—but never inventories
+  itself. A versioned canonical-CBOR package root binds those semantics plus raw hashes of
+  all 24 non-manifest members, while the exact 25-file inventory, deterministic
+  JSON rendering, mixed raw/domain-framed digest laws, packaged Wesley
+  provenance/review, component bounds, and an external expected provider pin
+  all fail closed through structured errors. This is package-occurrence
+  authentication only; Edict schema/component preflight and Echo runtime
+  installation remain separate authority crossings. A dedicated publisher now
+  checks that all 22 generated members exactly reproduce the current checked
+  provider corpus introduced by #652 before writing the two components and derived manifest as a
+  self-contained 25-file distribution. Its capability-oriented filesystem
+  boundary refuses invalid expected inventories before resolving the root,
+  bounds actual-tree enumeration and expected-byte reads, never opens an
+  unexpected regular file, and makes `--check` report sorted drift without
+  creating, deleting, or rewriting package material.
+- The checked provider package now passes an isolated Edict-native readiness
+  boundary pinned to Edict merge `c75c3f55`. The exact manifest constructs its
+  immutable 24-domain schema registry, all five canonical primaries and 14
+  generated resources satisfy their owning CDDL roots, resource references are
+  bound field-by-field to independently recomputed domain-framed digests, both
+  components pass frozen-WIT preflight, and both request kinds produce opaque
+  validation proofs. Schema-valid byte replacement, digest mutation, semantic
+  field swaps, authority-source disagreement, malformed schemas/components,
+  and invalid requests all fail before guest execution. This proves package
+  readiness only, never Echo installation, execution, or runtime authority.
+- `echo-wesley-gen` now carries a fixed 38-file package-local source and provider
+  asset boundary, preserving original logical source labels while making its
+  `.crate` archive independent of workspace-parent files. An explicit sync tool
+  distinguishes authoritative generated/component owners from their checked
+  package corroboration, supports staged regeneration without circularity, and
+  checks exact Cargo archive selection. Fixed owner leaves are opened without
+  following final symbolic links and read twice through one retained descriptor;
+  file-type, length, or byte disagreement refuses a moving owner. The generator
+  source identity now enumerates 20 files and includes the exact manifest and
+  implementation bytes of its canonicalization, operation-id-law, and
+  provider-registry dependencies. The extracted archive compiles when its
+  still-unpublished Echo dependencies are supplied through local patches.
+- Echo now owns the versioned semantic operation-id law
+  `echo.semantic-operation-id.fnv1-32/v1`. It derives a persisted `u32` from the
+  exact semantic coordinate and generic query/mutation kind, remains
+  domain-separated from Wesley's GraphQL-field-name law, and reserves the top
+  two ids for Echo protocol envelopes: `u32::MAX` for scheduler control and
+  `u32::MAX - 1` for witnessed suffix import. The canonical generated-artifact
+  profile carries both the law coordinate and each derived id; generation
+  refuses either reserved value and package-local collisions without salting,
+  probing, or renaming. Its CDDL bounds `operationId` to the remaining numeric
+  application range, but schema admission alone does not prove derivation or
+  collision freedom: semantic generation recomputes the law and checks the
+  complete operation set. This packages an exact operation-identity proposition
+  but does not register, install, authorize, or execute the operation. Generated
+  source now carries public expected constants for the profile-owned law and id,
+  requires both as untrusted bundle claims, refuses disagreement, and exposes
+  the matched claim through the resulting private-state registration descriptor.
+- Echo now provides the exact `edict:target-provider/lowerer@1.0.0`
+  Component Model implementation for the first checked provider closure. The
+  pure lowerer accepts only explicit digest-bound Core, target-profile,
+  authority, lawpack, lowerability, and output-role inputs; produces canonical
+  `echo.span-ir/v1` Target IR with byte-for-byte parity to Edict's built-in Echo
+  wrapper; and returns typed refusals for unsupported ABI, profiles, semantics,
+  reads, rebound operations, unresolved authored optics, changed type bindings,
+  Core type definitions, evaluation budgets, out-of-scope locals, intrinsics,
+  and undeclared or malformed output-role claims. Local admission distinguishes pre-effect, obstruction-arm,
+  and post-effect scope from the exact input, effect-result, and obstruction
+  declarations before cloning any expression into Target IR. The first closure
+  also requires an empty input-constraint set and the exact zero-argument
+  `domain.WriteRejected` obstruction constructor. Effect inputs and intent
+  results admit no call-expression callee, refusing unreviewed calls until their
+  own lowering laws exist. A
+  deterministic build boundary pins the frozen
+  WIT bytes, rejects ambient or callable imports, checks the exact decoded world
+  type graph and contract attestation, and reproduces the checked component
+  byte-for-byte across independently provisioned `linux/amd64` containers from
+  the immutable Rust image used by CI. The builder resolves and authenticates the
+  exact Rust and Cargo executables, binds Cargo to that compiler, owns the inner
+  Cargo home, removes ambient Cargo profile/build/target overrides, remaps its
+  dependency source paths to `/cargo`, and atomically promotes only distinct
+  candidates matching a reviewed repository digest. The promoted 189,668-byte
+  component has SHA-256
+  `f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`.
+  Other-host builds are structural and semantic witnesses
+  rather than cross-host compiler-identity claims. The publication-enabled,
+  archive-self-contained `echo-edict-provider-lowerer` source crate carries
+  package-local copies of its four exact admitted resources, with a workspace
+  witness binding them to the checked generated corpus. Its full package gate
+  follows publication of `echo-edict-canonical 0.1.0`. These artifacts describe
+  and translate provider semantics; they confer no Echo runtime authority.
+- The native Echo Edict lowerer model now accepts any exact, lexicographically
+  sorted subset of the declared `generated.echo-dpo` generated artifact,
+  `review.echo-dpo` review payload, and `target-ir.echo-dpo` Target IR roles.
+  It emits canonical-CBOR generated and review envelopes at
+  `generated/echo_dpo.rs` and `review/echo_dpo.json`, and refuses unknown,
+  mismatched, duplicate, or out-of-order role claims with typed
+  `UnsupportedOutputRole`. The generated Rust binds the semantic operation,
+  Target IR, Echo ABI and helper API, provider and operation schemas, target and
+  generated profiles, and abstract footprint
+  obligation/algebra. It then performs only an
+  explicit post-assembly equality and consistency comparison between an
+  independent expected pin and untrusted Edict semantic/release bundle claims,
+  with typed refusal for every identity class. Every domain-framed resource is
+  compared as a complete coordinate/domain/digest proposition.
+  The generated-artifact profile now owns `le-binary-v1`, and generated Rust
+  implements distinct bounded `Id`, `Input`, and `Output` types with fail-closed
+  decoding for malformed, over-bound, truncated, or trailing bytes. Descriptor
+  methods round-trip the exact input/output types and pack typed input into
+  canonical EINT v1; EINT `vars` remain codec-owned opaque bytes rather than a
+  universal canonical-CBOR value. The matched descriptor exposes a borrowed,
+  provider-generic registry and can bind its generated matcher to one explicitly
+  identified host mutation implementation. It returns only an opaque,
+  non-installing package proposal after checking the complete Target IR,
+  semantic/release bundle, target/generated/operation profile, provider/value
+  schema, codec, obstruction, operation-id, ABI, helper-API, rule-name, and
+  footprint identities. Echo adds the mandatory ingress matcher reads to the
+  host's effect footprint. Identity equality detects cross-binding but does not
+  prove arbitrary callback semantics. The mutation proposal fails closed for a
+  `Query`; authored reads remain a separate bounded observer/optic path. The
+  isolated actual-host fixture is green for binding, typed codec refusal and
+  round trips, EINT packing, the borrowed registry, and proposal preflight.
+  The permanently non-authoritative review is bound to the exact generated
+  artifact. Neither projection authenticates a pin, admits or installs a
+  package, or grants Echo runtime authority; checked-component promotion and
+  host-side CDDL admission remain separate crossings.
+- Echo now provides the exact `edict:target-provider/verifier@1.0.0`
+  Component Model implementation for the checked provider closure. The pure
+  verifier independently compares explicit digest-bound Core and Target IR
+  artifacts under the exact target profile and ordered semantic inputs. It
+  emits a canonical accepted report for the reviewed relation, admits a
+  well-formed intrinsic disagreement as a rejected report with an error
+  diagnostic and host-authored output manifest, and preserves an unsupported
+  output-role overclaim as a typed provider refusal with neither response nor
+  manifest. Its bounded native preflight validates complete known expression,
+  predicate, input-constraint, require-failure, and Core-value shapes before
+  separating malformed artifacts from well-formed unsupported semantics, and
+  one admitted diagnostic-ABI identity now binds both the target profile and
+  every emitted report. The 189,922-byte checked component has SHA-256
+  `632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`
+  and reproduces byte-for-byte across independently provisioned designated
+  `linux/amd64` builders. The isolated pinned Edict host preflights the exact
+  request artifacts and declared output schema, invokes that checked component,
+  then schema-admits each returned accepted or rejected report and authors its
+  output manifest. It replays accepted, rejected, and refused completed outcomes
+  identically in independent fresh stores and separate host processes. These
+  witnesses prove provider verification and host replay only; they do not
+  install, authorize, execute, or observe an operation in Echo.
+- `echo-edict-canonical` now owns the shared pure implementation of Edict's
+  canonical CBOR and domain-framed digest contracts as a publishable `0.1.0`
+  leaf. `echo-wesley-gen` retains its existing compatibility surface through a
+  re-export, while executable provider components use the same codec without
+  depending on generator or Wesley APIs. Its decoder now applies a 65,536-node
+  host materialization ceiling, charging map keys and values separately. A
+  matching cumulative reservation budget rejects both oversized direct
+  containers and nested declarations that attempt to reuse the same capacity
+  allowance before reserving their storage.
+- `echo-wesley-gen` now checks in the first exact 22-file Edict provider
+  artifact corpus: five canonical-CBOR primaries, fourteen canonical-CBOR
+  resources, the self-contained CDDL, Wesley provenance JSON, and
+  non-authoritative review JSON. A dedicated generator binds an explicit,
+  compile-time-enumerated source/dependency-lock bundle rather than executable,
+  Git, path, or environment discovery. Its `--check` mode reports sorted
+  missing, changed, and unexpected paths without creating, deleting, or
+  rewriting files, while generation refuses observed unexpected entries before
+  writing and retains no-follow directory capabilities through temporary-file
+  replacement. The crate test suite checks the committed snapshot.
+- `echo-wesley-gen` now derives Wesley's canonical `GenerationReviewV1` from
+  verified provider provenance. The deterministic JSON copies the exact input,
+  provenance, generator, projection-role, source, and emitted-output identities,
+  is structurally unable to claim authority, and preserves typed Wesley
+  failures when its input and provenance disagree. The semantic source now
+  identifies both provenance and review contracts as Wesley #728 artifacts.
+- `echo-wesley-gen` now constructs canonical Wesley provider-generation
+  provenance from explicit material only. The manifest binds the exact three
+  authored source artifacts, checked settings digest, caller-supplied generator
+  component bytes, and exactly six non-derived primary outputs, then immediately
+  re-verifies all referenced bytes. Generated resources remain transitively
+  bound through the primary artifacts, while provenance and review stay outside
+  the emitted set to prevent circular digests. Typed Wesley failures are
+  preserved without exposing Rust debug spelling as a stable diagnostic. The
+  primary closure retains its producing input digest so outputs cannot be
+  attributed to another invocation, and generator coordinates must remain
+  disjoint from every exact source, declared artifact, resource, and package
+  coordinate.
+- `echo-wesley-gen` now deterministically projects the validated Echo Edict
+  source into a canonical lawpack, target profile, two source-partitioned
+  authority-facts documents, generated operation profile, fourteen declarative
+  resources, and a self-contained provider CDDL artifact. Every output passes
+  its owning generated root, Edict-owned values also pass the independently
+  admitted upstream roots, manifest edges use domain-framed digests, and Wesley
+  references bind exact output bytes. The projection preserves direct adapters,
+  operation-local obstructions, and optic contracts, and keeps read-class
+  operations as bounded observers rather than mutation DPOs. These artifacts
+  describe provider semantics and confer no Echo runtime authority.
+- `echo-wesley-gen` now admits the exact Apache-2.0 Edict provider contract
+  pack merged in Edict PR #162 as an explicit generator input. The pure
+  boundary pins the CDDL and manifest publication, verifies strict contract and
+  domain inventories plus every embedded resource byte, digest, and provenance
+  record, rejects tampering with stable structured error kinds, and performs no
+  filesystem, registry, environment, or network discovery.
+- `echo-wesley-gen` now implements the exact `edict.canonical-cbor/v1` value,
+  encoding, nesting, map-ordering, and domain-framed SHA-256 contracts. Named
+  provider artifacts must both use those canonical bytes and satisfy their
+  owning root in the admitted Edict CDDL; typed failures distinguish unknown
+  contracts, invalid canonical encoding, and schema mismatch, and oversized
+  declared lengths produce platform-stable truncation failures before host-width
+  conversion. This validates a generation artifact and does not grant Echo
+  runtime authority or admission.
+- `echo-wesley-gen` now constructs a canonical Wesley extension-generation
+  input from exact Echo semantic-source bytes, the admitted Edict CDDL and
+  manifest, and checked versioned settings. The first provider closure uses an
+  explicitly empty GraphQL Shape/operation catalog, derives six primary output
+  roles without circular provenance/review digests, preserves the normalized
+  semantic model across set reordering, and moves the generation-input digest
+  when exact authored source or settings bytes change.
+- `warp-core` now separates application-requested causal-anchor claims from
+  Echo admission. `CausalAnchorAdmissionRequest` contains no admission receipt,
+  `CausalAnchorClaim` is an opaque canonical value over only the caller's claim,
+  and admitted fact construction is reserved for Echo's trusted admission path
+  under ADR 0022.
+- The causal WAL now has stable causal-anchor admission transaction, fact, and
+  receipt record kinds. Transaction validation requires exactly one fact frame
+  followed by exactly one receipt frame before append, while recovery rejects
+  uncommitted, malformed, coordinate-mismatched, basis-mismatched,
+  frontier-root-mismatched, or cross-admission evidence. Public WAL builders
+  and stores cannot originate causal-anchor admission transactions without
+  Echo's crate-private admission capability. Writer-cursor and read-only
+  recovery consume one shared causal-anchor traversal so basis and frontier
+  validation cannot diverge between recovery modes. Self-contained and
+  CAS-addressed WSC imports consume that same traversal before accepting anchor
+  sidecars, so matching projection material cannot legitimize forged recovered
+  basis or frontier evidence.
+- `TrustedRuntimeApp` now admits causal anchors only through an enabled runtime
+  WAL at the current logical durable frontier. A host-owned exact root-support
+  policy is validated and bound into receipt identity; successful admissions
+  recover by anchor id after restart, while stale bases, unsupported roots, and
+  failed storage commits publish no authority. Exact-retry lookup uses a
+  disposable claim projection rebuilt from validated WAL history, replaced on
+  writer recovery, and advanced only after a successful admission commit.
+- Causal-anchor request, fact, receipt, observation-only WAL evidence, and
+  recovered admission evidence are now available from the `warp-core` crate
+  root. Arbitrary recovery reports produce `ObservedCausalAnchorAdmission`;
+  sealing `RecoveredCausalAnchorAdmission` is reserved for trusted local WAL
+  recovery. A Jim-shaped external-consumer witness and standalone golden vector
+  pin Echo-produced subject, basis, root, purpose, anchor, receipt, transaction,
+  and commit identity so applications do not create a second anchor hash domain.
+  Both evidence types expose coordinates through read-only accessors rather than
+  caller-reconstructible public fields. External consumers can reconstruct an
+  opaque anchor lookup key from persisted Echo-produced identifier bytes
+  without gaining fact, receipt, or admission construction authority.
 - `echo-wesley-gen` now exposes a strict, versioned Echo Edict provider
   semantic-source model and pure validator. The checked first-operation source
   fixes `target.replace` authority, typed failure and obstruction schemas,
@@ -22,6 +344,61 @@
   roots while treating generated files and relocated SDL as non-authoritative.
   Authority-facts outputs are bound to Edict's canonical ABI work in
   `flyingrobots/edict#157` rather than defining an Echo-owned wire contract.
+- `warp-core` installed contract packages can now provide read-only inverse
+  laws for mutation operations. The trusted app surface resolves an exact
+  retained causal receipt after restart, verifies the recovered witnessed
+  submission and currently installed artifact, checks the caller's current
+  frontier, resolves the receipt set for the current frontier commit, and
+  WAL-acknowledges the contract-produced mutation with both the target receipt
+  and current-basis receipts as causal parents. The retained ingress preserves a
+  typed inverse-target role, and the app surface can recover the inverse target
+  and admission basis directly from receipt history after restart. Missing
+  receipts, non-applied target receipts, stale bases, unavailable inverse
+  fragments, unmappable spans, absent handlers, and contract-version mismatches
+  remain typed obstructions; inverse admission never deletes or rewrites the
+  original transition. Ordinary app and runtime submission reject the reserved
+  inverse-target parent role, preventing caller-authored intents from being
+  projected as contract-defined inverses. Runtime recovery rejects a receipt
+  correlation when its non-empty retained tick receipt contains only other
+  submission ingresses.
+- `warp-core` now distinguishes repeatable `TickReceipt` content commitments
+  from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
+  content to worldline, worldline tick, global tick, commit, submission, and
+  admission ticket coordinates; ingress, trusted-runtime WAL, recovery indexes,
+  app-facing outcomes, and WSC causal history now retain and follow that exact
+  coordinate. `echo-cli wal submission-posture` reports the canonical receipt
+  reference bytes alongside the repeatable receipt-content digest. Versioned
+  codecs reject malformed magic and empty-but-present, duplicated, or reordered
+  parent sets as corruption and report structurally valid legacy digest-only
+  parent evidence as an explicit ambiguity rather than aliasing it to an
+  arbitrary event. Read-only runtime-WAL recovery also rejects any correlation
+  parent set that disagrees with the independently retained ingress envelope.
+  Retained tick-receipt reconstruction also rejects non-canonical blocker
+  ordering, forward or non-applied blocker references, and blocker attribution
+  incompatible with the candidate disposition before the receipt re-enters
+  provenance history.
+- Trusted runtime scheduler commits now retain canonical local-commit
+  provenance, the exact typed tick receipt, and installed-contract evidence in
+  the same WAL transaction as receipt correlation. Filesystem reopen replays
+  that evidence into a fresh runtime without invoking scheduler or contract
+  callbacks and restores global tick, worldline frontier, materialized state,
+  receipt indexes, causal parents, and app-facing outcome. Legacy digest-only
+  runtime deltas remain explicit recovery obstructions. WAL activation also
+  rejects live process-only authority that recovered durable history cannot
+  reproduce. Recovery rejects duplicate singular acceptance, retained-envelope,
+  tick-receipt, receipt-correlation, or state-delta frames instead of selecting
+  one claim. WAL transaction construction rejects retained submission,
+  correlation, or replayable state-delta material that does not bind the other
+  evidence in the same atomic claim.
+- Trusted runtime submission intake now atomically retains a versioned canonical
+  ingress envelope with each WAL-backed acceptance. Filesystem WAL reopen
+  restores the witnessed submission ledger without ticking or dispatching,
+  preserves duplicate posture, and reports legacy acceptances without envelope
+  material as explicit recovery obstructions.
+- `warp-core` ingress can now cite typed causal parent tick receipts. Trusted
+  runtime outcomes, WAL receipt correlations, read-only recovery indexes, and
+  WSC causal-history envelopes retain both parent and reverse child lookup so
+  contract-defined inverse intents remain attributable after host restart.
 - `warp-core` now exposes `RetainedEvidenceBoundaryPosture` with boundary
   layer, origin, proof strength, access, completeness, and obstruction axes so
   retained evidence refs can be projected without conflating citation, reveal
@@ -102,6 +479,19 @@
   Self-contained exports can embed retained payload bytes and validate them
   against the WAL-retained material digest, while CAS-addressed imports require
   the referenced retained blobs to be present before reporting success.
+- WSC causal-history profile version 2 now carries explicit Echo causal-anchor
+  fact, receipt, WAL transaction, LSN, and commit evidence through all three
+  export profiles. Ref-only imports expose sidecar records as unverified until
+  external WAL dependencies are resolved, but require every supplied sidecar to
+  match a transaction and commit anchor in the projected WAL root;
+  self-contained and CAS-addressed validation recovers retained WAL segments
+  and requires the envelope to match the complete recovered anchor history
+  before exposing observation evidence.
+  CAS-addressed exports and imports also require retained CAS references to
+  exactly match every retention record whose material posture is present;
+  mismatch errors report missing and extra references independently.
+  `echo-cli` bundle schema version 2 writes, inspects, and reports the dedicated
+  causal-anchor envelope without treating Continuum transport as admission.
 - `warp-core` now includes a filesystem-backed WSC store adapter that persists
   envelope material separately from commit markers, hides staged material until
   marker publication, reopens committed envelopes in deterministic order, and
@@ -752,6 +1142,12 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Removed
 
+- Removed the provisional caller-authoritative causal-anchor API:
+  `CausalAnchorRequest`, `CausalAnchorFact::from_request`, public admitted-fact
+  fields, and raw admitted-identity constructors. Applications now submit a
+  `CausalAnchorAdmissionRequest` and treat the returned Echo fact, receipt, and
+  identities as opaque. This is an intentional breaking Rust API correction;
+  preserving the old surface would let callers manufacture Echo authority.
 - Removed the abandoned Method system: its workspace crate and `xtask`
   commands, checked-in backlog, cycles, retrospectives, status ledgers, process
   manuals, and generated task graphs. Current architecture now lives in
@@ -808,6 +1204,34 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Public installed-contract evidence fields on runtime ingress, receipt
+  correlation, outcome, and WAL state-delta carriers now use
+  `Option<InstalledInvocationEvidence>` instead of
+  `Option<ContractEvidenceIdentity>`. This is an intentional pre-1.0 source
+  compatibility change: legacy callers wrap with `LegacyContract` or `.into()`
+  and inspect with `legacy_contract()`, while provider callers inspect
+  `provider_v1()`. The enum is non-exhaustive to match the extensible wire-tag
+  family, so direct downstream matches require a wildcard arm. The legacy tag-1
+  WAL encoding remains byte-identical.
+- The public `RuntimeError` enum now includes
+  `InstalledContractIntentKindMismatch` and
+  `UnsupportedInstalledProviderContractMutation`, and the public
+  `ContractInverseObstruction` enum now includes `ProviderTargetUnsupported`.
+  These are intentional pre-1.0 source-compatibility additions: downstream
+  exhaustive matches must handle the new variants (or use an appropriate
+  wildcard arm).
+- `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
+  `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
+  `import_registration_descriptor(...)` accepts
+  `OperationRegistrationDescriptor`. Source consumers using Wesley's former
+  `OpticArtifact` or `OpticRegistrationDescriptor` names must update when they
+  adopt the corresponding Wesley 0.3 prerelease; Echo's runtime-local optic
+  artifact types and handles are unchanged.
+- Provider semantic-source, generation-input, and contract-pack `Display`
+  diagnostics now render explicit kebab-case failure labels instead of Rust
+  `Debug` variant spellings. Typed error enums remain the programmatic
+  contract, while human/CLI diagnostics no longer move when Rust variants are
+  refactored.
 - Restored the durable ADR 0001–0011 namespace and moved the post-Method
   decisions to ADR 0012–0019, preserving the meaning of existing source
   citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
@@ -918,6 +1342,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Direct GraphQL SDL lowering in `echo-wesley-gen` now binds the exact pinned
+  `wesley-core` version into generated Rust artifact-hash provenance, with a
+  regression test that refuses dependency/provenance version drift.
 - Generated-rule architecture now distinguishes Wesley's current raw
   `RewriteRule` fixture path, Edict's fixture-only Target IR bridge, and the
   still-target package-registration corridor. It also records

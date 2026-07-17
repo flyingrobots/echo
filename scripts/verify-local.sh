@@ -257,6 +257,11 @@ readonly FULL_CRITICAL_PREFIXES=(
   "crates/warp-geom/"
   "crates/warp-wasm/"
   "crates/echo-wasm-abi/"
+  "crates/echo-edict-canonical/"
+  "crates/echo-edict-provider-lowerer/"
+  "crates/echo-edict-provider-verifier/"
+  "schemas/edict-provider/components/v1/"
+  "tests/edict-provider-host-v1/"
   "crates/echo-scene-port/"
   "crates/echo-scene-codec/"
   "crates/echo-graph/"
@@ -309,6 +314,9 @@ readonly FULL_LOCAL_PACKAGES=(
   "warp-geom"
   "warp-wasm"
   "echo-wasm-abi"
+  "echo-edict-canonical"
+  "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
@@ -320,6 +328,9 @@ readonly FULL_LOCAL_PACKAGES=(
 readonly FULL_LOCAL_TEST_PACKAGES=(
   "warp-geom"
   "warp-math"
+  "echo-edict-canonical"
+  "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-graph"
   "echo-scene-port"
   "echo-scene-codec"
@@ -336,6 +347,9 @@ readonly FULL_LOCAL_CLIPPY_CORE_PACKAGES=(
 )
 
 readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
+  "echo-edict-canonical"
+  "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
   "echo-scene-port"
   "echo-scene-codec"
   "echo-graph"
@@ -352,6 +366,9 @@ readonly FULL_LOCAL_RUSTDOC_PACKAGES=(
   "warp-math"
   "warp-geom"
   "warp-wasm"
+  "echo-edict-canonical"
+  "echo-edict-provider-lowerer"
+  "echo-edict-provider-verifier"
 )
 
 readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
@@ -370,6 +387,7 @@ FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES=()
 FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES=()
 FULL_SCOPE_TEST_SUPPORT_PACKAGES=()
 FULL_SCOPE_RUSTDOC_PACKAGES=()
+FULL_SCOPE_RUN_EDICT_PROVIDER_HOST=0
 FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
 FULL_SCOPE_WARP_WASM_TEST_MODE="none"
 FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
@@ -636,6 +654,14 @@ list_changed_critical_crates() {
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
+      crates/echo-edict-provider-verifier/wit/*|crates/echo-edict-provider-verifier/resources/*|schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh|xtask/src/provider_lowerer_component.rs)
+        printf '%s\n' "echo-edict-provider-verifier"
+        ;;
+    esac
+    case "$file" in
+      crates/echo-edict-provider-lowerer/wit/*|schemas/edict-provider/components/v1/*|tests/edict-provider-host-v1/*|scripts/verify-edict-provider-host-v1.sh|xtask/src/provider_lowerer_component.rs)
+        printf '%s\n' "echo-edict-provider-lowerer"
+        ;;
       crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
         [[ -z "$crate" ]] && continue
@@ -1127,6 +1153,12 @@ pre_push_feature_string_for_test_target() {
     warp-core:inbox|warp-core:installed_contract_intent_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
+    warp-core:external_consumer_contract_fixture_tests|warp-core:provider_contract_admission_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
+    warp-core:trusted_runtime_host_loop_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime,host_test"
+      ;;
     warp-core:causal_fact_publication_tests|warp-core:optic_invocation_admission_tests)
       printf '%s\n' "host_test"
       ;;
@@ -1516,6 +1548,12 @@ prepare_full_scope() {
   FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
   FULL_SCOPE_WARP_MATH_RUN_PRNG=0
+  FULL_SCOPE_RUN_EDICT_PROVIDER_HOST=0
+
+  if array_contains "echo-edict-provider-lowerer" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"} \
+    || array_contains "echo-edict-provider-verifier" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    FULL_SCOPE_RUN_EDICT_PROVIDER_HOST=1
+  fi
 
   if array_contains "warp-core" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
@@ -1799,6 +1837,28 @@ run_full_lane_guards() {
   run_docs_lint
 }
 
+run_full_lane_edict_provider_host() {
+  echo "[verify-local][edict-provider-host-v1] isolated Edict host contract"
+  scripts/verify-edict-provider-host-v1.sh
+}
+
+run_full_lane_edict_provider_wasm_clippy() {
+  echo "[verify-local][clippy-edict-provider-wasm] strict selected wasm32 provider adapters"
+  rustup target add wasm32-unknown-unknown --toolchain "$PINNED"
+  if array_contains "echo-edict-provider-lowerer" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    lane_cargo "full-clippy-edict-provider-wasm" clippy \
+      -p echo-edict-provider-lowerer \
+      --target wasm32-unknown-unknown \
+      --lib -- -D warnings -D missing_docs
+  fi
+  if array_contains "echo-edict-provider-verifier" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    lane_cargo "full-clippy-edict-provider-wasm" clippy \
+      -p echo-edict-provider-verifier \
+      --target wasm32-unknown-unknown \
+      --lib -- -D warnings -D missing_docs
+  fi
+}
+
 run_full_checks_sequential() {
   echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
   run_timed_step "fmt" run_full_lane_fmt
@@ -1817,6 +1877,10 @@ run_full_checks_sequential() {
   fi
   if local_rustdoc_enabled; then
     run_timed_step "rustdoc" run_full_lane_rustdoc
+  fi
+  if [[ "$FULL_SCOPE_RUN_EDICT_PROVIDER_HOST" == "1" ]]; then
+    run_timed_step "clippy-edict-provider-wasm" run_full_lane_edict_provider_wasm_clippy
+    run_timed_step "edict-provider-host-v1" run_full_lane_edict_provider_host
   fi
   run_timed_step "guards" run_full_lane_guards
 }
@@ -1853,6 +1917,10 @@ run_full_checks_parallel() {
   fi
   if local_rustdoc_enabled && [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("rustdoc" run_full_lane_rustdoc)
+  fi
+  if [[ "$FULL_SCOPE_RUN_EDICT_PROVIDER_HOST" == "1" ]]; then
+    lanes+=("clippy-edict-provider-wasm" run_full_lane_edict_provider_wasm_clippy)
+    lanes+=("edict-provider-host-v1" run_full_lane_edict_provider_host)
   fi
 
   run_parallel_lanes "${lanes[@]}"

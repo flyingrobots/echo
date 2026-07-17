@@ -59,6 +59,61 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.
 
+## Generated provider package proposals
+
+`warp-core` now accepts the provider-neutral registry emitted by the Edict
+helper and can preflight one mutation into an opaque
+`ProviderContractPackageProposalV1`. The constructor syntactically bounds the
+host-owned runtime package occurrence to a nonempty name and version plus a raw
+lowercase SHA-256 claim; it does not authenticate or semantically cross-bind
+that occurrence. Separately, it fails closed unless the provider registry and
+explicit host implementation agree on the complete operation id, Target IR,
+semantic/release bundles, target/generated/operation profiles, provider and
+value schemas, `le-binary-v1` codec, obstruction mapping, ABI, helper API, and
+footprint identities, and unless the generated dispatch agrees on the exact
+operation id and canonical rule name.
+
+The generated helper owns the distinct typed input/output codecs and canonical
+EINT construction; `warp-core` treats EINT `vars` as codec-owned opaque bytes.
+The host supplies only its semantic mutation effects. Echo always adds the
+generated matcher's mandatory ingress-EINT read to the proposed rule footprint
+and conservatively enables every factor bit, so a host cannot omit those
+Echo-owned matcher reads. Matching identities and footprints are preflight
+claims, not proof that arbitrary host callback code implements the declared
+semantics.
+
+The proposal is deliberately non-installing. A trusted Echo host can now
+compare its complete occurrence and provider-registry claims with an
+independently constructed `ProviderContractAdmissionPolicyV1` and return an
+opaque `AdmittedProviderContractPackageV1`. Semantic and release mismatch are
+distinct typed failures, and neither success nor failure installs a handler or
+invokes a callback. This first Echo crossing admits pinned claims; it does not
+rehash the provider package bytes, register a rule, schedule work, emit a
+receipt, or grant application authority.
+
+Later crossings are now implemented without weakening that boundary. A sealed
+runtime-owner port consumes independently corroborated package evidence and
+atomically installs a distinct provider record plus package, root, mutation,
+and scheduler-rule indexes. A trusted host can then admit a witnessed canonical
+EINT v1 submission with `admit_provider_contract_submission_v1(...)`. Admission
+requires the exact EINT outer intent kind and an installed provider operation;
+it stages work through the shared scheduler rather than invoking callbacks
+directly. `InstalledInvocationEvidence::ProviderV1` binds the installed package
+id and exact reference, operation id and coordinate, Target IR identity, and
+scheduler rule id. Echo reports provider work as applied only when the exact
+bound rule appears in the tick receipt.
+
+Provider evidence has its own tagged WAL representation. Legacy contract
+evidence retains its existing bytes, malformed provider fields fail closed,
+and a fresh host can recover the same outcome after reinstalling the exact
+provider package as host configuration without rerunning callbacks. Provider
+evidence does not fabricate a legacy retained-contract coordinate. These facts
+do not authenticate callers, authorize application targets, validate
+codec-owned variables against an operation schema, or make package claims
+runtime authority. The mutation proposal constructor still rejects query
+operations. Authored reads remain on the separate bounded observer/optic path;
+they are never represented as synthetic mutations.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

@@ -1,0 +1,16 @@
+package a.b@1;
+
+type Input = { id: String<max=16>, };
+
+type Receipt = { id: String<max=16>, };
+
+type Output = { id: String<max=16>, };
+
+intent t(input: Input) returns Output
+  profile p.effectful
+  basis none
+  budget <= p.tiny {
+  let receipt: Receipt = target.replace(input.id)
+    else { rejected(reason) => domain.WriteRejected };
+  return { id: input.id };
+}

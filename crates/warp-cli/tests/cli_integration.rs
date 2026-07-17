@@ -23,8 +23,8 @@ use warp_core::causal_wal::{
 };
 use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
 use warp_core::{
-    make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeRecord, GraphStore, Hash,
-    NodeRecord,
+    make_edge_id, make_node_id, make_type_id, make_warp_id, CausalTickReceiptRef, EdgeRecord,
+    GlobalTick, GraphStore, Hash, NodeRecord, WorldlineId, WorldlineTick,
 };
 
 #[path = "support/runtime_wal_fixture.rs"]
@@ -133,6 +133,18 @@ fn digest(label: &str) -> warp_core::Hash {
     out
 }
 
+fn causal_receipt_ref(label: &str) -> CausalTickReceiptRef {
+    CausalTickReceiptRef {
+        worldline_id: WorldlineId::from_bytes(digest(&format!("worldline:{label}"))),
+        worldline_tick_after: WorldlineTick::from_raw(1),
+        commit_global_tick: GlobalTick::from_raw(1),
+        commit_hash: digest(&format!("commit:{label}")),
+        submission_id: digest(&format!("submission:{label}")),
+        ticket_digest: digest(&format!("ticket:{label}")),
+        receipt_content_digest: digest(&format!("receipt:{label}")),
+    }
+}
+
 fn writer_epoch_request() -> WriterEpochRequest {
     WriterEpochRequest {
         epoch_id: WriterEpochId::from_hash(digest("epoch")),
@@ -230,15 +242,12 @@ fn filesystem_wal_with_projectable_decided_submission() -> TestResult<Projectabl
     )?;
     store.append_transaction(acceptance)?;
     let receipt = TickReceiptRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         decision: WalTickDecision::Applied,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id: receipt.submission_id,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        receipt_ref: receipt.receipt_ref,
+        causal_parent_receipts: vec![],
     };
     let tick = build_tick_transaction(
         WalTransactionBuilder::new(
@@ -356,15 +365,12 @@ fn filesystem_wal_with_decided_submission_decision(
     )?;
     store.append_transaction(acceptance)?;
     let receipt = TickReceiptRecord {
-        submission_id: digest(&format!("submission:{label}")),
-        ticket_digest: digest(&format!("ticket:{label}")),
-        receipt_digest: digest(&format!("receipt:{label}")),
+        receipt_ref: causal_receipt_ref(label),
         decision,
     };
     let correlation = WalReceiptCorrelationRecord {
-        submission_id: receipt.submission_id,
-        ticket_digest: receipt.ticket_digest,
-        receipt_digest: receipt.receipt_digest,
+        receipt_ref: receipt.receipt_ref,
+        causal_parent_receipts: vec![],
     };
     let tick = build_tick_transaction(
         WalTransactionBuilder::new(
@@ -579,6 +585,7 @@ fn wal_submission_posture_runtime_ack_root_reports_accepted_pending_json() -> Te
     )?;
     assert_eq!(json["retry_posture"], "AlreadyAcceptedPending");
     assert_eq!(json["recovered_posture"], "AcceptedPending");
+    assert!(json["receipt_ref"].is_null());
     assert!(json["receipt_digest"].is_null());
     assert!(json["ticket_digest"].is_null());
     Ok(())
@@ -595,6 +602,15 @@ fn wal_submission_posture_runtime_ack_root_reports_decided_applied_json() -> Tes
 
     assert_eq!(json["retry_posture"], "AlreadyDecidedApplied");
     assert_eq!(json["recovered_posture"], "DecidedApplied");
+    assert_eq!(
+        json["receipt_ref"],
+        hex::encode(
+            fixture
+                .receipt_ref
+                .ok_or("missing applied receipt reference")?
+                .to_canonical_bytes()
+        )
+    );
     assert_eq!(
         json["receipt_digest"],
         hex::encode(fixture.receipt_digest.ok_or("missing applied receipt")?)
@@ -710,6 +726,8 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["accepted_submission_count"], 1);
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
+    assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(
         json["obstructions"][0]["kind"],
         "ExternalSegmentBytesUnavailable"
@@ -759,7 +777,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
         .success();
     let inspect_json: serde_json::Value = serde_json::from_slice(&inspect.get_output().stdout)?;
     assert_eq!(inspect_json["profile"], "self-contained");
-    assert_eq!(inspect_json["envelope_count"], 6);
+    assert_eq!(inspect_json["envelope_count"], 7);
     let envelope_roles = inspect_json["envelopes"]
         .as_array()
         .ok_or("expected envelope summaries")?
@@ -768,6 +786,7 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
         .collect::<Result<Vec<_>, _>>()?;
     assert!(envelope_roles.contains(&"retained_evidence"));
     assert!(envelope_roles.contains(&"retained_payloads"));
+    assert!(envelope_roles.contains(&"causal_anchors"));
 
     drop(fixture);
 
@@ -792,7 +811,33 @@ fn wsc_causal_history_exports_and_verifies_profiles() -> TestResult {
     assert_eq!(json["accepted_submission_count"], 1);
     assert_eq!(json["receipt_count"], 1);
     assert_eq!(json["correlation_count"], 1);
+    assert_eq!(json["causal_anchor_count"], 0);
+    assert_eq!(json["unverified_causal_anchor_count"], 0);
     assert_eq!(json["obstructions"].as_array().map(Vec::len), Some(0));
+    Ok(())
+}
+
+#[test]
+fn wsc_causal_history_rejects_legacy_bundle_before_decoding_current_fields() -> TestResult {
+    let bundle = TempDir::new()?;
+    fs::write(
+        bundle.path().join("bundle.json"),
+        br#"{"schema_version":1}"#,
+    )?;
+
+    echo_cli()
+        .args([
+            "wsc",
+            "causal-history",
+            "inspect",
+            bundle.path().to_str().ok_or("bundle path is not UTF-8")?,
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("unsupported WSC bundle schema version 1")
+                .and(predicate::str::contains("missing field").not()),
+        );
     Ok(())
 }
 

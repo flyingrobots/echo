@@ -1,0 +1,338 @@
+{
+  "apiVersion": "edict.provider-manifest/v1",
+  "providerAbi": "edict:target-provider@1.0.0",
+  "provider": {
+    "coordinate": "echo.edict-provider@1",
+    "digest": "sha256:e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69"
+  },
+  "artifacts": [
+    {
+      "role": "authority-facts.echo-dpo",
+      "artifactKind": "authorityFacts",
+      "resource": {
+        "coordinate": "echo.dpo-authority-facts@1",
+        "digest": "sha256:e1fa56a4d476d80ec3260792e9a85f13f92f7c73aef2a18c3cda9cdd4d901527"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "authority-facts.echo-lawpack",
+      "artifactKind": "authorityFacts",
+      "resource": {
+        "coordinate": "echo.dpo-lawpack-authority-facts@1",
+        "digest": "sha256:a7e3cc3e2a088b613640ebd76694cd9c4ff5125a6ad7fa6574abe55caf38401b"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "generated-artifact-profile.echo-dpo-registration",
+      "artifactKind": "generatedArtifactProfile",
+      "resource": {
+        "coordinate": "echo.dpo.registration/v1",
+        "digest": "sha256:ff88be93c26cc533948d8a93601954dc391912d593ca1e96115c846cbf2c5b5d"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "lawpack.echo-dpo",
+      "artifactKind": "lawpack",
+      "resource": {
+        "coordinate": "echo.dpo-lawpack@1",
+        "digest": "sha256:b009609fa3fd0b12c53b3da22bc9d40839b253808aed0520d3b37a909ea73cfa"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "lowerer.echo-dpo",
+      "artifactKind": "lowerer",
+      "resource": {
+        "coordinate": "echo.dpo.lowerer/component@1",
+        "digest": "sha256:f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382"
+      },
+      "source": {
+        "kind": "component",
+        "component": {
+          "coordinate": "echo.dpo.lowerer/component@1",
+          "digest": "sha256:f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382"
+        }
+      }
+    },
+    {
+      "role": "provenance.provider-generation",
+      "artifactKind": "generationProvenance",
+      "resource": {
+        "coordinate": "echo.edict-provider-generation-provenance@1",
+        "digest": "sha256:2c6b23e85be5f3c36447135bf8c3fb9b24cdef2426f0e5d84889f6cc11f45228"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "review.provider-generation",
+      "artifactKind": "reviewArtifact",
+      "resource": {
+        "coordinate": "echo.edict-provider-generation-review@1",
+        "digest": "sha256:9748d55ab83e43e64fb37e48682a4ce4c104ed1dce969089335d53bb11a321ae"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "schema.echo-provider-artifacts",
+      "artifactKind": "artifactSchema",
+      "resource": {
+        "coordinate": "echo.provider-artifacts.cddl@1",
+        "digest": "sha256:faece52eaf8ec040c374e5fe2a5ea040b522b58f415973f481e9c836ecfc4cde"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "target-profile.echo-dpo",
+      "artifactKind": "targetProfile",
+      "resource": {
+        "coordinate": "echo.dpo@1",
+        "digest": "sha256:eedf7bdbf6fe4b6a4036695f41c3dc0a5c692d27e206c9d4c0c5eab41e2f63c9"
+      },
+      "source": {
+        "kind": "generated",
+        "semanticSource": {
+          "coordinate": "echo.semantic-schema@1",
+          "digest": "sha256:09e621edf0ba0a21bb602d759d7c66a5db394065ab2bc3578a6b7c31bc1ab335"
+        },
+        "generator": {
+          "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
+          "digest": "sha256:ee0caf86a92f8f7f8a84d40787b9dbb794dc7614ed9fe31aa02b243bc7d9f0ac"
+        }
+      }
+    },
+    {
+      "role": "verifier.echo-dpo",
+      "artifactKind": "verifier",
+      "resource": {
+        "coordinate": "echo.dpo.verifier/component@1",
+        "digest": "sha256:632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7"
+      },
+      "source": {
+        "kind": "component",
+        "component": {
+          "coordinate": "echo.dpo.verifier/component@1",
+          "digest": "sha256:632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7"
+        }
+      }
+    }
+  ],
+  "schemaBindings": [
+    {
+      "domain": "echo.dpo-lawpack.adapter.echo-dpo@1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-provider-lawpack-target-adapter"
+    },
+    {
+      "domain": "echo.dpo-lawpack.compatibility@1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-provider-lawpack-compatibility"
+    },
+    {
+      "domain": "echo.dpo-lawpack.exports@1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lawpack-exports"
+    },
+    {
+      "domain": "echo.dpo-lawpack.verifier@1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-provider-lawpack-verifier"
+    },
+    {
+      "domain": "echo.dpo.bundle/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-bundle"
+    },
+    {
+      "domain": "echo.dpo.cost/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-cost"
+    },
+    {
+      "domain": "echo.dpo.fixtures/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-provider-conformance-corpus"
+    },
+    {
+      "domain": "echo.dpo.footprint/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-footprint"
+    },
+    {
+      "domain": "echo.dpo.intrinsics/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "intrinsics-document"
+    },
+    {
+      "domain": "echo.dpo.lowerer/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-lowerer"
+    },
+    {
+      "domain": "echo.dpo.obstructions/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-obstructions"
+    },
+    {
+      "domain": "echo.dpo.operation-profiles/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "operation-profiles-document"
+    },
+    {
+      "domain": "echo.dpo.verifier/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-dpo-verifier"
+    },
+    {
+      "domain": "echo.generated-artifact-profile/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "generated-artifact-profile"
+    },
+    {
+      "domain": "echo.generated-artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "generated-artifact"
+    },
+    {
+      "domain": "echo.review-payload/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "review-payload"
+    },
+    {
+      "domain": "echo.span-ir/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-span-ir"
+    },
+    {
+      "domain": "echo.verifier-report/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "verifier-report"
+    },
+    {
+      "domain": "edict.authority-facts/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "authority-facts"
+    },
+    {
+      "domain": "edict.core.module/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "core-module"
+    },
+    {
+      "domain": "edict.lawpack/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lawpack-manifest"
+    },
+    {
+      "domain": "edict.lowering-requirements/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lowering-requirements"
+    },
+    {
+      "domain": "edict.target-ir.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "target-ir-artifact"
+    },
+    {
+      "domain": "edict.target-profile/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "target-profile-manifest"
+    }
+  ]
+}

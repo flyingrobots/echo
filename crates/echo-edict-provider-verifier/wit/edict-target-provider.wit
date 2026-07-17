@@ -1,0 +1,221 @@
+// edict-target-provider.wit
+//
+// Runtime-neutral component boundary for provider-owned lowerer and verifier
+// components. The transport carries opaque artifact bytes. The artifact domain
+// selects the separately versioned canonical schema; this WIT package does not
+// redefine Core, lawpack, target-profile, authority, lowerability, Target IR,
+// or verifier-report semantics.
+//
+// Every input artifact is bound to a host-verified resource reference. Output
+// artifacts deliberately carry no digest: a future Edict host must validate
+// their declared role and domain, check canonicality under the owning schema,
+// and compute their authoritative digest after component invocation.
+
+package edict:target-provider@1.0.0;
+
+interface protocol {
+  // This value is carried in each request so pure envelope validation can
+  // reject a protocol mismatch before component execution. It must agree with
+  // this package's semantic version.
+  record protocol-version-v1 {
+    major: u32,
+    minor: u32,
+    patch: u32,
+  }
+
+  enum digest-algorithm {
+    sha256,
+  }
+
+  record digest {
+    algorithm: digest-algorithm,
+    bytes: list<u8>,
+  }
+
+  record resource-ref {
+    coordinate: string,
+    digest: digest,
+  }
+
+  record artifact {
+    domain: string,
+    bytes: list<u8>,
+  }
+
+  record bound-artifact {
+    reference: resource-ref,
+    artifact: artifact,
+  }
+
+  // The target profile and Core are explicit request fields. This list carries
+  // the deterministic closure of every other semantic input needed by the
+  // selected component. Auxiliary kinds remain role- and domain-constrained by
+  // the host; they are not ambient discovery handles.
+  variant semantic-input-kind {
+    lawpack,
+    authority-facts,
+    lowerability-facts,
+    auxiliary(string),
+  }
+
+  record semantic-input {
+    role: string,
+    kind: semantic-input-kind,
+    artifact: bound-artifact,
+  }
+
+  // Every role in this package is nonempty. Every semantic-inputs list is
+  // strictly ascending by the UTF-8 bytes of its unique role. The future host
+  // rejects empty, duplicate, or out-of-order roles.
+
+  // The separate output vocabularies make lowerer and verifier authority
+  // structural. A lowerer cannot claim verifier evidence, and a verifier
+  // cannot claim Target IR or generated artifacts.
+  enum lowering-output-kind {
+    target-ir,
+    generated-artifact,
+    review-payload,
+  }
+
+  record lowering-output-request {
+    role: string,
+    kind: lowering-output-kind,
+    domain: string,
+  }
+
+  // Every requested-outputs list and every successful outputs list is strictly
+  // ascending by the UTF-8 bytes of its unique role. Success contains exactly
+  // one output for every request and no others. Each output's role, kind, and
+  // artifact.domain must equal its request's role, kind, and domain.
+
+  // No digest field is permitted here. A provider cannot notarize its own
+  // bytes; the future host validates an optional logical package-relative path
+  // and recomputes output identity after validation. A logical path is
+  // nonempty UTF-8, uses `/` separators, has no leading slash, backslash, colon,
+  // empty segment, `.` segment, or `..` segment, and is never resolved through
+  // a symlink by the validator. Present logical paths within one response are
+  // unique by exact, case-sensitive UTF-8 bytes with no Unicode normalization.
+  record lowering-output-artifact {
+    role: string,
+    kind: lowering-output-kind,
+    artifact: artifact,
+    logical-path: option<string>,
+  }
+
+  enum verification-output-kind {
+    verifier-report,
+  }
+
+  record verification-output-request {
+    role: string,
+    kind: verification-output-kind,
+    domain: string,
+  }
+
+  record verification-output-artifact {
+    role: string,
+    kind: verification-output-kind,
+    artifact: artifact,
+    logical-path: option<string>,
+  }
+
+  // These bounds apply to both success and refusal. Max-output-count counts the
+  // success outputs list (zero for refusal), and max-diagnostic-count counts the
+  // diagnostics list on either result arm. Max-total-response-bytes is the
+  // checked-u64 sum of every provider-authored list<u8> length and every
+  // provider-authored string's UTF-8 byte length in the selected result arm:
+  // output role/domain/artifact bytes/logical path, diagnostic
+  // code/message/repair, and refusal subject. Enum values, numeric values, and
+  // canonical-ABI framing add zero. Sum overflow or a value above any bound is
+  // a host-owned response-limit failure. A zero bound permits only zero counted
+  // items or bytes. A provider's canonical result is independent of these
+  // limits. For requests otherwise identical, if that result fits both the old
+  // and new bounds, the selected result arm and every provider-authored field
+  // must be byte-identical. A provider must not substitute, truncate, reorder,
+  // or change result arms to fit a smaller bound. Component memory, fuel, and
+  // interruption remain host-only.
+  record response-limits-v1 {
+    max-output-count: u32,
+    max-diagnostic-count: u32,
+    max-total-response-bytes: u64,
+  }
+
+  enum diagnostic-severity {
+    error,
+    warning,
+    info,
+  }
+
+  record diagnostic {
+    code: string,
+    severity: diagnostic-severity,
+    message: string,
+    repair: option<string>,
+  }
+
+  // Every diagnostics list is strictly ascending by the tuple (code UTF-8
+  // bytes, severity declaration index, message UTF-8 bytes, repair), with none
+  // before some and present repair ordered by UTF-8 bytes. Exact duplicates are
+  // therefore invalid.
+
+  enum provider-refusal-kind {
+    unsupported-core-abi,
+    unsupported-target-profile,
+    unsupported-semantics,
+    unsupported-output-role,
+    invalid-semantic-artifact,
+  }
+
+  // Provider refusal is target-owned evidence. Component loading, denied
+  // imports, traps, exhaustion, malformed envelopes, binding mismatches, and
+  // replay mismatches are distinct host-owned failure categories.
+  record provider-refusal-v1 {
+    kind: provider-refusal-kind,
+    subject: option<string>,
+    diagnostics: list<diagnostic>,
+  }
+
+  record lowering-request-v1 {
+    protocol-version: protocol-version-v1,
+    core: bound-artifact,
+    target-profile: bound-artifact,
+    semantic-inputs: list<semantic-input>,
+    requested-outputs: list<lowering-output-request>,
+    limits: response-limits-v1,
+  }
+
+  record verification-request-v1 {
+    protocol-version: protocol-version-v1,
+    core: bound-artifact,
+    target-profile: bound-artifact,
+    target-ir: bound-artifact,
+    semantic-inputs: list<semantic-input>,
+    requested-outputs: list<verification-output-request>,
+    limits: response-limits-v1,
+  }
+
+  record lowering-success-v1 {
+    outputs: list<lowering-output-artifact>,
+    diagnostics: list<diagnostic>,
+  }
+
+  record verification-success-v1 {
+    outputs: list<verification-output-artifact>,
+    diagnostics: list<diagnostic>,
+  }
+
+  type lowering-result-v1 = result<lowering-success-v1, provider-refusal-v1>;
+  type verification-result-v1 = result<verification-success-v1, provider-refusal-v1>;
+}
+
+world lowerer {
+  use protocol.{lowering-request-v1, lowering-result-v1};
+
+  export lower: func(request: lowering-request-v1) -> lowering-result-v1;
+}
+
+world verifier {
+  use protocol.{verification-request-v1, verification-result-v1};
+
+  export verify: func(request: verification-request-v1) -> verification-result-v1;
+}

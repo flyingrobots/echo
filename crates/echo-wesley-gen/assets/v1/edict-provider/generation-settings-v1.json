@@ -1,0 +1,7 @@
+{
+  "apiVersion": "echo.edict-provider-generation-settings/v1",
+  "shapeSource": "none",
+  "canonicalArtifactEncoding": "edict.canonical-cbor/v1",
+  "contractPack": "edict.provider-contract-pack.cddl@1",
+  "generatorAbi": "wesley.extension-generator/v1"
+}

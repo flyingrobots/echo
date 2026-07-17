@@ -39,6 +39,22 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/echo-wasm-abi/**"]
+  echo-edict-canonical:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-edict-canonical/**"]
+  echo-edict-provider-artifacts:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: [".gitattributes", "crates/echo-wesley-gen/src/provider_*.rs", "crates/echo-wesley-gen/src/bin/echo-edict-provider-*.rs", "crates/echo-wesley-gen/tests/provider_*.rs", "crates/echo-wesley-gen/assets/v1/**", "schemas/edict-provider/**"]
+  echo-edict-provider-lowerer:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-edict-provider-lowerer/**", "schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm", "tests/edict-provider-host-v1/**"]
+  echo-edict-provider-verifier:
+    class: DET_CRITICAL
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-edict-provider-verifier/**", "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm", "tests/edict-provider-host-v1/**"]
   echo-runtime-schema:
     class: DET_CRITICAL
     owner_role: "Architect"

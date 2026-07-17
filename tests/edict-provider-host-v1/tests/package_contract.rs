@@ -1141,6 +1141,15 @@ fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
                     ExecutableContract::CompletedPackageParity => {
                         assert_completed_package_parity_contract(observation);
                     }
+                    ExecutableContract::ArtifactDigestMismatchRejected => {
+                        assert_artifact_digest_mismatch_contract();
+                    }
+                    ExecutableContract::SchemaArtifactDigestMismatchRejected => {
+                        assert_schema_artifact_digest_mismatch_contract();
+                    }
+                    ExecutableContract::ComponentDigestMismatchRejected => {
+                        assert_component_digest_mismatch_contract();
+                    }
                     ExecutableContract::AmbientCapabilityPreflightDenied
                     | ExecutableContract::NoncanonicalTargetIrOutputDenied
                     | ExecutableContract::UnsupportedCoreSemanticsRefused
@@ -1743,6 +1752,100 @@ fn schema_valid_authority_source_mismatch_fails_primary_identity_closure() {
     )
     .expect_err("schema-valid authority facts cannot change their exact subject identity");
     assert_eq!(error, PackageIdentityFailure::AuthoritySourceMismatch);
+}
+
+fn assert_artifact_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let registry = declared_package_registry(&manifest);
+    let core = echo_core();
+    let (contract, mut request) = lowering_request(&core);
+    let mut changed_profile =
+        decode_canonical_cbor(TARGET_PROFILE_BYTES).expect("target profile is canonical");
+    *map_field_mut(&mut changed_profile, "readConsistency")
+        .expect("target profile declares read consistency") = text("schema-valid-but-different");
+    registry
+        .validate_canonical_value(TARGET_PROFILE_API_VERSION, &changed_profile)
+        .expect("changed target profile deliberately preserves its owning CDDL shape");
+    request.target_profile.artifact.bytes =
+        encode_canonical_cbor(&changed_profile).expect("changed target profile is canonical");
+
+    let report = validate_provider_lowering_request(&registry, &contract, &request)
+        .expect_err("changed artifact bytes cannot cross an unchanged resource reference");
+    let [failure] = report.failures.as_slice() else {
+        panic!("unchanged artifact pin produces one exact request-admission failure");
+    };
+    assert_eq!(
+        failure.kind,
+        ProviderInvocationValidationFailureKind::ArtifactDigestMismatch
+    );
+    assert_eq!(failure.field, "target_profile.artifact.bytes");
+    assert_eq!(failure.role, None);
+    assert_eq!(
+        failure.obligation,
+        "canonical bytes reproducing the bound sha256 digest"
+    );
+}
+
+#[test]
+fn changed_artifact_bytes_fail_under_the_checked_reference() {
+    assert_artifact_digest_mismatch_contract();
+}
+
+fn assert_schema_artifact_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let mut changed_schema = SCHEMA_BYTES.to_vec();
+    changed_schema[0] ^= 1;
+    let error = ProviderArtifactSchemaRegistry::from_manifest(
+        &proof,
+        [ResolvedProviderSchemaArtifact {
+            role: SCHEMA_ROLE.to_owned(),
+            bytes: Arc::from(changed_schema),
+        }],
+        required_domains(&manifest),
+    )
+    .expect_err("changed schema bytes cannot cross the checked schema reference");
+    assert_eq!(
+        error.kind(),
+        ProviderSchemaRegistryFailureKind::SchemaArtifactDigestMismatch
+    );
+    assert_eq!(error.schema_role(), Some(SCHEMA_ROLE));
+}
+
+#[test]
+fn changed_schema_bytes_fail_under_the_checked_reference() {
+    assert_schema_artifact_digest_mismatch_contract();
+}
+
+fn assert_component_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let selected =
+        select_provider_component(&proof, LOWERER_ROLE, ProviderInvocationKind::Lowering)
+            .expect("the checked lowerer selects");
+    let mut changed_component = LOWERER_BYTES.to_vec();
+    changed_component[0] ^= 1;
+    let resolved = ResolvedProviderComponent::new(selected, Arc::from(changed_component));
+    let host = ProviderComponentHost::new().expect("the deterministic host configures");
+    let error = host
+        .prepare(&resolved)
+        .expect_err("changed component bytes cannot cross the checked component reference");
+    assert_eq!(
+        error.kind(),
+        ProviderHostFailureKind::ComponentDigestMismatch
+    );
+    assert_eq!(error.phase(), ProviderHostPhase::Preflight);
+    assert_eq!(
+        error.diagnostic(),
+        "resolved component bytes do not reproduce the manifest digest"
+    );
+}
+
+#[test]
+fn changed_component_bytes_fail_under_the_checked_reference() {
+    assert_component_digest_mismatch_contract();
 }
 
 #[test]

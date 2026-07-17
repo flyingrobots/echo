@@ -1803,6 +1803,11 @@ fn declared_host_cases_execute_their_exact_typed_contracts() {
             ExecutableContract::ObstructionRelationMismatchRejected => {
                 assert_obstruction_relation_mismatch_contract();
             }
+            ExecutableContract::ArtifactDigestMismatchRejected
+            | ExecutableContract::SchemaArtifactDigestMismatchRejected
+            | ExecutableContract::ComponentDigestMismatchRejected => {
+                panic!("package-owned contract reached the host executor");
+            }
         }
         assert!(executed.insert(case.contract()));
     }

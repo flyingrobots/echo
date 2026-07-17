@@ -27,6 +27,9 @@ pub enum ExecutableContract {
     UnsupportedVerifierOutputRoleRefused,
     TargetIntrinsicMismatchRejected,
     ObstructionRelationMismatchRejected,
+    ArtifactDigestMismatchRejected,
+    SchemaArtifactDigestMismatchRejected,
+    ComponentDigestMismatchRejected,
 }
 
 impl ExecutableContract {
@@ -43,6 +46,11 @@ impl ExecutableContract {
             "obstruction-relation-mismatch-rejected" => {
                 Ok(Self::ObstructionRelationMismatchRejected)
             }
+            "artifact-digest-mismatch-rejected" => Ok(Self::ArtifactDigestMismatchRejected),
+            "schema-artifact-digest-mismatch-rejected" => {
+                Ok(Self::SchemaArtifactDigestMismatchRejected)
+            }
+            "component-digest-mismatch-rejected" => Ok(Self::ComponentDigestMismatchRejected),
             _ => Err(CorpusContractError::new(
                 CorpusContractErrorKind::UnknownContract,
             )),
@@ -99,6 +107,27 @@ impl ExecutableContract {
                 stimulus: "obstruction-arm-removed",
                 required_disposition: "rejected",
                 owner: ExecutorOwner::Host,
+            },
+            Self::ArtifactDigestMismatchRejected => ExpectedDeclaration {
+                id: "artifact-tamper",
+                crossing: "request-admission",
+                stimulus: "artifact-bytes-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Package,
+            },
+            Self::SchemaArtifactDigestMismatchRejected => ExpectedDeclaration {
+                id: "schema-tamper",
+                crossing: "schema-admission",
+                stimulus: "schema-bytes-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Package,
+            },
+            Self::ComponentDigestMismatchRejected => ExpectedDeclaration {
+                id: "component-tamper",
+                crossing: "component-preflight",
+                stimulus: "component-bytes-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Package,
             },
         }
     }

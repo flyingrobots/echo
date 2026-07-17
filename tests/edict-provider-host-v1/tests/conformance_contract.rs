@@ -128,7 +128,7 @@ fn declaration_parser_rejects_empty_duplicate_or_result_shaped_cases() {
 }
 
 #[test]
-fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
+fn executable_registry_accepts_exact_laws_before_corpus_publication() {
     let mut value = checked_corpus_value();
     let cases = map_field_mut(&mut value, "cases");
     let CanonicalValue::Map(entries) = cases else {
@@ -188,8 +188,35 @@ fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
             "obstruction-relation-mismatch-rejected",
         ),
     ));
+    entries.push((
+        text("artifact-tamper"),
+        case_contract(
+            "request-admission",
+            "artifact-bytes-changed",
+            "rejected",
+            "artifact-digest-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("schema-tamper"),
+        case_contract(
+            "schema-admission",
+            "schema-bytes-changed",
+            "rejected",
+            "schema-artifact-digest-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("component-tamper"),
+        case_contract(
+            "component-preflight",
+            "component-bytes-changed",
+            "rejected",
+            "component-digest-mismatch-rejected",
+        ),
+    ));
     let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
-    let cases = decode_declared_cases(&bytes).expect("reviewed host laws have exact owners");
+    let cases = decode_declared_cases(&bytes).expect("reviewed executable laws have exact owners");
 
     assert!(cases.iter().any(|case| {
         case.contract() == ExecutableContract::AmbientCapabilityPreflightDenied
@@ -214,6 +241,18 @@ fn executable_registry_accepts_exact_host_laws_before_corpus_publication() {
     assert!(cases.iter().any(|case| {
         case.contract() == ExecutableContract::ObstructionRelationMismatchRejected
             && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ArtifactDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::SchemaArtifactDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ComponentDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
     }));
 }
 

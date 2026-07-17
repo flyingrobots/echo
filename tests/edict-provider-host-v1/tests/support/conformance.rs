@@ -30,6 +30,8 @@ pub enum ExecutableContract {
     ArtifactDigestMismatchRejected,
     SchemaArtifactDigestMismatchRejected,
     ComponentDigestMismatchRejected,
+    TargetIrHelperBindingMismatchRejected,
+    BaselineReleaseBindingMismatchRejected,
 }
 
 impl ExecutableContract {
@@ -51,6 +53,12 @@ impl ExecutableContract {
                 Ok(Self::SchemaArtifactDigestMismatchRejected)
             }
             "component-digest-mismatch-rejected" => Ok(Self::ComponentDigestMismatchRejected),
+            "target-ir-helper-binding-mismatch-rejected" => {
+                Ok(Self::TargetIrHelperBindingMismatchRejected)
+            }
+            "baseline-release-binding-mismatch-rejected" => {
+                Ok(Self::BaselineReleaseBindingMismatchRejected)
+            }
             _ => Err(CorpusContractError::new(
                 CorpusContractErrorKind::UnknownContract,
             )),
@@ -126,6 +134,20 @@ impl ExecutableContract {
                 id: "component-tamper",
                 crossing: "component-preflight",
                 stimulus: "component-bytes-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Package,
+            },
+            Self::TargetIrHelperBindingMismatchRejected => ExpectedDeclaration {
+                id: "helper-identity-mismatch",
+                crossing: "helper-binding",
+                stimulus: "bundle-identity-changed",
+                required_disposition: "rejected",
+                owner: ExecutorOwner::Package,
+            },
+            Self::BaselineReleaseBindingMismatchRejected => ExpectedDeclaration {
+                id: "source-occurrence-change",
+                crossing: "helper-binding",
+                stimulus: "exact-source-bytes-changed",
                 required_disposition: "rejected",
                 owner: ExecutorOwner::Package,
             },

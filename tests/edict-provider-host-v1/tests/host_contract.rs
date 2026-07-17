@@ -1805,7 +1805,9 @@ fn declared_host_cases_execute_their_exact_typed_contracts() {
             }
             ExecutableContract::ArtifactDigestMismatchRejected
             | ExecutableContract::SchemaArtifactDigestMismatchRejected
-            | ExecutableContract::ComponentDigestMismatchRejected => {
+            | ExecutableContract::ComponentDigestMismatchRejected
+            | ExecutableContract::TargetIrHelperBindingMismatchRejected
+            | ExecutableContract::BaselineReleaseBindingMismatchRejected => {
                 panic!("package-owned contract reached the host executor");
             }
         }

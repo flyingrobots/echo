@@ -488,7 +488,7 @@ fn lowerability_bytes() -> Vec<u8> {
     .expect("lowerability facts encode canonically")
 }
 
-fn echo_core() -> CoreModule {
+fn echo_core_from(source: &str) -> CoreModule {
     let context = CompilerContext::new()
         .with_operation_profile("p.effectful", "continuum.profile.write/v1")
         .with_operation_profile_write_classes("p.effectful", [WriteClass::Replace])
@@ -501,8 +501,16 @@ fn echo_core() -> CoreModule {
                 max_output_bytes: 256,
             },
         );
-    let module = parse_module(ECHO_SOURCE).expect("Echo source parses");
+    let module = parse_module(source).expect("Echo source parses");
     compile_to_core(&module, &context).expect("Echo source compiles to Core")
+}
+
+fn echo_core() -> CoreModule {
+    echo_core_from(ECHO_SOURCE)
+}
+
+fn whitespace_changed_echo_source() -> String {
+    format!("\n{ECHO_SOURCE}")
 }
 
 fn semantic_input(
@@ -705,6 +713,16 @@ struct PackageConformanceObservation {
     generated_helper_bound: bool,
 }
 
+struct PackageConformanceExecution {
+    observation: PackageConformanceObservation,
+    external_bundle: ContractBundleManifest,
+    source_occurrence_bundle: ContractBundleManifest,
+    baseline_core: CoreModule,
+    source_occurrence_core: CoreModule,
+    baseline_target_ir: TargetIrArtifact,
+    source_occurrence_target_ir: TargetIrArtifact,
+}
+
 impl PackageConformanceObservation {
     fn render(&self) -> String {
         format!(
@@ -760,6 +778,7 @@ fn contract_bundle_input(
     manifest: &TargetProviderManifest,
     core_module: CoreModule,
     target_ir_artifact: TargetIrArtifact,
+    source_bytes: &[u8],
     lowerer: DigestLockedResource,
     verifier: DigestLockedResource,
     verifier_report: DigestLockedResource,
@@ -790,7 +809,7 @@ fn contract_bundle_input(
         source_artifacts: vec![ContractBundleSourceArtifact::new(
             "tests/edict-provider-host-v1/fixtures/provider-conformance-v1/source.edict",
             "echo.provider-conformance.source@1",
-            raw_digest(ECHO_SOURCE.as_bytes()),
+            raw_digest(source_bytes),
         )
         .expect("the reviewed Edict source has an exact occurrence identity")],
         source_profile_semantic_facts: routed_digest_locked_resource(
@@ -829,28 +848,21 @@ fn contract_bundle_input(
     }
 }
 
-fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
-    assert_eq!(bundle.target_ir.coordinate, generated::TARGET_IR_COORDINATE);
-    assert_eq!(
-        bundle.target_ir.digest.as_deref(),
-        Some(generated::TARGET_IR_DIGEST)
-    );
-    assert_eq!(
-        bundle.target_profile.coordinate,
-        generated::TARGET_PROFILE_COORDINATE
-    );
-    assert_eq!(
-        bundle.target_profile.digest.as_deref(),
-        Some(generated::TARGET_PROFILE_DIGEST)
-    );
-
-    let expected = generated::ExpectedContractBundleIdentityV1 {
+fn generated_helper_expected(
+    bundle: &ContractBundleManifest,
+) -> generated::ExpectedContractBundleIdentityV1<'_> {
+    generated::ExpectedContractBundleIdentityV1 {
         semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
         semantic_digest: &bundle.semantic_bundle_digest,
         release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
         release_digest: &bundle.release_bundle_digest,
-    };
-    let identity = generated::ContractBundleIdentityV1 {
+    }
+}
+
+fn generated_helper_identity(
+    bundle: &ContractBundleManifest,
+) -> generated::ContractBundleIdentityV1<'_> {
+    generated::ContractBundleIdentityV1 {
         semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
         semantic_digest: &bundle.semantic_bundle_digest,
         release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
@@ -860,12 +872,20 @@ fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
         operation_id_law: generated::OPERATION_ID_LAW,
         operation_id: generated::OPERATION_ID,
         value_codec: generated::VALUE_CODEC_ID,
-        target_ir_coordinate: generated::TARGET_IR_COORDINATE,
+        target_ir_coordinate: &bundle.target_ir.coordinate,
         target_ir_digest_domain: generated::TARGET_IR_DIGEST_DOMAIN,
-        target_ir_digest: generated::TARGET_IR_DIGEST,
-        target_profile_coordinate: generated::TARGET_PROFILE_COORDINATE,
+        target_ir_digest: bundle
+            .target_ir
+            .digest
+            .as_deref()
+            .expect("the assembled Target IR is digest locked"),
+        target_profile_coordinate: &bundle.target_profile.coordinate,
         target_profile_digest_domain: generated::TARGET_PROFILE_DIGEST_DOMAIN,
-        target_profile_digest: generated::TARGET_PROFILE_DIGEST,
+        target_profile_digest: bundle
+            .target_profile
+            .digest
+            .as_deref()
+            .expect("the assembled target profile is digest locked"),
         target_bundle_profile_coordinate: generated::TARGET_BUNDLE_PROFILE_COORDINATE,
         target_bundle_profile_digest_domain: generated::TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
         target_bundle_profile_digest: generated::TARGET_BUNDLE_PROFILE_DIGEST,
@@ -893,7 +913,26 @@ fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
         footprint_algebra: generated::FOOTPRINT_ALGEBRA,
         footprint_algebra_digest_domain: generated::FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
         footprint_algebra_digest: generated::FOOTPRINT_ALGEBRA_DIGEST,
-    };
+    }
+}
+
+fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
+    assert_eq!(bundle.target_ir.coordinate, generated::TARGET_IR_COORDINATE);
+    assert_eq!(
+        bundle.target_ir.digest.as_deref(),
+        Some(generated::TARGET_IR_DIGEST)
+    );
+    assert_eq!(
+        bundle.target_profile.coordinate,
+        generated::TARGET_PROFILE_COORDINATE
+    );
+    assert_eq!(
+        bundle.target_profile.digest.as_deref(),
+        Some(generated::TARGET_PROFILE_DIGEST)
+    );
+
+    let expected = generated_helper_expected(bundle);
+    let identity = generated_helper_identity(bundle);
     let descriptor = generated::bind_contract_bundle(expected, &identity)
         .expect("the generated helper binds the real assembled external bundle");
     assert_eq!(
@@ -907,7 +946,7 @@ fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
     true
 }
 
-fn complete_package_conformance_observation() -> PackageConformanceObservation {
+fn complete_package_conformance_execution() -> PackageConformanceExecution {
     let manifest = checked_manifest();
     let proof = bind_target_provider_manifest(&manifest)
         .expect("the checked package manifest satisfies the Edict envelope");
@@ -922,6 +961,8 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
         .expect("the exact packaged lowerer passes Edict preflight");
 
     let core = echo_core();
+    let source_occurrence_bytes = whitespace_changed_echo_source();
+    let source_occurrence_core = echo_core_from(&source_occurrence_bytes);
     let (lowering_contract, lowering_request) = lowering_request(&core);
     assert_request_semantics_are_package_routed(
         &manifest,
@@ -957,6 +998,10 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
 
     let builtin_target_ir_artifact = oracle_target_ir_artifact(
         &core,
+        routed_resource(&manifest, "target-profile.echo-dpo").clone(),
+    );
+    let source_occurrence_target_ir = oracle_target_ir_artifact(
+        &source_occurrence_core,
         routed_resource(&manifest, "target-profile.echo-dpo").clone(),
     );
     let builtin_target_ir = encode_target_ir_artifact(&builtin_target_ir_artifact)
@@ -1064,6 +1109,7 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
         &manifest,
         core.clone(),
         builtin_target_ir_artifact.clone(),
+        ECHO_SOURCE.as_bytes(),
         raw_resource(
             format!("edict.builtin.echo-dpo.lowerer@{EDICT_REVISION}"),
             BUILTIN_LOWERER_DESCRIPTOR,
@@ -1074,13 +1120,24 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
     .expect("the built-in compatibility observation assembles a valid bundle");
     let external_bundle = assemble_contract_bundle_from_target_ir(contract_bundle_input(
         &manifest,
-        core,
-        builtin_target_ir_artifact,
+        core.clone(),
+        builtin_target_ir_artifact.clone(),
+        ECHO_SOURCE.as_bytes(),
+        external_lowerer_resource.clone(),
+        external_verifier_resource.clone(),
+        verifier_report_resource.clone(),
+    ))
+    .expect("the external provider observation assembles a valid bundle");
+    let source_occurrence_bundle = assemble_contract_bundle_from_target_ir(contract_bundle_input(
+        &manifest,
+        source_occurrence_core.clone(),
+        source_occurrence_target_ir.clone(),
+        source_occurrence_bytes.as_bytes(),
         external_lowerer_resource,
         external_verifier_resource,
         verifier_report_resource,
     ))
-    .expect("the external provider observation assembles a valid bundle");
+    .expect("the whitespace-only source occurrence assembles a valid bundle");
     assert_eq!(builtin_bundle.target_ir, external_bundle.target_ir);
     assert_eq!(
         builtin_bundle.semantic_bundle_digest,
@@ -1094,16 +1151,25 @@ fn complete_package_conformance_observation() -> PackageConformanceObservation {
     assert_eq!(external_bundle.verifier, external_verifier);
     let generated_helper_bound = bind_generated_helper_to_bundle(&external_bundle);
 
-    PackageConformanceObservation {
+    let observation = PackageConformanceObservation {
         target_ir_digest: rendered_provider_digest(&builtin_target_ir_digest),
         verifier_outcome: "accepted",
         builtin_semantic_bundle_digest: builtin_bundle.semantic_bundle_digest,
-        external_semantic_bundle_digest: external_bundle.semantic_bundle_digest,
+        external_semantic_bundle_digest: external_bundle.semantic_bundle_digest.clone(),
         builtin_release_bundle_digest: builtin_bundle.release_bundle_digest,
-        external_release_bundle_digest: external_bundle.release_bundle_digest,
+        external_release_bundle_digest: external_bundle.release_bundle_digest.clone(),
         external_lowerer,
         external_verifier,
         generated_helper_bound,
+    };
+    PackageConformanceExecution {
+        observation,
+        external_bundle,
+        source_occurrence_bundle,
+        baseline_core: core,
+        source_occurrence_core,
+        baseline_target_ir: builtin_target_ir_artifact,
+        source_occurrence_target_ir,
     }
 }
 
@@ -1120,7 +1186,143 @@ fn assert_completed_package_parity_contract(observation: &PackageConformanceObse
     assert!(observation.generated_helper_bound);
 }
 
-fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
+fn assert_target_ir_helper_binding_mismatch_contract(execution: &PackageConformanceExecution) {
+    const CHANGED_TARGET_IR_DIGEST: &str =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    assert!(execution.observation.generated_helper_bound);
+    let expected = generated_helper_expected(&execution.external_bundle);
+    let mut identity = generated_helper_identity(&execution.external_bundle);
+    assert_ne!(identity.target_ir_digest, CHANGED_TARGET_IR_DIGEST);
+    identity.target_ir_digest = CHANGED_TARGET_IR_DIGEST;
+
+    let Err(error) = generated::bind_contract_bundle(expected, &identity) else {
+        panic!("a changed Target IR identity cannot cross the checked bundle binding");
+    };
+    assert_eq!(error, generated::BindingMismatchKind::TargetIr);
+}
+
+fn assert_baseline_release_binding_mismatch_contract(execution: &PackageConformanceExecution) {
+    let source_occurrence_bytes = whitespace_changed_echo_source();
+    assert_eq!(
+        source_occurrence_bytes.strip_prefix('\n'),
+        Some(ECHO_SOURCE)
+    );
+    assert_ne!(source_occurrence_bytes.as_bytes(), ECHO_SOURCE.as_bytes());
+    let baseline_source_digest = raw_digest(ECHO_SOURCE.as_bytes());
+    let source_occurrence_digest = raw_digest(source_occurrence_bytes.as_bytes());
+    assert_ne!(baseline_source_digest, source_occurrence_digest);
+
+    assert_eq!(execution.baseline_core, execution.source_occurrence_core);
+    assert_eq!(
+        encode_core_module(&execution.baseline_core)
+            .expect("the baseline Core encodes canonically"),
+        encode_core_module(&execution.source_occurrence_core)
+            .expect("the whitespace-only Core encodes canonically")
+    );
+    assert_eq!(
+        execution.baseline_target_ir,
+        execution.source_occurrence_target_ir
+    );
+    assert_eq!(
+        encode_target_ir_artifact(&execution.baseline_target_ir)
+            .expect("the baseline Target IR encodes canonically"),
+        encode_target_ir_artifact(&execution.source_occurrence_target_ir)
+            .expect("the whitespace-only Target IR encodes canonically")
+    );
+
+    let baseline = &execution.external_bundle;
+    let changed = &execution.source_occurrence_bundle;
+    let [baseline_source] = baseline.source_artifacts.as_slice() else {
+        panic!("the baseline release has one exact source occurrence");
+    };
+    let [changed_source] = changed.source_artifacts.as_slice() else {
+        panic!("the changed release has one exact source occurrence");
+    };
+    assert_eq!(baseline_source.logical_path, changed_source.logical_path);
+    assert_eq!(
+        baseline_source.artifact.coordinate,
+        changed_source.artifact.coordinate
+    );
+    assert_eq!(
+        baseline_source.artifact.digest.as_deref(),
+        Some(baseline_source_digest.as_str())
+    );
+    assert_eq!(
+        changed_source.artifact.digest.as_deref(),
+        Some(source_occurrence_digest.as_str())
+    );
+
+    assert_eq!(baseline.api_version, changed.api_version);
+    assert_eq!(baseline.core_ir, changed.core_ir);
+    assert_eq!(baseline.target_profile, changed.target_profile);
+    assert_eq!(baseline.target_ir, changed.target_ir);
+    assert_eq!(baseline.lawpacks, changed.lawpacks);
+    assert_eq!(
+        baseline.source_profile_semantic_facts,
+        changed.source_profile_semantic_facts
+    );
+    assert_eq!(baseline.generated_artifacts, changed.generated_artifacts);
+    assert_eq!(
+        baseline.canonicalization_profile,
+        changed.canonicalization_profile
+    );
+    assert_eq!(
+        baseline.semantic_compile_options,
+        changed.semantic_compile_options
+    );
+    assert_eq!(
+        baseline.conformance_fixture_corpora,
+        changed.conformance_fixture_corpora
+    );
+    assert_eq!(baseline.verifier_report, changed.verifier_report);
+    assert_eq!(baseline.compiler, changed.compiler);
+    assert_eq!(baseline.lowerer, changed.lowerer);
+    assert_eq!(baseline.verifier, changed.verifier);
+    assert_eq!(
+        baseline.non_semantic_compile_options,
+        changed.non_semantic_compile_options
+    );
+    assert_eq!(baseline.build_provenance, changed.build_provenance);
+    assert_eq!(baseline.compile_explanation, changed.compile_explanation);
+    assert_eq!(baseline.assurance_evidence, changed.assurance_evidence);
+    assert_eq!(baseline.admission_artifacts, changed.admission_artifacts);
+    assert_eq!(
+        baseline.semantic_bundle_digest,
+        changed.semantic_bundle_digest
+    );
+    assert_ne!(
+        baseline.release_bundle_digest,
+        changed.release_bundle_digest
+    );
+
+    let Err(error) = generated::bind_contract_bundle(
+        generated_helper_expected(baseline),
+        &generated_helper_identity(changed),
+    ) else {
+        panic!("a new release occurrence cannot cross the baseline host pin");
+    };
+    assert_eq!(error, generated::BindingMismatchKind::ReleaseBundleDigest);
+    generated::bind_contract_bundle(
+        generated_helper_expected(changed),
+        &generated_helper_identity(changed),
+    )
+    .expect("the whitespace-only occurrence binds under its own release identity");
+}
+
+#[test]
+fn checked_bundle_helper_refuses_a_changed_target_ir_identity() {
+    let execution = complete_package_conformance_execution();
+    assert_target_ir_helper_binding_mismatch_contract(&execution);
+}
+
+#[test]
+fn whitespace_only_source_occurrence_preserves_semantics_and_moves_release_identity() {
+    let execution = complete_package_conformance_execution();
+    assert_baseline_release_binding_mismatch_contract(&execution);
+}
+
+fn execute_declared_package_cases(execution: &PackageConformanceExecution) {
+    let observation = &execution.observation;
     let corpus = GENERATED_RESOURCE_FIXTURES
         .iter()
         .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
@@ -1149,6 +1351,12 @@ fn execute_declared_package_cases(observation: &PackageConformanceObservation) {
                     }
                     ExecutableContract::ComponentDigestMismatchRejected => {
                         assert_component_digest_mismatch_contract();
+                    }
+                    ExecutableContract::TargetIrHelperBindingMismatchRejected => {
+                        assert_target_ir_helper_binding_mismatch_contract(execution);
+                    }
+                    ExecutableContract::BaselineReleaseBindingMismatchRejected => {
+                        assert_baseline_release_binding_mismatch_contract(execution);
                     }
                     ExecutableContract::AmbientCapabilityPreflightDenied
                     | ExecutableContract::NoncanonicalTargetIrOutputDenied
@@ -1955,9 +2163,10 @@ fn malformed_artifact_fails_before_component_execution() {
 
 #[test]
 fn declared_package_cases_execute_their_exact_typed_contracts() {
-    let observation = complete_package_conformance_observation();
+    let execution = complete_package_conformance_execution();
+    let observation = &execution.observation;
 
-    execute_declared_package_cases(&observation);
+    execute_declared_package_cases(&execution);
 
     assert_eq!(
         observation.target_ir_digest,
@@ -1988,7 +2197,9 @@ fn declared_package_cases_execute_their_exact_typed_contracts() {
 fn emit_completed_package_conformance_observation() {
     println!(
         "{PACKAGE_OBSERVATION_MARKER}{}",
-        complete_package_conformance_observation().render()
+        complete_package_conformance_execution()
+            .observation
+            .render()
     );
 }
 

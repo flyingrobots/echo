@@ -215,6 +215,24 @@ fn executable_registry_accepts_exact_laws_before_corpus_publication() {
             "component-digest-mismatch-rejected",
         ),
     ));
+    entries.push((
+        text("helper-identity-mismatch"),
+        case_contract(
+            "helper-binding",
+            "bundle-identity-changed",
+            "rejected",
+            "target-ir-helper-binding-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("source-occurrence-change"),
+        case_contract(
+            "helper-binding",
+            "exact-source-bytes-changed",
+            "rejected",
+            "baseline-release-binding-mismatch-rejected",
+        ),
+    ));
     let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
     let cases = decode_declared_cases(&bytes).expect("reviewed executable laws have exact owners");
 
@@ -252,6 +270,14 @@ fn executable_registry_accepts_exact_laws_before_corpus_publication() {
     }));
     assert!(cases.iter().any(|case| {
         case.contract() == ExecutableContract::ComponentDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::TargetIrHelperBindingMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::BaselineReleaseBindingMismatchRejected
             && case.owner() == ExecutorOwner::Package
     }));
 }

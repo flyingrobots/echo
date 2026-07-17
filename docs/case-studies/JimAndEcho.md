@@ -140,21 +140,24 @@ bootstrap evidence. Recovery must be able to reproduce or validate them; a
 fresh process may not silently choose a different starting document and then
 replay old receipts over it.
 
-### 2. Install The Jim Contract
+### 2. Propose, Then Install The Application Contract
 
-Implemented host API:
+Existing trusted-host installation API (a later crossing):
 
 ```rust
-host.register_contract_package(jim_package)?;
+host.register_contract_package(installed_package)?;
 ```
 
-The package contains generated registry metadata plus trusted-host bindings from
-Edict-authored operations to host-supplied mutation executors or bounded
-observers over Jim-owned domain meaning. Echo verifies and installs the
-resulting runtime package. Jim owns the meaning of operations such as
-`ReplaceRange`; Echo sees a verified generic
-contract operation, canonical intent bytes, declared support, and an executor or
-observer binding.
+Edict's generated helper and explicit host bindings currently produce an opaque
+`ProviderContractPackageProposalV1`. The proposal retains generated registry
+metadata and one host-supplied mutation binding after pure identity preflight,
+but it does not authenticate the package occurrence, construct an
+`InstalledContractPackage`, register anything, or mint runtime authority. A
+separately tracked trusted-host admission flow must authenticate and admit the
+proposal, construct the runtime package, and only then call the installation API
+above. Jim retains its domain meaning; Echo receives an admitted generic
+contract operation, canonical intent bytes, declared support, and its host
+binding only after that later crossing.
 
 Package installation is host authority. The application-facing handle cannot
 replace the package after it has submitted work.
@@ -735,16 +738,20 @@ The Jim example generalizes into a practical checklist.
 4. Define bounded observers and their evidence requirements.
 5. Keep application nouns out of Echo core.
 
-### Generate And Install The Bridge
+### Generate, Propose, And Later Install The Bridge
 
 1. Author Jim operation semantics in Edict, keeping mutating DPO semantics
    distinct from bounded read/optic semantics.
 2. Admit the exact source and run the target-specific lowerer and independent
    verifier without rediscovering or inventing meaning.
-3. Package generated operation ids, exact codecs where declared, clients,
-   handlers or observers, descriptors, digests, and provenance.
-4. Let the trusted host verify, bind, and register the package through Echo's
-   runtime installation boundary.
+3. Generate operation ids, exact codecs where declared, clients, descriptors,
+   digests, and provenance; bind supported mutation handlers into an opaque,
+   non-installing provider proposal while keeping bounded observers on their
+   separate read path.
+4. Pass the preflighted proposal into the separately tracked trusted-host
+   admission and installation flow; that later crossing must authenticate the
+   package occurrence, construct an `InstalledContractPackage`, and register it
+   before any runtime authority exists.
 5. Give product code only generated clients and `TrustedRuntimeApp`.
 
 ### Submit Work

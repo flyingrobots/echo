@@ -12,6 +12,7 @@ adr="docs/adr/0014-generated-rule-authorship-and-footprints.md"
 wesley_fixture="crates/echo-wesley-gen/tests/generation.rs"
 edict_bridge="crates/warp-core/src/edict_target_ir.rs"
 readme="README.md"
+jim_case="docs/case-studies/JimAndEcho.md"
 
 fail() {
   echo "generated-rule-truth: $*" >&2
@@ -69,5 +70,12 @@ require_literal "$readme" 'The package-shaped flow below is partially implemente
 reject_literal "$readme" 'It does not yet provide codec-bound invocation'
 reject_literal "$readme" 'The package-shaped flow below is the target corridor, not a current end-to-end application path:'
 reject_literal "$readme" 'Wesley generates type-safe helpers, codecs, registry metadata, and host adapters.'
+
+require_literal "$jim_case" 'currently produce an opaque'
+require_literal "$jim_case" '`ProviderContractPackageProposalV1`. The proposal retains generated registry'
+require_literal "$jim_case" 'separately tracked trusted-host admission flow'
+require_literal "$jim_case" 'before any runtime authority exists.'
+reject_literal "$jim_case" 'host.register_contract_package(jim_package)?;'
+reject_literal "$jim_case" 'Let the trusted host verify, bind, and register the package'
 
 echo "generated-rule-truth: current Wesley, Edict, and feature boundaries are explicit"

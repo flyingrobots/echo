@@ -22,6 +22,9 @@ warp-core = { path = "../../crates/warp-core" }
 serde_json = "=1.0.150"
 sha2 = "=0.10.9"
 
+[dev-dependencies]
+wat = "=1.251.0"
+
 [lints.rust]
 missing_docs = "deny"
 unsafe_code = "deny"

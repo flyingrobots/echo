@@ -38,7 +38,8 @@ use edict_syntax::{
     AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
     ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
-    TARGET_PROVIDER_ABI, TARGET_PROVIDER_MANIFEST_API_VERSION, TARGET_PROVIDER_PROTOCOL_VERSION,
+    TARGET_PROVIDER_ABI, TARGET_PROVIDER_LOWERER_CONTRACT, TARGET_PROVIDER_MANIFEST_API_VERSION,
+    TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -1601,11 +1602,7 @@ fn host_rejections_preserve_trap_lifting_and_envelope_identity() {
 fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
     let core = echo_core();
     let (contract, request) = echo_request(&core, "fixture.noncanonical");
-    let harness = echo_harness_with_request_and_component(
-        contract,
-        request,
-        FIXTURE_LOWERER_BYTES,
-    );
+    let harness = echo_harness_with_request_and_component(contract, request, FIXTURE_LOWERER_BYTES);
 
     let requested = &harness.request.request().requested_outputs[0];
     assert_eq!(requested.kind, ProviderLoweringOutputKind::TargetIr);
@@ -1642,6 +1639,68 @@ fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
         item.obligation,
         "canonical artifact bytes within the deterministic nesting bound"
     );
+}
+
+#[test]
+fn ambient_capability_imports_are_denied_during_preflight() {
+    for capability in [
+        "wasi:filesystem/types@0.2.0",
+        "wasi:sockets/tcp@0.2.0",
+        "wasi:cli/environment@0.2.0",
+        "wasi:clocks/wall-clock@0.2.0",
+        "wasi:random/random@0.2.0",
+    ] {
+        let component = wat::parse_str(format!(
+            r#"(component
+                (@custom
+                    "edict:target-provider-contract"
+                    "{TARGET_PROVIDER_LOWERER_CONTRACT}"
+                )
+                (type $capability
+                    (instance
+                        (type $operation (func))
+                        (export "operation" (func (type $operation)))
+                    )
+                )
+                (import "{capability}" (instance (type $capability)))
+            )"#
+        ))
+        .expect("ambient capability component parses");
+        let component: &'static [u8] = Box::leak(component.into_boxed_slice());
+        let manifest = echo_manifest(component);
+        let manifest_proof = Box::leak(Box::new(
+            bind_target_provider_manifest(manifest)
+                .expect("ambient capability manifest validates exact component bytes"),
+        ));
+        let selected = select_provider_component(
+            manifest_proof,
+            LOWERER_ROLE,
+            ProviderInvocationKind::Lowering,
+        )
+        .expect("ambient capability component selects by exact digest");
+        let resolved = ResolvedProviderComponent::new(selected, Arc::from(component));
+        let host = ProviderComponentHost::new().expect("host configures");
+
+        let failure = host
+            .prepare(&resolved)
+            .expect_err("ambient capability import must reject before instantiation");
+        assert_eq!(
+            failure.kind(),
+            ProviderHostFailureKind::ComponentContractMismatch,
+            "{capability}: {}",
+            failure.diagnostic()
+        );
+        assert_eq!(
+            failure.phase(),
+            ProviderHostPhase::Preflight,
+            "{capability}"
+        );
+        assert_eq!(
+            failure.diagnostic(),
+            "provider component imports callable or unknown host authority",
+            "{capability}"
+        );
+    }
 }
 
 #[test]

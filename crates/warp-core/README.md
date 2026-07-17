@@ -63,12 +63,15 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
 
 `warp-core` now accepts the provider-neutral registry emitted by the Edict
 helper and can preflight one mutation into an opaque
-`ProviderContractPackageProposalV1`. The constructor fails closed unless the
-runtime package occurrence, generated dispatch, and explicit host implementation
-agree on the complete operation id, Target IR, semantic/release bundles,
-target/generated/operation profiles, provider and value schemas,
-`le-binary-v1` codec, obstruction mapping, ABI, helper API, rule name, and
-footprint identities.
+`ProviderContractPackageProposalV1`. The constructor syntactically bounds the
+host-owned runtime package occurrence to a nonempty name and version plus a raw
+lowercase SHA-256 claim; it does not authenticate or semantically cross-bind
+that occurrence. Separately, it fails closed unless the provider registry and
+explicit host implementation agree on the complete operation id, Target IR,
+semantic/release bundles, target/generated/operation profiles, provider and
+value schemas, `le-binary-v1` codec, obstruction mapping, ABI, helper API, and
+footprint identities, and unless the generated dispatch agrees on the exact
+operation id and canonical rule name.
 
 The generated helper owns the distinct typed input/output codecs and canonical
 EINT construction; `warp-core` treats EINT `vars` as codec-owned opaque bytes.

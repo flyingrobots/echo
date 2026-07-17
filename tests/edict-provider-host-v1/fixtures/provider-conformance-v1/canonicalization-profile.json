@@ -1,0 +1,9 @@
+{
+  "apiVersion": "echo.provider-conformance.canonicalization-profile/v1",
+  "canonicalAbi": "edict.canonical-cbor/v1",
+  "contractPack": {
+    "coordinate": "edict.provider-contract-pack.cddl@1",
+    "digest": "sha256:92697bc9a5262c68258be9ee451ee8c144aeb363b92142915b8224430b85cf74"
+  },
+  "edictCommit": "c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+}

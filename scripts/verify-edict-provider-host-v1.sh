@@ -36,6 +36,12 @@ cargo +1.90.0 xtask provider-verifier-component audit \
 
 cargo +1.94.0 fmt --manifest-path "$MANIFEST" --all -- --check
 
+CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
+  cargo +1.94.0 test \
+    --manifest-path "$MANIFEST" \
+    --locked \
+    --test conformance_contract
+
 ECHO_PROVIDER_LOWERER_COMPONENT="$component" \
   ECHO_PROVIDER_VERIFIER_COMPONENT="$verifier_component" \
   CARGO_TARGET_DIR="$HOST_TARGET_DIR" \

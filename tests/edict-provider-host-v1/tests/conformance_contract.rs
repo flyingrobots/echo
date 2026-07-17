@@ -1,0 +1,353 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_used, clippy::panic)]
+//! Shared declarative provider-conformance contract witnesses.
+
+mod support;
+
+use std::collections::BTreeSet;
+
+use edict_syntax::{decode_canonical_cbor, encode_canonical_cbor, CanonicalValue};
+use support::conformance::{
+    decode_declared_cases, CorpusContractErrorKind, ExecutableContract, ExecutorOwner,
+    CONFORMANCE_CORPUS_BYTES,
+};
+
+fn text(value: &str) -> CanonicalValue {
+    CanonicalValue::Text(value.to_owned())
+}
+
+fn case_contract(
+    crossing: &str,
+    stimulus: &str,
+    disposition: &str,
+    contract: &str,
+) -> CanonicalValue {
+    CanonicalValue::Map(vec![
+        (text("crossing"), text(crossing)),
+        (text("stimulus"), text(stimulus)),
+        (
+            text("requiredOutcome"),
+            CanonicalValue::Map(vec![
+                (text("disposition"), text(disposition)),
+                (text("contract"), text(contract)),
+            ]),
+        ),
+    ])
+}
+
+fn map_field_mut<'a>(value: &'a mut CanonicalValue, field: &str) -> &'a mut CanonicalValue {
+    let CanonicalValue::Map(entries) = value else {
+        panic!("canonical value is not a map");
+    };
+    entries
+        .iter_mut()
+        .find_map(|(key, value)| (key == &text(field)).then_some(value))
+        .unwrap_or_else(|| panic!("canonical map field `{field}` is absent"))
+}
+
+fn checked_corpus_value() -> CanonicalValue {
+    decode_canonical_cbor(CONFORMANCE_CORPUS_BYTES)
+        .expect("checked conformance corpus is canonical CBOR")
+}
+
+fn parse_mutation(value: &CanonicalValue) -> CorpusContractErrorKind {
+    let bytes = encode_canonical_cbor(value).expect("mutated corpus encodes canonically");
+    decode_declared_cases(&bytes)
+        .expect_err("mutated declaration must fail the executable-law boundary")
+        .kind()
+}
+
+#[test]
+fn checked_declarations_have_exact_executable_owners() {
+    let cases = decode_declared_cases(CONFORMANCE_CORPUS_BYTES)
+        .expect("checked declarations satisfy the executable-law inventory");
+    let expected_ids = BTreeSet::from([
+        "ambient-capability-denial",
+        "artifact-tamper",
+        "component-tamper",
+        "dropped-obstruction",
+        "helper-identity-mismatch",
+        "noncanonical-output",
+        "output-overclaim",
+        "package-parity",
+        "schema-tamper",
+        "source-occurrence-change",
+        "unsupported-semantics",
+        "wrong-intrinsic",
+    ]);
+    let actual_ids = cases
+        .iter()
+        .map(support::conformance::DeclaredCase::id)
+        .collect::<BTreeSet<_>>();
+    let contracts = cases
+        .iter()
+        .map(support::conformance::DeclaredCase::contract)
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(cases.len(), 12);
+    assert_eq!(actual_ids, expected_ids);
+    assert_eq!(contracts.len(), 12);
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| case.owner() == ExecutorOwner::Package)
+            .count(),
+        6
+    );
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| case.owner() == ExecutorOwner::Host)
+            .count(),
+        6
+    );
+}
+
+#[test]
+fn declaration_parser_rejects_unknown_or_mismatched_executable_laws() {
+    let mut unknown = checked_corpus_value();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(map_field_mut(&mut unknown, "cases"), "package-parity"),
+            "requiredOutcome",
+        ),
+        "contract",
+    ) = text("unreviewed-contract");
+    assert_eq!(
+        parse_mutation(&unknown),
+        CorpusContractErrorKind::UnknownContract
+    );
+
+    let mut mismatch = checked_corpus_value();
+    let case = map_field_mut(map_field_mut(&mut mismatch, "cases"), "package-parity");
+    *map_field_mut(case, "stimulus") = text("component-bytes-changed");
+    assert_eq!(
+        parse_mutation(&mismatch),
+        CorpusContractErrorKind::DeclarationMismatch
+    );
+}
+
+#[test]
+fn declaration_parser_rejects_empty_duplicate_or_result_shaped_cases() {
+    let mut empty = checked_corpus_value();
+    *map_field_mut(&mut empty, "cases") = CanonicalValue::Map(Vec::new());
+    assert_eq!(parse_mutation(&empty), CorpusContractErrorKind::EmptyCases);
+
+    let mut duplicate = checked_corpus_value();
+    let cases = map_field_mut(&mut duplicate, "cases");
+    let CanonicalValue::Map(entries) = cases else {
+        panic!("cases are a map");
+    };
+    let contract = entries[0].1.clone();
+    entries.push((text("package-parity-copy"), contract));
+    assert_eq!(
+        parse_mutation(&duplicate),
+        CorpusContractErrorKind::DuplicateContract
+    );
+
+    let mut result_shaped = checked_corpus_value();
+    let case = map_field_mut(map_field_mut(&mut result_shaped, "cases"), "package-parity");
+    let CanonicalValue::Map(fields) = case else {
+        panic!("case declaration is a map");
+    };
+    fields.push((text("passed"), CanonicalValue::Bool(true)));
+    assert_eq!(
+        parse_mutation(&result_shaped),
+        CorpusContractErrorKind::CaseClosureInvalid
+    );
+}
+
+#[test]
+fn checked_corpus_matches_the_reviewed_executable_registry() {
+    let mut value = checked_corpus_value();
+    let cases = map_field_mut(&mut value, "cases");
+    let CanonicalValue::Map(entries) = cases else {
+        panic!("cases are a map");
+    };
+    entries.clear();
+    entries.push((
+        text("package-parity"),
+        case_contract(
+            "pipeline",
+            "baseline",
+            "accepted",
+            "completed-package-parity",
+        ),
+    ));
+    entries.push((
+        text("ambient-capability-denial"),
+        case_contract(
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+    ));
+    entries.push((
+        text("noncanonical-output"),
+        case_contract(
+            "host-output-admission",
+            "noncanonical-cbor-output",
+            "rejected",
+            "noncanonical-target-ir-output-denied",
+        ),
+    ));
+    entries.push((
+        text("unsupported-semantics"),
+        case_contract(
+            "lowering",
+            "unsupported-core-semantics",
+            "refused",
+            "unsupported-core-semantics-refused",
+        ),
+    ));
+    entries.push((
+        text("output-overclaim"),
+        case_contract(
+            "verification",
+            "unsupported-output-role-requested",
+            "refused",
+            "unsupported-verifier-output-role-refused",
+        ),
+    ));
+    entries.push((
+        text("wrong-intrinsic"),
+        case_contract(
+            "verification",
+            "target-intrinsic-changed",
+            "rejected",
+            "target-intrinsic-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("dropped-obstruction"),
+        case_contract(
+            "verification",
+            "obstruction-arm-removed",
+            "rejected",
+            "obstruction-relation-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("artifact-tamper"),
+        case_contract(
+            "request-admission",
+            "artifact-bytes-changed",
+            "rejected",
+            "artifact-digest-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("schema-tamper"),
+        case_contract(
+            "schema-admission",
+            "schema-bytes-changed",
+            "rejected",
+            "schema-artifact-digest-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("component-tamper"),
+        case_contract(
+            "component-preflight",
+            "component-bytes-changed",
+            "rejected",
+            "component-digest-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("helper-identity-mismatch"),
+        case_contract(
+            "helper-binding",
+            "bundle-identity-changed",
+            "rejected",
+            "target-ir-helper-binding-mismatch-rejected",
+        ),
+    ));
+    entries.push((
+        text("source-occurrence-change"),
+        case_contract(
+            "helper-binding",
+            "exact-source-bytes-changed",
+            "rejected",
+            "baseline-release-binding-mismatch-rejected",
+        ),
+    ));
+    let bytes = encode_canonical_cbor(&value).expect("synthetic registry corpus is canonical");
+    assert_eq!(bytes, CONFORMANCE_CORPUS_BYTES);
+    let cases = decode_declared_cases(&bytes).expect("reviewed executable laws have exact owners");
+
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::AmbientCapabilityPreflightDenied
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::NoncanonicalTargetIrOutputDenied
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::UnsupportedCoreSemanticsRefused
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::UnsupportedVerifierOutputRoleRefused
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::TargetIntrinsicMismatchRejected
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ObstructionRelationMismatchRejected
+            && case.owner() == ExecutorOwner::Host
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ArtifactDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::SchemaArtifactDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::ComponentDigestMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::TargetIrHelperBindingMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+    assert!(cases.iter().any(|case| {
+        case.contract() == ExecutableContract::BaselineReleaseBindingMismatchRejected
+            && case.owner() == ExecutorOwner::Package
+    }));
+}
+
+#[test]
+fn duplicate_case_ids_cannot_reach_executable_dispatch() {
+    let mut value = checked_corpus_value();
+    let cases = map_field_mut(&mut value, "cases");
+    let CanonicalValue::Map(entries) = cases else {
+        panic!("cases are a map");
+    };
+    entries.push((
+        text("package-parity"),
+        case_contract(
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+    ));
+
+    let Ok(bytes) = encode_canonical_cbor(&value) else {
+        return;
+    };
+    let error = decode_declared_cases(&bytes)
+        .expect_err("the decoder or executable parser rejects duplicate case IDs");
+    assert!(matches!(
+        error.kind(),
+        CorpusContractErrorKind::CanonicalCborInvalid | CorpusContractErrorKind::DuplicateCaseId
+    ));
+}

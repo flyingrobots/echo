@@ -837,7 +837,35 @@ echo-provider-conformance-corpus = {
   operations: { * tstr => null },
   capabilities: { * tstr => null },
   semanticEffects: { * tstr => null },
-  cases: [],
+  cases: { 1* tstr => echo-provider-conformance-case },
+}
+
+echo-provider-conformance-case = {
+  crossing: "pipeline" / "request-admission" / "component-preflight" /
+            "helper-binding" /
+            "host-output-admission" / "verification" /
+            "schema-admission" / "lowering",
+  stimulus: "baseline" / "ambient-capabilities-denied" /
+            "artifact-bytes-changed" / "component-bytes-changed" /
+            "bundle-identity-changed" / "noncanonical-cbor-output" /
+            "unsupported-output-role-requested" / "schema-bytes-changed" /
+            "exact-source-bytes-changed" / "unsupported-core-semantics" /
+            "obstruction-arm-removed" / "target-intrinsic-changed",
+  requiredOutcome: {
+    disposition: "accepted" / "rejected" / "refused",
+    contract: "completed-package-parity" /
+              "ambient-capability-preflight-denied" /
+              "noncanonical-target-ir-output-denied" /
+              "unsupported-core-semantics-refused" /
+              "unsupported-verifier-output-role-refused" /
+              "target-intrinsic-mismatch-rejected" /
+              "obstruction-relation-mismatch-rejected" /
+              "artifact-digest-mismatch-rejected" /
+              "schema-artifact-digest-mismatch-rejected" /
+              "component-digest-mismatch-rejected" /
+              "target-ir-helper-binding-mismatch-rejected" /
+              "baseline-release-binding-mismatch-rejected",
+  },
 }
 
 echo-provider-lawpack-compatibility = {

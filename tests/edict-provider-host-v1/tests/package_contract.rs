@@ -1,52 +1,62 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
 //! Edict-native pre-execution readiness witness for the checked Echo package.
 
-use std::collections::BTreeMap;
+mod support;
+
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[path = "../../../crates/echo-edict-provider-lowerer/tests/fixtures/generated_echo_dpo.rs"]
+mod checked_generated_helper;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::process::Command;
 use std::sync::Arc;
 
 use edict_provider_host_wasmtime::{
-    ProviderComponentHost, ProviderHostFailureKind, ProviderHostPhase, ResolvedProviderComponent,
+    ProviderComponentHost, ProviderHostFailureKind, ProviderHostLimits, ProviderHostPhase,
+    ResolvedProviderComponent,
 };
 use edict_provider_schema::{
     ProviderArtifactSchemaRegistry, ProviderSchemaRegistryFailureKind,
     ResolvedProviderSchemaArtifact,
 };
 use edict_syntax::{
-    bind_target_provider_manifest, compile_to_core, decode_canonical_cbor, encode_canonical_cbor,
-    encode_core_module, encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module,
-    select_provider_component, validate_provider_lowering_request,
-    validate_provider_verification_request, BuiltinLowererRequest, BuiltinTargetLowerer,
-    CanonicalValue, CompilerContext, CoreBudget, CoreModule, ProviderArtifact,
-    ProviderArtifactBinding, ProviderArtifactSchemaValidator, ProviderArtifactSource,
-    ProviderBoundArtifact, ProviderDigest, ProviderDigestAlgorithm, ProviderInvocationKind,
-    ProviderInvocationValidationFailureKind, ProviderLoweringInvocationContract,
-    ProviderLoweringOutputKind, ProviderLoweringOutputRequest, ProviderLoweringRequest,
-    ProviderResourceRef, ProviderResponseLimits, ProviderSchemaFormat, ProviderSemanticInput,
-    ProviderSemanticInputBinding, ProviderSemanticInputKind,
+    assemble_contract_bundle_from_target_ir, bind_target_provider_manifest, compile_to_core,
+    decode_canonical_cbor, encode_canonical_cbor, encode_core_module, encode_target_ir_artifact,
+    lower_with_builtin_lowerer, parse_module, select_provider_component,
+    validate_provider_lowering_request, validate_provider_verification_request,
+    BuiltinLowererRequest, BuiltinTargetLowerer, CanonicalValue, CompilerContext,
+    ContractBundleAssemblyFromTargetIrInput, ContractBundleManifest, ContractBundleSourceArtifact,
+    CoreBudget, CoreModule, DigestLockedResource, ProviderArtifact, ProviderArtifactBinding,
+    ProviderArtifactSchemaValidator, ProviderArtifactSource, ProviderBoundArtifact, ProviderDigest,
+    ProviderDigestAlgorithm, ProviderInvocationKind, ProviderInvocationValidationFailureKind,
+    ProviderLoweringInvocationContract, ProviderLoweringOutputKind, ProviderLoweringOutputRequest,
+    ProviderLoweringRequest, ProviderResourceRef, ProviderResponseLimits, ProviderSchemaFormat,
+    ProviderSemanticInput, ProviderSemanticInputBinding, ProviderSemanticInputKind,
     ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ResourceRef,
-    TargetEffectLowering, TargetIrLoweringFacts, TargetProviderManifest, WriteClass,
-    AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
-    ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
-    TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION, TARGET_PROVIDER_PROTOCOL_VERSION,
+    TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts, TargetProviderManifest,
+    WriteClass, AUTHORITY_FACTS_API_VERSION, CANONICAL_CBOR_ABI, CORE_DIGEST_FRAME,
+    CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
+    PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
+    TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
 
-const ECHO_SOURCE: &str = "package a.b@1;\n\
-    type Input = { id: String<max=16>, };\n\
-    type Receipt = { id: String<max=16>, };\n\
-    type Output = { id: String<max=16>, };\n\
-    intent t(input: Input) returns Output\n\
-      profile p.effectful\n\
-      basis none\n\
-      budget <= p.tiny {\n\
-      let receipt: Receipt = target.replace(input.id)\n\
-        else { rejected(reason) => domain.WriteRejected };\n\
-      return { id: input.id };\n\
-    }";
+use checked_generated_helper::echo_dpo as generated;
+use support::conformance::{
+    decode_declared_cases, ExecutableContract, ExecutorOwner, CONFORMANCE_CORPUS_BYTES,
+};
+
+const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const GENERATED_ARTIFACT_PROFILE_DOMAIN: &str = "echo.generated-artifact-profile/v1";
@@ -57,6 +67,7 @@ const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
 const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
+const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
 const EXPECTED_SCHEMA_BINDING_COUNT: usize = 24;
 
 const MANIFEST_BYTES: &[u8] =
@@ -79,12 +90,28 @@ const TARGET_AUTHORITY_BYTES: &[u8] = include_bytes!(
 const LAWPACK_AUTHORITY_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/generated/primary/authority-facts.echo-lawpack.cbor"
 );
+const CANONICALIZATION_PROFILE_BYTES: &[u8] =
+    include_bytes!("../fixtures/provider-conformance-v1/canonicalization-profile.json");
+const GENERATION_SETTINGS_BYTES: &[u8] =
+    include_bytes!("../../../schemas/edict-provider/generation-settings-v1.json");
+const GENERATION_PROVENANCE_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/package/v1/generated/evidence/provenance.provider-generation.json"
+);
+const GENERATION_REVIEW_BYTES: &[u8] = include_bytes!(
+    "../../../schemas/edict-provider/package/v1/generated/evidence/review.provider-generation.json"
+);
 const LOWERER_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/components/lowerer.echo-dpo.component.wasm"
 );
 const VERIFIER_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
+const EDICT_REVISION: &str = "c75c3f550d049485ba00eae0dc272c6dd6aca11f";
+const EDICT_COMPILER_DESCRIPTOR: &[u8] =
+    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::compile_to_core\n";
+const BUILTIN_LOWERER_DESCRIPTOR: &[u8] =
+    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
+const NON_SEMANTIC_COMPILE_OPTIONS: &[u8] = b"{\"profile\":\"release\"}\n";
 
 struct RoutedCanonicalArtifact {
     role: &'static str,
@@ -347,6 +374,33 @@ fn rendered_provider_digest(digest: &ProviderDigest) -> String {
     format!("sha256:{}", hex(&digest.bytes))
 }
 
+fn raw_resource(coordinate: impl Into<String>, bytes: &[u8]) -> DigestLockedResource {
+    DigestLockedResource::new(coordinate, raw_digest(bytes)).expect("resource digest is strict")
+}
+
+fn routed_digest_locked_resource(
+    manifest: &TargetProviderManifest,
+    role: &str,
+) -> DigestLockedResource {
+    let resource = routed_resource(manifest, role);
+    DigestLockedResource::new(
+        resource.coordinate.clone(),
+        resource
+            .digest
+            .clone()
+            .expect("every checked package route is digest locked"),
+    )
+    .expect("the routed package resource has a strict digest")
+}
+
+fn generated_digest_locked_resource(fixture: &GeneratedResourceFixture) -> DigestLockedResource {
+    DigestLockedResource::new(
+        fixture.domain,
+        rendered_provider_digest(&provider_digest(fixture.domain, fixture.bytes)),
+    )
+    .expect("the generated package resource has a strict digest")
+}
+
 fn bound_artifact(coordinate: &str, domain: &str, bytes: &[u8]) -> ProviderBoundArtifact {
     ProviderBoundArtifact {
         reference: ProviderResourceRef {
@@ -434,7 +488,7 @@ fn lowerability_bytes() -> Vec<u8> {
     .expect("lowerability facts encode canonically")
 }
 
-fn echo_core() -> CoreModule {
+fn echo_core_from(source: &str) -> CoreModule {
     let context = CompilerContext::new()
         .with_operation_profile("p.effectful", "continuum.profile.write/v1")
         .with_operation_profile_write_classes("p.effectful", [WriteClass::Replace])
@@ -447,8 +501,16 @@ fn echo_core() -> CoreModule {
                 max_output_bytes: 256,
             },
         );
-    let module = parse_module(ECHO_SOURCE).expect("Echo source parses");
+    let module = parse_module(source).expect("Echo source parses");
     compile_to_core(&module, &context).expect("Echo source compiles to Core")
+}
+
+fn echo_core() -> CoreModule {
+    echo_core_from(ECHO_SOURCE)
+}
+
+fn whitespace_changed_echo_source() -> String {
+    format!("\n{ECHO_SOURCE}")
 }
 
 fn semantic_input(
@@ -537,7 +599,7 @@ fn lowering_request(
     (contract, request)
 }
 
-fn oracle_target_ir(core: &CoreModule, target_profile: ResourceRef) -> Vec<u8> {
+fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> TargetIrArtifact {
     let facts = TargetIrLoweringFacts {
         target_profile,
         target_ir_domain: ECHO_SPAN_IR_DOMAIN.to_owned(),
@@ -556,10 +618,14 @@ fn oracle_target_ir(core: &CoreModule, target_profile: ResourceRef) -> Vec<u8> {
         },
     )
     .expect("Edict's built-in Echo lowerer accepts the exact fixture");
-    let artifact = report
+    report
         .artifact
-        .expect("the exact fixture lowers to Target IR");
-    encode_target_ir_artifact(&artifact).expect("oracle Target IR encodes canonically")
+        .expect("the exact fixture lowers to Target IR")
+}
+
+fn oracle_target_ir(core: &CoreModule, target_profile: ResourceRef) -> Vec<u8> {
+    encode_target_ir_artifact(&oracle_target_ir_artifact(core, target_profile))
+        .expect("oracle Target IR encodes canonically")
 }
 
 fn verification_request(
@@ -617,6 +683,696 @@ const fn response_limits() -> ProviderResponseLimits {
         max_diagnostic_count: 8,
         max_total_response_bytes: 64 * 1024,
     }
+}
+
+const fn host_limits() -> ProviderHostLimits {
+    ProviderHostLimits {
+        max_input_bytes: 1024 * 1024,
+        max_output_bytes: 3 * 1024 * 1024,
+        max_diagnostic_bytes: 3 * 1024 * 1024,
+        max_wasm_memory_bytes: 16 * 1024 * 1024,
+        max_table_elements: 10_000,
+        max_instances: 100,
+        max_memories: 8,
+        max_tables: 8,
+        max_wasm_fuel: 50_000_000,
+        max_hostcall_bytes: 4 * 1024 * 1024,
+        max_host_diagnostic_bytes: 512,
+    }
+}
+
+struct PackageConformanceObservation {
+    target_ir_digest: String,
+    verifier_outcome: &'static str,
+    builtin_semantic_bundle_digest: String,
+    external_semantic_bundle_digest: String,
+    builtin_release_bundle_digest: String,
+    external_release_bundle_digest: String,
+    external_lowerer: ResourceRef,
+    external_verifier: ResourceRef,
+    generated_helper_bound: bool,
+}
+
+struct PackageConformanceExecution {
+    observation: PackageConformanceObservation,
+    external_bundle: ContractBundleManifest,
+    source_occurrence_bundle: ContractBundleManifest,
+    baseline_core: CoreModule,
+    source_occurrence_core: CoreModule,
+    baseline_target_ir: TargetIrArtifact,
+    source_occurrence_target_ir: TargetIrArtifact,
+}
+
+impl PackageConformanceObservation {
+    fn render(&self) -> String {
+        format!(
+            concat!(
+                "target-ir={};semantic-bundle={};builtin-release={};external-release={};",
+                "lowerer={}#{};verifier={}#{};verifier-outcome={};helper-bound={}"
+            ),
+            self.target_ir_digest,
+            self.external_semantic_bundle_digest,
+            self.builtin_release_bundle_digest,
+            self.external_release_bundle_digest,
+            self.external_lowerer.coordinate,
+            self.external_lowerer
+                .digest
+                .as_deref()
+                .expect("the external lowerer observation is digest locked"),
+            self.external_verifier.coordinate,
+            self.external_verifier
+                .digest
+                .as_deref()
+                .expect("the external verifier observation is digest locked"),
+            self.verifier_outcome,
+            self.generated_helper_bound,
+        )
+    }
+}
+
+fn package_conformance_child_observation() -> String {
+    let executable = std::env::current_exe().expect("current test executable is discoverable");
+    let output = Command::new(executable)
+        .arg("emit_completed_package_conformance_observation")
+        .args(["--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .output()
+        .expect("child conformance process launches");
+    assert!(
+        output.status.success(),
+        "child conformance witness failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("child output is UTF-8");
+    stdout
+        .lines()
+        .find_map(|line| {
+            line.split_once(PACKAGE_OBSERVATION_MARKER)
+                .map(|(_, observation)| observation)
+        })
+        .unwrap_or_else(|| panic!("child omitted stable package observation:\n{stdout}"))
+        .to_owned()
+}
+
+fn contract_bundle_input(
+    manifest: &TargetProviderManifest,
+    core_module: CoreModule,
+    target_ir_artifact: TargetIrArtifact,
+    source_bytes: &[u8],
+    lowerer: DigestLockedResource,
+    verifier: DigestLockedResource,
+    verifier_report: DigestLockedResource,
+) -> ContractBundleAssemblyFromTargetIrInput {
+    let mut generated_artifacts = [
+        "authority-facts.echo-lawpack",
+        GENERATED_ARTIFACT_PROFILE_ROLE,
+        SCHEMA_ROLE,
+    ]
+    .into_iter()
+    .map(|role| routed_digest_locked_resource(manifest, role))
+    .collect::<Vec<_>>();
+    generated_artifacts.extend(
+        GENERATED_RESOURCE_FIXTURES
+            .iter()
+            .filter(|fixture| fixture.path != "resource.conformance-corpus.cbor")
+            .map(generated_digest_locked_resource),
+    );
+    let conformance_fixture = GENERATED_RESOURCE_FIXTURES
+        .iter()
+        .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
+        .map(generated_digest_locked_resource)
+        .expect("the checked package contains its conformance corpus");
+
+    ContractBundleAssemblyFromTargetIrInput {
+        core_module,
+        core_ir_coordinate: "a.b@1.core/v1".to_owned(),
+        source_artifacts: vec![ContractBundleSourceArtifact::new(
+            "tests/edict-provider-host-v1/fixtures/provider-conformance-v1/source.edict",
+            "echo.provider-conformance.source@1",
+            raw_digest(source_bytes),
+        )
+        .expect("the reviewed Edict source has an exact occurrence identity")],
+        source_profile_semantic_facts: routed_digest_locked_resource(
+            manifest,
+            "authority-facts.echo-dpo",
+        ),
+        target_ir_artifact,
+        lawpacks: vec![routed_digest_locked_resource(manifest, "lawpack.echo-dpo")],
+        generated_artifacts,
+        compiler: raw_resource(
+            format!("edict.compiler@{EDICT_REVISION}"),
+            EDICT_COMPILER_DESCRIPTOR,
+        ),
+        lowerer,
+        verifier,
+        semantic_compile_options: raw_resource(
+            "echo.provider.generation-settings/v1",
+            GENERATION_SETTINGS_BYTES,
+        ),
+        non_semantic_compile_options: raw_resource(
+            "echo.provider.compile-options.non-semantic/v1",
+            NON_SEMANTIC_COMPILE_OPTIONS,
+        ),
+        build_provenance: raw_resource(
+            "wesley.generation-provenance-manifest/v1",
+            GENERATION_PROVENANCE_BYTES,
+        ),
+        canonicalization_profile: raw_resource(CANONICAL_CBOR_ABI, CANONICALIZATION_PROFILE_BYTES),
+        conformance_fixture_corpora: vec![conformance_fixture],
+        verifier_report,
+        compile_explanation: raw_resource(
+            "echo.provider.generation-review/v1",
+            GENERATION_REVIEW_BYTES,
+        ),
+        assurance_evidence: Vec::new(),
+    }
+}
+
+fn generated_helper_expected(
+    bundle: &ContractBundleManifest,
+) -> generated::ExpectedContractBundleIdentityV1<'_> {
+    generated::ExpectedContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: &bundle.semantic_bundle_digest,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: &bundle.release_bundle_digest,
+    }
+}
+
+fn generated_helper_identity(
+    bundle: &ContractBundleManifest,
+) -> generated::ContractBundleIdentityV1<'_> {
+    generated::ContractBundleIdentityV1 {
+        semantic_digest_domain: generated::SEMANTIC_BUNDLE_DIGEST_DOMAIN,
+        semantic_digest: &bundle.semantic_bundle_digest,
+        release_digest_domain: generated::RELEASE_BUNDLE_DIGEST_DOMAIN,
+        release_digest: &bundle.release_bundle_digest,
+        operation_coordinate: generated::OPERATION_COORDINATE,
+        operation_domain: generated::OPERATION_DOMAIN,
+        operation_id_law: generated::OPERATION_ID_LAW,
+        operation_id: generated::OPERATION_ID,
+        value_codec: generated::VALUE_CODEC_ID,
+        target_ir_coordinate: &bundle.target_ir.coordinate,
+        target_ir_digest_domain: generated::TARGET_IR_DIGEST_DOMAIN,
+        target_ir_digest: bundle
+            .target_ir
+            .digest
+            .as_deref()
+            .expect("the assembled Target IR is digest locked"),
+        target_profile_coordinate: &bundle.target_profile.coordinate,
+        target_profile_digest_domain: generated::TARGET_PROFILE_DIGEST_DOMAIN,
+        target_profile_digest: bundle
+            .target_profile
+            .digest
+            .as_deref()
+            .expect("the assembled target profile is digest locked"),
+        target_bundle_profile_coordinate: generated::TARGET_BUNDLE_PROFILE_COORDINATE,
+        target_bundle_profile_digest_domain: generated::TARGET_BUNDLE_PROFILE_DIGEST_DOMAIN,
+        target_bundle_profile_digest: generated::TARGET_BUNDLE_PROFILE_DIGEST,
+        echo_contract_abi_version: generated::ECHO_CONTRACT_ABI_VERSION,
+        helper_api_version: generated::CONTRACT_HOST_HELPER_API_VERSION,
+        provider_schema_coordinate: generated::PROVIDER_SCHEMA_COORDINATE,
+        provider_schema_sha256_hex: generated::PROVIDER_SCHEMA_SHA256_HEX,
+        input_schema: generated::INPUT_SCHEMA,
+        output_schema: generated::OUTPUT_SCHEMA,
+        type_schema_domain: generated::TYPE_SCHEMA_DOMAIN,
+        obstruction_coordinate: generated::OBSTRUCTION_COORDINATE,
+        obstruction_domain: generated::OBSTRUCTION_DOMAIN,
+        effect_failure_schema: generated::EFFECT_FAILURE_SCHEMA,
+        obstruction_payload_schema: generated::OBSTRUCTION_PAYLOAD_SCHEMA,
+        generated_artifact_profile: generated::GENERATED_ARTIFACT_PROFILE,
+        generated_artifact_profile_digest_domain:
+            generated::GENERATED_ARTIFACT_PROFILE_DIGEST_DOMAIN,
+        generated_artifact_profile_digest: generated::GENERATED_ARTIFACT_PROFILE_DIGEST,
+        operation_profile: generated::OPERATION_PROFILE,
+        operation_profile_domain: generated::OPERATION_PROFILE_DOMAIN,
+        operation_profiles_coordinate: generated::OPERATION_PROFILES_COORDINATE,
+        operation_profiles_digest_domain: generated::OPERATION_PROFILES_DIGEST_DOMAIN,
+        operation_profiles_digest: generated::OPERATION_PROFILES_DIGEST,
+        footprint_obligation: generated::FOOTPRINT_OBLIGATION,
+        footprint_algebra: generated::FOOTPRINT_ALGEBRA,
+        footprint_algebra_digest_domain: generated::FOOTPRINT_ALGEBRA_DIGEST_DOMAIN,
+        footprint_algebra_digest: generated::FOOTPRINT_ALGEBRA_DIGEST,
+    }
+}
+
+fn bind_generated_helper_to_bundle(bundle: &ContractBundleManifest) -> bool {
+    assert_eq!(bundle.target_ir.coordinate, generated::TARGET_IR_COORDINATE);
+    assert_eq!(
+        bundle.target_ir.digest.as_deref(),
+        Some(generated::TARGET_IR_DIGEST)
+    );
+    assert_eq!(
+        bundle.target_profile.coordinate,
+        generated::TARGET_PROFILE_COORDINATE
+    );
+    assert_eq!(
+        bundle.target_profile.digest.as_deref(),
+        Some(generated::TARGET_PROFILE_DIGEST)
+    );
+
+    let expected = generated_helper_expected(bundle);
+    let identity = generated_helper_identity(bundle);
+    let descriptor = generated::bind_contract_bundle(expected, &identity)
+        .expect("the generated helper binds the real assembled external bundle");
+    assert_eq!(
+        descriptor.contract_bundle().semantic_digest,
+        bundle.semantic_bundle_digest
+    );
+    assert_eq!(
+        descriptor.contract_bundle().release_digest,
+        bundle.release_bundle_digest
+    );
+    true
+}
+
+fn complete_package_conformance_execution() -> PackageConformanceExecution {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let registry = package_registry(&manifest);
+    let host = ProviderComponentHost::new().expect("the deterministic host configures");
+
+    let lowerer = select_provider_component(&proof, LOWERER_ROLE, ProviderInvocationKind::Lowering)
+        .expect("the checked package selects its lowerer");
+    let lowerer = ResolvedProviderComponent::new(lowerer, Arc::<[u8]>::from(LOWERER_BYTES));
+    let prepared_lowerer = host
+        .prepare(&lowerer)
+        .expect("the exact packaged lowerer passes Edict preflight");
+
+    let core = echo_core();
+    let source_occurrence_bytes = whitespace_changed_echo_source();
+    let source_occurrence_core = echo_core_from(&source_occurrence_bytes);
+    let (lowering_contract, lowering_request) = lowering_request(&core);
+    assert_request_semantics_are_package_routed(
+        &manifest,
+        &lowering_request.target_profile,
+        &lowering_request.semantic_inputs,
+    );
+    let lowering_request =
+        validate_provider_lowering_request(&registry, &lowering_contract, &lowering_request)
+            .expect("the package-routed lowering request has an Edict validation proof");
+    let lowering_outcome = host
+        .invoke_lowerer(
+            &prepared_lowerer,
+            &lowering_request,
+            &registry,
+            host_limits(),
+        )
+        .expect("the packaged lowerer completes through Edict's bounded host");
+    assert!(lowering_outcome.refusal().is_none());
+    let lowering_response = lowering_outcome
+        .response()
+        .expect("the packaged lowerer emits Target IR");
+    assert!(lowering_response.diagnostics.is_empty());
+    let [target_ir_output] = lowering_response.outputs.as_slice() else {
+        panic!("the packaged lowerer must emit exactly one Target IR output");
+    };
+    assert_eq!(target_ir_output.role, TARGET_IR_ROLE);
+    assert_eq!(target_ir_output.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(
+        target_ir_output.artifact.domain,
+        TARGET_IR_ARTIFACT_DIGEST_DOMAIN
+    );
+    assert_eq!(target_ir_output.logical_path, None);
+
+    let builtin_target_ir_artifact = oracle_target_ir_artifact(
+        &core,
+        routed_resource(&manifest, "target-profile.echo-dpo").clone(),
+    );
+    let source_occurrence_target_ir = oracle_target_ir_artifact(
+        &source_occurrence_core,
+        routed_resource(&manifest, "target-profile.echo-dpo").clone(),
+    );
+    let builtin_target_ir = encode_target_ir_artifact(&builtin_target_ir_artifact)
+        .expect("the built-in compatibility Target IR encodes canonically");
+    assert_eq!(target_ir_output.artifact.bytes, builtin_target_ir);
+    let builtin_target_ir_digest =
+        provider_digest(TARGET_IR_ARTIFACT_DIGEST_DOMAIN, &builtin_target_ir);
+    let lowering_manifest = lowering_outcome
+        .manifest()
+        .expect("the Edict host authors the external lowerer output manifest");
+    let [target_ir_entry] = lowering_manifest.outputs() else {
+        panic!("the lowerer manifest must bind exactly one Target IR output");
+    };
+    assert_eq!(target_ir_entry.role, TARGET_IR_ROLE);
+    assert_eq!(target_ir_entry.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(target_ir_entry.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
+    assert_eq!(target_ir_entry.digest, builtin_target_ir_digest);
+
+    let verifier =
+        select_provider_component(&proof, VERIFIER_ROLE, ProviderInvocationKind::Verification)
+            .expect("the checked package selects its verifier");
+    let verifier = ResolvedProviderComponent::new(verifier, Arc::<[u8]>::from(VERIFIER_BYTES));
+    let prepared_verifier = host
+        .prepare(&verifier)
+        .expect("the exact packaged verifier passes Edict preflight");
+    let (verification_contract, verification_request) =
+        verification_request(&core, &target_ir_output.artifact.bytes);
+    assert_request_semantics_are_package_routed(
+        &manifest,
+        &verification_request.target_profile,
+        &verification_request.semantic_inputs,
+    );
+    let verification_request = validate_provider_verification_request(
+        &registry,
+        &verification_contract,
+        &verification_request,
+    )
+    .expect("the package-routed verification request has an Edict validation proof");
+    let verification_outcome = host
+        .invoke_verifier(
+            &prepared_verifier,
+            &verification_request,
+            &registry,
+            host_limits(),
+        )
+        .expect("the packaged verifier completes through Edict's bounded host");
+    assert!(
+        verification_outcome.refusal().is_none(),
+        "packaged verifier unexpectedly refused: {:?}",
+        verification_outcome.refusal()
+    );
+    let verification_response = verification_outcome
+        .response()
+        .expect("the packaged verifier emits a verifier report");
+    assert!(verification_response.diagnostics.is_empty());
+    let [verifier_report] = verification_response.outputs.as_slice() else {
+        panic!("the packaged verifier must emit exactly one verifier report");
+    };
+    assert_eq!(verifier_report.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(
+        verifier_report.kind,
+        ProviderVerificationOutputKind::VerifierReport
+    );
+    assert_eq!(verifier_report.artifact.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(verifier_report.logical_path, None);
+    let verifier_report_value = decode_canonical_cbor(&verifier_report.artifact.bytes)
+        .expect("the admitted verifier report is canonical CBOR");
+    assert_eq!(
+        map_field(&verifier_report_value, "outcome"),
+        Some(&text("accepted"))
+    );
+    let target_ir_reference = map_field(&verifier_report_value, "targetIr")
+        .expect("the verifier report binds its exact Target IR subject");
+    let (target_ir_coordinate, target_ir_digest) = embedded_resource_ref(target_ir_reference)
+        .expect("the verifier report carries a strict Target IR reference");
+    assert_eq!(target_ir_coordinate, "echo.target-ir@1");
+    assert_eq!(target_ir_digest, builtin_target_ir_digest.bytes.as_slice());
+    let verification_manifest = verification_outcome
+        .manifest()
+        .expect("the Edict host authors the verifier output manifest");
+    let [verifier_entry] = verification_manifest.outputs() else {
+        panic!("the verifier manifest must bind exactly one report output");
+    };
+    assert_eq!(verifier_entry.role, VERIFIER_REPORT_ROLE);
+    assert_eq!(
+        verifier_entry.kind,
+        ProviderVerificationOutputKind::VerifierReport
+    );
+    assert_eq!(verifier_entry.domain, VERIFIER_REPORT_DOMAIN);
+    assert_eq!(
+        verifier_entry.digest,
+        provider_digest(VERIFIER_REPORT_DOMAIN, &verifier_report.artifact.bytes)
+    );
+
+    let external_lowerer = routed_resource(&manifest, LOWERER_ROLE).clone();
+    let external_verifier = routed_resource(&manifest, VERIFIER_ROLE).clone();
+    let external_lowerer_resource = routed_digest_locked_resource(&manifest, LOWERER_ROLE);
+    let external_verifier_resource = routed_digest_locked_resource(&manifest, VERIFIER_ROLE);
+    let verifier_report_resource = DigestLockedResource::new(
+        VERIFIER_REPORT_DOMAIN,
+        rendered_provider_digest(&verifier_entry.digest),
+    )
+    .expect("the admitted verifier report has a strict bundle identity");
+    let builtin_bundle = assemble_contract_bundle_from_target_ir(contract_bundle_input(
+        &manifest,
+        core.clone(),
+        builtin_target_ir_artifact.clone(),
+        ECHO_SOURCE.as_bytes(),
+        raw_resource(
+            format!("edict.builtin.echo-dpo.lowerer@{EDICT_REVISION}"),
+            BUILTIN_LOWERER_DESCRIPTOR,
+        ),
+        external_verifier_resource.clone(),
+        verifier_report_resource.clone(),
+    ))
+    .expect("the built-in compatibility observation assembles a valid bundle");
+    let external_bundle = assemble_contract_bundle_from_target_ir(contract_bundle_input(
+        &manifest,
+        core.clone(),
+        builtin_target_ir_artifact.clone(),
+        ECHO_SOURCE.as_bytes(),
+        external_lowerer_resource.clone(),
+        external_verifier_resource.clone(),
+        verifier_report_resource.clone(),
+    ))
+    .expect("the external provider observation assembles a valid bundle");
+    let source_occurrence_bundle = assemble_contract_bundle_from_target_ir(contract_bundle_input(
+        &manifest,
+        source_occurrence_core.clone(),
+        source_occurrence_target_ir.clone(),
+        source_occurrence_bytes.as_bytes(),
+        external_lowerer_resource,
+        external_verifier_resource,
+        verifier_report_resource,
+    ))
+    .expect("the whitespace-only source occurrence assembles a valid bundle");
+    assert_eq!(builtin_bundle.target_ir, external_bundle.target_ir);
+    assert_eq!(
+        builtin_bundle.semantic_bundle_digest,
+        external_bundle.semantic_bundle_digest
+    );
+    assert_ne!(
+        builtin_bundle.release_bundle_digest,
+        external_bundle.release_bundle_digest
+    );
+    assert_eq!(external_bundle.lowerer, external_lowerer);
+    assert_eq!(external_bundle.verifier, external_verifier);
+    let generated_helper_bound = bind_generated_helper_to_bundle(&external_bundle);
+
+    let observation = PackageConformanceObservation {
+        target_ir_digest: rendered_provider_digest(&builtin_target_ir_digest),
+        verifier_outcome: "accepted",
+        builtin_semantic_bundle_digest: builtin_bundle.semantic_bundle_digest,
+        external_semantic_bundle_digest: external_bundle.semantic_bundle_digest.clone(),
+        builtin_release_bundle_digest: builtin_bundle.release_bundle_digest,
+        external_release_bundle_digest: external_bundle.release_bundle_digest.clone(),
+        external_lowerer,
+        external_verifier,
+        generated_helper_bound,
+    };
+    PackageConformanceExecution {
+        observation,
+        external_bundle,
+        source_occurrence_bundle,
+        baseline_core: core,
+        source_occurrence_core,
+        baseline_target_ir: builtin_target_ir_artifact,
+        source_occurrence_target_ir,
+    }
+}
+
+fn assert_completed_package_parity_contract(observation: &PackageConformanceObservation) {
+    assert_eq!(observation.verifier_outcome, "accepted");
+    assert_eq!(
+        observation.builtin_semantic_bundle_digest,
+        observation.external_semantic_bundle_digest
+    );
+    assert_ne!(
+        observation.builtin_release_bundle_digest,
+        observation.external_release_bundle_digest
+    );
+    assert!(observation.generated_helper_bound);
+}
+
+fn assert_target_ir_helper_binding_mismatch_contract(execution: &PackageConformanceExecution) {
+    const CHANGED_TARGET_IR_DIGEST: &str =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    assert!(execution.observation.generated_helper_bound);
+    let expected = generated_helper_expected(&execution.external_bundle);
+    let mut identity = generated_helper_identity(&execution.external_bundle);
+    assert_ne!(identity.target_ir_digest, CHANGED_TARGET_IR_DIGEST);
+    identity.target_ir_digest = CHANGED_TARGET_IR_DIGEST;
+
+    let Err(error) = generated::bind_contract_bundle(expected, &identity) else {
+        panic!("a changed Target IR identity cannot cross the checked bundle binding");
+    };
+    assert_eq!(error, generated::BindingMismatchKind::TargetIr);
+}
+
+fn assert_baseline_release_binding_mismatch_contract(execution: &PackageConformanceExecution) {
+    let source_occurrence_bytes = whitespace_changed_echo_source();
+    assert_eq!(
+        source_occurrence_bytes.strip_prefix('\n'),
+        Some(ECHO_SOURCE)
+    );
+    assert_ne!(source_occurrence_bytes.as_bytes(), ECHO_SOURCE.as_bytes());
+    let baseline_source_digest = raw_digest(ECHO_SOURCE.as_bytes());
+    let source_occurrence_digest = raw_digest(source_occurrence_bytes.as_bytes());
+    assert_ne!(baseline_source_digest, source_occurrence_digest);
+
+    assert_eq!(execution.baseline_core, execution.source_occurrence_core);
+    assert_eq!(
+        encode_core_module(&execution.baseline_core)
+            .expect("the baseline Core encodes canonically"),
+        encode_core_module(&execution.source_occurrence_core)
+            .expect("the whitespace-only Core encodes canonically")
+    );
+    assert_eq!(
+        execution.baseline_target_ir,
+        execution.source_occurrence_target_ir
+    );
+    assert_eq!(
+        encode_target_ir_artifact(&execution.baseline_target_ir)
+            .expect("the baseline Target IR encodes canonically"),
+        encode_target_ir_artifact(&execution.source_occurrence_target_ir)
+            .expect("the whitespace-only Target IR encodes canonically")
+    );
+
+    let baseline = &execution.external_bundle;
+    let changed = &execution.source_occurrence_bundle;
+    let [baseline_source] = baseline.source_artifacts.as_slice() else {
+        panic!("the baseline release has one exact source occurrence");
+    };
+    let [changed_source] = changed.source_artifacts.as_slice() else {
+        panic!("the changed release has one exact source occurrence");
+    };
+    assert_eq!(baseline_source.logical_path, changed_source.logical_path);
+    assert_eq!(
+        baseline_source.artifact.coordinate,
+        changed_source.artifact.coordinate
+    );
+    assert_eq!(
+        baseline_source.artifact.digest.as_deref(),
+        Some(baseline_source_digest.as_str())
+    );
+    assert_eq!(
+        changed_source.artifact.digest.as_deref(),
+        Some(source_occurrence_digest.as_str())
+    );
+
+    assert_eq!(baseline.api_version, changed.api_version);
+    assert_eq!(baseline.core_ir, changed.core_ir);
+    assert_eq!(baseline.target_profile, changed.target_profile);
+    assert_eq!(baseline.target_ir, changed.target_ir);
+    assert_eq!(baseline.lawpacks, changed.lawpacks);
+    assert_eq!(
+        baseline.source_profile_semantic_facts,
+        changed.source_profile_semantic_facts
+    );
+    assert_eq!(baseline.generated_artifacts, changed.generated_artifacts);
+    assert_eq!(
+        baseline.canonicalization_profile,
+        changed.canonicalization_profile
+    );
+    assert_eq!(
+        baseline.semantic_compile_options,
+        changed.semantic_compile_options
+    );
+    assert_eq!(
+        baseline.conformance_fixture_corpora,
+        changed.conformance_fixture_corpora
+    );
+    assert_eq!(baseline.verifier_report, changed.verifier_report);
+    assert_eq!(baseline.compiler, changed.compiler);
+    assert_eq!(baseline.lowerer, changed.lowerer);
+    assert_eq!(baseline.verifier, changed.verifier);
+    assert_eq!(
+        baseline.non_semantic_compile_options,
+        changed.non_semantic_compile_options
+    );
+    assert_eq!(baseline.build_provenance, changed.build_provenance);
+    assert_eq!(baseline.compile_explanation, changed.compile_explanation);
+    assert_eq!(baseline.assurance_evidence, changed.assurance_evidence);
+    assert_eq!(baseline.admission_artifacts, changed.admission_artifacts);
+    assert_eq!(
+        baseline.semantic_bundle_digest,
+        changed.semantic_bundle_digest
+    );
+    assert_ne!(
+        baseline.release_bundle_digest,
+        changed.release_bundle_digest
+    );
+
+    let Err(error) = generated::bind_contract_bundle(
+        generated_helper_expected(baseline),
+        &generated_helper_identity(changed),
+    ) else {
+        panic!("a new release occurrence cannot cross the baseline host pin");
+    };
+    assert_eq!(error, generated::BindingMismatchKind::ReleaseBundleDigest);
+    generated::bind_contract_bundle(
+        generated_helper_expected(changed),
+        &generated_helper_identity(changed),
+    )
+    .expect("the whitespace-only occurrence binds under its own release identity");
+}
+
+#[test]
+fn checked_bundle_helper_refuses_a_changed_target_ir_identity() {
+    let execution = complete_package_conformance_execution();
+    assert_target_ir_helper_binding_mismatch_contract(&execution);
+}
+
+#[test]
+fn whitespace_only_source_occurrence_preserves_semantics_and_moves_release_identity() {
+    let execution = complete_package_conformance_execution();
+    assert_baseline_release_binding_mismatch_contract(&execution);
+}
+
+fn execute_declared_package_cases(execution: &PackageConformanceExecution) {
+    let observation = &execution.observation;
+    let corpus = GENERATED_RESOURCE_FIXTURES
+        .iter()
+        .find(|fixture| fixture.path == "resource.conformance-corpus.cbor")
+        .expect("the checked package declares its conformance corpus");
+    assert_eq!(corpus.bytes, CONFORMANCE_CORPUS_BYTES);
+    let cases = decode_declared_cases(corpus.bytes)
+        .expect("every checked declaration has one exact executable owner");
+    let declared: BTreeSet<_> = cases
+        .iter()
+        .filter(|case| case.owner() == ExecutorOwner::Package)
+        .map(support::conformance::DeclaredCase::contract)
+        .collect();
+    let mut executed = BTreeSet::new();
+    for case in &cases {
+        match case.owner() {
+            ExecutorOwner::Package => {
+                match case.contract() {
+                    ExecutableContract::CompletedPackageParity => {
+                        assert_completed_package_parity_contract(observation);
+                    }
+                    ExecutableContract::ArtifactDigestMismatchRejected => {
+                        assert_artifact_digest_mismatch_contract();
+                    }
+                    ExecutableContract::SchemaArtifactDigestMismatchRejected => {
+                        assert_schema_artifact_digest_mismatch_contract();
+                    }
+                    ExecutableContract::ComponentDigestMismatchRejected => {
+                        assert_component_digest_mismatch_contract();
+                    }
+                    ExecutableContract::TargetIrHelperBindingMismatchRejected => {
+                        assert_target_ir_helper_binding_mismatch_contract(execution);
+                    }
+                    ExecutableContract::BaselineReleaseBindingMismatchRejected => {
+                        assert_baseline_release_binding_mismatch_contract(execution);
+                    }
+                    ExecutableContract::AmbientCapabilityPreflightDenied
+                    | ExecutableContract::NoncanonicalTargetIrOutputDenied
+                    | ExecutableContract::UnsupportedCoreSemanticsRefused
+                    | ExecutableContract::UnsupportedVerifierOutputRoleRefused
+                    | ExecutableContract::TargetIntrinsicMismatchRejected
+                    | ExecutableContract::ObstructionRelationMismatchRejected => {
+                        panic!("host-owned contract reached the package executor");
+                    }
+                }
+                assert!(executed.insert(case.contract()));
+            }
+            ExecutorOwner::Host => {}
+        }
+    }
+    assert_eq!(executed, declared);
 }
 
 fn routed_resource<'a>(manifest: &'a TargetProviderManifest, role: &str) -> &'a ResourceRef {
@@ -1206,6 +1962,100 @@ fn schema_valid_authority_source_mismatch_fails_primary_identity_closure() {
     assert_eq!(error, PackageIdentityFailure::AuthoritySourceMismatch);
 }
 
+fn assert_artifact_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let registry = declared_package_registry(&manifest);
+    let core = echo_core();
+    let (contract, mut request) = lowering_request(&core);
+    let mut changed_profile =
+        decode_canonical_cbor(TARGET_PROFILE_BYTES).expect("target profile is canonical");
+    *map_field_mut(&mut changed_profile, "readConsistency")
+        .expect("target profile declares read consistency") = text("schema-valid-but-different");
+    registry
+        .validate_canonical_value(TARGET_PROFILE_API_VERSION, &changed_profile)
+        .expect("changed target profile deliberately preserves its owning CDDL shape");
+    request.target_profile.artifact.bytes =
+        encode_canonical_cbor(&changed_profile).expect("changed target profile is canonical");
+
+    let report = validate_provider_lowering_request(&registry, &contract, &request)
+        .expect_err("changed artifact bytes cannot cross an unchanged resource reference");
+    let [failure] = report.failures.as_slice() else {
+        panic!("unchanged artifact pin produces one exact request-admission failure");
+    };
+    assert_eq!(
+        failure.kind,
+        ProviderInvocationValidationFailureKind::ArtifactDigestMismatch
+    );
+    assert_eq!(failure.field, "target_profile.artifact.bytes");
+    assert_eq!(failure.role, None);
+    assert_eq!(
+        failure.obligation,
+        "canonical bytes reproducing the bound sha256 digest"
+    );
+}
+
+#[test]
+fn changed_artifact_bytes_fail_under_the_checked_reference() {
+    assert_artifact_digest_mismatch_contract();
+}
+
+fn assert_schema_artifact_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let mut changed_schema = SCHEMA_BYTES.to_vec();
+    changed_schema[0] ^= 1;
+    let error = ProviderArtifactSchemaRegistry::from_manifest(
+        &proof,
+        [ResolvedProviderSchemaArtifact {
+            role: SCHEMA_ROLE.to_owned(),
+            bytes: Arc::from(changed_schema),
+        }],
+        required_domains(&manifest),
+    )
+    .expect_err("changed schema bytes cannot cross the checked schema reference");
+    assert_eq!(
+        error.kind(),
+        ProviderSchemaRegistryFailureKind::SchemaArtifactDigestMismatch
+    );
+    assert_eq!(error.schema_role(), Some(SCHEMA_ROLE));
+}
+
+#[test]
+fn changed_schema_bytes_fail_under_the_checked_reference() {
+    assert_schema_artifact_digest_mismatch_contract();
+}
+
+fn assert_component_digest_mismatch_contract() {
+    let manifest = checked_manifest();
+    let proof = bind_target_provider_manifest(&manifest)
+        .expect("the checked package manifest satisfies the Edict envelope");
+    let selected =
+        select_provider_component(&proof, LOWERER_ROLE, ProviderInvocationKind::Lowering)
+            .expect("the checked lowerer selects");
+    let mut changed_component = LOWERER_BYTES.to_vec();
+    changed_component[0] ^= 1;
+    let resolved = ResolvedProviderComponent::new(selected, Arc::from(changed_component));
+    let host = ProviderComponentHost::new().expect("the deterministic host configures");
+    let error = host
+        .prepare(&resolved)
+        .expect_err("changed component bytes cannot cross the checked component reference");
+    assert_eq!(
+        error.kind(),
+        ProviderHostFailureKind::ComponentDigestMismatch
+    );
+    assert_eq!(error.phase(), ProviderHostPhase::Preflight);
+    assert_eq!(
+        error.diagnostic(),
+        "resolved component bytes do not reproduce the manifest digest"
+    );
+}
+
+#[test]
+fn changed_component_bytes_fail_under_the_checked_reference() {
+    assert_component_digest_mismatch_contract();
+}
+
 #[test]
 fn malformed_manifest_fails_before_component_selection() {
     let mut manifest = checked_manifest();
@@ -1309,4 +2159,54 @@ fn malformed_artifact_fails_before_component_execution() {
     assert!(report.failures.iter().any(|failure| {
         failure.kind == ProviderInvocationValidationFailureKind::ArtifactSchemaMismatch
     }));
+}
+
+#[test]
+fn declared_package_cases_execute_their_exact_typed_contracts() {
+    let execution = complete_package_conformance_execution();
+    let observation = &execution.observation;
+
+    execute_declared_package_cases(&execution);
+
+    assert_eq!(
+        observation.target_ir_digest,
+        "sha256:d4689abc5c2275ea9c7e1b743197a0d8b4625091632e8f5162eba9ff88d568ad"
+    );
+    assert_eq!(observation.verifier_outcome, "accepted");
+    assert_eq!(
+        observation.builtin_semantic_bundle_digest,
+        observation.external_semantic_bundle_digest
+    );
+    assert_ne!(
+        observation.builtin_release_bundle_digest,
+        observation.external_release_bundle_digest
+    );
+    assert_eq!(
+        observation.external_lowerer,
+        routed_resource(&checked_manifest(), LOWERER_ROLE).clone()
+    );
+    assert_eq!(
+        observation.external_verifier,
+        routed_resource(&checked_manifest(), VERIFIER_ROLE).clone()
+    );
+    assert!(observation.generated_helper_bound);
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the independent-process package witness"]
+fn emit_completed_package_conformance_observation() {
+    println!(
+        "{PACKAGE_OBSERVATION_MARKER}{}",
+        complete_package_conformance_execution()
+            .observation
+            .render()
+    );
+}
+
+#[test]
+fn independent_processes_reproduce_the_completed_package_observation() {
+    let first = package_conformance_child_observation();
+    let second = package_conformance_child_observation();
+
+    assert_eq!(first, second);
 }

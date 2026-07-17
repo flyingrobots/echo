@@ -8,6 +8,9 @@
 )]
 //! Standalone Rust 1.94 witness for the frozen Edict provider-host contract.
 
+mod support;
+
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,9 +31,9 @@ use edict_syntax::{
     ProviderBoundArtifact, ProviderDiagnosticSeverity, ProviderDigest, ProviderDigestAlgorithm,
     ProviderInvocationKind, ProviderInvocationValidationFailureKind,
     ProviderLoweringInvocationContract, ProviderLoweringOutputKind, ProviderLoweringOutputRequest,
-    ProviderLoweringRequest, ProviderOutputManifest, ProviderRefusalKind, ProviderResourceRef,
-    ProviderResponseLimits, ProviderSchemaBinding, ProviderSchemaFormat, ProviderSemanticInput,
-    ProviderSemanticInputBinding, ProviderSemanticInputKind,
+    ProviderLoweringRequest, ProviderOutputManifest, ProviderRefusal, ProviderRefusalKind,
+    ProviderResourceRef, ProviderResponseLimits, ProviderSchemaBinding, ProviderSchemaFormat,
+    ProviderSemanticInput, ProviderSemanticInputBinding, ProviderSemanticInputKind,
     ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ProviderVerificationSuccess,
     ResourceRef, TargetEffectLowering, TargetIrLoweringFacts, TargetProviderManifest,
@@ -38,22 +41,15 @@ use edict_syntax::{
     AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
     ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
-    TARGET_PROVIDER_ABI, TARGET_PROVIDER_MANIFEST_API_VERSION, TARGET_PROVIDER_PROTOCOL_VERSION,
+    TARGET_PROVIDER_ABI, TARGET_PROVIDER_LOWERER_CONTRACT, TARGET_PROVIDER_MANIFEST_API_VERSION,
+    TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
+use support::conformance::{
+    decode_declared_cases, ExecutableContract, ExecutorOwner, CONFORMANCE_CORPUS_BYTES,
+};
 
-const ECHO_SOURCE: &str = "package a.b@1;\n\
-    type Input = { id: String<max=16>, };\n\
-    type Receipt = { id: String<max=16>, };\n\
-    type Output = { id: String<max=16>, };\n\
-    intent t(input: Input) returns Output\n\
-      profile p.effectful\n\
-      basis none\n\
-      budget <= p.tiny {\n\
-      let receipt: Receipt = target.replace(input.id)\n\
-        else { rejected(reason) => domain.WriteRejected };\n\
-      return { id: input.id };\n\
-    }";
+const ECHO_SOURCE: &str = include_str!("../fixtures/provider-conformance-v1/source.edict");
 
 const LOWERABILITY_DOMAIN: &str = "edict.lowering-requirements/v1";
 const TARGET_IR_ROLE: &str = "target-ir.echo-dpo";
@@ -67,13 +63,13 @@ const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
-    "5922fe337e04d2df0b62f32b04b19409609dafbcc672d6e4ea593c83f4ffac53";
+    "9cc5b163ae43116d561071f0b9a59f98d894d858f787ddedd8690ad1451f17d1";
 const DOMAIN_TARGET_IR_SHA256: &str =
-    "2244345f046448c7b519ade05a167137659361ed144b46315ea32dabfbad85fc";
+    "d4689abc5c2275ea9c7e1b743197a0d8b4625091632e8f5162eba9ff88d568ad";
 const RAW_TARGET_PROFILE_SHA256: &str =
-    "cb5104802031e06d2e2802efe14ad23877dba2756684a5509c06a8de7bb9ec85";
+    "a2ecfe500dcedb25b22129a412a7c83379fc265d9f04792355425ff80b52a2ba";
 const DOMAIN_TARGET_PROFILE_SHA256: &str =
-    "ad7f10e1843f4b3d2c08b11d69df103f9c0b1b7388ae26bb364cc87106cd419e";
+    "eedf7bdbf6fe4b6a4036695f41c3dc0a5c692d27e206c9d4c0c5eab41e2f63c9";
 const OBSERVATION_MARKER: &str = "ECHO_EDICT_HOST_OBSERVATION=";
 
 const SCHEMA_BYTES: &[u8] = include_bytes!(
@@ -737,6 +733,22 @@ fn target_ir_with_mismatched_intrinsic(core: &CoreModule) -> Vec<u8> {
     encode_canonical_cbor(&target_ir).expect("mismatched Target IR encodes canonically")
 }
 
+fn target_ir_without_obstruction_arm(core: &CoreModule) -> Vec<u8> {
+    let (target_ir_bytes, _) = oracle_target_ir(core);
+    let mut target_ir =
+        decode_canonical_cbor(&target_ir_bytes).expect("oracle Target IR decodes canonically");
+    let intent = canonical_map_field_mut(canonical_map_field_mut(&mut target_ir, "intents"), "t");
+    let CanonicalValue::Array(steps) = canonical_map_field_mut(intent, "steps") else {
+        panic!("Target IR steps are not an array");
+    };
+    let step = steps
+        .first_mut()
+        .expect("reviewed Target IR has one effect step");
+    *canonical_map_field_mut(step, "obstructionArms") = CanonicalValue::Map(Vec::new());
+    encode_canonical_cbor(&target_ir)
+        .expect("Target IR without obstruction arm encodes canonically")
+}
+
 fn resource_ref_value(reference: &ProviderResourceRef) -> CanonicalValue {
     assert_eq!(
         reference.digest.algorithm,
@@ -833,7 +845,14 @@ fn echo_harness_with_request(
     contract: ProviderLoweringInvocationContract,
     request: ProviderLoweringRequest,
 ) -> LowerHarness {
-    let component = echo_component_bytes();
+    echo_harness_with_request_and_component(contract, request, echo_component_bytes())
+}
+
+fn echo_harness_with_request_and_component(
+    contract: ProviderLoweringInvocationContract,
+    request: ProviderLoweringRequest,
+    component: &'static [u8],
+) -> LowerHarness {
     let manifest = echo_manifest(component);
     let manifest_proof = Box::leak(Box::new(
         bind_target_provider_manifest(manifest).expect("Echo provider manifest validates"),
@@ -885,7 +904,7 @@ fn assert_echo_refusal(
     harness: &LowerHarness,
     expected_kind: ProviderRefusalKind,
     expected_subject: Option<&str>,
-) {
+) -> ProviderRefusal {
     let outcome = harness
         .host
         .invoke_lowerer(
@@ -918,6 +937,7 @@ fn assert_echo_refusal(
     assert_eq!(replayed.refusal(), Some(refusal));
     assert!(replayed.response().is_none());
     assert!(replayed.manifest().is_none());
+    refusal.clone()
 }
 
 fn fixture_manifest(component_bytes: &'static [u8]) -> &'static TargetProviderManifest {
@@ -1409,20 +1429,34 @@ fn echo_component_refuses_an_unsupported_profile_through_the_actual_host() {
     );
 }
 
-#[test]
-fn echo_component_refuses_unsupported_core_semantics_through_the_actual_host() {
+fn assert_unsupported_core_semantics_contract() {
     let mut core = echo_core();
-    core.coordinate = "x.y@1".to_owned();
+    "x.y@1".clone_into(&mut core.coordinate);
     let (mut contract, mut request) = echo_request(&core, TARGET_IR_ROLE);
     request.core.reference.coordinate = core.coordinate;
     contract.core = artifact_binding(&request.core);
     let harness = echo_harness_with_request(contract, request);
 
-    assert_echo_refusal(
+    let refusal = assert_echo_refusal(
         &harness,
         ProviderRefusalKind::UnsupportedSemantics,
         Some("x.y@1"),
     );
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("unsupported semantics produces one provider diagnostic");
+    };
+    assert_eq!(diagnostic.code, "echo.provider.unsupported-semantics");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "the supplied semantics are outside the exact first Echo lowering closure"
+    );
+    assert_eq!(diagnostic.repair, None);
+}
+
+#[test]
+fn echo_component_refuses_unsupported_core_semantics_through_the_actual_host() {
+    assert_unsupported_core_semantics_contract();
 }
 
 #[test]
@@ -1601,6 +1635,119 @@ fn host_rejections_preserve_trap_lifting_and_envelope_identity() {
         .any(|item| { item.kind == ProviderInvocationValidationFailureKind::UndeclaredOutput }));
 }
 
+fn assert_noncanonical_target_ir_output_contract() {
+    let core = echo_core();
+    let (contract, request) = echo_request(&core, "fixture.noncanonical");
+    let harness = echo_harness_with_request_and_component(contract, request, FIXTURE_LOWERER_BYTES);
+
+    let requested = &harness.request.request().requested_outputs[0];
+    assert_eq!(requested.kind, ProviderLoweringOutputKind::TargetIr);
+    assert_eq!(requested.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
+
+    let failure = harness
+        .host
+        .invoke_lowerer(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect_err("noncanonical Target IR must not cross host admission");
+
+    assert_eq!(
+        failure.kind(),
+        ProviderHostFailureKind::ResponseEnvelopeInvalid
+    );
+    assert_eq!(failure.phase(), ProviderHostPhase::ValidateResponse);
+
+    let report = failure
+        .validation_report()
+        .expect("response rejection retains structured validation evidence");
+    assert_eq!(report.failures.len(), 1);
+    let item = &report.failures[0];
+    assert_eq!(
+        item.kind,
+        ProviderInvocationValidationFailureKind::NonCanonicalArtifact
+    );
+    assert_eq!(item.field, "outputs.artifact");
+    assert_eq!(item.role.as_deref(), Some("fixture.noncanonical"));
+    assert_eq!(
+        item.obligation,
+        "canonical artifact bytes within the deterministic nesting bound"
+    );
+}
+
+#[test]
+fn host_rejects_noncanonical_target_ir_from_an_explicit_malicious_provider() {
+    assert_noncanonical_target_ir_output_contract();
+}
+
+fn assert_ambient_capability_preflight_contract() {
+    for capability in [
+        "wasi:filesystem/types@0.2.0",
+        "wasi:sockets/tcp@0.2.0",
+        "wasi:cli/environment@0.2.0",
+        "wasi:clocks/wall-clock@0.2.0",
+        "wasi:random/random@0.2.0",
+    ] {
+        let component = wat::parse_str(format!(
+            r#"(component
+                (@custom
+                    "edict:target-provider-contract"
+                    "{TARGET_PROVIDER_LOWERER_CONTRACT}"
+                )
+                (type $capability
+                    (instance
+                        (type $operation (func))
+                        (export "operation" (func (type $operation)))
+                    )
+                )
+                (import "{capability}" (instance (type $capability)))
+            )"#
+        ))
+        .expect("ambient capability component parses");
+        let component: &'static [u8] = Box::leak(component.into_boxed_slice());
+        let manifest = echo_manifest(component);
+        let manifest_proof = Box::leak(Box::new(
+            bind_target_provider_manifest(manifest)
+                .expect("ambient capability manifest validates exact component bytes"),
+        ));
+        let selected = select_provider_component(
+            manifest_proof,
+            LOWERER_ROLE,
+            ProviderInvocationKind::Lowering,
+        )
+        .expect("ambient capability component selects by exact digest");
+        let resolved = ResolvedProviderComponent::new(selected, Arc::from(component));
+        let host = ProviderComponentHost::new().expect("host configures");
+
+        let failure = host
+            .prepare(&resolved)
+            .expect_err("ambient capability import must reject before instantiation");
+        assert_eq!(
+            failure.kind(),
+            ProviderHostFailureKind::ComponentContractMismatch,
+            "{capability}: {}",
+            failure.diagnostic()
+        );
+        assert_eq!(
+            failure.phase(),
+            ProviderHostPhase::Preflight,
+            "{capability}"
+        );
+        assert_eq!(
+            failure.diagnostic(),
+            "provider component imports callable or unknown host authority",
+            "{capability}"
+        );
+    }
+}
+
+#[test]
+fn ambient_capability_imports_are_denied_during_preflight() {
+    assert_ambient_capability_preflight_contract();
+}
+
 #[test]
 fn rejected_host_invocation_replays_with_the_same_typed_failure() {
     let harness = fixture_harness("fixture.trap");
@@ -1618,6 +1765,55 @@ fn rejected_host_invocation_replays_with_the_same_typed_failure() {
     };
     assert_eq!(failure.kind(), ProviderHostFailureKind::GuestTrap);
     assert_eq!(failure.phase(), ProviderHostPhase::Lower);
+}
+
+#[test]
+fn declared_host_cases_execute_their_exact_typed_contracts() {
+    let cases = decode_declared_cases(CONFORMANCE_CORPUS_BYTES)
+        .expect("every checked declaration has one exact executable owner");
+    let declared: BTreeSet<_> = cases
+        .iter()
+        .filter(|case| case.owner() == ExecutorOwner::Host)
+        .map(support::conformance::DeclaredCase::contract)
+        .collect();
+    let mut executed = BTreeSet::new();
+    for case in &cases {
+        if case.owner() != ExecutorOwner::Host {
+            continue;
+        }
+        match case.contract() {
+            ExecutableContract::CompletedPackageParity => {
+                panic!("package parity cannot be owned by the host executor");
+            }
+            ExecutableContract::AmbientCapabilityPreflightDenied => {
+                assert_ambient_capability_preflight_contract();
+            }
+            ExecutableContract::NoncanonicalTargetIrOutputDenied => {
+                assert_noncanonical_target_ir_output_contract();
+            }
+            ExecutableContract::UnsupportedCoreSemanticsRefused => {
+                assert_unsupported_core_semantics_contract();
+            }
+            ExecutableContract::UnsupportedVerifierOutputRoleRefused => {
+                assert_unsupported_verifier_output_role_contract();
+            }
+            ExecutableContract::TargetIntrinsicMismatchRejected => {
+                assert_target_intrinsic_mismatch_contract();
+            }
+            ExecutableContract::ObstructionRelationMismatchRejected => {
+                assert_obstruction_relation_mismatch_contract();
+            }
+            ExecutableContract::ArtifactDigestMismatchRejected
+            | ExecutableContract::SchemaArtifactDigestMismatchRejected
+            | ExecutableContract::ComponentDigestMismatchRejected
+            | ExecutableContract::TargetIrHelperBindingMismatchRejected
+            | ExecutableContract::BaselineReleaseBindingMismatchRejected => {
+                panic!("package-owned contract reached the host executor");
+            }
+        }
+        assert!(executed.insert(case.contract()));
+    }
+    assert_eq!(executed, declared);
 }
 
 #[test]
@@ -1682,8 +1878,7 @@ fn echo_verifier_component_admits_the_exact_relation_through_the_actual_host() {
     assert_admitted_verifier_success(&harness, response, manifest, "accepted");
 }
 
-#[test]
-fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
+fn assert_target_intrinsic_mismatch_contract() {
     let core = echo_core();
     let target_ir_bytes = target_ir_with_mismatched_intrinsic(&core);
     let harness = echo_verifier_harness(&core, &target_ir_bytes);
@@ -1716,7 +1911,49 @@ fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
 }
 
 #[test]
-fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
+fn echo_verifier_component_admits_a_well_formed_semantic_rejection() {
+    assert_target_intrinsic_mismatch_contract();
+}
+
+fn assert_obstruction_relation_mismatch_contract() {
+    let core = echo_core();
+    let target_ir_bytes = target_ir_without_obstruction_arm(&core);
+    let harness = echo_verifier_harness(&core, &target_ir_bytes);
+    let outcome = harness
+        .host
+        .invoke_verifier(
+            &harness.prepared,
+            &harness.request,
+            harness.schema,
+            host_limits(),
+        )
+        .expect("dropped obstruction remains a well-formed completed verification");
+    assert!(outcome.refusal().is_none());
+    let response = outcome
+        .response()
+        .expect("dropped obstruction returns a rejected verifier report");
+    let [diagnostic] = response.diagnostics.as_slice() else {
+        panic!("dropped obstruction produces one verifier diagnostic");
+    };
+    assert_eq!(diagnostic.code, "echo.verifier.obstruction-mismatch");
+    assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "Target IR does not preserve the exact Core obstruction relation"
+    );
+    assert_eq!(diagnostic.repair, None);
+    let manifest = outcome
+        .manifest()
+        .expect("host authors the rejected verifier output manifest");
+    assert_admitted_verifier_success(&harness, response, manifest, "rejected");
+}
+
+#[test]
+fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
+    assert_obstruction_relation_mismatch_contract();
+}
+
+fn assert_unsupported_verifier_output_role_contract() {
     let core = echo_core();
     let (target_ir_bytes, _) = oracle_target_ir(&core);
     let (contract, mut request) = echo_verification_request(&core, &target_ir_bytes);
@@ -1756,6 +1993,11 @@ fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
         "the first verifier serves exactly one verifier-report.echo-dpo output"
     );
     assert_eq!(diagnostic.repair, None);
+}
+
+#[test]
+fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
+    assert_unsupported_verifier_output_role_contract();
 }
 
 #[test]

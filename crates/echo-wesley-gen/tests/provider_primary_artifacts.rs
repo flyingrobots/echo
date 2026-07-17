@@ -754,30 +754,213 @@ fn echo_owned_outputs_emit_their_declared_schema_api() {
 }
 
 #[test]
-fn declarative_conformance_resource_cannot_claim_unproven_cases() {
+fn declarative_conformance_resource_requires_at_least_one_case_contract() {
     let pack = admitted_pack();
     let (_, generated) = generate(SOURCE, &pack);
     let corpus = generated
         .resource("resource.conformance-corpus")
         .expect("conformance resource exists");
-    let mut fabricated = corpus.canonical_value().clone();
-    *map_field_mut(&mut fabricated, "cases") =
-        CanonicalValueV1::Array(vec![CanonicalValueV1::Null]);
-    let fabricated_bytes =
-        encode_canonical_cbor_v1(&fabricated).expect("fabricated value remains canonical CBOR");
+    let assert_root_rejected = |value: &CanonicalValueV1, reason: &str| {
+        let bytes = encode_canonical_cbor_v1(value).expect("mutated value remains canonical CBOR");
+        let error = generated
+            .schema()
+            .validate_root_bytes(corpus.owning_root(), &bytes)
+            .expect_err(reason);
+        assert_eq!(
+            (error.kind(), error.subject(), error.reference()),
+            (
+                ProviderArtifactGenerationErrorKind::OwningRootRejected,
+                "echo-provider-conformance-corpus",
+                "generated-provider-schema"
+            )
+        );
+    };
 
-    let error = generated
-        .schema()
-        .validate_root_bytes(corpus.owning_root(), &fabricated_bytes)
-        .expect_err("the empty corpus cannot fabricate executable parity evidence");
-    assert_eq!(
-        (error.kind(), error.subject(), error.reference()),
-        (
-            ProviderArtifactGenerationErrorKind::OwningRootRejected,
-            "echo-provider-conformance-corpus",
-            "generated-provider-schema"
-        )
+    let mut empty = corpus.canonical_value().clone();
+    *map_field_mut(&mut empty, "cases") = CanonicalValueV1::Map(Vec::new());
+    assert_root_rejected(
+        &empty,
+        "the declarative corpus cannot omit every required case contract",
     );
+
+    let mut malformed_outcome = corpus.canonical_value().clone();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(
+                map_field_mut(&mut malformed_outcome, "cases"),
+                "package-parity",
+            ),
+            "requiredOutcome",
+        ),
+        "disposition",
+    ) = CanonicalValueV1::Text("passed".to_owned());
+    assert_root_rejected(
+        &malformed_outcome,
+        "a result-shaped disposition is not a declared conformance obligation",
+    );
+
+    let mut fabricated_evidence = corpus.canonical_value().clone();
+    let CanonicalValueV1::Map(case_entries) = map_field_mut(
+        map_field_mut(&mut fabricated_evidence, "cases"),
+        "package-parity",
+    ) else {
+        panic!("package-parity case is a map");
+    };
+    case_entries.push((
+        CanonicalValueV1::Text("evidence".to_owned()),
+        CanonicalValueV1::Null,
+    ));
+    assert_root_rejected(
+        &fabricated_evidence,
+        "the declarative resource cannot claim execution evidence",
+    );
+
+    let mut unknown_contract = corpus.canonical_value().clone();
+    *map_field_mut(
+        map_field_mut(
+            map_field_mut(
+                map_field_mut(&mut unknown_contract, "cases"),
+                "package-parity",
+            ),
+            "requiredOutcome",
+        ),
+        "contract",
+    ) = CanonicalValueV1::Text("unreviewed-contract".to_owned());
+    assert_root_rejected(
+        &unknown_contract,
+        "the declarative resource cannot name an unreviewed executable contract",
+    );
+}
+
+#[test]
+fn declarative_conformance_resource_names_the_reviewed_case_contracts() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let corpus = generated
+        .resource("resource.conformance-corpus")
+        .expect("conformance resource exists");
+    let cases = map_field(corpus.canonical_value(), "cases");
+    let mut case_ids = map_keys(cases);
+    case_ids.sort_unstable();
+
+    assert_eq!(
+        case_ids,
+        [
+            "ambient-capability-denial",
+            "artifact-tamper",
+            "component-tamper",
+            "dropped-obstruction",
+            "helper-identity-mismatch",
+            "noncanonical-output",
+            "output-overclaim",
+            "package-parity",
+            "schema-tamper",
+            "source-occurrence-change",
+            "unsupported-semantics",
+            "wrong-intrinsic",
+        ]
+    );
+
+    for (id, crossing, stimulus, disposition, contract) in [
+        (
+            "package-parity",
+            "pipeline",
+            "baseline",
+            "accepted",
+            "completed-package-parity",
+        ),
+        (
+            "ambient-capability-denial",
+            "component-preflight",
+            "ambient-capabilities-denied",
+            "rejected",
+            "ambient-capability-preflight-denied",
+        ),
+        (
+            "noncanonical-output",
+            "host-output-admission",
+            "noncanonical-cbor-output",
+            "rejected",
+            "noncanonical-target-ir-output-denied",
+        ),
+        (
+            "unsupported-semantics",
+            "lowering",
+            "unsupported-core-semantics",
+            "refused",
+            "unsupported-core-semantics-refused",
+        ),
+        (
+            "output-overclaim",
+            "verification",
+            "unsupported-output-role-requested",
+            "refused",
+            "unsupported-verifier-output-role-refused",
+        ),
+        (
+            "wrong-intrinsic",
+            "verification",
+            "target-intrinsic-changed",
+            "rejected",
+            "target-intrinsic-mismatch-rejected",
+        ),
+        (
+            "dropped-obstruction",
+            "verification",
+            "obstruction-arm-removed",
+            "rejected",
+            "obstruction-relation-mismatch-rejected",
+        ),
+        (
+            "artifact-tamper",
+            "request-admission",
+            "artifact-bytes-changed",
+            "rejected",
+            "artifact-digest-mismatch-rejected",
+        ),
+        (
+            "schema-tamper",
+            "schema-admission",
+            "schema-bytes-changed",
+            "rejected",
+            "schema-artifact-digest-mismatch-rejected",
+        ),
+        (
+            "component-tamper",
+            "component-preflight",
+            "component-bytes-changed",
+            "rejected",
+            "component-digest-mismatch-rejected",
+        ),
+        (
+            "helper-identity-mismatch",
+            "helper-binding",
+            "bundle-identity-changed",
+            "rejected",
+            "target-ir-helper-binding-mismatch-rejected",
+        ),
+        (
+            "source-occurrence-change",
+            "helper-binding",
+            "exact-source-bytes-changed",
+            "rejected",
+            "baseline-release-binding-mismatch-rejected",
+        ),
+    ] {
+        let case = map_field(cases, id);
+        assert_eq!(map_keys(case), ["crossing", "stimulus", "requiredOutcome"]);
+        assert_eq!(text_value(map_field(case, "crossing")), crossing);
+        assert_eq!(text_value(map_field(case, "stimulus")), stimulus);
+        let required_outcome = map_field(case, "requiredOutcome");
+        assert_eq!(
+            text_value(map_field(required_outcome, "disposition")),
+            disposition
+        );
+        assert_eq!(
+            text_value(map_field(required_outcome, "contract")),
+            contract
+        );
+    }
 }
 
 #[test]

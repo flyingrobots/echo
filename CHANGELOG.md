@@ -7,6 +7,17 @@
 
 ### Added
 
+- The checked Echo Edict provider conformance corpus now declares twelve
+  reviewed executable obligations: exactly six owned by the isolated host
+  executor and six by the package executor, with one accepted, nine rejected,
+  and two refused dispositions. Each declaration names its crossing, stimulus,
+  required disposition, and outcome contract, but embeds no pass flag, result,
+  evidence pointer, implementation command, or runtime authority. The two
+  exact-set executors separately produce provider-conformance evidence for
+  baseline package parity, admission and binding failures, typed semantic
+  refusals, and verifier disagreements. Corpus declarations and their executed
+  provider evidence remain distinct from Echo installation, execution,
+  observation, and runtime receipts.
 - `TrustedRuntimeHost` can now admit a witnessed installed-contract submission
   without accepting caller-manufactured ticket authority. Echo derives a
   domain-separated admission digest from its witnessed submission record and
@@ -96,7 +107,7 @@
   dependency source paths to `/cargo`, and atomically promotes only distinct
   candidates matching a reviewed repository digest. The promoted 189,668-byte
   component has SHA-256
-  `9b5ecf1c87a4a98ad3d7381d85e3625649a4f9d62f80f74b2aca6ace26be14af`.
+  `f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`.
   Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
@@ -152,7 +163,7 @@
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
   every emitted report. The 189,922-byte checked component has SHA-256
-  `4f99c07f1c6d682405945fbb3e36e5537b94c4a01bd1a4ec7f02ef8e9911249a`
+  `632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

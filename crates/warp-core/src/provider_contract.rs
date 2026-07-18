@@ -1101,15 +1101,81 @@ impl InstalledProviderContractPackageRecordV1 {
         let operation = self.registry.operations().iter().find(|operation| {
             operation.operation_id() == operation_id && operation.kind() == OpKind::Mutation
         })?;
-        Some(ProviderContractEvidenceIdentityV1 {
-            package_id: self.package_id,
-            package_reference: self.package_reference.clone(),
+        ProviderContractEvidenceIdentityV1::try_from_retained_parts(
+            self.package_id,
+            self.package_reference.clone(),
             operation_id,
-            operation_coordinate: operation.coordinate().to_owned(),
-            target_ir: operation.target_ir().clone(),
-            mutation_rule_id: *self.mutation_rule.rule_id(),
-        })
+            operation.coordinate().to_owned(),
+            operation.target_ir().clone(),
+            *self.mutation_rule.rule_id(),
+        )
+        .ok()
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProviderPackageReferenceValidationError {
+    EmptyCoordinate,
+    MalformedDigest,
+}
+
+impl ProviderPackageReferenceValidationError {
+    const fn recovery_subject(self) -> &'static str {
+        match self {
+            Self::EmptyCoordinate => "provider package reference coordinate",
+            Self::MalformedDigest => "provider package reference digest",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProviderOperationEvidenceValidationError {
+    EmptyOperationCoordinate,
+    EmptyTargetIrCoordinate,
+    EmptyTargetIrDigestDomain,
+    MalformedTargetIrDigest,
+}
+
+impl ProviderOperationEvidenceValidationError {
+    const fn recovery_subject(self) -> &'static str {
+        match self {
+            Self::EmptyOperationCoordinate => "provider operation coordinate",
+            Self::EmptyTargetIrCoordinate => "provider Target IR coordinate",
+            Self::EmptyTargetIrDigestDomain => "provider Target IR digest domain",
+            Self::MalformedTargetIrDigest => "provider Target IR digest",
+        }
+    }
+}
+
+fn validate_provider_package_reference_v1(
+    package_reference: &ProviderPackageReferenceV1,
+) -> Result<&str, ProviderPackageReferenceValidationError> {
+    if package_reference.coordinate().is_empty() {
+        return Err(ProviderPackageReferenceValidationError::EmptyCoordinate);
+    }
+    strict_prefixed_sha256(package_reference.digest())
+        .ok_or(ProviderPackageReferenceValidationError::MalformedDigest)
+}
+
+fn validate_provider_operation_evidence_v1(
+    operation_coordinate: &str,
+    target_ir_coordinate: &str,
+    target_ir_digest_domain: &str,
+    target_ir_digest: &str,
+) -> Result<(), ProviderOperationEvidenceValidationError> {
+    if operation_coordinate.is_empty() {
+        return Err(ProviderOperationEvidenceValidationError::EmptyOperationCoordinate);
+    }
+    if target_ir_coordinate.is_empty() {
+        return Err(ProviderOperationEvidenceValidationError::EmptyTargetIrCoordinate);
+    }
+    if target_ir_digest_domain.is_empty() {
+        return Err(ProviderOperationEvidenceValidationError::EmptyTargetIrDigestDomain);
+    }
+    if strict_prefixed_sha256(target_ir_digest).is_none() {
+        return Err(ProviderOperationEvidenceValidationError::MalformedTargetIrDigest);
+    }
+    Ok(())
 }
 
 /// Provider-native installed-operation evidence attached to invocation receipts.
@@ -1137,27 +1203,18 @@ impl ProviderContractEvidenceIdentityV1 {
         target_ir: InstalledProviderDigestIdentityV1,
         mutation_rule_id: crate::Hash,
     ) -> Result<Self, &'static str> {
-        if package_reference.coordinate().is_empty() {
-            return Err("provider package reference coordinate");
-        }
-        if strict_prefixed_sha256(package_reference.digest()).is_none() {
-            return Err("provider package reference digest");
-        }
+        validate_provider_package_reference_v1(&package_reference)
+            .map_err(ProviderPackageReferenceValidationError::recovery_subject)?;
         if is_reserved_operation_id(operation_id) {
             return Err("provider operation id");
         }
-        if operation_coordinate.is_empty() {
-            return Err("provider operation coordinate");
-        }
-        if target_ir.coordinate().is_empty() {
-            return Err("provider Target IR coordinate");
-        }
-        if target_ir.digest_domain().is_empty() {
-            return Err("provider Target IR digest domain");
-        }
-        if strict_prefixed_sha256(target_ir.digest()).is_none() {
-            return Err("provider Target IR digest");
-        }
+        validate_provider_operation_evidence_v1(
+            &operation_coordinate,
+            target_ir.coordinate(),
+            target_ir.digest_domain(),
+            target_ir.digest(),
+        )
+        .map_err(ProviderOperationEvidenceValidationError::recovery_subject)?;
         Ok(Self {
             package_id,
             package_reference,
@@ -1214,6 +1271,14 @@ pub enum ProviderContractInstallationErrorKind {
     MalformedPackageReferenceDigest,
     /// The referenced package root differs from the admitted occurrence hash.
     PackageArtifactDigestMismatch,
+    /// The admitted provider operation has an empty semantic coordinate.
+    EmptyOperationCoordinate,
+    /// The admitted provider operation has an empty Target IR coordinate.
+    EmptyTargetIrCoordinate,
+    /// The admitted provider operation has an empty Target IR digest domain.
+    EmptyTargetIrDigestDomain,
+    /// The admitted provider operation Target IR digest is not strict lowercase SHA-256.
+    MalformedTargetIrDigest,
     /// The admitted proposal does not contain exactly one supported operation.
     UnsupportedOperationCount,
     /// The admitted provider operation is not a mutation.
@@ -1329,9 +1394,10 @@ pub trait ProviderContractPackageInstallerV1: SealedProviderContractPackageInsta
     ///
     /// # Errors
     ///
-    /// Returns a structured installation failure when the package-root claim
-    /// is malformed or disagrees with admission, or when the package conflicts
-    /// with existing Echo-owned registry state.
+    /// Returns a structured installation failure when the package-root or
+    /// retained invocation-evidence structure is malformed, the package root
+    /// disagrees with admission, or the package conflicts with existing
+    /// Echo-owned registry state.
     fn install_admitted_provider_contract_package_v1_trusted(
         &mut self,
         package_reference: ProviderPackageReferenceV1,
@@ -1348,28 +1414,33 @@ pub(crate) struct PreparedInstalledProviderContractPackageV1 {
 
 /// Prepare one admitted provider proposal for atomic Engine installation.
 ///
-/// This pure crossing validates the explicit package-root claim, owns the full
-/// admitted provider proposition, and derives a deterministic installed id. It
-/// does not authenticate bytes, invoke provider callbacks, or mutate Engine
-/// state.
+/// This pure crossing validates the explicit package-root claim and every
+/// operation field later retained as provider invocation evidence, owns the
+/// full admitted provider proposition, and derives a deterministic installed
+/// id. It does not authenticate bytes, invoke provider callbacks, or mutate
+/// Engine state.
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn prepare_installed_provider_contract_package_v1(
     package_reference: ProviderPackageReferenceV1,
     admitted: AdmittedProviderContractPackageV1<'_>,
 ) -> Result<PreparedInstalledProviderContractPackageV1, ProviderContractInstallationError> {
-    if package_reference.coordinate.is_empty() {
-        return Err(ProviderContractInstallationError::without_reference(
-            ProviderContractInstallationErrorKind::EmptyPackageReferenceCoordinate,
-            "provider.package.reference.coordinate",
-        ));
-    }
-    let Some(reference_raw_sha256) = strict_prefixed_sha256(&package_reference.digest) else {
-        return Err(ProviderContractInstallationError::new(
-            ProviderContractInstallationErrorKind::MalformedPackageReferenceDigest,
-            "provider.package.reference.digest",
-            package_reference.digest,
-        ));
-    };
+    let reference_raw_sha256 = validate_provider_package_reference_v1(&package_reference).map_err(
+        |error| match error {
+            ProviderPackageReferenceValidationError::EmptyCoordinate => {
+                ProviderContractInstallationError::without_reference(
+                    ProviderContractInstallationErrorKind::EmptyPackageReferenceCoordinate,
+                    "provider.package.reference.coordinate",
+                )
+            }
+            ProviderPackageReferenceValidationError::MalformedDigest => {
+                ProviderContractInstallationError::new(
+                    ProviderContractInstallationErrorKind::MalformedPackageReferenceDigest,
+                    "provider.package.reference.digest",
+                    package_reference.digest(),
+                )
+            }
+        },
+    )?;
 
     let ProviderContractPackageProposalV1 {
         occurrence,
@@ -1398,6 +1469,39 @@ pub(crate) fn prepare_installed_provider_contract_package_v1(
             provider_op_kind_label(operation.kind),
         ));
     }
+    validate_provider_operation_evidence_v1(
+        operation.coordinate,
+        operation.target_ir.coordinate,
+        operation.target_ir.digest_domain,
+        operation.target_ir.digest,
+    )
+    .map_err(|error| match error {
+        ProviderOperationEvidenceValidationError::EmptyOperationCoordinate => {
+            ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::EmptyOperationCoordinate,
+                "provider.operation.coordinate",
+            )
+        }
+        ProviderOperationEvidenceValidationError::EmptyTargetIrCoordinate => {
+            ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::EmptyTargetIrCoordinate,
+                "provider.operation.target-ir.coordinate",
+            )
+        }
+        ProviderOperationEvidenceValidationError::EmptyTargetIrDigestDomain => {
+            ProviderContractInstallationError::without_reference(
+                ProviderContractInstallationErrorKind::EmptyTargetIrDigestDomain,
+                "provider.operation.target-ir.digest-domain",
+            )
+        }
+        ProviderOperationEvidenceValidationError::MalformedTargetIrDigest => {
+            ProviderContractInstallationError::new(
+                ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+                "provider.operation.target-ir.digest",
+                operation.target_ir.digest,
+            )
+        }
+    })?;
     if mutation_handler.op_id != operation.operation_id {
         return Err(ProviderContractInstallationError::new(
             ProviderContractInstallationErrorKind::MutationHandlerOperationMismatch,

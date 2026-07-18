@@ -94,8 +94,11 @@ receipt, or grant application authority.
 Later crossings are now implemented without weakening that boundary. A sealed
 runtime-owner port consumes independently corroborated package evidence and
 atomically installs a distinct provider record plus package, root, mutation,
-and scheduler-rule indexes. A trusted host can then admit a witnessed canonical
-EINT v1 submission with `admit_provider_contract_submission_v1(...)`. Admission
+and scheduler-rule indexes. Before any index changes, installation applies the
+same pure package-reference and operation/Target-IR structural validators used
+by retained-evidence recovery; malformed identities return stable typed
+installation failures. A trusted host can then admit a witnessed canonical EINT
+v1 submission with `admit_provider_contract_submission_v1(...)`. Admission
 requires the exact EINT outer intent kind and an installed provider operation;
 it stages work through the shared scheduler rather than invoking callbacks
 directly. `InstalledInvocationEvidence::ProviderV1` binds the installed package

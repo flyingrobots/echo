@@ -1717,6 +1717,22 @@ else
 fi
 
 VERIFY_LOCAL_FULL_TESTS=1
+fake_warp_core_provider_contract_output="$(run_fake_verify full crates/warp-core/tests/provider_contract_admission_tests.rs)"
+unset VERIFY_LOCAL_FULL_TESTS
+if printf '%s\n' "$fake_warp_core_provider_contract_output" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --test provider_contract_admission_tests'; then
+  pass "full verification keeps required provider admission test features"
+else
+  fail "full verification should keep required provider admission test features"
+  printf '%s\n' "$fake_warp_core_provider_contract_output"
+fi
+if printf '%s\n' "$fake_warp_core_provider_contract_output" | grep -q -- 'clippy -p warp-core --features native_rule_bootstrap,trusted_runtime --test provider_contract_admission_tests'; then
+  pass "full verification keeps required provider admission clippy features"
+else
+  fail "full verification should keep required provider admission clippy features"
+  printf '%s\n' "$fake_warp_core_provider_contract_output"
+fi
+
+VERIFY_LOCAL_FULL_TESTS=1
 fake_warp_core_optic_artifact_output="$(run_fake_verify full crates/warp-core/src/optic_artifact.rs)"
 unset VERIFY_LOCAL_FULL_TESTS
 if printf '%s\n' "$fake_warp_core_optic_artifact_output" | grep -q -- '--test optic_artifact_registry_tests'; then

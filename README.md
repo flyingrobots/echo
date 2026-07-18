@@ -143,7 +143,9 @@ package bytes and consume the resulting opaque proof through Echo's sealed
 runtime-owner installation port. `TrustedRuntimeHost` then installs a distinct
 provider record and the package, root, mutation-operation, and scheduler-rule
 indexes atomically, without invoking the handler or fabricating legacy
-Wesley/GraphQL metadata.
+Wesley/GraphQL metadata. Before any index changes, the installation crossing
+applies the same structural checks used by retained-evidence recovery to the
+package reference, operation coordinate, and Target IR identity.
 
 After a generated client submits canonical EINT v1 bytes, the trusted host can
 admit a witnessed submission for an installed provider mutation. Echo requires

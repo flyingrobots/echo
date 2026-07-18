@@ -1416,6 +1416,9 @@ warp_core_feature_args_for_test() {
     inbox|installed_contract_intent_pipeline_tests)
       printf '%s\n' "--features" "native_rule_bootstrap,host_test"
       ;;
+    external_consumer_contract_fixture_tests|provider_contract_admission_tests)
+      printf '%s\n' "--features" "native_rule_bootstrap,trusted_runtime"
+      ;;
     causal_fact_publication_tests|optic_invocation_admission_tests)
       printf '%s\n' "--features" "host_test"
       ;;

@@ -1350,6 +1350,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   cannot originate receipt or WAL evidence that fresh-host recovery would
   reject. Existing valid tag-2 provider evidence and byte-stable tag-1 legacy
   evidence retain their encoding and recovery behavior.
+- Full local verification now enables the declared
+  `native_rule_bootstrap,trusted_runtime` feature set when testing or linting
+  `provider_contract_admission_tests`, matching the canonical pre-push route.
 - Direct GraphQL SDL lowering in `echo-wesley-gen` now binds the exact pinned
   `wesley-core` version into generated Rust artifact-hash provenance, with a
   regression test that refuses dependency/provenance version drift.

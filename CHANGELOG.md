@@ -1342,6 +1342,14 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Provider-native installation now applies the same pure structural validation
+  used to reconstruct retained invocation evidence before mutating any Echo
+  engine index. Empty operation or Target IR coordinates, empty Target IR
+  digest domains, and Target IR digests that are not exact lowercase
+  `sha256:<64-hex>` values fail with stable typed installation errors, so Echo
+  cannot originate receipt or WAL evidence that fresh-host recovery would
+  reject. Existing valid tag-2 provider evidence and byte-stable tag-1 legacy
+  evidence retain their encoding and recovery behavior.
 - Direct GraphQL SDL lowering in `echo-wesley-gen` now binds the exact pinned
   `wesley-core` version into generated Rust artifact-hash provenance, with a
   regression test that refuses dependency/provenance version drift.

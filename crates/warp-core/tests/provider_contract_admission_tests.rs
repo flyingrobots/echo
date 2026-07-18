@@ -18,7 +18,8 @@ mod checked_generated_helper;
 
 use checked_generated_helper::echo_dpo as generated;
 use echo_registry_api::{
-    ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider,
+    ContractArtifactVerificationPolicy, ObjectDef, OpDef, OpKind, ProviderOperationV1,
+    RegistryInfo, RegistryProvider,
 };
 use warp_core::{
     causal_wal::{WalRecordKind, WalRuntimeStateDeltaRecord},
@@ -345,6 +346,44 @@ fn admission_policy() -> ProviderContractAdmissionPolicyV1<'static> {
         expected_occurrence: occurrence(PACKAGE_ARTIFACT_SHA256),
         expected_registry: descriptor(RELEASE_DIGEST).provider_registry(),
     }
+}
+
+fn proposal_and_policy_for_operation(
+    operation: &ProviderOperationV1<'static>,
+) -> (
+    ProviderContractAdmissionPolicyV1<'static>,
+    ProviderContractPackageProposalV1<'static>,
+) {
+    let operation = *operation;
+    let operations: &'static [ProviderOperationV1<'static>] = Box::leak(Box::new([operation]));
+    let mut registry = descriptor(RELEASE_DIGEST).provider_registry();
+    registry.operations = operations;
+
+    let mut implementation_identity = descriptor(RELEASE_DIGEST).mutation_implementation_identity();
+    implementation_identity.operation = operation;
+    let rule_name = Box::leak(
+        format!(
+            "cmd/contract/{}/{}/{}",
+            registry.provider_schema.raw_sha256_hex, operation.operation_id, operation.coordinate
+        )
+        .into_boxed_str(),
+    );
+    let proposal = propose_provider_contract_package_v1(
+        occurrence(PACKAGE_ARTIFACT_SHA256),
+        registry,
+        GeneratedProviderMutationDispatchV1::new(
+            operation.operation_id,
+            rule_name,
+            counting_matcher,
+        ),
+        ProviderMutationHooksV1::for_host::<CountingHost>(implementation_identity),
+    )
+    .expect("a self-consistent malformed evidence fixture reaches Echo admission");
+    let policy = ProviderContractAdmissionPolicyV1 {
+        expected_occurrence: occurrence(PACKAGE_ARTIFACT_SHA256),
+        expected_registry: registry,
+    };
+    (policy, proposal)
 }
 
 fn empty_host() -> TrustedRuntimeHost {
@@ -790,6 +829,143 @@ fn trusted_installation_lower_boundary_rejects_unproven_package_root_disagreemen
         assert!(host
             .engine()
             .installed_provider_contract_mutation_package_id(generated::OPERATION_ID)
+            .is_none());
+        assert_no_callback();
+    }
+}
+
+#[test]
+fn installation_rejects_provider_evidence_that_recovery_would_reject() {
+    let _callback_guard = callback_test_guard();
+    let valid_operation = descriptor(RELEASE_DIGEST).provider_registry().operations[0];
+    let cases = [
+        (
+            "empty operation coordinate",
+            {
+                let mut operation = valid_operation;
+                operation.coordinate = "";
+                operation
+            },
+            ProviderContractInstallationErrorKind::EmptyOperationCoordinate,
+            "provider.operation.coordinate",
+        ),
+        (
+            "empty Target IR coordinate",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.coordinate = "";
+                operation
+            },
+            ProviderContractInstallationErrorKind::EmptyTargetIrCoordinate,
+            "provider.operation.target-ir.coordinate",
+        ),
+        (
+            "empty Target IR digest domain",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest_domain = "";
+                operation
+            },
+            ProviderContractInstallationErrorKind::EmptyTargetIrDigestDomain,
+            "provider.operation.target-ir.digest-domain",
+        ),
+        (
+            "empty Target IR digest",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest = "";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+        (
+            "Target IR digest without an algorithm prefix",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest =
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+        (
+            "uppercase Target IR digest hexadecimal",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest =
+                    "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+        (
+            "63-character Target IR SHA-256 payload",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest =
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+        (
+            "65-character Target IR SHA-256 payload",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest =
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+        (
+            "non-hexadecimal Target IR SHA-256 payload",
+            {
+                let mut operation = valid_operation;
+                operation.target_ir.digest =
+                    "sha256:gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg";
+                operation
+            },
+            ProviderContractInstallationErrorKind::MalformedTargetIrDigest,
+            "provider.operation.target-ir.digest",
+        ),
+    ];
+
+    for (case, operation, expected_kind, expected_subject) in cases {
+        reset_callback_counts();
+        let (policy, proposal) = proposal_and_policy_for_operation(&operation);
+        let mut host = empty_host();
+        let admitted = host
+            .admit_provider_contract_package_v1(&policy, proposal)
+            .expect("exact policy equality admits the malformed structural fixture");
+        let reference = package_reference();
+        let error = host
+            .install_admitted_provider_contract_package_v1_trusted(reference.clone(), admitted)
+            .expect_err(case);
+
+        assert_eq!(error.kind(), expected_kind, "{case}");
+        assert_eq!(error.subject(), expected_subject, "{case}");
+        let expected_reference = (expected_kind
+            == ProviderContractInstallationErrorKind::MalformedTargetIrDigest)
+            .then_some(operation.target_ir.digest);
+        assert_eq!(error.reference(), expected_reference, "{case}");
+
+        assert!(host
+            .engine()
+            .installed_provider_contract_package_by_reference(&reference)
+            .is_none());
+        assert!(host
+            .engine()
+            .installed_provider_contract_mutation_package_id(operation.operation_id)
+            .is_none());
+        assert!(host
+            .engine()
+            .installed_provider_contract_mutation_evidence_v1(operation.operation_id)
             .is_none());
         assert_no_callback();
     }

@@ -69,10 +69,12 @@ installed-invocation identity attached to the outcome. That identity is a
 tagged proposition: the existing legacy Wesley/GraphQL evidence keeps its
 byte-stable tag-1 encoding, while tag 2 retains provider package id and exact
 reference, operation id and coordinate, Target IR identity, and scheduler rule
-id. Provider decoding rejects empty coordinates, reserved operation ids, and
-malformed package or Target IR digests rather than laundering structurally
-invalid fields through a valid WAL frame checksum. Provider evidence does not
-fabricate a legacy retained-contract coordinate.
+id. Provider installation applies the same pure structural checks to every
+field it can later originate as invocation evidence before changing any Engine
+index. Provider decoding independently rejects empty coordinates, reserved
+operation ids, and malformed package or Target IR digests rather than
+laundering structurally invalid fields through a valid WAL frame checksum.
+Provider evidence does not fabricate a legacy retained-contract coordinate.
 
 Filesystem WAL reopen loads that evidence into a fresh provenance service,
 replays the worldline from its deterministic registered boundary, restores

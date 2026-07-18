@@ -296,9 +296,11 @@ and duplicate identities fail before engine mutation. The Edict provider path
 separately admits the complete proposal claim under host policy, corroborates
 the exact package root, installs a distinct provider record atomically, and
 binds runtime evidence to the exact package, operation, Target IR, and scheduler
-rule. A same-scope system acknowledgement cannot stand in for execution of that
-provider rule. Generated semantic-source validation covers a broader set of
-internal consistency constraints.
+rule. Installation applies the retained-evidence decoder's structural law before
+any Engine index changes, preventing Echo from writing provider receipt or WAL
+evidence that recovery would refuse. A same-scope system acknowledgement cannot
+stand in for execution of that provider rule. Generated semantic-source
+validation covers a broader set of internal consistency constraints.
 
 **Residual risk.** Digest verification is not publisher authentication or CI
 attestation. The production trust ramp from local development through verified

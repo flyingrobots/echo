@@ -59,8 +59,10 @@ only, not registry semantics or callback behavior. A proof-owning
 `echo-wesley-gen` adapter now consumes that token through `warp-core`'s sealed
 runtime-owner installer port. `TrustedRuntimeHost` creates a distinct owned
 provider record and atomically updates provider package, root, operation, and
-shared scheduler-rule indexes. It invokes no callback and invents no
-Wesley/GraphQL metadata or legacy installed-contract evidence.
+shared scheduler-rule indexes. Before those updates, Echo subjects the package
+reference, operation coordinate, and Target IR evidence fields to the same pure
+structural validation used by WAL recovery. It invokes no callback and invents
+no Wesley/GraphQL metadata or legacy installed-contract evidence.
 Generated code cannot install itself. The application handle exposes no
 installation surface.
 

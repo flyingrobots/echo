@@ -365,8 +365,11 @@ runtime-owner installer port. The `TrustedRuntimeHost` lower primitive does not
 authenticate package bytes and is not exposed to application code. It creates a
 distinct owned provider record retaining the exact occurrence and reference,
 complete provider registry, and mutation-rule identity, then atomically installs
-provider package, root, operation, and shared scheduler-rule indexes. It invokes
-no callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
+provider package, root, operation, and shared scheduler-rule indexes. Before
+those index changes, the lower primitive runs the same pure structural
+validation used to reconstruct retained provider invocation evidence over the
+package reference, operation coordinate, and Target IR identity. It invokes no
+callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
 Those separation laws continue after installation. A trusted host may admit a
 previously witnessed provider submission only when its outer intent kind is the
 exact canonical EINT v1 domain and its encoded operation id names the installed

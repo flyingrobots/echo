@@ -39,8 +39,8 @@ callback, prebuilt mutation plan, or native operation implementation.
 
 ### Executable operation category
 
-Echo will add an operation-oriented corridor with these provisional first-
-version nouns:
+Echo will add an operation-oriented corridor with these provisional names for
+the first version:
 
 - `ExecutableOperationPackageV1`: exact publication material and provenance;
 - `EchoOperationProgramV1`: the target-relative executable program artifact;

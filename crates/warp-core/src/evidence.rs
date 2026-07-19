@@ -361,6 +361,16 @@ mod tests {
                 WalRecordKind::CausalAnchorFactRecorded,
                 AffectedFrontierKind::CausalAnchorIndex,
             ),
+            WalTransactionKind::ExecutableOperationInstallation => (
+                WalAppendAuthority::RuntimeControl,
+                WalRecordKind::ExecutableOperationPackageInstalled,
+                AffectedFrontierKind::ExecutableOperationCatalog,
+            ),
+            WalTransactionKind::ExecutableOperationTick => (
+                WalAppendAuthority::ExecutionKernel,
+                WalRecordKind::ExecutableOperationExecutionRecorded,
+                AffectedFrontierKind::ExecutableOperationReceiptIndex,
+            ),
         }
     }
 

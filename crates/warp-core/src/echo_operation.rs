@@ -1,0 +1,4323 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Echo-owned executable operation packages and bounded evaluation.
+//!
+//! This module is intentionally operation-oriented rather than a second
+//! provider revision. Provider v1 binds ambient native callbacks and remains a
+//! compatibility corridor. An executable operation package instead carries the
+//! complete data-only program interpreted here by Echo.
+//!
+//! The first earned program profile is deliberately small: an invocation
+//! anchors one typed node and compares the digest of its typed alpha attachment
+//! before replacing that attachment. It has one unique match, a closed
+//! attachment algebra, explicit resource bounds, and no callback, function
+//! pointer, matcher, executor, or application-specific intrinsic.
+
+use std::{collections::BTreeMap, sync::Arc};
+
+use blake3::Hasher;
+use bytes::Bytes;
+use echo_edict_canonical::{
+    decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueError,
+    CanonicalValueErrorKind, CanonicalValueV1,
+};
+use thiserror::Error;
+
+use crate::{
+    attachment::{AtomPayload, AttachmentKey, AttachmentValue},
+    clock::{GlobalTick, WorldlineTick},
+    footprint::Footprint,
+    head::WriterHeadKey,
+    ident::{Hash, NodeKey, TypeId},
+    receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry},
+    snapshot::{compute_commit_hash_v2, Snapshot},
+    tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
+    tx::TxId,
+    worldline_state::WorldlineState,
+};
+
+const PACKAGE_SCHEMA: &str = "echo.operation-package/v1";
+const PROGRAM_SCHEMA: &str = "echo.operation-program/v1";
+const INVOCATION_SCHEMA: &str = "echo.operation-invocation/v1";
+const PROGRAM_KIND: &str = "anchored-node-attachment-compare-and-set/v1";
+const FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-exact/v1";
+const INPUT_SCHEMA: &str = "echo.operation.input.anchored-node-alpha-cas/v1";
+const RESULT_SCHEMA: &str = "echo.operation.result.anchored-node-alpha-cas/v1";
+const OBSTRUCTION_SCHEMA: &str = "echo.operation.obstruction.anchored-node-alpha-cas/v1";
+const RESULT_INTERPRETATION: &str =
+    "echo.operation.result-interpretation.anchored-node-alpha-cas/v1";
+const OBSTRUCTION_INTERPRETATION: &str =
+    "echo.operation.obstruction-interpretation.anchored-node-alpha-cas/v1";
+const BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
+const APPLICATION_BASIS_SCHEMA: &str = "echo.operation.basis.anchored-node-alpha/v1";
+const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-cas/v1";
+const INTERPRETER_PROFILE: &str = "echo.operation-interpreter/v1";
+const INTRINSIC_PROFILE: &str = "echo.operation-attachment-algebra/v1";
+const PACKAGE_ID_DOMAIN: &[u8] = b"echo:operation-package:v1\0";
+const PROGRAM_ID_DOMAIN: &[u8] = b"echo:operation-program:v1\0";
+const INVOCATION_ID_DOMAIN: &[u8] = b"echo:operation-invocation:v1\0";
+const INVOCATION_BYTES_DIGEST_DOMAIN: &[u8] = b"echo:operation-invocation-bytes:v1\0";
+const BASIS_ID_DOMAIN: &[u8] = b"echo:operation-evaluation-basis:v1\0";
+const PACKAGE_ADMISSION_ID_DOMAIN: &[u8] = b"echo:operation-package-admission:v1\0";
+const INSTALLATION_ID_DOMAIN: &[u8] = b"echo:operation-installation:v1\0";
+const INVOCATION_ADMISSION_ID_DOMAIN: &[u8] = b"echo:operation-invocation-admission:v1\0";
+const PRIVATE_EVALUATION_ID_DOMAIN: &[u8] = b"echo:operation-private-evaluation:v1\0";
+const PREPARATION_ID_DOMAIN: &[u8] = b"echo:operation-preparation:v1\0";
+const RESULT_ID_DOMAIN: &[u8] = b"echo:operation-result:v1\0";
+const OBSTRUCTION_ID_DOMAIN: &[u8] = b"echo:operation-obstruction:v1\0";
+const TERMINAL_OUTCOME_ID_DOMAIN: &[u8] = b"echo:operation-terminal-outcome:v1\0";
+const ATOM_VALUE_DOMAIN: &[u8] = b"echo:operation-atom-value:v1\0";
+const APPLICATION_BASIS_VALUE_DOMAIN: &[u8] = b"echo:operation-anchored-node-alpha-basis:v1\0";
+const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
+const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
+const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
+const PLAN_DIGEST_DOMAIN: &[u8] = b"echo:operation-plan:v1\0";
+const REWRITES_DIGEST_DOMAIN: &[u8] = b"echo:operation-rewrites:v1\0";
+const GENESIS_COMMIT_DOMAIN: &[u8] = b"echo:operation-genesis-commit:v1\0";
+
+/// Process-local capability proving that admission, evaluation, and commit are
+/// owned by the same Echo runtime instance.
+#[derive(Clone, Debug)]
+pub(crate) struct EchoOperationEvaluationAuthorityV1(Arc<()>);
+
+impl EchoOperationEvaluationAuthorityV1 {
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(()))
+    }
+
+    fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Stable content identity of exact executable-operation package bytes.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationPackageIdV1(Hash);
+
+impl EchoOperationPackageIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable content identity of exact Echo operation-program bytes.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationProgramIdV1(Hash);
+
+impl EchoOperationProgramIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable content identity of one canonical invocation.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationInvocationIdV1(Hash);
+
+impl EchoOperationInvocationIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable content identity of one exact Echo evaluation basis.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationEvaluationBasisIdV1(Hash);
+
+impl EchoOperationEvaluationBasisIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of Echo's package-admission evidence.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationPackageAdmissionIdV1(Hash);
+
+impl EchoOperationPackageAdmissionIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of Echo-owned installed executable meaning.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InstalledEchoOperationIdV1(Hash);
+
+impl InstalledEchoOperationIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of Echo's invocation-admission evidence.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationInvocationAdmissionIdV1(Hash);
+
+impl EchoOperationInvocationAdmissionIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of one bounded private evaluation.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationPrivateEvaluationIdV1(Hash);
+
+impl EchoOperationPrivateEvaluationIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of one complete committable preparation.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PreparedEchoOperationIdV1(Hash);
+
+impl PreparedEchoOperationIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of the typed result produced by private evaluation.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationResultIdV1(Hash);
+
+impl EchoOperationResultIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Stable identity of one typed no-patch evaluation obstruction.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EchoOperationObstructionIdV1(Hash);
+
+impl EchoOperationObstructionIdV1 {
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_hash(self) -> Hash {
+        self.0
+    }
+}
+
+/// Computes the identity of exact canonical package bytes.
+///
+/// This digest is substitution evidence only. It does not confer an operation
+/// coordinate, installation, invocability, or authority.
+#[must_use]
+pub fn echo_operation_package_id_v1(bytes: &[u8]) -> EchoOperationPackageIdV1 {
+    EchoOperationPackageIdV1(domain_hash(PACKAGE_ID_DOMAIN, bytes))
+}
+
+/// Computes the digest of one typed attachment atom.
+#[must_use]
+pub fn echo_operation_atom_value_digest_v1(type_id: TypeId, bytes: &[u8]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(ATOM_VALUE_DOMAIN);
+    hasher.update(type_id.as_bytes());
+    hasher.update(&(bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+    hasher.finalize().into()
+}
+
+/// Returns the first program profile's canonical application-basis proposition.
+#[must_use]
+pub fn echo_operation_anchored_node_application_basis_v1(
+    node: NodeKey,
+    attachment_type: TypeId,
+    bytes: &[u8],
+) -> EchoOperationApplicationBasisV1 {
+    let atom_digest = echo_operation_atom_value_digest_v1(attachment_type, bytes);
+    let mut hasher = Hasher::new();
+    hasher.update(APPLICATION_BASIS_VALUE_DOMAIN);
+    hasher.update(node.warp_id.as_bytes());
+    hasher.update(node.local_id.as_bytes());
+    hasher.update(&atom_digest);
+    EchoOperationApplicationBasisV1::new(
+        profile_digest(APPLICATION_BASIS_SCHEMA),
+        hasher.finalize().into(),
+    )
+}
+
+/// Returns the exact target-profile identity implemented by the v1 evaluator.
+#[must_use]
+pub fn echo_operation_target_profile_identity_v1() -> Hash {
+    profile_digest(TARGET_PROFILE)
+}
+
+/// A three-axis resource budget for one bounded operation evaluation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EchoOperationBudgetV1 {
+    steps: u64,
+    read_bytes: u64,
+    write_bytes: u64,
+}
+
+impl EchoOperationBudgetV1 {
+    /// Creates one explicit budget.
+    #[must_use]
+    pub const fn new(steps: u64, read_bytes: u64, write_bytes: u64) -> Self {
+        Self {
+            steps,
+            read_bytes,
+            write_bytes,
+        }
+    }
+
+    /// Returns the step allowance or consumption.
+    #[must_use]
+    pub const fn steps(self) -> u64 {
+        self.steps
+    }
+
+    /// Returns the read-byte allowance or consumption.
+    #[must_use]
+    pub const fn read_bytes(self) -> u64 {
+        self.read_bytes
+    }
+
+    /// Returns the write-byte allowance or consumption.
+    #[must_use]
+    pub const fn write_bytes(self) -> u64 {
+        self.write_bytes
+    }
+
+    fn is_nonzero(self) -> bool {
+        self.steps != 0
+    }
+
+    fn fits_within(self, ceiling: Self) -> bool {
+        self.steps <= ceiling.steps
+            && self.read_bytes <= ceiling.read_bytes
+            && self.write_bytes <= ceiling.write_bytes
+    }
+
+    fn to_value(self) -> CanonicalValueV1 {
+        map_value([
+            ("read_bytes", uint_value(self.read_bytes)),
+            ("steps", uint_value(self.steps)),
+            ("write_bytes", uint_value(self.write_bytes)),
+        ])
+    }
+
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields = exact_text_map(value, &["read_bytes", "steps", "write_bytes"])?;
+        Ok(Self {
+            steps: take_u64(&mut fields, "steps")?,
+            read_bytes: take_u64(&mut fields, "read_bytes")?,
+            write_bytes: take_u64(&mut fields, "write_bytes")?,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EchoOperationBudgetMeterV1 {
+    delegated: EchoOperationBudgetV1,
+    consumed: EchoOperationBudgetV1,
+}
+
+impl EchoOperationBudgetMeterV1 {
+    const fn new(delegated: EchoOperationBudgetV1) -> Self {
+        Self {
+            delegated,
+            consumed: EchoOperationBudgetV1::new(0, 0, 0),
+        }
+    }
+
+    fn charge(&mut self, steps: u64, read_bytes: u64, write_bytes: u64) -> bool {
+        let Some(next_steps) = self.consumed.steps.checked_add(steps) else {
+            return false;
+        };
+        let Some(next_read_bytes) = self.consumed.read_bytes.checked_add(read_bytes) else {
+            return false;
+        };
+        let Some(next_write_bytes) = self.consumed.write_bytes.checked_add(write_bytes) else {
+            return false;
+        };
+        let next = EchoOperationBudgetV1::new(next_steps, next_read_bytes, next_write_bytes);
+        if !next.fits_within(self.delegated) {
+            return false;
+        }
+        self.consumed = next;
+        true
+    }
+
+    const fn consumed(self) -> EchoOperationBudgetV1 {
+        self.consumed
+    }
+}
+
+/// The declared footprint-derivation contract implemented by the first program profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationFootprintContractV1 {
+    /// Read one anchored node and alpha attachment; write that same attachment.
+    AnchoredNodeAlphaExact,
+}
+
+impl EchoOperationFootprintContractV1 {
+    const fn coordinate(self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAlphaExact => FOOTPRINT_CONTRACT,
+        }
+    }
+}
+
+/// Data-only executable meaning interpreted by Echo.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EchoOperationProgramV1 {
+    /// Compare and replace one anchored typed node attachment.
+    AnchoredNodeAttachmentCompareAndSet {
+        /// Required skeleton node type.
+        required_node_type: TypeId,
+        /// Required alpha attachment atom type.
+        required_attachment_type: TypeId,
+        /// Maximum replacement byte count accepted by the program.
+        max_replacement_bytes: u64,
+    },
+}
+
+impl EchoOperationProgramV1 {
+    /// Creates the first bounded, unique-match operation program.
+    #[must_use]
+    pub const fn anchored_node_attachment_compare_and_set(
+        required_node_type: TypeId,
+        required_attachment_type: TypeId,
+        max_replacement_bytes: u64,
+    ) -> Self {
+        Self::AnchoredNodeAttachmentCompareAndSet {
+            required_node_type,
+            required_attachment_type,
+            max_replacement_bytes,
+        }
+    }
+
+    /// Returns the exact program identity.
+    pub fn identity(&self) -> Result<EchoOperationProgramIdV1, EchoOperationArtifactErrorV1> {
+        Ok(EchoOperationProgramIdV1(domain_hash(
+            PROGRAM_ID_DOMAIN,
+            &self.to_canonical_bytes()?,
+        )))
+    }
+
+    /// Encodes this program using Edict's canonical CBOR profile.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        encode_canonical_cbor_v1(&self.to_value()).map_err(canonical_error)
+    }
+
+    fn footprint_contract(&self) -> EchoOperationFootprintContractV1 {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
+                EchoOperationFootprintContractV1::AnchoredNodeAlphaExact
+            }
+        }
+    }
+
+    const fn minimum_budget(&self) -> EchoOperationBudgetV1 {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
+                EchoOperationBudgetV1::new(4, 64, 32)
+            }
+        }
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet {
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            } => map_value([
+                (
+                    "interpreter_profile_identity",
+                    hash_value(profile_digest(INTERPRETER_PROFILE)),
+                ),
+                (
+                    "intrinsic_profile_identity",
+                    hash_value(profile_digest(INTRINSIC_PROFILE)),
+                ),
+                ("kind", text_value(PROGRAM_KIND)),
+                ("max_replacement_bytes", uint_value(*max_replacement_bytes)),
+                (
+                    "required_attachment_type",
+                    hash_value(required_attachment_type.0),
+                ),
+                ("required_node_type", hash_value(required_node_type.0)),
+                ("schema", text_value(PROGRAM_SCHEMA)),
+            ]),
+        }
+    }
+
+    fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "interpreter_profile_identity",
+                "intrinsic_profile_identity",
+                "kind",
+                "max_replacement_bytes",
+                "required_attachment_type",
+                "required_node_type",
+                "schema",
+            ],
+        )?;
+        require_text(&mut fields, "schema", PROGRAM_SCHEMA)?;
+        require_text(&mut fields, "kind", PROGRAM_KIND)?;
+        let interpreter_profile_identity = take_hash(&mut fields, "interpreter_profile_identity")?;
+        let intrinsic_profile_identity = take_hash(&mut fields, "intrinsic_profile_identity")?;
+        if interpreter_profile_identity != profile_digest(INTERPRETER_PROFILE)
+            || intrinsic_profile_identity != profile_digest(INTRINSIC_PROFILE)
+        {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedTargetProfile,
+                "operation program names an unsupported interpreter or intrinsic profile",
+            ));
+        }
+        let required_node_type = TypeId(take_hash(&mut fields, "required_node_type")?);
+        let required_attachment_type = TypeId(take_hash(&mut fields, "required_attachment_type")?);
+        let max_replacement_bytes = take_u64(&mut fields, "max_replacement_bytes")?;
+        if max_replacement_bytes == 0 {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedProgram,
+                "program replacement bound must be nonzero",
+            ));
+        }
+        Ok(Self::anchored_node_attachment_compare_and_set(
+            required_node_type,
+            required_attachment_type,
+            max_replacement_bytes,
+        ))
+    }
+}
+
+/// Application- and Edict-owned identities that close one executable meaning.
+///
+/// Echo treats these as opaque substitution evidence. It does not infer source,
+/// Core, Target IR, application schema, or lawpack identity from program bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationSemanticClosureV1 {
+    edict_source_identity: Hash,
+    canonical_meaning_identity: Hash,
+    core_identity: Hash,
+    target_ir_identity: Hash,
+    application_schema_coordinate: String,
+    application_schema_identity: Hash,
+    lawpack_coordinate: String,
+    lawpack_identity: Hash,
+}
+
+impl EchoOperationSemanticClosureV1 {
+    /// Creates the exact upstream semantic closure bound by one package.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        edict_source_identity: Hash,
+        canonical_meaning_identity: Hash,
+        core_identity: Hash,
+        target_ir_identity: Hash,
+        application_schema_coordinate: impl Into<String>,
+        application_schema_identity: Hash,
+        lawpack_coordinate: impl Into<String>,
+        lawpack_identity: Hash,
+    ) -> Self {
+        Self {
+            edict_source_identity,
+            canonical_meaning_identity,
+            core_identity,
+            target_ir_identity,
+            application_schema_coordinate: application_schema_coordinate.into(),
+            application_schema_identity,
+            lawpack_coordinate: lawpack_coordinate.into(),
+            lawpack_identity,
+        }
+    }
+
+    /// Returns the canonical Edict meaning identity.
+    #[must_use]
+    pub const fn canonical_meaning_identity(&self) -> Hash {
+        self.canonical_meaning_identity
+    }
+
+    /// Returns the application-owned lawpack identity.
+    #[must_use]
+    pub const fn lawpack_identity(&self) -> Hash {
+        self.lawpack_identity
+    }
+
+    fn validate(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        if self.application_schema_coordinate.is_empty() || self.lawpack_coordinate.is_empty() {
+            return Err(invalid_structure(
+                "application schema and lawpack coordinates must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        map_value([
+            (
+                "application_schema_coordinate",
+                text_value(&self.application_schema_coordinate),
+            ),
+            (
+                "application_schema_identity",
+                hash_value(self.application_schema_identity),
+            ),
+            (
+                "canonical_meaning_identity",
+                hash_value(self.canonical_meaning_identity),
+            ),
+            ("core_identity", hash_value(self.core_identity)),
+            (
+                "edict_source_identity",
+                hash_value(self.edict_source_identity),
+            ),
+            ("lawpack_coordinate", text_value(&self.lawpack_coordinate)),
+            ("lawpack_identity", hash_value(self.lawpack_identity)),
+            ("target_ir_identity", hash_value(self.target_ir_identity)),
+        ])
+    }
+
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "application_schema_coordinate",
+                "application_schema_identity",
+                "canonical_meaning_identity",
+                "core_identity",
+                "edict_source_identity",
+                "lawpack_coordinate",
+                "lawpack_identity",
+                "target_ir_identity",
+            ],
+        )?;
+        let closure = Self {
+            edict_source_identity: take_hash(&mut fields, "edict_source_identity")?,
+            canonical_meaning_identity: take_hash(&mut fields, "canonical_meaning_identity")?,
+            core_identity: take_hash(&mut fields, "core_identity")?,
+            target_ir_identity: take_hash(&mut fields, "target_ir_identity")?,
+            application_schema_coordinate: take_text(&mut fields, "application_schema_coordinate")?,
+            application_schema_identity: take_hash(&mut fields, "application_schema_identity")?,
+            lawpack_coordinate: take_text(&mut fields, "lawpack_coordinate")?,
+            lawpack_identity: take_hash(&mut fields, "lawpack_identity")?,
+        };
+        closure.validate()?;
+        Ok(closure)
+    }
+}
+
+/// Exact executable-operation publication material and provenance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecutableOperationPackageV1 {
+    operation_coordinate: String,
+    semantic_closure: EchoOperationSemanticClosureV1,
+    target_profile_identity: Hash,
+    interpreter_profile_identity: Hash,
+    intrinsic_profile_identity: Hash,
+    authority_profile_identity: Hash,
+    application_basis_schema_identity: Hash,
+    input_schema_identity: Hash,
+    result_schema_identity: Hash,
+    obstruction_schema_identity: Hash,
+    result_interpretation_identity: Hash,
+    obstruction_interpretation_identity: Hash,
+    evaluation_basis_schema_identity: Hash,
+    footprint_contract_identity: Hash,
+    budget_ceiling: EchoOperationBudgetV1,
+    program: EchoOperationProgramV1,
+}
+
+impl ExecutableOperationPackageV1 {
+    /// Creates publication material for the supported bounded operation profile.
+    #[must_use]
+    pub fn new(
+        operation_coordinate: impl Into<String>,
+        semantic_closure: EchoOperationSemanticClosureV1,
+        target_profile_identity: Hash,
+        authority_profile_identity: Hash,
+        budget_ceiling: EchoOperationBudgetV1,
+        program: EchoOperationProgramV1,
+    ) -> Self {
+        Self {
+            operation_coordinate: operation_coordinate.into(),
+            semantic_closure,
+            target_profile_identity,
+            interpreter_profile_identity: profile_digest(INTERPRETER_PROFILE),
+            intrinsic_profile_identity: profile_digest(INTRINSIC_PROFILE),
+            authority_profile_identity,
+            input_schema_identity: profile_digest(INPUT_SCHEMA),
+            result_schema_identity: profile_digest(RESULT_SCHEMA),
+            obstruction_schema_identity: profile_digest(OBSTRUCTION_SCHEMA),
+            result_interpretation_identity: profile_digest(RESULT_INTERPRETATION),
+            obstruction_interpretation_identity: profile_digest(OBSTRUCTION_INTERPRETATION),
+            application_basis_schema_identity: profile_digest(APPLICATION_BASIS_SCHEMA),
+            evaluation_basis_schema_identity: profile_digest(BASIS_SCHEMA),
+            footprint_contract_identity: profile_digest(program.footprint_contract().coordinate()),
+            budget_ceiling,
+            program,
+        }
+    }
+
+    /// Returns the public operation coordinate.
+    #[must_use]
+    pub fn operation_coordinate(&self) -> &str {
+        &self.operation_coordinate
+    }
+
+    /// Returns the Edict semantic identity bound by this package.
+    #[must_use]
+    pub const fn semantic_identity(&self) -> Hash {
+        self.semantic_closure.canonical_meaning_identity
+    }
+
+    /// Returns the application-owned lawpack identity bound by this package.
+    #[must_use]
+    pub const fn lawpack_identity(&self) -> Hash {
+        self.semantic_closure.lawpack_identity
+    }
+
+    /// Returns the Echo target-profile identity bound by this package.
+    #[must_use]
+    pub const fn target_profile_identity(&self) -> Hash {
+        self.target_profile_identity
+    }
+
+    /// Returns the required authority-profile identity.
+    #[must_use]
+    pub const fn authority_profile_identity(&self) -> Hash {
+        self.authority_profile_identity
+    }
+
+    /// Returns the package budget ceiling.
+    #[must_use]
+    pub const fn budget_ceiling(&self) -> EchoOperationBudgetV1 {
+        self.budget_ceiling
+    }
+
+    /// Returns the executable program.
+    #[must_use]
+    pub const fn program(&self) -> &EchoOperationProgramV1 {
+        &self.program
+    }
+
+    /// Encodes exact package bytes using Edict's canonical CBOR profile.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        if self.operation_coordinate.is_empty() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyOperationCoordinate,
+                "operation coordinate must not be empty",
+            ));
+        }
+        if !self.budget_ceiling.is_nonzero() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::InvalidBudget,
+                "package step budget must be nonzero",
+            ));
+        }
+        if !self
+            .program
+            .minimum_budget()
+            .fits_within(self.budget_ceiling)
+        {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::InvalidBudget,
+                "package budget cannot complete the program's smallest lawful evaluation",
+            ));
+        }
+        self.semantic_closure.validate()?;
+        let program_bytes = self.program.to_canonical_bytes()?;
+        let value = map_value([
+            (
+                "application_basis_schema_identity",
+                hash_value(self.application_basis_schema_identity),
+            ),
+            (
+                "authority_profile_identity",
+                hash_value(self.authority_profile_identity),
+            ),
+            ("budget_ceiling", self.budget_ceiling.to_value()),
+            (
+                "evaluation_basis_schema_identity",
+                hash_value(self.evaluation_basis_schema_identity),
+            ),
+            (
+                "footprint_contract_identity",
+                hash_value(self.footprint_contract_identity),
+            ),
+            (
+                "interpreter_profile_identity",
+                hash_value(self.interpreter_profile_identity),
+            ),
+            (
+                "input_schema_identity",
+                hash_value(self.input_schema_identity),
+            ),
+            (
+                "intrinsic_profile_identity",
+                hash_value(self.intrinsic_profile_identity),
+            ),
+            (
+                "obstruction_schema_identity",
+                hash_value(self.obstruction_schema_identity),
+            ),
+            (
+                "obstruction_interpretation_identity",
+                hash_value(self.obstruction_interpretation_identity),
+            ),
+            (
+                "operation_coordinate",
+                text_value(&self.operation_coordinate),
+            ),
+            ("program", CanonicalValueV1::Bytes(program_bytes)),
+            (
+                "result_schema_identity",
+                hash_value(self.result_schema_identity),
+            ),
+            (
+                "result_interpretation_identity",
+                hash_value(self.result_interpretation_identity),
+            ),
+            ("schema", text_value(PACKAGE_SCHEMA)),
+            ("semantic_closure", self.semantic_closure.to_value()),
+            (
+                "target_profile_identity",
+                hash_value(self.target_profile_identity),
+            ),
+        ]);
+        encode_canonical_cbor_v1(&value).map_err(canonical_error)
+    }
+
+    fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "authority_profile_identity",
+                "application_basis_schema_identity",
+                "budget_ceiling",
+                "evaluation_basis_schema_identity",
+                "footprint_contract_identity",
+                "interpreter_profile_identity",
+                "input_schema_identity",
+                "intrinsic_profile_identity",
+                "obstruction_schema_identity",
+                "obstruction_interpretation_identity",
+                "operation_coordinate",
+                "program",
+                "result_schema_identity",
+                "result_interpretation_identity",
+                "schema",
+                "semantic_closure",
+                "target_profile_identity",
+            ],
+        )?;
+        require_text(&mut fields, "schema", PACKAGE_SCHEMA)?;
+        let operation_coordinate = take_text(&mut fields, "operation_coordinate")?;
+        if operation_coordinate.is_empty() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyOperationCoordinate,
+                "operation coordinate must not be empty",
+            ));
+        }
+        let program_bytes = take_bytes(&mut fields, "program")?;
+        let program = EchoOperationProgramV1::from_canonical_bytes(&program_bytes)?;
+        let package = Self {
+            operation_coordinate,
+            semantic_closure: EchoOperationSemanticClosureV1::from_value(take_field(
+                &mut fields,
+                "semantic_closure",
+            )?)?,
+            target_profile_identity: take_hash(&mut fields, "target_profile_identity")?,
+            interpreter_profile_identity: take_hash(&mut fields, "interpreter_profile_identity")?,
+            intrinsic_profile_identity: take_hash(&mut fields, "intrinsic_profile_identity")?,
+            authority_profile_identity: take_hash(&mut fields, "authority_profile_identity")?,
+            input_schema_identity: take_hash(&mut fields, "input_schema_identity")?,
+            result_schema_identity: take_hash(&mut fields, "result_schema_identity")?,
+            obstruction_schema_identity: take_hash(&mut fields, "obstruction_schema_identity")?,
+            result_interpretation_identity: take_hash(
+                &mut fields,
+                "result_interpretation_identity",
+            )?,
+            obstruction_interpretation_identity: take_hash(
+                &mut fields,
+                "obstruction_interpretation_identity",
+            )?,
+            application_basis_schema_identity: take_hash(
+                &mut fields,
+                "application_basis_schema_identity",
+            )?,
+            evaluation_basis_schema_identity: take_hash(
+                &mut fields,
+                "evaluation_basis_schema_identity",
+            )?,
+            footprint_contract_identity: take_hash(&mut fields, "footprint_contract_identity")?,
+            budget_ceiling: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "budget_ceiling",
+            )?)?,
+            program,
+        };
+        package.self_validate_supported_profile()?;
+        if package.to_canonical_bytes()? != bytes {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::NonCanonical,
+                "package did not reproduce the exact admitted bytes",
+            ));
+        }
+        Ok(package)
+    }
+
+    fn self_validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        if !self.budget_ceiling.is_nonzero() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::InvalidBudget,
+                "package step budget must be nonzero",
+            ));
+        }
+        let expected = [
+            (
+                "input schema",
+                self.input_schema_identity,
+                profile_digest(INPUT_SCHEMA),
+            ),
+            (
+                "result schema",
+                self.result_schema_identity,
+                profile_digest(RESULT_SCHEMA),
+            ),
+            (
+                "obstruction schema",
+                self.obstruction_schema_identity,
+                profile_digest(OBSTRUCTION_SCHEMA),
+            ),
+            (
+                "result interpretation",
+                self.result_interpretation_identity,
+                profile_digest(RESULT_INTERPRETATION),
+            ),
+            (
+                "obstruction interpretation",
+                self.obstruction_interpretation_identity,
+                profile_digest(OBSTRUCTION_INTERPRETATION),
+            ),
+            (
+                "application basis schema",
+                self.application_basis_schema_identity,
+                profile_digest(APPLICATION_BASIS_SCHEMA),
+            ),
+            (
+                "evaluation basis schema",
+                self.evaluation_basis_schema_identity,
+                profile_digest(BASIS_SCHEMA),
+            ),
+            (
+                "footprint contract",
+                self.footprint_contract_identity,
+                profile_digest(self.program.footprint_contract().coordinate()),
+            ),
+        ];
+        if let Some((label, _, _)) = expected
+            .iter()
+            .find(|(_, actual, required)| actual != required)
+        {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedSchema,
+                format!("unsupported {label} identity"),
+            ));
+        }
+        if self.target_profile_identity != profile_digest(TARGET_PROFILE) {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedTargetProfile,
+                "unsupported Echo target profile identity",
+            ));
+        }
+        if self.interpreter_profile_identity != profile_digest(INTERPRETER_PROFILE)
+            || self.intrinsic_profile_identity != profile_digest(INTRINSIC_PROFILE)
+        {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedTargetProfile,
+                "unsupported interpreter or intrinsic profile identity",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Stable package decode/self-validation failure categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationArtifactErrorKindV1 {
+    /// Canonical bytes were malformed or outside the accepted value model.
+    MalformedCanonicalBytes,
+    /// The decoded value did not have the exact supported structure.
+    InvalidStructure,
+    /// Exact canonical bytes were not supplied.
+    NonCanonical,
+    /// The public operation coordinate was empty.
+    EmptyOperationCoordinate,
+    /// The target profile is not implemented by this Echo runtime.
+    UnsupportedTargetProfile,
+    /// A schema or footprint profile is not implemented by this runtime.
+    UnsupportedSchema,
+    /// The program kind or its values are unsupported.
+    UnsupportedProgram,
+    /// The budget is malformed or cannot execute any step.
+    InvalidBudget,
+}
+
+/// One structured artifact failure.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{kind:?}: {detail}")]
+pub struct EchoOperationArtifactErrorV1 {
+    kind: EchoOperationArtifactErrorKindV1,
+    detail: String,
+}
+
+impl EchoOperationArtifactErrorV1 {
+    /// Returns the stable failure category.
+    #[must_use]
+    pub const fn kind(&self) -> EchoOperationArtifactErrorKindV1 {
+        self.kind
+    }
+
+    /// Returns deterministic diagnostic detail.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+/// Independently pinned policy for the package-admission crossing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationAdmissionPolicyV1 {
+    expected_package_id: EchoOperationPackageIdV1,
+    expected_operation_coordinate: String,
+    expected_authority_profile_identity: Hash,
+    maximum_budget: EchoOperationBudgetV1,
+}
+
+impl EchoOperationAdmissionPolicyV1 {
+    /// Pins the exact package, public operation, authority profile, and budget ceiling.
+    #[must_use]
+    pub fn exact(
+        expected_package_id: EchoOperationPackageIdV1,
+        expected_operation_coordinate: impl Into<String>,
+        expected_authority_profile_identity: Hash,
+        maximum_budget: EchoOperationBudgetV1,
+    ) -> Self {
+        Self {
+            expected_package_id,
+            expected_operation_coordinate: expected_operation_coordinate.into(),
+            expected_authority_profile_identity,
+            maximum_budget,
+        }
+    }
+
+    fn identity(&self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(b"echo:operation-admission-policy:v1\0");
+        hasher.update(&self.expected_package_id.as_hash());
+        hash_len_bytes(&mut hasher, self.expected_operation_coordinate.as_bytes());
+        hasher.update(&self.expected_authority_profile_identity);
+        hash_budget(&mut hasher, self.maximum_budget);
+        hasher.finalize().into()
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        map_value([
+            (
+                "expected_authority_profile_identity",
+                hash_value(self.expected_authority_profile_identity),
+            ),
+            (
+                "expected_operation_coordinate",
+                text_value(&self.expected_operation_coordinate),
+            ),
+            (
+                "expected_package_id",
+                hash_value(self.expected_package_id.as_hash()),
+            ),
+            ("maximum_budget", self.maximum_budget.to_value()),
+        ])
+    }
+
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "expected_authority_profile_identity",
+                "expected_operation_coordinate",
+                "expected_package_id",
+                "maximum_budget",
+            ],
+        )?;
+        let policy = Self {
+            expected_package_id: EchoOperationPackageIdV1(take_hash(
+                &mut fields,
+                "expected_package_id",
+            )?),
+            expected_operation_coordinate: take_text(&mut fields, "expected_operation_coordinate")?,
+            expected_authority_profile_identity: take_hash(
+                &mut fields,
+                "expected_authority_profile_identity",
+            )?,
+            maximum_budget: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "maximum_budget",
+            )?)?,
+        };
+        if policy.expected_operation_coordinate.is_empty() || !policy.maximum_budget.is_nonzero() {
+            return Err(invalid_structure(
+                "package-admission policy coordinate and budget must be nonempty",
+            ));
+        }
+        Ok(policy)
+    }
+}
+
+/// Stable package-admission refusal categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationAdmissionErrorKindV1 {
+    /// Exact package bytes were malformed or unsupported.
+    ArtifactInvalid,
+    /// Exact package bytes did not match the independently pinned package id.
+    PackageIdentityMismatch,
+    /// The public operation coordinate differed from policy.
+    OperationCoordinateMismatch,
+    /// The authority profile differed from policy.
+    AuthorityProfileMismatch,
+    /// The package budget exceeded policy.
+    BudgetExceedsPolicy,
+}
+
+/// One structured package-admission refusal.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{kind:?}: {detail}")]
+pub struct EchoOperationAdmissionErrorV1 {
+    kind: EchoOperationAdmissionErrorKindV1,
+    detail: String,
+    artifact: Option<EchoOperationArtifactErrorV1>,
+}
+
+impl EchoOperationAdmissionErrorV1 {
+    /// Returns the stable refusal category.
+    #[must_use]
+    pub const fn kind(&self) -> EchoOperationAdmissionErrorKindV1 {
+        self.kind
+    }
+
+    /// Returns the artifact failure, when admission failed during decoding.
+    #[must_use]
+    pub const fn artifact(&self) -> Option<&EchoOperationArtifactErrorV1> {
+        self.artifact.as_ref()
+    }
+}
+
+/// Opaque evidence that Echo admitted exact package bytes under separate policy.
+#[derive(Clone, Debug)]
+pub struct AdmittedExecutableOperationPackageV1 {
+    package: ExecutableOperationPackageV1,
+    canonical_package_bytes: Vec<u8>,
+    package_id: EchoOperationPackageIdV1,
+    admission_policy_id: Hash,
+    admission_id: EchoOperationPackageAdmissionIdV1,
+    admission_policy: EchoOperationAdmissionPolicyV1,
+}
+
+/// Installed executable meaning. Installation does not itself authorize an invocation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstalledEchoOperationV1 {
+    installed_operation_id: InstalledEchoOperationIdV1,
+    package_id: EchoOperationPackageIdV1,
+    package_admission_id: EchoOperationPackageAdmissionIdV1,
+    operation_coordinate: String,
+    semantic_identity: Hash,
+    lawpack_identity: Hash,
+    target_profile_identity: Hash,
+    interpreter_profile_identity: Hash,
+    intrinsic_profile_identity: Hash,
+    authority_profile_identity: Hash,
+    application_basis_schema_identity: Hash,
+    budget_ceiling: EchoOperationBudgetV1,
+    program_id: EchoOperationProgramIdV1,
+    program: EchoOperationProgramV1,
+    canonical_package_bytes: Vec<u8>,
+    admission_policy_id: Hash,
+    admission_policy: EchoOperationAdmissionPolicyV1,
+}
+
+impl InstalledEchoOperationV1 {
+    /// Returns Echo's installed-operation identity.
+    #[must_use]
+    pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
+        self.installed_operation_id
+    }
+
+    /// Returns the public operation coordinate admitted by Echo.
+    #[must_use]
+    pub fn operation_coordinate(&self) -> &str {
+        &self.operation_coordinate
+    }
+
+    /// Returns the exact package identity.
+    #[must_use]
+    pub const fn package_id(&self) -> EchoOperationPackageIdV1 {
+        self.package_id
+    }
+
+    /// Returns the package-admission evidence identity consumed by installation.
+    #[must_use]
+    pub const fn package_admission_id(&self) -> EchoOperationPackageAdmissionIdV1 {
+        self.package_admission_id
+    }
+
+    /// Returns the subordinate executable-program identity.
+    #[must_use]
+    pub const fn program_id(&self) -> EchoOperationProgramIdV1 {
+        self.program_id
+    }
+
+    /// Returns the semantic identity bound by the admitted package.
+    #[must_use]
+    pub const fn semantic_identity(&self) -> Hash {
+        self.semantic_identity
+    }
+
+    /// Returns the lawpack identity bound by the admitted package.
+    #[must_use]
+    pub const fn lawpack_identity(&self) -> Hash {
+        self.lawpack_identity
+    }
+
+    /// Returns the exact retained package bytes.
+    #[must_use]
+    pub fn canonical_package_bytes(&self) -> &[u8] {
+        &self.canonical_package_bytes
+    }
+}
+
+/// Stable installation refusal categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationInstallationErrorKindV1 {
+    /// The package id is already installed with different exact evidence.
+    PackageIdentityConflict,
+    /// The public operation coordinate is already bound to another package.
+    OperationCoordinateConflict,
+}
+
+/// One structured installation refusal.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{kind:?}: {detail}")]
+pub struct EchoOperationInstallationErrorV1 {
+    kind: EchoOperationInstallationErrorKindV1,
+    detail: String,
+}
+
+impl EchoOperationInstallationErrorV1 {
+    /// Returns the stable refusal category.
+    #[must_use]
+    pub const fn kind(&self) -> EchoOperationInstallationErrorKindV1 {
+        self.kind
+    }
+}
+
+pub(crate) fn admit_package_v1(
+    policy: &EchoOperationAdmissionPolicyV1,
+    canonical_package_bytes: Vec<u8>,
+) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
+    let package_id = echo_operation_package_id_v1(&canonical_package_bytes);
+    if package_id != policy.expected_package_id {
+        return Err(admission_error(
+            EchoOperationAdmissionErrorKindV1::PackageIdentityMismatch,
+            "exact package bytes differ from the independently pinned package id",
+        ));
+    }
+    let package = ExecutableOperationPackageV1::from_canonical_bytes(&canonical_package_bytes)
+        .map_err(|artifact| EchoOperationAdmissionErrorV1 {
+            kind: EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+            detail: artifact.to_string(),
+            artifact: Some(artifact),
+        })?;
+    if package.operation_coordinate != policy.expected_operation_coordinate {
+        return Err(admission_error(
+            EchoOperationAdmissionErrorKindV1::OperationCoordinateMismatch,
+            "package operation coordinate differs from admission policy",
+        ));
+    }
+    if package.authority_profile_identity != policy.expected_authority_profile_identity {
+        return Err(admission_error(
+            EchoOperationAdmissionErrorKindV1::AuthorityProfileMismatch,
+            "package authority profile differs from admission policy",
+        ));
+    }
+    if !package.budget_ceiling.fits_within(policy.maximum_budget) {
+        return Err(admission_error(
+            EchoOperationAdmissionErrorKindV1::BudgetExceedsPolicy,
+            "package budget ceiling exceeds admission policy",
+        ));
+    }
+    let admission_policy_id = policy.identity();
+    Ok(AdmittedExecutableOperationPackageV1 {
+        package,
+        canonical_package_bytes,
+        package_id,
+        admission_policy_id,
+        admission_id: package_admission_id(package_id, admission_policy_id),
+        admission_policy: policy.clone(),
+    })
+}
+
+pub(crate) fn installed_from_admitted(
+    admitted: AdmittedExecutableOperationPackageV1,
+) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+    let package = admitted.package;
+    let mut installed = InstalledEchoOperationV1 {
+        installed_operation_id: InstalledEchoOperationIdV1([0; 32]),
+        package_id: admitted.package_id,
+        package_admission_id: admitted.admission_id,
+        operation_coordinate: package.operation_coordinate,
+        semantic_identity: package.semantic_closure.canonical_meaning_identity,
+        lawpack_identity: package.semantic_closure.lawpack_identity,
+        target_profile_identity: package.target_profile_identity,
+        interpreter_profile_identity: package.interpreter_profile_identity,
+        intrinsic_profile_identity: package.intrinsic_profile_identity,
+        authority_profile_identity: package.authority_profile_identity,
+        application_basis_schema_identity: package.application_basis_schema_identity,
+        budget_ceiling: package.budget_ceiling,
+        program_id: package.program.identity()?,
+        program: package.program,
+        canonical_package_bytes: admitted.canonical_package_bytes,
+        admission_policy_id: admitted.admission_policy_id,
+        admission_policy: admitted.admission_policy,
+    };
+    installed.installed_operation_id = installed_operation_id(&installed);
+    Ok(installed)
+}
+
+pub(crate) fn retain_installation_v1(
+    installed: &InstalledEchoOperationV1,
+) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+    encode_canonical_cbor_v1(&map_value([
+        ("admission_policy", installed.admission_policy.to_value()),
+        (
+            "admission_policy_id",
+            hash_value(installed.admission_policy_id),
+        ),
+        (
+            "installed_operation_id",
+            hash_value(installed.installed_operation_id.as_hash()),
+        ),
+        (
+            "package_bytes",
+            CanonicalValueV1::Bytes(installed.canonical_package_bytes.clone()),
+        ),
+        (
+            "package_admission_id",
+            hash_value(installed.package_admission_id.as_hash()),
+        ),
+        ("package_id", hash_value(installed.package_id.as_hash())),
+        ("schema", text_value("echo.operation-installation/v1")),
+    ]))
+    .map_err(canonical_error)
+}
+
+pub(crate) fn recover_installation_v1(
+    bytes: &[u8],
+) -> Result<InstalledEchoOperationV1, EchoOperationArtifactErrorV1> {
+    let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+    let mut fields = exact_text_map(
+        value,
+        &[
+            "admission_policy_id",
+            "admission_policy",
+            "installed_operation_id",
+            "package_bytes",
+            "package_admission_id",
+            "package_id",
+            "schema",
+        ],
+    )?;
+    require_text(&mut fields, "schema", "echo.operation-installation/v1")?;
+    let package_id = EchoOperationPackageIdV1(take_hash(&mut fields, "package_id")?);
+    let canonical_package_bytes = take_bytes(&mut fields, "package_bytes")?;
+    if echo_operation_package_id_v1(&canonical_package_bytes) != package_id {
+        return Err(invalid_structure(
+            "retained installation package identity does not match exact bytes",
+        ));
+    }
+    let admission_policy =
+        EchoOperationAdmissionPolicyV1::from_value(take_field(&mut fields, "admission_policy")?)?;
+    let admission_policy_id = take_hash(&mut fields, "admission_policy_id")?;
+    if admission_policy.identity() != admission_policy_id {
+        return Err(invalid_structure(
+            "retained package-admission policy identity mismatch",
+        ));
+    }
+    let package_admission_id = package_admission_id(package_id, admission_policy_id);
+    let retained_package_admission_id =
+        EchoOperationPackageAdmissionIdV1(take_hash(&mut fields, "package_admission_id")?);
+    if retained_package_admission_id != package_admission_id {
+        return Err(invalid_structure(
+            "retained package-admission identity does not match package and policy",
+        ));
+    }
+    let admitted =
+        admit_package_v1(&admission_policy, canonical_package_bytes).map_err(|error| {
+            invalid_structure(format!(
+                "retained executable-operation package no longer admits: {error}"
+            ))
+        })?;
+    if admitted.package_id != package_id || admitted.admission_id != package_admission_id {
+        return Err(invalid_structure(
+            "retained package-admission evidence does not match re-admission",
+        ));
+    }
+    let installed = installed_from_admitted(admitted)?;
+    let retained_installed_operation_id =
+        InstalledEchoOperationIdV1(take_hash(&mut fields, "installed_operation_id")?);
+    if retained_installed_operation_id != installed.installed_operation_id {
+        return Err(invalid_structure(
+            "retained installed-operation identity does not match exact installation",
+        ));
+    }
+    if retain_installation_v1(&installed)? != bytes {
+        return Err(artifact_error(
+            EchoOperationArtifactErrorKindV1::NonCanonical,
+            "installation did not reproduce the exact retained bytes",
+        ));
+    }
+    Ok(installed)
+}
+
+pub(crate) fn install_recovered_v1(
+    packages: &mut BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+    operations: &mut BTreeMap<String, EchoOperationPackageIdV1>,
+    installed: InstalledEchoOperationV1,
+) -> Result<InstalledEchoOperationV1, EchoOperationInstallationErrorV1> {
+    if let Some(existing) = packages.get(&installed.package_id) {
+        if existing == &installed {
+            return Ok(existing.clone());
+        }
+        return Err(installation_error(
+            EchoOperationInstallationErrorKindV1::PackageIdentityConflict,
+            "recovered package conflicts with installed exact evidence",
+        ));
+    }
+    if operations
+        .get(&installed.operation_coordinate)
+        .is_some_and(|existing| *existing != installed.package_id)
+    {
+        return Err(installation_error(
+            EchoOperationInstallationErrorKindV1::OperationCoordinateConflict,
+            "recovered operation coordinate conflicts with installed package",
+        ));
+    }
+    operations.insert(installed.operation_coordinate.clone(), installed.package_id);
+    packages.insert(installed.package_id, installed.clone());
+    Ok(installed)
+}
+
+/// Application-owned basis proposition carried inside the exact Echo basis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EchoOperationApplicationBasisV1 {
+    schema_identity: Hash,
+    value_identity: Hash,
+}
+
+impl EchoOperationApplicationBasisV1 {
+    /// Creates one typed application basis proposition.
+    #[must_use]
+    pub const fn new(schema_identity: Hash, value_identity: Hash) -> Self {
+        Self {
+            schema_identity,
+            value_identity,
+        }
+    }
+
+    /// Returns its schema identity.
+    #[must_use]
+    pub const fn schema_identity(self) -> Hash {
+        self.schema_identity
+    }
+
+    /// Returns its value identity.
+    #[must_use]
+    pub const fn value_identity(self) -> Hash {
+        self.value_identity
+    }
+}
+
+/// Exact parent basis against which Echo evaluated a prepared operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EchoOperationEvaluationBasisV1 {
+    writer_head: WriterHeadKey,
+    worldline_tick: WorldlineTick,
+    commit_global_tick: Option<GlobalTick>,
+    state_root: Hash,
+    commit_id: Hash,
+    application_basis: EchoOperationApplicationBasisV1,
+}
+
+impl EchoOperationEvaluationBasisV1 {
+    pub(crate) fn new(
+        writer_head: WriterHeadKey,
+        worldline_tick: WorldlineTick,
+        commit_global_tick: Option<GlobalTick>,
+        state_root: Hash,
+        commit_id: Hash,
+        application_basis: EchoOperationApplicationBasisV1,
+    ) -> Self {
+        Self {
+            writer_head,
+            worldline_tick,
+            commit_global_tick,
+            state_root,
+            commit_id,
+            application_basis,
+        }
+    }
+
+    /// Returns the writer head whose frontier is named.
+    #[must_use]
+    pub const fn writer_head(self) -> WriterHeadKey {
+        self.writer_head
+    }
+
+    /// Returns the exact worldline tick.
+    #[must_use]
+    pub const fn worldline_tick(self) -> WorldlineTick {
+        self.worldline_tick
+    }
+
+    /// Returns the committing global tick, or `None` for U0.
+    #[must_use]
+    pub const fn commit_global_tick(self) -> Option<GlobalTick> {
+        self.commit_global_tick
+    }
+
+    /// Returns the exact state root.
+    #[must_use]
+    pub const fn state_root(self) -> Hash {
+        self.state_root
+    }
+
+    /// Returns the exact commit identity (including the U0 derived identity).
+    #[must_use]
+    pub const fn commit_id(self) -> Hash {
+        self.commit_id
+    }
+
+    /// Returns the application-owned basis proposition.
+    #[must_use]
+    pub const fn application_basis(self) -> EchoOperationApplicationBasisV1 {
+        self.application_basis
+    }
+
+    /// Returns the stable identity of every basis field in the ADR-defined order.
+    #[must_use]
+    pub fn identity(self) -> EchoOperationEvaluationBasisIdV1 {
+        let mut hasher = Hasher::new();
+        hasher.update(BASIS_ID_DOMAIN);
+        hasher.update(self.writer_head.worldline_id.as_bytes());
+        hasher.update(self.writer_head.head_id.as_bytes());
+        hasher.update(&self.worldline_tick.as_u64().to_le_bytes());
+        match self.commit_global_tick {
+            None => {
+                hasher.update(&[0]);
+            }
+            Some(tick) => {
+                hasher.update(&[1]);
+                hasher.update(&tick.as_u64().to_le_bytes());
+            }
+        }
+        hasher.update(&self.state_root);
+        hasher.update(&self.commit_id);
+        hasher.update(&self.application_basis.schema_identity);
+        hasher.update(&self.application_basis.value_identity);
+        EchoOperationEvaluationBasisIdV1(hasher.finalize().into())
+    }
+
+    fn to_value(self) -> CanonicalValueV1 {
+        map_value([
+            (
+                "application_basis_schema_identity",
+                hash_value(self.application_basis.schema_identity),
+            ),
+            (
+                "application_basis_value_identity",
+                hash_value(self.application_basis.value_identity),
+            ),
+            ("commit_id", hash_value(self.commit_id)),
+            (
+                "commit_global_tick",
+                self.commit_global_tick
+                    .map_or(CanonicalValueV1::Null, |tick| uint_value(tick.as_u64())),
+            ),
+            ("head_id", hash_value(*self.writer_head.head_id.as_bytes())),
+            ("state_root", hash_value(self.state_root)),
+            (
+                "worldline_id",
+                hash_value(*self.writer_head.worldline_id.as_bytes()),
+            ),
+            ("worldline_tick", uint_value(self.worldline_tick.as_u64())),
+        ])
+    }
+
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "application_basis_schema_identity",
+                "application_basis_value_identity",
+                "commit_global_tick",
+                "commit_id",
+                "head_id",
+                "state_root",
+                "worldline_id",
+                "worldline_tick",
+            ],
+        )?;
+        let commit_global_tick = match take_field(&mut fields, "commit_global_tick")? {
+            CanonicalValueV1::Null => None,
+            CanonicalValueV1::Integer(value) => Some(GlobalTick::from_raw(i128_to_u64(value)?)),
+            _ => return Err(invalid_structure("commit_global_tick must be null or uint")),
+        };
+        Ok(Self {
+            writer_head: WriterHeadKey {
+                worldline_id: crate::WorldlineId::from_bytes(take_hash(
+                    &mut fields,
+                    "worldline_id",
+                )?),
+                head_id: crate::HeadId::from_bytes(take_hash(&mut fields, "head_id")?),
+            },
+            worldline_tick: WorldlineTick::from_raw(take_u64(&mut fields, "worldline_tick")?),
+            commit_global_tick,
+            state_root: take_hash(&mut fields, "state_root")?,
+            commit_id: take_hash(&mut fields, "commit_id")?,
+            application_basis: EchoOperationApplicationBasisV1::new(
+                take_hash(&mut fields, "application_basis_schema_identity")?,
+                take_hash(&mut fields, "application_basis_value_identity")?,
+            ),
+        })
+    }
+}
+
+/// Canonical basis-bearing invocation emitted by a generated client/helper.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationInvocationV1 {
+    package_id: EchoOperationPackageIdV1,
+    operation_coordinate: String,
+    evaluation_basis: EchoOperationEvaluationBasisV1,
+    authority_grant_identity: Hash,
+    delegated_budget: EchoOperationBudgetV1,
+    node: NodeKey,
+    expected_value_digest: Hash,
+    replacement_bytes: Vec<u8>,
+}
+
+impl EchoOperationInvocationV1 {
+    /// Creates an invocation for the first supported operation program.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn anchored_node_attachment_compare_and_set(
+        package_id: EchoOperationPackageIdV1,
+        operation_coordinate: impl Into<String>,
+        evaluation_basis: EchoOperationEvaluationBasisV1,
+        authority_grant_identity: Hash,
+        delegated_budget: EchoOperationBudgetV1,
+        node: NodeKey,
+        expected_value_digest: Hash,
+        replacement_bytes: Vec<u8>,
+    ) -> Self {
+        Self {
+            package_id,
+            operation_coordinate: operation_coordinate.into(),
+            evaluation_basis,
+            authority_grant_identity,
+            delegated_budget,
+            node,
+            expected_value_digest,
+            replacement_bytes,
+        }
+    }
+
+    /// Returns the canonical invocation identity.
+    pub fn identity(&self) -> Result<EchoOperationInvocationIdV1, EchoOperationArtifactErrorV1> {
+        Ok(EchoOperationInvocationIdV1(domain_hash(
+            INVOCATION_ID_DOMAIN,
+            &self.to_canonical_bytes()?,
+        )))
+    }
+
+    /// Encodes exact invocation bytes using Edict's canonical CBOR profile.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        if self.operation_coordinate.is_empty() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyOperationCoordinate,
+                "invocation operation coordinate must not be empty",
+            ));
+        }
+        let value = map_value([
+            (
+                "authority_grant_identity",
+                hash_value(self.authority_grant_identity),
+            ),
+            ("delegated_budget", self.delegated_budget.to_value()),
+            ("evaluation_basis", self.evaluation_basis.to_value()),
+            (
+                "expected_value_digest",
+                hash_value(self.expected_value_digest),
+            ),
+            ("node_id", hash_value(self.node.local_id.0)),
+            (
+                "operation_coordinate",
+                text_value(&self.operation_coordinate),
+            ),
+            ("package_id", hash_value(self.package_id.as_hash())),
+            (
+                "replacement_bytes",
+                CanonicalValueV1::Bytes(self.replacement_bytes.clone()),
+            ),
+            ("schema", text_value(INVOCATION_SCHEMA)),
+            ("warp_id", hash_value(self.node.warp_id.0)),
+        ]);
+        encode_canonical_cbor_v1(&value).map_err(canonical_error)
+    }
+
+    fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "authority_grant_identity",
+                "delegated_budget",
+                "evaluation_basis",
+                "expected_value_digest",
+                "node_id",
+                "operation_coordinate",
+                "package_id",
+                "replacement_bytes",
+                "schema",
+                "warp_id",
+            ],
+        )?;
+        require_text(&mut fields, "schema", INVOCATION_SCHEMA)?;
+        let invocation = Self {
+            package_id: EchoOperationPackageIdV1(take_hash(&mut fields, "package_id")?),
+            operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
+            evaluation_basis: EchoOperationEvaluationBasisV1::from_value(take_field(
+                &mut fields,
+                "evaluation_basis",
+            )?)?,
+            authority_grant_identity: take_hash(&mut fields, "authority_grant_identity")?,
+            delegated_budget: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "delegated_budget",
+            )?)?,
+            node: NodeKey {
+                warp_id: crate::WarpId(take_hash(&mut fields, "warp_id")?),
+                local_id: crate::NodeId(take_hash(&mut fields, "node_id")?),
+            },
+            expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            replacement_bytes: take_bytes(&mut fields, "replacement_bytes")?,
+        };
+        if invocation.operation_coordinate.is_empty() || !invocation.delegated_budget.is_nonzero() {
+            return Err(invalid_structure(
+                "invocation coordinate and delegated step budget must be nonempty",
+            ));
+        }
+        if invocation.to_canonical_bytes()? != bytes {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::NonCanonical,
+                "invocation did not reproduce the exact admitted bytes",
+            ));
+        }
+        Ok(invocation)
+    }
+}
+
+/// Runtime-owner invocation policy, separate from authored invocation bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EchoOperationInvocationAdmissionPolicyV1 {
+    authority_profile_identity: Hash,
+    authority_grant_identity: Hash,
+    maximum_delegated_budget: EchoOperationBudgetV1,
+}
+
+impl EchoOperationInvocationAdmissionPolicyV1 {
+    /// Creates one independently supplied invocation policy.
+    #[must_use]
+    pub const fn new(
+        authority_profile_identity: Hash,
+        authority_grant_identity: Hash,
+        maximum_delegated_budget: EchoOperationBudgetV1,
+    ) -> Self {
+        Self {
+            authority_profile_identity,
+            authority_grant_identity,
+            maximum_delegated_budget,
+        }
+    }
+
+    fn identity(self) -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(b"echo:operation-invocation-admission-policy:v1\0");
+        hasher.update(&self.authority_profile_identity);
+        hasher.update(&self.authority_grant_identity);
+        hash_budget(&mut hasher, self.maximum_delegated_budget);
+        hasher.finalize().into()
+    }
+}
+
+/// Stable invocation-admission refusal categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationInvocationAdmissionErrorKindV1 {
+    /// Invocation bytes were malformed or noncanonical.
+    MalformedInvocation,
+    /// No admitted executable operation package is installed under the claimed id.
+    OperationUnavailable,
+    /// The invocation's public operation coordinate disagrees with the package.
+    OperationCoordinateMismatch,
+    /// The runtime-owned authority profile disagrees with the package.
+    AuthorityProfileMismatch,
+    /// The invocation's authority grant was not admitted by runtime policy.
+    AuthorityGrantMismatch,
+    /// Delegated budget exceeded the installed package or runtime policy.
+    BudgetExceeded,
+    /// The invocation named a basis other than the current exact parent basis.
+    BasisMismatch,
+}
+
+/// One structured invocation-admission refusal.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error("{kind:?}: {detail}")]
+pub struct EchoOperationInvocationAdmissionErrorV1 {
+    kind: EchoOperationInvocationAdmissionErrorKindV1,
+    detail: String,
+}
+
+impl EchoOperationInvocationAdmissionErrorV1 {
+    /// Returns the stable refusal category.
+    #[must_use]
+    pub const fn kind(&self) -> EchoOperationInvocationAdmissionErrorKindV1 {
+        self.kind
+    }
+}
+
+/// Opaque evidence that Echo admitted an installed, basis-bearing invocation.
+#[derive(Clone, Debug)]
+pub struct AdmittedEchoOperationInvocationV1 {
+    invocation: EchoOperationInvocationV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    canonical_invocation_bytes: Vec<u8>,
+    admission_policy_id: Hash,
+    admission_id: EchoOperationInvocationAdmissionIdV1,
+    installed_operation_id: InstalledEchoOperationIdV1,
+    evaluation_authority: EchoOperationEvaluationAuthorityV1,
+    admission_policy: EchoOperationInvocationAdmissionPolicyV1,
+}
+
+impl AdmittedEchoOperationInvocationV1 {
+    pub(crate) const fn package_id(&self) -> EchoOperationPackageIdV1 {
+        self.invocation.package_id
+    }
+
+    pub(crate) const fn evaluation_basis(&self) -> EchoOperationEvaluationBasisV1 {
+        self.invocation.evaluation_basis
+    }
+}
+
+pub(crate) fn admit_invocation_v1(
+    installed: Option<&InstalledEchoOperationV1>,
+    policy: EchoOperationInvocationAdmissionPolicyV1,
+    canonical_invocation_bytes: &[u8],
+    current_basis: EchoOperationEvaluationBasisV1,
+    current_state: &WorldlineState,
+    evaluation_authority: EchoOperationEvaluationAuthorityV1,
+) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+        .map_err(|error| {
+            invocation_admission_error(
+                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                error.to_string(),
+            )
+        })?;
+    let installed = installed.ok_or_else(|| {
+        invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable,
+            "claimed executable operation package is not installed",
+        )
+    })?;
+    if invocation.operation_coordinate != installed.operation_coordinate {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch,
+            "invocation operation coordinate differs from installed package",
+        ));
+    }
+    if policy.authority_profile_identity != installed.authority_profile_identity {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::AuthorityProfileMismatch,
+            "runtime authority profile differs from installed package",
+        ));
+    }
+    if invocation.authority_grant_identity != policy.authority_grant_identity {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::AuthorityGrantMismatch,
+            "invocation authority grant was not admitted by runtime policy",
+        ));
+    }
+    if !invocation
+        .delegated_budget
+        .fits_within(installed.budget_ceiling)
+        || !invocation
+            .delegated_budget
+            .fits_within(policy.maximum_delegated_budget)
+        || !installed
+            .program
+            .minimum_budget()
+            .fits_within(invocation.delegated_budget)
+    {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+            "delegated budget is below the program minimum or exceeds an admitted ceiling",
+        ));
+    }
+    if invocation.evaluation_basis != current_basis {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation does not name the current exact parent basis",
+        ));
+    }
+    if invocation
+        .evaluation_basis
+        .application_basis
+        .schema_identity
+        != installed.application_basis_schema_identity
+    {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation application-basis schema differs from installed package",
+        ));
+    }
+    let current_application_basis =
+        current_application_basis(installed, &invocation, current_state)?;
+    if invocation.evaluation_basis.application_basis != current_application_basis {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation application basis differs from Echo's current graph proposition",
+        ));
+    }
+    let invocation_id = EchoOperationInvocationIdV1(domain_hash(
+        INVOCATION_ID_DOMAIN,
+        canonical_invocation_bytes,
+    ));
+    let admission_policy_id = policy.identity();
+    let installed_operation_id = installed.installed_operation_id;
+    Ok(AdmittedEchoOperationInvocationV1 {
+        invocation,
+        invocation_id,
+        canonical_invocation_bytes: canonical_invocation_bytes.to_vec(),
+        admission_policy_id,
+        admission_id: invocation_admission_id(
+            installed_operation_id,
+            invocation_id,
+            admission_policy_id,
+            current_basis.identity(),
+        ),
+        installed_operation_id,
+        evaluation_authority,
+        admission_policy: policy,
+    })
+}
+
+fn current_application_basis(
+    installed: &InstalledEchoOperationV1,
+    invocation: &EchoOperationInvocationV1,
+    state: &WorldlineState,
+) -> Result<EchoOperationApplicationBasisV1, EchoOperationInvocationAdmissionErrorV1> {
+    let basis_mismatch = |detail| {
+        invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            detail,
+        )
+    };
+    match installed.program {
+        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. } => {
+            let store = state
+                .store(&invocation.node.warp_id)
+                .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
+            store
+                .node(&invocation.node.local_id)
+                .ok_or_else(|| basis_mismatch("application-basis node is unavailable"))?;
+            let attachment = store
+                .node_attachment(&invocation.node.local_id)
+                .ok_or_else(|| basis_mismatch("application-basis attachment is unavailable"))?;
+            let AttachmentValue::Atom(atom) = attachment else {
+                return Err(basis_mismatch(
+                    "application-basis attachment is not a canonical atom",
+                ));
+            };
+            let atom_len = u64::try_from(atom.bytes.len()).map_err(|_| {
+                invocation_admission_error(
+                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    "application-basis attachment length exceeds the v1 budget domain",
+                )
+            })?;
+            let required_read_bytes = 64_u64.checked_add(atom_len).ok_or_else(|| {
+                invocation_admission_error(
+                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    "application-basis read requirement overflowed",
+                )
+            })?;
+            if required_read_bytes > invocation.delegated_budget.read_bytes {
+                return Err(invocation_admission_error(
+                    EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                    "application-basis corroboration exceeds the delegated read budget",
+                ));
+            }
+            Ok(echo_operation_anchored_node_application_basis_v1(
+                invocation.node,
+                atom.type_id,
+                &atom.bytes,
+            ))
+        }
+    }
+}
+
+pub(crate) fn decode_invocation_route_v1(
+    canonical_invocation_bytes: &[u8],
+) -> Result<
+    (EchoOperationPackageIdV1, EchoOperationEvaluationBasisV1),
+    EchoOperationInvocationAdmissionErrorV1,
+> {
+    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+        .map_err(|error| {
+            invocation_admission_error(
+                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                error.to_string(),
+            )
+        })?;
+    Ok((invocation.package_id, invocation.evaluation_basis))
+}
+
+pub(crate) fn invocation_runtime_error(
+    detail: impl Into<String>,
+) -> EchoOperationInvocationAdmissionErrorV1 {
+    invocation_admission_error(
+        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+        detail,
+    )
+}
+
+pub(crate) fn runtime_basis_obstruction(
+    admitted: AdmittedEchoOperationInvocationV1,
+) -> EchoOperationPreparationV1 {
+    EchoOperationPreparationV1::Obstructed(EchoOperationObstructionV1 {
+        kind: EchoOperationObstructionKindV1::BasisChanged,
+        package_id: admitted.invocation.package_id,
+        invocation_id: admitted.invocation_id,
+        evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
+    })
+}
+
+/// Stable private-evaluation obstruction categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationObstructionKindV1 {
+    /// The installed operation changed or disappeared after admission.
+    OperationUnavailable,
+    /// Admission belongs to another Echo runtime owner.
+    EvaluationAuthorityMismatch,
+    /// The parent basis changed before or during preparation.
+    BasisChanged,
+    /// The delegated budget could not cover deterministic evaluation.
+    BudgetExceeded,
+    /// The anchored node is absent.
+    NodeMissing,
+    /// The anchored node has a different skeleton type.
+    NodeTypeMismatch,
+    /// The anchored node has no alpha attachment.
+    AttachmentMissing,
+    /// The alpha attachment is descended rather than an atom.
+    AttachmentNotAtom,
+    /// The alpha atom has a different declared type.
+    AttachmentTypeMismatch,
+    /// The current atom digest differs from the invocation precondition.
+    PreconditionMismatch,
+    /// Actual resource access exceeded the declared footprint contract.
+    FootprintViolation,
+    /// The program rejected a replacement outside its bound.
+    ReplacementTooLarge,
+}
+
+/// One typed obstruction. Obstruction never carries a parent-visible patch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationObstructionV1 {
+    kind: EchoOperationObstructionKindV1,
+    package_id: EchoOperationPackageIdV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+}
+
+impl EchoOperationObstructionV1 {
+    /// Returns the stable obstruction category.
+    #[must_use]
+    pub const fn kind(&self) -> EchoOperationObstructionKindV1 {
+        self.kind
+    }
+
+    /// Returns the identity of this typed no-parent-patch obstruction.
+    #[must_use]
+    pub fn identity(&self) -> EchoOperationObstructionIdV1 {
+        let mut hasher = Hasher::new();
+        hasher.update(OBSTRUCTION_ID_DOMAIN);
+        hasher.update(&self.package_id.as_hash());
+        hasher.update(&self.invocation_id.as_hash());
+        hasher.update(&self.evaluation_basis_id.as_hash());
+        hasher.update(&[obstruction_kind_code(self.kind)]);
+        EchoOperationObstructionIdV1(hasher.finalize().into())
+    }
+}
+
+/// Private evaluation result: exactly one complete preparation or one obstruction.
+#[derive(Clone, Debug)]
+pub enum EchoOperationPreparationV1 {
+    /// A complete, privately evaluated patch that may be offered for exact-basis commit.
+    Prepared(Box<PreparedEchoOperationV1>),
+    /// A typed obstruction with no parent-visible patch.
+    Obstructed(EchoOperationObstructionV1),
+}
+
+/// Complete private evaluation, bound to all substitution and resource evidence.
+#[derive(Clone, Debug)]
+pub struct PreparedEchoOperationV1 {
+    installed: InstalledEchoOperationV1,
+    invocation: EchoOperationInvocationV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    canonical_invocation_bytes: Vec<u8>,
+    invocation_admission_policy_id: Hash,
+    invocation_admission_maximum_budget: EchoOperationBudgetV1,
+    invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
+    evaluation_basis: EchoOperationEvaluationBasisV1,
+    declared_footprint: Footprint,
+    actual_footprint: Footprint,
+    declared_footprint_digest: Hash,
+    actual_footprint_digest: Hash,
+    consumed_budget: EchoOperationBudgetV1,
+    patch: WarpTickPatchV1,
+    result_id: EchoOperationResultIdV1,
+    private_evaluation_id: EchoOperationPrivateEvaluationIdV1,
+    preparation_id: PreparedEchoOperationIdV1,
+    evaluation_authority: EchoOperationEvaluationAuthorityV1,
+}
+
+impl PreparedEchoOperationV1 {
+    /// Returns the exact basis on which private evaluation occurred.
+    #[must_use]
+    pub const fn evaluation_basis(&self) -> &EchoOperationEvaluationBasisV1 {
+        &self.evaluation_basis
+    }
+
+    /// Returns the invocation-derived declared footprint.
+    #[must_use]
+    pub const fn declared_footprint(&self) -> &Footprint {
+        &self.declared_footprint
+    }
+
+    /// Returns the evaluator-recorded actual footprint.
+    #[must_use]
+    pub const fn actual_footprint(&self) -> &Footprint {
+        &self.actual_footprint
+    }
+
+    /// Returns the complete parent-visible patch produced in private evaluation.
+    #[must_use]
+    pub const fn patch(&self) -> &WarpTickPatchV1 {
+        &self.patch
+    }
+
+    /// Returns the exact invocation-admission evidence consumed by evaluation.
+    #[must_use]
+    pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
+        self.invocation_admission_id
+    }
+
+    /// Returns the declared-footprint identity bound by evaluation.
+    #[must_use]
+    pub const fn declared_footprint_digest(&self) -> Hash {
+        self.declared_footprint_digest
+    }
+
+    /// Returns the evaluator-recorded actual-footprint identity.
+    #[must_use]
+    pub const fn actual_footprint_digest(&self) -> Hash {
+        self.actual_footprint_digest
+    }
+
+    /// Returns the invocation's admitted delegated budget.
+    #[must_use]
+    pub const fn delegated_budget(&self) -> EchoOperationBudgetV1 {
+        self.invocation.delegated_budget
+    }
+
+    /// Returns the resource budget consumed during private evaluation.
+    #[must_use]
+    pub const fn consumed_budget(&self) -> EchoOperationBudgetV1 {
+        self.consumed_budget
+    }
+
+    /// Returns the bounded private-evaluation identity.
+    #[must_use]
+    pub const fn private_evaluation_id(&self) -> EchoOperationPrivateEvaluationIdV1 {
+        self.private_evaluation_id
+    }
+
+    /// Returns this complete committable preparation's identity.
+    #[must_use]
+    pub const fn preparation_id(&self) -> PreparedEchoOperationIdV1 {
+        self.preparation_id
+    }
+
+    /// Returns the typed result identity produced by evaluation.
+    #[must_use]
+    pub const fn result_id(&self) -> EchoOperationResultIdV1 {
+        self.result_id
+    }
+
+    pub(crate) const fn package_id(&self) -> EchoOperationPackageIdV1 {
+        self.installed.package_id
+    }
+
+    pub(crate) const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
+        self.installed.installed_operation_id
+    }
+
+    pub(crate) fn is_owned_by(&self, authority: &EchoOperationEvaluationAuthorityV1) -> bool {
+        self.evaluation_authority.same_owner(authority)
+    }
+}
+
+pub(crate) fn prepare_operation_v1(
+    installed: Option<&InstalledEchoOperationV1>,
+    admitted: AdmittedEchoOperationInvocationV1,
+    current_basis: EchoOperationEvaluationBasisV1,
+    state: &WorldlineState,
+    policy_id: u32,
+    evaluation_authority: &EchoOperationEvaluationAuthorityV1,
+) -> EchoOperationPreparationV1 {
+    let package_id = admitted.invocation.package_id;
+    let invocation_id = admitted.invocation_id;
+    let obstruction = |kind| {
+        EchoOperationPreparationV1::Obstructed(EchoOperationObstructionV1 {
+            kind,
+            package_id,
+            invocation_id,
+            evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
+        })
+    };
+    let Some(installed) = installed else {
+        return obstruction(EchoOperationObstructionKindV1::OperationUnavailable);
+    };
+    if installed.package_id != package_id
+        || installed.operation_coordinate != admitted.invocation.operation_coordinate
+        || installed.installed_operation_id != admitted.installed_operation_id
+    {
+        return obstruction(EchoOperationObstructionKindV1::OperationUnavailable);
+    }
+    if !admitted
+        .evaluation_authority
+        .same_owner(evaluation_authority)
+    {
+        return obstruction(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch);
+    }
+    if admitted.invocation.evaluation_basis != current_basis {
+        return obstruction(EchoOperationObstructionKindV1::BasisChanged);
+    }
+
+    match installed.program {
+        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
+            required_node_type,
+            required_attachment_type,
+            max_replacement_bytes,
+        } => {
+            let Ok(replacement_len) = u64::try_from(admitted.invocation.replacement_bytes.len())
+            else {
+                return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
+            };
+            if replacement_len > max_replacement_bytes {
+                return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
+            }
+            let node = admitted.invocation.node;
+            let declared_footprint = anchored_node_footprint(node);
+            let mut actual_footprint = Footprint::default();
+            let mut budget_meter =
+                EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
+            let Some(store) = state.store(&node.warp_id) else {
+                return obstruction(EchoOperationObstructionKindV1::NodeMissing);
+            };
+            if !budget_meter.charge(1, 32, 0) {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            }
+            record_node_read(&mut actual_footprint, node);
+            let Some(record) = store.node(&node.local_id) else {
+                return obstruction(EchoOperationObstructionKindV1::NodeMissing);
+            };
+            if record.ty != required_node_type {
+                return obstruction(EchoOperationObstructionKindV1::NodeTypeMismatch);
+            }
+            let slot = AttachmentKey::node_alpha(node);
+            if !budget_meter.charge(1, 32, 0) {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            }
+            actual_footprint.a_read.insert(slot);
+            let Some(attachment) = store.node_attachment(&node.local_id) else {
+                return obstruction(EchoOperationObstructionKindV1::AttachmentMissing);
+            };
+            let AttachmentValue::Atom(atom) = attachment else {
+                return obstruction(EchoOperationObstructionKindV1::AttachmentNotAtom);
+            };
+            if atom.type_id != required_attachment_type {
+                return obstruction(EchoOperationObstructionKindV1::AttachmentTypeMismatch);
+            }
+            let Ok(current_value_len) = u64::try_from(atom.bytes.len()) else {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            };
+            if !budget_meter.charge(1, current_value_len, 0) {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            }
+            if echo_operation_atom_value_digest_v1(atom.type_id, &atom.bytes)
+                != admitted.invocation.expected_value_digest
+            {
+                return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+            }
+            let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            };
+            if !budget_meter.charge(1, 0, write_bytes) {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            }
+            let consumed_budget = budget_meter.consumed();
+            actual_footprint.a_write.insert(slot);
+            if actual_footprint != declared_footprint {
+                return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
+            }
+            let patch = WarpTickPatchV1::new(
+                policy_id,
+                installed.installed_operation_id.as_hash(),
+                TickCommitStatus::Committed,
+                vec![SlotId::Node(node), SlotId::Attachment(slot)],
+                vec![SlotId::Attachment(slot)],
+                vec![WarpOp::SetAttachment {
+                    key: slot,
+                    value: Some(AttachmentValue::Atom(AtomPayload::new(
+                        required_attachment_type,
+                        Bytes::from(admitted.invocation.replacement_bytes.clone()),
+                    ))),
+                }],
+            );
+            let declared_footprint_digest = footprint_digest(&declared_footprint);
+            let actual_footprint_digest = footprint_digest(&actual_footprint);
+            let replacement_value_digest = echo_operation_atom_value_digest_v1(
+                required_attachment_type,
+                &admitted.invocation.replacement_bytes,
+            );
+            let result_id = operation_result_id(
+                installed,
+                &admitted.invocation,
+                admitted.invocation.expected_value_digest,
+                replacement_value_digest,
+                patch.digest(),
+            );
+            let private_evaluation_id = private_evaluation_id_from_parts(
+                installed.installed_operation_id,
+                installed.program_id,
+                admitted.admission_id,
+                admitted.invocation_id,
+                current_basis.identity(),
+                declared_footprint_digest,
+                actual_footprint_digest,
+                consumed_budget,
+                patch.digest(),
+                result_id,
+            );
+            let preparation_id = preparation_id(private_evaluation_id, patch.digest(), result_id);
+            EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
+                installed: installed.clone(),
+                invocation: admitted.invocation,
+                invocation_id,
+                canonical_invocation_bytes: admitted.canonical_invocation_bytes,
+                invocation_admission_policy_id: admitted.admission_policy_id,
+                invocation_admission_maximum_budget: admitted
+                    .admission_policy
+                    .maximum_delegated_budget,
+                invocation_admission_id: admitted.admission_id,
+                evaluation_basis: current_basis,
+                declared_footprint,
+                actual_footprint,
+                declared_footprint_digest,
+                actual_footprint_digest,
+                consumed_budget,
+                patch,
+                result_id,
+                private_evaluation_id,
+                preparation_id,
+                evaluation_authority: admitted.evaluation_authority,
+            }))
+        }
+    }
+}
+
+/// Terminal posture bound by an executable-operation receipt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationTerminalPostureV1 {
+    /// The exact prepared patch entered the parent worldline.
+    Committed,
+    /// The parent basis changed; no prepared patch entered history.
+    NotCommittedBasisChanged,
+    /// The admitted package was unavailable at the commit crossing.
+    NotCommittedInstallationUnavailable,
+    /// Private evaluation belongs to another Echo runtime owner.
+    NotCommittedEvaluationAuthorityMismatch,
+}
+
+/// Typed receipt for the exact executable semantics and terminal outcome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationReceiptV1 {
+    package_id: EchoOperationPackageIdV1,
+    package_admission_id: EchoOperationPackageAdmissionIdV1,
+    installed_operation_id: InstalledEchoOperationIdV1,
+    operation_coordinate: String,
+    semantic_identity: Hash,
+    lawpack_identity: Hash,
+    target_profile_identity: Hash,
+    interpreter_profile_identity: Hash,
+    intrinsic_profile_identity: Hash,
+    package_admission_policy_id: Hash,
+    authority_profile_identity: Hash,
+    authority_grant_identity: Hash,
+    invocation_admission_policy_id: Hash,
+    invocation_admission_maximum_budget: EchoOperationBudgetV1,
+    invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
+    program_id: EchoOperationProgramIdV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    invocation_bytes_digest: Hash,
+    evaluation_basis: EchoOperationEvaluationBasisV1,
+    evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+    declared_footprint_digest: Hash,
+    actual_footprint_digest: Hash,
+    delegated_budget: EchoOperationBudgetV1,
+    consumed_budget: EchoOperationBudgetV1,
+    private_evaluation_id: EchoOperationPrivateEvaluationIdV1,
+    preparation_id: PreparedEchoOperationIdV1,
+    prepared_patch_digest: Hash,
+    prepared_result_id: EchoOperationResultIdV1,
+    committed_patch_digest: Option<Hash>,
+    committed_result_id: Option<EchoOperationResultIdV1>,
+    state_root_before: Hash,
+    state_root_after: Hash,
+    commit_id: Hash,
+    composition_digest: Option<Hash>,
+    tick_receipt_digest: Hash,
+    commit_global_tick: Option<GlobalTick>,
+    worldline_tick_after: WorldlineTick,
+    terminal_posture: EchoOperationTerminalPostureV1,
+    terminal_outcome_digest: Hash,
+    receipt_digest: Hash,
+}
+
+impl EchoOperationReceiptV1 {
+    /// Returns the terminal disposition.
+    #[must_use]
+    pub const fn terminal_posture(&self) -> EchoOperationTerminalPostureV1 {
+        self.terminal_posture
+    }
+
+    /// Returns the admitted package identity.
+    #[must_use]
+    pub const fn package_id(&self) -> EchoOperationPackageIdV1 {
+        self.package_id
+    }
+
+    /// Returns Echo's package-admission evidence identity.
+    #[must_use]
+    pub const fn package_admission_id(&self) -> EchoOperationPackageAdmissionIdV1 {
+        self.package_admission_id
+    }
+
+    /// Returns Echo's installed-operation identity.
+    #[must_use]
+    pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
+        self.installed_operation_id
+    }
+
+    /// Returns the public Edict operation coordinate.
+    #[must_use]
+    pub fn operation_coordinate(&self) -> &str {
+        &self.operation_coordinate
+    }
+
+    /// Returns the canonical invocation identity admitted by Echo.
+    #[must_use]
+    pub const fn invocation_id(&self) -> EchoOperationInvocationIdV1 {
+        self.invocation_id
+    }
+
+    /// Returns the separately domain-bound digest of canonical invocation bytes.
+    #[must_use]
+    pub const fn invocation_bytes_digest(&self) -> Hash {
+        self.invocation_bytes_digest
+    }
+
+    /// Returns the exact program identity subordinate to the package.
+    #[must_use]
+    pub const fn program_id(&self) -> EchoOperationProgramIdV1 {
+        self.program_id
+    }
+
+    /// Returns the exact private-evaluation basis identity.
+    #[must_use]
+    pub const fn evaluation_basis_id(&self) -> EchoOperationEvaluationBasisIdV1 {
+        self.evaluation_basis_id
+    }
+
+    /// Returns the exact complete basis value used during private evaluation.
+    #[must_use]
+    pub const fn evaluation_basis(&self) -> EchoOperationEvaluationBasisV1 {
+        self.evaluation_basis
+    }
+
+    /// Returns the invocation-derived declared-footprint identity.
+    #[must_use]
+    pub const fn declared_footprint_digest(&self) -> Hash {
+        self.declared_footprint_digest
+    }
+
+    /// Returns the evaluator-recorded actual-footprint identity.
+    #[must_use]
+    pub const fn actual_footprint_digest(&self) -> Hash {
+        self.actual_footprint_digest
+    }
+
+    /// Returns the invocation's admitted delegated budget.
+    #[must_use]
+    pub const fn delegated_budget(&self) -> EchoOperationBudgetV1 {
+        self.delegated_budget
+    }
+
+    /// Returns the resource budget consumed during private evaluation.
+    #[must_use]
+    pub const fn consumed_budget(&self) -> EchoOperationBudgetV1 {
+        self.consumed_budget
+    }
+
+    /// Returns the invocation-admission evidence consumed by evaluation.
+    #[must_use]
+    pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
+        self.invocation_admission_id
+    }
+
+    /// Returns the bounded private-evaluation identity.
+    #[must_use]
+    pub const fn private_evaluation_id(&self) -> EchoOperationPrivateEvaluationIdV1 {
+        self.private_evaluation_id
+    }
+
+    /// Returns the complete preparation identity.
+    #[must_use]
+    pub const fn preparation_id(&self) -> PreparedEchoOperationIdV1 {
+        self.preparation_id
+    }
+
+    /// Returns the typed result produced during private evaluation.
+    #[must_use]
+    pub const fn prepared_result_id(&self) -> EchoOperationResultIdV1 {
+        self.prepared_result_id
+    }
+
+    /// Returns the typed result only when it entered the committed consequence.
+    #[must_use]
+    pub const fn committed_result_id(&self) -> Option<EchoOperationResultIdV1> {
+        self.committed_result_id
+    }
+
+    /// Returns the parent-visible patch digest only for a committed consequence.
+    #[must_use]
+    pub const fn committed_patch_digest(&self) -> Option<Hash> {
+        self.committed_patch_digest
+    }
+
+    /// Returns the evaluated candidate patch identity, committed or not.
+    #[must_use]
+    pub const fn prepared_patch_digest(&self) -> Hash {
+        self.prepared_patch_digest
+    }
+
+    /// Returns singleton composition evidence only for a committed consequence.
+    #[must_use]
+    pub const fn composition_digest(&self) -> Option<Hash> {
+        self.composition_digest
+    }
+
+    /// Returns the closed terminal-outcome identity.
+    #[must_use]
+    pub const fn terminal_outcome_digest(&self) -> Hash {
+        self.terminal_outcome_digest
+    }
+
+    /// Returns the graph-state root at the terminal commit crossing's start.
+    #[must_use]
+    pub const fn state_root_before(&self) -> Hash {
+        self.state_root_before
+    }
+
+    /// Returns the graph-state root after the terminal crossing.
+    #[must_use]
+    pub const fn state_root_after(&self) -> Hash {
+        self.state_root_after
+    }
+
+    /// Returns the committed consequence identity, or the zero sentinel when not committed.
+    #[must_use]
+    pub const fn commit_id(&self) -> Hash {
+        self.commit_id
+    }
+
+    /// Returns the commit's global tick, or `None` when no consequence committed.
+    #[must_use]
+    pub const fn commit_global_tick(&self) -> Option<GlobalTick> {
+        self.commit_global_tick
+    }
+
+    /// Returns the worldline frontier tick after the terminal crossing.
+    #[must_use]
+    pub const fn worldline_tick_after(&self) -> WorldlineTick {
+        self.worldline_tick_after
+    }
+
+    /// Returns the content identity of this typed receipt.
+    #[must_use]
+    pub const fn digest(&self) -> Hash {
+        self.receipt_digest
+    }
+
+    pub(crate) const fn tick_receipt_digest(&self) -> Hash {
+        self.tick_receipt_digest
+    }
+
+    /// Encodes the complete typed receipt as canonical Edict CBOR.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        encode_canonical_cbor_v1(&self.to_value()).map_err(canonical_error)
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        map_value([
+            (
+                "actual_footprint_digest",
+                hash_value(self.actual_footprint_digest),
+            ),
+            (
+                "authority_grant_identity",
+                hash_value(self.authority_grant_identity),
+            ),
+            (
+                "authority_profile_identity",
+                hash_value(self.authority_profile_identity),
+            ),
+            ("commit_id", hash_value(self.commit_id)),
+            (
+                "commit_global_tick",
+                self.commit_global_tick
+                    .map_or(CanonicalValueV1::Null, |tick| uint_value(tick.as_u64())),
+            ),
+            ("consumed_budget", self.consumed_budget.to_value()),
+            (
+                "composition_digest",
+                self.composition_digest
+                    .map_or(CanonicalValueV1::Null, hash_value),
+            ),
+            (
+                "declared_footprint_digest",
+                hash_value(self.declared_footprint_digest),
+            ),
+            ("delegated_budget", self.delegated_budget.to_value()),
+            ("evaluation_basis", self.evaluation_basis.to_value()),
+            (
+                "evaluation_basis_id",
+                hash_value(self.evaluation_basis_id.as_hash()),
+            ),
+            (
+                "installed_operation_id",
+                hash_value(self.installed_operation_id.as_hash()),
+            ),
+            (
+                "interpreter_profile_identity",
+                hash_value(self.interpreter_profile_identity),
+            ),
+            (
+                "intrinsic_profile_identity",
+                hash_value(self.intrinsic_profile_identity),
+            ),
+            (
+                "invocation_admission_id",
+                hash_value(self.invocation_admission_id.as_hash()),
+            ),
+            (
+                "invocation_admission_policy_id",
+                hash_value(self.invocation_admission_policy_id),
+            ),
+            (
+                "invocation_admission_maximum_budget",
+                self.invocation_admission_maximum_budget.to_value(),
+            ),
+            (
+                "invocation_bytes_digest",
+                hash_value(self.invocation_bytes_digest),
+            ),
+            ("invocation_id", hash_value(self.invocation_id.as_hash())),
+            ("lawpack_identity", hash_value(self.lawpack_identity)),
+            (
+                "operation_coordinate",
+                text_value(&self.operation_coordinate),
+            ),
+            (
+                "package_admission_policy_id",
+                hash_value(self.package_admission_policy_id),
+            ),
+            (
+                "package_admission_id",
+                hash_value(self.package_admission_id.as_hash()),
+            ),
+            ("package_id", hash_value(self.package_id.as_hash())),
+            (
+                "prepared_patch_digest",
+                hash_value(self.prepared_patch_digest),
+            ),
+            (
+                "prepared_result_id",
+                hash_value(self.prepared_result_id.as_hash()),
+            ),
+            ("preparation_id", hash_value(self.preparation_id.as_hash())),
+            (
+                "private_evaluation_id",
+                hash_value(self.private_evaluation_id.as_hash()),
+            ),
+            (
+                "committed_patch_digest",
+                self.committed_patch_digest
+                    .map_or(CanonicalValueV1::Null, hash_value),
+            ),
+            (
+                "committed_result_id",
+                self.committed_result_id
+                    .map_or(CanonicalValueV1::Null, |id| hash_value(id.as_hash())),
+            ),
+            ("program_id", hash_value(self.program_id.as_hash())),
+            ("receipt_digest", hash_value(self.receipt_digest)),
+            ("schema", text_value("echo.operation-receipt/v1")),
+            ("semantic_identity", hash_value(self.semantic_identity)),
+            ("state_root_after", hash_value(self.state_root_after)),
+            ("state_root_before", hash_value(self.state_root_before)),
+            (
+                "target_profile_identity",
+                hash_value(self.target_profile_identity),
+            ),
+            (
+                "terminal_posture",
+                text_value(match self.terminal_posture {
+                    EchoOperationTerminalPostureV1::Committed => "committed",
+                    EchoOperationTerminalPostureV1::NotCommittedBasisChanged => {
+                        "not-committed:basis-changed"
+                    }
+                    EchoOperationTerminalPostureV1::NotCommittedInstallationUnavailable => {
+                        "not-committed:installation-unavailable"
+                    }
+                    EchoOperationTerminalPostureV1::NotCommittedEvaluationAuthorityMismatch => {
+                        "not-committed:evaluation-authority-mismatch"
+                    }
+                }),
+            ),
+            (
+                "terminal_outcome_digest",
+                hash_value(self.terminal_outcome_digest),
+            ),
+            ("tick_receipt_digest", hash_value(self.tick_receipt_digest)),
+            (
+                "worldline_tick_after",
+                uint_value(self.worldline_tick_after.as_u64()),
+            ),
+        ])
+    }
+
+    pub(crate) fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
+        let mut fields = exact_text_map(
+            value,
+            &[
+                "actual_footprint_digest",
+                "authority_grant_identity",
+                "authority_profile_identity",
+                "commit_global_tick",
+                "commit_id",
+                "committed_result_id",
+                "composition_digest",
+                "consumed_budget",
+                "declared_footprint_digest",
+                "delegated_budget",
+                "evaluation_basis",
+                "evaluation_basis_id",
+                "installed_operation_id",
+                "interpreter_profile_identity",
+                "intrinsic_profile_identity",
+                "invocation_admission_id",
+                "invocation_admission_policy_id",
+                "invocation_admission_maximum_budget",
+                "invocation_bytes_digest",
+                "invocation_id",
+                "lawpack_identity",
+                "operation_coordinate",
+                "package_admission_id",
+                "package_admission_policy_id",
+                "package_id",
+                "committed_patch_digest",
+                "prepared_patch_digest",
+                "prepared_result_id",
+                "preparation_id",
+                "private_evaluation_id",
+                "program_id",
+                "receipt_digest",
+                "schema",
+                "semantic_identity",
+                "state_root_after",
+                "state_root_before",
+                "target_profile_identity",
+                "terminal_posture",
+                "terminal_outcome_digest",
+                "tick_receipt_digest",
+                "worldline_tick_after",
+            ],
+        )?;
+        require_text(&mut fields, "schema", "echo.operation-receipt/v1")?;
+        let terminal_posture = match take_text(&mut fields, "terminal_posture")?.as_str() {
+            "committed" => EchoOperationTerminalPostureV1::Committed,
+            "not-committed:basis-changed" => {
+                EchoOperationTerminalPostureV1::NotCommittedBasisChanged
+            }
+            "not-committed:installation-unavailable" => {
+                EchoOperationTerminalPostureV1::NotCommittedInstallationUnavailable
+            }
+            "not-committed:evaluation-authority-mismatch" => {
+                EchoOperationTerminalPostureV1::NotCommittedEvaluationAuthorityMismatch
+            }
+            _ => return Err(invalid_structure("unknown operation receipt posture")),
+        };
+        let commit_global_tick = match take_field(&mut fields, "commit_global_tick")? {
+            CanonicalValueV1::Null => None,
+            CanonicalValueV1::Integer(value) => Some(GlobalTick::from_raw(i128_to_u64(value)?)),
+            _ => return Err(invalid_structure("commit_global_tick must be null or uint")),
+        };
+        let mut receipt = Self {
+            package_id: EchoOperationPackageIdV1(take_hash(&mut fields, "package_id")?),
+            package_admission_id: EchoOperationPackageAdmissionIdV1(take_hash(
+                &mut fields,
+                "package_admission_id",
+            )?),
+            installed_operation_id: InstalledEchoOperationIdV1(take_hash(
+                &mut fields,
+                "installed_operation_id",
+            )?),
+            operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
+            semantic_identity: take_hash(&mut fields, "semantic_identity")?,
+            lawpack_identity: take_hash(&mut fields, "lawpack_identity")?,
+            target_profile_identity: take_hash(&mut fields, "target_profile_identity")?,
+            interpreter_profile_identity: take_hash(&mut fields, "interpreter_profile_identity")?,
+            intrinsic_profile_identity: take_hash(&mut fields, "intrinsic_profile_identity")?,
+            package_admission_policy_id: take_hash(&mut fields, "package_admission_policy_id")?,
+            authority_profile_identity: take_hash(&mut fields, "authority_profile_identity")?,
+            authority_grant_identity: take_hash(&mut fields, "authority_grant_identity")?,
+            invocation_admission_policy_id: take_hash(
+                &mut fields,
+                "invocation_admission_policy_id",
+            )?,
+            invocation_admission_maximum_budget: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "invocation_admission_maximum_budget",
+            )?)?,
+            invocation_admission_id: EchoOperationInvocationAdmissionIdV1(take_hash(
+                &mut fields,
+                "invocation_admission_id",
+            )?),
+            program_id: EchoOperationProgramIdV1(take_hash(&mut fields, "program_id")?),
+            invocation_id: EchoOperationInvocationIdV1(take_hash(&mut fields, "invocation_id")?),
+            invocation_bytes_digest: take_hash(&mut fields, "invocation_bytes_digest")?,
+            evaluation_basis: EchoOperationEvaluationBasisV1::from_value(take_field(
+                &mut fields,
+                "evaluation_basis",
+            )?)?,
+            evaluation_basis_id: EchoOperationEvaluationBasisIdV1(take_hash(
+                &mut fields,
+                "evaluation_basis_id",
+            )?),
+            declared_footprint_digest: take_hash(&mut fields, "declared_footprint_digest")?,
+            actual_footprint_digest: take_hash(&mut fields, "actual_footprint_digest")?,
+            delegated_budget: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "delegated_budget",
+            )?)?,
+            consumed_budget: EchoOperationBudgetV1::from_value(take_field(
+                &mut fields,
+                "consumed_budget",
+            )?)?,
+            private_evaluation_id: EchoOperationPrivateEvaluationIdV1(take_hash(
+                &mut fields,
+                "private_evaluation_id",
+            )?),
+            preparation_id: PreparedEchoOperationIdV1(take_hash(&mut fields, "preparation_id")?),
+            prepared_patch_digest: take_hash(&mut fields, "prepared_patch_digest")?,
+            prepared_result_id: EchoOperationResultIdV1(take_hash(
+                &mut fields,
+                "prepared_result_id",
+            )?),
+            committed_patch_digest: match take_field(&mut fields, "committed_patch_digest")? {
+                CanonicalValueV1::Null => None,
+                CanonicalValueV1::Bytes(bytes) => Some(bytes.try_into().map_err(|_| {
+                    invalid_structure("committed_patch_digest must be exactly 32 bytes")
+                })?),
+                _ => {
+                    return Err(invalid_structure(
+                        "committed_patch_digest must be null or 32 bytes",
+                    ))
+                }
+            },
+            committed_result_id: take_optional_hash(&mut fields, "committed_result_id")?
+                .map(EchoOperationResultIdV1),
+            state_root_before: take_hash(&mut fields, "state_root_before")?,
+            state_root_after: take_hash(&mut fields, "state_root_after")?,
+            commit_id: take_hash(&mut fields, "commit_id")?,
+            composition_digest: take_optional_hash(&mut fields, "composition_digest")?,
+            tick_receipt_digest: take_hash(&mut fields, "tick_receipt_digest")?,
+            commit_global_tick,
+            worldline_tick_after: WorldlineTick::from_raw(take_u64(
+                &mut fields,
+                "worldline_tick_after",
+            )?),
+            terminal_posture,
+            terminal_outcome_digest: take_hash(&mut fields, "terminal_outcome_digest")?,
+            receipt_digest: take_hash(&mut fields, "receipt_digest")?,
+        };
+        if receipt.evaluation_basis.identity() != receipt.evaluation_basis_id {
+            return Err(invalid_structure(
+                "operation receipt basis identity does not match complete basis",
+            ));
+        }
+        if package_admission_id(receipt.package_id, receipt.package_admission_policy_id)
+            != receipt.package_admission_id
+        {
+            return Err(invalid_structure(
+                "operation receipt package-admission identity mismatch",
+            ));
+        }
+        if invocation_admission_id(
+            receipt.installed_operation_id,
+            receipt.invocation_id,
+            receipt.invocation_admission_policy_id,
+            receipt.evaluation_basis_id,
+        ) != receipt.invocation_admission_id
+        {
+            return Err(invalid_structure(
+                "operation receipt invocation-admission identity mismatch",
+            ));
+        }
+        let retained_invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+            receipt.authority_profile_identity,
+            receipt.authority_grant_identity,
+            receipt.invocation_admission_maximum_budget,
+        );
+        if retained_invocation_policy.identity() != receipt.invocation_admission_policy_id {
+            return Err(invalid_structure(
+                "operation receipt invocation-admission policy identity mismatch",
+            ));
+        }
+        if !receipt
+            .delegated_budget
+            .fits_within(receipt.invocation_admission_maximum_budget)
+            || !receipt
+                .consumed_budget
+                .fits_within(receipt.delegated_budget)
+            || !receipt.consumed_budget.is_nonzero()
+        {
+            return Err(invalid_structure(
+                "operation receipt budget evidence is internally inconsistent",
+            ));
+        }
+        if receipt.declared_footprint_digest != receipt.actual_footprint_digest {
+            return Err(invalid_structure(
+                "operation receipt actual footprint differs from the v1 exact contract",
+            ));
+        }
+        if private_evaluation_id_from_parts(
+            receipt.installed_operation_id,
+            receipt.program_id,
+            receipt.invocation_admission_id,
+            receipt.invocation_id,
+            receipt.evaluation_basis_id,
+            receipt.declared_footprint_digest,
+            receipt.actual_footprint_digest,
+            receipt.consumed_budget,
+            receipt.prepared_patch_digest,
+            receipt.prepared_result_id,
+        ) != receipt.private_evaluation_id
+        {
+            return Err(invalid_structure(
+                "operation receipt private-evaluation identity mismatch",
+            ));
+        }
+        if preparation_id(
+            receipt.private_evaluation_id,
+            receipt.prepared_patch_digest,
+            receipt.prepared_result_id,
+        ) != receipt.preparation_id
+        {
+            return Err(invalid_structure(
+                "operation receipt preparation identity mismatch",
+            ));
+        }
+        if terminal_outcome_digest(&receipt) != receipt.terminal_outcome_digest {
+            return Err(invalid_structure(
+                "operation receipt terminal-outcome identity mismatch",
+            ));
+        }
+        let retained_digest = receipt.receipt_digest;
+        receipt.receipt_digest = [0; 32];
+        let expected_digest = receipt_digest(&receipt);
+        receipt.receipt_digest = retained_digest;
+        if retained_digest != expected_digest {
+            return Err(invalid_structure("operation receipt digest mismatch"));
+        }
+        let committed_worldline_tick_after = receipt
+            .evaluation_basis
+            .worldline_tick
+            .as_u64()
+            .checked_add(1)
+            .map(WorldlineTick::from_raw);
+        let expected_composition_digest = singleton_composition_digest_from_parts(
+            receipt.preparation_id,
+            receipt.prepared_patch_digest,
+            receipt.prepared_result_id,
+            receipt.evaluation_basis_id,
+            receipt.actual_footprint_digest,
+        );
+        match receipt.terminal_posture {
+            EchoOperationTerminalPostureV1::Committed
+                if receipt.commit_global_tick.is_none()
+                    || receipt.commit_id == [0; 32]
+                    || receipt.tick_receipt_digest == [0; 32]
+                    || receipt.committed_patch_digest.is_none()
+                    || receipt.committed_patch_digest != Some(receipt.prepared_patch_digest)
+                    || receipt.committed_result_id != Some(receipt.prepared_result_id)
+                    || receipt.composition_digest != Some(expected_composition_digest)
+                    || receipt.state_root_before != receipt.evaluation_basis.state_root
+                    || committed_worldline_tick_after != Some(receipt.worldline_tick_after) =>
+            {
+                return Err(invalid_structure(
+                    "committed receipt is missing commit or tick evidence",
+                ));
+            }
+            EchoOperationTerminalPostureV1::NotCommittedBasisChanged
+            | EchoOperationTerminalPostureV1::NotCommittedInstallationUnavailable
+            | EchoOperationTerminalPostureV1::NotCommittedEvaluationAuthorityMismatch
+                if receipt.commit_global_tick.is_some()
+                    || receipt.commit_id != [0; 32]
+                    || receipt.tick_receipt_digest != [0; 32]
+                    || receipt.committed_patch_digest.is_some()
+                    || receipt.committed_result_id.is_some()
+                    || receipt.composition_digest.is_some()
+                    || receipt.state_root_before != receipt.state_root_after =>
+            {
+                return Err(invalid_structure(
+                    "noncommitted receipt carries committed consequence evidence",
+                ));
+            }
+            _ => {}
+        }
+        if receipt.to_canonical_bytes()? != bytes {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::NonCanonical,
+                "receipt did not reproduce the exact retained bytes",
+            ));
+        }
+        Ok(receipt)
+    }
+}
+
+/// Terminal operation evidence, deliberately separate from generic [`TickReceipt`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationExecutionEvidenceV1 {
+    receipt: EchoOperationReceiptV1,
+    snapshot: Option<Snapshot>,
+    tick_receipt: Option<TickReceipt>,
+    patch: Option<WarpTickPatchV1>,
+}
+
+impl EchoOperationExecutionEvidenceV1 {
+    /// Returns the typed operation receipt.
+    #[must_use]
+    pub const fn receipt(&self) -> &EchoOperationReceiptV1 {
+        &self.receipt
+    }
+
+    /// Returns the committed snapshot, if the exact-basis crossing succeeded.
+    #[must_use]
+    pub const fn snapshot(&self) -> Option<&Snapshot> {
+        self.snapshot.as_ref()
+    }
+
+    /// Returns Echo's singleton commit receipt when committed.
+    #[must_use]
+    pub const fn tick_receipt(&self) -> Option<&TickReceipt> {
+        self.tick_receipt.as_ref()
+    }
+
+    /// Returns the parent-visible committed patch, if any.
+    #[must_use]
+    pub const fn committed_patch(&self) -> Option<&WarpTickPatchV1> {
+        self.patch.as_ref()
+    }
+}
+
+pub(crate) fn retain_committed_execution_v1(
+    evidence: &EchoOperationExecutionEvidenceV1,
+) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+    if evidence.receipt.terminal_posture != EchoOperationTerminalPostureV1::Committed
+        || evidence.snapshot.is_none()
+        || evidence.tick_receipt.is_none()
+        || evidence.patch.is_none()
+    {
+        return Err(invalid_structure(
+            "WAL execution retention requires one committed operation consequence",
+        ));
+    }
+    evidence.receipt.to_canonical_bytes()
+}
+
+pub(crate) fn recover_committed_execution_receipt_v1(
+    bytes: &[u8],
+) -> Result<EchoOperationReceiptV1, EchoOperationArtifactErrorV1> {
+    let receipt = EchoOperationReceiptV1::from_canonical_bytes(bytes)?;
+    if receipt.terminal_posture != EchoOperationTerminalPostureV1::Committed {
+        return Err(invalid_structure(
+            "WAL execution evidence cannot retain a noncommitted candidate patch",
+        ));
+    }
+    Ok(receipt)
+}
+
+pub(crate) fn validate_receipt_installation_v1(
+    receipt: &EchoOperationReceiptV1,
+    installed: &InstalledEchoOperationV1,
+) -> Result<(), EchoOperationArtifactErrorV1> {
+    let package_evidence_matches = receipt.package_id == installed.package_id
+        && receipt.package_admission_id == installed.package_admission_id
+        && receipt.installed_operation_id == installed.installed_operation_id;
+    let package_policy_matches =
+        receipt.package_admission_policy_id == installed.admission_policy_id;
+    let semantic_evidence_matches = receipt.operation_coordinate == installed.operation_coordinate
+        && receipt.semantic_identity == installed.semantic_identity
+        && receipt.lawpack_identity == installed.lawpack_identity
+        && receipt.target_profile_identity == installed.target_profile_identity
+        && receipt.interpreter_profile_identity == installed.interpreter_profile_identity
+        && receipt.intrinsic_profile_identity == installed.intrinsic_profile_identity
+        && receipt.authority_profile_identity == installed.authority_profile_identity
+        && receipt.evaluation_basis.application_basis.schema_identity
+            == installed.application_basis_schema_identity
+        && receipt.program_id == installed.program_id;
+    let resource_evidence_matches = receipt
+        .delegated_budget
+        .fits_within(installed.budget_ceiling)
+        && receipt
+            .consumed_budget
+            .fits_within(receipt.delegated_budget);
+    if !package_evidence_matches
+        || !package_policy_matches
+        || !semantic_evidence_matches
+        || !resource_evidence_matches
+    {
+        return Err(invalid_structure(
+            "operation receipt does not match its retained installation",
+        ));
+    }
+    Ok(())
+}
+
+/// Failure while turning one complete private preparation into commit material.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum EchoOperationCommitErrorV1 {
+    /// The parent-visible patch was structurally invalid.
+    #[error(transparent)]
+    Patch(#[from] TickPatchError),
+    /// The worldline-local transaction coordinate cannot advance.
+    #[error("executable-operation transaction coordinate overflow")]
+    TransactionCoordinateOverflow,
+}
+
+pub(crate) struct EchoOperationCommitMaterialV1 {
+    pub evidence: EchoOperationExecutionEvidenceV1,
+    pub snapshot: Snapshot,
+    pub tick_receipt: TickReceipt,
+    pub patch: WarpTickPatchV1,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EchoOperationTerminalMaterialV1 {
+    posture: EchoOperationTerminalPostureV1,
+    state_root_before: Hash,
+    state_root_after: Hash,
+    commit_id: Hash,
+    tick_receipt_digest: Hash,
+    commit_global_tick: Option<GlobalTick>,
+    worldline_tick_after: WorldlineTick,
+}
+
+pub(crate) fn not_committed_basis_changed(
+    prepared: &PreparedEchoOperationV1,
+    current_state_root: Hash,
+    current_worldline_tick: WorldlineTick,
+) -> EchoOperationExecutionEvidenceV1 {
+    let receipt = build_receipt(
+        prepared,
+        EchoOperationTerminalMaterialV1 {
+            posture: EchoOperationTerminalPostureV1::NotCommittedBasisChanged,
+            state_root_before: current_state_root,
+            state_root_after: current_state_root,
+            commit_id: [0; 32],
+            tick_receipt_digest: [0; 32],
+            commit_global_tick: None,
+            worldline_tick_after: current_worldline_tick,
+        },
+    );
+    EchoOperationExecutionEvidenceV1 {
+        receipt,
+        snapshot: None,
+        tick_receipt: None,
+        patch: None,
+    }
+}
+
+pub(crate) fn not_committed_installation_unavailable(
+    prepared: &PreparedEchoOperationV1,
+    current_state_root: Hash,
+    current_worldline_tick: WorldlineTick,
+) -> EchoOperationExecutionEvidenceV1 {
+    let receipt = build_receipt(
+        prepared,
+        EchoOperationTerminalMaterialV1 {
+            posture: EchoOperationTerminalPostureV1::NotCommittedInstallationUnavailable,
+            state_root_before: current_state_root,
+            state_root_after: current_state_root,
+            commit_id: [0; 32],
+            tick_receipt_digest: [0; 32],
+            commit_global_tick: None,
+            worldline_tick_after: current_worldline_tick,
+        },
+    );
+    EchoOperationExecutionEvidenceV1 {
+        receipt,
+        snapshot: None,
+        tick_receipt: None,
+        patch: None,
+    }
+}
+
+pub(crate) fn not_committed_evaluation_authority_mismatch(
+    prepared: &PreparedEchoOperationV1,
+    current_state_root: Hash,
+    current_worldline_tick: WorldlineTick,
+) -> EchoOperationExecutionEvidenceV1 {
+    let receipt = build_receipt(
+        prepared,
+        EchoOperationTerminalMaterialV1 {
+            posture: EchoOperationTerminalPostureV1::NotCommittedEvaluationAuthorityMismatch,
+            state_root_before: current_state_root,
+            state_root_after: current_state_root,
+            commit_id: [0; 32],
+            tick_receipt_digest: [0; 32],
+            commit_global_tick: None,
+            worldline_tick_after: current_worldline_tick,
+        },
+    );
+    EchoOperationExecutionEvidenceV1 {
+        receipt,
+        snapshot: None,
+        tick_receipt: None,
+        patch: None,
+    }
+}
+
+pub(crate) fn commit_prepared_to_state(
+    prepared: &PreparedEchoOperationV1,
+    state: &mut WorldlineState,
+    commit_global_tick: GlobalTick,
+) -> Result<EchoOperationCommitMaterialV1, EchoOperationCommitErrorV1> {
+    let state_root_before = state.state_root();
+    let tx_raw = state
+        .current_tick()
+        .as_u64()
+        .checked_add(1)
+        .ok_or(EchoOperationCommitErrorV1::TransactionCoordinateOverflow)?;
+    let tx = TxId::from_raw(tx_raw);
+    let scope = prepared.invocation.node;
+    let rule_id = prepared.installed.installed_operation_id.as_hash();
+    let tick_receipt = TickReceipt::new(
+        tx,
+        vec![TickReceiptEntry {
+            rule_id,
+            scope_hash: crate::scope_hash(&rule_id, &scope),
+            scope,
+            disposition: TickReceiptDisposition::Applied,
+        }],
+        vec![Vec::new()],
+    );
+    let mut next_state = state.warp_state.clone();
+    prepared.patch.apply_to_state(&mut next_state)?;
+    let state_root_after =
+        crate::snapshot::compute_state_root_for_warp_state(&next_state, state.root());
+    let parents = state
+        .last_snapshot
+        .as_ref()
+        .map(|snapshot| vec![snapshot.hash])
+        .unwrap_or_default();
+    let patch_digest = prepared.patch.digest();
+    let commit_id = compute_commit_hash_v2(
+        &state_root_after,
+        &parents,
+        &patch_digest,
+        prepared.patch.policy_id(),
+    );
+    let snapshot = Snapshot {
+        root: *state.root(),
+        hash: commit_id,
+        state_root: state_root_after,
+        parents,
+        plan_digest: prepared_plan_digest(prepared),
+        decision_digest: tick_receipt.digest(),
+        rewrites_digest: prepared_rewrites_digest(prepared),
+        patch_digest,
+        policy_id: prepared.patch.policy_id(),
+        tx,
+    };
+    let receipt = build_receipt(
+        prepared,
+        EchoOperationTerminalMaterialV1 {
+            posture: EchoOperationTerminalPostureV1::Committed,
+            state_root_before,
+            state_root_after,
+            commit_id,
+            tick_receipt_digest: tick_receipt.digest(),
+            commit_global_tick: Some(commit_global_tick),
+            worldline_tick_after: WorldlineTick::from_raw(tx_raw),
+        },
+    );
+    state.warp_state = next_state;
+    state.last_snapshot = Some(snapshot.clone());
+    state.tick_history.push((
+        snapshot.clone(),
+        tick_receipt.clone(),
+        prepared.patch.clone(),
+    ));
+    state.tx_counter = tx_raw;
+    Ok(EchoOperationCommitMaterialV1 {
+        evidence: EchoOperationExecutionEvidenceV1 {
+            receipt,
+            snapshot: Some(snapshot.clone()),
+            tick_receipt: Some(tick_receipt.clone()),
+            patch: Some(prepared.patch.clone()),
+        },
+        snapshot,
+        tick_receipt,
+        patch: prepared.patch.clone(),
+    })
+}
+
+pub(crate) fn genesis_commit_id(writer_head: WriterHeadKey, state_root: Hash) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(GENESIS_COMMIT_DOMAIN);
+    hasher.update(writer_head.worldline_id.as_bytes());
+    hasher.update(writer_head.head_id.as_bytes());
+    hasher.update(&state_root);
+    hasher.finalize().into()
+}
+
+fn build_receipt(
+    prepared: &PreparedEchoOperationV1,
+    terminal: EchoOperationTerminalMaterialV1,
+) -> EchoOperationReceiptV1 {
+    let invocation_bytes_digest = domain_hash(
+        INVOCATION_BYTES_DIGEST_DOMAIN,
+        &prepared.canonical_invocation_bytes,
+    );
+    let committed = terminal.posture == EchoOperationTerminalPostureV1::Committed;
+    let mut receipt = EchoOperationReceiptV1 {
+        package_id: prepared.installed.package_id,
+        package_admission_id: prepared.installed.package_admission_id,
+        installed_operation_id: prepared.installed.installed_operation_id,
+        operation_coordinate: prepared.installed.operation_coordinate.clone(),
+        semantic_identity: prepared.installed.semantic_identity,
+        lawpack_identity: prepared.installed.lawpack_identity,
+        target_profile_identity: prepared.installed.target_profile_identity,
+        interpreter_profile_identity: prepared.installed.interpreter_profile_identity,
+        intrinsic_profile_identity: prepared.installed.intrinsic_profile_identity,
+        package_admission_policy_id: prepared.installed.admission_policy_id,
+        authority_profile_identity: prepared.installed.authority_profile_identity,
+        authority_grant_identity: prepared.invocation.authority_grant_identity,
+        invocation_admission_policy_id: prepared.invocation_admission_policy_id,
+        invocation_admission_maximum_budget: prepared.invocation_admission_maximum_budget,
+        invocation_admission_id: prepared.invocation_admission_id,
+        program_id: prepared.installed.program_id,
+        invocation_id: prepared.invocation_id,
+        invocation_bytes_digest,
+        evaluation_basis: prepared.evaluation_basis,
+        evaluation_basis_id: prepared.evaluation_basis.identity(),
+        declared_footprint_digest: prepared.declared_footprint_digest,
+        actual_footprint_digest: prepared.actual_footprint_digest,
+        delegated_budget: prepared.invocation.delegated_budget,
+        consumed_budget: prepared.consumed_budget,
+        private_evaluation_id: prepared.private_evaluation_id,
+        preparation_id: prepared.preparation_id,
+        prepared_patch_digest: prepared.patch.digest(),
+        prepared_result_id: prepared.result_id,
+        committed_patch_digest: committed.then(|| prepared.patch.digest()),
+        committed_result_id: committed.then_some(prepared.result_id),
+        state_root_before: terminal.state_root_before,
+        state_root_after: terminal.state_root_after,
+        commit_id: terminal.commit_id,
+        composition_digest: committed.then(|| singleton_composition_digest(prepared)),
+        tick_receipt_digest: terminal.tick_receipt_digest,
+        commit_global_tick: terminal.commit_global_tick,
+        worldline_tick_after: terminal.worldline_tick_after,
+        terminal_posture: terminal.posture,
+        terminal_outcome_digest: [0; 32],
+        receipt_digest: [0; 32],
+    };
+    receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
+    receipt.receipt_digest = receipt_digest(&receipt);
+    receipt
+}
+
+fn receipt_digest(receipt: &EchoOperationReceiptV1) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(RECEIPT_DIGEST_DOMAIN);
+    hasher.update(&receipt.package_id.as_hash());
+    hasher.update(&receipt.package_admission_id.as_hash());
+    hasher.update(&receipt.installed_operation_id.as_hash());
+    hash_len_bytes(&mut hasher, receipt.operation_coordinate.as_bytes());
+    hasher.update(&receipt.semantic_identity);
+    hasher.update(&receipt.lawpack_identity);
+    hasher.update(&receipt.target_profile_identity);
+    hasher.update(&receipt.interpreter_profile_identity);
+    hasher.update(&receipt.intrinsic_profile_identity);
+    hasher.update(&receipt.package_admission_policy_id);
+    hasher.update(&receipt.authority_profile_identity);
+    hasher.update(&receipt.authority_grant_identity);
+    hasher.update(&receipt.invocation_admission_policy_id);
+    hash_budget(&mut hasher, receipt.invocation_admission_maximum_budget);
+    hasher.update(&receipt.invocation_admission_id.as_hash());
+    hasher.update(&receipt.program_id.as_hash());
+    hasher.update(&receipt.invocation_id.as_hash());
+    hasher.update(&receipt.invocation_bytes_digest);
+    hasher.update(&receipt.evaluation_basis_id.as_hash());
+    hasher.update(&receipt.declared_footprint_digest);
+    hasher.update(&receipt.actual_footprint_digest);
+    hash_budget(&mut hasher, receipt.delegated_budget);
+    hash_budget(&mut hasher, receipt.consumed_budget);
+    hasher.update(&receipt.private_evaluation_id.as_hash());
+    hasher.update(&receipt.preparation_id.as_hash());
+    hasher.update(&receipt.prepared_patch_digest);
+    hasher.update(&receipt.prepared_result_id.as_hash());
+    match receipt.committed_patch_digest {
+        None => {
+            hasher.update(&[0]);
+        }
+        Some(digest) => {
+            hasher.update(&[1]);
+            hasher.update(&digest);
+        }
+    }
+    hash_optional_id(
+        &mut hasher,
+        receipt
+            .committed_result_id
+            .map(EchoOperationResultIdV1::as_hash),
+    );
+    hasher.update(&receipt.state_root_before);
+    hasher.update(&receipt.state_root_after);
+    hasher.update(&receipt.commit_id);
+    hash_optional_id(&mut hasher, receipt.composition_digest);
+    hasher.update(&receipt.tick_receipt_digest);
+    match receipt.commit_global_tick {
+        None => {
+            hasher.update(&[0]);
+        }
+        Some(tick) => {
+            hasher.update(&[1]);
+            hasher.update(&tick.as_u64().to_le_bytes());
+        }
+    }
+    hasher.update(&receipt.worldline_tick_after.as_u64().to_le_bytes());
+    hasher.update(&[terminal_posture_code(receipt.terminal_posture)]);
+    hasher.update(&receipt.terminal_outcome_digest);
+    hasher.finalize().into()
+}
+
+fn terminal_outcome_digest(receipt: &EchoOperationReceiptV1) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(TERMINAL_OUTCOME_ID_DOMAIN);
+    hasher.update(&receipt.preparation_id.as_hash());
+    hasher.update(&receipt.prepared_patch_digest);
+    hasher.update(&receipt.prepared_result_id.as_hash());
+    hasher.update(&[terminal_posture_code(receipt.terminal_posture)]);
+    hash_optional_id(&mut hasher, receipt.committed_patch_digest);
+    hash_optional_id(
+        &mut hasher,
+        receipt
+            .committed_result_id
+            .map(EchoOperationResultIdV1::as_hash),
+    );
+    hash_optional_id(&mut hasher, receipt.composition_digest);
+    hasher.update(&receipt.state_root_before);
+    hasher.update(&receipt.state_root_after);
+    hasher.update(&receipt.commit_id);
+    hasher.finalize().into()
+}
+
+fn terminal_posture_code(posture: EchoOperationTerminalPostureV1) -> u8 {
+    match posture {
+        EchoOperationTerminalPostureV1::Committed => 1,
+        EchoOperationTerminalPostureV1::NotCommittedBasisChanged => 2,
+        EchoOperationTerminalPostureV1::NotCommittedInstallationUnavailable => 3,
+        EchoOperationTerminalPostureV1::NotCommittedEvaluationAuthorityMismatch => 4,
+    }
+}
+
+fn hash_optional_id(hasher: &mut Hasher, value: Option<Hash>) {
+    match value {
+        None => {
+            hasher.update(&[0]);
+        }
+        Some(value) => {
+            hasher.update(&[1]);
+            hasher.update(&value);
+        }
+    }
+}
+
+fn singleton_composition_digest(prepared: &PreparedEchoOperationV1) -> Hash {
+    singleton_composition_digest_from_parts(
+        prepared.preparation_id,
+        prepared.patch.digest(),
+        prepared.result_id,
+        prepared.evaluation_basis.identity(),
+        prepared.actual_footprint_digest,
+    )
+}
+
+fn singleton_composition_digest_from_parts(
+    preparation_id: PreparedEchoOperationIdV1,
+    patch_digest: Hash,
+    result_id: EchoOperationResultIdV1,
+    evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+    actual_footprint_digest: Hash,
+) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(COMPOSITION_DIGEST_DOMAIN);
+    hasher.update(&1_u64.to_le_bytes());
+    hasher.update(&preparation_id.as_hash());
+    hasher.update(&patch_digest);
+    hasher.update(&result_id.as_hash());
+    hasher.update(&evaluation_basis_id.as_hash());
+    hasher.update(&actual_footprint_digest);
+    hasher.finalize().into()
+}
+
+fn prepared_plan_digest(prepared: &PreparedEchoOperationV1) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(PLAN_DIGEST_DOMAIN);
+    hasher.update(&prepared.installed.installed_operation_id.as_hash());
+    hasher.update(&prepared.invocation_admission_id.as_hash());
+    hasher.update(&prepared.preparation_id.as_hash());
+    hasher.update(&prepared.declared_footprint_digest);
+    hasher.update(&prepared.invocation_admission_policy_id);
+    hasher.finalize().into()
+}
+
+fn prepared_rewrites_digest(prepared: &PreparedEchoOperationV1) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(REWRITES_DIGEST_DOMAIN);
+    hasher.update(&prepared.installed.program_id.as_hash());
+    hasher.update(&prepared.private_evaluation_id.as_hash());
+    hasher.update(&prepared.patch.digest());
+    hasher.update(&prepared.result_id.as_hash());
+    hasher.finalize().into()
+}
+
+fn package_admission_id(
+    package_id: EchoOperationPackageIdV1,
+    admission_policy_id: Hash,
+) -> EchoOperationPackageAdmissionIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(PACKAGE_ADMISSION_ID_DOMAIN);
+    hasher.update(&package_id.as_hash());
+    hasher.update(&admission_policy_id);
+    EchoOperationPackageAdmissionIdV1(hasher.finalize().into())
+}
+
+fn installed_operation_id(installed: &InstalledEchoOperationV1) -> InstalledEchoOperationIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(INSTALLATION_ID_DOMAIN);
+    hasher.update(&installed.package_id.as_hash());
+    hasher.update(&installed.package_admission_id.as_hash());
+    hash_len_bytes(&mut hasher, installed.operation_coordinate.as_bytes());
+    hasher.update(&installed.program_id.as_hash());
+    hash_len_bytes(&mut hasher, &installed.canonical_package_bytes);
+    InstalledEchoOperationIdV1(hasher.finalize().into())
+}
+
+fn invocation_admission_id(
+    installed_operation_id: InstalledEchoOperationIdV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    admission_policy_id: Hash,
+    evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+) -> EchoOperationInvocationAdmissionIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(INVOCATION_ADMISSION_ID_DOMAIN);
+    hasher.update(&installed_operation_id.as_hash());
+    hasher.update(&invocation_id.as_hash());
+    hasher.update(&admission_policy_id);
+    hasher.update(&evaluation_basis_id.as_hash());
+    EchoOperationInvocationAdmissionIdV1(hasher.finalize().into())
+}
+
+fn operation_result_id(
+    installed: &InstalledEchoOperationV1,
+    invocation: &EchoOperationInvocationV1,
+    previous_value_digest: Hash,
+    replacement_value_digest: Hash,
+    patch_digest: Hash,
+) -> EchoOperationResultIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(RESULT_ID_DOMAIN);
+    hasher.update(&installed.installed_operation_id.as_hash());
+    hasher.update(&profile_digest(RESULT_SCHEMA));
+    hasher.update(invocation.node.warp_id.as_bytes());
+    hasher.update(invocation.node.local_id.as_bytes());
+    hasher.update(&previous_value_digest);
+    hasher.update(&replacement_value_digest);
+    hasher.update(&patch_digest);
+    EchoOperationResultIdV1(hasher.finalize().into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn private_evaluation_id_from_parts(
+    installed_operation_id: InstalledEchoOperationIdV1,
+    program_id: EchoOperationProgramIdV1,
+    invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
+    invocation_id: EchoOperationInvocationIdV1,
+    evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+    declared_footprint_digest: Hash,
+    actual_footprint_digest: Hash,
+    consumed_budget: EchoOperationBudgetV1,
+    patch_digest: Hash,
+    result_id: EchoOperationResultIdV1,
+) -> EchoOperationPrivateEvaluationIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(PRIVATE_EVALUATION_ID_DOMAIN);
+    hasher.update(&installed_operation_id.as_hash());
+    hasher.update(&program_id.as_hash());
+    hasher.update(&invocation_admission_id.as_hash());
+    hasher.update(&invocation_id.as_hash());
+    hasher.update(&evaluation_basis_id.as_hash());
+    hasher.update(&declared_footprint_digest);
+    hasher.update(&actual_footprint_digest);
+    hash_budget(&mut hasher, consumed_budget);
+    hasher.update(&patch_digest);
+    hasher.update(&result_id.as_hash());
+    EchoOperationPrivateEvaluationIdV1(hasher.finalize().into())
+}
+
+fn preparation_id(
+    private_evaluation_id: EchoOperationPrivateEvaluationIdV1,
+    patch_digest: Hash,
+    result_id: EchoOperationResultIdV1,
+) -> PreparedEchoOperationIdV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(PREPARATION_ID_DOMAIN);
+    hasher.update(&private_evaluation_id.as_hash());
+    hasher.update(&patch_digest);
+    hasher.update(&result_id.as_hash());
+    PreparedEchoOperationIdV1(hasher.finalize().into())
+}
+
+fn obstruction_kind_code(kind: EchoOperationObstructionKindV1) -> u8 {
+    match kind {
+        EchoOperationObstructionKindV1::OperationUnavailable => 1,
+        EchoOperationObstructionKindV1::BasisChanged => 2,
+        EchoOperationObstructionKindV1::BudgetExceeded => 3,
+        EchoOperationObstructionKindV1::NodeMissing => 4,
+        EchoOperationObstructionKindV1::NodeTypeMismatch => 5,
+        EchoOperationObstructionKindV1::AttachmentMissing => 6,
+        EchoOperationObstructionKindV1::AttachmentNotAtom => 7,
+        EchoOperationObstructionKindV1::AttachmentTypeMismatch => 8,
+        EchoOperationObstructionKindV1::PreconditionMismatch => 9,
+        EchoOperationObstructionKindV1::FootprintViolation => 10,
+        EchoOperationObstructionKindV1::ReplacementTooLarge => 11,
+        EchoOperationObstructionKindV1::EvaluationAuthorityMismatch => 12,
+    }
+}
+
+fn anchored_node_footprint(node: NodeKey) -> Footprint {
+    let mut footprint = Footprint::default();
+    record_node_read(&mut footprint, node);
+    let attachment = AttachmentKey::node_alpha(node);
+    footprint.a_read.insert(attachment);
+    footprint.a_write.insert(attachment);
+    footprint
+}
+
+fn record_node_read(footprint: &mut Footprint, node: NodeKey) {
+    footprint.n_read.insert(node);
+    footprint.factor_mask |= 1_u64 << (node.local_id.0[0] & 63);
+}
+
+fn footprint_digest(footprint: &Footprint) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(FOOTPRINT_DIGEST_DOMAIN);
+    hash_node_set(
+        &mut hasher,
+        b"nr",
+        footprint.n_read.len(),
+        footprint.n_read.iter(),
+    );
+    hash_node_set(
+        &mut hasher,
+        b"nw",
+        footprint.n_write.len(),
+        footprint.n_write.iter(),
+    );
+    hash_attachment_set(
+        &mut hasher,
+        b"ar",
+        footprint.a_read.len(),
+        footprint.a_read.iter(),
+    );
+    hash_attachment_set(
+        &mut hasher,
+        b"aw",
+        footprint.a_write.len(),
+        footprint.a_write.iter(),
+    );
+    hasher.update(&footprint.factor_mask.to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn hash_node_set<'a>(
+    hasher: &mut Hasher,
+    label: &[u8],
+    count: usize,
+    values: impl Iterator<Item = &'a NodeKey>,
+) {
+    hasher.update(label);
+    hasher.update(&(count as u64).to_le_bytes());
+    for value in values {
+        hasher.update(value.warp_id.as_bytes());
+        hasher.update(value.local_id.as_bytes());
+    }
+}
+
+fn hash_attachment_set<'a>(
+    hasher: &mut Hasher,
+    label: &[u8],
+    count: usize,
+    values: impl Iterator<Item = &'a AttachmentKey>,
+) {
+    hasher.update(label);
+    hasher.update(&(count as u64).to_le_bytes());
+    for value in values {
+        match value.owner {
+            crate::AttachmentOwner::Node(node) => {
+                hasher.update(&[1]);
+                hasher.update(node.warp_id.as_bytes());
+                hasher.update(node.local_id.as_bytes());
+            }
+            crate::AttachmentOwner::Edge(edge) => {
+                hasher.update(&[2]);
+                hasher.update(edge.warp_id.as_bytes());
+                hasher.update(edge.local_id.as_bytes());
+            }
+        }
+        hasher.update(&[match value.plane {
+            crate::AttachmentPlane::Alpha => 1,
+            crate::AttachmentPlane::Beta => 2,
+        }]);
+    }
+}
+
+fn domain_hash(domain: &[u8], bytes: &[u8]) -> Hash {
+    let mut hasher = Hasher::new();
+    hasher.update(domain);
+    hasher.update(&(bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+    hasher.finalize().into()
+}
+
+fn profile_digest(label: &str) -> Hash {
+    domain_hash(b"echo:operation-profile:v1\0", label.as_bytes())
+}
+
+fn hash_len_bytes(hasher: &mut Hasher, bytes: &[u8]) {
+    hasher.update(&(bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+}
+
+fn hash_budget(hasher: &mut Hasher, budget: EchoOperationBudgetV1) {
+    hasher.update(&budget.steps.to_le_bytes());
+    hasher.update(&budget.read_bytes.to_le_bytes());
+    hasher.update(&budget.write_bytes.to_le_bytes());
+}
+
+fn map_value<const N: usize>(fields: [(&str, CanonicalValueV1); N]) -> CanonicalValueV1 {
+    CanonicalValueV1::Map(
+        fields
+            .into_iter()
+            .map(|(key, value)| (text_value(key), value))
+            .collect(),
+    )
+}
+
+fn text_value(value: &str) -> CanonicalValueV1 {
+    CanonicalValueV1::Text(value.to_owned())
+}
+
+fn hash_value(value: Hash) -> CanonicalValueV1 {
+    CanonicalValueV1::Bytes(value.to_vec())
+}
+
+fn uint_value(value: u64) -> CanonicalValueV1 {
+    CanonicalValueV1::Integer(i128::from(value))
+}
+
+fn exact_text_map(
+    value: CanonicalValueV1,
+    expected: &[&str],
+) -> Result<BTreeMap<String, CanonicalValueV1>, EchoOperationArtifactErrorV1> {
+    let CanonicalValueV1::Map(entries) = value else {
+        return Err(invalid_structure("artifact root must be a map"));
+    };
+    let mut fields = BTreeMap::new();
+    for (key, value) in entries {
+        let CanonicalValueV1::Text(key) = key else {
+            return Err(invalid_structure("artifact map keys must be text"));
+        };
+        if fields.insert(key, value).is_some() {
+            return Err(invalid_structure("artifact map keys must be unique"));
+        }
+    }
+    let actual = fields.keys().map(String::as_str).collect::<Vec<_>>();
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    if actual != expected {
+        return Err(invalid_structure(
+            "artifact map fields differ from the v1 schema",
+        ));
+    }
+    Ok(fields)
+}
+
+fn take_field(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<CanonicalValueV1, EchoOperationArtifactErrorV1> {
+    fields
+        .remove(name)
+        .ok_or_else(|| invalid_structure(format!("missing field {name}")))
+}
+
+fn take_hash(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<Hash, EchoOperationArtifactErrorV1> {
+    let CanonicalValueV1::Bytes(bytes) = take_field(fields, name)? else {
+        return Err(invalid_structure(format!("field {name} must be bytes")));
+    };
+    bytes
+        .try_into()
+        .map_err(|_| invalid_structure(format!("field {name} must be exactly 32 bytes")))
+}
+
+fn take_optional_hash(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<Option<Hash>, EchoOperationArtifactErrorV1> {
+    match take_field(fields, name)? {
+        CanonicalValueV1::Null => Ok(None),
+        CanonicalValueV1::Bytes(bytes) => bytes
+            .try_into()
+            .map(Some)
+            .map_err(|_| invalid_structure(format!("field {name} must be null or 32 bytes"))),
+        _ => Err(invalid_structure(format!(
+            "field {name} must be null or bytes"
+        ))),
+    }
+}
+
+fn take_bytes(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+    let CanonicalValueV1::Bytes(bytes) = take_field(fields, name)? else {
+        return Err(invalid_structure(format!("field {name} must be bytes")));
+    };
+    Ok(bytes)
+}
+
+fn take_text(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<String, EchoOperationArtifactErrorV1> {
+    let CanonicalValueV1::Text(value) = take_field(fields, name)? else {
+        return Err(invalid_structure(format!("field {name} must be text")));
+    };
+    Ok(value)
+}
+
+fn take_u64(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+) -> Result<u64, EchoOperationArtifactErrorV1> {
+    let CanonicalValueV1::Integer(value) = take_field(fields, name)? else {
+        return Err(invalid_structure(format!(
+            "field {name} must be an unsigned integer"
+        )));
+    };
+    i128_to_u64(value)
+}
+
+fn i128_to_u64(value: i128) -> Result<u64, EchoOperationArtifactErrorV1> {
+    u64::try_from(value).map_err(|_| invalid_structure("integer must fit in u64"))
+}
+
+fn require_text(
+    fields: &mut BTreeMap<String, CanonicalValueV1>,
+    name: &str,
+    expected: &str,
+) -> Result<(), EchoOperationArtifactErrorV1> {
+    let actual = take_text(fields, name)?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(invalid_structure(format!(
+            "field {name} must equal {expected}"
+        )))
+    }
+}
+
+fn canonical_error(error: CanonicalValueError) -> EchoOperationArtifactErrorV1 {
+    let kind = if error.kind() == CanonicalValueErrorKind::NonCanonical {
+        EchoOperationArtifactErrorKindV1::NonCanonical
+    } else {
+        EchoOperationArtifactErrorKindV1::MalformedCanonicalBytes
+    };
+    artifact_error(kind, error.to_string())
+}
+
+fn artifact_error(
+    kind: EchoOperationArtifactErrorKindV1,
+    detail: impl Into<String>,
+) -> EchoOperationArtifactErrorV1 {
+    EchoOperationArtifactErrorV1 {
+        kind,
+        detail: detail.into(),
+    }
+}
+
+fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtifactErrorV1 {
+    artifact_error(EchoOperationArtifactErrorKindV1::InvalidStructure, detail)
+}
+
+fn admission_error(
+    kind: EchoOperationAdmissionErrorKindV1,
+    detail: impl Into<String>,
+) -> EchoOperationAdmissionErrorV1 {
+    EchoOperationAdmissionErrorV1 {
+        kind,
+        detail: detail.into(),
+        artifact: None,
+    }
+}
+
+fn invocation_admission_error(
+    kind: EchoOperationInvocationAdmissionErrorKindV1,
+    detail: impl Into<String>,
+) -> EchoOperationInvocationAdmissionErrorV1 {
+    EchoOperationInvocationAdmissionErrorV1 {
+        kind,
+        detail: detail.into(),
+    }
+}
+
+fn installation_error(
+    kind: EchoOperationInstallationErrorKindV1,
+    detail: impl Into<String>,
+) -> EchoOperationInstallationErrorV1 {
+    EchoOperationInstallationErrorV1 {
+        kind,
+        detail: detail.into(),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    fn digest(byte: u8) -> Hash {
+        [byte; 32]
+    }
+
+    fn node_key_from_bytes(bytes: [u8; 64]) -> NodeKey {
+        let mut warp_id = [0; 32];
+        let mut node_id = [0; 32];
+        warp_id.copy_from_slice(&bytes[..32]);
+        node_id.copy_from_slice(&bytes[32..]);
+        NodeKey {
+            warp_id: crate::WarpId(warp_id),
+            local_id: crate::NodeId(node_id),
+        }
+    }
+
+    #[test]
+    fn footprint_digest_is_prefix_free_across_adjacent_sets() {
+        let mut read_node_bytes = [0; 64];
+        read_node_bytes[..2].copy_from_slice(b"nw");
+        let mut write_node_bytes = [0; 64];
+        write_node_bytes[..62].copy_from_slice(&read_node_bytes[2..]);
+        write_node_bytes[62..].copy_from_slice(b"nw");
+
+        let mut read_footprint = Footprint::default();
+        read_footprint
+            .n_read
+            .insert(node_key_from_bytes(read_node_bytes));
+        read_footprint.factor_mask = 1;
+        let mut write_footprint = Footprint::default();
+        write_footprint
+            .n_write
+            .insert(node_key_from_bytes(write_node_bytes));
+        write_footprint.factor_mask = 1;
+
+        assert_ne!(
+            footprint_digest(&read_footprint),
+            footprint_digest(&write_footprint),
+            "set cardinalities must prevent boundary-shift digest collisions"
+        );
+    }
+
+    fn retained_fixture_installation() -> InstalledEchoOperationV1 {
+        let package = ExecutableOperationPackageV1::new(
+            "echo.fixture.Retention.v1",
+            EchoOperationSemanticClosureV1::new(
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                "echo.fixture.RetentionSchema.v1",
+                digest(5),
+                "echo.fixture.RetentionLawpack.v1",
+                digest(6),
+            ),
+            echo_operation_target_profile_identity_v1(),
+            digest(7),
+            EchoOperationBudgetV1::new(8, 512, 512),
+            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                crate::make_type_id("retention-node"),
+                crate::make_type_id("retention-atom"),
+                128,
+            ),
+        );
+        let bytes = package.to_canonical_bytes().expect("package encodes");
+        let package_id = echo_operation_package_id_v1(&bytes);
+        let policy = EchoOperationAdmissionPolicyV1::exact(
+            package_id,
+            "echo.fixture.Retention.v1",
+            digest(7),
+            EchoOperationBudgetV1::new(8, 512, 512),
+        );
+        installed_from_admitted(admit_package_v1(&policy, bytes).expect("package admits"))
+            .expect("an admitted program remains canonically encodable")
+    }
+
+    fn replace_map_field(bytes: &[u8], field_name: &str, replacement: CanonicalValueV1) -> Vec<u8> {
+        let CanonicalValueV1::Map(mut fields) =
+            decode_canonical_cbor_v1(bytes).expect("fixture bytes decode")
+        else {
+            panic!("fixture bytes must encode a map");
+        };
+        let field = fields
+            .iter_mut()
+            .find(|(key, _)| key == &CanonicalValueV1::Text(field_name.to_owned()))
+            .expect("fixture field exists");
+        field.1 = replacement;
+        encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields)).expect("fixture map encodes")
+    }
+
+    #[test]
+    fn retained_installation_rejects_identity_substitution() {
+        let installed = retained_fixture_installation();
+        let bytes = retain_installation_v1(&installed).expect("installation retains");
+        for field_name in [
+            "admission_policy_id",
+            "package_id",
+            "package_admission_id",
+            "installed_operation_id",
+        ] {
+            let substituted = replace_map_field(
+                &bytes,
+                field_name,
+                CanonicalValueV1::Bytes(digest(99).to_vec()),
+            );
+            let error = recover_installation_v1(&substituted)
+                .expect_err("retained installation identities cannot be substituted");
+            assert_eq!(
+                error.kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure,
+                "field {field_name}"
+            );
+        }
+        let substituted_policy = EchoOperationAdmissionPolicyV1::exact(
+            installed.package_id,
+            installed.operation_coordinate.clone(),
+            installed.authority_profile_identity,
+            EchoOperationBudgetV1::new(9, 512, 512),
+        );
+        let substituted =
+            replace_map_field(&bytes, "admission_policy", substituted_policy.to_value());
+        let error = recover_installation_v1(&substituted)
+            .expect_err("recovery must revalidate retained package-admission policy material");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
+    }
+
+    #[test]
+    fn retained_committed_receipt_rejects_field_substitution() {
+        let installed = retained_fixture_installation();
+        let basis = EchoOperationEvaluationBasisV1::new(
+            WriterHeadKey {
+                worldline_id: crate::WorldlineId::from_bytes(digest(8)),
+                head_id: crate::HeadId::from_bytes(digest(9)),
+            },
+            WorldlineTick::ZERO,
+            None,
+            digest(10),
+            digest(11),
+            EchoOperationApplicationBasisV1::new(digest(12), digest(13)),
+        );
+        let invocation_id = EchoOperationInvocationIdV1(digest(14));
+        let invocation_admission_maximum_budget = EchoOperationBudgetV1::new(8, 512, 512);
+        let invocation_admission_policy_id = EchoOperationInvocationAdmissionPolicyV1::new(
+            installed.authority_profile_identity,
+            digest(19),
+            invocation_admission_maximum_budget,
+        )
+        .identity();
+        let invocation_admission_id = invocation_admission_id(
+            installed.installed_operation_id,
+            invocation_id,
+            invocation_admission_policy_id,
+            basis.identity(),
+        );
+        let declared_footprint_digest = digest(21);
+        let actual_footprint_digest = declared_footprint_digest;
+        let delegated_budget = EchoOperationBudgetV1::new(8, 512, 512);
+        let consumed_budget = EchoOperationBudgetV1::new(4, 70, 40);
+        let prepared_patch_digest = digest(17);
+        let prepared_result_id = EchoOperationResultIdV1(digest(18));
+        let private_evaluation_id = private_evaluation_id_from_parts(
+            installed.installed_operation_id,
+            installed.program_id,
+            invocation_admission_id,
+            invocation_id,
+            basis.identity(),
+            declared_footprint_digest,
+            actual_footprint_digest,
+            consumed_budget,
+            prepared_patch_digest,
+            prepared_result_id,
+        );
+        let prepared_id = preparation_id(
+            private_evaluation_id,
+            prepared_patch_digest,
+            prepared_result_id,
+        );
+        let composition_digest = singleton_composition_digest_from_parts(
+            prepared_id,
+            prepared_patch_digest,
+            prepared_result_id,
+            basis.identity(),
+            actual_footprint_digest,
+        );
+        let mut receipt = EchoOperationReceiptV1 {
+            package_id: installed.package_id,
+            package_admission_id: installed.package_admission_id,
+            installed_operation_id: installed.installed_operation_id,
+            operation_coordinate: installed.operation_coordinate.clone(),
+            semantic_identity: installed.semantic_identity,
+            lawpack_identity: installed.lawpack_identity,
+            target_profile_identity: installed.target_profile_identity,
+            interpreter_profile_identity: installed.interpreter_profile_identity,
+            intrinsic_profile_identity: installed.intrinsic_profile_identity,
+            package_admission_policy_id: installed.admission_policy_id,
+            authority_profile_identity: installed.authority_profile_identity,
+            authority_grant_identity: digest(19),
+            invocation_admission_policy_id,
+            invocation_admission_maximum_budget,
+            invocation_admission_id,
+            program_id: installed.program_id,
+            invocation_id,
+            invocation_bytes_digest: digest(20),
+            evaluation_basis: basis,
+            evaluation_basis_id: basis.identity(),
+            declared_footprint_digest,
+            actual_footprint_digest,
+            delegated_budget,
+            consumed_budget,
+            private_evaluation_id,
+            preparation_id: prepared_id,
+            prepared_patch_digest,
+            prepared_result_id,
+            committed_patch_digest: Some(prepared_patch_digest),
+            committed_result_id: Some(prepared_result_id),
+            state_root_before: basis.state_root,
+            state_root_after: digest(24),
+            commit_id: digest(25),
+            composition_digest: Some(composition_digest),
+            tick_receipt_digest: digest(27),
+            commit_global_tick: Some(GlobalTick::from_raw(1)),
+            worldline_tick_after: WorldlineTick::from_raw(1),
+            terminal_posture: EchoOperationTerminalPostureV1::Committed,
+            terminal_outcome_digest: [0; 32],
+            receipt_digest: [0; 32],
+        };
+        receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
+        receipt.receipt_digest = receipt_digest(&receipt);
+        let mut mismatched_policy_receipt = receipt.clone();
+        mismatched_policy_receipt.invocation_admission_maximum_budget =
+            EchoOperationBudgetV1::new(9, 512, 512);
+        mismatched_policy_receipt.receipt_digest = receipt_digest(&mismatched_policy_receipt);
+        let mismatched_policy_bytes = mismatched_policy_receipt
+            .to_canonical_bytes()
+            .expect("mismatched policy receipt retains structurally");
+        let error = recover_committed_execution_receipt_v1(&mismatched_policy_bytes)
+            .expect_err("retained invocation-admission policy material must match its identity");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
+
+        let mut forged_private_evaluation = receipt.clone();
+        forged_private_evaluation.private_evaluation_id =
+            EchoOperationPrivateEvaluationIdV1(digest(90));
+        forged_private_evaluation.preparation_id = preparation_id(
+            forged_private_evaluation.private_evaluation_id,
+            forged_private_evaluation.prepared_patch_digest,
+            forged_private_evaluation.prepared_result_id,
+        );
+        forged_private_evaluation.composition_digest =
+            Some(singleton_composition_digest_from_parts(
+                forged_private_evaluation.preparation_id,
+                forged_private_evaluation.prepared_patch_digest,
+                forged_private_evaluation.prepared_result_id,
+                forged_private_evaluation.evaluation_basis_id,
+                forged_private_evaluation.actual_footprint_digest,
+            ));
+        forged_private_evaluation.terminal_outcome_digest =
+            terminal_outcome_digest(&forged_private_evaluation);
+        forged_private_evaluation.receipt_digest = receipt_digest(&forged_private_evaluation);
+        let forged_private_bytes = forged_private_evaluation
+            .to_canonical_bytes()
+            .expect("coordinated private-evaluation substitution encodes");
+        recover_committed_execution_receipt_v1(&forged_private_bytes)
+            .expect_err("recovery must independently derive private-evaluation identity");
+
+        let mut forged_composition = receipt.clone();
+        forged_composition.composition_digest = Some(digest(91));
+        forged_composition.terminal_outcome_digest = terminal_outcome_digest(&forged_composition);
+        forged_composition.receipt_digest = receipt_digest(&forged_composition);
+        let forged_composition_bytes = forged_composition
+            .to_canonical_bytes()
+            .expect("coordinated composition substitution encodes");
+        recover_committed_execution_receipt_v1(&forged_composition_bytes)
+            .expect_err("recovery must independently derive singleton composition identity");
+
+        let mut impossible_budget = receipt.clone();
+        impossible_budget.delegated_budget = EchoOperationBudgetV1::new(1, 1, 1);
+        impossible_budget.receipt_digest = receipt_digest(&impossible_budget);
+        let impossible_budget_bytes = impossible_budget
+            .to_canonical_bytes()
+            .expect("inconsistent budget evidence encodes");
+        recover_committed_execution_receipt_v1(&impossible_budget_bytes)
+            .expect_err("consumption cannot exceed the retained delegated budget");
+
+        let mut foreign_before_root = receipt.clone();
+        foreign_before_root.state_root_before = digest(92);
+        foreign_before_root.terminal_outcome_digest = terminal_outcome_digest(&foreign_before_root);
+        foreign_before_root.receipt_digest = receipt_digest(&foreign_before_root);
+        let foreign_before_root_bytes = foreign_before_root
+            .to_canonical_bytes()
+            .expect("foreign before-root evidence encodes");
+        recover_committed_execution_receipt_v1(&foreign_before_root_bytes)
+            .expect_err("committed evidence must start at the retained evaluation basis root");
+
+        let bytes = receipt.to_canonical_bytes().expect("receipt retains");
+        let substituted = replace_map_field(
+            &bytes,
+            "commit_id",
+            CanonicalValueV1::Bytes(digest(100).to_vec()),
+        );
+        let error = recover_committed_execution_receipt_v1(&substituted)
+            .expect_err("a retained receipt field cannot change under its digest");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
+    }
+}

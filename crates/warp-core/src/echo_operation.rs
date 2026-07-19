@@ -26,9 +26,9 @@ use thiserror::Error;
 use crate::{
     attachment::{AtomPayload, AttachmentKey, AttachmentValue},
     clock::{GlobalTick, WorldlineTick},
-    footprint::Footprint,
+    footprint::{Footprint, WarpScopedPortKey},
     head::WriterHeadKey,
-    ident::{Hash, NodeKey, TypeId},
+    ident::{EdgeKey, Hash, NodeKey, TypeId},
     receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry},
     snapshot::{compute_commit_hash_v2, Snapshot},
     tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
@@ -434,6 +434,7 @@ impl EchoOperationProgramV1 {
 
     /// Encodes this program using Edict's canonical CBOR profile.
     pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+        self.validate_supported_profile()?;
         encode_canonical_cbor_v1(&self.to_value()).map_err(canonical_error)
     }
 
@@ -450,6 +451,19 @@ impl EchoOperationProgramV1 {
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
                 EchoOperationBudgetV1::new(4, 64, 32)
             }
+        }
+    }
+
+    fn validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet {
+                max_replacement_bytes,
+                ..
+            } if *max_replacement_bytes == 0 => Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::UnsupportedProgram,
+                "program replacement bound must be nonzero",
+            )),
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => Ok(()),
         }
     }
 
@@ -509,17 +523,13 @@ impl EchoOperationProgramV1 {
         let required_node_type = TypeId(take_hash(&mut fields, "required_node_type")?);
         let required_attachment_type = TypeId(take_hash(&mut fields, "required_attachment_type")?);
         let max_replacement_bytes = take_u64(&mut fields, "max_replacement_bytes")?;
-        if max_replacement_bytes == 0 {
-            return Err(artifact_error(
-                EchoOperationArtifactErrorKindV1::UnsupportedProgram,
-                "program replacement bound must be nonzero",
-            ));
-        }
-        Ok(Self::anchored_node_attachment_compare_and_set(
+        let program = Self::anchored_node_attachment_compare_and_set(
             required_node_type,
             required_attachment_type,
             max_replacement_bytes,
-        ))
+        );
+        program.validate_supported_profile()?;
+        Ok(program)
     }
 }
 
@@ -1688,6 +1698,12 @@ impl EchoOperationInvocationV1 {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::EmptyOperationCoordinate,
                 "invocation operation coordinate must not be empty",
+            ));
+        }
+        if !self.delegated_budget.is_nonzero() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::InvalidBudget,
+                "invocation delegated step budget must be nonzero",
             ));
         }
         let value = map_value([
@@ -3733,6 +3749,18 @@ fn footprint_digest(footprint: &Footprint) -> Hash {
         footprint.n_write.len(),
         footprint.n_write.iter(),
     );
+    hash_edge_set(
+        &mut hasher,
+        b"er",
+        footprint.e_read.len(),
+        footprint.e_read.iter(),
+    );
+    hash_edge_set(
+        &mut hasher,
+        b"ew",
+        footprint.e_write.len(),
+        footprint.e_write.iter(),
+    );
     hash_attachment_set(
         &mut hasher,
         b"ar",
@@ -3745,8 +3773,34 @@ fn footprint_digest(footprint: &Footprint) -> Hash {
         footprint.a_write.len(),
         footprint.a_write.iter(),
     );
+    hash_port_set(
+        &mut hasher,
+        b"bi",
+        footprint.b_in.len(),
+        footprint.b_in.iter(),
+    );
+    hash_port_set(
+        &mut hasher,
+        b"bo",
+        footprint.b_out.len(),
+        footprint.b_out.iter(),
+    );
     hasher.update(&footprint.factor_mask.to_le_bytes());
     hasher.finalize().into()
+}
+
+fn hash_edge_set<'a>(
+    hasher: &mut Hasher,
+    label: &[u8],
+    count: usize,
+    values: impl Iterator<Item = &'a EdgeKey>,
+) {
+    hasher.update(label);
+    hasher.update(&(count as u64).to_le_bytes());
+    for value in values {
+        hasher.update(value.warp_id.as_bytes());
+        hasher.update(value.local_id.as_bytes());
+    }
 }
 
 fn hash_node_set<'a>(
@@ -3788,6 +3842,20 @@ fn hash_attachment_set<'a>(
             crate::AttachmentPlane::Alpha => 1,
             crate::AttachmentPlane::Beta => 2,
         }]);
+    }
+}
+
+fn hash_port_set<'a>(
+    hasher: &mut Hasher,
+    label: &[u8],
+    count: usize,
+    values: impl Iterator<Item = &'a WarpScopedPortKey>,
+) {
+    hasher.update(label);
+    hasher.update(&(count as u64).to_le_bytes());
+    for (warp_id, port) in values {
+        hasher.update(warp_id.as_bytes());
+        hasher.update(&port.to_le_bytes());
     }
 }
 
@@ -4048,6 +4116,113 @@ mod tests {
             footprint_digest(&write_footprint),
             "set cardinalities must prevent boundary-shift digest collisions"
         );
+    }
+
+    #[test]
+    fn footprint_digest_binds_every_resource_axis() {
+        let node = node_key_from_bytes([7; 64]);
+        let edge = EdgeKey {
+            warp_id: node.warp_id,
+            local_id: crate::EdgeId(digest(8)),
+        };
+        let attachment = AttachmentKey::node_alpha(node);
+        let mut footprints = Vec::new();
+
+        let mut footprint = Footprint::default();
+        footprint.n_read.insert(node);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.n_write.insert(node);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.e_read.insert(edge);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.e_write.insert(edge);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.a_read.insert(attachment);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.a_write.insert(attachment);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.b_in.insert(node.warp_id, 9);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.b_out.insert(node.warp_id, 9);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.factor_mask = 1;
+        footprints.push(footprint);
+
+        let digests = footprints.iter().map(footprint_digest).collect::<Vec<_>>();
+        for (index, digest) in digests.iter().enumerate() {
+            assert_ne!(
+                *digest,
+                footprint_digest(&Footprint::default()),
+                "resource axis {index} must differ from an empty footprint"
+            );
+            for (other_index, other) in digests.iter().enumerate().skip(index + 1) {
+                assert_ne!(
+                    digest, other,
+                    "resource axes {index} and {other_index} must not alias"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn public_artifact_encoders_refuse_values_their_decoders_refuse() {
+        let invalid_program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            crate::make_type_id("invalid-program-node"),
+            crate::make_type_id("invalid-program-atom"),
+            0,
+        );
+        let error = invalid_program
+            .to_canonical_bytes()
+            .expect_err("a zero replacement bound must not produce program bytes");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::UnsupportedProgram
+        );
+        invalid_program
+            .identity()
+            .expect_err("an invalid program must not mint a stable identity");
+
+        let node = node_key_from_bytes([10; 64]);
+        let basis = EchoOperationEvaluationBasisV1::new(
+            WriterHeadKey {
+                worldline_id: crate::WorldlineId::from_bytes(digest(11)),
+                head_id: crate::HeadId::from_bytes(digest(12)),
+            },
+            WorldlineTick::ZERO,
+            None,
+            digest(13),
+            digest(14),
+            EchoOperationApplicationBasisV1::new(digest(15), digest(16)),
+        );
+        let invalid_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+                EchoOperationPackageIdV1(digest(17)),
+                "echo.fixture.InvalidBudget.v1",
+                basis,
+                digest(18),
+                EchoOperationBudgetV1::new(0, 64, 32),
+                node,
+                digest(19),
+                Vec::new(),
+            );
+        let error = invalid_invocation
+            .to_canonical_bytes()
+            .expect_err("a zero-step budget must not produce invocation bytes");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::InvalidBudget
+        );
+        invalid_invocation
+            .identity()
+            .expect_err("an invalid invocation must not mint a stable identity");
     }
 
     fn retained_fixture_installation() -> InstalledEchoOperationV1 {

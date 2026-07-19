@@ -66,6 +66,7 @@ Current authority for this boundary lives in:
 - [Runtime authority](../topics/RuntimeAuthority.md)
 - [Registry, provider, and host boundary](../adr/0015-registry-provider-host-boundary.md)
 - [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
+- [Admitted executable operation packages](../adr/0023-admitted-executable-operation-packages.md)
 - [Declarative rule authorship](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
 
 ## Ownership Split
@@ -143,6 +144,14 @@ evidence through the shared scheduler and WAL. The current closure is
 mutation-specific; generated reads remain a separate bounded observer/optic
 crossing. Neither compiler path may claim that generated authority facts are
 Echo runtime authority.
+
+The preceding paragraph describes the implemented provider-v1 compatibility
+corridor. [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
+accepts a distinct, not-yet-implemented executable-operation category for new
+application mutations. That category installs a digest-bound declarative
+program interpreted by Echo and exposes no application matcher, executor, or
+footprint callback. Provider v1 remains stable while consumers migrate; it is
+not renamed or silently reinterpreted as the executable-operation corridor.
 
 ## External Edict Provider Artifacts
 

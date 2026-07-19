@@ -3,7 +3,8 @@
 
 # ADR 0015: Registry, Provider, and Host Boundary
 
-- **Status:** Accepted
+- **Status:** Partially superseded
+- **Superseded in part by:** ADR 0023
 - **Date:** 2026-07-13
 
 ## Context
@@ -30,6 +31,18 @@ query, and compatibility mappings before mutating engine state.
 - A trusted host may install and run generated packages without exposing Echo
   coordinates to the application.
 - Application nouns remain in contracts and adapters outside Echo core.
+
+## Partial Supersession
+
+ADR 0023 governs newly authored executable operation packages. Their semantic
+execution must come from an admitted program interpreted by Echo rather than a
+host-supplied application matcher, executor, or footprint callback.
+
+This record remains authoritative for provider-v1 callback-shaped
+compatibility infrastructure and for the separation between application,
+runtime-owner, registry, and installation authority while that corridor is
+retained. Provider v1 is not silently reinterpreted as the new executable
+operation category.
 
 ## Evidence Anchors
 

@@ -152,6 +152,11 @@ application mutations. That category installs a digest-bound declarative
 program interpreted by Echo and exposes no application matcher, executor, or
 footprint callback. Provider v1 remains stable while consumers migrate; it is
 not renamed or silently reinterpreted as the executable-operation corridor.
+The program digest supplies executable meaning only: it cannot independently
+confer an operation coordinate, invocability, or authority, and Echo cannot
+install or invoke it naked. The admitted Edict operation package binds the
+public contract and semantic closure to the exact program, after which Echo
+independently admits each invocation.
 
 ## External Edict Provider Artifacts
 

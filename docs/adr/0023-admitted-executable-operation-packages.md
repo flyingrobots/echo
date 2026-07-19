@@ -71,20 +71,70 @@ The alternatives considered for the executable artifact name were:
 - `EchoOperationProgramV1`: selected because it states the current truth: this
   is a bounded program for Echo's target profile.
 
+### Program Substitution Boundary Law
+
+An `EchoOperationProgramV1` digest is subordinate executable evidence. It is
+not an operation coordinate, an installed operation, an invocation capability,
+an authority token, or permission to invoke anything. Possessing, publishing,
+or corroborating program bytes cannot make them independently installable or
+invocable.
+
+The binding direction is explicit:
+
+```text
+Edict intent / admitted executable-operation package
+→ binds the canonical semantic closure
+→ binds the exact Jedit lawpack coordinate and digest
+→ binds the exact EchoOperationProgramV1 bytes and digest
+```
+
+The admitted Edict operation supplies the public operation coordinate,
+invocation and result schemas, basis contract, budget and footprint contract,
+authority requirements, result and obstruction interpretation, and the
+runtime-recognized eligibility to invoke the operation. Echo still admits each
+invocation against those requirements; package bytes do not authorize a
+caller. The program supplies only the executable meaning used to evaluate an
+already admitted invocation.
+
+Echo must therefore begin installation and invocation lookup from an admitted
+operation-package identity, then follow its closed semantic bindings to the
+program. It must not admit, install, or invoke a naked program digest. Any
+operation or schema references carried inside program bytes are consistency
+claims checked against the admitted package, not declarations that mint a
+public contract. Reusing identical program bytes in another lawful package
+does not merge operation identities, invocability, or authority. Substituting
+different program bytes changes the semantic closure and package identity.
+
 ### First-version execution obligations
 
-Every `EchoOperationProgramV1` must declare and canonically bind:
+Every `ExecutableOperationPackageV1` must canonically bind:
 
-- one operation coordinate and exact input, output, and obstruction schemas;
+- one public operation coordinate and exact invocation, output, and
+  obstruction schemas;
+- the Edict source, canonical meaning, Core, and target identities that define
+  the admitted semantic closure;
+- the exact lawpack resource coordinate and digest;
+- the exact `EchoOperationProgramV1` bytes and digest;
+- an explicit parent-basis contract;
+- delegated budget and declared footprint contracts;
+- authority requirements and invocation-admission requirements;
+- result and obstruction interpretation;
+- one evaluator ABI and intrinsic-profile identity.
+
+Every bound `EchoOperationProgramV1` must canonically bind its executable
+meaning:
+
 - one invocation-to-graph binding;
-- an explicit parent causal basis;
 - a typed graph and attachment schema;
 - a closed declarative rewrite/evaluation program;
 - deterministic rule and match selection;
 - only versioned, digest-locked, deterministic low-level intrinsics;
-- a delegated step, allocation, and output budget;
-- a declared footprint law or ceiling;
-- a result projection and typed obstruction projection;
+- static resource requirements or ceilings checked against the delegated
+  budget;
+- executable footprint derivation checked against the declared footprint
+  contract;
+- typed result and obstruction construction checked against the public
+  operation schemas and interpretation;
 - one evaluator ABI and intrinsic-profile identity;
 - atomic visibility as one parent patch or one obstruction.
 
@@ -110,7 +160,8 @@ it was evaluated.
 
 - the exact Echo parent worldline, writer head, frontier/tick, commit or root,
   and application basis named by the invocation;
-- the program and package identities;
+- the admitted operation and package identities plus the subordinate program
+  identity;
 - the canonical input digest;
 - the delegated budget and consumed budget;
 - the declared footprint identity;
@@ -123,6 +174,8 @@ Before commit, Echo must establish all of the following:
 
 ```text
 current parent basis == evaluated parent basis
+installed admitted-operation identity == evaluated admitted-operation identity
+installed package identity == evaluated package identity
 installed program identity == evaluated program identity
 canonical input identity == evaluated input identity
 actual footprint is permitted by the declared footprint contract
@@ -146,18 +199,22 @@ declarative executable semantic resource imported through a Jedit-owned Edict
 lawpack. Campaign 1 will not expand Edict source until it can directly express
 the complete recursive persistent-rope algorithm.
 
-The authoritative semantic closure consists of:
+The authoritative binding chain is:
 
 ```text
 Jedit-owned ReplaceRange.edict
-+ exact Jedit lawpack coordinate and digest
-+ canonical declarative EchoOperationProgramV1 bytes
-+ exact fact schemas, codec profile, identity domains, and obstruction map
+→ admitted executable-operation package and public operation contract
+→ canonical semantic closure and exact fact/codec/identity law
+→ exact Jedit lawpack coordinate and digest
+→ exact canonical declarative EchoOperationProgramV1 bytes and digest
 ```
 
 The Edict intent remains the application-owned operation surface. Its canonical
 meaning binds the lawpack resource and program digest. Changing the executable
 resource changes the admitted semantic closure and package identity.
+The program digest alone does not confer the operation coordinate,
+invocability, caller authority, result interpretation, or permission to enter
+Echo admission.
 
 The resource is acceptable only when it contains the executable meaning. It
 must contain the declarative rewrite/control law needed to derive the rope
@@ -218,17 +275,17 @@ The word "independent" is reserved for an implementation that does not merely
 enter the same logic through another crate or call path. The first vertical
 will label evidence as follows.
 
-| Check                                                                                                         | Evidence grade                                                                                                        | First-version claim                                                                                                                  |
-| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Canonical decoding, schema closure, digest recomputation, supported instruction set, and static budget bounds | Deterministic self-validation                                                                                         | The exact bytes are internally well-formed under the installed ABI.                                                                  |
-| Installed package/program/input identity and exact-basis equality before commit                               | Deterministic self-validation                                                                                         | Echo committed only the admitted preparation against its evaluated basis.                                                            |
-| Actual footprint against declared footprint law or ceiling                                                    | Deterministic self-validation                                                                                         | The evaluated support stayed within the admitted footprint contract.                                                                 |
-| Core to Target IR relation                                                                                    | Structurally separate verifier path                                                                                   | A separately invoked verifier path recomputed or checked the declared relation; separation alone is not implementation independence. |
-| Target IR plus lawpack resource to `EchoOperationProgramV1` binding                                           | Structurally separate verifier path                                                                                   | A separately invoked target verifier checked exact program/resource/schema/profile correspondence.                                   |
-| Generated codec and package golden bytes                                                                      | Independently implemented conformance evidence only when the comparison implementation shares no encoder/lowerer path | The checked finite vectors agree; this is not a proof over all values.                                                               |
-| Program result and patch versus the existing handwritten Jedit planner over a frozen differential corpus      | Independently implemented conformance evidence for that finite corpus                                                 | Two separately implemented evaluators agree on the named cases; this is not complete semantic equivalence.                           |
-| Repeated evaluation by the same Echo evaluator                                                                | Deterministic self-validation                                                                                         | The implementation is repeatable for the tested basis and inputs; it is not an independent implementation.                           |
-| Receipt/WAL round-trip and fresh-host reconstruction                                                          | Deterministic self-validation                                                                                         | Retained bytes reconstruct the same installed and execution identities without callbacks.                                            |
+| Check                                                                                                         | Evidence grade                                                                                                        | First-version claim                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical decoding, schema closure, digest recomputation, supported instruction set, and static budget bounds | Deterministic self-validation                                                                                         | The exact bytes are internally well-formed under the installed ABI.                                                                                      |
+| Installed package/program/input identity and exact-basis equality before commit                               | Deterministic self-validation                                                                                         | Echo committed only the admitted preparation against its evaluated basis.                                                                                |
+| Actual footprint against declared footprint law or ceiling                                                    | Deterministic self-validation                                                                                         | The evaluated support stayed within the admitted footprint contract.                                                                                     |
+| Core to Target IR relation                                                                                    | Structurally separate verifier path                                                                                   | A separately invoked verifier path recomputed or checked the declared relation; separation alone is not implementation independence.                     |
+| Admitted operation package plus Target IR and lawpack resource to `EchoOperationProgramV1` binding            | Structurally separate verifier path                                                                                   | A separately invoked target verifier checked exact package/program/resource/schema/profile correspondence without making the program an authority token. |
+| Generated codec and package golden bytes                                                                      | Independently implemented conformance evidence only when the comparison implementation shares no encoder/lowerer path | The checked finite vectors agree; this is not a proof over all values.                                                                                   |
+| Program result and patch versus the existing handwritten Jedit planner over a frozen differential corpus      | Independently implemented conformance evidence for that finite corpus                                                 | Two separately implemented evaluators agree on the named cases; this is not complete semantic equivalence.                                               |
+| Repeated evaluation by the same Echo evaluator                                                                | Deterministic self-validation                                                                                         | The implementation is repeatable for the tested basis and inputs; it is not an independent implementation.                                               |
+| Receipt/WAL round-trip and fresh-host reconstruction                                                          | Deterministic self-validation                                                                                         | Retained bytes reconstruct the same installed and execution identities without callbacks.                                                                |
 
 A separate verifier crate is not, by itself, independently implemented
 conformance evidence. The first vertical will not claim formal refinement,
@@ -292,6 +349,10 @@ semantics.
 
 - Mutate provider v1 and describe it as provider v2.
 - Treat matching callback claims as executable semantic evidence.
+- Treat a program digest as an operation coordinate, invocation capability, or
+  authority token.
+- Install or invoke `EchoOperationProgramV1` without resolving it through an
+  admitted executable-operation package.
 - Generate an application matcher, executor, or footprint callback.
 - Install a host-supplied `MutationPlan` or parent patch.
 - Implement Jedit rope replacement as an Echo native intrinsic.
@@ -317,6 +378,9 @@ semantics.
 - Receipts must distinguish package, program, input, basis, declared and actual
   footprints, patch, output or obstruction, budget, and execution-trace
   identities.
+- A receipt's program digest identifies the executable meaning used only in
+  the context of the admitted operation and package that bind it; it does not
+  retroactively make the program independently invocable or authoritative.
 - A changed parent basis invalidates a preparation; automatic rebasing and
   cross-basis transport remain separately witnessed future operations.
 - The existing Jedit planner becomes migration evidence rather than production

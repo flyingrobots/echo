@@ -1138,6 +1138,9 @@ pre_push_feature_string_for_file() {
   local file="$2"
 
   case "${crate}:${file}" in
+    warp-core:crates/warp-core/src/trusted_runtime_host.rs)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
     warp-wasm:crates/warp-wasm/src/warp_kernel.rs|\
     warp-wasm:crates/warp-wasm/Cargo.toml)
       printf '%s\n' "engine"

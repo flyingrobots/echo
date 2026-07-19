@@ -4,7 +4,8 @@
 # ADR 0015: Registry, Provider, and Host Boundary
 
 - **Status:** Partially superseded
-- **Superseded in part by:** ADR 0023
+- **Superseded in part by:**
+  [ADR 0023](0023-admitted-executable-operation-packages.md)
 - **Date:** 2026-07-13
 
 ## Context

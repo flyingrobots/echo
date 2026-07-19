@@ -113,6 +113,8 @@ Every `ExecutableOperationPackageV1` must canonically bind:
   obstruction schemas;
 - the Edict source, canonical meaning, Core, and target identities that define
   the admitted semantic closure;
+- the exact Jedit-owned canonical text-schema declaration coordinate and
+  digest;
 - the exact lawpack resource coordinate and digest;
 - the exact `EchoOperationProgramV1` bytes and digest;
 - an explicit parent-basis contract;
@@ -156,54 +158,148 @@ semantic operation.
 A prepared operation may commit only against the exact parent basis on which
 it was evaluated.
 
-`PreparedEchoOperationV1` and its eventual receipt evidence must bind:
+The first version names one canonical basis value,
+`EchoOperationEvaluationBasisV1`. It is not a choice among a tick, commit, root,
+or application coordinate. Every encoded value contains these fields in this
+order:
 
-- the exact Echo parent worldline, writer head, frontier/tick, commit or root,
-  and application basis named by the invocation;
-- the admitted operation and package identities plus the subordinate program
+1. `writer_head.worldline_id`: the canonical 32 bytes of `WorldlineId`;
+2. `writer_head.head_id`: the canonical 32 bytes of `HeadId`;
+3. `worldline_tick`: one little-endian `u64`;
+4. `commit_global_tick`: a required option encoded as tag `0` for the empty
+   `U0` frontier or tag `1` followed by one little-endian `u64`;
+5. `state_root`: the exact 32-byte canonical graph-state root;
+6. `commit_id`: the exact 32-byte canonical frontier/commit hash;
+7. `application_basis_schema_digest`: the exact 32-byte digest of the basis
+   schema bound by the admitted operation package;
+8. `application_basis_value_digest`: the exact 32-byte digest of the canonical
+   basis value carried in the package-declared invocation field.
+
+Its canonical byte encoding is the ASCII domain
+`echo:operation-evaluation-basis:v1\0` followed by those fields without padding.
+Its identity is the BLAKE3 digest of those bytes. The option tag is mandatory;
+all other fields are mandatory. The admitted operation's basis contract names
+exactly one invocation field and codec. Echo computes the application-basis
+value digest from that field's canonical bytes and resolves the value to the
+Jedit buffer head present at the named runtime frontier. A missing, foreign,
+stale, or differently encoded application basis is a typed obstruction; Echo
+does not choose or infer another basis.
+
+`PreparedEchoOperationV1` and its eventual execution evidence must bind:
+
+- the complete `EchoOperationEvaluationBasisV1` value and identity;
+- the exact submission/invocation identity, canonical invocation digest,
+  caller-authority evidence identity, and Echo-owned invocation-admission
+  evidence identity;
+- the admitted operation and package identities, package-admission evidence
+  identity, Echo-owned installed-operation identity, and subordinate program
   identity;
-- the canonical input digest;
 - the delegated budget and consumed budget;
 - the declared footprint identity;
 - the actual read/write footprint derived during evaluation;
-- the resulting patch digest;
-- the typed output or obstruction identity;
-- the private execution or trace identity.
+- the private execution or trace identity;
+- exactly one closed `PreparedEchoOperationOutcomeV1` variant:
+    - `Committable`, carrying a patch digest and typed output identity; or
+    - `Obstructed`, carrying a typed obstruction identity and, by its canonical
+      variant encoding, explicit evidence that no parent patch exists.
 
-Before commit, Echo must establish all of the following:
+An `Obstructed` outcome never enters parent commit or scheduler composition and
+never carries a patch digest. It may produce retained typed execution evidence,
+but it does not claim a committed consequence.
+
+Before any `Committable` outcome can commit, Echo must establish all of the
+following:
 
 ```text
-current parent basis == evaluated parent basis
-installed admitted-operation identity == evaluated admitted-operation identity
-installed package identity == evaluated package identity
-installed program identity == evaluated program identity
-canonical input identity == evaluated input identity
+current EchoOperationEvaluationBasisV1 bytes == evaluated basis bytes
+current installed admitted-operation identity == evaluated operation identity
+current installed package identity == evaluated package identity
+current installed program identity == evaluated program identity
+admitted invocation identity and admission evidence == evaluated identities
+canonical invocation identity == evaluated invocation identity
+consumed budget <= delegated budget and evaluation completed within that budget
 actual footprint is permitted by the declared footprint contract
-committed patch identity == evaluated patch identity
 ```
+
+An attempted evaluation that cannot complete without exceeding its delegated
+budget yields a typed budget obstruction and no committable patch. A successful
+evaluation may consume exactly its delegated budget if it completes without an
+overrun.
+
+For a singleton commit, Echo must additionally establish:
+
+```text
+committed patch identity == evaluated Committable patch identity
+```
+
+An existing scheduler composition rule may combine independent committable
+preparations evaluated from the same basis. The committed receipt must then
+bind the exact scheduler-rule identity, a canonical ordered list of member
+preparation and patch identities, and the resulting composite `TickPatch`
+identity. The scheduler law must verify that every member has identical
+`EchoOperationEvaluationBasisV1` bytes and that the composite patch is the
+canonical result of that exact ordered membership. A singleton commit uses the
+same evidence shape with a one-member list.
 
 If the parent basis changed, the prepared operation is ineligible to commit and
 must yield a typed basis-changed posture without applying any patch. Echo must
 not silently rebase, retarget, revalidate, or transport the preparation to the
-new basis. A new evaluation is a new witnessed attempt unless an existing,
-separately admitted Echo composition rule explicitly proves otherwise.
+new basis. A new evaluation is a new witnessed attempt. Scheduler composition
+from one unchanged common basis is not cross-basis revalidation.
 
-An existing scheduler composition rule may combine independent preparations
-evaluated from the same parent snapshot. That is not revalidation across a
-changed basis; the composed tick remains bound to the common evaluation basis.
+`EchoOperationExecutionEvidenceV1` has a separate closed terminal sum:
+
+- `Committed` binds the composite `TickPatch` digest, typed output identity,
+  resulting frontier identity, and scheduler composition evidence; or
+- `NotCommitted` binds the evaluation obstruction or commit-ineligibility
+  identity, a canonical terminal-outcome digest, and canonical no-parent-patch
+  evidence.
+
+`NotCommitted` never carries a committed patch digest. A preparation that was
+`Committable` but lost exact-basis eligibility is represented as
+`NotCommitted`; its uncommitted prepared patch remains attributable but is not
+misreported as a parent consequence.
+
+When an admitted package declares no application-specific caller-authorization
+requirement, the caller-authority evidence field binds the versioned canonical
+`None` identity selected by that package profile. It is never omitted or
+silently replaced by package or program identity. This requirement binds the
+admission posture without adding broad authorization policy to this decision.
 
 ### Jedit rope-law closure
 
 For the first `ReplaceRange` vertical, Jedit will use a digest-locked canonical
 declarative executable semantic resource imported through a Jedit-owned Edict
-lawpack. Campaign 1 will not expand Edict source until it can directly express
-the complete recursive persistent-rope algorithm.
+lawpack. This decision does not require Edict source to express the complete
+recursive persistent-rope algorithm directly.
+
+Before the real package can be generated or admitted, Jedit must publish one
+versioned canonical text-schema declaration. That Jedit-owned declaration must
+bind:
+
+- the exact fact, edge, and attachment proposition set and schema digest;
+- the canonical codec and content-identity law for each proposition;
+- whether the TypeScript-only structural-maintenance and checkpoint-anchor
+  propositions are authoritative retained facts, derived evidence, or excluded
+  from the first operation surface;
+- the compatibility or migration posture for the current native JSON fact
+  model; and
+- the exact rope-law resource coordinate and digest that consumes the selected
+  schema.
+
+The executable-operation package must bind that declaration's coordinate and
+digest. Its public schemas, lawpack, and subordinate program must close exactly
+over the declared propositions and codecs. Absence or disagreement produces a
+typed schema-closure refusal before package admission or installation. Edict
+and Echo validate the selected declaration; neither may choose between Jedit's
+current TypeScript and native models.
 
 The authoritative binding chain is:
 
 ```text
 Jedit-owned ReplaceRange.edict
 → admitted executable-operation package and public operation contract
+→ exact Jedit canonical text-schema declaration
 → canonical semantic closure and exact fact/codec/identity law
 → exact Jedit lawpack coordinate and digest
 → exact canonical declarative EchoOperationProgramV1 bytes and digest
@@ -253,7 +349,7 @@ This is the preferable long-term authoring experience if repeated operations
 demonstrate that those constructs belong in Edict. It is rejected for the first
 vertical because the current compiler's initial lowerable subset is much
 smaller. Implementing the entire language surface before any hook-free
-operation runs would turn Campaign 1 into a broad language and runtime design
+operation runs would turn the first witness into a broad language and runtime design
 effort and would make `ReplaceRange` define unproven universal syntax.
 
 ### Bind a canonical declarative executable resource from a Jedit lawpack
@@ -272,14 +368,17 @@ Later Edict syntax may compile to the same target program boundary.
 ## Verification Evidence Grades
 
 The word "independent" is reserved for an implementation that does not merely
-enter the same logic through another crate or call path. The first vertical
-will label evidence as follows.
+enter the same logic through another crate or call path. Evidence claims use
+the following grades.
 
 | Check                                                                                                         | Evidence grade                                                                                                        | First-version claim                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Canonical decoding, schema closure, digest recomputation, supported instruction set, and static budget bounds | Deterministic self-validation                                                                                         | The exact bytes are internally well-formed under the installed ABI.                                                                                      |
 | Installed package/program/input identity and exact-basis equality before commit                               | Deterministic self-validation                                                                                         | Echo committed only the admitted preparation against its evaluated basis.                                                                                |
+| Submission, caller-authority, and invocation-admission evidence identities                                    | Deterministic self-validation                                                                                         | Preparation and retained execution evidence attribute evaluation to the exact Echo-admitted invocation.                                                  |
+| Consumed budget against the delegated budget                                                                  | Deterministic self-validation                                                                                         | An evaluation that cannot complete within budget obstructs without a committable patch.                                                                  |
 | Actual footprint against declared footprint law or ceiling                                                    | Deterministic self-validation                                                                                         | The evaluated support stayed within the admitted footprint contract.                                                                                     |
+| Scheduler rule, ordered preparation membership, and composite patch                                           | Deterministic self-validation                                                                                         | The committed tick is attributable to the exact composition decision over one common basis.                                                              |
 | Core to Target IR relation                                                                                    | Structurally separate verifier path                                                                                   | A separately invoked verifier path recomputed or checked the declared relation; separation alone is not implementation independence.                     |
 | Admitted operation package plus Target IR and lawpack resource to `EchoOperationProgramV1` binding            | Structurally separate verifier path                                                                                   | A separately invoked target verifier checked exact package/program/resource/schema/profile correspondence without making the program an authority token. |
 | Generated codec and package golden bytes                                                                      | Independently implemented conformance evidence only when the comparison implementation shares no encoder/lowerer path | The checked finite vectors agree; this is not a proof over all values.                                                                                   |
@@ -288,9 +387,9 @@ will label evidence as follows.
 | Receipt/WAL round-trip and fresh-host reconstruction                                                          | Deterministic self-validation                                                                                         | Retained bytes reconstruct the same installed and execution identities without callbacks.                                                                |
 
 A separate verifier crate is not, by itself, independently implemented
-conformance evidence. The first vertical will not claim formal refinement,
-complete semantic equivalence, a clean-room Echo interpreter, or a proof that
-all possible `ReplaceRange` inputs agree with the legacy planner.
+conformance evidence. This decision does not claim formal refinement, complete
+semantic equivalence, a clean-room Echo interpreter, or a proof that all
+possible `ReplaceRange` inputs agree with the legacy planner.
 
 The differential corpus counts as independently implemented evidence only
 when its oracle path does not invoke the new program evaluator or generated
@@ -314,36 +413,6 @@ by comparing two wrappers around the same algorithm.
 - **Current Jedit/Jim integration** may provide canonical events, known basis,
   typed input, and external capabilities. It may not provide semantic execution
   or Echo authority.
-
-## Sequencing Consequence
-
-Implementation proceeds in dependency order:
-
-1. minimal Edict operation prerequisites;
-2. hook-free Echo bounded-operation evaluation with a tiny generic program;
-3. the real Jedit `ReplaceRange` semantic artifact and differential oracle
-   corpus;
-4. current Jim invocation and legacy `ReplaceRange` cutover.
-
-Each stage remains a separately reviewed and merged campaign. The first real
-vertical is complete only when this chain is executable:
-
-```text
-real Jim command
-→ explicit basis-bearing generated invocation
-→ admitted Edict-authored operation
-→ Echo-owned deterministic evaluation
-→ one committed buffer consequence or typed obstruction
-→ receipt binding the executable semantics
-```
-
-Campaign 1 is bounded to the Edict capabilities required to type the real
-operation surface, preserve exact fixed-width values and explicit basis,
-canonically bind the lawpack program resource through Core and artifact
-identity, and generate the operation-facing package/client inputs. It does not
-add the Echo evaluator, author the Jedit rope program, or introduce general
-recursion, iteration, graph-pattern syntax, observer syntax, or process
-semantics.
 
 ## Rejected Alternatives
 
@@ -369,15 +438,16 @@ semantics.
   operations.
 - Echo gains one new program interpreter and installed-operation evidence
   category rather than a callback-bearing provider revision.
-- Campaign 1 stays bounded: it adds fixed-width and explicit-basis operation
-  prerequisites plus exact executable-resource binding, not a general recursive
-  Edict language.
+- Edict needs fixed-width and explicit-basis operation support plus exact
+  executable-resource binding; this decision does not require a general
+  recursive language.
 - The first program format preserves contained-execution obligations without
   claiming durable child lanes, child ticks, wormholes, or universal WARP wire
   status.
-- Receipts must distinguish package, program, input, basis, declared and actual
-  footprints, patch, output or obstruction, budget, and execution-trace
-  identities.
+- Execution evidence must distinguish package, program, admitted invocation,
+  basis, declared and actual footprints, budget, scheduler composition, and
+  execution-trace identities. A successful commit binds its patch and output;
+  an obstruction binds a typed no-patch outcome instead.
 - A receipt's program digest identifies the executable meaning used only in
   the context of the admitted operation and package that bind it; it does not
   retroactively make the program independently invocable or authoritative.
@@ -406,6 +476,10 @@ semantics.
 - [Echo provider v1 stores host executor and footprint hooks](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/provider_contract.rs#L35-L126)
 - [Echo rewrite rules execute native matcher, executor, and footprint functions](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/rule.rs#L11-L103)
 - [Current provider evidence binds package, Target IR, and scheduler rule](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/provider_contract.rs#L1181-L1263)
+- [Echo runtime coordinates have canonical identifier and counter representations](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/echo-runtime-schema/src/lib.rs#L82-L153)
+- [Echo frontier evidence carries tick, state-root, and commit identities](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/echo-wasm-abi/src/kernel_port.rs#L364-L387)
 - [Jedit's current `ReplaceRange` semantic planner](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/rope.rs#L385-L475)
 - [Jedit persistent-rope split and balance law](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/rope/tree.rs#L69-L193)
 - [Jedit currently binds replacement to handwritten callbacks](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/contract.rs#L111-L142)
+- [Jedit's TypeScript text-graph proposition set](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/domain/graph-rope-types.ts#L12-L21)
+- [Jedit's native text-fact proposition set](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/records.rs#L7-L14)

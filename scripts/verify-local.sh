@@ -1138,6 +1138,9 @@ pre_push_feature_string_for_file() {
   local file="$2"
 
   case "${crate}:${file}" in
+    warp-core:crates/warp-core/src/trusted_runtime_host.rs)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
     warp-wasm:crates/warp-wasm/src/warp_kernel.rs|\
     warp-wasm:crates/warp-wasm/Cargo.toml)
       printf '%s\n' "engine"
@@ -1153,8 +1156,13 @@ pre_push_feature_string_for_test_target() {
     warp-core:inbox|warp-core:installed_contract_intent_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
-    warp-core:external_consumer_contract_fixture_tests|warp-core:provider_contract_admission_tests)
+    warp-core:external_consumer_contract_fixture_tests|\
+    warp-core:provider_contract_admission_tests|\
+    warp-core:executable_operation_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
+    warp-core:installed_contract_registry_tests)
+      printf '%s\n' "native_rule_bootstrap"
       ;;
     warp-core:trusted_runtime_host_loop_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime,host_test"
@@ -1411,18 +1419,12 @@ prepare_warp_math_scope() {
 
 warp_core_feature_args_for_test() {
   local test_target="$1"
+  local features
 
-  case "$test_target" in
-    inbox|installed_contract_intent_pipeline_tests)
-      printf '%s\n' "--features" "native_rule_bootstrap,host_test"
-      ;;
-    external_consumer_contract_fixture_tests|provider_contract_admission_tests)
-      printf '%s\n' "--features" "native_rule_bootstrap,trusted_runtime"
-      ;;
-    causal_fact_publication_tests|optic_invocation_admission_tests)
-      printf '%s\n' "--features" "host_test"
-      ;;
-  esac
+  features="$(pre_push_feature_string_for_test_target "warp-core" "$test_target")"
+  if [[ -n "$features" ]]; then
+    printf '%s\n' "--features" "$features"
+  fi
 }
 
 run_warp_core_test_target() {

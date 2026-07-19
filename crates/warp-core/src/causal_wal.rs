@@ -305,6 +305,8 @@ pub enum WalAppendAuthority {
     RuntimeControl,
     /// Echo admission-kernel authority.
     AdmissionKernel,
+    /// Echo executable-operation interpreter and commit authority.
+    ExecutionKernel,
     /// Recovery authority.
     Recovery,
 }
@@ -326,6 +328,10 @@ pub enum WalTransactionKind {
     TopologyIntent,
     /// Echo-owned causal-anchor admission.
     CausalAnchorAdmission,
+    /// Runtime-owner installation of admitted executable operation meaning.
+    ExecutableOperationInstallation,
+    /// Execution-kernel-owned commit of one executable operation consequence.
+    ExecutableOperationTick,
 }
 
 impl WalTransactionKind {
@@ -340,6 +346,8 @@ impl WalTransactionKind {
             Self::MaterializationOutbox => 5,
             Self::TopologyIntent => 6,
             Self::CausalAnchorAdmission => 7,
+            Self::ExecutableOperationInstallation => 8,
+            Self::ExecutableOperationTick => 9,
         }
     }
 
@@ -353,8 +361,11 @@ impl WalTransactionKind {
             Self::SchedulerTick | Self::MaterializationOutbox | Self::TopologyIntent => {
                 WalAppendAuthority::TrustedScheduler
             }
-            Self::RuntimePosture => WalAppendAuthority::RuntimeControl,
+            Self::RuntimePosture | Self::ExecutableOperationInstallation => {
+                WalAppendAuthority::RuntimeControl
+            }
             Self::CausalAnchorAdmission => WalAppendAuthority::AdmissionKernel,
+            Self::ExecutableOperationTick => WalAppendAuthority::ExecutionKernel,
             Self::Checkpoint => WalAppendAuthority::Recovery,
         }
     }
@@ -368,6 +379,8 @@ impl WalTransactionKind {
             5 => Ok(Self::MaterializationOutbox),
             6 => Ok(Self::TopologyIntent),
             7 => Ok(Self::CausalAnchorAdmission),
+            8 => Ok(Self::ExecutableOperationInstallation),
+            9 => Ok(Self::ExecutableOperationTick),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -427,6 +440,12 @@ pub enum WalRecordKind {
     CausalAnchorFactRecorded,
     /// Echo admission kernel recorded the matching causal-anchor receipt.
     CausalAnchorAdmissionReceiptRecorded,
+    /// Runtime owner retained one exact admitted executable operation package.
+    ExecutableOperationPackageInstalled,
+    /// Echo execution kernel retained one typed executable operation outcome.
+    ExecutableOperationExecutionRecorded,
+    /// Echo execution kernel retained the outcome's replayable state delta.
+    ExecutableOperationStateDeltaRecorded,
 }
 
 impl WalRecordKind {
@@ -457,6 +476,9 @@ impl WalRecordKind {
             Self::TopologySuffixImportRecorded => "TopologySuffixImportRecorded",
             Self::CausalAnchorFactRecorded => "CausalAnchorFactRecorded",
             Self::CausalAnchorAdmissionReceiptRecorded => "CausalAnchorAdmissionReceiptRecorded",
+            Self::ExecutableOperationPackageInstalled => "ExecutableOperationPackageInstalled",
+            Self::ExecutableOperationExecutionRecorded => "ExecutableOperationExecutionRecorded",
+            Self::ExecutableOperationStateDeltaRecorded => "ExecutableOperationStateDeltaRecorded",
         }
     }
 
@@ -484,6 +506,9 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
+            Self::ExecutableOperationPackageInstalled => WalAppendAuthority::RuntimeControl,
+            Self::ExecutableOperationExecutionRecorded
+            | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
                 WalAppendAuthority::AdmissionKernel
             }
@@ -530,6 +555,9 @@ impl WalRecordKind {
             Self::SubmissionEnvelopeRetained => 22,
             Self::CausalAnchorFactRecorded => 23,
             Self::CausalAnchorAdmissionReceiptRecorded => 24,
+            Self::ExecutableOperationPackageInstalled => 25,
+            Self::ExecutableOperationExecutionRecorded => 26,
+            Self::ExecutableOperationStateDeltaRecorded => 27,
         }
     }
 
@@ -559,6 +587,9 @@ impl WalRecordKind {
             22 => Ok(Self::SubmissionEnvelopeRetained),
             23 => Ok(Self::CausalAnchorFactRecorded),
             24 => Ok(Self::CausalAnchorAdmissionReceiptRecorded),
+            25 => Ok(Self::ExecutableOperationPackageInstalled),
+            26 => Ok(Self::ExecutableOperationExecutionRecorded),
+            27 => Ok(Self::ExecutableOperationStateDeltaRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -686,6 +717,10 @@ pub enum AffectedFrontierKind {
     TopologyIndex,
     /// Causal-anchor admission index frontier.
     CausalAnchorIndex,
+    /// Installed executable-operation catalog frontier.
+    ExecutableOperationCatalog,
+    /// Typed executable-operation receipt frontier.
+    ExecutableOperationReceiptIndex,
 }
 
 impl AffectedFrontierKind {
@@ -701,6 +736,8 @@ impl AffectedFrontierKind {
             Self::CheckpointIndex => 6,
             Self::TopologyIndex => 7,
             Self::CausalAnchorIndex => 8,
+            Self::ExecutableOperationCatalog => 9,
+            Self::ExecutableOperationReceiptIndex => 10,
         }
     }
 
@@ -7753,6 +7790,46 @@ pub fn build_replayable_tick_transaction(
     builder.commit(affected_frontiers)
 }
 
+/// Builds one runtime-owner installation transaction for exact executable meaning.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn build_executable_operation_installation_transaction(
+    mut builder: WalTransactionBuilder,
+    retained_installation_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    builder.push_record(
+        WalRecordKind::ExecutableOperationPackageInstalled,
+        retained_installation_bytes,
+    )?;
+    builder.commit(affected_frontiers)
+}
+
+/// Builds one execution-kernel-owned executable-operation commit transaction.
+///
+/// This transaction is separate from the legacy scheduler-tick record shape.
+/// Its execution-kernel-owned state-delta record remains the replayable
+/// provenance carrier; the operation record carries the additional typed
+/// executable-semantics receipt.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn build_executable_operation_tick_transaction(
+    mut builder: WalTransactionBuilder,
+    retained_execution_bytes: Vec<u8>,
+    retained_state_delta_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    WalRuntimeStateDeltaRecord::from_payload_bytes(&retained_state_delta_bytes)
+        .map_err(|_| WalBuildError::RuntimeStateDeltaInvalid)?;
+    builder.push_record(
+        WalRecordKind::ExecutableOperationExecutionRecorded,
+        retained_execution_bytes,
+    )?;
+    builder.push_record(
+        WalRecordKind::ExecutableOperationStateDeltaRecorded,
+        retained_state_delta_bytes,
+    )?;
+    builder.commit(affected_frontiers)
+}
+
 fn push_tick_receipt_records(
     builder: &mut WalTransactionBuilder,
     receipt: TickReceiptRecord,
@@ -8804,6 +8881,18 @@ pub enum WalValidationError {
     /// Causal-anchor admission does not contain exactly one fact followed by one receipt.
     #[error("WAL causal-anchor admission frame shape is invalid")]
     CausalAnchorAdmissionFrameShapeMismatch,
+    /// Executable-operation installation does not contain exactly one package record.
+    #[error("WAL executable-operation installation frame shape is invalid")]
+    ExecutableOperationInstallationFrameShapeMismatch,
+    /// Executable-operation commit does not contain one receipt followed by one state delta.
+    #[error("WAL executable-operation tick frame shape is invalid")]
+    ExecutableOperationTickFrameShapeMismatch,
+    /// Executable-operation installation does not advance exactly its catalog frontier.
+    #[error("WAL executable-operation installation frontier shape is invalid")]
+    ExecutableOperationInstallationFrontierShapeMismatch,
+    /// Executable-operation commit does not advance its receipt and runtime frontiers in order.
+    #[error("WAL executable-operation tick frontier shape is invalid")]
+    ExecutableOperationTickFrontierShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -9299,6 +9388,19 @@ fn validate_transaction_semantics(
     {
         return Err(WalValidationError::CausalAnchorAdmissionFrameShapeMismatch);
     }
+    if transaction_kind == WalTransactionKind::ExecutableOperationInstallation
+        && (frames.len() != 1
+            || frames[0].header.record_kind != WalRecordKind::ExecutableOperationPackageInstalled)
+    {
+        return Err(WalValidationError::ExecutableOperationInstallationFrameShapeMismatch);
+    }
+    if transaction_kind == WalTransactionKind::ExecutableOperationTick
+        && (frames.len() != 2
+            || frames[0].header.record_kind != WalRecordKind::ExecutableOperationExecutionRecorded
+            || frames[1].header.record_kind != WalRecordKind::ExecutableOperationStateDeltaRecorded)
+    {
+        return Err(WalValidationError::ExecutableOperationTickFrameShapeMismatch);
+    }
     Ok(())
 }
 
@@ -9306,6 +9408,19 @@ fn validate_transaction_frontiers(
     frontiers: &[AffectedFrontier],
     transaction_kind: WalTransactionKind,
 ) -> Result<(), WalValidationError> {
+    if transaction_kind == WalTransactionKind::ExecutableOperationInstallation
+        && (frontiers.len() != 1
+            || frontiers[0].kind != AffectedFrontierKind::ExecutableOperationCatalog)
+    {
+        return Err(WalValidationError::ExecutableOperationInstallationFrontierShapeMismatch);
+    }
+    if transaction_kind == WalTransactionKind::ExecutableOperationTick
+        && (frontiers.len() != 2
+            || frontiers[0].kind != AffectedFrontierKind::ExecutableOperationReceiptIndex
+            || frontiers[1].kind != AffectedFrontierKind::RuntimeState)
+    {
+        return Err(WalValidationError::ExecutableOperationTickFrontierShapeMismatch);
+    }
     for frontier in frontiers {
         if !frontier_kind_allowed_for_transaction(transaction_kind, frontier.kind) {
             return Err(WalValidationError::FrontierTransitionKindMismatch);
@@ -9343,6 +9458,15 @@ fn frontier_kind_allowed_for_transaction(
         WalTransactionKind::CausalAnchorAdmission => {
             matches!(frontier_kind, AffectedFrontierKind::CausalAnchorIndex)
         }
+        WalTransactionKind::ExecutableOperationInstallation => matches!(
+            frontier_kind,
+            AffectedFrontierKind::ExecutableOperationCatalog
+        ),
+        WalTransactionKind::ExecutableOperationTick => matches!(
+            frontier_kind,
+            AffectedFrontierKind::RuntimeState
+                | AffectedFrontierKind::ExecutableOperationReceiptIndex
+        ),
     }
 }
 

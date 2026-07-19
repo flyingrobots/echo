@@ -7,6 +7,29 @@
 
 ### Added
 
+- `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
+  slice. A runtime owner can admit exact canonical
+  `ExecutableOperationPackageV1` bytes under a separate package policy, install
+  their data-only `EchoOperationProgramV1`, independently admit an exact-basis
+  invocation under caller authority and delegated budget, evaluate privately,
+  and either commit one parent-visible patch or return typed noncommit evidence.
+  Only committed operation consequences enter the operation-tick WAL. The initial
+  generic program performs an anchored typed-node alpha-attachment
+  compare-and-set; it contains no application matcher, executor, footprint
+  callback, or prebuilt mutation plan. Package, installation, invocation,
+  evaluation, actual-footprint, budget, patch, result, basis, and terminal
+  identities are bound into a typed receipt. The parent patch and singleton
+  tick evidence name the admitted installation rather than promoting the
+  subordinate program digest into rule authority. Application-basis
+  corroboration is bounded by the delegated read budget. A runtime-control
+  installation record and distinct execution-kernel commit records retain the
+  full admitted installation and committed state delta under exact frame and
+  frontier shapes so a fresh host can re-admit and reconstruct them without
+  callbacks. A program digest alone cannot install, invoke, or authorize an
+  operation. This slice does not yet include Edict
+  compiler emission, a structurally separate target verifier, Jedit's rope
+  lawpack, `ReplaceRange`, scheduler batch composition, or an independently
+  implemented semantic oracle.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with
   `admit_provider_contract_submission_v1(...)`. The shared installed-contract
@@ -49,7 +72,7 @@
   invoke callbacks, schedule or execute work, emit receipts, or grant runtime
   authority. The real-host witness extends the exact generator dependency
   closure, so generation evidence and the checked provider occurrence refresh
-  to `sha256:e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69`;
+  to `sha256:ee870c75ec08c8818b3f80ab6562ae62a5cf741cd709edcee0085d951c5d5a7b`;
   the primary semantic and Target IR artifacts remain byte-identical.
 - `TrustedRuntimeHost` can now admit an opaque Edict provider proposal against
   an independently constructed `ProviderContractAdmissionPolicyV1`. The pure

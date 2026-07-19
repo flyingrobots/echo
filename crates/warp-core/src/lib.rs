@@ -61,6 +61,11 @@ mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
+#[cfg_attr(
+    not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+    allow(dead_code)
+)]
+mod echo_operation;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
@@ -227,6 +232,26 @@ pub use dynamic_binding::{
     DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,
     ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
     StructuredBindingRuntime, StructuredRuntimeBindings,
+};
+pub use echo_operation::{
+    echo_operation_anchored_node_application_basis_v1, echo_operation_atom_value_digest_v1,
+    echo_operation_package_id_v1, echo_operation_target_profile_identity_v1,
+    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
+    EchoOperationAdmissionErrorKindV1, EchoOperationAdmissionErrorV1,
+    EchoOperationAdmissionPolicyV1, EchoOperationApplicationBasisV1,
+    EchoOperationArtifactErrorKindV1, EchoOperationArtifactErrorV1, EchoOperationBudgetV1,
+    EchoOperationCommitErrorV1, EchoOperationEvaluationBasisIdV1, EchoOperationEvaluationBasisV1,
+    EchoOperationExecutionEvidenceV1, EchoOperationFootprintContractV1,
+    EchoOperationInstallationErrorKindV1, EchoOperationInstallationErrorV1,
+    EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionErrorV1,
+    EchoOperationInvocationAdmissionIdV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationInvocationIdV1, EchoOperationInvocationV1, EchoOperationObstructionIdV1,
+    EchoOperationObstructionKindV1, EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1,
+    EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
+    EchoOperationProgramIdV1, EchoOperationProgramV1, EchoOperationReceiptV1,
+    EchoOperationResultIdV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
+    ExecutableOperationPackageV1, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    PreparedEchoOperationIdV1, PreparedEchoOperationV1,
 };
 pub use edict_target_ir::{
     accept_edict_echo_target_ir, execute_accepted_edict_echo_target_ir, AcceptedEdictEchoTargetIr,

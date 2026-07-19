@@ -268,6 +268,7 @@ edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
   printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-core/src/observation.rs"
+  printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-core/src/trusted_runtime_host.rs"
   printf '%s\n' 'pub fn helper() {}' >"$tmp/crates/warp-core/tests/common/mod.rs"
 
   cat >"$tmp/crates/warp-math/Cargo.toml" <<'EOF'
@@ -1610,6 +1611,15 @@ else
   printf '%s\n' "$fake_pre_push_provider_contract_output"
 fi
 
+fake_pre_push_installed_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/installed_contract_registry_tests.rs)"
+fake_pre_push_installed_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_installed_contract_output")"
+if printf '%s\n' "$fake_pre_push_installed_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap --test installed_contract_registry_tests'; then
+  pass "pre-push keeps required installed-contract feature for the exact integration test"
+else
+  fail "pre-push should keep required native_rule_bootstrap feature for installed_contract_registry_tests"
+  printf '%s\n' "$fake_pre_push_installed_contract_output"
+fi
+
 fake_pre_push_external_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/external_consumer_contract_fixture_tests.rs)"
 fake_pre_push_external_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_external_contract_output")"
 if printf '%s\n' "$fake_pre_push_external_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --test external_consumer_contract_fixture_tests'; then
@@ -1644,6 +1654,15 @@ if printf '%s\n' "$fake_pre_push_warp_math_prng_src_cargo_log" | grep -q -- 'tes
 else
   fail "pre-push should map modules with inline tests to exact module test filters"
   printf '%s\n' "$fake_pre_push_warp_math_prng_src_output"
+fi
+
+fake_pre_push_trusted_runtime_src_output="$(run_fake_verify pre-push crates/warp-core/src/trusted_runtime_host.rs)"
+fake_pre_push_trusted_runtime_src_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_trusted_runtime_src_output")"
+if printf '%s\n' "$fake_pre_push_trusted_runtime_src_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --lib trusted_runtime_host::tests'; then
+  pass "pre-push keeps required features for trusted-runtime inline tests"
+else
+  fail "pre-push should keep required features for trusted_runtime_host inline tests"
+  printf '%s\n' "$fake_pre_push_trusted_runtime_src_output"
 fi
 
 fake_pre_push_warp_math_root_test_output="$(run_fake_verify pre-push crates/warp-math/src/root_level_test.rs)"

@@ -216,20 +216,48 @@ sequenceDiagram
     Echo-->>Fixture: OpticReading or typed obstruction
 ```
 
-The first Edict mutation branch of the package-shaped flow is now executable;
-Wesley packaging and generated bounded reads are not yet complete:
+These corridors are not one pipeline with optional source nouns.
+
+The current Wesley compatibility path is:
 
 ```text
-admitted Wesley or Edict source
--> verified mutation Target IR or lawful read semantics
--> generated handlers, observers, codecs, footprints, and package metadata
+GraphQL source
+-> generated RewriteRule builders and helpers
+-> trusted-host direct native rule registration
+-> canonical intent
+-> Echo admission, scheduling, and receipt
+```
+
+The current Edict provider-v1 compatibility path is:
+
+```text
+Edict source
+-> canonical Core meaning and verified Echo Target IR
+-> digest-locked provider package and generated helper
 -> opaque provider proposal with explicit host binding
 -> trusted-host exact proposal-claim admission
 -> exact package corroboration and provider-native installation
 -> exact EINT-kind and installed-operation admission
--> scheduler-owned execution
+-> scheduler-owned callback execution
 -> receipts and WAL recovery bound to package, operation, Target IR, and rule
 ```
+
+The current executable-operation runtime slice is:
+
+```text
+canonical ExecutableOperationPackageV1 bytes
+-> Echo-owned package and invocation admission
+-> installed data-only EchoOperationProgramV1
+-> bounded private Echo evaluation
+-> exact-basis singleton commit
+-> typed receipt, WAL retention, and callback-free recovery
+```
+
+The first two paths are callback-shaped compatibility infrastructure. The
+third proves Echo-owned execution of admitted data-only meaning, but no real
+Edict compiler output or Jedit operation uses it yet. The next convergence
+crossing must bind a real Jedit-owned Edict operation and lawpack to that
+executable-operation package without reintroducing a native implementation.
 
 ## Contracts And Boundaries
 
@@ -248,9 +276,15 @@ contracts and generated adapters, not in the runtime kernel.
   application SDK.
 - Echo's package registry and scheduler path is implemented independently of
   both compiler publication paths.
-- A trusted Echo host must verify compiler-emitted material, bind the
-  host-supplied executor or observer, and install it through the generic
-  package boundary. A compiler must not create a second execution engine.
+- Provider v1 binds host-supplied executors as explicitly transitional
+  compatibility evidence; matching identities do not prove callback
+  semantics.
+- For newly authored executable operations, a trusted Echo runtime verifies
+  and installs admitted package material, then Echo interprets the bound
+  data-only program. The host supplies no application matcher, executor, or
+  footprint callback.
+- A compiler must not create a second execution engine, and a host must not
+  substitute ambient application behavior for admitted executable meaning.
 
 See [Generated Rule Authorship](docs/topics/GeneratedRules.md) for the exact
 current/target boundary, including the separate Wesley compatibility and Edict
@@ -268,8 +302,8 @@ type Mutation {
 
 - **Runtime-owned time**: application code cannot tick Echo or choose scheduler
   boundaries.
-- **Deterministic execution**: ticks, admission, handler dispatch, and
-  settlement are scheduler-owned.
+- **Deterministic runtime judgments**: Echo owns admission, scheduling, tick
+  formation, rule selection, settlement, and evidence construction.
 - **Evidence-first observations**: readings carry basis, observer, witness,
   budget, rights, and residual posture.
 - **Replayable history**: submissions, receipts, witnesses, and retained
@@ -291,8 +325,17 @@ canonical evidence before the scheduler can act on it:
   work;
 - the scheduler drains eligible work in deterministic order under explicit
   conflict and footprint rules;
-- handlers run only during scheduler-owned ticks;
+- admitted data-only operation programs are interpreted by Echo; legacy
+  compatibility callbacks run only during scheduler-owned ticks but do not, by
+  callback binding alone, prove deterministic application consequences;
 - every committed tick emits receipt evidence that can be replayed and checked.
+
+Echo deterministically controls its runtime judgments and evidence. End-to-end
+deterministic consequences additionally require every executed semantic
+implementation to satisfy its declared execution contract. The
+executable-operation corridor makes that requirement structural by deriving
+the consequence from admitted data-only program bytes; the callback-shaped
+compatibility corridors do not yet provide the same proof.
 
 `dispatch_intent(...)` is ingress. It is not "run this now." A host may run Echo
 on a fixed wall-clock cadence or in an until-idle loop, but that cadence is

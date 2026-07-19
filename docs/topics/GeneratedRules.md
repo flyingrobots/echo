@@ -142,9 +142,9 @@ exact canonical ExecutableOperationPackageV1 bytes
 -> exact basis-bearing canonical invocation
 -> Echo-owned invocation admission under authority and delegated budget
 -> bounded private evaluation with recorded actual footprint
--> singleton composition and exact-basis commit
--> one committed TickPatch and typed receipt, or typed no-patch outcome
--> execution-kernel WAL retention and callback-free fresh-host recovery
+-> exact-basis singleton commit attempt
+-> one committed TickPatch and typed receipt, or returned typed no-patch evidence
+-> committed outcomes only: execution-kernel WAL retention and callback-free recovery
 ```
 
 The first program is an anchored typed-node alpha-attachment compare-and-set.

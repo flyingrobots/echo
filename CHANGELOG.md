@@ -12,7 +12,8 @@
   `ExecutableOperationPackageV1` bytes under a separate package policy, install
   their data-only `EchoOperationProgramV1`, independently admit an exact-basis
   invocation under caller authority and delegated budget, evaluate privately,
-  and commit one parent-visible patch or typed noncommit outcome. The initial
+  and either commit one parent-visible patch or return typed noncommit evidence.
+  Only committed operation consequences enter the operation-tick WAL. The initial
   generic program performs an anchored typed-node alpha-attachment
   compare-and-set; it contains no application matcher, executor, footprint
   callback, or prebuilt mutation plan. Package, installation, invocation,

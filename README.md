@@ -175,12 +175,13 @@ host-constructed `InstalledContractPackage` values.
 Separately, Echo can now admit and install an exact canonical
 `ExecutableOperationPackageV1`, admit an exact-basis invocation under explicit
 authority and delegated budget, evaluate its data-only
-`EchoOperationProgramV1` privately, and commit one patch or typed noncommit
-outcome. The initial generic program performs an anchored typed-node
+`EchoOperationProgramV1` privately, and either commit one patch or return typed
+noncommit evidence. Only committed operation consequences enter the
+operation-tick WAL. The initial generic program performs an anchored typed-node
 alpha-attachment compare-and-set. Its receipt binds the admitted package,
 operation, subordinate program, invocation, complete evaluation basis,
 authority, declared and actual footprints, budgets, patch, result, and terminal
-outcome. Runtime-control installation and execution-kernel commit records
+outcome. Runtime-control installation and committed execution-kernel records
 permit callback-free fresh-host recovery. Program bytes explicitly bind the
 interpreter and intrinsic profiles, while the parent patch and singleton tick
 evidence bind the admitted installation. A program digest cannot confer

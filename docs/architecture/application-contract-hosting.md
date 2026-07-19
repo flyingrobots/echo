@@ -151,7 +151,9 @@ accepts a distinct executable-operation category for new application
 mutations. Echo now implements its first generic runtime slice: package and
 invocation admission, installation of a data-only anchored-attachment program,
 private bounded evaluation, exact-basis singleton commit, typed evidence, WAL,
-and callback-free fresh-host recovery. The slice exposes no application
+and callback-free fresh-host recovery of committed consequences. Noncommitted
+evidence is returned to the caller but does not enter the operation-tick WAL.
+The slice exposes no application
 matcher, executor, or footprint callback. It is not yet emitted by Edict, does
 not implement Jedit `ReplaceRange`, and has no structurally separate target
 verifier or general scheduler batch composition. Provider v1 remains stable

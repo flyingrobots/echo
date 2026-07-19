@@ -2064,6 +2064,8 @@ pub(crate) fn runtime_basis_obstruction(
     EchoOperationPreparationV1::Obstructed(EchoOperationObstructionV1 {
         kind: EchoOperationObstructionKindV1::BasisChanged,
         package_id: admitted.invocation.package_id,
+        installed_operation_id: admitted.installed_operation_id,
+        invocation_admission_id: admitted.admission_id,
         invocation_id: admitted.invocation_id,
         evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
     })
@@ -2103,6 +2105,8 @@ pub enum EchoOperationObstructionKindV1 {
 pub struct EchoOperationObstructionV1 {
     kind: EchoOperationObstructionKindV1,
     package_id: EchoOperationPackageIdV1,
+    installed_operation_id: InstalledEchoOperationIdV1,
+    invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
     invocation_id: EchoOperationInvocationIdV1,
     evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
 }
@@ -2114,12 +2118,26 @@ impl EchoOperationObstructionV1 {
         self.kind
     }
 
+    /// Returns the exact installed operation against which evaluation was attempted.
+    #[must_use]
+    pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
+        self.installed_operation_id
+    }
+
+    /// Returns the exact runtime admission that authorized this evaluation attempt.
+    #[must_use]
+    pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
+        self.invocation_admission_id
+    }
+
     /// Returns the identity of this typed no-parent-patch obstruction.
     #[must_use]
     pub fn identity(&self) -> EchoOperationObstructionIdV1 {
         let mut hasher = Hasher::new();
         hasher.update(OBSTRUCTION_ID_DOMAIN);
         hasher.update(&self.package_id.as_hash());
+        hasher.update(&self.installed_operation_id.as_hash());
+        hasher.update(&self.invocation_admission_id.as_hash());
         hasher.update(&self.invocation_id.as_hash());
         hasher.update(&self.evaluation_basis_id.as_hash());
         hasher.update(&[obstruction_kind_code(self.kind)]);
@@ -2259,6 +2277,8 @@ pub(crate) fn prepare_operation_v1(
         EchoOperationPreparationV1::Obstructed(EchoOperationObstructionV1 {
             kind,
             package_id,
+            installed_operation_id: admitted.installed_operation_id,
+            invocation_admission_id: admitted.admission_id,
             invocation_id,
             evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
         })
@@ -3181,6 +3201,10 @@ pub(crate) fn validate_receipt_installation_v1(
     let resource_evidence_matches = receipt
         .delegated_budget
         .fits_within(installed.budget_ceiling)
+        && installed
+            .program
+            .minimum_budget()
+            .fits_within(receipt.delegated_budget)
         && receipt
             .consumed_budget
             .fits_within(receipt.delegated_budget);
@@ -4324,7 +4348,10 @@ mod tests {
             None,
             digest(10),
             digest(11),
-            EchoOperationApplicationBasisV1::new(digest(12), digest(13)),
+            EchoOperationApplicationBasisV1::new(
+                installed.application_basis_schema_identity,
+                digest(13),
+            ),
         );
         let invocation_id = EchoOperationInvocationIdV1(digest(14));
         let invocation_admission_maximum_budget = EchoOperationBudgetV1::new(8, 512, 512);
@@ -4414,6 +4441,8 @@ mod tests {
         };
         receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
         receipt.receipt_digest = receipt_digest(&receipt);
+        validate_receipt_installation_v1(&receipt, &installed)
+            .expect("the retained receipt fixture matches its installation");
         let mut mismatched_policy_receipt = receipt.clone();
         mismatched_policy_receipt.invocation_admission_maximum_budget =
             EchoOperationBudgetV1::new(9, 512, 512);
@@ -4471,6 +4500,45 @@ mod tests {
             .expect("inconsistent budget evidence encodes");
         recover_committed_execution_receipt_v1(&impossible_budget_bytes)
             .expect_err("consumption cannot exceed the retained delegated budget");
+
+        let mut below_program_minimum = receipt.clone();
+        below_program_minimum.delegated_budget = EchoOperationBudgetV1::new(1, 1, 1);
+        below_program_minimum.consumed_budget = EchoOperationBudgetV1::new(1, 1, 1);
+        below_program_minimum.private_evaluation_id = private_evaluation_id_from_parts(
+            below_program_minimum.installed_operation_id,
+            below_program_minimum.program_id,
+            below_program_minimum.invocation_admission_id,
+            below_program_minimum.invocation_id,
+            below_program_minimum.evaluation_basis_id,
+            below_program_minimum.declared_footprint_digest,
+            below_program_minimum.actual_footprint_digest,
+            below_program_minimum.consumed_budget,
+            below_program_minimum.prepared_patch_digest,
+            below_program_minimum.prepared_result_id,
+        );
+        below_program_minimum.preparation_id = preparation_id(
+            below_program_minimum.private_evaluation_id,
+            below_program_minimum.prepared_patch_digest,
+            below_program_minimum.prepared_result_id,
+        );
+        below_program_minimum.composition_digest = Some(singleton_composition_digest_from_parts(
+            below_program_minimum.preparation_id,
+            below_program_minimum.prepared_patch_digest,
+            below_program_minimum.prepared_result_id,
+            below_program_minimum.evaluation_basis_id,
+            below_program_minimum.actual_footprint_digest,
+        ));
+        below_program_minimum.terminal_outcome_digest =
+            terminal_outcome_digest(&below_program_minimum);
+        below_program_minimum.receipt_digest = receipt_digest(&below_program_minimum);
+        let below_program_minimum_bytes = below_program_minimum
+            .to_canonical_bytes()
+            .expect("coordinated low-budget evidence encodes");
+        let recovered_below_program_minimum =
+            recover_committed_execution_receipt_v1(&below_program_minimum_bytes)
+                .expect("receipt self-validation cannot inspect an installed program");
+        validate_receipt_installation_v1(&recovered_below_program_minimum, &installed)
+            .expect_err("retained delegation must still cover the installed program minimum");
 
         let mut foreign_before_root = receipt.clone();
         foreign_before_root.state_root_before = digest(92);

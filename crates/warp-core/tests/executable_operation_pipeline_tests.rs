@@ -1175,6 +1175,66 @@ fn private_evaluation_returns_typed_obstructions_without_parent_mutation() {
 }
 
 #[test]
+fn obstruction_identity_binds_the_exact_invocation_admission() {
+    let (mut host, head_key, node) = fixture_host();
+    let installed = install_fixture_operation(&mut host);
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis())
+        .expect("Echo resolves the exact invocation basis");
+    let invocation_bytes = canonical_invocation(
+        &installed,
+        basis,
+        node,
+        digest("wrong-value-precondition"),
+        b"after".to_vec(),
+        EchoOperationBudgetV1::new(8, 512, 512),
+    );
+    let first_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let second_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(32, 8_192, 8_192),
+    );
+
+    let obstruct = |host: &mut TrustedRuntimeHost,
+                    policy: &EchoOperationInvocationAdmissionPolicyV1| {
+        let admitted = host
+            .admit_echo_operation_invocation_v1(policy, &invocation_bytes)
+            .expect("both runtime policies admit the same invocation bytes");
+        let EchoOperationPreparationV1::Obstructed(obstruction) =
+            host.prepare_echo_operation_v1(admitted)
+        else {
+            panic!("the false precondition must obstruct");
+        };
+        assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::PreconditionMismatch
+        );
+        obstruction
+    };
+    let first = obstruct(&mut host, &first_policy);
+    let second = obstruct(&mut host, &second_policy);
+
+    assert_eq!(
+        first.installed_operation_id(),
+        second.installed_operation_id()
+    );
+    assert_ne!(
+        first.invocation_admission_id(),
+        second.invocation_admission_id()
+    );
+    assert_ne!(
+        first.identity(),
+        second.identity(),
+        "different invocation-admission evidence must not alias one obstruction identity"
+    );
+}
+
+#[test]
 fn identical_admitted_basis_and_inputs_produce_identical_consequences() {
     let execute = || {
         let (mut host, head_key, node) = fixture_host();
@@ -1390,7 +1450,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         .expect("package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let application_basis = application_basis();
-    let receipt_digest;
+    let receipt_digests;
 
     {
         let (mut host, head_key, node) = fixture_host();
@@ -1442,7 +1502,48 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         let evidence = host
             .commit_prepared_echo_operation_v1(prepared)
             .expect("the durable operation commits");
-        receipt_digest = evidence.receipt().digest();
+        let first_receipt_digest = evidence.receipt().digest();
+
+        let second_application_basis = warp_core::echo_operation_anchored_node_application_basis_v1(
+            node,
+            attachment_type,
+            b"recovered-after",
+        );
+        let second_evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, second_application_basis)
+            .expect("Echo resolves the retained non-genesis parent basis");
+        let second_invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            second_evaluation_basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            node,
+            warp_core::echo_operation_atom_value_digest_v1(attachment_type, b"recovered-after"),
+            b"recovered-twice".to_vec(),
+        );
+        let second_invocation_bytes = second_invocation
+            .to_canonical_bytes()
+            .expect("the second invocation encodes");
+        let second_admitted = host
+            .admit_echo_operation_invocation_v1(
+                &EchoOperationInvocationAdmissionPolicyV1::new(
+                    digest("fixture-authority-profile"),
+                    digest("fixture-authority-grant"),
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                &second_invocation_bytes,
+            )
+            .expect("the second invocation admits against the exact retained parent");
+        let EchoOperationPreparationV1::Prepared(second_prepared) =
+            host.prepare_echo_operation_v1(second_admitted)
+        else {
+            panic!("the second lawful invocation must prepare");
+        };
+        let second_evidence = host
+            .commit_prepared_echo_operation_v1(second_prepared)
+            .expect("the second durable operation commits");
+        receipt_digests = vec![first_receipt_digest, second_evidence.receipt().digest()];
 
         let wal = host.runtime_wal().expect("the WAL remains enabled");
         assert_eq!(
@@ -1453,14 +1554,21 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             vec![
                 WalTransactionKind::ExecutableOperationInstallation,
                 WalTransactionKind::ExecutableOperationTick,
+                WalTransactionKind::ExecutableOperationTick,
             ]
         );
         let recovery = wal
             .recover_read_only()
             .expect("live read-only recovery works");
         assert_eq!(recovery.installed_echo_operations.len(), 1);
-        assert_eq!(recovery.echo_operation_receipts.len(), 1);
-        assert_eq!(recovery.echo_operation_receipts[0].digest(), receipt_digest);
+        assert_eq!(
+            recovery
+                .echo_operation_receipts
+                .iter()
+                .map(warp_core::EchoOperationReceiptV1::digest)
+                .collect::<Vec<_>>(),
+            receipt_digests
+        );
         assert_eq!(
             recovery.recomputed_indexes_root().expect("indexes rehash"),
             recovery.certificate.recovered_indexes_root
@@ -1481,14 +1589,14 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         .get(&head_key.worldline_id)
         .expect("the recovered worldline exists")
         .state();
-    assert_eq!(state.current_tick().as_u64(), 1);
+    assert_eq!(state.current_tick().as_u64(), 2);
     assert_eq!(
         state
             .store(&node.warp_id)
             .and_then(|store| store.node_attachment(&node.local_id)),
         Some(&AttachmentValue::Atom(AtomPayload::new(
             attachment_type,
-            Bytes::from_static(b"recovered-after"),
+            Bytes::from_static(b"recovered-twice"),
         )))
     );
     let recovery = recovered
@@ -1496,5 +1604,12 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         .expect("the recovered WAL remains enabled")
         .recover_read_only()
         .expect("fresh-host read-only recovery remains stable");
-    assert_eq!(recovery.echo_operation_receipts[0].digest(), receipt_digest);
+    assert_eq!(
+        recovery
+            .echo_operation_receipts
+            .iter()
+            .map(warp_core::EchoOperationReceiptV1::digest)
+            .collect::<Vec<_>>(),
+        receipt_digests
+    );
 }

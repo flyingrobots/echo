@@ -1990,10 +1990,11 @@ impl TrustedRuntimeWal {
         let (witnessed_submissions, missing_submission_envelopes) =
             recover_witnessed_submission_material(&report, &submissions)?;
         let runtime_state = recover_runtime_state_delta_material(&report)?;
+        let operation_material =
+            recover_echo_operation_material(&report, &runtime_state.provenance_entries)?;
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
-        let operation_material = recover_echo_operation_material(&report)?;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
         validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
@@ -3110,11 +3111,16 @@ struct RecoveredEchoOperationMaterial {
 
 fn recover_echo_operation_material(
     report: &RecoveryScanReport,
+    provenance_entries: &[ProvenanceEntry],
 ) -> Result<RecoveredEchoOperationMaterial, TrustedRuntimeWalError> {
     let mut installations = BTreeMap::new();
     let mut operations = BTreeMap::new();
     let mut receipts_by_digest = BTreeMap::new();
     let mut receipts = Vec::new();
+    let provenance_by_coordinate = provenance_entries
+        .iter()
+        .map(|entry| ((entry.worldline_id, entry.worldline_tick), entry))
+        .collect::<BTreeMap<_, _>>();
 
     for transaction in &report.transactions {
         match transaction.commit.transaction_kind {
@@ -3132,6 +3138,11 @@ fn recover_echo_operation_material(
                 )?;
                 validate_receipt_installation_v1(&receipt, installed)?;
                 validate_operation_receipt_state_delta(&receipt, &state_delta)?;
+                validate_operation_receipt_parent_material(
+                    receipt.evaluation_basis(),
+                    state_delta.provenance_entry(),
+                    &provenance_by_coordinate,
+                )?;
                 if receipts_by_digest
                     .insert(receipt.digest(), transaction.commit.transaction_id)
                     .is_some()
@@ -3152,6 +3163,48 @@ fn recover_echo_operation_material(
     })
 }
 
+fn operation_patch_scope_v1(patch: &crate::WorldlineTickPatchV1) -> Option<crate::NodeKey> {
+    let [crate::WarpOp::SetAttachment { key, .. }] = patch.ops.as_slice() else {
+        return None;
+    };
+    let crate::AttachmentOwner::Node(node) = key.owner else {
+        return None;
+    };
+    let attachment_slot = crate::AttachmentKey::node_alpha(node);
+    if *key != attachment_slot
+        || patch.warp_id != node.warp_id
+        || patch.in_slots.as_slice()
+            != [
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment_slot),
+            ]
+        || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
+    {
+        return None;
+    }
+    Some(node)
+}
+
+fn operation_tick_binds_patch_v1(
+    tick_receipt: &crate::TickReceipt,
+    patch: &crate::WorldlineTickPatchV1,
+    expected_rule_id: Hash,
+) -> bool {
+    let Some(expected_scope) = operation_patch_scope_v1(patch) else {
+        return false;
+    };
+    matches!(
+        tick_receipt.entries(),
+        [tick_entry]
+            if patch.rule_pack_id() == expected_rule_id
+                && tick_entry.rule_id == expected_rule_id
+                && tick_entry.scope == expected_scope
+                && tick_entry.scope_hash == crate::scope_hash(&expected_rule_id, &expected_scope)
+                && tick_entry.disposition == crate::TickReceiptDisposition::Applied
+                && tick_receipt.blocked_by(0).is_empty()
+    )
+}
+
 fn validate_operation_receipt_state_delta(
     receipt: &EchoOperationReceiptV1,
     state_delta: &WalRuntimeStateDeltaRecord,
@@ -3163,15 +3216,13 @@ fn validate_operation_receipt_state_delta(
         patch.rule_pack_id() == expected_rule_id
             && receipt.committed_patch_digest() == Some(patch.patch_digest)
     });
-    let tick_binds_installation = entry.tick_receipt.as_ref().is_some_and(|tick_receipt| {
-        matches!(
-            tick_receipt.entries(),
-            [tick_entry]
-                if tick_entry.rule_id == expected_rule_id
-                    && tick_entry.disposition == crate::TickReceiptDisposition::Applied
-                    && tick_receipt.blocked_by(0).is_empty()
-        )
-    });
+    let tick_binds_installation = entry
+        .patch
+        .as_ref()
+        .zip(entry.tick_receipt.as_ref())
+        .is_some_and(|(patch, tick_receipt)| {
+            operation_tick_binds_patch_v1(tick_receipt, patch, expected_rule_id)
+        });
     let worldline_tick_after = entry
         .worldline_tick
         .checked_add(1)
@@ -3220,6 +3271,43 @@ fn validate_operation_receipt_state_delta(
     if !parent_matches_basis {
         return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
             detail: "typed operation receipt basis disagrees with provenance parents",
+        });
+    }
+    Ok(())
+}
+
+fn validate_operation_receipt_parent_material(
+    basis: EchoOperationEvaluationBasisV1,
+    entry: &ProvenanceEntry,
+    provenance_by_coordinate: &BTreeMap<
+        (crate::WorldlineId, crate::WorldlineTick),
+        &ProvenanceEntry,
+    >,
+) -> Result<(), TrustedRuntimeWalError> {
+    if basis.worldline_tick() == crate::WorldlineTick::ZERO {
+        return Ok(());
+    }
+    let parent_tick = basis.worldline_tick().as_u64().checked_sub(1).ok_or(
+        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt has an impossible non-genesis basis tick",
+        },
+    )?;
+    let parent_coordinate = (
+        basis.writer_head().worldline_id,
+        crate::WorldlineTick::from_raw(parent_tick),
+    );
+    let parent = provenance_by_coordinate.get(&parent_coordinate).ok_or(
+        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt basis has no retained parent provenance",
+        },
+    )?;
+    let parent_matches_basis = entry.parents.as_slice() == [parent.as_ref()]
+        && parent.expected.state_root == basis.state_root()
+        && parent.expected.commit_hash == basis.commit_id()
+        && basis.commit_global_tick() == Some(parent.commit_global_tick);
+    if !parent_matches_basis {
+        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt basis disagrees with retained parent provenance",
         });
     }
     Ok(())
@@ -4127,6 +4215,145 @@ mod tests {
                 actual,
             })
         );
+    }
+
+    #[test]
+    fn operation_recovery_requires_tick_scope_to_bind_the_patch_target() {
+        let node = crate::NodeKey {
+            warp_id: crate::make_warp_id("operation-recovery-scope"),
+            local_id: crate::make_node_id("operation-recovery-target"),
+        };
+        let attachment_slot = crate::AttachmentKey::node_alpha(node);
+        let rule_id = [21; 32];
+        let runtime_patch = crate::WarpTickPatchV1::new(
+            7,
+            rule_id,
+            crate::TickCommitStatus::Committed,
+            vec![
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment_slot),
+            ],
+            vec![crate::SlotId::Attachment(attachment_slot)],
+            vec![crate::WarpOp::SetAttachment {
+                key: attachment_slot,
+                value: None,
+            }],
+        );
+        let patch = crate::WorldlineTickPatchV1 {
+            header: crate::WorldlineTickHeaderV1 {
+                commit_global_tick: GlobalTick::from_raw(1),
+                policy_id: runtime_patch.policy_id(),
+                rule_pack_id: runtime_patch.rule_pack_id(),
+                plan_digest: [22; 32],
+                decision_digest: [23; 32],
+                rewrites_digest: [24; 32],
+            },
+            warp_id: node.warp_id,
+            ops: runtime_patch.ops().to_vec(),
+            in_slots: runtime_patch.in_slots().to_vec(),
+            out_slots: runtime_patch.out_slots().to_vec(),
+            patch_digest: runtime_patch.digest(),
+        };
+        let receipt = |scope, scope_hash| {
+            crate::TickReceipt::new(
+                crate::TxId::from_raw(1),
+                vec![crate::TickReceiptEntry {
+                    rule_id,
+                    scope_hash,
+                    scope,
+                    disposition: crate::TickReceiptDisposition::Applied,
+                }],
+                vec![Vec::new()],
+            )
+        };
+        let valid = receipt(node, crate::scope_hash(&rule_id, &node));
+        assert!(operation_tick_binds_patch_v1(&valid, &patch, rule_id));
+
+        let wrong_scope = crate::NodeKey {
+            warp_id: node.warp_id,
+            local_id: crate::make_node_id("operation-recovery-wrong-scope"),
+        };
+        let self_consistent_wrong_scope =
+            receipt(wrong_scope, crate::scope_hash(&rule_id, &wrong_scope));
+        assert!(!operation_tick_binds_patch_v1(
+            &self_consistent_wrong_scope,
+            &patch,
+            rule_id
+        ));
+
+        let forged_scope_hash = receipt(node, [25; 32]);
+        assert!(!operation_tick_binds_patch_v1(
+            &forged_scope_hash,
+            &patch,
+            rule_id
+        ));
+    }
+
+    #[test]
+    fn operation_recovery_corroborates_non_genesis_parent_basis_material() {
+        let head_key = test_head_key();
+        let parent_state_root = [31; 32];
+        let parent_commit = [32; 32];
+        let parent_global_tick = GlobalTick::from_raw(7);
+        let parent = ProvenanceEntry {
+            worldline_id: head_key.worldline_id,
+            worldline_tick: WorldlineTick::ZERO,
+            commit_global_tick: parent_global_tick,
+            head_key: Some(head_key),
+            parents: Vec::new(),
+            event_kind: crate::ProvenanceEventKind::LocalCommit,
+            expected: crate::HashTriplet {
+                state_root: parent_state_root,
+                patch_digest: [33; 32],
+                commit_hash: parent_commit,
+            },
+            patch: None,
+            tick_receipt: None,
+            outputs: Vec::new(),
+            atom_writes: Vec::new(),
+        };
+        let child = ProvenanceEntry {
+            worldline_id: head_key.worldline_id,
+            worldline_tick: WorldlineTick::from_raw(1),
+            commit_global_tick: GlobalTick::from_raw(8),
+            head_key: Some(head_key),
+            parents: vec![parent.as_ref()],
+            event_kind: crate::ProvenanceEventKind::LocalCommit,
+            expected: crate::HashTriplet {
+                state_root: [34; 32],
+                patch_digest: [35; 32],
+                commit_hash: [36; 32],
+            },
+            patch: None,
+            tick_receipt: None,
+            outputs: Vec::new(),
+            atom_writes: Vec::new(),
+        };
+        let basis = EchoOperationEvaluationBasisV1::new(
+            head_key,
+            WorldlineTick::from_raw(1),
+            Some(parent_global_tick),
+            parent_state_root,
+            parent_commit,
+            EchoOperationApplicationBasisV1::new([37; 32], [38; 32]),
+        );
+        let parent_coordinate = (parent.worldline_id, parent.worldline_tick);
+        assert!(
+            validate_operation_receipt_parent_material(basis, &child, &BTreeMap::new()).is_err()
+        );
+        let provenance = BTreeMap::from([(parent_coordinate, &parent)]);
+        validate_operation_receipt_parent_material(basis, &child, &provenance)
+            .expect("the exact retained parent corroborates every causal basis field");
+
+        let mut wrong_root = parent.clone();
+        wrong_root.expected.state_root = [39; 32];
+        let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
+        assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+
+        let mut wrong_global_tick = parent.clone();
+        wrong_global_tick.commit_global_tick = GlobalTick::from_raw(9);
+        let provenance = BTreeMap::from([(parent_coordinate, &wrong_global_tick)]);
+        assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
     }
 
     fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {

@@ -1610,6 +1610,15 @@ else
   printf '%s\n' "$fake_pre_push_provider_contract_output"
 fi
 
+fake_pre_push_installed_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/installed_contract_registry_tests.rs)"
+fake_pre_push_installed_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_installed_contract_output")"
+if printf '%s\n' "$fake_pre_push_installed_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap --test installed_contract_registry_tests'; then
+  pass "pre-push keeps required installed-contract feature for the exact integration test"
+else
+  fail "pre-push should keep required native_rule_bootstrap feature for installed_contract_registry_tests"
+  printf '%s\n' "$fake_pre_push_installed_contract_output"
+fi
+
 fake_pre_push_external_contract_output="$(run_fake_verify pre-push crates/warp-core/tests/external_consumer_contract_fixture_tests.rs)"
 fake_pre_push_external_contract_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_external_contract_output")"
 if printf '%s\n' "$fake_pre_push_external_contract_cargo_log" | grep -q -- 'test -p warp-core --features native_rule_bootstrap,trusted_runtime --test external_consumer_contract_fixture_tests'; then

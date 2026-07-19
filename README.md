@@ -103,20 +103,26 @@ model.
 
 ## How It Works
 
-Echo currently implements two generated-contract paths. The first Edict
-mutation closure now spans publication through provider-native Echo execution
-and recovery. Wesley packaging and the generated bounded-read corridor remain
-separate incomplete paths.
+Echo currently implements two callback-shaped compatibility paths plus the
+first generic hook-free executable-operation runtime slice. The Edict provider
+mutation closure spans publication through provider-native Echo execution and
+recovery, but ambient host callbacks still determine its application
+semantics. Wesley packaging and the generated bounded-read corridor remain a
+separate incomplete path.
 
 The Wesley compatibility path emits raw `RewriteRule` builders and generated
 helpers. Its integration fixture enables the policy-gated
 `native_rule_bootstrap` feature and registers those rules directly. It does
 not emit an `InstalledContractPackage` or exercise package verification.
 
-The Edict provider path admits exact semantic-source, contract-pack, and
-settings bytes; emits canonical semantic artifacts; runs a deterministic
-lowerer and an independent verifier; and publishes a digest-locked provider
-package plus a generated Rust helper projection.
+Edict accepts exact semantic-source, contract-pack, and settings bytes. Its
+compiler pipeline emits canonical semantic artifacts, runs a deterministic
+lowerer and a structurally separate verifier path, and publishes a
+digest-locked provider package plus a generated Rust helper projection. A
+separate verifier path is not, by itself, an independently implemented
+verifier. Echo later consumes the resulting proposal through runtime-owned
+admission, corroboration, installation, invocation, receipt, and recovery
+crossings.
 The helper performs pure, fail-closed preflight across exact package, Target
 IR, bundle, profile, schema,
 codec, obstruction, ABI, helper API, operation, and footprint claims. It
@@ -165,6 +171,29 @@ target, validate codec-owned input against an operation schema at Echo's generic
 ingress boundary, support provider-native reads, or turn package metadata into
 runtime authority. Echo separately retains the Wesley compatibility path for
 host-constructed `InstalledContractPackage` values.
+
+Separately, Echo can now admit and install an exact canonical
+`ExecutableOperationPackageV1`, admit an exact-basis invocation under explicit
+authority and delegated budget, evaluate its data-only
+`EchoOperationProgramV1` privately, and commit one patch or typed noncommit
+outcome. The initial generic program performs an anchored typed-node
+alpha-attachment compare-and-set. Its receipt binds the admitted package,
+operation, subordinate program, invocation, complete evaluation basis,
+authority, declared and actual footprints, budgets, patch, result, and terminal
+outcome. Runtime-control installation and execution-kernel commit records
+permit callback-free fresh-host recovery. Program bytes explicitly bind the
+interpreter and intrinsic profiles, while the parent patch and singleton tick
+evidence bind the admitted installation. A program digest cannot confer
+operation identity, invocability, or authority.
+
+That generic runtime witness is not yet the Jim/Jedit vertical. No real Edict
+compiler output, Jedit rope lawpack, or `ReplaceRange` operation uses it, and it
+does not yet claim structurally separate target verification, scheduler batch
+composition, or independently implemented semantic conformance. It also
+temporarily reuses `TrustedRuntimeHost`'s joint `native_rule_bootstrap` and
+`trusted_runtime` feature gate. The program itself has no native hooks, but the
+host surface must be decoupled from the legacy bootstrap feature before a
+product can remove that compatibility feature.
 
 The following sequence is the existing Wesley bootstrap fixture:
 

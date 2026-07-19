@@ -147,16 +147,20 @@ Echo runtime authority.
 
 The preceding paragraph describes the implemented provider-v1 compatibility
 corridor. [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
-accepts a distinct, not-yet-implemented executable-operation category for new
-application mutations. That category installs a digest-bound declarative
-program interpreted by Echo and exposes no application matcher, executor, or
-footprint callback. Provider v1 remains stable while consumers migrate; it is
-not renamed or silently reinterpreted as the executable-operation corridor.
-The program digest supplies executable meaning only: it cannot independently
-confer an operation coordinate, invocability, or authority, and Echo cannot
-install or invoke it naked. The admitted Edict operation package binds the
-public contract and semantic closure to the exact program, after which Echo
-independently admits each invocation.
+accepts a distinct executable-operation category for new application
+mutations. Echo now implements its first generic runtime slice: package and
+invocation admission, installation of a data-only anchored-attachment program,
+private bounded evaluation, exact-basis singleton commit, typed evidence, WAL,
+and callback-free fresh-host recovery. The slice exposes no application
+matcher, executor, or footprint callback. It is not yet emitted by Edict, does
+not implement Jedit `ReplaceRange`, and has no structurally separate target
+verifier or general scheduler batch composition. Provider v1 remains stable
+while consumers migrate; it is not renamed or silently reinterpreted as the
+executable-operation corridor. The program digest supplies executable meaning
+only: it cannot independently confer an operation coordinate, invocability, or
+authority, and Echo cannot install or invoke it naked. The admitted operation
+package binds the public contract and semantic closure to the exact program,
+after which Echo independently admits each invocation.
 
 ## External Edict Provider Artifacts
 

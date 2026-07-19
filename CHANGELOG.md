@@ -7,6 +7,28 @@
 
 ### Added
 
+- `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
+  slice. A runtime owner can admit exact canonical
+  `ExecutableOperationPackageV1` bytes under a separate package policy, install
+  their data-only `EchoOperationProgramV1`, independently admit an exact-basis
+  invocation under caller authority and delegated budget, evaluate privately,
+  and commit one parent-visible patch or typed noncommit outcome. The initial
+  generic program performs an anchored typed-node alpha-attachment
+  compare-and-set; it contains no application matcher, executor, footprint
+  callback, or prebuilt mutation plan. Package, installation, invocation,
+  evaluation, actual-footprint, budget, patch, result, basis, and terminal
+  identities are bound into a typed receipt. The parent patch and singleton
+  tick evidence name the admitted installation rather than promoting the
+  subordinate program digest into rule authority. Application-basis
+  corroboration is bounded by the delegated read budget. A runtime-control
+  installation record and distinct execution-kernel commit records retain the
+  full admitted installation and committed state delta under exact frame and
+  frontier shapes so a fresh host can re-admit and reconstruct them without
+  callbacks. A program digest alone cannot install, invoke, or authorize an
+  operation. This slice does not yet include Edict
+  compiler emission, a structurally separate target verifier, Jedit's rope
+  lawpack, `ReplaceRange`, scheduler batch composition, or an independently
+  implemented semantic oracle.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with
   `admit_provider_contract_submission_v1(...)`. The shared installed-contract

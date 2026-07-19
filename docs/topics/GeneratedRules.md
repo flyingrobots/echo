@@ -7,8 +7,10 @@ Product and application rules are authored in contract languages. Hand-written
 Rust rule registration is not a supported product authoring surface. The first
 Edict provider-v1 compatibility closure now reaches provider-native scheduling,
 receipts, and WAL recovery. Its semantic implementation remains host-bound.
-Wesley packaging and the generated bounded-read corridor remain incomplete and
-must not borrow that mutation evidence.
+Echo now also has the first generic, hook-free executable-operation runtime
+slice. No Edict compiler or Jedit consumer emits its package yet. Wesley
+packaging and the generated bounded-read corridor remain incomplete and must
+not borrow evidence from either mutation path.
 
 ## Current Implementation
 
@@ -127,23 +129,41 @@ installed generated-pack witness. The Edict mutation proposal intentionally
 rejects `Query`; that refusal does not turn a read into a mutation or eliminate
 the observer/optic crossing.
 
-### Required executable-operation corridor
+### Executable-operation corridor
 
 [ADR 0023](../adr/0023-admitted-executable-operation-packages.md) governs the
-not-yet-implemented corridor required for newly authored application mutations:
+operation-oriented corridor required for newly authored application mutations.
+The currently implemented generic runtime slice is:
+
+```text
+exact canonical ExecutableOperationPackageV1 bytes
+-> Echo-owned package admission under a separate policy
+-> installed data-only EchoOperationProgramV1
+-> exact basis-bearing canonical invocation
+-> Echo-owned invocation admission under authority and delegated budget
+-> bounded private evaluation with recorded actual footprint
+-> singleton composition and exact-basis commit
+-> one committed TickPatch and typed receipt, or typed no-patch outcome
+-> execution-kernel WAL retention and callback-free fresh-host recovery
+```
+
+The first program is an anchored typed-node alpha-attachment compare-and-set.
+It is a generic vertical witness, not Jedit `ReplaceRange`, a rope intrinsic, or
+a general-purpose virtual machine. The package binds Edict source, canonical
+meaning, Core, Target IR, application-schema, and lawpack identities as opaque
+substitution evidence. Echo does not yet obtain those identities from a real
+Edict compiler crossing or validate their semantic relation through a
+structurally separate target verifier.
+
+The remaining compiler and application closure is:
 
 ```text
 Jedit-owned Edict operation source and public contract
 -> canonical meaning, Core, and exact Jedit schema/lawpack closure
 -> exact subordinate EchoOperationProgramV1
 -> structurally separate target verification
--> Echo-owned package admission, byte corroboration, and installation
--> exact basis-bearing invocation and Echo-owned invocation admission
--> bounded private Echo evaluation with no application callbacks
--> scheduler composition and exact-basis commit
--> committed TickPatch and result, or typed no-patch outcome
--> execution evidence / WAL carrying package, invocation, program, basis,
-   budget, footprint, scheduler, and terminal-outcome identities
+-> the implemented Echo package, invocation, evaluation, commit, receipt,
+   WAL, and recovery crossings above
 ```
 
 The operation package owns the public contract and runtime-recognized
@@ -151,6 +171,22 @@ invocability. The subordinate program supplies executable meaning only. Echo
 cannot install or invoke a naked program digest, and a generated artifact does
 not confer caller authority. Provider v1 remains stable while existing
 consumers migrate; it is not silently reinterpreted as this new category.
+The program bytes bind their interpreter and intrinsic profiles directly. The
+parent patch and singleton tick entry use the admitted installed-operation
+identity as their rule-pack/rule identity, so two packages that reuse identical
+program bytes do not collapse into one causal operation identity.
+The first slice composes one preparation and does not claim general scheduler
+batch integration or independent implementation evidence. Its canonical
+decoding, identity recomputation, budget and footprint checks, exact-basis
+comparison, deterministic repeatability, and WAL recovery are deterministic
+self-validation.
+
+The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
+under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
+compile-time coupling does not place a callback in the operation program, but
+it prevents the surface from serving as the final product cutover boundary.
+The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
+can delete the legacy feature without also losing executable operations.
 
 ## Footprint Honesty
 

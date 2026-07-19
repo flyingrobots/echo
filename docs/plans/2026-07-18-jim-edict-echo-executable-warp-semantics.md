@@ -6,7 +6,7 @@
 - **Status:** Historical discovery reconciled by
   [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
 - **Date:** 2026-07-18
-- **Implementation status:** Campaign 1 has not started
+- **Implementation status:** Historical plan; live status belongs in GitHub
 
 ADR 0023 is authoritative where this source inventory's earlier hypotheses
 differ from the accepted executable-operation boundary. The accepted campaign
@@ -1265,8 +1265,9 @@ required.
 ## 13. Accepted bounded campaign
 
 ADR 0023 resolves the architecture question raised by this inventory. Campaign
-1 implementation has not started. Work proceeds as four separately reviewed
-and explicitly merged stages:
+implementation status is intentionally not maintained in this historical
+inventory. Work proceeds as four separately reviewed and explicitly merged
+stages:
 
 1. add only the minimal Edict operation prerequisites: exact fixed-width
    values, explicit basis, Jedit lawpack-resource binding through Core and

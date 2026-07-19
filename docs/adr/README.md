@@ -36,7 +36,7 @@ track work, progress, priority, or release readiness.
 | [0012](0012-repository-knowledge-model.md)                       | Accepted             | Repository knowledge model after Method                        |
 | [0013](0013-echo-continuum-authority-boundary.md)                | Accepted             | Echo and Continuum authority boundary                          |
 | [0014](0014-generated-rule-authorship-and-footprints.md)         | Accepted             | Generated rule authorship and footprint honesty                |
-| [0015](0015-registry-provider-host-boundary.md)                  | Accepted             | Compiler, registry, provider, and host responsibilities        |
+| [0015](0015-registry-provider-host-boundary.md)                  | Partially superseded | Compiler, registry, provider, and host responsibilities        |
 | [0016](0016-continuum-transport-identity.md)                     | Accepted             | Causal transport identity and idempotence                      |
 | [0017](0017-universal-little-endian-codec.md)                    | Accepted             | Canonical little-endian binary boundary                        |
 | [0018](0018-sessions-causal-posture-and-authority.md)            | Accepted             | Sessions as causal contexts                                    |
@@ -44,6 +44,7 @@ track work, progress, priority, or release readiness.
 | [0020](0020-retained-reading-storage-and-proof-boundary.md)      | Accepted             | Retained reading storage and proof boundary                    |
 | [0021](0021-public-optic-observation-boundary.md)                | Accepted             | Public WARP optic over internal observation                    |
 | [0022](0022-application-requested-causal-anchor-admission.md)    | Accepted             | Application-requested, Echo-owned anchor admission             |
+| [0023](0023-admitted-executable-operation-packages.md)           | Accepted             | Admitted executable operation packages                         |
 
 ADR 0006 predates this index contract and did not declare a status. Its
 superseded tombstone preserves that fact without silently ratifying the old

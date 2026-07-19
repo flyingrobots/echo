@@ -2207,6 +2207,7 @@ dependencies = [
  "bytes",
  "echo-cas",
  "echo-dry-tests",
+ "echo-edict-canonical",
  "echo-registry-api",
  "echo-runtime-schema",
  "echo-wasm-abi",

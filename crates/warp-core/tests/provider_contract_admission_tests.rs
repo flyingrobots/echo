@@ -44,7 +44,7 @@ const RELEASE_DIGEST: &str =
 const UNAPPROVED_RELEASE_DIGEST: &str =
     "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69";
+    "ee870c75ec08c8818b3f80ab6562ae62a5cf741cd709edcee0085d951c5d5a7b";
 const UNAPPROVED_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const PROVIDER_PACKAGE_COORDINATE: &str = "echo.edict-provider@1";

@@ -72,7 +72,7 @@
   invoke callbacks, schedule or execute work, emit receipts, or grant runtime
   authority. The real-host witness extends the exact generator dependency
   closure, so generation evidence and the checked provider occurrence refresh
-  to `sha256:e0ccd4503c7f5830a1affa1c5a676f866aa0fab976a5ec2a0075c70916a64b69`;
+  to `sha256:ee870c75ec08c8818b3f80ab6562ae62a5cf741cd709edcee0085d951c5d5a7b`;
   the primary semantic and Target IR artifacts remain byte-identical.
 - `TrustedRuntimeHost` can now admit an opaque Edict provider proposal against
   an independently constructed `ProviderContractAdmissionPolicyV1`. The pure

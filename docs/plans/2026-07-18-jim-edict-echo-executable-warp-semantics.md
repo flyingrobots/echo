@@ -3,18 +3,24 @@
 
 # Jim × Edict × Echo: Executable WARP Semantics Inventory
 
-Status: architectural discovery and source-grounded plan
-Date: 2026-07-18
-Implementation status: halted pending architectural agreement
+- **Status:** Historical discovery reconciled by
+  [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
+- **Date:** 2026-07-18
+- **Implementation status:** Campaign 1 has not started
+
+ADR 0023 is authoritative where this source inventory's earlier hypotheses
+differ from the accepted executable-operation boundary. The accepted campaign
+is recorded in section 13; the inventory of broader Jim and Echo capabilities
+does not place those capabilities in scope for the first vertical.
 
 ## Source basis
 
 This report is based on source code, not repository documentation, at these
 authoritative repository heads:
 
-- Jedit: c70e12d73b4b00bc92412bab67e1761f7dd22f82
-- Echo: 6615d3a97731a076fb4945bb6da083e82f55710d
-- Edict: da5da887c1fa089a3f82f4d29d0799eb6e155f31
+- [Jedit `c70e12d73b4b`](https://github.com/flyingrobots/jedit/commit/c70e12d73b4b00bc92412bab67e1761f7dd22f82)
+- [Echo `6615d3a97731`](https://github.com/flyingrobots/echo/commit/6615d3a97731a076fb4945bb6da083e82f55710d)
+- [Edict `da5da887c1fa`](https://github.com/flyingrobots/edict/commit/da5da887c1fa089a3f82f4d29d0799eb6e155f31)
 
 Historical commits in this report are immutable evidence coordinates. They are
 not permission to assume that current repository heads remain unchanged.
@@ -88,22 +94,25 @@ Runtime judgments, exclusively Echo-owned
 
 This is one algebra with multiple jurisdictions.
 
-Two prerequisites must be resolved before ReplaceRange can honestly become
+Two prerequisites must be resolved before `ReplaceRange` can honestly become
 executable Edict meaning:
 
-1. Jim does not yet have one canonical text-graph schema.
-2. Echo does not yet have a serialized, independently verifiable DPO-program
-   interpreter.
+1. Jedit must select and bind one canonical text-graph schema and migration
+   posture; package generation or admission must refuse a missing or mismatched
+   declaration.
+2. Echo does not yet have a serialized DPO-program interpreter with
+   deterministic self-validation and a structurally separate target-verifier
+   path. Independently implemented evidence is a separate, stronger grade.
 
 ## 1. What Jim executes through Echo today
 
 The current GraphQL/Wesley corridor defines exactly three mutations and one
 query:
 
-- createBufferWorldline
-- replaceRangeAsTick
-- declareCheckpoint
-- textWindow
+- `createBufferWorldline`
+- `replaceRangeAsTick`
+- `declareCheckpoint`
+- `textWindow`
 
 Source:
 [jedit/contracts/jedit/echo-text.graphql#L1-L71@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/contracts/jedit/echo-text.graphql#L1-L71)
@@ -114,17 +123,17 @@ Sources:
 [jedit/src/ports/echo-text-contract-host.ts#L9-L21@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/ports/echo-text-contract-host.ts#L9-L21),
 [jedit/src/ports/echo-text-contract-host.ts#L140-L145@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/ports/echo-text-contract-host.ts#L140-L145)
 
-### 1.1 Open / CreateBufferWorldline
+### 1.1 Open / `CreateBufferWorldline`
 
 Open is presently a composite operation:
 
-1. Jedit reads the file through its local EditorFilePort.
-2. The loaded text becomes initialText.
+1. Jedit reads the file through its local `EditorFilePort`.
+2. The loaded text becomes `initialText`.
 3. Jedit calls the Echo host.
 4. If the buffer already exists, the native host returns its current snapshot,
    without a creation receipt.
-5. Otherwise, it submits CreateBufferWorldline.
-6. Jedit subsequently performs a TextWindow observation.
+5. Otherwise, it submits `CreateBufferWorldline`.
+6. Jedit subsequently performs a `TextWindow` observation.
 
 The pre-Echo file read occurs here:
 [jedit/src/app/workspace/workspace-text-open-basis.ts#L55-L80@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-text-open-basis.ts#L55-L80)
@@ -180,7 +189,7 @@ Sources:
 [jedit/src/app/workspace/workspace-text-commands.ts#L46-L58@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-text-commands.ts#L46-L58),
 [jedit/src/app/workspace/workspace-text-commands.ts#L282-L305@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-text-commands.ts#L282-L305)
 
-The current handwritten ReplaceRange law:
+The current handwritten `ReplaceRange` law:
 
 1. Resolves the buffer's canonical head.
 2. Refuses a stale supplied basis.
@@ -201,7 +210,7 @@ Source:
 
 #### Persistent derivation, not destructive replacement
 
-ReplaceRange does not delete old rope nodes.
+`ReplaceRange` does not delete old rope nodes.
 
 Jim has a persistent rope. The implementation creates new content-addressed
 nodes and a new head, reuses unaffected structure, and advances the buffer's
@@ -227,7 +236,7 @@ replace Buffer ─canonicalHead→ OldHead
 This is naturally expressible in DPO, but it is persistent derivation rather
 than destructive replacement.
 
-### 1.3 DeclareCheckpoint
+### 1.3 `DeclareCheckpoint`
 
 Checkpoint declaration:
 
@@ -252,7 +261,7 @@ Buffer ─contains→ BasisHead
 
 It is not a text mutation.
 
-The current source nevertheless wraps it in a MutationPlan, which is the false
+The current source nevertheless wraps it in a `MutationPlan`, which is the false
 vocabulary identified by Jedit issue #287:
 [jedit/native/jedit-echo-host/src/rope.rs#L240-L256@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/rope.rs#L240-L256)
 
@@ -270,14 +279,14 @@ Source:
 The current product adapter maps only manual-save and autosave:
 [jedit/src/adapters/workspace-production-text-session.ts#L43-L46@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/adapters/workspace-production-text-session.ts#L43-L46)
 
-### 1.4 TextWindow
+### 1.4 `TextWindow`
 
-TextWindow is the one currently executing bounded observation. It:
+`TextWindow` is the one currently executing bounded observation. It:
 
 - takes a buffer and explicit basis head;
 - verifies buffer/head ownership;
 - checks the byte range;
-- applies maxBytes;
+- applies `maxBytes`;
 - traverses only relevant rope support;
 - returns the largest complete UTF-8 prefix;
 - reports supporting leaf/blob identities;
@@ -305,7 +314,7 @@ function:
 
 ## 2. What Jim wants but cannot currently execute
 
-The broader ProductionTextSession asks for ten operations:
+The broader `ProductionTextSession` asks for ten operations:
 
 - open buffer
 - insert
@@ -327,7 +336,7 @@ fail closed with a message saying that the current Wesley corridor does not
 implement them:
 [jedit/src/adapters/workspace-production-text-session.ts#L40-L62@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/adapters/workspace-production-text-session.ts#L40-L62)
 
-### 2.1 MultiRangeEdit
+### 2.1 `MultiRangeEdit`
 
 The input is an ordered collection of byte ranges and replacement strings:
 [jedit/src/app/workspace/production-text-session.ts#L104-L114@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/production-text-session.ts#L104-L114)
@@ -337,13 +346,13 @@ It is declared but unsupported by the current adapter.
 Future choices must be explicit:
 
 - canonicalize ranges and perform one atomic bounded operation;
-- lower it into a transaction containing multiple ReplaceRange applications;
+- lower it into a transaction containing multiple `ReplaceRange` applications;
 - or refuse it as unsupported.
 
 It must not become an accidental loop whose result depends on caller iteration
 order or intermediate canonical-head movement.
 
-### 2.2 CausalLineDiff
+### 2.2 `CausalLineDiff`
 
 The requested optic takes:
 
@@ -370,11 +379,11 @@ The intended reading cites:
 Source:
 [jedit/src/ports/text-authority-evidence.ts#L67-L95@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/ports/text-authority-evidence.ts#L67-L95)
 
-This should be a bounded causal optic over retained RopeRewrite and RopeDiff
+This should be a bounded causal optic over retained `RopeRewrite` and `RopeDiff`
 evidence. It is not a mutation and should not be recomputed from two privileged
 snapshots.
 
-### 2.3 ExplainRange / :why
+### 2.3 `ExplainRange` / `:why`
 
 The intended range explanation includes:
 
@@ -390,7 +399,7 @@ The intended range explanation includes:
 Source:
 [jedit/src/ports/jedit-why-range.ts#L34-L128@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/ports/jedit-why-range.ts#L34-L128)
 
-The UI computes a byte range around the cursor and requests explainRange. The
+The UI computes a byte range around the cursor and requests `explainRange`. The
 current adapter refuses it:
 [jedit/src/app/workspace/workspace-why-range.ts#L70-L109@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-why-range.ts#L70-L109)
 
@@ -416,14 +425,14 @@ exportSnapshot from Echo
 → declare manual-save checkpoint
 ```
 
-The export step invokes exportSnapshot, runs a materialization preflight, and
-then directly calls saveEditorFile:
+The export step invokes `exportSnapshot`, runs a materialization preflight, and
+then directly calls `saveEditorFile`:
 [jedit/src/app/workspace/workspace-text-commands.ts#L336-L368@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-text-commands.ts#L336-L368)
 
 After successful export, the reducer schedules checkpoint declaration:
 [jedit/src/app/workspace/workspace-text-runtime-state.ts#L317-L348@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-text-runtime-state.ts#L317-L348)
 
-The current exportSnapshot session operation is unsupported, so the production
+The current `exportSnapshot` session operation is unsupported, so the production
 save chain cannot complete through the generated corridor.
 
 The correct future decomposition is:
@@ -454,7 +463,7 @@ Sources:
 [jedit/src/app/workspace/workspace-command-catalog.ts#L88-L119@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-command-catalog.ts#L88-L119),
 [jedit/src/app/workspace/command-line-dispatch.ts#L52-L100@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/command-line-dispatch.ts#L52-L100)
 
-### 3.1 ttd
+### 3.1 `ttd`
 
 The command vocabulary supports:
 
@@ -472,7 +481,7 @@ Sources:
 This is a kernel-resolved historical observation coordinate followed by normal
 optics. It is not an application mutation.
 
-### 3.2 strand
+### 3.2 `strand`
 
 The UI vocabulary includes:
 
@@ -498,7 +507,7 @@ Sources:
 [echo/crates/warp-core/src/strand.rs#L1-L27@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/strand.rs#L1-L27),
 [echo/crates/warp-core/src/strand.rs#L75-L117@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/strand.rs#L75-L117)
 
-Echo's fork_strand:
+Echo's `fork_strand`:
 
 - replays the source at the requested historical tick;
 - forks provenance;
@@ -512,7 +521,7 @@ Source:
 
 This is kernel causal law.
 
-### 3.3 braid
+### 3.3 `braid`
 
 The UI vocabulary includes:
 
@@ -558,8 +567,8 @@ braid admit
 Echo's settlement code already separates those acts:
 
 - compare is explicitly read-only inspection;
-- plan_with_policy produces deterministic import/conflict/plural decisions;
-- settle_with_policy appends corresponding causal consequences.
+- `plan_with_policy` produces deterministic import/conflict/plural decisions;
+- `settle_with_policy` appends corresponding causal consequences.
 
 Sources:
 [echo/crates/warp-core/src/settlement.rs#L700-L757@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/settlement.rs#L700-L757),
@@ -586,11 +595,11 @@ invocation would introduce ambiguity.
 
 For ordinary submitted work, use a term such as:
 
-- recordOutcome;
-- finalizeDisposition;
-- commitOutcome.
+- `recordOutcome`;
+- `finalizeDisposition`;
+- `commitOutcome`.
 
-Retain settleStrand, settleBraid, and SettlementPolicy for the causal operation
+Retain `settleStrand`, `settleBraid`, and `SettlementPolicy` for the causal operation
 already implemented.
 
 ## 4. Latent concepts that are not Echo operations yet
@@ -598,7 +607,7 @@ already implemented.
 ### 4.1 Undo and redo
 
 Undo and redo appear only as command/durability vocabulary and help text. There
-is no ProductionTextSession or Echo operation for them.
+is no `ProductionTextSession` or Echo operation for them.
 
 Source:
 [jedit/src/app/workspace/workspace-buffer-durability.ts#L44-L105@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/app/workspace/workspace-buffer-durability.ts#L44-L105)
@@ -621,7 +630,7 @@ left/right bias and replacement-delta behavior:
 
 This is currently a local pure utility, not an Echo operation.
 
-Jedit also models a separate RopeCheckpointAnchored association containing
+Jedit also models a separate `RopeCheckpointAnchored` association containing
 checkpoint, causal-anchor fact, and receipt identities:
 [jedit/src/domain/graph-rope-types.ts#L250-L258@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/domain/graph-rope-types.ts#L250-L258)
 
@@ -650,7 +659,7 @@ Source:
 
 The native rope performs splitting and deterministic height balancing
 internally, but its admitted native fact inventory does not contain
-RopeStructuralMaintenance and the planner emits no such facts.
+`RopeStructuralMaintenance` and the planner emits no such facts.
 
 Sources:
 [jedit/native/jedit-echo-host/src/records.rs#L7-L14@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/records.rs#L7-L14),
@@ -662,7 +671,7 @@ A future design must decide whether balancing steps are:
 - retained structural-maintenance facts;
 - or implied by the canonical rope-construction law.
 
-That decision affects receipts, replay, and :why.
+That decision affects receipts, replay, and `:why`.
 
 ## 5. Jim's graph data model
 
@@ -670,16 +679,16 @@ That decision affects receipts, replay, and :why.
 
 The TypeScript semantic model contains ten fact kinds:
 
-1. BufferWorldline
-2. RopeHead
-3. RopeBranch
-4. RopeLeaf
-5. TextBlob
-6. RopeRewrite
-7. RopeDiff
-8. RopeStructuralMaintenance
-9. RopeCheckpoint
-10. RopeCheckpointAnchored
+1. `BufferWorldline`
+2. `RopeHead`
+3. `RopeBranch`
+4. `RopeLeaf`
+5. `TextBlob`
+6. `RopeRewrite`
+7. `RopeDiff`
+8. `RopeStructuralMaintenance`
+9. `RopeCheckpoint`
+10. `RopeCheckpointAnchored`
 
 Sources:
 [jedit/src/domain/graph-rope-types.ts#L12-L21@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/domain/graph-rope-types.ts#L12-L21),
@@ -714,8 +723,14 @@ Sources:
 [jedit/src/domain/graph-rope-types.ts#L85-L270@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/domain/graph-rope-types.ts#L85-L270),
 [jedit/native/jedit-echo-host/src/records.rs#L25-L106@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/records.rs#L25-L106)
 
-This must be resolved before writing authoritative .edict source. Otherwise,
-Edict will canonize one side of an unresolved semantic fork by accident.
+ADR 0023 turns this discovery into a Jedit-owned admission prerequisite. Before
+authoritative `.edict` source can produce an admissible real package, Jedit must
+publish one versioned declaration that selects the canonical proposition,
+identity, and codec law; classifies the TypeScript-only maintenance and anchor
+facts; and states the compatibility or migration posture for the native JSON
+model. The package, lawpack, program, and public schemas must close over that
+exact declaration or fail with a typed schema-closure refusal. Edict and Echo
+must not select a side of this semantic fork.
 
 ### 5.2 Current graph relationships are opaque JSON fields
 
@@ -828,7 +843,7 @@ The executable unit therefore needs to be a bounded transactional WARP
 program, not merely one rule:
 
 ```text
-WarpProgram ReplaceRange
+EchoOperationProgramV1: ReplaceRange executable meaning
 │
 ├─ bind invocation
 │  ├─ buffer
@@ -865,7 +880,7 @@ WarpProgram ReplaceRange
 │
 ├─ derive exact footprint
 │
-└─ atomically emit one TickDelta
+└─ atomically prepare one TickPatch or one obstruction
 ```
 
 The intermediate traversal/work graph must not leak into authoritative history
@@ -893,7 +908,7 @@ plan must not.
 The WARP interpreter needs a small, versioned, deterministic intrinsic profile
 containing operations such as:
 
-- checked u64 arithmetic and comparison;
+- checked `u64` arithmetic and comparison;
 - canonical byte length;
 - bounded byte slicing;
 - UTF-8 validation and boundary checking;
@@ -916,20 +931,20 @@ Jedit lawpack composes them into rope semantics.
 
 ## 7. The source proves the callback gap
 
-Echo's current RewriteRule contains:
+Echo's current `RewriteRule` contains:
 
 - a native matcher function pointer;
 - a native executor function pointer;
 - a native footprint function pointer.
 
-Its PatternGraph is only a vector of type identifiers, and the source says that
+Its `PatternGraph` is only a vector of type identifiers, and the source says that
 the left pattern is currently unused.
 
 Sources:
 [echo/crates/warp-core/src/rule.rs#L11-L50@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/rule.rs#L11-L50),
 [echo/crates/warp-core/src/rule.rs#L73-L103@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/rule.rs#L73-L103)
 
-Jedit's generated mutation code constructs an empty PatternGraph and accepts
+Jedit's generated mutation code constructs an empty `PatternGraph` and accepts
 host-supplied executor and footprint functions:
 [jedit/native/jedit-echo-host/src/generated/contract.rs#L990-L1033@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/generated/contract.rs#L990-L1033)
 
@@ -940,7 +955,7 @@ Sources:
 [jedit/native/jedit-echo-host/src/contract.rs#L111-L142@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/contract.rs#L111-L142)
 
 The provider-native Edict helper currently does the same thing with stronger
-identity evidence. Its generated API asks for ProviderMutationHooksV1 and says
+identity evidence. Its generated API asks for `ProviderMutationHooksV1` and says
 it is constructing a package proposal from an explicit host
 executor/footprint binding:
 [echo/crates/echo-edict-provider-lowerer/src/lib.rs#L1238-L1283@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/echo-edict-provider-lowerer/src/lib.rs#L1238-L1283)
@@ -991,90 +1006,69 @@ Sources:
 [echo/crates/echo-edict-provider-lowerer/src/lib.rs#L1580-L1690@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/echo-edict-provider-lowerer/src/lib.rs#L1580-L1690),
 [echo/crates/echo-edict-provider-lowerer/tests/lowerer_contract.rs#L1263-L1293@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/echo-edict-provider-lowerer/tests/lowerer_contract.rs#L1263-L1293)
 
-The existing echo.span-ir/v1 must not yet be described as a complete executable
+The existing `echo.span-ir/v1` must not yet be described as a complete executable
 DPO program. Today it is a bounded effect/intrinsic plan plus identity evidence.
 
-## 9. The canonical executable object
+## 9. The accepted first-version executable object
 
-The executable unit can be called WarpProgramV1, while the publication
-container remains a SemanticPackage.
+[ADR 0023](../adr/0023-admitted-executable-operation-packages.md) retires
+`WarpProgramV1` and `SemanticPackage` as normative first-version names. They
+were discovery hypotheses, not compatibility aliases. The accepted public
+container is `ExecutableOperationPackageV1`; its subordinate target-relative
+executable artifact is `EchoOperationProgramV1`. A future portable WARP program
+or broader semantic package needs a separate compatibility decision and cannot
+silently alias either first-version identity.
 
-Conceptually:
+The admitted package owns the public contract:
 
 ```text
-SemanticPackage
-├── application schema
-├── operation schemas
-├── WarpProgramV1[]
-├── WarpOpticV1[]
-├── attachment algebra profile
-├── interpreter ABI requirement
-├── package-wide limits
-├── source/Core/program provenance
-├── verifier evidence
-└── digests
+ExecutableOperationPackageV1
+├── public operation coordinate
+├── invocation, output, and obstruction schemas
+├── explicit basis contract
+├── budget and declared-footprint contracts
+├── authority and invocation-admission requirements
+├── result and obstruction interpretation
+├── Edict source/Core/target semantic closure
+├── Jedit canonical text-schema declaration
+├── exact Jedit lawpack coordinate and digest
+├── exact EchoOperationProgramV1 bytes and digest
+├── evaluator ABI and intrinsic-profile requirement
+├── provenance and verifier evidence grades
+└── package root and digests
 ```
 
-A mutation program needs at least:
+The bound program supplies only executable meaning:
 
 ```text
-WarpProgramV1
-├── jurisdiction/profile
-├── entry operation coordinate
-├── input and output schemas
-├── invocation-to-graph binding
-├── typed graph schema
-├── DPO rules
+EchoOperationProgramV1
+├── invocation-to-graph binding checked against the package
+├── typed graph and attachment schema identities
+├── closed declarative DPO rewrite/evaluation rules
 │   ├── L
 │   ├── K
 │   ├── R
-│   ├── positive conditions
-│   └── negative conditions
-├── bounded deterministic control law
-├── match-selection law
+│   ├── positive application conditions
+│   └── negative application conditions
+├── bounded deterministic control and match-selection laws
 ├── private working-state schema
 ├── attachment intrinsic profile
-├── footprint derivation and ceiling
-├── resource bounds
-├── obstruction map
-├── result projection
-└── interpreter ABI/version
+├── executable footprint derivation
+├── static resource requirements or ceilings
+├── typed result and obstruction construction checked against package schemas
+└── evaluator ABI/version
 ```
 
-A bounded optic needs a corresponding read-only form:
+An operation or schema coordinate carried inside program bytes is a consistency
+claim, not a contract declaration. A program digest does not confer operation
+identity, invocability, authority, or installation eligibility. Echo starts
+installation and invocation lookup from an admitted operation-package identity
+and follows its closed binding to the program. An application package does not
+install itself, and Echo cannot install or invoke a naked program digest.
 
-```text
-WarpOpticV1
-├── explicit causal basis
-├── focus/aperture
-├── traversal plan
-├── support-evidence law
-├── resource bounds
-├── result projection
-├── completeness/continuation posture
-└── observer/interpreter ABI
-```
-
-The same algebra may encode kernel programs, but authority must remain
-distinct:
-
-```text
-Application package
-    may install application WarpProgramV1
-
-Observation package
-    may install bounded WarpOpticV1
-
-Causal policy package
-    may select or compose approved causal laws
-    under a stricter Echo profile
-
-Echo kernel package
-    owns submit/admit/schedule/commit/fork/settlement law
-    and cannot be replaced by an application package
-```
-
-This is one algebra with multiple jurisdictions.
+The broader optic and causal-policy ideas inventoried earlier are intentionally
+non-normative here. `TextWindow`, capability execution, and causal-topology
+migration are outside this vertical.
 
 ## 10. Receipt binding
 
@@ -1089,10 +1083,10 @@ Current provider-native receipt evidence binds:
 Source:
 [echo/crates/warp-core/src/provider_contract.rs#L1181-L1262@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/provider_contract.rs#L1181-L1262)
 
-It does not bind:
+Provider-v1 evidence does not bind:
 
-- executable WARP program digest;
-- WARP interpreter ABI/version;
+- executable operation-program digest;
+- evaluator ABI/version;
 - attachment intrinsic profile;
 - deterministic program control law;
 - executed rule/match trace or canonical patch identity.
@@ -1100,24 +1094,43 @@ It does not bind:
 This is consistent with the present callback architecture because no admitted
 executable artifact exists to bind.
 
-The future receipt should bind at least:
+New executable-operation evidence must bind these common identities:
 
 ```text
-semantic package root
-WarpProgram digest
-interpreter ABI/version
+admitted public operation coordinate, package root, and package-admission evidence
+Echo-owned installed-operation identity
+exact submission/invocation and canonical input digest
+caller-authority and Echo invocation-admission evidence
+Jedit canonical text-schema declaration and lawpack digests
+EchoOperationProgramV1 digest
+evaluator ABI/version
 intrinsic profile digest
-canonical input digest
-explicit causal basis
-selected operation
-derived footprint/support digest
-committed TickPatch digest
-result or obstruction identity
+EchoOperationEvaluationBasisV1 bytes and digest
+delegated and consumed budgets
+declared and actual footprint/support digests
+private execution/trace identity
+scheduler-rule and ordered composition-member identities
 ```
 
-A full rule trace may be optional if the canonical input, program, basis,
-interpreter profile, and resulting patch suffice for deterministic replay. The
-exact executed program digest is not optional.
+It must then bind exactly one terminal variant:
+
+```text
+Committed
+├── committed composite TickPatch digest
+├── typed result identity
+└── resulting frontier identity
+
+NotCommitted
+├── typed evaluation obstruction or commit-ineligibility identity
+├── canonical outcome digest
+└── canonical no-parent-patch evidence
+```
+
+`NotCommitted` never carries a committed patch digest. The exact executed
+program digest is required but remains subordinate to the admitted operation
+package. A full rule trace payload may be optional, but its retained identity is
+not: recovery must be able to attribute the execution evidence without
+rerunning ambient application code.
 
 ## 11. Additional constraints exposed by the source
 
@@ -1125,26 +1138,26 @@ exact executed program digest is not optional.
 
 There are currently three coordinate representations:
 
-- native Rust uses u64;
-- GraphQL/Wesley narrows values through Int/i32;
-- TypeScript exposes branded structures whose value is number.
+- native Rust uses `u64`;
+- GraphQL/Wesley narrows values through `Int`/`i32`;
+- TypeScript exposes branded structures whose value is `number`.
 
 The GraphQL narrowing is explicit:
 [jedit/contracts/jedit/echo-text.graphql#L41-L60@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/contracts/jedit/echo-text.graphql#L41-L60)
 
-The native host converts u64 to i32 and refuses larger values:
+The native host converts `u64` to `i32` and refuses larger values:
 [jedit/native/jedit-echo-host/src/host.rs#L420-L427@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/host.rs#L420-L427)
 
-The domain coordinate wrapper holds a TypeScript number:
+The domain coordinate wrapper holds a TypeScript `number`:
 [jedit/src/domain/graph-rope-types.ts#L36-L59@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/domain/graph-rope-types.ts#L36-L59)
 
 Removing GraphQL Int is necessary but insufficient. The generated JavaScript
-client also needs an exact representation, likely bigint or a canonical
-fixed-width wrapper rather than an unrestricted number.
+client also needs an exact representation, likely `bigint` or a canonical
+fixed-width wrapper rather than an unrestricted `number`.
 
-### 11.2 ReplaceRange's explicit basis is supplied by the host
+### 11.2 `ReplaceRange`'s explicit basis is supplied by the host
 
-The GraphQL operation carries basisHeadId, but the TypeScript host request does
+The GraphQL operation carries `basisHeadId`, but the TypeScript host request does
 not:
 [jedit/src/ports/echo-text-contract-host.ts#L40-L45@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/src/ports/echo-text-contract-host.ts#L40-L45)
 
@@ -1158,11 +1171,11 @@ operation meant.
 
 ### 11.3 Jim's native runtime is single-worldline
 
-The native host creates one hard-coded worldline and one AcceptAll default
+The native host creates one hard-coded worldline and one `AcceptAll` default
 writer:
 [jedit/native/jedit-echo-host/src/host.rs#L375-L409@c70e12d73b4b](https://github.com/flyingrobots/jedit/blob/c70e12d73b4b00bc92412bab67e1761f7dd22f82/native/jedit-echo-host/src/host.rs#L375-L409)
 
-The ttd, strand, and braid vocabulary is disconnected both at the operation
+The `ttd`, `strand`, and `braid` vocabulary is disconnected both at the operation
 layer and at the host-session model. A future Jim/Echo boundary must carry
 explicit worldline and causal coordinates.
 
@@ -1176,17 +1189,20 @@ Its canonical operation vocabulary includes node, edge, attachment, and
 warp-instance changes:
 [echo/crates/warp-core/src/tick_patch.rs#L95-L165@6615d3a97731](https://github.com/flyingrobots/echo/blob/6615d3a97731a076fb4945bb6da083e82f55710d/crates/warp-core/src/tick_patch.rs#L95-L165)
 
-The new interpreter does not need a second commit format. It needs to derive a
-lawful TickPatch from an admitted WarpProgram.
+The new evaluator does not need a second commit format. It needs to derive a
+lawful `TickPatch` from an admitted package's subordinate
+`EchoOperationProgramV1`.
 
 ## 12. Constitutional laws
 
 ### Executable Semantics Law
 
-Every observable consequence admitted by Echo must be derivable solely from:
+Every parent-visible consequence committed by Echo must be derivable solely
+from:
 
-- admitted Edict meaning;
-- its independently verified executable WARP program;
+- Jedit-owned application meaning preserved and lowered through an admitted
+  Edict operation package;
+- that package's exact subordinate `EchoOperationProgramV1`;
 - Echo-owned runtime state;
 - versioned deterministic Echo intrinsics;
 - explicitly admitted capability results.
@@ -1194,12 +1210,20 @@ Every observable consequence admitted by Echo must be derivable solely from:
 Ambient host code, callbacks, plugins, or handwritten application
 implementations must not determine semantic outcomes.
 
+Evidence for this law must use ADR 0023's exact grades: deterministic
+self-validation, structurally separate verification, or independently
+implemented conformance evidence. A separate crate or call path does not, by
+itself, establish implementation independence.
+
 ### Application Meaning Law
 
-Application code authors meaning. Echo executes admitted meaning.
+Jedit owns application semantics. Edict preserves, canonicalizes, and lowers
+that authored meaning. Echo admits packages and invocations, installs admitted
+executable meaning, evaluates and schedules it, and commits parent-visible
+consequences.
 
 A generated client may construct canonical input and submit it. It must not
-know how to perform ReplaceRange.
+know how to perform `ReplaceRange`.
 
 ### Capability Law
 
@@ -1213,14 +1237,20 @@ The transformation algebra may be uniform. Authority is not.
 
 - Echo kernel rules own runtime judgment.
 - Echo causal rules own worldline and settlement topology.
-- Edict-authored application rules own admitted application consequence.
-- Edict-authored optics own bounded read plans.
+- Jedit-owned, Edict-authored application rules define declarative application
+  meaning; they do not confer Echo admission or commitment authority.
+- Edict preserves and lowers application meaning; it does not prove runtime
+  execution.
+- Echo admits invocations and owns evaluation, scheduling, and commitment of
+  their consequences.
+- Future Edict-authored optics may define bounded read plans, but optics are not
+  part of this campaign.
 - Capabilities own only their named effect crossing.
 
 ### Atomic Program Law
 
 A multi-rule WARP program may use private deterministic evaluation state, but a
-successful application operation commits one atomic TickPatch. Intermediate
+successful application operation commits one atomic `TickPatch`. Intermediate
 work states do not become accidental application history.
 
 ### Evidence Law
@@ -1232,37 +1262,41 @@ identity, executable program identity, capability evidence, and committed
 consequence are distinct propositions and must be bound explicitly where
 required.
 
-## 13. Recommended design campaign
+## 13. Accepted bounded campaign
 
-Before authoring the real Jedit ReplaceRange .edict operation, produce a focused
-architecture document named Executable Semantics for Echo.
+ADR 0023 resolves the architecture question raised by this inventory. Campaign
+1 implementation has not started. Work proceeds as four separately reviewed
+and explicitly merged stages:
 
-Use five orthogonal witnesses:
+1. add only the minimal Edict operation prerequisites: exact fixed-width
+   values, explicit basis, Jedit lawpack-resource binding through Core and
+   target identity, and generated operation-facing package/client artifacts;
+2. add Echo's hook-free bounded-operation evaluator with one tiny generic
+   `EchoOperationProgramV1`, exact invocation admission, private evaluation,
+   budget and footprint enforcement, exact-basis commit, typed terminal
+   evidence, WAL, and recovery;
+3. add the Jedit-owned canonical text-schema declaration, real `ReplaceRange`
+   lawpack resource and program, plus a finite independently implemented
+   differential oracle corpus whose limits are stated honestly; and
+4. invoke the generated real operation from current Jim, prove the legacy
+   replacement route unreachable, and cut over `ReplaceRange` only.
 
-1. DeclareCheckpoint — one finite application graph write.
-2. ReplaceRange — bounded transactional multi-rule persistent-rope
-   transformation.
-3. TextWindow — bounded optic with exact support evidence.
-4. File save — explicit capability crossing.
-5. Fork/braid/settlement — proof that shared algebra does not collapse
-   jurisdiction.
+The first accepted witness is exactly:
 
-The design must freeze:
+```text
+real Jim command
+→ explicit basis-bearing generated invocation
+→ Echo-admitted Edict-authored operation
+→ Echo-owned deterministic evaluation
+→ one Echo-committed buffer consequence or typed no-patch outcome
+→ execution evidence binding the admitted executable semantics
+```
 
-- the authoritative Jim text fact schema;
-- structural relationships versus scalar attachments;
-- canonical invocation binding;
-- explicit worldline and basis semantics;
-- WarpProgramV1;
-- bounded deterministic control and matching;
-- private intermediate evaluation state;
-- atomic tick-patch emission;
-- the intrinsic profile;
-- typed obstructions;
-- optic execution;
-- package and receipt binding;
-- interpreter recovery semantics;
-- kernel/application/capability jurisdiction.
+This campaign does not add checkpoint migration, `TextWindow`, save or other
+capability execution, Cyber Kitten runtime machinery, observer routing, durable
+child lanes or child-local ticks, wormholes, holograms, Continuum transport, or
+fork/braid/settlement migration. Those remain useful inventory, not acceptance
+witnesses for this vertical.
 
 ## Final assessment
 
@@ -1275,7 +1309,8 @@ Fork, braid, and settlement belong to the same broad algebraic universe, but
 they already operate under Echo's causal-kernel jurisdiction. They must not
 become ordinary Jedit-authored application rules.
 
-Only after the executable WARP program contract and authoritative Jim schema
-are defined should the real Jedit ReplaceRange .edict operation be authored.
-Otherwise, Edict would be asked to compile into a target that still has no
-complete executable constitutional meaning.
+Only after the admitted executable-operation contract and Jedit-owned canonical
+text-schema declaration close exactly should the real Jedit
+`ReplaceRange.edict` package become admissible. Otherwise, Edict would be asked
+to compile into a target that still has no complete executable constitutional
+meaning, or would canonize an unresolved Jedit schema fork.

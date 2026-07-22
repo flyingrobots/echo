@@ -5,9 +5,12 @@
 
 Product and application rules are authored in contract languages. Hand-written
 Rust rule registration is not a supported product authoring surface. The first
-Edict mutation closure now reaches provider-native scheduling, receipts, and
-WAL recovery. Wesley packaging and the generated bounded-read corridor remain
-incomplete and must not borrow that mutation evidence.
+Edict provider-v1 compatibility closure now reaches provider-native scheduling,
+receipts, and WAL recovery. Its semantic implementation remains host-bound.
+Echo now also has the first generic, hook-free executable-operation runtime
+slice. No Edict compiler or Jedit consumer emits its package yet. Wesley
+packaging and the generated bounded-read corridor remain incomplete and must
+not borrow evidence from either mutation path.
 
 ## Current Implementation
 
@@ -19,11 +22,13 @@ exercise package verification.
 
 The Edict provider path authenticates exact authored semantic source and
 generation settings, emits canonical provider artifacts, lowers the supported
-mutation closure into `echo.span-ir/v1` Target IR, and independently verifies
-that crossing. It publishes checked lowerer and verifier components inside a
-digest-locked provider package with exact provenance and non-authoritative
-review evidence. The lowerer also emits a requested-only Rust helper that binds
-the exact Target IR, bundle propositions, profiles, schemas, ABI versions,
+mutation closure into `echo.span-ir/v1` Target IR, and checks that crossing
+through a structurally separate verifier path. That separation is not, by
+itself, an independently implemented verifier. The path publishes checked
+lowerer and verifier components inside a digest-locked provider package with
+exact provenance and non-authoritative review evidence. The lowerer also emits
+a requested-only Rust helper that binds the exact Target IR, bundle
+propositions, profiles, schemas, ABI versions,
 footprint obligation, obstruction mapping, and semantic operation identity
 through a pure descriptor preflight. The generated-artifact profile owns the
 `le-binary-v1` value codec; the helper implements distinct typed `Id`, `Input`,
@@ -59,8 +64,10 @@ only, not registry semantics or callback behavior. A proof-owning
 `echo-wesley-gen` adapter now consumes that token through `warp-core`'s sealed
 runtime-owner installer port. `TrustedRuntimeHost` creates a distinct owned
 provider record and atomically updates provider package, root, operation, and
-shared scheduler-rule indexes. It invokes no callback and invents no
-Wesley/GraphQL metadata or legacy installed-contract evidence.
+shared scheduler-rule indexes. Before those updates, Echo subjects the package
+reference, operation coordinate, and Target IR evidence fields to the same pure
+structural validation used by WAL recovery. It invokes no callback and invents
+no Wesley/GraphQL metadata or legacy installed-contract evidence.
 Generated code cannot install itself. The application handle exposes no
 installation surface.
 
@@ -84,15 +91,16 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
-## Target Corridor
+## Execution Corridors
 
-The required end state is:
+### Provider-v1 compatibility corridor
+
+The currently implemented Edict mutation corridor is:
 
 ```text
-Wesley or Edict source
--> verified mutation Target IR or lawful read/observer semantics
--> generated Rust handlers, bounded observers, and footprints
--> generated typed codecs, EINT helpers, registry, and package metadata
+Edict source
+-> reviewed mutation Target IR
+-> generated Rust mutation handler, codecs, footprint, registry, and package metadata
 -> opaque provider package proposal with explicit host binding
 -> Echo-owned exact proposal-claim admission
 -> exact package corroboration
@@ -103,20 +111,82 @@ Wesley or Edict source
 -> receipt / WAL evidence carrying package, operation, Target IR, and rule identity
 ```
 
-Wesley still needs a package emitter. Edict already emits a digest-locked
-provider publication package, codec-bound mutation client, borrowed registry,
-and fail-closed package proposal. Echo admits the exact proposal claim under
-independent trusted-host policy; `echo-wesley-gen` corroborates that token with
-independently admitted exact package bytes and consumes the proof into a
-provider-native installed record with atomic Echo-owned indexes. Echo now
-admits and dispatches that installed mutation through the shared scheduler with
-provider-specific receipt and WAL evidence. It still needs the separate
-generated bounded-observer path for authored reads. The current mutation
-proposal intentionally rejects `Query`; that refusal does not turn a read into
-a mutation or eliminate the independent observer/optic corridor. Installation
-and invocation reuse Echo's existing indexes, scheduler, receipt, and WAL
-machinery without fabricating Wesley metadata or creating a second execution
-engine.
+This is provider-v1 callback-shaped compatibility infrastructure, not the
+required authoring path for newly authored executable operations. Edict already
+emits a digest-locked provider publication package, codec-bound mutation client,
+borrowed registry, and fail-closed package proposal. Echo admits the exact
+proposal claim under a separate trusted-host policy; `echo-wesley-gen`
+corroborates that token with separately admitted exact package bytes and
+consumes the proof into a provider-native installed record with atomic
+Echo-owned indexes. Echo admits and dispatches that installed mutation through
+the shared scheduler with provider-specific receipt and WAL evidence. Those
+identities prove exact wiring, not that the ambient callback implements the
+authored meaning.
+
+Wesley's direct rule/bootstrap and bounded-read work remains a separate
+compatibility corridor. Wesley still needs a package emitter and its own
+installed generated-pack witness. The Edict mutation proposal intentionally
+rejects `Query`; that refusal does not turn a read into a mutation or eliminate
+the observer/optic crossing.
+
+### Executable-operation corridor
+
+[ADR 0023](../adr/0023-admitted-executable-operation-packages.md) governs the
+operation-oriented corridor required for newly authored application mutations.
+The currently implemented generic runtime slice is:
+
+```text
+exact canonical ExecutableOperationPackageV1 bytes
+-> Echo-owned package admission under a separate policy
+-> installed data-only EchoOperationProgramV1
+-> exact basis-bearing canonical invocation
+-> Echo-owned invocation admission under authority and delegated budget
+-> bounded private evaluation with recorded actual footprint
+-> exact-basis singleton commit attempt
+-> one committed TickPatch and typed receipt, or returned typed no-patch evidence
+-> committed outcomes only: execution-kernel WAL retention and callback-free recovery
+```
+
+The first program is an anchored typed-node alpha-attachment compare-and-set.
+It is a generic vertical witness, not Jedit `ReplaceRange`, a rope intrinsic, or
+a general-purpose virtual machine. The package binds Edict source, canonical
+meaning, Core, Target IR, application-schema, and lawpack identities as opaque
+substitution evidence. Echo does not yet obtain those identities from a real
+Edict compiler crossing or validate their semantic relation through a
+structurally separate target verifier.
+
+The remaining compiler and application closure is:
+
+```text
+Jedit-owned Edict operation source and public contract
+-> canonical meaning, Core, and exact Jedit schema/lawpack closure
+-> exact subordinate EchoOperationProgramV1
+-> structurally separate target verification
+-> the implemented Echo package, invocation, evaluation, commit, receipt,
+   WAL, and recovery crossings above
+```
+
+The operation package owns the public contract and runtime-recognized
+invocability. The subordinate program supplies executable meaning only. Echo
+cannot install or invoke a naked program digest, and a generated artifact does
+not confer caller authority. Provider v1 remains stable while existing
+consumers migrate; it is not silently reinterpreted as this new category.
+The program bytes bind their interpreter and intrinsic profiles directly. The
+parent patch and singleton tick entry use the admitted installed-operation
+identity as their rule-pack/rule identity, so two packages that reuse identical
+program bytes do not collapse into one causal operation identity.
+The first slice composes one preparation and does not claim general scheduler
+batch integration or independent implementation evidence. Its canonical
+decoding, identity recomputation, budget and footprint checks, exact-basis
+comparison, deterministic repeatability, and WAL recovery are deterministic
+self-validation.
+
+The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
+under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
+compile-time coupling does not place a callback in the operation program, but
+it prevents the surface from serving as the final product cutover boundary.
+The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
+can delete the legacy feature without also losing executable operations.
 
 ## Footprint Honesty
 
@@ -144,10 +214,16 @@ trigger hidden retries or widen access.
   registration.
 - Product and adapter crates do not enable `native_rule_bootstrap`.
 - Generators emit artifacts, descriptors, and opaque proposals without
-  registering themselves. Trusted hosts independently admit proposal claims,
+  registering themselves. Trusted hosts separately admit proposal claims,
   corroborate exact package evidence, and register package-qualified generated
   material through the appropriate provider-native or Wesley compatibility
   record—not an app-specific engine escape hatch.
+- Newly authored executable operations resolve installation and invocation from
+  an admitted `ExecutableOperationPackageV1`; a naked
+  `EchoOperationProgramV1` cannot install or invoke.
+- Newly authored executable operations expose no application matcher, executor,
+  footprint callback, or prebuilt mutation plan. Provider-v1 callback bindings
+  remain explicitly labeled compatibility infrastructure.
 - Registry/package identity, operation identity, codec/schema compatibility,
   and footprint metadata are verified before the engine mutates registration
   state.

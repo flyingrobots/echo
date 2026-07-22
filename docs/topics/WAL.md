@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says eight concrete things.
+The current runtime WAL evidence says nine concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -69,10 +69,13 @@ installed-invocation identity attached to the outcome. That identity is a
 tagged proposition: the existing legacy Wesley/GraphQL evidence keeps its
 byte-stable tag-1 encoding, while tag 2 retains provider package id and exact
 reference, operation id and coordinate, Target IR identity, and scheduler rule
-id. Provider decoding rejects empty coordinates, reserved operation ids, and
-malformed package or Target IR digests rather than laundering structurally
-invalid fields through a valid WAL frame checksum. Provider evidence does not
-fabricate a legacy retained-contract coordinate.
+id. Provider installation applies the same pure package-reference and
+operation/Target-IR structural checks used by retained decoding before changing
+any Engine index. Provider proposal construction rejects Echo-reserved
+operation ids before installation; retained decoding independently rejects
+those ids, empty coordinates, and malformed package or Target IR digests rather
+than laundering structurally invalid fields through a valid WAL frame checksum.
+Provider evidence does not fabricate a legacy retained-contract coordinate.
 
 Filesystem WAL reopen loads that evidence into a fresh provenance service,
 replays the worldline from its deterministic registered boundary, restores
@@ -106,6 +109,23 @@ noncanonical frame order, and mismatched WAL coordinates are rejected. The
 trusted-host API requires the current logical durable frontier and exact
 host-installed root support before invoking this transition, and returns only
 after commit.
+
+Ninth, executable-operation installation and commitment use their own
+append-only transaction kinds, record kinds, affected frontiers, and
+authorities. Runtime-control authority retains the exact canonical operation
+package together with its complete package-admission policy. Fresh-host
+recovery canonical-decodes the package, recomputes every identity, reconstructs
+the policy identity, and runs the same package-admission checks before restoring
+the installed operation. It does not resolve or invoke application callbacks.
+Execution-kernel authority separately retains one committed typed operation
+receipt and its replayable state delta. Recovery requires exactly one of each,
+revalidates the receipt's internal result evidence, checks the state delta's
+basis, installed-operation rule identity, patch, tick, and state-root
+correspondence, and reconstructs the installed and execution indexes
+idempotently. Each new transaction kind rejects missing, duplicate, reversed,
+or mis-scoped frame/frontier shapes. These records do not make a naked program
+digest invocable and do not persist the process-local authority needed to
+commit an unretained preparation.
 
 ## Boundaries
 
@@ -262,6 +282,14 @@ codes, committed round-trip, uncommitted-tail invisibility, required-frame
 cardinality, truncation, trailing bytes, malformed enum codes, cross-admission
 evidence mismatch, and WAL-coordinate binding.
 
+The hook-free executable-operation and filesystem-recovery witnesses live in
+`crates/warp-core/tests/executable_operation_pipeline_tests.rs`. They cover
+canonical package and invocation admission, authority and budget refusal,
+exact-basis noncommit, program-substitution refusal, same-host preparation
+authority, typed private-evaluation obstruction, deterministic duplicate-host
+results, append-only WAL codes, activation refusal for process-only
+installations, and fresh-host installation and consequence recovery.
+
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,
 `submit_intent_with_runtime_wal_ack(...)`, `admit_causal_anchor(...)`,
@@ -275,13 +303,14 @@ belong in GitHub.
 ## Current Caveat
 
 The trusted-runtime suite uses both the fast in-memory adapter and the strict
-filesystem adapter. Filesystem witnesses now prove accepted-submission and
-ticketed-transition replay across host reconstruction. The replayable
-state-delta path is currently emitted from ticketed receipt correlations; work
-committed through lower-level, non-ticketed scheduler ingress does not yet have
-the same trusted-host WAL reconstruction claim. Jim must therefore use the
-WAL-backed application-intent path for user-facing edits and inverses instead
-of treating an internal runtime mutation as durable history.
+filesystem adapter. Filesystem witnesses now prove accepted-submission,
+ticketed-transition, and executable-operation replay across host
+reconstruction. The scheduler replayable state-delta path is currently emitted
+from ticketed receipt correlations; work committed through lower-level,
+non-ticketed scheduler ingress does not yet have the same trusted-host WAL
+reconstruction claim. Jim must therefore use a WAL-backed admitted-operation or
+application-intent path for user-facing edits and inverses instead of treating
+an internal runtime mutation as durable history.
 
 WSC export/import shape, retained reading availability, multi-correlation tick
 packing, and complete application-session projection recovery remain separate

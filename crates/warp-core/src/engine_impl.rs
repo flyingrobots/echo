@@ -13,6 +13,10 @@ use crate::contract_registry::{
     InstalledContractPackageError,
 };
 use crate::contract_registry::{InstalledContractPackageId, InstalledContractPackageRecord};
+use crate::echo_operation::{
+    install_recovered_v1, EchoOperationInstallationErrorV1, EchoOperationPackageIdV1,
+    InstalledEchoOperationV1,
+};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::head_inbox::{IngressEnvelope, IngressPayload, IntentKind};
@@ -436,6 +440,12 @@ pub struct Engine {
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
+    installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+    #[cfg_attr(
+        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+        allow(dead_code)
+    )]
+    installed_echo_operations_by_coordinate: BTreeMap<String, EchoOperationPackageIdV1>,
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     installed_provider_contract_packages:
         BTreeMap<InstalledProviderContractPackageIdV1, InstalledProviderContractPackageRecordV1>,
@@ -878,6 +888,8 @@ impl Engine {
             rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
+            installed_echo_operation_packages: BTreeMap::new(),
+            installed_echo_operations_by_coordinate: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             installed_provider_contract_packages: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -1078,6 +1090,8 @@ impl Engine {
             rules_by_compact: BTreeMap::new(),
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
+            installed_echo_operation_packages: BTreeMap::new(),
+            installed_echo_operations_by_coordinate: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             installed_provider_contract_packages: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -1274,6 +1288,68 @@ impl Engine {
         self.installed_contract_packages
             .insert(prepared.record.package_id, prepared.record.clone());
         Ok(prepared.record)
+    }
+
+    /// Returns one installed executable operation package by exact package id.
+    #[must_use]
+    pub fn installed_echo_operation_package_v1(
+        &self,
+        package_id: EchoOperationPackageIdV1,
+    ) -> Option<&InstalledEchoOperationV1> {
+        self.installed_echo_operation_packages.get(&package_id)
+    }
+
+    #[cfg_attr(
+        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+        allow(dead_code)
+    )]
+    pub(crate) fn preflight_recovered_echo_operation_packages_v1(
+        &self,
+        recovered: &[InstalledEchoOperationV1],
+    ) -> Result<(), EchoOperationInstallationErrorV1> {
+        let mut packages = self.installed_echo_operation_packages.clone();
+        let mut operations = self.installed_echo_operations_by_coordinate.clone();
+        for installed in recovered {
+            install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(
+        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+        allow(dead_code)
+    )]
+    pub(crate) fn restore_recovered_echo_operation_packages_v1(
+        &mut self,
+        recovered: &[InstalledEchoOperationV1],
+    ) -> Result<(), EchoOperationInstallationErrorV1> {
+        let mut packages = self.installed_echo_operation_packages.clone();
+        let mut operations = self.installed_echo_operations_by_coordinate.clone();
+        for installed in recovered {
+            install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
+        }
+        self.installed_echo_operation_packages = packages;
+        self.installed_echo_operations_by_coordinate = operations;
+        Ok(())
+    }
+
+    #[cfg_attr(
+        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+        allow(dead_code)
+    )]
+    pub(crate) fn installed_echo_operation_packages_v1(
+        &self,
+    ) -> impl Iterator<Item = &InstalledEchoOperationV1> {
+        self.installed_echo_operation_packages.values()
+    }
+
+    /// Returns the engine-owned policy id used by operation patches.
+    #[cfg_attr(
+        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+        allow(dead_code)
+    )]
+    pub(crate) const fn echo_operation_policy_id(&self) -> u32 {
+        self.policy_id
     }
 
     /// Installs one provider-native contract package through the trusted runtime owner.

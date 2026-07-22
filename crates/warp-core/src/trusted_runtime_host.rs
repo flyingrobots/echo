@@ -18,7 +18,9 @@ use crate::causal_anchor::prepare_causal_anchor_admission;
 
 use crate::{
     causal_wal::{
-        build_causal_anchor_admission_transaction, build_recovery_certificate,
+        affected_frontiers_root, build_causal_anchor_admission_transaction,
+        build_executable_operation_installation_transaction,
+        build_executable_operation_tick_transaction, build_recovery_certificate,
         build_replayable_tick_transaction, build_submission_acceptance_with_material_transaction,
         causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
         causal_history_genesis_frontier_digest, logical_causal_history_frontier_digest,
@@ -37,22 +39,38 @@ use crate::{
         TRUSTED_RUNTIME_WAL_DOMAIN,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
+    echo_operation::{
+        admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
+        decode_invocation_route_v1, genesis_commit_id, install_recovered_v1,
+        installed_from_admitted, not_committed_basis_changed,
+        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
+        prepare_operation_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
+        retain_committed_execution_v1, retain_installation_v1, validate_receipt_installation_v1,
+        EchoOperationEvaluationAuthorityV1,
+    },
     provider_contract::admit_provider_contract_package_v1,
+    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
     AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
     CausalFrontierRef, ContractInverseAdmissionRequest, ContractInverseContext,
     ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
-    ContractOperationKind, Engine, IngressCausalParent, IngressEnvelope,
-    IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
-    InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
+    ContractOperationKind, EchoOperationAdmissionErrorV1, EchoOperationAdmissionPolicyV1,
+    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1, EchoOperationCommitErrorV1,
+    EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
+    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorV1,
+    EchoOperationInvocationAdmissionPolicyV1, EchoOperationPreparationV1, EchoOperationReceiptV1,
+    Engine, IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
+    IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
+    InstalledContractPackageRecord, InstalledEchoOperationV1,
     InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
     IntentOutcomeObservation, IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact,
     ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
-    ProvenanceEntry, ProvenanceService, ProvenanceStore, ProviderContractAdmissionError,
-    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
-    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
-    ProviderPackageReferenceV1, ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord,
-    RetainedProvenanceError, RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
+    PreparedEchoOperationV1, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+    ProviderContractAdmissionError, ProviderContractAdmissionPolicyV1,
+    ProviderContractInstallationError, ProviderContractPackageInstallerV1,
+    ProviderContractPackageProposalV1, ProviderPackageReferenceV1,
+    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
+    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
     WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
@@ -107,6 +125,15 @@ pub enum TrustedRuntimeHostError {
         /// Maximum scheduler passes the caller allowed.
         max_scheduler_passes: u64,
     },
+    /// A privately evaluated operation could not produce complete commit material.
+    #[error("trusted runtime host executable-operation commit error: {0}")]
+    EchoOperationCommit(#[from] EchoOperationCommitErrorV1),
+    /// Exact executable-operation retained material was malformed.
+    #[error("trusted runtime host executable-operation artifact error: {0}")]
+    EchoOperationArtifact(#[from] EchoOperationArtifactErrorV1),
+    /// Executable-operation installation conflicted with installed authority.
+    #[error("trusted runtime host executable-operation installation error: {0}")]
+    EchoOperationInstallation(#[from] EchoOperationInstallationErrorV1),
 }
 
 impl From<RuntimeError> for TrustedRuntimeHostError {
@@ -181,6 +208,38 @@ pub enum TrustedRuntimeWalError {
         worldline_id: crate::WorldlineId,
         /// Tick whose retained transition conflicted.
         worldline_tick: crate::WorldlineTick,
+    },
+    /// Retained executable-operation material failed canonical self-validation.
+    #[error("trusted runtime WAL executable-operation artifact error: {0}")]
+    EchoOperationArtifact(#[from] EchoOperationArtifactErrorV1),
+    /// Recovered executable-operation installations conflicted.
+    #[error("trusted runtime WAL executable-operation installation error: {0}")]
+    EchoOperationInstallation(#[from] EchoOperationInstallationErrorV1),
+    /// More than one committed transaction retained the same typed operation receipt.
+    #[error(
+        "trusted runtime WAL recovered duplicate executable-operation receipt {receipt_digest:?}"
+    )]
+    EchoOperationReceiptConflict {
+        /// Content identity claimed by more than one operation-tick transaction.
+        receipt_digest: Hash,
+    },
+    /// A committed operation receipt disagreed with its retained state transition.
+    #[error("trusted runtime WAL executable-operation receipt/state mismatch: {detail}")]
+    EchoOperationExecutionMismatch {
+        /// Stable explanation of the mismatched commitments.
+        detail: &'static str,
+    },
+    /// A committed operation transaction carried the wrong exact frontier transition.
+    #[error(
+        "trusted runtime WAL executable-operation frontier mismatched transaction {transaction_id:?}: expected {expected:?}, actual {actual:?}"
+    )]
+    EchoOperationFrontierMismatch {
+        /// Operation transaction whose frontier commitment was inconsistent.
+        transaction_id: Hash,
+        /// Root recomputed from the exact retained operation material.
+        expected: Hash,
+        /// Affected-frontier root carried by the committed transaction.
+        actual: Hash,
     },
     /// Causal-anchor recovery omitted evidence for an anchor transaction.
     #[error("trusted runtime WAL omitted recovered causal-anchor admission for transaction {transaction_id:?}")]
@@ -289,6 +348,8 @@ pub enum RuntimeWalActivationGap {
     GlobalTick,
     /// A live worldline frontier differs from its retained provenance history.
     WorldlineState,
+    /// Installed executable meaning has no exact durable installation record.
+    ExecutableOperationInstallation,
 }
 
 /// Summary returned after a trusted host runs the scheduler until idle.
@@ -368,6 +429,10 @@ pub struct TrustedRuntimeWalRecovery {
     pub receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
     /// Ordered Echo control history for committed causal-anchor admissions.
     pub causal_anchor_history: Vec<WitnessedCausalAnchorAdmission>,
+    /// Exact executable meaning reconstructed from retained installation records.
+    pub installed_echo_operations: Vec<InstalledEchoOperationV1>,
+    /// Typed receipts reconstructed from executable-operation tick records.
+    pub echo_operation_receipts: Vec<EchoOperationReceiptV1>,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
@@ -387,6 +452,8 @@ impl TrustedRuntimeWalRecovery {
             provenance_entries: &self.provenance_entries,
             missing_runtime_state_deltas: &self.missing_runtime_state_deltas,
             causal_anchor_history: &self.causal_anchor_history,
+            installed_echo_operations: &self.installed_echo_operations,
+            echo_operation_receipts: &self.echo_operation_receipts,
         })
     }
 
@@ -538,6 +605,7 @@ pub struct TrustedRuntimeHost {
     engine: Engine,
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
+    echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
 }
 
 impl TrustedRuntimeHost {
@@ -555,6 +623,7 @@ impl TrustedRuntimeHost {
             engine,
             runtime_wal: None,
             causal_anchor_support_policy: None,
+            echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
         })
     }
 
@@ -571,6 +640,7 @@ impl TrustedRuntimeHost {
             engine,
             runtime_wal: None,
             causal_anchor_support_policy: None,
+            echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
         }
     }
 
@@ -596,6 +666,269 @@ impl TrustedRuntimeHost {
     #[must_use]
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// Admits exact executable-operation package bytes under independent policy.
+    ///
+    /// A successful result is an opaque admission token. It does not install
+    /// the package and the program digest inside the package does not confer an
+    /// operation coordinate, invocability, or authority.
+    pub fn admit_echo_operation_package_v1(
+        &self,
+        policy: &EchoOperationAdmissionPolicyV1,
+        canonical_package_bytes: Vec<u8>,
+    ) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionErrorV1> {
+        admit_package_v1(policy, canonical_package_bytes)
+    }
+
+    /// Installs exact executable meaning carried by an admitted operation package.
+    ///
+    /// Installation stores no native callback and still does not authorize an
+    /// invocation. Application-facing [`TrustedRuntimeApp`] handles cannot call
+    /// this runtime-owner method.
+    pub fn install_admitted_echo_operation_package_v1(
+        &mut self,
+        admitted: AdmittedExecutableOperationPackageV1,
+    ) -> Result<InstalledEchoOperationV1, TrustedRuntimeHostError> {
+        let installed = installed_from_admitted(admitted)?;
+        self.engine
+            .preflight_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+        if self
+            .engine
+            .installed_echo_operation_package_v1(installed.package_id())
+            == Some(&installed)
+        {
+            return Ok(installed);
+        }
+
+        if let Some(runtime_wal) = self.runtime_wal.as_mut() {
+            let retained = retain_installation_v1(&installed)?;
+            if let Err(error) = runtime_wal.record_executable_operation_installation(&retained) {
+                if !runtime_wal.recover_filesystem_executable_operation_installation_after_error(
+                    installed.package_id(),
+                ) {
+                    return Err(error.into());
+                }
+            }
+        }
+        self.engine
+            .restore_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+        Ok(installed)
+    }
+
+    /// Resolves the exact current parent basis for an operation invocation.
+    ///
+    /// The returned basis binds Echo's writer head, worldline tick, committing
+    /// global tick when one exists, graph state root, commit identity, and the
+    /// separately typed application basis proposition.
+    pub fn echo_operation_evaluation_basis_v1(
+        &self,
+        writer_head: crate::WriterHeadKey,
+        application_basis: EchoOperationApplicationBasisV1,
+    ) -> Result<EchoOperationEvaluationBasisV1, TrustedRuntimeHostError> {
+        current_echo_operation_basis(
+            &self.runtime,
+            &self.provenance,
+            writer_head,
+            application_basis,
+        )
+    }
+
+    /// Independently admits a canonical installed-operation invocation.
+    ///
+    /// Admission checks exact installed package identity, public operation
+    /// coordinate, authority profile and grant, delegated budget, and current
+    /// parent basis. It does not evaluate or mutate the graph.
+    pub fn admit_echo_operation_invocation_v1(
+        &self,
+        policy: &EchoOperationInvocationAdmissionPolicyV1,
+        canonical_invocation_bytes: &[u8],
+    ) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+        let (package_id, claimed_basis) = decode_invocation_route_v1(canonical_invocation_bytes)?;
+        let current_basis = self
+            .echo_operation_evaluation_basis_v1(
+                claimed_basis.writer_head(),
+                claimed_basis.application_basis(),
+            )
+            .map_err(|error| crate::echo_operation::invocation_runtime_error(error.to_string()))?;
+        let current_state = self
+            .runtime
+            .worldlines()
+            .get(&claimed_basis.writer_head().worldline_id)
+            .map(crate::WorldlineFrontier::state)
+            .ok_or_else(|| {
+                crate::echo_operation::invocation_runtime_error(
+                    "operation invocation worldline is unavailable",
+                )
+            })?;
+        admit_invocation_v1(
+            self.engine.installed_echo_operation_package_v1(package_id),
+            *policy,
+            canonical_invocation_bytes,
+            current_basis,
+            current_state,
+            self.echo_operation_evaluation_authority.clone(),
+        )
+    }
+
+    /// Evaluates one admitted operation without mutating the parent state.
+    ///
+    /// Evaluation returns either one complete prepared patch or one typed
+    /// obstruction. No partial mutation reaches the parent worldline.
+    #[must_use]
+    pub fn prepare_echo_operation_v1(
+        &self,
+        admitted: AdmittedEchoOperationInvocationV1,
+    ) -> EchoOperationPreparationV1 {
+        let current_basis = self.echo_operation_evaluation_basis_v1(
+            admitted.evaluation_basis().writer_head(),
+            admitted.evaluation_basis().application_basis(),
+        );
+        let Ok(current_basis) = current_basis else {
+            return crate::echo_operation::runtime_basis_obstruction(admitted);
+        };
+        let state = self
+            .runtime
+            .worldlines()
+            .get(&current_basis.writer_head().worldline_id)
+            .map(crate::WorldlineFrontier::state);
+        let Some(state) = state else {
+            return crate::echo_operation::runtime_basis_obstruction(admitted);
+        };
+        prepare_operation_v1(
+            self.engine
+                .installed_echo_operation_package_v1(admitted.package_id()),
+            admitted,
+            current_basis,
+            state,
+            self.engine.echo_operation_policy_id(),
+            &self.echo_operation_evaluation_authority,
+        )
+    }
+
+    /// Commits one privately prepared patch only against its exact evaluation basis.
+    ///
+    /// A changed basis produces typed noncommit evidence and never retries,
+    /// rebases, revalidates, or exposes a partial patch. A successful crossing
+    /// appends one local provenance entry and advances one worldline tick.
+    pub fn commit_prepared_echo_operation_v1(
+        &mut self,
+        prepared: Box<PreparedEchoOperationV1>,
+    ) -> Result<EchoOperationExecutionEvidenceV1, TrustedRuntimeHostError> {
+        let prepared = *prepared;
+        let current_basis = self.echo_operation_evaluation_basis_v1(
+            prepared.evaluation_basis().writer_head(),
+            prepared.evaluation_basis().application_basis(),
+        )?;
+        if &current_basis != prepared.evaluation_basis() {
+            let frontier = self
+                .runtime
+                .worldlines()
+                .get(&current_basis.writer_head().worldline_id)
+                .ok_or_else(|| {
+                    RuntimeError::UnknownWorldline(current_basis.writer_head().worldline_id)
+                })?;
+            return Ok(not_committed_basis_changed(
+                &prepared,
+                frontier.state().state_root(),
+                frontier.frontier_tick(),
+            ));
+        }
+        if self
+            .engine
+            .installed_echo_operation_package_v1(prepared.package_id())
+            .is_none_or(|installed| {
+                installed.installed_operation_id() != prepared.installed_operation_id()
+            })
+        {
+            return Ok(not_committed_installation_unavailable(
+                &prepared,
+                current_basis.state_root(),
+                current_basis.worldline_tick(),
+            ));
+        }
+        if !prepared.is_owned_by(&self.echo_operation_evaluation_authority) {
+            return Ok(not_committed_evaluation_authority_mismatch(
+                &prepared,
+                current_basis.state_root(),
+                current_basis.worldline_tick(),
+            ));
+        }
+
+        let mut next_runtime = self.runtime.clone();
+        let mut next_provenance = self.provenance.clone();
+        let commit_global_tick = next_runtime.advance_global_tick()?;
+        let worldline_id = current_basis.writer_head().worldline_id;
+        let parents = next_provenance.tip_ref(worldline_id)?.into_iter().collect();
+        let worldline_tick = current_basis.worldline_tick();
+        let (material, provenance_entry) = {
+            let frontier = next_runtime.frontier_mut(&worldline_id)?;
+            let material =
+                commit_prepared_to_state(&prepared, frontier.state_mut(), commit_global_tick)?;
+            let worldline_patch = crate::WorldlineTickPatchV1 {
+                header: crate::WorldlineTickHeaderV1 {
+                    commit_global_tick,
+                    policy_id: material.patch.policy_id(),
+                    rule_pack_id: material.patch.rule_pack_id(),
+                    plan_digest: material.snapshot.plan_digest,
+                    decision_digest: material.snapshot.decision_digest,
+                    rewrites_digest: material.snapshot.rewrites_digest,
+                },
+                warp_id: material.snapshot.root.warp_id,
+                ops: material.patch.ops().to_vec(),
+                in_slots: material.patch.in_slots().to_vec(),
+                out_slots: material.patch.out_slots().to_vec(),
+                patch_digest: material.patch.digest(),
+            };
+            let entry = ProvenanceEntry::local_commit(
+                worldline_id,
+                worldline_tick,
+                commit_global_tick,
+                current_basis.writer_head(),
+                parents,
+                crate::HashTriplet {
+                    state_root: material.snapshot.state_root,
+                    patch_digest: material.snapshot.patch_digest,
+                    commit_hash: material.snapshot.hash,
+                },
+                worldline_patch,
+                Vec::new(),
+                Vec::new(),
+            )
+            .with_tick_receipt(material.tick_receipt.clone());
+            next_provenance.append_local_commit(entry.clone())?;
+            frontier
+                .advance_tick()
+                .ok_or(RuntimeError::FrontierTickOverflow(worldline_id))?;
+            (material, entry)
+        };
+
+        if let Some(runtime_wal) = self.runtime_wal.as_mut() {
+            let state_delta = WalRuntimeStateDeltaRecord::from_provenance_entry(
+                material.tick_receipt.digest(),
+                None,
+                provenance_entry,
+            )
+            .map_err(TrustedRuntimeWalError::from)?;
+            let state_delta_digest = state_delta.digest().map_err(TrustedRuntimeWalError::from)?;
+            let retained_execution = retain_committed_execution_v1(&material.evidence)?;
+            if let Err(error) = runtime_wal.record_executable_operation_tick(
+                material.evidence.receipt(),
+                retained_execution,
+                &state_delta,
+                state_delta_digest,
+            ) {
+                if !runtime_wal.recover_filesystem_executable_operation_tick_after_error(
+                    material.evidence.receipt().digest(),
+                ) {
+                    return Err(error.into());
+                }
+            }
+        }
+
+        self.runtime = next_runtime;
+        self.provenance = next_provenance;
+        Ok(material.evidence)
     }
 
     /// Enables the in-memory WAL adapter used by the reference host tests.
@@ -628,7 +961,14 @@ impl TrustedRuntimeHost {
         if let Some(receipt_digest) = recovery.missing_runtime_state_deltas.first().copied() {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaMissing { receipt_digest }.into());
         }
-        ensure_runtime_authority_is_durable(&self.runtime, &self.provenance, &recovery)?;
+        ensure_runtime_authority_is_durable(
+            &self.runtime,
+            &self.provenance,
+            &self.engine,
+            &recovery,
+        )?;
+        self.engine
+            .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
 
         let mut restored_runtime = self.runtime.clone();
         let mut restored_provenance = self.provenance.clone();
@@ -641,6 +981,8 @@ impl TrustedRuntimeHost {
             &recovery.receipt_correlations,
         )?;
 
+        self.engine
+            .restore_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
         self.runtime = restored_runtime;
         self.provenance = restored_provenance;
         self.runtime_wal = Some(runtime_wal);
@@ -1274,11 +1616,61 @@ impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
     }
 }
 
+fn current_echo_operation_basis(
+    runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
+    writer_head: crate::WriterHeadKey,
+    application_basis: EchoOperationApplicationBasisV1,
+) -> Result<EchoOperationEvaluationBasisV1, TrustedRuntimeHostError> {
+    if runtime.heads().get(&writer_head).is_none() {
+        return Err(RuntimeError::UnknownHead(writer_head).into());
+    }
+    let frontier = runtime
+        .worldlines()
+        .get(&writer_head.worldline_id)
+        .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
+    let state_root = frontier.state().state_root();
+    let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
+        Some(tip) => {
+            let entry = provenance.entry(tip.worldline_id, tip.worldline_tick)?;
+            (Some(entry.commit_global_tick), entry.expected.commit_hash)
+        }
+        None => (None, genesis_commit_id(writer_head, state_root)),
+    };
+    Ok(EchoOperationEvaluationBasisV1::new(
+        writer_head,
+        frontier.frontier_tick(),
+        commit_global_tick,
+        state_root,
+        commit_id,
+        application_basis,
+    ))
+}
+
 fn ensure_runtime_authority_is_durable(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
+    engine: &Engine,
     recovery: &TrustedRuntimeWalRecovery,
 ) -> Result<(), TrustedRuntimeWalError> {
+    let recovered_operations = recovery
+        .installed_echo_operations
+        .iter()
+        .map(|installed| (installed.package_id(), installed))
+        .collect::<BTreeMap<_, _>>();
+    if engine
+        .installed_echo_operation_packages_v1()
+        .any(|installed| {
+            recovered_operations
+                .get(&installed.package_id())
+                .is_none_or(|recovered| **recovered != *installed)
+        })
+    {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::ExecutableOperationInstallation,
+        });
+    }
+
     let recovered_submissions = recovery
         .witnessed_submissions
         .records()
@@ -1481,6 +1873,8 @@ pub struct TrustedRuntimeWal {
     submission_frontier_digest: Hash,
     receipt_frontier_digest: Hash,
     runtime_state_frontier_digest: Hash,
+    executable_operation_catalog_frontier_digest: Hash,
+    executable_operation_receipt_frontier_digest: Hash,
     causal_anchor_frontier_digest: Hash,
     causal_history_frontier_digest: Hash,
     causal_anchor_claim_projection: CausalAnchorClaimProjection,
@@ -1541,6 +1935,10 @@ impl TrustedRuntimeWal {
             submission_frontier_digest: recovered_cursor.submission_frontier_digest,
             receipt_frontier_digest: recovered_cursor.receipt_frontier_digest,
             runtime_state_frontier_digest: recovered_cursor.runtime_state_frontier_digest,
+            executable_operation_catalog_frontier_digest: recovered_cursor
+                .executable_operation_catalog_frontier_digest,
+            executable_operation_receipt_frontier_digest: recovered_cursor
+                .executable_operation_receipt_frontier_digest,
             causal_anchor_frontier_digest: recovered_cursor.causal_anchor_frontier_digest,
             causal_history_frontier_digest: recovered_cursor.causal_history_frontier_digest,
             causal_anchor_claim_projection: recovered_cursor.causal_anchor_claim_projection,
@@ -1592,9 +1990,13 @@ impl TrustedRuntimeWal {
         let (witnessed_submissions, missing_submission_envelopes) =
             recover_witnessed_submission_material(&report, &submissions)?;
         let runtime_state = recover_runtime_state_delta_material(&report)?;
+        let operation_material =
+            recover_echo_operation_material(&report, &runtime_state.provenance_entries)?;
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
+        let installed_echo_operations = operation_material.installations;
+        let echo_operation_receipts = operation_material.receipts;
         validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
         let certificate = runtime_wal_recovery_certificate(
             &report,
@@ -1606,6 +2008,8 @@ impl TrustedRuntimeWal {
                 provenance_entries: &provenance_entries,
                 missing_runtime_state_deltas: &missing_runtime_state_deltas,
                 causal_anchor_history: &causal_anchor_history,
+                installed_echo_operations: &installed_echo_operations,
+                echo_operation_receipts: &echo_operation_receipts,
             },
         )?;
         Ok(TrustedRuntimeWalRecovery {
@@ -1618,6 +2022,8 @@ impl TrustedRuntimeWal {
             missing_runtime_state_deltas,
             receipt_correlations,
             causal_anchor_history,
+            installed_echo_operations,
+            echo_operation_receipts,
             causal_history_frontiers,
         })
     }
@@ -1749,6 +2155,10 @@ impl TrustedRuntimeWal {
         self.submission_frontier_digest = cursor.submission_frontier_digest;
         self.receipt_frontier_digest = cursor.receipt_frontier_digest;
         self.runtime_state_frontier_digest = cursor.runtime_state_frontier_digest;
+        self.executable_operation_catalog_frontier_digest =
+            cursor.executable_operation_catalog_frontier_digest;
+        self.executable_operation_receipt_frontier_digest =
+            cursor.executable_operation_receipt_frontier_digest;
         self.causal_anchor_frontier_digest = cursor.causal_anchor_frontier_digest;
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
         self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
@@ -1804,6 +2214,42 @@ impl TrustedRuntimeWal {
         self.causal_anchor_by_claim(claim_digest, Some(support_policy_digest))
             .ok()
             .flatten()
+    }
+
+    fn recover_filesystem_executable_operation_installation_after_error(
+        &mut self,
+        package_id: crate::EchoOperationPackageIdV1,
+    ) -> bool {
+        if !self.uses_filesystem_store() {
+            return false;
+        }
+        if self.refresh_cursor_from_store_for_writer().is_err() {
+            return false;
+        }
+        self.recover_read_only().is_ok_and(|recovery| {
+            recovery
+                .installed_echo_operations
+                .iter()
+                .any(|installed| installed.package_id() == package_id)
+        })
+    }
+
+    fn recover_filesystem_executable_operation_tick_after_error(
+        &mut self,
+        receipt_digest: Hash,
+    ) -> bool {
+        if !self.uses_filesystem_store() {
+            return false;
+        }
+        if self.refresh_cursor_from_store_for_writer().is_err() {
+            return false;
+        }
+        self.recover_read_only().is_ok_and(|recovery| {
+            recovery
+                .echo_operation_receipts
+                .iter()
+                .any(|receipt| receipt.digest() == receipt_digest)
+        })
     }
 
     fn record_submission_acceptance(
@@ -1888,6 +2334,100 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.receipt_frontier_digest = next_receipt_frontier;
+        self.runtime_state_frontier_digest = next_runtime_frontier;
+        Ok(commit)
+    }
+
+    fn record_executable_operation_installation(
+        &mut self,
+        retained_installation_bytes: &[u8],
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let installed = recover_installation_v1(retained_installation_bytes)?;
+        let next_catalog_frontier = executable_operation_catalog_frontier_digest(
+            self.executable_operation_catalog_frontier_digest,
+            installed.package_id(),
+            retained_installation_bytes,
+        );
+        let transaction = build_executable_operation_installation_transaction(
+            self.builder(
+                WalTransactionKind::ExecutableOperationInstallation,
+                WalAppendAuthority::RuntimeControl,
+                WalTransactionId::from_hash(executable_operation_installation_transaction_digest(
+                    self.executable_operation_catalog_frontier_digest,
+                    installed.package_id(),
+                    retained_installation_bytes,
+                )),
+            ),
+            retained_installation_bytes.to_vec(),
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::ExecutableOperationCatalog,
+                before_digest: self.executable_operation_catalog_frontier_digest,
+                after_digest: next_catalog_frontier,
+            }],
+        )?;
+        let commit = self.append_transaction(transaction)?;
+        self.executable_operation_catalog_frontier_digest = next_catalog_frontier;
+        Ok(commit)
+    }
+
+    fn record_executable_operation_tick(
+        &mut self,
+        receipt: &EchoOperationReceiptV1,
+        retained_execution_bytes: Vec<u8>,
+        state_delta: &WalRuntimeStateDeltaRecord,
+        state_delta_digest: Hash,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let retained_receipt = recover_committed_execution_receipt_v1(&retained_execution_bytes)?;
+        if &retained_receipt != receipt || state_delta.digest()? != state_delta_digest {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "live operation material disagrees with retained bytes",
+            });
+        }
+        validate_operation_receipt_state_delta(receipt, state_delta)?;
+        let next_receipt_frontier = executable_operation_receipt_frontier_digest(
+            self.executable_operation_receipt_frontier_digest,
+            receipt.digest(),
+        );
+        let entry = state_delta.provenance_entry();
+        let worldline_tick_after = entry
+            .worldline_tick
+            .checked_add(1)
+            .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?;
+        let next_runtime_frontier = runtime_state_frontier_digest_from_fields(
+            self.runtime_state_frontier_digest,
+            entry.expected.commit_hash,
+            state_delta_digest,
+            entry.commit_global_tick,
+            worldline_tick_after,
+        );
+        let transaction = build_executable_operation_tick_transaction(
+            self.builder(
+                WalTransactionKind::ExecutableOperationTick,
+                WalAppendAuthority::ExecutionKernel,
+                WalTransactionId::from_hash(executable_operation_tick_transaction_digest(
+                    self.executable_operation_receipt_frontier_digest,
+                    self.runtime_state_frontier_digest,
+                    receipt.digest(),
+                    state_delta_digest,
+                )),
+            ),
+            retained_execution_bytes,
+            state_delta.to_payload_bytes()?,
+            vec![
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::ExecutableOperationReceiptIndex,
+                    before_digest: self.executable_operation_receipt_frontier_digest,
+                    after_digest: next_receipt_frontier,
+                },
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::RuntimeState,
+                    before_digest: self.runtime_state_frontier_digest,
+                    after_digest: next_runtime_frontier,
+                },
+            ],
+        )?;
+        let commit = self.append_transaction(transaction)?;
+        self.executable_operation_receipt_frontier_digest = next_receipt_frontier;
         self.runtime_state_frontier_digest = next_runtime_frontier;
         Ok(commit)
     }
@@ -2242,6 +2782,8 @@ struct TrustedRuntimeWalCursor {
     submission_frontier_digest: Hash,
     receipt_frontier_digest: Hash,
     runtime_state_frontier_digest: Hash,
+    executable_operation_catalog_frontier_digest: Hash,
+    executable_operation_receipt_frontier_digest: Hash,
     causal_anchor_frontier_digest: Hash,
     causal_history_frontier_digest: Hash,
     causal_anchor_claim_projection: CausalAnchorClaimProjection,
@@ -2265,6 +2807,12 @@ impl TrustedRuntimeWalCursor {
             submission_frontier_digest: trusted_runtime_wal_digest("submission-frontier:genesis"),
             receipt_frontier_digest: trusted_runtime_wal_digest("receipt-frontier:genesis"),
             runtime_state_frontier_digest: trusted_runtime_wal_digest("runtime-frontier:genesis"),
+            executable_operation_catalog_frontier_digest: trusted_runtime_wal_digest(
+                "executable-operation-catalog-frontier:genesis",
+            ),
+            executable_operation_receipt_frontier_digest: trusted_runtime_wal_digest(
+                "executable-operation-receipt-frontier:genesis",
+            ),
             causal_anchor_frontier_digest: causal_anchor_genesis_frontier_digest(),
             causal_history_frontier_digest: causal_history_genesis_frontier_digest(),
             causal_anchor_claim_projection: CausalAnchorClaimProjection::default(),
@@ -2318,6 +2866,63 @@ impl TrustedRuntimeWalCursor {
                             state_delta_digest,
                         ),
                     };
+                }
+                WalTransactionKind::ExecutableOperationInstallation => {
+                    let (installed, retained_bytes) =
+                        operation_installation_from_transaction(transaction)?;
+                    let catalog_before = cursor.executable_operation_catalog_frontier_digest;
+                    let catalog_after = executable_operation_catalog_frontier_digest(
+                        catalog_before,
+                        installed.package_id(),
+                        &retained_bytes,
+                    );
+                    validate_echo_operation_frontier_root(
+                        transaction,
+                        &[AffectedFrontier {
+                            kind: AffectedFrontierKind::ExecutableOperationCatalog,
+                            before_digest: catalog_before,
+                            after_digest: catalog_after,
+                        }],
+                    )?;
+                    cursor.executable_operation_catalog_frontier_digest = catalog_after;
+                }
+                WalTransactionKind::ExecutableOperationTick => {
+                    let (receipt, state_delta, state_delta_digest) =
+                        operation_tick_records_from_transaction(transaction)?;
+                    let receipt_before = cursor.executable_operation_receipt_frontier_digest;
+                    let receipt_after = executable_operation_receipt_frontier_digest(
+                        receipt_before,
+                        receipt.digest(),
+                    );
+                    let entry = state_delta.provenance_entry();
+                    let runtime_before = cursor.runtime_state_frontier_digest;
+                    let runtime_after = runtime_state_frontier_digest_from_fields(
+                        runtime_before,
+                        entry.expected.commit_hash,
+                        state_delta_digest,
+                        entry.commit_global_tick,
+                        entry
+                            .worldline_tick
+                            .checked_add(1)
+                            .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
+                    );
+                    validate_echo_operation_frontier_root(
+                        transaction,
+                        &[
+                            AffectedFrontier {
+                                kind: AffectedFrontierKind::ExecutableOperationReceiptIndex,
+                                before_digest: receipt_before,
+                                after_digest: receipt_after,
+                            },
+                            AffectedFrontier {
+                                kind: AffectedFrontierKind::RuntimeState,
+                                before_digest: runtime_before,
+                                after_digest: runtime_after,
+                            },
+                        ],
+                    )?;
+                    cursor.executable_operation_receipt_frontier_digest = receipt_after;
+                    cursor.runtime_state_frontier_digest = runtime_after;
                 }
                 _ => {}
             }
@@ -2499,6 +3104,215 @@ fn restore_provenance_entries(
     Ok(())
 }
 
+struct RecoveredEchoOperationMaterial {
+    installations: Vec<InstalledEchoOperationV1>,
+    receipts: Vec<EchoOperationReceiptV1>,
+}
+
+fn recover_echo_operation_material(
+    report: &RecoveryScanReport,
+    provenance_entries: &[ProvenanceEntry],
+) -> Result<RecoveredEchoOperationMaterial, TrustedRuntimeWalError> {
+    let mut installations = BTreeMap::new();
+    let mut operations = BTreeMap::new();
+    let mut receipts_by_digest = BTreeMap::new();
+    let mut receipts = Vec::new();
+    let provenance_by_coordinate = provenance_entries
+        .iter()
+        .map(|entry| ((entry.worldline_id, entry.worldline_tick), entry))
+        .collect::<BTreeMap<_, _>>();
+
+    for transaction in &report.transactions {
+        match transaction.commit.transaction_kind {
+            WalTransactionKind::ExecutableOperationInstallation => {
+                let (installed, _) = operation_installation_from_transaction(transaction)?;
+                install_recovered_v1(&mut installations, &mut operations, installed)?;
+            }
+            WalTransactionKind::ExecutableOperationTick => {
+                let (receipt, state_delta, _) =
+                    operation_tick_records_from_transaction(transaction)?;
+                let installed = installations.get(&receipt.package_id()).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "operation receipt precedes its exact package installation",
+                    },
+                )?;
+                validate_receipt_installation_v1(&receipt, installed)?;
+                validate_operation_receipt_state_delta(&receipt, &state_delta)?;
+                validate_operation_receipt_parent_material(
+                    receipt.evaluation_basis(),
+                    state_delta.provenance_entry(),
+                    &provenance_by_coordinate,
+                )?;
+                if receipts_by_digest
+                    .insert(receipt.digest(), transaction.commit.transaction_id)
+                    .is_some()
+                {
+                    return Err(TrustedRuntimeWalError::EchoOperationReceiptConflict {
+                        receipt_digest: receipt.digest(),
+                    });
+                }
+                receipts.push(receipt);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(RecoveredEchoOperationMaterial {
+        installations: installations.into_values().collect(),
+        receipts,
+    })
+}
+
+fn operation_patch_scope_v1(patch: &crate::WorldlineTickPatchV1) -> Option<crate::NodeKey> {
+    let [crate::WarpOp::SetAttachment { key, .. }] = patch.ops.as_slice() else {
+        return None;
+    };
+    let crate::AttachmentOwner::Node(node) = key.owner else {
+        return None;
+    };
+    let attachment_slot = crate::AttachmentKey::node_alpha(node);
+    if *key != attachment_slot
+        || patch.warp_id != node.warp_id
+        || patch.in_slots.as_slice()
+            != [
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment_slot),
+            ]
+        || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
+    {
+        return None;
+    }
+    Some(node)
+}
+
+fn operation_tick_binds_patch_v1(
+    tick_receipt: &crate::TickReceipt,
+    patch: &crate::WorldlineTickPatchV1,
+    expected_rule_id: Hash,
+) -> bool {
+    let Some(expected_scope) = operation_patch_scope_v1(patch) else {
+        return false;
+    };
+    matches!(
+        tick_receipt.entries(),
+        [tick_entry]
+            if patch.rule_pack_id() == expected_rule_id
+                && tick_entry.rule_id == expected_rule_id
+                && tick_entry.scope == expected_scope
+                && tick_entry.scope_hash == crate::scope_hash(&expected_rule_id, &expected_scope)
+                && tick_entry.disposition == crate::TickReceiptDisposition::Applied
+                && tick_receipt.blocked_by(0).is_empty()
+    )
+}
+
+fn validate_operation_receipt_state_delta(
+    receipt: &EchoOperationReceiptV1,
+    state_delta: &WalRuntimeStateDeltaRecord,
+) -> Result<(), TrustedRuntimeWalError> {
+    let entry = state_delta.provenance_entry();
+    let basis = receipt.evaluation_basis();
+    let expected_rule_id = receipt.installed_operation_id().as_hash();
+    let patch_binds_installation = entry.patch.as_ref().is_some_and(|patch| {
+        patch.rule_pack_id() == expected_rule_id
+            && receipt.committed_patch_digest() == Some(patch.patch_digest)
+    });
+    let tick_binds_installation = entry
+        .patch
+        .as_ref()
+        .zip(entry.tick_receipt.as_ref())
+        .is_some_and(|(patch, tick_receipt)| {
+            operation_tick_binds_patch_v1(tick_receipt, patch, expected_rule_id)
+        });
+    let worldline_tick_after = entry
+        .worldline_tick
+        .checked_add(1)
+        .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?;
+    if state_delta.contract().is_some()
+        || entry.event_kind != crate::ProvenanceEventKind::LocalCommit
+        || entry.worldline_id != basis.writer_head().worldline_id
+        || entry.head_key != Some(basis.writer_head())
+        || entry.worldline_tick != basis.worldline_tick()
+        || receipt.tick_receipt_digest() != state_delta.receipt_digest()
+        || entry
+            .tick_receipt
+            .as_ref()
+            .is_none_or(|tick_receipt| tick_receipt.digest() != state_delta.receipt_digest())
+        || !patch_binds_installation
+        || !tick_binds_installation
+        || receipt.commit_id() != entry.expected.commit_hash
+        || receipt.state_root_after() != entry.expected.state_root
+        || receipt.committed_patch_digest() != Some(entry.expected.patch_digest)
+        || receipt.commit_global_tick() != Some(entry.commit_global_tick)
+        || receipt.worldline_tick_after() != worldline_tick_after
+    {
+        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "typed operation receipt disagrees with replayable provenance",
+        });
+    }
+    let parent_matches_basis = if basis.worldline_tick() == crate::WorldlineTick::ZERO {
+        entry.parents.is_empty()
+            && basis.commit_global_tick().is_none()
+            && basis.commit_id()
+                == crate::echo_operation::genesis_commit_id(basis.writer_head(), basis.state_root())
+    } else {
+        let Some(parent_tick) = basis.worldline_tick().as_u64().checked_sub(1) else {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt has an impossible non-genesis basis tick",
+            });
+        };
+        matches!(
+            entry.parents.as_slice(),
+            [parent]
+                if parent.worldline_id == basis.writer_head().worldline_id
+                    && parent.worldline_tick == crate::WorldlineTick::from_raw(parent_tick)
+                    && parent.commit_hash == basis.commit_id()
+        )
+    };
+    if !parent_matches_basis {
+        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "typed operation receipt basis disagrees with provenance parents",
+        });
+    }
+    Ok(())
+}
+
+fn validate_operation_receipt_parent_material(
+    basis: EchoOperationEvaluationBasisV1,
+    entry: &ProvenanceEntry,
+    provenance_by_coordinate: &BTreeMap<
+        (crate::WorldlineId, crate::WorldlineTick),
+        &ProvenanceEntry,
+    >,
+) -> Result<(), TrustedRuntimeWalError> {
+    if basis.worldline_tick() == crate::WorldlineTick::ZERO {
+        return Ok(());
+    }
+    let parent_tick = basis.worldline_tick().as_u64().checked_sub(1).ok_or(
+        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt has an impossible non-genesis basis tick",
+        },
+    )?;
+    let parent_coordinate = (
+        basis.writer_head().worldline_id,
+        crate::WorldlineTick::from_raw(parent_tick),
+    );
+    let parent = provenance_by_coordinate.get(&parent_coordinate).ok_or(
+        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt basis has no retained parent provenance",
+        },
+    )?;
+    let parent_matches_basis = entry.parents.as_slice() == [parent.as_ref()]
+        && parent.expected.state_root == basis.state_root()
+        && parent.expected.commit_hash == basis.commit_id()
+        && basis.commit_global_tick() == Some(parent.commit_global_tick);
+    if !parent_matches_basis {
+        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "operation receipt basis disagrees with retained parent provenance",
+        });
+    }
+    Ok(())
+}
+
 struct RecoveredRuntimeStateMaterial {
     provenance_entries: Vec<ProvenanceEntry>,
     receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
@@ -2513,6 +3327,22 @@ fn recover_runtime_state_delta_material(
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
     for transaction in &report.transactions {
+        if transaction.commit.transaction_kind == WalTransactionKind::ExecutableOperationTick {
+            let (_, state_delta, _) = operation_tick_records_from_transaction(transaction)?;
+            let entry = state_delta.provenance_entry().clone();
+            let coordinate = (entry.worldline_id, entry.worldline_tick);
+            if entries_by_coordinate
+                .get(&coordinate)
+                .is_some_and(|existing| existing != &entry)
+            {
+                return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                    worldline_id: entry.worldline_id,
+                    worldline_tick: entry.worldline_tick,
+                });
+            }
+            entries_by_coordinate.insert(coordinate, entry);
+            continue;
+        }
         if transaction.commit.transaction_kind != WalTransactionKind::SchedulerTick {
             continue;
         }
@@ -2651,6 +3481,53 @@ fn validate_recovered_causal_parent_evidence(
         }
     }
     Ok(())
+}
+
+fn operation_installation_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<(InstalledEchoOperationV1, Vec<u8>), TrustedRuntimeWalError> {
+    let frame = required_unique_transaction_frame(
+        transaction,
+        WalRecordKind::ExecutableOperationPackageInstalled,
+    )?;
+    let retained_bytes = frame.payload.canonical_bytes.clone();
+    let installed = recover_installation_v1(&retained_bytes)?;
+    Ok((installed, retained_bytes))
+}
+
+fn validate_echo_operation_frontier_root(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+    expected_frontiers: &[AffectedFrontier],
+) -> Result<(), TrustedRuntimeWalError> {
+    let expected = affected_frontiers_root(expected_frontiers);
+    let actual = transaction.commit.affected_frontiers_root;
+    if actual != expected {
+        return Err(TrustedRuntimeWalError::EchoOperationFrontierMismatch {
+            transaction_id: transaction.commit.transaction_id.as_hash(),
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn operation_tick_records_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<(EchoOperationReceiptV1, WalRuntimeStateDeltaRecord, Hash), TrustedRuntimeWalError> {
+    let receipt_frame = required_unique_transaction_frame(
+        transaction,
+        WalRecordKind::ExecutableOperationExecutionRecorded,
+    )?;
+    let receipt = recover_committed_execution_receipt_v1(&receipt_frame.payload.canonical_bytes)?;
+    let state_delta_frame = required_unique_transaction_frame(
+        transaction,
+        WalRecordKind::ExecutableOperationStateDeltaRecorded,
+    )?;
+    let state_delta =
+        WalRuntimeStateDeltaRecord::from_payload_bytes(&state_delta_frame.payload.canonical_bytes)?;
+    let state_delta_digest = state_delta.digest()?;
+    validate_operation_receipt_state_delta(&receipt, &state_delta)?;
+    Ok((receipt, state_delta, state_delta_digest))
 }
 
 fn tick_records_from_transaction(
@@ -3300,6 +4177,183 @@ mod tests {
             worldline_id: WorldlineId::from_bytes([9; 32]),
             head_id: crate::make_head_id("runtime-wal-test"),
         }
+    }
+
+    #[test]
+    fn operation_recovery_rejects_uncorroborated_frontier_root() {
+        let expected_frontiers = [AffectedFrontier {
+            kind: AffectedFrontierKind::ExecutableOperationCatalog,
+            before_digest: [1; 32],
+            after_digest: [2; 32],
+        }];
+        let expected = affected_frontiers_root(&expected_frontiers);
+        let actual = [3; 32];
+        let transaction_id = WalTransactionId::from_hash([4; 32]);
+        let transaction = crate::causal_wal::WalRecoveredTransaction {
+            commit: WalTransactionCommit {
+                writer_epoch: WriterEpochId::from_hash([5; 32]),
+                transaction_id,
+                transaction_kind: WalTransactionKind::ExecutableOperationInstallation,
+                first_lsn: Lsn::from_raw(0),
+                last_lsn: Lsn::from_raw(0),
+                record_count: 1,
+                records_root: [6; 32],
+                affected_frontiers_root: actual,
+                previous_committed_transaction_digest: [7; 32],
+                durability_mode: WalDurabilityMode::StrictFilesystem,
+                schema_version: 1,
+                commit_digest: [8; 32],
+            },
+            frames: Vec::new(),
+        };
+
+        assert_eq!(
+            validate_echo_operation_frontier_root(&transaction, &expected_frontiers),
+            Err(TrustedRuntimeWalError::EchoOperationFrontierMismatch {
+                transaction_id: transaction_id.as_hash(),
+                expected,
+                actual,
+            })
+        );
+    }
+
+    #[test]
+    fn operation_recovery_requires_tick_scope_to_bind_the_patch_target() {
+        let node = crate::NodeKey {
+            warp_id: crate::make_warp_id("operation-recovery-scope"),
+            local_id: crate::make_node_id("operation-recovery-target"),
+        };
+        let attachment_slot = crate::AttachmentKey::node_alpha(node);
+        let rule_id = [21; 32];
+        let runtime_patch = crate::WarpTickPatchV1::new(
+            7,
+            rule_id,
+            crate::TickCommitStatus::Committed,
+            vec![
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment_slot),
+            ],
+            vec![crate::SlotId::Attachment(attachment_slot)],
+            vec![crate::WarpOp::SetAttachment {
+                key: attachment_slot,
+                value: None,
+            }],
+        );
+        let patch = crate::WorldlineTickPatchV1 {
+            header: crate::WorldlineTickHeaderV1 {
+                commit_global_tick: GlobalTick::from_raw(1),
+                policy_id: runtime_patch.policy_id(),
+                rule_pack_id: runtime_patch.rule_pack_id(),
+                plan_digest: [22; 32],
+                decision_digest: [23; 32],
+                rewrites_digest: [24; 32],
+            },
+            warp_id: node.warp_id,
+            ops: runtime_patch.ops().to_vec(),
+            in_slots: runtime_patch.in_slots().to_vec(),
+            out_slots: runtime_patch.out_slots().to_vec(),
+            patch_digest: runtime_patch.digest(),
+        };
+        let receipt = |scope, scope_hash| {
+            crate::TickReceipt::new(
+                crate::TxId::from_raw(1),
+                vec![crate::TickReceiptEntry {
+                    rule_id,
+                    scope_hash,
+                    scope,
+                    disposition: crate::TickReceiptDisposition::Applied,
+                }],
+                vec![Vec::new()],
+            )
+        };
+        let valid = receipt(node, crate::scope_hash(&rule_id, &node));
+        assert!(operation_tick_binds_patch_v1(&valid, &patch, rule_id));
+
+        let wrong_scope = crate::NodeKey {
+            warp_id: node.warp_id,
+            local_id: crate::make_node_id("operation-recovery-wrong-scope"),
+        };
+        let self_consistent_wrong_scope =
+            receipt(wrong_scope, crate::scope_hash(&rule_id, &wrong_scope));
+        assert!(!operation_tick_binds_patch_v1(
+            &self_consistent_wrong_scope,
+            &patch,
+            rule_id
+        ));
+
+        let forged_scope_hash = receipt(node, [25; 32]);
+        assert!(!operation_tick_binds_patch_v1(
+            &forged_scope_hash,
+            &patch,
+            rule_id
+        ));
+    }
+
+    #[test]
+    fn operation_recovery_corroborates_non_genesis_parent_basis_material() {
+        let head_key = test_head_key();
+        let parent_state_root = [31; 32];
+        let parent_commit = [32; 32];
+        let parent_global_tick = GlobalTick::from_raw(7);
+        let parent = ProvenanceEntry {
+            worldline_id: head_key.worldline_id,
+            worldline_tick: WorldlineTick::ZERO,
+            commit_global_tick: parent_global_tick,
+            head_key: Some(head_key),
+            parents: Vec::new(),
+            event_kind: crate::ProvenanceEventKind::LocalCommit,
+            expected: crate::HashTriplet {
+                state_root: parent_state_root,
+                patch_digest: [33; 32],
+                commit_hash: parent_commit,
+            },
+            patch: None,
+            tick_receipt: None,
+            outputs: Vec::new(),
+            atom_writes: Vec::new(),
+        };
+        let child = ProvenanceEntry {
+            worldline_id: head_key.worldline_id,
+            worldline_tick: WorldlineTick::from_raw(1),
+            commit_global_tick: GlobalTick::from_raw(8),
+            head_key: Some(head_key),
+            parents: vec![parent.as_ref()],
+            event_kind: crate::ProvenanceEventKind::LocalCommit,
+            expected: crate::HashTriplet {
+                state_root: [34; 32],
+                patch_digest: [35; 32],
+                commit_hash: [36; 32],
+            },
+            patch: None,
+            tick_receipt: None,
+            outputs: Vec::new(),
+            atom_writes: Vec::new(),
+        };
+        let basis = EchoOperationEvaluationBasisV1::new(
+            head_key,
+            WorldlineTick::from_raw(1),
+            Some(parent_global_tick),
+            parent_state_root,
+            parent_commit,
+            EchoOperationApplicationBasisV1::new([37; 32], [38; 32]),
+        );
+        let parent_coordinate = (parent.worldline_id, parent.worldline_tick);
+        assert!(
+            validate_operation_receipt_parent_material(basis, &child, &BTreeMap::new()).is_err()
+        );
+        let provenance = BTreeMap::from([(parent_coordinate, &parent)]);
+        validate_operation_receipt_parent_material(basis, &child, &provenance)
+            .expect("the exact retained parent corroborates every causal basis field");
+
+        let mut wrong_root = parent.clone();
+        wrong_root.expected.state_root = [39; 32];
+        let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
+        assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+
+        let mut wrong_global_tick = parent.clone();
+        wrong_global_tick.commit_global_tick = GlobalTick::from_raw(9);
+        let provenance = BTreeMap::from([(parent_coordinate, &wrong_global_tick)]);
+        assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
     }
 
     fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
@@ -3968,6 +5022,59 @@ fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
     }
 }
 
+fn executable_operation_catalog_frontier_digest(
+    previous: Hash,
+    package_id: crate::EchoOperationPackageIdV1,
+    retained_installation_bytes: &[u8],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"executable-operation-catalog-frontier");
+    hasher.update(&previous);
+    hasher.update(&package_id.as_hash());
+    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
+    hasher.update(retained_installation_bytes);
+    hasher.finalize().into()
+}
+
+fn executable_operation_receipt_frontier_digest(previous: Hash, receipt_digest: Hash) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"executable-operation-receipt-frontier");
+    hasher.update(&previous);
+    hasher.update(&receipt_digest);
+    hasher.finalize().into()
+}
+
+fn executable_operation_installation_transaction_digest(
+    catalog_frontier: Hash,
+    package_id: crate::EchoOperationPackageIdV1,
+    retained_installation_bytes: &[u8],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:executable-operation-installation-transaction:v1\0");
+    hasher.update(&catalog_frontier);
+    hasher.update(&package_id.as_hash());
+    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
+    hasher.update(retained_installation_bytes);
+    hasher.finalize().into()
+}
+
+fn executable_operation_tick_transaction_digest(
+    receipt_frontier: Hash,
+    runtime_state_frontier: Hash,
+    receipt_digest: Hash,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:executable-operation-tick-transaction:v1\0");
+    hasher.update(&receipt_frontier);
+    hasher.update(&runtime_state_frontier);
+    hasher.update(&receipt_digest);
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
 fn runtime_state_frontier_digest(
     previous: Hash,
     correlation: &ReceiptCorrelationRecord,
@@ -4022,6 +5129,8 @@ struct RecoveredRuntimeWalIndexEvidence<'a> {
     provenance_entries: &'a [ProvenanceEntry],
     missing_runtime_state_deltas: &'a [Hash],
     causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
+    installed_echo_operations: &'a [InstalledEchoOperationV1],
+    echo_operation_receipts: &'a [EchoOperationReceiptV1],
 }
 
 fn runtime_wal_recovery_certificate(
@@ -4055,10 +5164,39 @@ fn recovered_runtime_wal_indexes_root(
         indexes.provenance_entries,
         indexes.missing_runtime_state_deltas,
     )?;
-    Ok(recovered_causal_anchor_index_root(
-        runtime_root,
-        indexes.causal_anchor_history,
-    ))
+    let causal_anchor_root =
+        recovered_causal_anchor_index_root(runtime_root, indexes.causal_anchor_history);
+    recovered_echo_operation_index_root(
+        causal_anchor_root,
+        indexes.installed_echo_operations,
+        indexes.echo_operation_receipts,
+    )
+}
+
+fn recovered_echo_operation_index_root(
+    base_root: Hash,
+    installations: &[InstalledEchoOperationV1],
+    receipts: &[EchoOperationReceiptV1],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    if installations.is_empty() && receipts.is_empty() {
+        return Ok(base_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(installations.len() as u64).to_le_bytes());
+    for installed in installations {
+        let bytes = retain_installation_v1(installed)?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    hasher.update(&(receipts.len() as u64).to_le_bytes());
+    for receipt in receipts {
+        let bytes = receipt.to_canonical_bytes()?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().into())
 }
 
 fn recovered_causal_anchor_index_root(

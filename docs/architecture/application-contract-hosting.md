@@ -66,6 +66,7 @@ Current authority for this boundary lives in:
 - [Runtime authority](../topics/RuntimeAuthority.md)
 - [Registry, provider, and host boundary](../adr/0015-registry-provider-host-boundary.md)
 - [Generated rule authorship and footprints](../adr/0014-generated-rule-authorship-and-footprints.md)
+- [Admitted executable operation packages](../adr/0023-admitted-executable-operation-packages.md)
 - [Declarative rule authorship](../invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
 
 ## Ownership Split
@@ -143,6 +144,25 @@ evidence through the shared scheduler and WAL. The current closure is
 mutation-specific; generated reads remain a separate bounded observer/optic
 crossing. Neither compiler path may claim that generated authority facts are
 Echo runtime authority.
+
+The preceding paragraph describes the implemented provider-v1 compatibility
+corridor. [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
+accepts a distinct executable-operation category for new application
+mutations. Echo now implements its first generic runtime slice: package and
+invocation admission, installation of a data-only anchored-attachment program,
+private bounded evaluation, exact-basis singleton commit, typed evidence, WAL,
+and callback-free fresh-host recovery of committed consequences. Noncommitted
+evidence is returned to the caller but does not enter the operation-tick WAL.
+The slice exposes no application
+matcher, executor, or footprint callback. It is not yet emitted by Edict, does
+not implement Jedit `ReplaceRange`, and has no structurally separate target
+verifier or general scheduler batch composition. Provider v1 remains stable
+while consumers migrate; it is not renamed or silently reinterpreted as the
+executable-operation corridor. The program digest supplies executable meaning
+only: it cannot independently confer an operation coordinate, invocability, or
+authority, and Echo cannot install or invoke it naked. The admitted operation
+package binds the public contract and semantic closure to the exact program,
+after which Echo independently admits each invocation.
 
 ## External Edict Provider Artifacts
 
@@ -365,8 +385,11 @@ runtime-owner installer port. The `TrustedRuntimeHost` lower primitive does not
 authenticate package bytes and is not exposed to application code. It creates a
 distinct owned provider record retaining the exact occurrence and reference,
 complete provider registry, and mutation-rule identity, then atomically installs
-provider package, root, operation, and shared scheduler-rule indexes. It invokes
-no callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
+provider package, root, operation, and shared scheduler-rule indexes. Before
+those index changes, the lower primitive runs the same pure structural
+validation used to reconstruct retained provider invocation evidence over the
+package reference, operation coordinate, and Target IR identity. It invokes no
+callbacks and fabricates no legacy Wesley/GraphQL metadata or evidence.
 Those separation laws continue after installation. A trusted host may admit a
 previously witnessed provider submission only when its outer intent kind is the
 exact canonical EINT v1 domain and its encoded operation id names the installed

@@ -23,6 +23,7 @@ rustc-hash = "2.1.1"
 echo-wasm-abi = { workspace = true }
 echo-runtime-schema = { workspace = true }
 echo-registry-api = { workspace = true }
+echo-edict-canonical = { workspace = true }
 warp-math = { workspace = true }
 
 [dev-dependencies]
@@ -90,6 +91,10 @@ required-features = ["native_rule_bootstrap", "host_test"]
 
 [[test]]
 name = "provider_contract_admission_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "executable_operation_pipeline_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [build-dependencies]

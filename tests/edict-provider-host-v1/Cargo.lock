@@ -422,6 +422,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-edict-canonical"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "sha2",
+]
+
+[[package]]
 name = "echo-edict-provider-host-v1-witness"
 version = "0.0.0"
 dependencies = [
@@ -1202,6 +1210,7 @@ dependencies = [
  "blake3",
  "bytemuck",
  "bytes",
+ "echo-edict-canonical",
  "echo-registry-api",
  "echo-runtime-schema",
  "echo-wasm-abi",

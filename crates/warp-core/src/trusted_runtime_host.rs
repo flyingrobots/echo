@@ -42,13 +42,14 @@ use crate::{
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
-        action_application_basis_matches_state_v1,
-        action_batch_composition_digest_from_receipts_v1, admit_action_invocation_v1,
-        admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
-        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
-        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
-        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
-        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
+        action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
+        action_batch_composition_digest_from_receipts_v1, action_preparation_identity_matches_v1,
+        admit_action_invocation_v1, admit_invocation_v1, admit_package_v1,
+        commit_prepared_to_state, decode_invocation_route_v1,
+        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
+        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
+        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
+        operation_descent_stack, prepare_operation_v1, reconstruct_action_preparation_v1,
         recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
         retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
         validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
@@ -496,6 +497,48 @@ impl TrustedRuntimeWalRecovery {
     ) {
         self.echo_operation_action_installations_before_tick
             .remove(&submission_id);
+    }
+
+    /// Replaces one rejected preparation identity for adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_conflict_preparation_for_test(
+        &mut self,
+        submission_id: Hash,
+        digest: Hash,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(candidate, _, _)| *candidate == submission_id)
+        {
+            outcome.replace_conflict_preparation_id_for_test(digest);
+        }
+    }
+
+    /// Replaces one retained conflict's blockers for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_conflict_blockers_for_test(
+        &mut self,
+        submission_id: Hash,
+        replacement: Vec<u32>,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(retained_submission_id, _, _)| *retained_submission_id == submission_id)
+        {
+            outcome.replace_conflict_blockers_for_test(replacement);
+        }
+    }
+
+    /// Re-runs activation-time Action parent-state checks for adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn validate_echo_operation_parent_states_for_test(
+        &self,
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_parent_states(runtime, provenance, self)
     }
 
     /// Recomputes the certificate's canonical index root from recovered evidence.
@@ -3817,7 +3860,22 @@ fn validate_recovered_echo_operation_parent_states(
         .iter()
         .map(|correlation| (correlation.submission_id, correlation))
         .collect::<BTreeMap<_, _>>();
-    for (submission_id, _, outcome) in &recovery.echo_operation_action_outcomes {
+    let outcomes = recovery
+        .echo_operation_action_outcomes
+        .iter()
+        .map(|(submission_id, _, outcome)| (*submission_id, outcome))
+        .collect::<BTreeMap<_, _>>();
+    let mut reconstructed_preparations = BTreeMap::new();
+    let mut action_tick_members = BTreeMap::<
+        (
+            crate::WriterHeadKey,
+            crate::WorldlineTick,
+            crate::GlobalTick,
+            Hash,
+        ),
+        Vec<(Hash, Hash)>,
+    >::new();
+    for (submission_id, ingress_id, outcome) in &recovery.echo_operation_action_outcomes {
         let submission = submissions.get(submission_id).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action outcome has no retained submission",
@@ -3882,6 +3940,136 @@ fn validate_recovered_echo_operation_parent_states(
             return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action basis posture disagrees with the scheduler Tick parent",
             });
+        }
+        let transition = entries.get(&(worldline_id, tick_before)).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no recovered scheduler transition",
+            },
+        )?;
+        let policy_id = transition
+            .patch
+            .as_ref()
+            .map(crate::WorldlineTickPatchV1::policy_id)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome scheduler transition has no retained patch",
+            })?;
+        let reconstructed = match outcome {
+            EchoOperationActionOutcomeV1::Committed(receipt) => {
+                let prepared = reconstruct_action_preparation_v1(
+                    installed,
+                    invocation_bytes,
+                    receipt.retained_invocation_admission_maximum_budget(),
+                    receipt.retained_invocation_admission_policy_id(),
+                    receipt.invocation_admission_id(),
+                    &basis_state,
+                    policy_id,
+                )
+                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "committed Action preparation cannot be reconstructed",
+                })?;
+                if prepared.package_id() != receipt.package_id()
+                    || prepared.installed_operation_id() != receipt.installed_operation_id()
+                    || prepared.invocation_id() != receipt.invocation_id()
+                    || prepared.evaluation_basis().identity() != receipt.evaluation_basis_id()
+                    || prepared.private_evaluation_id() != receipt.private_evaluation_id()
+                    || prepared.prepared_patch_digest() != receipt.prepared_patch_digest()
+                    || prepared.result_id() != receipt.prepared_result_id()
+                    || prepared.actual_footprint_digest() != receipt.actual_footprint_digest()
+                    || prepared.preparation_id() != receipt.preparation_id()
+                {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail:
+                            "committed Action evidence disagrees with reconstructed preparation",
+                    });
+                }
+                Some(prepared)
+            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                let prepared = reconstruct_action_preparation_v1(
+                    installed,
+                    invocation_bytes,
+                    conflict.invocation_admission_maximum_budget,
+                    conflict.invocation_admission_policy_id,
+                    conflict.invocation_admission_id,
+                    &basis_state,
+                    policy_id,
+                )
+                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action preparation cannot be reconstructed",
+                })?;
+                if prepared.package_id() != conflict.package_id
+                    || prepared.installed_operation_id() != conflict.installed_operation_id
+                    || prepared.invocation_id() != conflict.invocation_id
+                    || prepared.evaluation_basis().identity() != conflict.evaluation_basis_id
+                    || prepared.private_evaluation_id() != conflict.private_evaluation_id
+                    || prepared.prepared_patch_digest() != conflict.prepared_patch_digest
+                    || prepared.result_id() != conflict.prepared_result_id
+                    || prepared.actual_footprint_digest() != conflict.actual_footprint_digest
+                    || prepared.preparation_id() != conflict.preparation_id
+                {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "conflict evidence disagrees with reconstructed preparation",
+                    });
+                }
+                Some(prepared)
+            }
+            EchoOperationActionOutcomeV1::Obstructed(_) => None,
+        };
+        if let Some(prepared) = reconstructed {
+            reconstructed_preparations.insert(*submission_id, prepared);
+        }
+        action_tick_members
+            .entry((
+                correlation.head_key,
+                correlation.worldline_tick_after,
+                correlation.commit_global_tick,
+                correlation.commit_hash,
+            ))
+            .or_default()
+            .push((*ingress_id, *submission_id));
+    }
+    for (_, mut members) in action_tick_members {
+        members.sort_by_key(|(ingress_id, _)| *ingress_id);
+        for (index, (_, submission_id)) in members.iter().enumerate() {
+            let Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) =
+                outcomes.get(submission_id)
+            else {
+                continue;
+            };
+            let candidate = reconstructed_preparations.get(submission_id).ok_or(
+                TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action has no reconstructed preparation",
+                },
+            )?;
+            let mut expected_blockers = Vec::new();
+            for (earlier_index, (_, earlier_submission_id)) in members[..index].iter().enumerate() {
+                if !matches!(
+                    outcomes.get(earlier_submission_id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ) {
+                    continue;
+                }
+                let earlier = reconstructed_preparations
+                    .get(earlier_submission_id)
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "committed Action has no reconstructed preparation",
+                    })?;
+                if crate::engine_impl::footprints_conflict(
+                    candidate.actual_footprint(),
+                    earlier.actual_footprint(),
+                ) {
+                    expected_blockers.push(u32::try_from(earlier_index).map_err(|_| {
+                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "Action Tick has too many members to index",
+                        }
+                    })?);
+                }
+            }
+            if expected_blockers != conflict.blocked_by {
+                return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action blockers disagree with reconstructed footprints",
+                });
+            }
         }
     }
     Ok(())
@@ -4325,7 +4513,9 @@ fn validate_recovered_echo_operation_action_outcomes(
             EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
                 Some(obstruction.invocation_admission_id())
             }
-            EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => None,
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                Some(conflict.invocation_admission_id)
+            }
         };
         if correlation.ticket_digest != correlation.causal_receipt_ref.ticket_digest
             || invocation_admission_id.is_some_and(|admission_id| {
@@ -4366,16 +4556,29 @@ fn validate_recovered_echo_operation_action_outcomes(
                     return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                 }
             }
-            EchoOperationActionOutcomeV1::RejectedFootprintConflict {
-                installed_operation_id,
-                invocation_id,
-                blocked_by,
-                ..
-            } => {
-                if *installed_operation_id != installed.installed_operation_id()
-                    || blocked_by.is_empty()
-                    || blocked_by.windows(2).any(|pair| pair[0] >= pair[1])
-                    || *invocation_id != invocation.invocation_id
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                if conflict.package_id != invocation.package_id
+                    || conflict.installed_operation_id != installed.installed_operation_id()
+                    || !action_admission_evidence_matches_v1(
+                        installed,
+                        invocation_bytes,
+                        conflict.invocation_admission_maximum_budget,
+                        conflict.invocation_admission_policy_id,
+                        conflict.invocation_admission_id,
+                    )
+                    || conflict.evaluation_basis_id != invocation.evaluation_basis.identity()
+                    || !action_preparation_identity_matches_v1(
+                        conflict.private_evaluation_id,
+                        conflict.prepared_patch_digest,
+                        conflict.prepared_result_id,
+                        conflict.preparation_id,
+                    )
+                    || conflict.blocked_by.is_empty()
+                    || conflict
+                        .blocked_by
+                        .windows(2)
+                        .any(|pair| pair[0] >= pair[1])
+                    || conflict.invocation_id != invocation.invocation_id
                 {
                     return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                 }
@@ -4408,7 +4611,7 @@ fn validate_recovered_echo_operation_action_outcomes(
             .filter_map(|(_, outcome, _, _)| match outcome {
                 EchoOperationActionOutcomeV1::Committed(receipt) => Some(receipt.as_ref()),
                 EchoOperationActionOutcomeV1::Obstructed(_)
-                | EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => None,
+                | EchoOperationActionOutcomeV1::RejectedFootprintConflict(_) => None,
             })
             .collect::<Vec<_>>();
         if !committed_receipts.is_empty() {
@@ -4464,15 +4667,11 @@ fn validate_recovered_echo_operation_action_outcomes(
                         return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                     }
                 }
-                EchoOperationActionOutcomeV1::RejectedFootprintConflict {
-                    installed_operation_id,
-                    blocked_by,
-                    ..
-                } => {
+                EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
                     if tick_entry.disposition
                         != TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
-                        || tick_entry.rule_id != installed_operation_id.as_hash()
-                        || blockers != blocked_by
+                        || tick_entry.rule_id != conflict.installed_operation_id.as_hash()
+                        || blockers != conflict.blocked_by
                     {
                         return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                     }
@@ -4487,7 +4686,7 @@ fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) 
     match outcome {
         EchoOperationActionOutcomeV1::Committed(_) => WalTickDecision::Applied,
         EchoOperationActionOutcomeV1::Obstructed(_) => WalTickDecision::Obstructed,
-        EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => {
+        EchoOperationActionOutcomeV1::RejectedFootprintConflict(_) => {
             WalTickDecision::RejectedFootprintConflict
         }
     }

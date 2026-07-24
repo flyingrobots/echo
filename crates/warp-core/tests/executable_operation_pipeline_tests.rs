@@ -3541,6 +3541,88 @@ fn recovery_separates_identical_commits_on_distinct_worldlines() {
 }
 
 #[test]
+fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
+    let wal_dir = TempWalDir::new();
+    let conflict_submission_id;
+
+    {
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the footprint-conflict fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let mut submission_ids = Vec::new();
+        for replacement in [b"after-a".as_slice(), b"after-b".as_slice()] {
+            let invocation =
+                action_invocation(&host, &installed, head_key, node, b"before", replacement);
+            let envelope = warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                invocation,
+            )
+            .expect("the conflicting invocation becomes an Action");
+            submission_ids.push(
+                host.app()
+                    .submit_intent_with_runtime_wal_ack(envelope)
+                    .expect("the conflicting Action is durable")
+                    .submission_id,
+            );
+        }
+
+        let steps = host
+            .tick_once()
+            .expect("the scheduler lawfully classifies the footprint conflict");
+        assert_eq!(steps.len(), 1);
+        conflict_submission_id = submission_ids
+            .into_iter()
+            .find(|submission_id| {
+                matches!(
+                    host.echo_operation_action_outcome_v1(submission_id),
+                    Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(_))
+                )
+            })
+            .expect("exactly one Action is rejected by the earlier applied footprint");
+
+        let mut adversarial = host
+            .runtime_wal()
+            .expect("the conflict WAL remains enabled")
+            .recover_read_only()
+            .expect("the honest conflict batch recovers");
+        adversarial.replace_echo_operation_action_conflict_preparation_for_test(
+            conflict_submission_id,
+            digest("forged-conflict-preparation"),
+        );
+        assert!(matches!(
+            adversarial.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
+        let mut false_conflict = host
+            .runtime_wal()
+            .expect("the conflict WAL remains enabled")
+            .recover_read_only()
+            .expect("the honest conflict batch recovers again");
+        false_conflict.replace_echo_operation_action_conflict_blockers_for_test(
+            conflict_submission_id,
+            Vec::new(),
+        );
+        assert!(matches!(
+            false_conflict
+                .validate_echo_operation_parent_states_for_test(host.runtime(), host.provenance()),
+            Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+        ));
+    }
+
+    let (mut recovered, _, _) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh-host recovery reconstructs the honest footprint conflict");
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&conflict_submission_id),
+        Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(_))
+    ));
+}
+
+#[test]
 fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     let wal_dir = TempWalDir::new();
     let submission_id;

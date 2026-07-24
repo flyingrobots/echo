@@ -84,7 +84,7 @@ const ACTION_BATCH_RULE_PACK_DOMAIN: &[u8] = b"echo:operation-action-batch-rule-
 const ACTION_BATCH_PLAN_DOMAIN: &[u8] = b"echo:operation-action-batch-plan:v1\0";
 const ACTION_BATCH_REWRITES_DOMAIN: &[u8] = b"echo:operation-action-batch-rewrites:v1\0";
 const ACTION_BATCH_COMPOSITION_DOMAIN: &[u8] = b"echo:operation-action-batch-composition:v1\0";
-const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT001";
+const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT002";
 const INVOCATION_BYTES_DIGEST_DOMAIN: &[u8] = b"echo:operation-invocation-bytes:v1\0";
 const BASIS_ID_DOMAIN: &[u8] = b"echo:operation-evaluation-basis:v1\0";
 const PACKAGE_ADMISSION_ID_DOMAIN: &[u8] = b"echo:operation-package-admission:v1\0";
@@ -2556,6 +2556,98 @@ pub(crate) fn action_application_basis_matches_state_v1(
         == invocation.evaluation_basis.application_basis)
 }
 
+pub(crate) fn action_admission_evidence_matches_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    maximum_budget: EchoOperationBudgetV1,
+    expected_policy_id: Hash,
+    expected_admission_id: EchoOperationInvocationAdmissionIdV1,
+) -> bool {
+    let Ok(invocation) =
+        EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+    else {
+        return false;
+    };
+    let policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        installed.authority_profile_identity,
+        invocation.authority_grant_identity,
+        maximum_budget,
+    );
+    let policy_id = policy.identity();
+    policy_id == expected_policy_id
+        && invocation_admission_id(
+            installed.installed_operation_id,
+            EchoOperationInvocationIdV1(domain_hash(
+                INVOCATION_ID_DOMAIN,
+                canonical_invocation_bytes,
+            )),
+            policy_id,
+            invocation.evaluation_basis.identity(),
+        ) == expected_admission_id
+}
+
+pub(crate) fn action_preparation_identity_matches_v1(
+    private_evaluation_id: EchoOperationPrivateEvaluationIdV1,
+    prepared_patch_digest: Hash,
+    prepared_result_id: EchoOperationResultIdV1,
+    expected_preparation_id: PreparedEchoOperationIdV1,
+) -> bool {
+    preparation_id(
+        private_evaluation_id,
+        prepared_patch_digest,
+        prepared_result_id,
+    ) == expected_preparation_id
+}
+
+pub(crate) fn reconstruct_action_preparation_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    maximum_budget: EchoOperationBudgetV1,
+    expected_policy_id: Hash,
+    expected_admission_id: EchoOperationInvocationAdmissionIdV1,
+    state: &WorldlineState,
+    policy_id: u32,
+) -> Option<Box<PreparedEchoOperationV1>> {
+    if !action_admission_evidence_matches_v1(
+        installed,
+        canonical_invocation_bytes,
+        maximum_budget,
+        expected_policy_id,
+        expected_admission_id,
+    ) {
+        return None;
+    }
+    let invocation =
+        EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).ok()?;
+    let policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        installed.authority_profile_identity,
+        invocation.authority_grant_identity,
+        maximum_budget,
+    );
+    let authority = EchoOperationEvaluationAuthorityV1::new();
+    let admitted = admit_action_invocation_v1(
+        Some(installed),
+        policy,
+        canonical_invocation_bytes,
+        authority.clone(),
+    )
+    .ok()?;
+    if admitted.admission_id() != expected_admission_id {
+        return None;
+    }
+    match prepare_operation_v1(
+        Some(installed),
+        admitted,
+        invocation.evaluation_basis,
+        state,
+        policy_id,
+        &authority,
+    ) {
+        EchoOperationPreparationV1::Prepared(prepared) => Some(prepared),
+        EchoOperationPreparationV1::Obstructed(_) => None,
+    }
+}
+
 pub(crate) fn decode_invocation_route_v1(
     canonical_invocation_bytes: &[u8],
 ) -> Result<
@@ -2721,6 +2813,119 @@ impl EchoOperationObstructionV1 {
     }
 }
 
+/// Complete retained evidence for a privately prepared Action rejected during
+/// scheduler composition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EchoOperationFootprintConflictV1 {
+    /// Exact installed package which admitted the rejected preparation.
+    pub(crate) package_id: EchoOperationPackageIdV1,
+    /// Exact installed operation whose prepared consequence conflicted.
+    pub(crate) installed_operation_id: InstalledEchoOperationIdV1,
+    /// Runtime policy identity used to admit the rejected invocation.
+    pub(crate) invocation_admission_policy_id: Hash,
+    /// Runtime policy ceiling used to admit the rejected invocation.
+    pub(crate) invocation_admission_maximum_budget: EchoOperationBudgetV1,
+    /// Exact invocation admission consumed by private evaluation.
+    pub(crate) invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
+    /// Exact canonical invocation whose prepared consequence conflicted.
+    pub(crate) invocation_id: EchoOperationInvocationIdV1,
+    /// Exact evaluation basis consumed by private evaluation.
+    pub(crate) evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+    /// Exact private-evaluation identity produced before composition.
+    pub(crate) private_evaluation_id: EchoOperationPrivateEvaluationIdV1,
+    /// Exact prepared patch identity produced before composition.
+    pub(crate) prepared_patch_digest: Hash,
+    /// Exact prepared result identity produced before composition.
+    pub(crate) prepared_result_id: EchoOperationResultIdV1,
+    /// Exact actual footprint observed during private evaluation.
+    pub(crate) actual_footprint_digest: Hash,
+    /// Identity of the privately prepared candidate that was not applied.
+    pub(crate) preparation_id: PreparedEchoOperationIdV1,
+    /// Canonical indices of earlier applied Tick members that blocked it.
+    pub(crate) blocked_by: Vec<u32>,
+}
+
+impl EchoOperationFootprintConflictV1 {
+    /// Returns the exact package which admitted the rejected preparation.
+    #[must_use]
+    pub const fn package_id(&self) -> EchoOperationPackageIdV1 {
+        self.package_id
+    }
+
+    /// Returns the installed operation whose prepared consequence conflicted.
+    #[must_use]
+    pub const fn installed_operation_id(&self) -> InstalledEchoOperationIdV1 {
+        self.installed_operation_id
+    }
+
+    /// Returns the runtime policy identity used to admit the invocation.
+    #[must_use]
+    pub const fn invocation_admission_policy_id(&self) -> Hash {
+        self.invocation_admission_policy_id
+    }
+
+    /// Returns the runtime policy ceiling used to admit the invocation.
+    #[must_use]
+    pub const fn invocation_admission_maximum_budget(&self) -> EchoOperationBudgetV1 {
+        self.invocation_admission_maximum_budget
+    }
+
+    /// Returns the invocation-admission evidence consumed by evaluation.
+    #[must_use]
+    pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
+        self.invocation_admission_id
+    }
+
+    /// Returns the exact canonical invocation which was privately evaluated.
+    #[must_use]
+    pub const fn invocation_id(&self) -> EchoOperationInvocationIdV1 {
+        self.invocation_id
+    }
+
+    /// Returns the exact private-evaluation basis identity.
+    #[must_use]
+    pub const fn evaluation_basis_id(&self) -> EchoOperationEvaluationBasisIdV1 {
+        self.evaluation_basis_id
+    }
+
+    /// Returns the bounded private-evaluation identity.
+    #[must_use]
+    pub const fn private_evaluation_id(&self) -> EchoOperationPrivateEvaluationIdV1 {
+        self.private_evaluation_id
+    }
+
+    /// Returns the rejected preparation's patch digest.
+    #[must_use]
+    pub const fn prepared_patch_digest(&self) -> Hash {
+        self.prepared_patch_digest
+    }
+
+    /// Returns the rejected preparation's typed result identity.
+    #[must_use]
+    pub const fn prepared_result_id(&self) -> EchoOperationResultIdV1 {
+        self.prepared_result_id
+    }
+
+    /// Returns the evaluator-recorded actual-footprint identity.
+    #[must_use]
+    pub const fn actual_footprint_digest(&self) -> Hash {
+        self.actual_footprint_digest
+    }
+
+    /// Returns the complete rejected preparation's identity.
+    #[must_use]
+    pub const fn preparation_id(&self) -> PreparedEchoOperationIdV1 {
+        self.preparation_id
+    }
+
+    /// Returns canonical indices of earlier applied Tick members which blocked
+    /// this preparation.
+    #[must_use]
+    pub fn blocked_by(&self) -> &[u32] {
+        &self.blocked_by
+    }
+}
+
 /// Typed terminal outcome for one executable-operation Action selected by a
 /// scheduler-owned Tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2731,16 +2936,23 @@ pub enum EchoOperationActionOutcomeV1 {
     Obstructed(EchoOperationObstructionV1),
     /// An earlier applied Action in the same Tick reserved an overlapping
     /// footprint.
-    RejectedFootprintConflict {
-        /// Exact installed operation whose prepared consequence conflicted.
-        installed_operation_id: InstalledEchoOperationIdV1,
-        /// Exact canonical invocation whose prepared consequence conflicted.
-        invocation_id: EchoOperationInvocationIdV1,
-        /// Identity of the privately prepared candidate that was not applied.
-        preparation_id: PreparedEchoOperationIdV1,
-        /// Canonical indices of earlier applied Tick members that blocked it.
-        blocked_by: Vec<u32>,
-    },
+    RejectedFootprintConflict(Box<EchoOperationFootprintConflictV1>),
+}
+
+impl EchoOperationActionOutcomeV1 {
+    #[cfg(any(test, feature = "host_test"))]
+    pub(crate) fn replace_conflict_preparation_id_for_test(&mut self, digest: Hash) {
+        if let Self::RejectedFootprintConflict(conflict) = self {
+            conflict.preparation_id = PreparedEchoOperationIdV1(digest);
+        }
+    }
+
+    #[cfg(any(test, feature = "host_test"))]
+    pub(crate) fn replace_conflict_blockers_for_test(&mut self, replacement: Vec<u32>) {
+        if let Self::RejectedFootprintConflict(conflict) = self {
+            conflict.blocked_by = replacement;
+        }
+    }
 }
 
 pub(crate) fn retain_action_outcome_v1(
@@ -2770,20 +2982,41 @@ pub(crate) fn retain_action_outcome_v1(
             out.extend_from_slice(&obstruction.invocation_id.as_hash());
             out.extend_from_slice(&obstruction.evaluation_basis_id.as_hash());
         }
-        EchoOperationActionOutcomeV1::RejectedFootprintConflict {
-            installed_operation_id,
-            invocation_id,
-            preparation_id,
-            blocked_by,
-        } => {
+        EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
             out.push(3);
-            out.extend_from_slice(&installed_operation_id.as_hash());
-            out.extend_from_slice(&invocation_id.as_hash());
-            out.extend_from_slice(&preparation_id.as_hash());
-            let blocker_count = u64::try_from(blocked_by.len())
+            out.extend_from_slice(&conflict.package_id.as_hash());
+            out.extend_from_slice(&conflict.installed_operation_id.as_hash());
+            out.extend_from_slice(&conflict.invocation_admission_policy_id);
+            out.extend_from_slice(
+                &conflict
+                    .invocation_admission_maximum_budget
+                    .steps
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &conflict
+                    .invocation_admission_maximum_budget
+                    .read_bytes
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &conflict
+                    .invocation_admission_maximum_budget
+                    .write_bytes
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(&conflict.invocation_admission_id.as_hash());
+            out.extend_from_slice(&conflict.invocation_id.as_hash());
+            out.extend_from_slice(&conflict.evaluation_basis_id.as_hash());
+            out.extend_from_slice(&conflict.private_evaluation_id.as_hash());
+            out.extend_from_slice(&conflict.prepared_patch_digest);
+            out.extend_from_slice(&conflict.prepared_result_id.as_hash());
+            out.extend_from_slice(&conflict.actual_footprint_digest);
+            out.extend_from_slice(&conflict.preparation_id.as_hash());
+            let blocker_count = u64::try_from(conflict.blocked_by.len())
                 .map_err(|_| invalid_structure("Action blocker count is not representable"))?;
             out.extend_from_slice(&blocker_count.to_le_bytes());
-            for blocker in blocked_by {
+            for blocker in &conflict.blocked_by {
                 out.extend_from_slice(&blocker.to_le_bytes());
             }
         }
@@ -2851,10 +3084,28 @@ pub(crate) fn recover_action_outcome_v1(
             })
         }
         3 => {
+            let package_id =
+                EchoOperationPackageIdV1(read_action_outcome_hash(bytes, &mut offset)?);
             let installed_operation_id =
                 InstalledEchoOperationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let invocation_admission_policy_id = read_action_outcome_hash(bytes, &mut offset)?;
+            let invocation_admission_maximum_budget = EchoOperationBudgetV1 {
+                steps: read_action_outcome_u64(bytes, &mut offset)?,
+                read_bytes: read_action_outcome_u64(bytes, &mut offset)?,
+                write_bytes: read_action_outcome_u64(bytes, &mut offset)?,
+            };
+            let invocation_admission_id =
+                EchoOperationInvocationAdmissionIdV1(read_action_outcome_hash(bytes, &mut offset)?);
             let invocation_id =
                 EchoOperationInvocationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let evaluation_basis_id =
+                EchoOperationEvaluationBasisIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let private_evaluation_id =
+                EchoOperationPrivateEvaluationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let prepared_patch_digest = read_action_outcome_hash(bytes, &mut offset)?;
+            let prepared_result_id =
+                EchoOperationResultIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let actual_footprint_digest = read_action_outcome_hash(bytes, &mut offset)?;
             let preparation_id =
                 PreparedEchoOperationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
             let blocker_count = read_action_outcome_u64(bytes, &mut offset)?;
@@ -2879,12 +3130,23 @@ pub(crate) fn recover_action_outcome_v1(
                 offset = end;
                 blocked_by.push(u32::from_le_bytes(raw));
             }
-            EchoOperationActionOutcomeV1::RejectedFootprintConflict {
-                installed_operation_id,
-                invocation_id,
-                preparation_id,
-                blocked_by,
-            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(Box::new(
+                EchoOperationFootprintConflictV1 {
+                    package_id,
+                    installed_operation_id,
+                    invocation_admission_policy_id,
+                    invocation_admission_maximum_budget,
+                    invocation_admission_id,
+                    invocation_id,
+                    evaluation_basis_id,
+                    private_evaluation_id,
+                    prepared_patch_digest,
+                    prepared_result_id,
+                    actual_footprint_digest,
+                    preparation_id,
+                    blocked_by,
+                },
+            ))
         }
         _ => {
             return Err(invalid_structure(
@@ -3017,6 +3279,14 @@ impl PreparedEchoOperationV1 {
         self.invocation_admission_id
     }
 
+    pub(crate) const fn invocation_admission_policy_id(&self) -> Hash {
+        self.invocation_admission_policy_id
+    }
+
+    pub(crate) const fn invocation_admission_maximum_budget(&self) -> EchoOperationBudgetV1 {
+        self.invocation_admission_maximum_budget
+    }
+
     /// Returns the declared-footprint identity bound by evaluation.
     #[must_use]
     pub const fn declared_footprint_digest(&self) -> Hash {
@@ -3057,6 +3327,10 @@ impl PreparedEchoOperationV1 {
     #[must_use]
     pub const fn result_id(&self) -> EchoOperationResultIdV1 {
         self.result_id
+    }
+
+    pub(crate) fn prepared_patch_digest(&self) -> Hash {
+        self.patch.digest()
     }
 
     pub(crate) const fn package_id(&self) -> EchoOperationPackageIdV1 {
@@ -3485,6 +3759,16 @@ impl EchoOperationReceiptV1 {
     #[must_use]
     pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
         self.invocation_admission_id
+    }
+
+    pub(crate) const fn retained_invocation_admission_policy_id(&self) -> Hash {
+        self.invocation_admission_policy_id
+    }
+
+    pub(crate) const fn retained_invocation_admission_maximum_budget(
+        &self,
+    ) -> EchoOperationBudgetV1 {
+        self.invocation_admission_maximum_budget
     }
 
     /// Returns the bounded private-evaluation identity.
@@ -4183,12 +4467,7 @@ pub(crate) struct EchoOperationActionBatchCommitMaterialV1 {
 enum SchedulerEchoOperationDecisionV1 {
     Applied(Box<PreparedEchoOperationV1>),
     Obstructed(EchoOperationObstructionV1),
-    RejectedFootprintConflict {
-        installed_operation_id: InstalledEchoOperationIdV1,
-        invocation_id: EchoOperationInvocationIdV1,
-        preparation_id: PreparedEchoOperationIdV1,
-        blocked_by: Vec<u32>,
-    },
+    RejectedFootprintConflict(Box<EchoOperationFootprintConflictV1>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -4296,12 +4575,25 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     blocked_by.push(blockers.clone());
                     decisions.push((
                         candidate.submission_id,
-                        SchedulerEchoOperationDecisionV1::RejectedFootprintConflict {
-                            installed_operation_id: prepared.installed_operation_id(),
-                            invocation_id: prepared.invocation_id(),
-                            preparation_id: prepared.preparation_id(),
-                            blocked_by: blockers,
-                        },
+                        SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(Box::new(
+                            EchoOperationFootprintConflictV1 {
+                                package_id: prepared.package_id(),
+                                installed_operation_id: prepared.installed_operation_id(),
+                                invocation_admission_policy_id: prepared
+                                    .invocation_admission_policy_id(),
+                                invocation_admission_maximum_budget: prepared
+                                    .invocation_admission_maximum_budget(),
+                                invocation_admission_id: prepared.invocation_admission_id(),
+                                invocation_id: prepared.invocation_id(),
+                                evaluation_basis_id: prepared.evaluation_basis().identity(),
+                                private_evaluation_id: prepared.private_evaluation_id(),
+                                prepared_patch_digest: prepared.prepared_patch_digest(),
+                                prepared_result_id: prepared.result_id(),
+                                actual_footprint_digest: prepared.actual_footprint_digest(),
+                                preparation_id: prepared.preparation_id(),
+                                blocked_by: blockers,
+                            },
+                        )),
                     ));
                 }
             }
@@ -4324,7 +4616,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         .filter_map(|(_, decision)| match decision {
             SchedulerEchoOperationDecisionV1::Applied(prepared) => Some(prepared.as_ref()),
             SchedulerEchoOperationDecisionV1::Obstructed(_)
-            | SchedulerEchoOperationDecisionV1::RejectedFootprintConflict { .. } => None,
+            | SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(_) => None,
         })
         .collect::<Vec<_>>();
     let rewrites_digest = action_batch_rewrites_digest(&applied);
@@ -4384,17 +4676,9 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                 SchedulerEchoOperationDecisionV1::Obstructed(obstruction) => {
                     EchoOperationActionOutcomeV1::Obstructed(obstruction)
                 }
-                SchedulerEchoOperationDecisionV1::RejectedFootprintConflict {
-                    installed_operation_id,
-                    invocation_id,
-                    preparation_id,
-                    blocked_by,
-                } => EchoOperationActionOutcomeV1::RejectedFootprintConflict {
-                    installed_operation_id,
-                    invocation_id,
-                    preparation_id,
-                    blocked_by,
-                },
+                SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(conflict) => {
+                    EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)
+                }
             };
             (submission_id, outcome)
         })

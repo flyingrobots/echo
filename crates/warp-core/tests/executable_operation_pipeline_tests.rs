@@ -2842,6 +2842,19 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             missing_installation.validate_echo_operation_action_outcomes_for_test(),
             Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
         ));
+        let mut forged_composition = adversarial.clone();
+        let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(_, _, outcome)| matches!(outcome, EchoOperationActionOutcomeV1::Committed(_)))
+        else {
+            panic!("the recovered composite Tick retains one committed Action receipt");
+        };
+        receipt.replace_composition_digest_for_test(digest("forged-composition"));
+        assert!(matches!(
+            forged_composition.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
         assert!(
             adversarial
                 .echo_operation_action_outcomes

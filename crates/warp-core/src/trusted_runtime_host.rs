@@ -41,15 +41,15 @@ use crate::{
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
-        admit_action_invocation_v1, admit_invocation_v1, admit_package_v1,
-        commit_prepared_to_state, decode_invocation_route_v1,
-        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
-        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
-        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
-        operation_descent_stack, prepare_operation_v1, recover_action_outcome_v1,
-        recover_committed_execution_receipt_v1, recover_installation_v1, retain_action_outcome_v1,
-        retain_committed_execution_v1, retain_installation_v1, validate_receipt_installation_v1,
-        EchoOperationEvaluationAuthorityV1,
+        action_batch_composition_digest_from_receipts_v1, admit_action_invocation_v1,
+        admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
+        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
+        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
+        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
+        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
+        recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
+        retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
+        validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
     },
     provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
@@ -4134,6 +4134,26 @@ fn validate_recovered_echo_operation_action_outcomes(
         group.sort_by_key(|(ingress_id, _, _, _)| *ingress_id);
         if group.len() != tick_receipt.entries().len() {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let committed_receipts = group
+            .iter()
+            .filter_map(|(_, outcome, _, _)| match outcome {
+                EchoOperationActionOutcomeV1::Committed(receipt) => Some(receipt.as_ref()),
+                EchoOperationActionOutcomeV1::Obstructed(_)
+                | EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        if !committed_receipts.is_empty() {
+            let expected_composition_digest = action_batch_composition_digest_from_receipts_v1(
+                &committed_receipts,
+                entry.expected.patch_digest,
+            );
+            if committed_receipts
+                .iter()
+                .any(|receipt| receipt.composition_digest() != Some(expected_composition_digest))
+            {
+                return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+            }
         }
         for (index, (_, outcome, correlation, invocation)) in group.into_iter().enumerate() {
             if entry.commit_global_tick != correlation.commit_global_tick

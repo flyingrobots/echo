@@ -3516,6 +3516,12 @@ impl EchoOperationReceiptV1 {
         self.composition_digest
     }
 
+    /// Replaces composition evidence for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_composition_digest_for_test(&mut self, composition_digest: Hash) {
+        self.composition_digest = Some(composition_digest);
+    }
+
     /// Returns the closed terminal-outcome identity.
     #[must_use]
     pub const fn terminal_outcome_digest(&self) -> Hash {
@@ -4427,16 +4433,70 @@ fn action_batch_composition_digest(
     prepared: &[&PreparedEchoOperationV1],
     committed_patch_digest: Hash,
 ) -> Hash {
+    action_batch_composition_digest_from_parts(
+        committed_patch_digest,
+        prepared.len(),
+        prepared.iter().map(|member| {
+            (
+                member.preparation_id(),
+                member.patch().digest(),
+                member.result_id(),
+                member.evaluation_basis().identity(),
+                member.actual_footprint_digest(),
+            )
+        }),
+    )
+}
+
+pub(crate) fn action_batch_composition_digest_from_receipts_v1(
+    receipts: &[&EchoOperationReceiptV1],
+    committed_patch_digest: Hash,
+) -> Hash {
+    action_batch_composition_digest_from_parts(
+        committed_patch_digest,
+        receipts.len(),
+        receipts.iter().map(|receipt| {
+            (
+                receipt.preparation_id,
+                receipt.prepared_patch_digest,
+                receipt.prepared_result_id,
+                receipt.evaluation_basis_id,
+                receipt.actual_footprint_digest,
+            )
+        }),
+    )
+}
+
+fn action_batch_composition_digest_from_parts(
+    committed_patch_digest: Hash,
+    member_count: usize,
+    members: impl IntoIterator<
+        Item = (
+            PreparedEchoOperationIdV1,
+            Hash,
+            EchoOperationResultIdV1,
+            EchoOperationEvaluationBasisIdV1,
+            Hash,
+        ),
+    >,
+) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(ACTION_BATCH_COMPOSITION_DOMAIN);
     hasher.update(&committed_patch_digest);
-    hasher.update(&(prepared.len() as u64).to_le_bytes());
-    for member in prepared {
-        hasher.update(&member.preparation_id().as_hash());
-        hasher.update(&member.patch().digest());
-        hasher.update(&member.result_id().as_hash());
-        hasher.update(&member.evaluation_basis().identity().as_hash());
-        hasher.update(&member.actual_footprint_digest());
+    hasher.update(&(member_count as u64).to_le_bytes());
+    for (
+        preparation_id,
+        prepared_patch_digest,
+        prepared_result_id,
+        evaluation_basis_id,
+        actual_footprint_digest,
+    ) in members
+    {
+        hasher.update(&preparation_id.as_hash());
+        hasher.update(&prepared_patch_digest);
+        hasher.update(&prepared_result_id.as_hash());
+        hasher.update(&evaluation_basis_id.as_hash());
+        hasher.update(&actual_footprint_digest);
     }
     hasher.finalize().into()
 }

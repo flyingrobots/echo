@@ -3163,66 +3163,81 @@ fn recover_echo_operation_material(
     })
 }
 
-/// Recognizes the two canonical patch shapes the anchored-node-attachment
-/// compare-and-set program produces: an update (`SetAttachment` alone) and,
-/// since ADR 0024, a create-from-absence (`UpsertNode` then `SetAttachment`,
-/// writing both slots). Anything else -- including either op alone, either
-/// op out of order, or a mismatched key/owner -- does not scope to a node.
-fn operation_patch_scope_v1(patch: &crate::WorldlineTickPatchV1) -> Option<crate::NodeKey> {
-    let node = match patch.ops.as_slice() {
-        [crate::WarpOp::SetAttachment { key, .. }] => {
-            let crate::AttachmentOwner::Node(node) = key.owner else {
-                return None;
-            };
-            let attachment_slot = crate::AttachmentKey::node_alpha(node);
-            if *key != attachment_slot
-                || patch.warp_id != node.warp_id
-                || patch.in_slots.as_slice()
-                    != [
-                        crate::SlotId::Node(node),
-                        crate::SlotId::Attachment(attachment_slot),
-                    ]
-                || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
-            {
-                return None;
+/// Recognizes only the canonical patch shape selected by the receipt-bound
+/// target profile. Update and create-if-absent are separate executable
+/// programs; recovery must not infer one program's meaning from an arbitrary
+/// patch that happens to resemble the other program's consequence.
+///
+/// `patch.warp_id` is the parent worldline root, while a scoped operation may
+/// target a node in a descended WARP instance. The exact `NodeKey` carried by
+/// the operation and slots therefore owns operation scope; root validation is
+/// performed independently by the surrounding provenance checks.
+fn operation_patch_scope_v1(
+    patch: &crate::WorldlineTickPatchV1,
+    target_profile_identity: Hash,
+) -> Option<crate::NodeKey> {
+    if target_profile_identity == crate::echo_operation_target_profile_identity_v1() {
+        match patch.ops.as_slice() {
+            [crate::WarpOp::SetAttachment { key, .. }] => {
+                let crate::AttachmentOwner::Node(node) = key.owner else {
+                    return None;
+                };
+                let attachment_slot = crate::AttachmentKey::node_alpha(node);
+                if *key != attachment_slot
+                    || patch.in_slots.as_slice()
+                        != [
+                            crate::SlotId::Node(node),
+                            crate::SlotId::Attachment(attachment_slot),
+                        ]
+                    || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
+                {
+                    return None;
+                }
+                Some(node)
             }
-            node
+            _ => None,
         }
-        [crate::WarpOp::UpsertNode { node, .. }, crate::WarpOp::SetAttachment { key, .. }] => {
-            let node = *node;
-            let crate::AttachmentOwner::Node(attachment_node) = key.owner else {
-                return None;
-            };
-            let attachment_slot = crate::AttachmentKey::node_alpha(node);
-            if attachment_node != node
-                || *key != attachment_slot
-                || patch.warp_id != node.warp_id
-                || patch.in_slots.as_slice()
-                    != [
-                        crate::SlotId::Node(node),
-                        crate::SlotId::Attachment(attachment_slot),
-                    ]
-                || patch.out_slots.as_slice()
-                    != [
-                        crate::SlotId::Node(node),
-                        crate::SlotId::Attachment(attachment_slot),
-                    ]
-            {
-                return None;
+    } else if target_profile_identity
+        == crate::echo_operation_create_if_absent_target_profile_identity_v1()
+    {
+        match patch.ops.as_slice() {
+            [crate::WarpOp::UpsertNode { node, .. }, crate::WarpOp::SetAttachment { key, .. }] => {
+                let node = *node;
+                let crate::AttachmentOwner::Node(attachment_node) = key.owner else {
+                    return None;
+                };
+                let attachment_slot = crate::AttachmentKey::node_alpha(node);
+                if attachment_node != node
+                    || *key != attachment_slot
+                    || patch.in_slots.as_slice()
+                        != [
+                            crate::SlotId::Node(node),
+                            crate::SlotId::Attachment(attachment_slot),
+                        ]
+                    || patch.out_slots.as_slice()
+                        != [
+                            crate::SlotId::Node(node),
+                            crate::SlotId::Attachment(attachment_slot),
+                        ]
+                {
+                    return None;
+                }
+                Some(node)
             }
-            node
+            _ => None,
         }
-        _ => return None,
-    };
-    Some(node)
+    } else {
+        None
+    }
 }
 
 fn operation_tick_binds_patch_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
+    target_profile_identity: Hash,
 ) -> bool {
-    let Some(expected_scope) = operation_patch_scope_v1(patch) else {
+    let Some(expected_scope) = operation_patch_scope_v1(patch, target_profile_identity) else {
         return false;
     };
     matches!(
@@ -3253,7 +3268,12 @@ fn validate_operation_receipt_state_delta(
         .as_ref()
         .zip(entry.tick_receipt.as_ref())
         .is_some_and(|(patch, tick_receipt)| {
-            operation_tick_binds_patch_v1(tick_receipt, patch, expected_rule_id)
+            operation_tick_binds_patch_v1(
+                tick_receipt,
+                patch,
+                expected_rule_id,
+                receipt.target_profile_identity(),
+            )
         });
     let worldline_tick_after = entry
         .worldline_tick
@@ -4203,12 +4223,106 @@ mod tests {
         CausalTickReceiptRef, GlobalTick, IngressSubmissionGeneration, IngressTarget, WorldlineId,
         WorldlineTick, WriterHeadKey,
     };
+    use bytes::Bytes;
 
     fn test_head_key() -> WriterHeadKey {
         WriterHeadKey {
             worldline_id: WorldlineId::from_bytes([9; 32]),
             head_id: crate::make_head_id("runtime-wal-test"),
         }
+    }
+
+    fn creation_scope_patch(node: crate::NodeKey) -> crate::WorldlineTickPatchV1 {
+        let attachment = crate::AttachmentKey::node_alpha(node);
+        crate::WorldlineTickPatchV1 {
+            header: crate::WorldlineTickHeaderV1 {
+                commit_global_tick: GlobalTick::from_raw(1),
+                policy_id: 7,
+                rule_pack_id: [3; 32],
+                plan_digest: [4; 32],
+                decision_digest: [5; 32],
+                rewrites_digest: [6; 32],
+            },
+            // The parent worldline root is intentionally different from the
+            // descendant node's WARP id.
+            warp_id: crate::make_warp_id("operation-wal-parent-root"),
+            ops: vec![
+                crate::WarpOp::UpsertNode {
+                    node,
+                    record: crate::NodeRecord {
+                        ty: crate::make_type_id("operation-wal-created-node"),
+                    },
+                },
+                crate::WarpOp::SetAttachment {
+                    key: attachment,
+                    value: Some(crate::AttachmentValue::Atom(crate::AtomPayload::new(
+                        crate::make_type_id("operation-wal-created-attachment"),
+                        Bytes::from_static(b"created"),
+                    ))),
+                },
+            ],
+            in_slots: vec![
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment),
+            ],
+            out_slots: vec![
+                crate::SlotId::Node(node),
+                crate::SlotId::Attachment(attachment),
+            ],
+            patch_digest: [7; 32],
+        }
+    }
+
+    #[test]
+    fn creation_wal_scope_accepts_descendants_and_rejects_mutated_shapes() {
+        let node = crate::NodeKey {
+            warp_id: crate::make_warp_id("operation-wal-descendant"),
+            local_id: crate::make_node_id("operation-wal-created-node"),
+        };
+        let target_profile = crate::echo_operation_create_if_absent_target_profile_identity_v1();
+        let patch = creation_scope_patch(node);
+        assert_eq!(
+            operation_patch_scope_v1(&patch, target_profile),
+            Some(node),
+            "the parent worldline root must not erase descendant operation scope"
+        );
+        assert_eq!(
+            operation_patch_scope_v1(&patch, crate::echo_operation_target_profile_identity_v1(),),
+            None,
+            "the update profile must reject the creation program's two-op patch"
+        );
+
+        let mut reversed = patch.clone();
+        reversed.ops.reverse();
+        assert_eq!(operation_patch_scope_v1(&reversed, target_profile), None);
+
+        let mut missing_node_write = patch.clone();
+        missing_node_write.ops.remove(0);
+        assert_eq!(
+            operation_patch_scope_v1(&missing_node_write, target_profile),
+            None
+        );
+
+        let mut attachment_only_output = patch.clone();
+        attachment_only_output.out_slots.remove(0);
+        assert_eq!(
+            operation_patch_scope_v1(&attachment_only_output, target_profile),
+            None
+        );
+
+        let mut mismatched_attachment = patch;
+        let other_node = crate::NodeKey {
+            warp_id: node.warp_id,
+            local_id: crate::make_node_id("operation-wal-other-node"),
+        };
+        let crate::WarpOp::SetAttachment { key, .. } = &mut mismatched_attachment.ops[1] else {
+            panic!("fixture has the canonical attachment operation");
+        };
+        *key = crate::AttachmentKey::node_alpha(other_node);
+        assert_eq!(
+            operation_patch_scope_v1(&mismatched_attachment, target_profile),
+            None
+        );
     }
 
     #[test]
@@ -4299,7 +4413,13 @@ mod tests {
             )
         };
         let valid = receipt(node, crate::scope_hash(&rule_id, &node));
-        assert!(operation_tick_binds_patch_v1(&valid, &patch, rule_id));
+        let target_profile = crate::echo_operation_target_profile_identity_v1();
+        assert!(operation_tick_binds_patch_v1(
+            &valid,
+            &patch,
+            rule_id,
+            target_profile,
+        ));
 
         let wrong_scope = crate::NodeKey {
             warp_id: node.warp_id,
@@ -4310,14 +4430,16 @@ mod tests {
         assert!(!operation_tick_binds_patch_v1(
             &self_consistent_wrong_scope,
             &patch,
-            rule_id
+            rule_id,
+            target_profile,
         ));
 
         let forged_scope_hash = receipt(node, [25; 32]);
         assert!(!operation_tick_binds_patch_v1(
             &forged_scope_hash,
             &patch,
-            rule_id
+            rule_id,
+            target_profile,
         ));
     }
 

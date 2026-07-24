@@ -2414,7 +2414,11 @@ pub(crate) fn prepare_operation_v1(
                     if store.node_attachment(&node.local_id).is_some() {
                         return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
                     }
-                    let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
+                    // PR #686 review finding #3 (Codex): this patch writes
+                    // two 32-byte values, not one -- the UpsertNode's
+                    // NodeRecord.ty in addition to the attachment atom's
+                    // type id -- so the write charge must count both.
+                    let Some(write_bytes) = 64_u64.checked_add(replacement_len) else {
                         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
                     };
                     if !budget_meter.charge(1, 0, write_bytes) {

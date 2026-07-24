@@ -1835,7 +1835,7 @@ fn create_from_absence_commits_one_new_node_and_attachment_patch() {
     );
     assert_eq!(
         execution.receipt().consumed_budget(),
-        EchoOperationBudgetV1::new(3, 64, 39)
+        EchoOperationBudgetV1::new(3, 64, 71)
     );
 
     let state = host
@@ -2351,5 +2351,64 @@ fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attac
     assert_eq!(
         error.kind(),
         EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+    );
+}
+
+/// Regression for PR #686 review finding #3 (Codex, P2): the create-from-
+/// absence write charge must account for the `UpsertNode` op's 32-byte
+/// `NodeRecord.ty` in addition to the attachment atom's 32-byte type id and
+/// its replacement bytes -- not `32 + replacement_len` alone, which
+/// undercounts by exactly the node record's width and lets a caller commit
+/// more bytes than it delegated.
+#[test]
+fn create_from_absence_charges_the_node_record_against_the_write_budget() {
+    let (mut host, head_key, _existing_node) = fixture_host();
+    let installed = install_fixture_operation(&mut host);
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-budget-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let replacement = b"created".to_vec();
+    // 32 (attachment type) + replacement.len() = 39: enough under the buggy
+    // charge, which never counts the UpsertNode's own 32-byte NodeRecord.ty.
+    // 64 (node type + attachment type) + replacement.len() = 71: the correct
+    // requirement. This budget sits strictly between the two.
+    let insufficient_for_node_record = EchoOperationBudgetV1::new(16, 4_096, 50);
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        insufficient_for_node_record,
+        new_node,
+        None,
+        replacement,
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("admission's coarser check does not itself meter the write charge");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!(
+            "a write budget that covers only the attachment, not the node record too, \
+             must not prepare a patch"
+        );
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BudgetExceeded
     );
 }

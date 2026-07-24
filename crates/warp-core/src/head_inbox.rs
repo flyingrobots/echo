@@ -791,6 +791,51 @@ impl HeadInbox {
         }
     }
 
+    /// Admits one deterministic execution category without mixing it with
+    /// other pending categories.
+    ///
+    /// The lowest canonical ingress id chooses whether this batch contains the
+    /// supplied `partition_kind` or everything else. Entries from the other
+    /// category remain pending for a later Tick. Existing per-Tick limits still
+    /// bound the selected category.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn admit_partitioned(&mut self, partition_kind: IntentKind) -> Vec<IngressEnvelope> {
+        let Some(first) = self.pending.first_key_value().map(|(_, envelope)| envelope) else {
+            return Vec::new();
+        };
+        let selected_partition = matches!(
+            first.payload(),
+            IngressPayload::LocalIntent { intent_kind, .. }
+                if *intent_kind == partition_kind
+        );
+        let limit = match self.policy {
+            InboxPolicy::Budgeted { max_per_tick } => max_per_tick as usize,
+            InboxPolicy::AcceptAll | InboxPolicy::KindFilter(_) => usize::MAX,
+        };
+        if limit == 0 {
+            return Vec::new();
+        }
+
+        let mut selected_ids = Vec::new();
+        for (ingress_id, envelope) in &self.pending {
+            let in_partition = matches!(
+                envelope.payload(),
+                IngressPayload::LocalIntent { intent_kind, .. }
+                    if *intent_kind == partition_kind
+            );
+            if in_partition == selected_partition {
+                selected_ids.push(*ingress_id);
+                if selected_ids.len() == limit {
+                    break;
+                }
+            }
+        }
+        selected_ids
+            .into_iter()
+            .filter_map(|ingress_id| self.pending.remove(&ingress_id))
+            .collect()
+    }
+
     /// Returns `true` if calling [`HeadInbox::admit`] would yield at least one envelope.
     #[must_use]
     pub fn can_admit(&self) -> bool {
@@ -897,6 +942,60 @@ mod tests {
                 "admission must be in ingress_id order"
             );
         }
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn partitioned_admission_never_mixes_execution_categories() {
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
+        let partition_kind = test_kind();
+        let envelopes = [
+            make_envelope(partition_kind, b"partition-a"),
+            make_envelope(other_kind(), b"legacy-a"),
+            make_envelope(partition_kind, b"partition-b"),
+            make_envelope(other_kind(), b"legacy-b"),
+        ];
+        let first_is_partition = envelopes
+            .iter()
+            .min_by_key(|envelope| envelope.ingress_id())
+            .is_some_and(|envelope| {
+                matches!(
+                    envelope.payload(),
+                    IngressPayload::LocalIntent { intent_kind, .. }
+                        if *intent_kind == partition_kind
+                )
+            });
+        for envelope in envelopes {
+            assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
+        }
+
+        let first_batch = inbox.admit_partitioned(partition_kind);
+        assert_eq!(first_batch.len(), 2);
+        assert!(first_batch.iter().all(|envelope| {
+            matches!(
+                envelope.payload(),
+                IngressPayload::LocalIntent { intent_kind, .. }
+                    if (*intent_kind == partition_kind) == first_is_partition
+            )
+        }));
+        assert_eq!(inbox.pending_count(), 2);
+
+        let second_batch = inbox.admit_partitioned(partition_kind);
+        assert_eq!(second_batch.len(), 2);
+        assert!(second_batch.iter().all(|envelope| {
+            matches!(
+                envelope.payload(),
+                IngressPayload::LocalIntent { intent_kind, .. }
+                    if (*intent_kind == partition_kind) != first_is_partition
+            )
+        }));
+        assert!(inbox.is_empty());
     }
 
     #[test]

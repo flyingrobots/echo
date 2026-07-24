@@ -286,6 +286,9 @@ fn push_tick_receipt(out: &mut Vec<u8>, receipt: &TickReceipt) {
         out.push(match entry.disposition {
             TickReceiptDisposition::Applied => 1,
             TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2,
+            TickReceiptDisposition::Rejected(
+                TickReceiptRejection::ExecutableOperationObstruction,
+            ) => 3,
         });
         let blockers = receipt.blocked_by(index);
         push_len(out, blockers.len());
@@ -611,6 +614,9 @@ impl<'a> RetainedProvenanceCursor<'a> {
             let disposition = match self.read_u8()? {
                 1 => TickReceiptDisposition::Applied,
                 2 => TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict),
+                3 => TickReceiptDisposition::Rejected(
+                    TickReceiptRejection::ExecutableOperationObstruction,
+                ),
                 tag => return Err(unknown_tag("tick receipt disposition", tag)),
             };
             let blocker_count = self.read_count(4)?;

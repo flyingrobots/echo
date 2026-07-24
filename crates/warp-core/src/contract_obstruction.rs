@@ -228,6 +228,11 @@ impl ContractObstruction {
                     submission_id: *submission_id,
                 },
             ),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            RuntimeError::EchoOperationCommit(_)
+            | RuntimeError::EchoOperationActionAdmissionMissing(_) => {
+                Self::runtime_fault(ContractObstructionSubject::Unspecified)
+            }
             RuntimeError::SchedulerFaultGenerationOverflow
             | RuntimeError::DuplicateWorldline(_)
             | RuntimeError::DuplicateHead(_)

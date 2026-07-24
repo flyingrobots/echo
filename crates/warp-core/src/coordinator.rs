@@ -11,6 +11,13 @@ use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use thiserror::Error;
 
 use crate::clock::{GlobalTick, WorldlineTick};
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+use crate::echo_operation::{
+    AdmittedEchoOperationInvocationV1, EchoOperationActionOutcomeV1,
+    EchoOperationApplicationBasisV1, EchoOperationCommitErrorV1,
+    EchoOperationEvaluationAuthorityV1, EchoOperationEvaluationBasisV1,
+    SchedulerEchoOperationCandidateV1,
+};
 use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{
     HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
@@ -40,6 +47,49 @@ use crate::CausalTickReceiptRef;
 
 #[cfg(feature = "native_rule_bootstrap")]
 const INSTALLED_CONTRACT_EINT_INTENT_KIND_LABEL: &str = "echo.intent/eint-v1";
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+type SchedulerOperationOutcomeV1 = (Hash, EchoOperationActionOutcomeV1);
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+type SchedulerOperationOutcomesV1 = Vec<SchedulerOperationOutcomeV1>;
+#[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+type SchedulerOperationOutcomeV1 = ();
+#[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+type SchedulerOperationOutcomesV1 = Vec<SchedulerOperationOutcomeV1>;
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
+    runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
+    writer_head: WriterHeadKey,
+    application_basis: EchoOperationApplicationBasisV1,
+) -> Result<EchoOperationEvaluationBasisV1, RuntimeError> {
+    if runtime.heads().get(&writer_head).is_none() {
+        return Err(RuntimeError::UnknownHead(writer_head));
+    }
+    let frontier = runtime
+        .worldlines()
+        .get(&writer_head.worldline_id)
+        .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
+    let state_root = frontier.state().state_root();
+    let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
+        Some(tip) => {
+            let entry = provenance.entry(tip.worldline_id, tip.worldline_tick)?;
+            (Some(entry.commit_global_tick), entry.expected.commit_hash)
+        }
+        None => (
+            None,
+            crate::echo_operation::genesis_commit_id(writer_head, state_root),
+        ),
+    };
+    Ok(EchoOperationEvaluationBasisV1::new(
+        writer_head,
+        frontier.frontier_tick(),
+        commit_global_tick,
+        state_root,
+        commit_id,
+        application_basis,
+    ))
+}
 
 // =============================================================================
 // Runtime Errors and Ingress Disposition
@@ -91,6 +141,16 @@ pub enum RuntimeError {
     /// A commit against a worldline frontier failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
+    /// A scheduler-owned executable-operation Action batch could not be
+    /// constructed.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[error(transparent)]
+    EchoOperationCommit(#[from] EchoOperationCommitErrorV1),
+    /// The scheduler selected a reserved executable Action without the
+    /// runtime-owned admission token that authorizes evaluation.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[error("executable-operation Action admission is unavailable for ingress {0:?}")]
+    EchoOperationActionAdmissionMissing(Hash),
     /// Provenance append or lookup failed during a runtime step.
     #[error(transparent)]
     Provenance(#[from] HistoryError),
@@ -1116,6 +1176,12 @@ pub struct WorldlineRuntime {
     next_scheduler_fault_generation: SchedulerFaultGeneration,
     /// Registry of live speculative strands attached to the runtime.
     strands: StrandRegistry,
+    #[cfg(all(
+        feature = "native_rule_bootstrap",
+        feature = "trusted_runtime",
+        any(test, feature = "host_test")
+    ))]
+    fail_next_echo_operation_action_tick_construction: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1266,6 +1332,24 @@ impl WorldlineRuntime {
     #[must_use]
     pub fn worldlines(&self) -> &WorldlineRegistry {
         &self.worldlines
+    }
+
+    #[cfg(all(
+        feature = "native_rule_bootstrap",
+        feature = "trusted_runtime",
+        any(test, feature = "host_test")
+    ))]
+    pub(crate) fn inject_echo_operation_action_tick_construction_failure_for_test(&mut self) {
+        self.fail_next_echo_operation_action_tick_construction = true;
+    }
+
+    #[cfg(all(
+        feature = "native_rule_bootstrap",
+        feature = "trusted_runtime",
+        any(test, feature = "host_test")
+    ))]
+    fn take_echo_operation_action_tick_construction_failure_for_test(&mut self) -> bool {
+        std::mem::take(&mut self.fail_next_echo_operation_action_tick_construction)
     }
 
     /// Returns the registered writer heads.
@@ -1649,11 +1733,36 @@ impl WorldlineRuntime {
                 return no_match();
             }
             candidate
+        } else if let Some(candidate) = candidates.next() {
+            if candidates.next().is_some() {
+                return no_match();
+            }
+            candidate
         } else {
-            let Some(candidate) = candidates.next() else {
+            let current_basis = receipt_correlation_current_basis(correlation);
+            let Some(ticketed_ingress_ids) = self
+                .receipt_correlations_by_current_basis
+                .get(&current_basis)
+            else {
                 return no_match();
             };
-            candidate
+            let mut same_tick = ticketed_ingress_ids
+                .iter()
+                .filter_map(|ticketed_ingress_id| {
+                    self.receipt_correlations_by_ticketed_ingress
+                        .get(ticketed_ingress_id)
+                })
+                .collect::<Vec<_>>();
+            same_tick.sort_by_key(|candidate| candidate.ingress_id);
+            let Some(index) = same_tick.iter().position(|candidate| {
+                candidate.ticketed_ingress_id == correlation.ticketed_ingress_id
+            }) else {
+                return no_match();
+            };
+            let Some(entry) = receipt.entries().get(index) else {
+                return no_match();
+            };
+            (index, entry)
         };
         let (idx, entry) = candidate;
         let Ok(receipt_entry_index) = u32::try_from(idx) else {
@@ -2207,6 +2316,7 @@ impl WorldlineRuntime {
                 .entries()
                 .iter()
                 .any(|entry| entry.scope.local_id == ingress_node)
+            && crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope).is_none()
         {
             return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
                 persisted.causal_receipt_ref.identity_digest(),
@@ -2435,6 +2545,23 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
         self.ingest_ticketed_invocation_inner(submission_id, ticket.ticket_digest, envelope, None)
+    }
+
+    /// Stages one runtime-admitted executable-operation Action into the normal
+    /// head inbox.
+    ///
+    /// The opaque admission digest is derived by the trusted runtime owner from
+    /// exact installed meaning and invocation-admission evidence. No contract
+    /// callback evidence is attached to this ingress category.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn ingest_echo_operation_action_v1(
+        &mut self,
+        _authority: &TicketedRuntimeIngressAuthority,
+        submission_id: Hash,
+        admission_digest: Hash,
+        envelope: IngressEnvelope,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        self.ingest_ticketed_invocation_inner(submission_id, admission_digest, envelope, None)
     }
 
     fn ingest_ticketed_invocation_inner(
@@ -3042,6 +3169,8 @@ fn scheduler_fault_scope_for_error(
         RuntimeError::Engine(_) | RuntimeError::FrontierTickOverflow(_) => {
             SchedulerFaultScope::Head(head_key)
         }
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        RuntimeError::EchoOperationCommit(_) => SchedulerFaultScope::Head(head_key),
         RuntimeError::Provenance(_)
         | RuntimeError::UnknownHead(_)
         | RuntimeError::UnknownWorldline(_)
@@ -3074,6 +3203,8 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
         }
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        RuntimeError::EchoOperationActionAdmissionMissing(_) => SchedulerFaultScope::Runtime,
     }
 }
 
@@ -3714,6 +3845,16 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                 }
             }
         }
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        RuntimeError::EchoOperationCommit(error) => {
+            hasher.update(b"echo-operation-commit");
+            hasher.update(error.to_string().as_bytes());
+        }
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        RuntimeError::EchoOperationActionAdmissionMissing(ingress_id) => {
+            hasher.update(b"echo-operation-action-admission-missing");
+            hasher.update(ingress_id);
+        }
         RuntimeError::FrontierTickOverflow(worldline_id) => {
             hasher.update(b"frontier-tick-overflow");
             hasher.update(worldline_id.as_bytes());
@@ -3917,12 +4058,50 @@ impl SchedulerCoordinator {
         provenance: &mut ProvenanceService,
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
+        Self::super_tick_inner(runtime, provenance, engine, None)
+            .map(|(records, _operation_outcomes)| records)
+    }
+
+    /// Executes one scheduler pass with runtime-admitted executable-operation
+    /// Actions available to Tick construction.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn super_tick_with_echo_operation_actions_v1(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        engine: &mut Engine,
+        operation_actions: &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+        evaluation_authority: &EchoOperationEvaluationAuthorityV1,
+    ) -> Result<(Vec<StepRecord>, SchedulerOperationOutcomesV1), RuntimeError> {
+        Self::super_tick_inner(
+            runtime,
+            provenance,
+            engine,
+            Some((operation_actions, evaluation_authority)),
+        )
+    }
+
+    fn super_tick_inner(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        engine: &mut Engine,
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        operation_actions: Option<(
+            &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+            &EchoOperationEvaluationAuthorityV1,
+        )>,
+        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+        _operation_actions: Option<()>,
+    ) -> Result<(Vec<StepRecord>, SchedulerOperationOutcomesV1), RuntimeError> {
         if let Some(fault_id) = runtime.runtime_fault {
             return Err(RuntimeError::SchedulerRuntimeFaultActive(fault_id));
         }
         runtime.refresh_runnable();
 
         let mut records = Vec::new();
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        let mut operation_outcomes = Vec::new();
+        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+        let operation_outcomes = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
         let next_global_tick = if let Some(next) = runtime.global_tick.checked_increment() {
             next
@@ -3961,11 +4140,20 @@ impl SchedulerCoordinator {
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
         for key in &keys {
-            let admitted = runtime
+            let inbox = runtime
                 .heads
                 .inbox_mut(key)
-                .ok_or(RuntimeError::UnknownHead(*key))?
-                .admit();
+                .ok_or(RuntimeError::UnknownHead(*key))?;
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            let admitted = if operation_actions.is_some() {
+                inbox.admit_partitioned(
+                    crate::echo_operation::echo_operation_action_intent_kind_v1(),
+                )
+            } else {
+                inbox.admit()
+            };
+            #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+            let admitted = inbox.admit();
 
             if admitted.is_empty() {
                 continue;
@@ -3979,6 +4167,88 @@ impl SchedulerCoordinator {
                     .frontier_tick();
                 let parents = provenance.tip_ref(key.worldline_id)?.into_iter().collect();
 
+                #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+                let executable_action_batch = admitted.first().is_some_and(|envelope| {
+                    crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope)
+                        .is_some()
+                });
+                #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+                let (snapshot, patch, receipt) = if executable_action_batch {
+                    #[cfg(any(test, feature = "host_test"))]
+                    if runtime.take_echo_operation_action_tick_construction_failure_for_test() {
+                        return Err(RuntimeError::EchoOperationCommit(
+                            EchoOperationCommitErrorV1::InjectedTickConstructionFailure,
+                        ));
+                    }
+                    let Some((admitted_actions, evaluation_authority)) = operation_actions else {
+                        return Err(RuntimeError::EchoOperationActionAdmissionMissing(
+                            admitted[0].ingress_id(),
+                        ));
+                    };
+                    let mut candidates = Vec::with_capacity(admitted.len());
+                    for envelope in &admitted {
+                        let ingress_id = envelope.ingress_id();
+                        let admitted_action = admitted_actions.get(&ingress_id).ok_or(
+                            RuntimeError::EchoOperationActionAdmissionMissing(ingress_id),
+                        )?;
+                        let current_basis = resolve_echo_operation_evaluation_basis_v1(
+                            runtime,
+                            provenance,
+                            *key,
+                            admitted_action.evaluation_basis().application_basis(),
+                        )?;
+                        let state = runtime
+                            .worldlines
+                            .get(&key.worldline_id)
+                            .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?
+                            .state();
+                        let preparation = crate::echo_operation::prepare_operation_v1(
+                            engine
+                                .installed_echo_operation_package_v1(admitted_action.package_id()),
+                            admitted_action.clone(),
+                            current_basis,
+                            state,
+                            engine.echo_operation_policy_id(),
+                            evaluation_authority,
+                        );
+                        candidates.push(SchedulerEchoOperationCandidateV1 {
+                            ingress_id,
+                            scope: admitted_action.scope(),
+                            rule_id: admitted_action.installed_operation_id().as_hash(),
+                            preparation,
+                        });
+                    }
+                    let material = {
+                        let frontier = runtime
+                            .worldlines
+                            .frontier_mut(&key.worldline_id)
+                            .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                        crate::echo_operation::commit_scheduler_action_batch_to_state_v1(
+                            candidates,
+                            frontier.state_mut(),
+                            next_global_tick,
+                            engine.echo_operation_policy_id(),
+                        )?
+                    };
+                    operation_outcomes.extend(material.outcomes);
+                    (material.snapshot, material.patch, material.tick_receipt)
+                } else {
+                    let CommitOutcome {
+                        snapshot,
+                        patch,
+                        receipt,
+                    } = {
+                        let frontier = runtime
+                            .worldlines
+                            .frontier_mut(&key.worldline_id)
+                            .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                        engine
+                            .commit_with_state(frontier.state_mut(), &admitted)
+                            .map_err(RuntimeError::from)?
+                    };
+                    (snapshot, patch, receipt)
+                };
+                #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
                 let CommitOutcome {
                     snapshot,
                     patch,
@@ -4100,7 +4370,7 @@ impl SchedulerCoordinator {
         }
 
         runtime.global_tick = next_global_tick;
-        Ok(records)
+        Ok((records, operation_outcomes))
     }
 
     /// Returns the canonical ordering of runnable heads without mutating state.

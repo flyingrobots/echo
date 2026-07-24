@@ -446,6 +446,9 @@ pub enum WalRecordKind {
     ExecutableOperationExecutionRecorded,
     /// Echo execution kernel retained the outcome's replayable state delta.
     ExecutableOperationStateDeltaRecorded,
+    /// Trusted scheduler retained one typed executable-operation Action
+    /// outcome inside a scheduler-owned Tick.
+    ExecutableOperationActionOutcomeRecorded,
 }
 
 impl WalRecordKind {
@@ -479,6 +482,9 @@ impl WalRecordKind {
             Self::ExecutableOperationPackageInstalled => "ExecutableOperationPackageInstalled",
             Self::ExecutableOperationExecutionRecorded => "ExecutableOperationExecutionRecorded",
             Self::ExecutableOperationStateDeltaRecorded => "ExecutableOperationStateDeltaRecorded",
+            Self::ExecutableOperationActionOutcomeRecorded => {
+                "ExecutableOperationActionOutcomeRecorded"
+            }
         }
     }
 
@@ -494,6 +500,7 @@ impl WalRecordKind {
             | Self::TickReceiptRecorded
             | Self::RuntimeStateDeltaRecorded
             | Self::ReceiptCorrelationRecorded
+            | Self::ExecutableOperationActionOutcomeRecorded
             | Self::ReadingEnvelopeRetained
             | Self::RetainedMaterialRefRecorded
             | Self::MaterializationIntentRecorded
@@ -558,6 +565,7 @@ impl WalRecordKind {
             Self::ExecutableOperationPackageInstalled => 25,
             Self::ExecutableOperationExecutionRecorded => 26,
             Self::ExecutableOperationStateDeltaRecorded => 27,
+            Self::ExecutableOperationActionOutcomeRecorded => 28,
         }
     }
 
@@ -590,6 +598,7 @@ impl WalRecordKind {
             25 => Ok(Self::ExecutableOperationPackageInstalled),
             26 => Ok(Self::ExecutableOperationExecutionRecorded),
             27 => Ok(Self::ExecutableOperationStateDeltaRecorded),
+            28 => Ok(Self::ExecutableOperationActionOutcomeRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -2436,7 +2445,7 @@ impl WalTickDecision {
     /// Returns `true` when this decision is a lawful rejection, not a fault.
     #[must_use]
     pub const fn is_lawful_rejection(self) -> bool {
-        matches!(self, Self::RejectedFootprintConflict)
+        matches!(self, Self::RejectedFootprintConflict | Self::Obstructed)
     }
 }
 
@@ -7771,18 +7780,58 @@ pub fn build_tick_transaction(
 
 /// Builds a scheduler-owned tick transaction with replayable state-delta material.
 pub fn build_replayable_tick_transaction(
-    mut builder: WalTransactionBuilder,
+    builder: WalTransactionBuilder,
     receipt: TickReceiptRecord,
     correlation: WalReceiptCorrelationRecord,
     retained_state_delta_bytes: Vec<u8>,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, WalBuildError> {
+    build_replayable_tick_batch_transaction(
+        builder,
+        vec![(receipt, correlation, None)],
+        retained_state_delta_bytes,
+        affected_frontiers,
+    )
+}
+
+/// Builds one scheduler-owned Tick transaction with one or more per-Action
+/// receipt correlations and exactly one replayable state consequence.
+pub(crate) fn build_replayable_tick_batch_transaction(
+    mut builder: WalTransactionBuilder,
+    receipts: Vec<(
+        TickReceiptRecord,
+        WalReceiptCorrelationRecord,
+        Option<Vec<u8>>,
+    )>,
+    retained_state_delta_bytes: Vec<u8>,
+    affected_frontiers: Vec<AffectedFrontier>,
+) -> Result<WalCommittedTransaction, WalBuildError> {
+    let action_outcome_count = receipts
+        .iter()
+        .filter(|(_, _, action_outcome)| action_outcome.is_some())
+        .count();
+    if action_outcome_count != 0 && action_outcome_count != receipts.len() {
+        return Err(WalBuildError::TickBatchActionOutcomeShapeMismatch);
+    }
     let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(&retained_state_delta_bytes)
         .map_err(|_| WalBuildError::RuntimeStateDeltaInvalid)?;
-    if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+    if receipts.is_empty()
+        || receipts.iter().any(|(receipt, correlation, _)| {
+            state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest
+                || receipt.receipt_ref != correlation.receipt_ref
+        })
+    {
         return Err(WalBuildError::RuntimeStateDeltaReceiptMismatch);
     }
-    push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+    for (receipt, correlation, action_outcome) in receipts {
+        push_tick_receipt_records(&mut builder, receipt, &correlation)?;
+        if let Some(action_outcome) = action_outcome {
+            builder.push_record(
+                WalRecordKind::ExecutableOperationActionOutcomeRecorded,
+                action_outcome,
+            )?;
+        }
+    }
     builder.push_record(
         WalRecordKind::RuntimeStateDeltaRecorded,
         retained_state_delta_bytes,
@@ -8852,6 +8901,9 @@ pub enum WalBuildError {
     /// Replayable runtime state delta names a different receipt commitment.
     #[error("WAL replayable runtime state delta does not match the tick receipt")]
     RuntimeStateDeltaReceiptMismatch,
+    /// A scheduler Tick batch mixes Action and non-Action receipt members.
+    #[error("WAL scheduler Tick batch has inconsistent Action outcome framing")]
+    TickBatchActionOutcomeShapeMismatch,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),

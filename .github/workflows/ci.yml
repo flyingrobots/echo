@@ -145,6 +145,8 @@ jobs:
               run: |
                   cargo clippy -p warp-core --features host_test --test causal_fact_publication_tests -- -D warnings -D missing_docs
                   cargo clippy -p warp-core --features host_test --test optic_invocation_admission_tests -- -D warnings -D missing_docs
+            - name: cargo clippy (scheduler-owned executable Actions)
+              run: cargo clippy -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test executable_operation_pipeline_tests -- -D warnings -D missing_docs
 
     clippy-det-fixed:
         name: Clippy (det_fixed)
@@ -301,6 +303,8 @@ jobs:
               run: cargo test -p warp-core --features native_rule_bootstrap,host_test --test installed_contract_intent_pipeline_tests
             - name: cargo test (warp-core provider proposal admission)
               run: cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test provider_contract_admission_tests
+            - name: cargo test (scheduler-owned executable Actions)
+              run: cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test executable_operation_pipeline_tests
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
             - name: PRNG golden regression (warp-math)

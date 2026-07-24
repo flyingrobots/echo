@@ -6025,7 +6025,8 @@ mod tests {
             },
             child_store,
         );
-        let state = WorldlineState::new(warp_state, root).expect("the descended fixture is lawful");
+        let mut state =
+            WorldlineState::new(warp_state, root).expect("the descended fixture is lawful");
 
         let operation_coordinate = "echo.fixture.DescendedCreateIfAbsent.v1";
         let authority_profile = digest(40);
@@ -6138,8 +6139,7 @@ mod tests {
             "each portal pointer read must be charged as a bounded evaluator step"
         );
 
-        let mut budget_limited_state = state.clone();
-        budget_limited_state
+        state
             .warp_state
             .store_mut(&root_warp)
             .expect("the fixture retains its root store")
@@ -6154,7 +6154,7 @@ mod tests {
             writer_head,
             WorldlineTick::ZERO,
             None,
-            budget_limited_state.state_root(),
+            state.state_root(),
             digest(51),
             echo_operation_anchored_node_absent_application_basis_v1(target),
         );
@@ -6179,7 +6179,7 @@ mod tests {
                 .to_canonical_bytes()
                 .expect("budget-limited invocation encodes"),
             budget_limited_basis,
-            &budget_limited_state,
+            &state,
             evaluation_authority.clone(),
         )
         .expect("the budget-limited invocation admits");
@@ -6187,7 +6187,7 @@ mod tests {
             Some(&installed),
             admitted,
             budget_limited_basis,
-            &budget_limited_state,
+            &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &evaluation_authority,
         ) else {

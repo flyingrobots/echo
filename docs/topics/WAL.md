@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says nine concrete things.
+The current runtime WAL evidence says ten concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -89,9 +89,14 @@ state-delta record is inspectable but obstructs writable startup.
 Transaction construction also requires the receipt and correlation to name the
 same causal event and the retained state delta to bind that receipt's content
 commitment before the transaction can commit.
-Each scheduler transaction must also contain exactly one receipt, correlation,
-and runtime state-delta frame; recovery rejects duplicate claims rather than
-selecting whichever frame appears first.
+Legacy singleton scheduler transactions contain exactly one receipt,
+correlation, and runtime state-delta frame. Scheduler-owned
+executable-operation Action Ticks instead retain exactly one batched Tick
+receipt record containing every per-Action decision, one ordered correlation
+and typed Action-outcome pair per selected Action, and exactly one runtime state
+delta for the whole Tick. Recovery rejects missing, duplicated, reordered,
+mixed, or cross-Tick claims rather than selecting whichever frame appears
+first.
 WAL activation is non-lossy: if the live host contains submissions, staged
 ingress, receipt correlations, provenance, pending inbox work, cycle progress,
 or worldline state that recovered WAL evidence cannot reproduce, activation
@@ -126,6 +131,22 @@ idempotently. Each new transaction kind rejects missing, duplicate, reversed,
 or mis-scoped frame/frontier shapes. These records do not make a naked program
 digest invocable and do not persist the process-local authority needed to
 commit an unretained preparation.
+
+Tenth, canonical executable-operation Actions use the ordinary WAL-backed
+submission acknowledgement before execution. A crash after acknowledgement and
+before scheduler selection restores accepted pending work. Runtime-owned
+admission resolves the exact installed package, but only scheduler Tick
+construction invokes private bounded evaluation. Two independent Actions can
+produce one composite Tick with one snapshot, one provenance entry, one
+frontier advance, per-Action typed outcomes, and one replayable state delta.
+
+The scheduler transaction commits before state, frontier, receipt, or Action
+outcome publication. Construction and WAL failures publish none of them. A
+typed evaluator obstruction is retained as a lawful no-mutation Tick entry.
+Fresh-host recovery binds each Action outcome back to its exact retained
+envelope, invocation identity, installed operation, scope, Tick entry,
+disposition, blocker set, composite patch, and final state root. Swapped or
+misclassified outcome evidence therefore fails closed.
 
 ## Boundaries
 

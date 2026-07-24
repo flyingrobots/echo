@@ -16,19 +16,24 @@ use warp_core::causal_wal::{
     WalAppendAuthority, WalBuildError, WalDurabilityMode, WalRecordKind, WalSegmentId,
     WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
 };
+#[cfg(feature = "host_test")]
+use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget, WalTickDecision};
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
-    EchoOperationAdmissionErrorKindV1, EchoOperationAdmissionPolicyV1,
-    EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationBasisV1,
-    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
+    EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1,
+    EchoOperationAdmissionPolicyV1, EchoOperationAnchoredNodeOccupancyV1,
+    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    EngineBuilder, ExecutableOperationPackageV1, GraphStore, InboxPolicy, InstalledEchoOperationV1,
-    NodeKey, NodeRecord, PlaybackMode, RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    EngineBuilder, ExecutableOperationPackageV1, GraphStore, InboxPolicy, IngressTarget,
+    InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeWalActivationGap,
+    SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey,
 };
+#[cfg(feature = "host_test")]
+use warp_core::{EchoOperationCommitErrorV1, RuntimeError};
 
 const OPERATION_COORDINATE: &str = "echo.fixture.SetAnchoredAtom.v1";
 const CREATE_OPERATION_COORDINATE: &str = "echo.fixture.CreateAnchoredAtomIfAbsent.v1";
@@ -157,6 +162,71 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     (host, head_key, node)
 }
 
+fn fixture_host_with_two_worldlines() -> (TrustedRuntimeHost, WriterHeadKey, WriterHeadKey, NodeKey)
+{
+    let warp_id = make_warp_id("operation-fixture");
+    let node_id = make_node_id("operation-fixture-root");
+    let node = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let mut store = GraphStore::new(warp_id);
+    store.insert_node(
+        node_id,
+        NodeRecord {
+            ty: make_type_id("operation-fixture-node"),
+        },
+    );
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        ))),
+    );
+    let state = WorldlineState::from_root_store(store, node_id)
+        .expect("the fixture state has one lawful root");
+    let first_head = WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes(digest("operation-fixture-worldline-first")),
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let second_head = WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes(digest("operation-fixture-worldline-second")),
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let mut runtime = WorldlineRuntime::new();
+    for head in [first_head, second_head] {
+        runtime
+            .register_worldline(head.worldline_id, state.clone())
+            .expect("the fixture worldline registers");
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                head,
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .expect("the fixture writer registers");
+    }
+
+    let mut engine_store = GraphStore::default();
+    let engine_root = make_node_id("root");
+    engine_store.insert_node(
+        engine_root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(engine_store, engine_root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let host = TrustedRuntimeHost::new(runtime, engine)
+        .expect("the trusted Echo runtime host initializes");
+    (host, first_head, second_head, node)
+}
+
 /// Like [`fixture_host`], but the warp-scoped store also contains a second,
 /// bare node -- present, but with no alpha attachment set -- at
 /// `second_node_local_id`, typed `second_node_type`. Used to exercise
@@ -167,6 +237,20 @@ fn fixture_host_with_bare_node(
     second_node_local_id: warp_core::NodeId,
     second_node_type: warp_core::TypeId,
     second_attachment: Option<(warp_core::TypeId, &'static [u8])>,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
+    fixture_host_with_bare_node_and_policy(
+        second_node_local_id,
+        second_node_type,
+        second_attachment,
+        InboxPolicy::AcceptAll,
+    )
+}
+
+fn fixture_host_with_bare_node_and_policy(
+    second_node_local_id: warp_core::NodeId,
+    second_node_type: warp_core::TypeId,
+    second_attachment: Option<(warp_core::TypeId, &'static [u8])>,
+    inbox_policy: InboxPolicy,
 ) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
     let warp_id = make_warp_id("operation-fixture");
     let node_id = make_node_id("operation-fixture-root");
@@ -219,7 +303,7 @@ fn fixture_host_with_bare_node(
         .register_writer_head(WriterHead::with_routing(
             head_key,
             PlaybackMode::Play,
-            InboxPolicy::AcceptAll,
+            inbox_policy,
             None,
             true,
         ))
@@ -470,6 +554,33 @@ fn canonical_invocation(
     )
     .to_canonical_bytes()
     .expect("fixture invocation encodes canonically")
+}
+
+fn action_invocation(
+    host: &TrustedRuntimeHost,
+    installed: &InstalledEchoOperationV1,
+    head_key: WriterHeadKey,
+    node: NodeKey,
+    current: &[u8],
+    replacement: &[u8],
+) -> Vec<u8> {
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let application_basis = warp_core::echo_operation_anchored_node_application_basis_v1(
+        node,
+        attachment_type,
+        current,
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the shared parent and candidate application basis");
+    canonical_invocation(
+        installed,
+        evaluation_basis,
+        node,
+        warp_core::echo_operation_atom_value_digest_v1(attachment_type, current),
+        replacement.to_vec(),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    )
 }
 
 fn replace_canonical_map_field(
@@ -1523,6 +1634,10 @@ fn operation_wal_codes_append_without_renumbering_legacy_evidence() {
         WalRecordKind::ExecutableOperationStateDeltaRecorded.stable_code(),
         27
     );
+    assert_eq!(
+        WalRecordKind::ExecutableOperationActionOutcomeRecorded.stable_code(),
+        28
+    );
 
     assert_eq!(AffectedFrontierKind::RuntimeState.stable_code(), 2);
     assert_eq!(AffectedFrontierKind::CausalAnchorIndex.stable_code(), 8);
@@ -2539,5 +2654,1267 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
     assert_eq!(
         obstruction.kind(),
         EchoOperationObstructionKindV1::NodeTypeMismatch
+    );
+}
+
+#[test]
+fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
+    let second_node_id = make_node_id("operation-fixture-budget-deferred");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, first_node, second_node) = fixture_host_with_bare_node_and_policy(
+        second_node_id,
+        make_type_id("operation-fixture-node"),
+        Some((attachment_type, b"second-before")),
+        InboxPolicy::Budgeted { max_per_tick: 1 },
+    );
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let first = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        first_node,
+        b"before",
+        b"first-after",
+    );
+    let second = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        second_node,
+        b"second-before",
+        b"second-after",
+    );
+    let first_submission = host
+        .app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                first,
+            )
+            .expect("the first invocation is one canonical Action"),
+        )
+        .expect("the first Action is accepted");
+    let second_submission = host
+        .app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                second,
+            )
+            .expect("the second invocation is one canonical Action"),
+        )
+        .expect("the second Action is accepted");
+    let first_submission_id = first_submission.submission_id;
+    let second_submission_id = second_submission.submission_id;
+
+    let first_tick = host
+        .tick_once()
+        .expect("one Action is selected at the original basis");
+    assert_eq!(first_tick.len(), 1);
+    assert_eq!(first_tick[0].admitted_count, 1);
+
+    let (committed_submission_id, deferred_submission_id) = match (
+        host.echo_operation_action_outcome_v1(&first_submission_id),
+        host.echo_operation_action_outcome_v1(&second_submission_id),
+    ) {
+        (Some(EchoOperationActionOutcomeV1::Committed(_)), None) => {
+            (first_submission_id, second_submission_id)
+        }
+        (None, Some(EchoOperationActionOutcomeV1::Committed(_))) => {
+            (second_submission_id, first_submission_id)
+        }
+        outcomes => panic!("exactly one Action must commit in the first Tick: {outcomes:?}"),
+    };
+
+    let second_tick = host
+        .tick_once()
+        .expect("the deferred Action reaches scheduler-owned private evaluation");
+    assert_eq!(second_tick.len(), 1);
+    assert_eq!(second_tick[0].admitted_count, 1);
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&deferred_submission_id)
+    else {
+        panic!("the stale deferred Action must receive one typed obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BasisChanged
+    );
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&committed_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+}
+
+#[test]
+fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
+    let wal_dir = TempWalDir::new();
+    let second_node_id = make_node_id("operation-fixture-second");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let package_id;
+    let first_submission_id;
+    let second_submission_id;
+
+    {
+        let (mut host, head_key, first_node, second_node) = fixture_host_with_bare_node(
+            second_node_id,
+            make_type_id("operation-fixture-node"),
+            Some((attachment_type, b"second-before")),
+        );
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the scheduler fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        package_id = installed.package_id();
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let first_invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            first_node,
+            b"before",
+            b"first-after",
+        );
+        let second_invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            second_node,
+            b"second-before",
+            b"second-after",
+        );
+        let first_envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            first_invocation,
+        )
+        .expect("the first invocation is one canonical Action envelope");
+        let second_envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            second_invocation,
+        )
+        .expect("the second invocation is one canonical Action envelope");
+
+        first_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(first_envelope)
+            .expect("the first Action is durable before acknowledgement")
+            .submission_id;
+        second_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(second_envelope)
+            .expect("the second Action is durable before acknowledgement")
+            .submission_id;
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 2);
+
+        assert_eq!(
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the worldline remains live")
+                .state()
+                .current_tick()
+                .as_u64(),
+            0,
+            "submission and runtime admission cannot evaluate the Action"
+        );
+
+        let steps = host
+            .tick_once()
+            .expect("the scheduler privately evaluates and commits both Actions");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].admitted_count, 2);
+        assert_eq!(steps[0].worldline_tick_after.as_u64(), 1);
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
+
+        for submission_id in [first_submission_id, second_submission_id] {
+            let Some(EchoOperationActionOutcomeV1::Committed(receipt)) =
+                host.echo_operation_action_outcome_v1(&submission_id)
+            else {
+                panic!("each Action has one typed committed outcome");
+            };
+            assert_eq!(receipt.worldline_tick_after().as_u64(), 1);
+        }
+
+        let state = host
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the committed worldline remains available")
+            .state();
+        assert_eq!(
+            state
+                .store(&first_node.warp_id)
+                .and_then(|store| store.node_attachment(&first_node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                attachment_type,
+                Bytes::from_static(b"first-after"),
+            )))
+        );
+        assert_eq!(
+            state
+                .store(&second_node.warp_id)
+                .and_then(|store| store.node_attachment(&second_node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                attachment_type,
+                Bytes::from_static(b"second-after"),
+            )))
+        );
+        let runtime_wal = host
+            .runtime_wal()
+            .expect("the scheduler WAL remains enabled");
+        let commits = runtime_wal.commits();
+        assert_eq!(
+            commits
+                .iter()
+                .map(|commit| commit.transaction_kind)
+                .collect::<Vec<_>>(),
+            vec![
+                WalTransactionKind::ExecutableOperationInstallation,
+                WalTransactionKind::SubmissionIntake,
+                WalTransactionKind::SubmissionIntake,
+                WalTransactionKind::SchedulerTick,
+            ],
+            "one scheduler-owned Tick must be one WAL transaction"
+        );
+        let scheduler_transaction_id = commits
+            .last()
+            .expect("the scheduler Tick has one commit marker")
+            .transaction_id;
+        assert_eq!(
+            runtime_wal
+                .frames()
+                .into_iter()
+                .filter(|frame| frame.header.transaction_id == scheduler_transaction_id)
+                .map(|frame| frame.header.record_kind)
+                .collect::<Vec<_>>(),
+            vec![
+                WalRecordKind::TickReceiptRecorded,
+                WalRecordKind::ReceiptCorrelationRecorded,
+                WalRecordKind::ExecutableOperationActionOutcomeRecorded,
+                WalRecordKind::ReceiptCorrelationRecorded,
+                WalRecordKind::ExecutableOperationActionOutcomeRecorded,
+                WalRecordKind::RuntimeStateDeltaRecorded,
+            ],
+            "one composite Tick retains one decision record, per-Action outcomes, and one state delta"
+        );
+
+        #[cfg(feature = "host_test")]
+        {
+            let mut adversarial = runtime_wal
+                .recover_read_only()
+                .expect("the honest composite Tick recovers");
+            let mut missing_installation = adversarial.clone();
+            missing_installation.installed_echo_operations.clear();
+            assert!(matches!(
+                missing_installation.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut contradictory_decision = adversarial.clone();
+            contradictory_decision.replace_echo_operation_action_decision_for_test(
+                first_submission_id,
+                WalTickDecision::Obstructed,
+            );
+            assert!(matches!(
+                contradictory_decision.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut forged_admission_ticket = adversarial.clone();
+            let forged_ticket = digest("forged-Action-admission-ticket");
+            forged_admission_ticket.receipt_correlations[0].ticket_digest = forged_ticket;
+            forged_admission_ticket.receipt_correlations[0]
+                .causal_receipt_ref
+                .ticket_digest = forged_ticket;
+            assert!(matches!(
+                forged_admission_ticket.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut retroactive_installation = adversarial.clone();
+            retroactive_installation
+                .clear_echo_operation_action_installations_before_tick_for_test(
+                    first_submission_id,
+                );
+            assert!(matches!(
+                retroactive_installation.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut forged_composition = adversarial.clone();
+            let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
+                .echo_operation_action_outcomes
+                .iter_mut()
+                .find(|(_, _, outcome)| {
+                    matches!(outcome, EchoOperationActionOutcomeV1::Committed(_))
+                })
+            else {
+                panic!("the recovered composite Tick retains one committed Action receipt");
+            };
+            receipt.replace_composition_digest_for_test(digest("forged-composition"));
+            assert!(matches!(
+                forged_composition.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut omitted_member_patch = runtime_wal
+                .recover_read_only()
+                .expect("the honest composite Tick recovers for membership mutation");
+            let forged_patch_digest = digest("composite-patch-omits-an-applied-member");
+            let transition = omitted_member_patch
+                .provenance_entries
+                .iter_mut()
+                .find(|entry| entry.expected.commit_hash == steps[0].commit_hash)
+                .expect("the recovered scheduler transition remains available");
+            transition.expected.patch_digest = forged_patch_digest;
+            transition
+                .patch
+                .as_mut()
+                .expect("the scheduler transition retains its replay patch")
+                .patch_digest = forged_patch_digest;
+            assert!(matches!(
+                omitted_member_patch.validate_echo_operation_parent_states_for_test(
+                    host.runtime(),
+                    host.provenance()
+                ),
+                Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+            ));
+            assert!(
+                adversarial
+                    .echo_operation_action_outcomes
+                    .windows(2)
+                    .all(|pair| pair[0].1 < pair[1].1),
+                "Action outcome records are retained in canonical ingress order"
+            );
+            let (first, second) = adversarial.echo_operation_action_outcomes.split_at_mut(1);
+            std::mem::swap(&mut first[0].2, &mut second[0].2);
+            assert!(matches!(
+                adversarial.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+        }
+    }
+
+    let (mut recovered, head_key, first_node, second_node) = fixture_host_with_bare_node(
+        second_node_id,
+        make_type_id("operation-fixture-node"),
+        Some((attachment_type, b"second-before")),
+    );
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("a fresh host recovers the composite Action Tick");
+    assert!(recovered
+        .engine()
+        .installed_echo_operation_package_v1(package_id)
+        .is_some());
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
+    for submission_id in [first_submission_id, second_submission_id] {
+        assert!(matches!(
+            recovered.echo_operation_action_outcome_v1(&submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+    }
+    let state = recovered
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the recovered worldline exists")
+        .state();
+    assert_eq!(state.current_tick().as_u64(), 1);
+    assert_eq!(
+        state
+            .store(&first_node.warp_id)
+            .and_then(|store| store.node_attachment(&first_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"first-after"),
+        )))
+    );
+    assert_eq!(
+        state
+            .store(&second_node.warp_id)
+            .and_then(|store| store.node_attachment(&second_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"second-after"),
+        )))
+    );
+}
+
+#[test]
+fn scheduler_candidate_limit_leaves_excess_action_pending() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the scheduler budget fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let mut submission_ids = Vec::new();
+    for index in 0..65 {
+        let replacement = format!("bounded-after-{index}");
+        let invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            node,
+            b"before",
+            replacement.as_bytes(),
+        );
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the bounded invocation becomes one canonical Action");
+        submission_ids.push(
+            host.app()
+                .submit_intent_with_runtime_wal_ack(envelope)
+                .expect("the bounded Action is durable")
+                .submission_id,
+        );
+    }
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 65);
+
+    let first_tick = host
+        .tick_once()
+        .expect("the first scheduler Tick respects its Action candidate limit");
+    assert_eq!(first_tick.len(), 1);
+    assert_eq!(first_tick[0].admitted_count, 64);
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+    assert_eq!(
+        submission_ids
+            .iter()
+            .filter(|submission_id| {
+                host.echo_operation_action_outcome_v1(submission_id)
+                    .is_some()
+            })
+            .count(),
+        64
+    );
+
+    let second_tick = host
+        .tick_once()
+        .expect("the excess Action remains available to a later scheduler Tick");
+    assert_eq!(second_tick.len(), 1);
+    assert_eq!(second_tick[0].admitted_count, 1);
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
+    assert!(submission_ids.iter().all(|submission_id| host
+        .echo_operation_action_outcome_v1(submission_id)
+        .is_some()));
+}
+
+#[test]
+fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
+    let wal_dir = TempWalDir::new();
+    let submission_id;
+    let package_id;
+
+    {
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the pending-Action fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        package_id = installed.package_id();
+        let invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            node,
+            b"before",
+            b"after-restart",
+        );
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the invocation becomes a canonical Action");
+        submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("Action acceptance is durable before acknowledgement")
+            .submission_id;
+        assert!(matches!(
+            host.runtime().observe_intent_outcome(&submission_id),
+            warp_core::IntentOutcomeObservation::Pending {
+                ticketed_ingress_id: None,
+                ..
+            }
+        ));
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+        assert_eq!(
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the worldline remains available")
+                .state()
+                .current_tick()
+                .as_u64(),
+            0
+        );
+    }
+
+    let (mut recovered, head_key, node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("the accepted pre-Tick Action recovers");
+    assert!(recovered
+        .engine()
+        .installed_echo_operation_package_v1(package_id)
+        .is_some());
+    assert!(matches!(
+        recovered.runtime().observe_intent_outcome(&submission_id),
+        warp_core::IntentOutcomeObservation::Pending {
+            ticketed_ingress_id: None,
+            ..
+        }
+    ));
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
+    recovered.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let steps = recovered
+        .tick_once()
+        .expect("the scheduler admits and evaluates recovered pending work");
+    assert_eq!(steps.len(), 1);
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
+    let state = recovered
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the recovered Tick advances the worldline")
+        .state();
+    assert_eq!(state.current_tick().as_u64(), 1);
+    assert_eq!(
+        state
+            .store(&node.warp_id)
+            .and_then(|store| store.node_attachment(&node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"after-restart"),
+        )))
+    );
+}
+
+#[test]
+fn wal_enabled_host_does_not_auto_admit_non_durable_action_submission() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the non-durable submission fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let invocation = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        node,
+        b"before",
+        b"must-not-run",
+    );
+    let envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        invocation,
+    )
+    .expect("the invocation becomes an Action");
+    let submission_id = host
+        .app()
+        .submit_intent(envelope)
+        .expect("ordinary intake records process-local witnessed history")
+        .submission_id;
+
+    let steps = host
+        .tick_once()
+        .expect("non-durable intake cannot enter the scheduler");
+    assert!(steps.is_empty());
+    assert!(host
+        .echo_operation_action_outcome_v1(&submission_id)
+        .is_none());
+    assert!(matches!(
+        host.runtime().observe_intent_outcome(&submission_id),
+        warp_core::IntentOutcomeObservation::Pending {
+            ticketed_ingress_id: None,
+            ..
+        }
+    ));
+    let recovery = host
+        .runtime_wal()
+        .expect("the runtime WAL remains enabled")
+        .recover_read_only()
+        .expect("the WAL contains no dangling scheduler consequence");
+    assert!(recovery.witnessed_submissions.is_empty());
+    assert!(recovery.echo_operation_action_outcomes.is_empty());
+}
+
+#[test]
+fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
+    let wal_dir = TempWalDir::new();
+    let submission_id;
+    let state_root_before;
+
+    {
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the obstruction fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        state_root_before = host
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the worldline exists")
+            .state()
+            .state_root();
+        let application_basis = application_basis();
+        let evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis)
+            .expect("Echo resolves the honest parent basis");
+        let invocation = canonical_invocation(
+            &installed,
+            evaluation_basis,
+            node,
+            digest("intentionally-wrong-value-precondition"),
+            b"must-not-appear".to_vec(),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        );
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the obstructed invocation is still a canonical Action");
+        submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("the Action itself is durably accepted")
+            .submission_id;
+        host.tick_once()
+            .expect("typed obstruction is a lawful scheduler decision");
+        let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+            host.echo_operation_action_outcome_v1(&submission_id)
+        else {
+            panic!("the Action retains its typed evaluator obstruction");
+        };
+        assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::PreconditionMismatch
+        );
+        let state = host
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the decided worldline exists")
+            .state();
+        assert_eq!(state.state_root(), state_root_before);
+        assert_eq!(
+            state
+                .store(&node.warp_id)
+                .and_then(|store| store.node_attachment(&node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before"),
+            )))
+        );
+        assert!(state
+            .tick_history()
+            .last()
+            .expect("the obstruction is represented by one decided Tick")
+            .2
+            .ops()
+            .is_empty());
+    }
+
+    let (mut recovered, head_key, node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("a fresh host recovers the typed obstruction");
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        recovered.echo_operation_action_outcome_v1(&submission_id)
+    else {
+        panic!("recovery restores the typed obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+    let state = recovered
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the recovered worldline exists")
+        .state();
+    assert_eq!(state.state_root(), state_root_before);
+    assert_eq!(
+        state
+            .store(&node.warp_id)
+            .and_then(|store| store.node_attachment(&node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        )))
+    );
+}
+
+#[test]
+fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
+    let wal_dir = TempWalDir::new();
+    let unavailable_submission_id;
+    let valid_submission_id;
+    let head_key;
+    let node;
+
+    {
+        let (mut host, fixture_head, fixture_node) = fixture_host();
+        head_key = fixture_head;
+        node = fixture_node;
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the admission-obstruction fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let unavailable_package_bytes = operation_package_at(
+            "echo.fixture.Unavailable.v1",
+            make_type_id("operation-fixture-node"),
+            make_type_id("operation-fixture-atom"),
+        )
+        .to_canonical_bytes()
+        .expect("the unavailable package is canonical");
+        let unavailable_package_id =
+            warp_core::echo_operation_package_id_v1(&unavailable_package_bytes);
+        let evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis())
+            .expect("Echo resolves the current exact parent basis");
+        let unavailable_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+                unavailable_package_id,
+                "echo.fixture.Unavailable.v1",
+                evaluation_basis,
+                digest("fixture-authority-grant"),
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                node,
+                warp_core::echo_operation_atom_value_digest_v1(
+                    make_type_id("operation-fixture-atom"),
+                    b"before",
+                ),
+                b"must-not-appear".to_vec(),
+            )
+            .to_canonical_bytes()
+            .expect("the unavailable-package invocation is canonical");
+        unavailable_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(
+                warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head_key },
+                    unavailable_invocation,
+                )
+                .expect("the unavailable-package invocation becomes an Action"),
+            )
+            .expect("the unavailable-package Action is durable before acknowledgement")
+            .submission_id;
+
+        let valid_invocation =
+            action_invocation(&host, &installed, head_key, node, b"before", b"valid-after");
+        valid_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(
+                warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head_key },
+                    valid_invocation,
+                )
+                .expect("the valid invocation becomes an Action"),
+            )
+            .expect("the valid Action is durable before acknowledgement")
+            .submission_id;
+
+        let steps = host
+            .tick_once()
+            .expect("one unadmittable Action cannot abort unrelated scheduler work");
+        assert_eq!(steps.len(), 1);
+        assert!(matches!(
+            host.echo_operation_action_outcome_v1(&valid_submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+        assert_eq!(
+            host.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
+            Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+        );
+        assert!(host
+            .echo_operation_action_outcome_v1(&unavailable_submission_id)
+            .is_none());
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+        assert!(host
+            .tick_once()
+            .expect("quarantined admission work does not poison an idle pass")
+            .is_empty());
+    }
+
+    let (mut recovered, recovered_head, recovered_node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh-host recovery restores the valid Tick and pending Action");
+    recovered.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&valid_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let steps = recovered
+        .tick_once()
+        .expect("the recovered unavailable-package Action is quarantined");
+    assert!(steps.is_empty());
+    assert_eq!(
+        recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
+        Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+    );
+    assert!(recovered
+        .tick_once()
+        .expect("recovered quarantine remains idle without re-admission")
+        .is_empty());
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
+    assert_eq!(recovered_head, head_key);
+    assert_eq!(recovered_node, node);
+}
+
+#[test]
+fn action_outcome_attribution_ignores_application_controlled_scope_collisions() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the scope-collision fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let valid_invocation =
+        action_invocation(&host, &installed, head_key, node, b"before", b"after");
+    let valid_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        valid_invocation,
+    )
+    .expect("the valid invocation becomes an Action");
+    let colliding_scope = NodeKey {
+        warp_id: node.warp_id,
+        local_id: warp_core::NodeId(valid_envelope.ingress_id()),
+    };
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis())
+        .expect("Echo resolves the current exact parent basis");
+    let obstructed_invocation =
+        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            evaluation_basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            colliding_scope,
+            warp_core::echo_operation_atom_value_digest_v1(
+                make_type_id("operation-fixture-atom"),
+                b"before",
+            ),
+            b"must-not-appear".to_vec(),
+        )
+        .to_canonical_bytes()
+        .expect("the scope-collision invocation is canonical");
+    let obstructed_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        obstructed_invocation,
+    )
+    .expect("the scope-collision invocation becomes an Action");
+
+    let valid_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(valid_envelope)
+        .expect("the valid Action is durable")
+        .submission_id;
+    let obstructed_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(obstructed_envelope)
+        .expect("the obstructed Action is durable")
+        .submission_id;
+
+    let steps = host
+        .tick_once()
+        .expect("scope values cannot change positional Action attribution");
+    assert_eq!(steps.len(), 1);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&valid_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&obstructed_submission_id)
+    else {
+        panic!("the colliding scope still receives its own typed obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::NodeMissing
+    );
+}
+
+#[test]
+fn identical_action_payloads_on_distinct_heads_keep_distinct_outcomes() {
+    let (mut host, first_head, second_head, node) = fixture_host_with_two_worldlines();
+    host.enable_in_memory_runtime_wal()
+        .expect("the cross-head fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let invocation = action_invocation(&host, &installed, first_head, node, b"before", b"after");
+    let first_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: first_head },
+        invocation.clone(),
+    )
+    .expect("the first target accepts the canonical Action payload");
+    let second_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: second_head },
+        invocation,
+    )
+    .expect("the second target accepts the same canonical Action payload");
+    assert_eq!(first_envelope.ingress_id(), second_envelope.ingress_id());
+
+    let first_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(first_envelope)
+        .expect("the first target submission is durable")
+        .submission_id;
+    let second_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(second_envelope)
+        .expect("the second target submission is durable")
+        .submission_id;
+    assert_ne!(first_submission_id, second_submission_id);
+
+    let steps = host
+        .tick_once()
+        .expect("cross-head duplicate payloads retain distinct Action identities");
+    assert_eq!(steps.len(), 2);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&first_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&second_submission_id)
+    else {
+        panic!("the mismatched target retains its own typed basis obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BasisChanged
+    );
+}
+
+#[test]
+fn recovery_separates_identical_commits_on_distinct_worldlines() {
+    let (mut host, first_head, second_head, node) = fixture_host_with_two_worldlines();
+    host.enable_in_memory_runtime_wal()
+        .expect("the multi-worldline recovery fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let mut submission_ids = Vec::new();
+    for head_key in [first_head, second_head] {
+        let invocation = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the exact-head invocation becomes an Action");
+        submission_ids.push(
+            host.app()
+                .submit_intent_with_runtime_wal_ack(envelope)
+                .expect("the exact-head Action is durable")
+                .submission_id,
+        );
+    }
+
+    let steps = host
+        .tick_once()
+        .expect("both exact-head Actions commit in one scheduler pass");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].commit_hash, steps[1].commit_hash);
+
+    let recovery = host
+        .runtime_wal()
+        .expect("the scheduler WAL remains enabled")
+        .recover_read_only()
+        .expect("equal commit hashes on distinct worldlines recover independently");
+    for submission_id in submission_ids {
+        assert!(recovery
+            .echo_operation_action_outcomes
+            .iter()
+            .any(|(recovered, _, outcome)| {
+                *recovered == submission_id
+                    && matches!(outcome, EchoOperationActionOutcomeV1::Committed(_))
+            }));
+    }
+}
+
+#[test]
+fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
+    let wal_dir = TempWalDir::new();
+    let conflict_submission_id;
+
+    {
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the footprint-conflict fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let mut submission_ids = Vec::new();
+        for replacement in [b"after-a".as_slice(), b"after-b".as_slice()] {
+            let invocation =
+                action_invocation(&host, &installed, head_key, node, b"before", replacement);
+            let envelope = warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                invocation,
+            )
+            .expect("the conflicting invocation becomes an Action");
+            submission_ids.push(
+                host.app()
+                    .submit_intent_with_runtime_wal_ack(envelope)
+                    .expect("the conflicting Action is durable")
+                    .submission_id,
+            );
+        }
+
+        let steps = host
+            .tick_once()
+            .expect("the scheduler lawfully classifies the footprint conflict");
+        assert_eq!(steps.len(), 1);
+        conflict_submission_id = submission_ids
+            .into_iter()
+            .find(|submission_id| {
+                matches!(
+                    host.echo_operation_action_outcome_v1(submission_id),
+                    Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(_))
+                )
+            })
+            .expect("exactly one Action is rejected by the earlier applied footprint");
+
+        #[cfg(feature = "host_test")]
+        {
+            let mut adversarial = host
+                .runtime_wal()
+                .expect("the conflict WAL remains enabled")
+                .recover_read_only()
+                .expect("the honest conflict batch recovers");
+            adversarial.replace_echo_operation_action_conflict_preparation_for_test(
+                conflict_submission_id,
+                digest("forged-conflict-preparation"),
+            );
+            assert!(matches!(
+                adversarial.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut false_conflict = host
+                .runtime_wal()
+                .expect("the conflict WAL remains enabled")
+                .recover_read_only()
+                .expect("the honest conflict batch recovers again");
+            false_conflict.replace_echo_operation_action_conflict_blockers_for_test(
+                conflict_submission_id,
+                Vec::new(),
+            );
+            assert!(matches!(
+                false_conflict.validate_echo_operation_parent_states_for_test(
+                    host.runtime(),
+                    host.provenance()
+                ),
+                Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+            ));
+        }
+    }
+
+    let (mut recovered, _, _) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh-host recovery reconstructs the honest footprint conflict");
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&conflict_submission_id),
+        Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(_))
+    ));
+}
+
+#[cfg(feature = "host_test")]
+#[test]
+fn scheduler_wal_failure_rolls_back_and_requeues_action() {
+    let wal_dir = TempWalDir::new();
+    let submission_id;
+    let head_key;
+    let node;
+
+    {
+        let (mut host, fixture_head, fixture_node) = fixture_host();
+        head_key = fixture_head;
+        node = fixture_node;
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the WAL-failure fixture opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        let invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            node,
+            b"before",
+            b"must-rollback",
+        );
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the invocation becomes one Action");
+        submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("acceptance commits before the injected Tick failure")
+            .submission_id;
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            FilesystemWalFaultTarget::AppendFrame,
+        ))
+        .expect("the test injects one scheduler-WAL append failure");
+        assert!(host.tick_once().is_err());
+        assert!(host
+            .echo_operation_action_outcome_v1(&submission_id)
+            .is_none());
+        assert!(matches!(
+            host.runtime().observe_intent_outcome(&submission_id),
+            warp_core::IntentOutcomeObservation::Pending {
+                ticketed_ingress_id: None,
+                ..
+            }
+        ));
+        let state = host
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("the rolled-back worldline remains available")
+            .state();
+        assert_eq!(state.current_tick().as_u64(), 0);
+        assert_eq!(
+            state
+                .store(&node.warp_id)
+                .and_then(|store| store.node_attachment(&node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before"),
+            )))
+        );
+
+        host.tick_once()
+            .expect("the same host retries the still-pending Action");
+        assert!(matches!(
+            host.echo_operation_action_outcome_v1(&submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+        assert_eq!(
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the retried worldline remains available")
+                .state()
+                .store(&node.warp_id)
+                .and_then(|store| store.node_attachment(&node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"must-rollback"),
+            )))
+        );
+    }
+
+    let (mut recovered, _, _) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("recovery discards the failed Tick tail and restores the retry");
+    assert!(matches!(
+        recovered.runtime().observe_intent_outcome(&submission_id),
+        warp_core::IntentOutcomeObservation::Decided { .. }
+    ));
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+}
+
+#[cfg(feature = "host_test")]
+#[test]
+fn scheduler_tick_construction_failure_publishes_no_action_state_or_receipt() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the construction-failure fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let state_root_before = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the worldline exists")
+        .state()
+        .state_root();
+    let invocation = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        node,
+        b"before",
+        b"must-not-commit",
+    );
+    let envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        invocation,
+    )
+    .expect("the invocation becomes one Action");
+    let submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("acceptance is durable before Tick construction")
+        .submission_id;
+    host.inject_echo_operation_action_tick_construction_failure_for_test();
+
+    let error = host
+        .tick_once()
+        .expect_err("the poisoned coordinate prevents Tick construction");
+    assert!(
+        matches!(
+            &error,
+            TrustedRuntimeHostError::Runtime(error)
+                if matches!(
+                    error.as_ref(),
+                    RuntimeError::EchoOperationCommit(
+                        EchoOperationCommitErrorV1::InjectedTickConstructionFailure
+                    )
+                )
+        ),
+        "unexpected construction error: {error:?}"
+    );
+    assert!(host
+        .echo_operation_action_outcome_v1(&submission_id)
+        .is_none());
+    assert!(matches!(
+        host.runtime().observe_intent_outcome(&submission_id),
+        warp_core::IntentOutcomeObservation::Pending { .. }
+    ));
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the failed Tick leaves the worldline available");
+    assert_eq!(frontier.frontier_tick().as_u64(), 0);
+    assert_eq!(frontier.state().state_root(), state_root_before);
+    assert!(frontier.state().tick_history().is_empty());
+    assert_eq!(
+        frontier
+            .state()
+            .store(&node.warp_id)
+            .and_then(|store| store.node_attachment(&node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        )))
+    );
+    assert_eq!(
+        host.runtime_wal()
+            .expect("the WAL remains enabled")
+            .commits()
+            .iter()
+            .map(|commit| commit.transaction_kind)
+            .collect::<Vec<_>>(),
+        vec![
+            WalTransactionKind::ExecutableOperationInstallation,
+            WalTransactionKind::SubmissionIntake,
+        ]
     );
 }

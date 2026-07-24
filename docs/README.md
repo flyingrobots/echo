@@ -13,6 +13,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Local contract host quickstart](quickstart-local-contract-host.md)
 - [Echo 1.0 release contract](releases/echo-1.0-contract.md)
 - [WARP core runtime](spec/warp-core.md)
+- [Scheduler WARP core](spec/scheduler-warp-core.md)
 
 ## Current Architecture
 
@@ -51,6 +52,10 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Bunny owns reusable geometry](adr/0019-bunny-owns-reusable-geometry.md)
 - [Retained reading storage and proof boundary](adr/0020-retained-reading-storage-and-proof-boundary.md)
 - [Public optic and observation boundary](adr/0021-public-optic-observation-boundary.md)
+- [Application-requested causal-anchor admission](adr/0022-application-requested-causal-anchor-admission.md)
+- [Admitted executable-operation packages](adr/0023-admitted-executable-operation-packages.md)
+- [Anchored-node creation from absence](adr/0024-anchored-node-creation-from-absence.md)
+- [Scheduler-owned executable-operation Actions](adr/0025-scheduler-owned-executable-operation-actions.md)
 
 ## Normative Contracts
 

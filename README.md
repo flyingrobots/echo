@@ -175,25 +175,26 @@ host-constructed `InstalledContractPackage` values.
 Separately, Echo can now admit and install an exact canonical
 `ExecutableOperationPackageV1`, admit an exact-basis invocation under explicit
 authority and delegated budget, evaluate its data-only
-`EchoOperationProgramV1` privately, and either commit one patch or return typed
-noncommit evidence. Only committed operation consequences enter the
-operation-tick WAL. The initial generic program performs an anchored typed-node
-alpha-attachment compare-and-set. Its receipt binds the admitted package,
-operation, subordinate program, invocation, complete evaluation basis,
-authority, declared and actual footprints, budgets, patch, result, and terminal
-outcome. Runtime-control installation and committed execution-kernel records
-permit callback-free fresh-host recovery. Program bytes explicitly bind the
-interpreter and intrinsic profiles, while the parent patch and singleton tick
-evidence bind the admitted installation. A program digest cannot confer
-operation identity, invocability, or authority.
+`EchoOperationProgramV1` privately during scheduler-owned Tick construction,
+and either commit its member consequence or return typed noncommit evidence.
+Two independent, same-basis executable Actions can enter one atomic Tick. The
+initial generic programs perform anchored typed-node alpha-attachment
+compare-and-set and create-if-absent operations. Their receipts bind the
+admitted package, operation, subordinate program, invocation, complete
+evaluation basis, authority, declared and actual footprints, budgets, patch,
+result, composition, and terminal outcome. Runtime-control installation and
+scheduler Tick records permit callback-free fresh-host recovery. Program bytes
+explicitly bind the interpreter and intrinsic profiles, while Tick evidence
+binds each admitted installation. A program digest cannot confer operation
+identity, invocability, or authority.
 
 That generic runtime witness is not yet the Jim/Jedit vertical. No real Edict
 compiler output, Jedit rope lawpack, or `ReplaceRange` operation uses it, and it
-does not yet claim structurally separate target verification, scheduler batch
-composition, or independently implemented semantic conformance. It also
-temporarily reuses `TrustedRuntimeHost`'s joint `native_rule_bootstrap` and
-`trusted_runtime` feature gate. The program itself has no native hooks, but the
-host surface must be decoupled from the legacy bootstrap feature before a
+does not yet claim structurally separate target verification, cross-category
+scheduler composition, or independently implemented semantic conformance. It
+also temporarily reuses `TrustedRuntimeHost`'s joint `native_rule_bootstrap`
+and `trusted_runtime` feature gate. The program itself has no native hooks, but
+the host surface must be decoupled from the legacy bootstrap feature before a
 product can remove that compatibility feature.
 
 The following sequence is the existing Wesley bootstrap fixture:
@@ -248,17 +249,23 @@ The current executable-operation runtime slice is:
 canonical ExecutableOperationPackageV1 bytes
 -> Echo-owned package and invocation admission
 -> installed data-only EchoOperationProgramV1
--> bounded private Echo evaluation
--> exact-basis singleton commit
--> typed receipt, WAL retention, and callback-free recovery
+-> canonical Action submission retained before acknowledgement
+-> runtime-owned admission into the ordinary head inbox
+-> scheduler selection at one exact basis
+-> bounded private Echo evaluation during Tick construction
+-> one composite Tick consequence with typed per-Action outcomes
+-> decided Tick WAL retention before state, frontier, and Receipt publication
+-> callback-free pending-Action and decided-Tick recovery
 ```
 
 The first two paths are callback-shaped compatibility infrastructure. The
 third proves Echo-owned execution of admitted data-only meaning through
 separate update-only compare-and-set and single-node create-if-absent program
-profiles. No real Edict compiler output, Jedit operation, or Graft
-multi-record mutation uses them yet. The next convergence crossing must bind a
-real application-owned Edict operation and lawpack to the executable-operation
+profiles. Independent Actions for one head can share one scheduler-owned Tick;
+conflicting or obstructed Actions retain typed outcomes without hidden
+mutation. No real Edict compiler output, Jedit operation, or Graft operation
+uses this route yet. The next convergence crossing must bind a real
+application-owned Edict operation and lawpack to the executable-operation
 package without reintroducing a native implementation.
 
 ## Contracts And Boundaries

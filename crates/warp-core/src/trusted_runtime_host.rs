@@ -21,11 +21,13 @@ use crate::{
         affected_frontiers_root, build_causal_anchor_admission_transaction,
         build_executable_operation_installation_transaction,
         build_executable_operation_tick_transaction, build_recovery_certificate,
-        build_replayable_tick_transaction, build_submission_acceptance_with_material_transaction,
+        build_replayable_tick_batch_transaction, build_replayable_tick_transaction,
+        build_submission_acceptance_with_material_transaction,
         causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
-        causal_history_genesis_frontier_digest, logical_causal_history_frontier_digest,
-        recover_filesystem_store, recover_from_frames_and_commits, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root,
+        causal_history_genesis_frontier_digest, decode_tick_receipt_records,
+        logical_causal_history_frontier_digest, recover_filesystem_store,
+        recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
+        recovered_submission_receipt_index_root, tick_receipt_payload_is_batch,
         trusted_runtime_wal_digest, validate_recovered_causal_anchor_history, AffectedFrontier,
         AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId,
         PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
@@ -40,12 +42,16 @@ use crate::{
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
-        admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
-        decode_invocation_route_v1, genesis_commit_id, install_recovered_v1,
-        installed_from_admitted, not_committed_basis_changed,
+        action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
+        action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
+        action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
+        admit_package_v1, commit_prepared_to_state, decode_invocation_route_v1,
+        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
+        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
         not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
-        operation_descent_stack, prepare_operation_v1, recover_committed_execution_receipt_v1,
-        recover_installation_v1, retain_committed_execution_v1, retain_installation_v1,
+        operation_descent_stack, prepare_operation_v1, reconstruct_action_preparation_v1,
+        recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
+        retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
         validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
     },
     provider_contract::admit_provider_contract_package_v1,
@@ -54,12 +60,13 @@ use crate::{
     CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
     CausalFrontierRef, ContractInverseAdmissionRequest, ContractInverseContext,
     ContractInverseDerivation, ContractInverseHistoryObstruction, ContractInverseObstruction,
-    ContractOperationKind, EchoOperationAdmissionErrorV1, EchoOperationAdmissionPolicyV1,
-    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1, EchoOperationCommitErrorV1,
-    EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
-    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationPreparationV1, EchoOperationReceiptV1,
-    Engine, IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
+    ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorV1,
+    EchoOperationAdmissionPolicyV1, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
+    EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
+    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
+    EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationPreparationV1, EchoOperationReceiptV1, EchoOperationTerminalPostureV1, Engine,
+    IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
     IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageRecord, InstalledEchoOperationV1,
     InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
@@ -70,7 +77,7 @@ use crate::{
     ProviderContractInstallationError, ProviderContractPackageInstallerV1,
     ProviderContractPackageProposalV1, ProviderPackageReferenceV1,
     ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
-    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptRejection,
+    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptDisposition, TickReceiptRejection,
     TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
     WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
@@ -83,6 +90,8 @@ const INSTALLED_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
     b"echo:trusted-host-installed-contract-admission:v1\0";
 const PROVIDER_CONTRACT_HOST_ADMISSION_DIGEST_DOMAIN: &[u8] =
     b"echo:trusted-host-provider-contract-admission:v1\0";
+const ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN: &[u8] =
+    b"echo:trusted-host-executable-operation-action-admission:v1\0";
 
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
@@ -131,6 +140,12 @@ pub enum TrustedRuntimeHostError {
     /// Exact executable-operation retained material was malformed.
     #[error("trusted runtime host executable-operation artifact error: {0}")]
     EchoOperationArtifact(#[from] EchoOperationArtifactErrorV1),
+    /// Runtime-owned Action admission policy is not installed.
+    #[error("trusted runtime host executable-operation Action admission policy is unavailable")]
+    EchoOperationActionAdmissionPolicyUnavailable,
+    /// Runtime-owned admission refused a durably accepted executable Action.
+    #[error("trusted runtime host executable-operation Action admission error: {0}")]
+    EchoOperationActionAdmission(#[from] EchoOperationInvocationAdmissionErrorV1),
     /// Executable-operation installation conflicted with installed authority.
     #[error("trusted runtime host executable-operation installation error: {0}")]
     EchoOperationInstallation(#[from] EchoOperationInstallationErrorV1),
@@ -329,6 +344,9 @@ pub enum TrustedRuntimeWalError {
         /// Number of transactions in the attempted durable batch.
         transaction_count: usize,
     },
+    /// Per-Action receipt records do not describe one exact scheduler Tick.
+    #[error("trusted runtime WAL scheduler Tick batch is internally inconsistent")]
+    SchedulerTickBatchMismatch,
 }
 
 /// Live runtime authority category that a WAL activation cannot safely recover.
@@ -433,10 +451,96 @@ pub struct TrustedRuntimeWalRecovery {
     pub installed_echo_operations: Vec<InstalledEchoOperationV1>,
     /// Typed receipts reconstructed from executable-operation tick records.
     pub echo_operation_receipts: Vec<EchoOperationReceiptV1>,
+    /// Typed executable-operation Action outcomes reconstructed from
+    /// scheduler-owned Tick records, keyed by witnessed submission.
+    pub echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
+    echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
+    echo_operation_action_installations_before_tick:
+        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
 impl TrustedRuntimeWalRecovery {
+    /// Re-runs executable Action/Tick correspondence checks after a targeted
+    /// test mutates recovered evidence.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn validate_echo_operation_action_outcomes_for_test(
+        &self,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_action_outcomes(
+            &self.witnessed_submissions,
+            &self.receipt_correlations,
+            &self.provenance_entries,
+            &self.installed_echo_operations,
+            &self.echo_operation_action_outcomes,
+            &self.echo_operation_action_decisions,
+            &self.echo_operation_action_installations_before_tick,
+        )
+    }
+
+    /// Replaces one recovered scheduler decision for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_decision_for_test(
+        &mut self,
+        submission_id: Hash,
+        decision: WalTickDecision,
+    ) {
+        self.echo_operation_action_decisions
+            .insert(submission_id, decision);
+    }
+
+    /// Removes the installation-order witness for one Action in adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn clear_echo_operation_action_installations_before_tick_for_test(
+        &mut self,
+        submission_id: Hash,
+    ) {
+        self.echo_operation_action_installations_before_tick
+            .remove(&submission_id);
+    }
+
+    /// Replaces one rejected preparation identity for adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_conflict_preparation_for_test(
+        &mut self,
+        submission_id: Hash,
+        digest: Hash,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(candidate, _, _)| *candidate == submission_id)
+        {
+            outcome.replace_conflict_preparation_id_for_test(digest);
+        }
+    }
+
+    /// Replaces one retained conflict's blockers for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_conflict_blockers_for_test(
+        &mut self,
+        submission_id: Hash,
+        replacement: Vec<u32>,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(retained_submission_id, _, _)| *retained_submission_id == submission_id)
+        {
+            outcome.replace_conflict_blockers_for_test(replacement);
+        }
+    }
+
+    /// Re-runs activation-time Action parent-state checks for adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn validate_echo_operation_parent_states_for_test(
+        &self,
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_parent_states(runtime, provenance, self)
+    }
+
     /// Recomputes the certificate's canonical index root from recovered evidence.
     ///
     /// # Errors
@@ -454,6 +558,7 @@ impl TrustedRuntimeWalRecovery {
             causal_anchor_history: &self.causal_anchor_history,
             installed_echo_operations: &self.installed_echo_operations,
             echo_operation_receipts: &self.echo_operation_receipts,
+            echo_operation_action_outcomes: &self.echo_operation_action_outcomes,
         })
     }
 
@@ -606,6 +711,31 @@ pub struct TrustedRuntimeHost {
     runtime_wal: Option<TrustedRuntimeWal>,
     causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+    pending_echo_operation_actions: BTreeSet<Hash>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    echo_operation_action_admission_obstructions:
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+}
+
+fn pending_echo_operation_action_ids_v1(
+    runtime: &WorldlineRuntime,
+    decided: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+) -> BTreeSet<Hash> {
+    runtime
+        .pending_witnessed_submissions()
+        .filter_map(|submission| {
+            let submission_id = submission.submission_id;
+            (!decided.contains_key(&submission_id)
+                && runtime
+                    .witnessed_submission_envelope(&submission_id)
+                    .is_some_and(|envelope| {
+                        echo_operation_action_invocation_bytes_v1(envelope).is_some()
+                    }))
+            .then_some(submission_id)
+        })
+        .collect()
 }
 
 impl TrustedRuntimeHost {
@@ -617,6 +747,8 @@ impl TrustedRuntimeHost {
     /// Returns a provenance error if any runtime worldline cannot be registered.
     pub fn new(runtime: WorldlineRuntime, engine: Engine) -> Result<Self, TrustedRuntimeHostError> {
         let provenance = provenance_from_runtime(&runtime)?;
+        let pending_echo_operation_actions =
+            pending_echo_operation_action_ids_v1(&runtime, &BTreeMap::new());
         Ok(Self {
             runtime,
             provenance,
@@ -624,6 +756,11 @@ impl TrustedRuntimeHost {
             runtime_wal: None,
             causal_anchor_support_policy: None,
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
+            echo_operation_action_admission_policy: None,
+            echo_operation_action_outcomes: BTreeMap::new(),
+            pending_echo_operation_actions,
+            admitted_echo_operation_actions: BTreeMap::new(),
+            echo_operation_action_admission_obstructions: BTreeMap::new(),
         })
     }
 
@@ -634,6 +771,8 @@ impl TrustedRuntimeHost {
         provenance: ProvenanceService,
         engine: Engine,
     ) -> Self {
+        let pending_echo_operation_actions =
+            pending_echo_operation_action_ids_v1(&runtime, &BTreeMap::new());
         Self {
             runtime,
             provenance,
@@ -641,6 +780,11 @@ impl TrustedRuntimeHost {
             runtime_wal: None,
             causal_anchor_support_policy: None,
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
+            echo_operation_action_admission_policy: None,
+            echo_operation_action_outcomes: BTreeMap::new(),
+            pending_echo_operation_actions,
+            admitted_echo_operation_actions: BTreeMap::new(),
+            echo_operation_action_admission_obstructions: BTreeMap::new(),
         }
     }
 
@@ -666,6 +810,38 @@ impl TrustedRuntimeHost {
     #[must_use]
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// Installs the runtime-owned policy used to admit durably accepted
+    /// executable-operation Actions before scheduler selection.
+    pub fn install_echo_operation_action_admission_policy_v1(
+        &mut self,
+        policy: EchoOperationInvocationAdmissionPolicyV1,
+    ) {
+        self.echo_operation_action_admission_policy = Some(policy);
+        self.requeue_obstructed_echo_operation_actions_v1();
+    }
+
+    /// Returns the typed scheduler-owned outcome for one executable-operation
+    /// Action submission.
+    #[must_use]
+    pub fn echo_operation_action_outcome_v1(
+        &self,
+        submission_id: &Hash,
+    ) -> Option<&EchoOperationActionOutcomeV1> {
+        self.echo_operation_action_outcomes.get(submission_id)
+    }
+
+    /// Returns the typed pending posture for an executable-operation Action
+    /// which runtime-owned admission cannot currently authorize.
+    #[must_use]
+    pub fn echo_operation_action_admission_obstruction_v1(
+        &self,
+        submission_id: &Hash,
+    ) -> Option<EchoOperationInvocationAdmissionErrorKindV1> {
+        self.echo_operation_action_admission_obstructions
+            .get(submission_id)
+            .copied()
     }
 
     /// Admits exact executable-operation package bytes under independent policy.
@@ -713,6 +889,7 @@ impl TrustedRuntimeHost {
         }
         self.engine
             .restore_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+        self.requeue_obstructed_echo_operation_actions_v1();
         Ok(installed)
     }
 
@@ -726,12 +903,13 @@ impl TrustedRuntimeHost {
         writer_head: crate::WriterHeadKey,
         application_basis: EchoOperationApplicationBasisV1,
     ) -> Result<EchoOperationEvaluationBasisV1, TrustedRuntimeHostError> {
-        current_echo_operation_basis(
+        crate::coordinator::resolve_echo_operation_evaluation_basis_v1(
             &self.runtime,
             &self.provenance,
             writer_head,
             application_basis,
         )
+        .map_err(TrustedRuntimeHostError::from)
     }
 
     /// Independently admits a canonical installed-operation invocation.
@@ -771,11 +949,14 @@ impl TrustedRuntimeHost {
         )
     }
 
-    /// Evaluates one admitted operation without mutating the parent state.
+    /// Transitional host-only seam for evaluating one admitted operation
+    /// without mutating the parent state.
     ///
-    /// Evaluation returns either one complete prepared patch or one typed
-    /// obstruction. No partial mutation reaches the parent worldline.
+    /// Application execution must submit an executable-operation Action and
+    /// let the scheduler invoke private evaluation while constructing a Tick.
+    /// This direct seam remains hidden for compatibility and focused tests.
     #[must_use]
+    #[doc(hidden)]
     pub fn prepare_echo_operation_v1(
         &self,
         admitted: AdmittedEchoOperationInvocationV1,
@@ -806,11 +987,13 @@ impl TrustedRuntimeHost {
         )
     }
 
-    /// Commits one privately prepared patch only against its exact evaluation basis.
+    /// Transitional host-only seam for directly committing one privately
+    /// prepared consequence against its exact evaluation basis.
     ///
-    /// A changed basis produces typed noncommit evidence and never retries,
-    /// rebases, revalidates, or exposes a partial patch. A successful crossing
-    /// appends one local provenance entry and advances one worldline tick.
+    /// Application execution must use scheduler-owned executable-operation
+    /// Actions. This direct seam remains hidden for compatibility and focused
+    /// tests while that older lifecycle is retired.
+    #[doc(hidden)]
     pub fn commit_prepared_echo_operation_v1(
         &mut self,
         prepared: Box<PreparedEchoOperationV1>,
@@ -991,8 +1174,19 @@ impl TrustedRuntimeHost {
 
         self.engine
             .restore_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
+        self.echo_operation_action_outcomes = recovery
+            .echo_operation_action_outcomes
+            .iter()
+            .map(|(submission_id, _, outcome)| (*submission_id, outcome.clone()))
+            .collect();
         self.runtime = restored_runtime;
         self.provenance = restored_provenance;
+        self.pending_echo_operation_actions = pending_echo_operation_action_ids_v1(
+            &self.runtime,
+            &self.echo_operation_action_outcomes,
+        );
+        self.admitted_echo_operation_actions.clear();
+        self.echo_operation_action_admission_obstructions.clear();
         self.runtime_wal = Some(runtime_wal);
         Ok(())
     }
@@ -1032,6 +1226,18 @@ impl TrustedRuntimeHost {
             .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?;
         runtime_wal.replace_filesystem_fault_plan_for_test(fault_plan)?;
         Ok(())
+    }
+
+    /// Injects one scheduler Action Tick construction failure for a targeted
+    /// rollback test.
+    #[cfg(all(
+        feature = "native_rule_bootstrap",
+        feature = "trusted_runtime",
+        any(test, feature = "host_test")
+    ))]
+    pub fn inject_echo_operation_action_tick_construction_failure_for_test(&mut self) {
+        self.runtime
+            .inject_echo_operation_action_tick_construction_failure_for_test();
     }
 
     /// Returns the app-facing surface. This surface can submit and observe, but
@@ -1489,34 +1695,152 @@ impl TrustedRuntimeHost {
             )
     }
 
+    fn track_pending_echo_operation_action_v1(
+        &mut self,
+        submission_id: Hash,
+        is_echo_operation_action: bool,
+    ) {
+        if is_echo_operation_action
+            && !self
+                .echo_operation_action_outcomes
+                .contains_key(&submission_id)
+        {
+            self.pending_echo_operation_actions.insert(submission_id);
+        }
+    }
+
+    fn requeue_obstructed_echo_operation_actions_v1(&mut self) {
+        self.pending_echo_operation_actions.extend(
+            self.echo_operation_action_admission_obstructions
+                .keys()
+                .copied(),
+        );
+        self.echo_operation_action_admission_obstructions.clear();
+    }
+
+    fn admit_pending_echo_operation_actions_v1(
+        &mut self,
+    ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
+        if self.pending_echo_operation_actions.is_empty() {
+            return Ok(self.admitted_echo_operation_actions.clone());
+        }
+        let Some(policy) = self.echo_operation_action_admission_policy else {
+            return Ok(self.admitted_echo_operation_actions.clone());
+        };
+        let available = crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1
+            .saturating_sub(self.admitted_echo_operation_actions.len());
+        let pending = self
+            .pending_echo_operation_actions
+            .iter()
+            .filter(|submission_id| {
+                !self
+                    .admitted_echo_operation_actions
+                    .contains_key(*submission_id)
+            })
+            .take(available)
+            .copied()
+            .collect::<Vec<_>>();
+        for submission_id in pending {
+            let submission = self
+                .runtime
+                .witnessed_submission(&submission_id)
+                .cloned()
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+            let envelope = self
+                .runtime
+                .witnessed_submission_envelope(&submission_id)
+                .cloned()
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+            let invocation_bytes = echo_operation_action_invocation_bytes_v1(&envelope)
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?
+                .to_vec();
+            if let Some(runtime_wal) = self.runtime_wal.as_ref() {
+                let durably_accepted = runtime_wal
+                    .has_submission_acceptance(submission.submission_id, submission.ingress_id)?;
+                if !durably_accepted {
+                    continue;
+                }
+            }
+            let package_id = match decode_invocation_route_v1(&invocation_bytes) {
+                Ok((package_id, _)) => package_id,
+                Err(error) => {
+                    self.echo_operation_action_admission_obstructions
+                        .insert(submission.submission_id, error.kind());
+                    self.pending_echo_operation_actions
+                        .remove(&submission.submission_id);
+                    continue;
+                }
+            };
+            let admitted = match admit_action_invocation_v1(
+                self.engine.installed_echo_operation_package_v1(package_id),
+                policy,
+                &invocation_bytes,
+                self.echo_operation_evaluation_authority.clone(),
+            ) {
+                Ok(admitted) => admitted,
+                Err(error) => {
+                    self.echo_operation_action_admission_obstructions
+                        .insert(submission.submission_id, error.kind());
+                    self.pending_echo_operation_actions
+                        .remove(&submission.submission_id);
+                    continue;
+                }
+            };
+            let admission_digest = echo_operation_action_admission_digest(&submission, &admitted);
+            self.runtime.ingest_echo_operation_action_v1(
+                &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
+                submission.submission_id,
+                admission_digest,
+                envelope,
+            )?;
+            self.echo_operation_action_admission_obstructions
+                .remove(&submission.submission_id);
+            self.admitted_echo_operation_actions
+                .insert(submission.submission_id, admitted);
+        }
+        Ok(self.admitted_echo_operation_actions.clone())
+    }
+
     /// Runs one scheduler-owned pass.
     ///
     /// # Errors
     ///
     /// Returns a runtime error if the scheduler pass fails.
     pub fn tick_once(&mut self) -> Result<Vec<StepRecord>, TrustedRuntimeHostError> {
+        let runtime_before = self.runtime.clone();
+        let provenance_before = self.provenance.clone();
+        let action_outcomes_before = self.echo_operation_action_outcomes.clone();
+        let admitted_actions_before = self.admitted_echo_operation_actions.clone();
+        let admitted_actions = match self.admit_pending_echo_operation_actions_v1() {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                self.runtime = runtime_before;
+                self.provenance = provenance_before;
+                self.admitted_echo_operation_actions = admitted_actions_before;
+                return Err(error);
+            }
+        };
         let existing_correlations = self
             .runtime
             .receipt_correlations()
             .map(|correlation| correlation.ticketed_ingress_id)
             .collect::<BTreeSet<_>>();
-        let runtime_before = self.runtime.clone();
-        let provenance_before = self.provenance.clone();
-        let records = SchedulerCoordinator::super_tick(
-            &mut self.runtime,
-            &mut self.provenance,
-            &mut self.engine,
-        )?;
+        let (records, action_outcomes) =
+            SchedulerCoordinator::super_tick_with_echo_operation_actions_v1(
+                &mut self.runtime,
+                &mut self.provenance,
+                &mut self.engine,
+                &admitted_actions,
+                &self.echo_operation_evaluation_authority,
+            )?;
+        let new_correlations = self
+            .runtime
+            .receipt_correlations()
+            .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
+            .cloned()
+            .collect::<Vec<_>>();
         let mut tick_wal_records = Vec::new();
         if self.runtime_wal.is_some() {
-            let new_correlations = self
-                .runtime
-                .receipt_correlations()
-                .filter(|correlation| {
-                    !existing_correlations.contains(&correlation.ticketed_ingress_id)
-                })
-                .cloned()
-                .collect::<Vec<_>>();
             for correlation in new_correlations {
                 let decision = match wal_tick_decision_from_observation(
                     self.runtime
@@ -1527,6 +1851,8 @@ impl TrustedRuntimeHost {
                     Err(error) => {
                         self.runtime = runtime_before;
                         self.provenance = provenance_before;
+                        self.echo_operation_action_outcomes = action_outcomes_before;
+                        self.admitted_echo_operation_actions = admitted_actions_before;
                         return Err(error.into());
                     }
                 };
@@ -1536,31 +1862,72 @@ impl TrustedRuntimeHost {
                         Err(error) => {
                             self.runtime = runtime_before;
                             self.provenance = provenance_before;
+                            self.echo_operation_action_outcomes = action_outcomes_before;
+                            self.admitted_echo_operation_actions = admitted_actions_before;
                             return Err(error);
                         }
                     };
                 tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }
+        let action_outcomes_by_submission =
+            action_outcomes.iter().cloned().collect::<BTreeMap<_, _>>();
+        let mut tick_wal_groups = BTreeMap::new();
+        for (correlation, decision, state_delta, state_delta_digest) in tick_wal_records {
+            let key = (
+                correlation.commit_hash,
+                correlation.tick_receipt_digest,
+                state_delta_digest,
+            );
+            tick_wal_groups.entry(key).or_insert_with(Vec::new).push((
+                correlation,
+                decision,
+                state_delta,
+                state_delta_digest,
+            ));
+        }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
-            if runtime_wal.uses_filesystem_store() && tick_wal_records.len() > 1 {
+            if runtime_wal.uses_filesystem_store() && tick_wal_groups.len() > 1 {
                 self.runtime = runtime_before;
                 self.provenance = provenance_before;
+                self.echo_operation_action_outcomes = action_outcomes_before;
+                self.admitted_echo_operation_actions = admitted_actions_before;
                 return Err(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
                     transaction_kind: WalTransactionKind::SchedulerTick,
-                    transaction_count: tick_wal_records.len(),
+                    transaction_count: tick_wal_groups.len(),
                 }
                 .into());
             }
             let runtime_wal_before = runtime_wal.clone();
-            for (correlation, decision, state_delta, state_delta_digest) in &tick_wal_records {
-                if let Err(error) = runtime_wal.record_tick_receipt(
-                    correlation,
-                    *decision,
-                    state_delta,
-                    *state_delta_digest,
-                ) {
-                    if runtime_wal.recover_filesystem_tick_commit_after_error(correlation) {
+            for group in tick_wal_groups.values() {
+                let Some((first_correlation, _, state_delta, state_delta_digest)) = group.first()
+                else {
+                    continue;
+                };
+                let group_has_action_outcomes = group.iter().any(|(correlation, _, _, _)| {
+                    action_outcomes_by_submission.contains_key(&correlation.submission_id)
+                });
+                let result = if group.len() == 1 && !group_has_action_outcomes {
+                    runtime_wal.record_tick_receipt(
+                        first_correlation,
+                        group[0].1,
+                        state_delta,
+                        *state_delta_digest,
+                    )
+                } else {
+                    let correlations = group
+                        .iter()
+                        .map(|(correlation, decision, _, _)| (correlation.clone(), *decision))
+                        .collect::<Vec<_>>();
+                    runtime_wal.record_tick_receipt_batch(
+                        &correlations,
+                        &action_outcomes_by_submission,
+                        state_delta,
+                        *state_delta_digest,
+                    )
+                };
+                if let Err(error) = result {
+                    if runtime_wal.recover_filesystem_tick_commit_after_error(first_correlation) {
                         continue;
                     }
                     if !runtime_wal.uses_filesystem_store() {
@@ -1568,9 +1935,19 @@ impl TrustedRuntimeHost {
                     }
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
+                    self.echo_operation_action_outcomes = action_outcomes_before;
+                    self.admitted_echo_operation_actions = admitted_actions_before;
                     return Err(error.into());
                 }
             }
+        }
+        for (submission_id, outcome) in action_outcomes {
+            self.pending_echo_operation_actions.remove(&submission_id);
+            self.admitted_echo_operation_actions.remove(&submission_id);
+            self.echo_operation_action_admission_obstructions
+                .remove(&submission_id);
+            self.echo_operation_action_outcomes
+                .insert(submission_id, outcome);
         }
         Ok(records)
     }
@@ -1622,37 +1999,6 @@ impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
             admitted,
         )
     }
-}
-
-fn current_echo_operation_basis(
-    runtime: &WorldlineRuntime,
-    provenance: &ProvenanceService,
-    writer_head: crate::WriterHeadKey,
-    application_basis: EchoOperationApplicationBasisV1,
-) -> Result<EchoOperationEvaluationBasisV1, TrustedRuntimeHostError> {
-    if runtime.heads().get(&writer_head).is_none() {
-        return Err(RuntimeError::UnknownHead(writer_head).into());
-    }
-    let frontier = runtime
-        .worldlines()
-        .get(&writer_head.worldline_id)
-        .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
-    let state_root = frontier.state().state_root();
-    let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
-        Some(tip) => {
-            let entry = provenance.entry(tip.worldline_id, tip.worldline_tick)?;
-            (Some(entry.commit_global_tick), entry.expected.commit_hash)
-        }
-        None => (None, genesis_commit_id(writer_head, state_root)),
-    };
-    Ok(EchoOperationEvaluationBasisV1::new(
-        writer_head,
-        frontier.frontier_tick(),
-        commit_global_tick,
-        state_root,
-        commit_id,
-        application_basis,
-    ))
 }
 
 fn ensure_runtime_authority_is_durable(
@@ -2010,10 +2356,23 @@ impl TrustedRuntimeWal {
             recover_echo_operation_material(&report, &runtime_state.provenance_entries)?;
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
+        let echo_operation_action_outcomes = runtime_state.echo_operation_action_outcomes;
+        let echo_operation_action_decisions = runtime_state.echo_operation_action_decisions;
+        let echo_operation_action_installations_before_tick =
+            runtime_state.echo_operation_action_installations_before_tick;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
         validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
+        validate_recovered_echo_operation_action_outcomes(
+            &witnessed_submissions,
+            &receipt_correlations,
+            &provenance_entries,
+            &installed_echo_operations,
+            &echo_operation_action_outcomes,
+            &echo_operation_action_decisions,
+            &echo_operation_action_installations_before_tick,
+        )?;
         let certificate = runtime_wal_recovery_certificate(
             &report,
             &RecoveredRuntimeWalIndexEvidence {
@@ -2026,6 +2385,7 @@ impl TrustedRuntimeWal {
                 causal_anchor_history: &causal_anchor_history,
                 installed_echo_operations: &installed_echo_operations,
                 echo_operation_receipts: &echo_operation_receipts,
+                echo_operation_action_outcomes: &echo_operation_action_outcomes,
             },
         )?;
         Ok(TrustedRuntimeWalRecovery {
@@ -2040,6 +2400,9 @@ impl TrustedRuntimeWal {
             causal_anchor_history,
             installed_echo_operations,
             echo_operation_receipts,
+            echo_operation_action_outcomes,
+            echo_operation_action_decisions,
+            echo_operation_action_installations_before_tick,
             causal_history_frontiers,
         })
     }
@@ -2334,6 +2697,107 @@ impl TrustedRuntimeWal {
             ),
             receipt,
             wal_correlation,
+            state_delta.to_payload_bytes()?,
+            vec![
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::ReceiptIndex,
+                    before_digest: self.receipt_frontier_digest,
+                    after_digest: next_receipt_frontier,
+                },
+                AffectedFrontier {
+                    kind: AffectedFrontierKind::RuntimeState,
+                    before_digest: self.runtime_state_frontier_digest,
+                    after_digest: next_runtime_frontier,
+                },
+            ],
+        )?;
+        let commit = self.append_transaction(transaction)?;
+        self.receipt_frontier_digest = next_receipt_frontier;
+        self.runtime_state_frontier_digest = next_runtime_frontier;
+        Ok(commit)
+    }
+
+    fn record_tick_receipt_batch(
+        &mut self,
+        correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
+        action_outcomes_by_submission: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+        state_delta: &WalRuntimeStateDeltaRecord,
+        state_delta_digest: Hash,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        let mut correlations = correlations.to_vec();
+        correlations.sort_by_key(|(correlation, _)| correlation.ingress_id);
+        let Some((first_correlation, _)) = correlations.first() else {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        };
+        if correlations
+            .windows(2)
+            .any(|pair| pair[0].0.ingress_id == pair[1].0.ingress_id)
+        {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let same_tick = correlations.iter().all(|(correlation, _)| {
+            correlation.head_key == first_correlation.head_key
+                && correlation.commit_global_tick == first_correlation.commit_global_tick
+                && correlation.worldline_tick_after == first_correlation.worldline_tick_after
+                && correlation.tick_receipt_digest == first_correlation.tick_receipt_digest
+                && correlation.commit_hash == first_correlation.commit_hash
+        });
+        if !same_tick {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let first_has_action_outcome =
+            action_outcomes_by_submission.contains_key(&first_correlation.submission_id);
+        if correlations.iter().any(|(correlation, _)| {
+            action_outcomes_by_submission.contains_key(&correlation.submission_id)
+                != first_has_action_outcome
+        }) {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+
+        let mut next_receipt_frontier = self.receipt_frontier_digest;
+        let mut records = Vec::with_capacity(correlations.len());
+        for (correlation, decision) in &correlations {
+            let receipt = TickReceiptRecord {
+                receipt_ref: correlation.causal_receipt_ref,
+                decision: *decision,
+            };
+            let wal_correlation = WalReceiptCorrelationRecord {
+                receipt_ref: correlation.causal_receipt_ref,
+                causal_parent_receipts: correlation.causal_parent_receipts.clone(),
+            };
+            next_receipt_frontier =
+                receipt_frontier_digest(next_receipt_frontier, receipt, &wal_correlation);
+            let action_outcome = action_outcomes_by_submission
+                .get(&correlation.submission_id)
+                .map(|outcome| {
+                    if wal_tick_decision_for_action_outcome(outcome) != *decision {
+                        return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                    }
+                    retain_action_outcome_v1(
+                        correlation.submission_id,
+                        correlation.ingress_id,
+                        outcome,
+                    )
+                    .map_err(TrustedRuntimeWalError::from)
+                })
+                .transpose()?;
+            records.push((receipt, wal_correlation, action_outcome));
+        }
+        let next_runtime_frontier = runtime_state_frontier_digest(
+            self.runtime_state_frontier_digest,
+            first_correlation,
+            state_delta_digest,
+        );
+        let transaction = build_replayable_tick_batch_transaction(
+            self.builder(
+                WalTransactionKind::SchedulerTick,
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionId::from_hash(tick_batch_transaction_digest(
+                    &correlations,
+                    state_delta_digest,
+                )),
+            ),
+            records,
             state_delta.to_payload_bytes()?,
             vec![
                 AffectedFrontier {
@@ -2860,13 +3324,20 @@ impl TrustedRuntimeWalCursor {
                         submission_frontier_digest(cursor.submission_frontier_digest, record);
                 }
                 WalTransactionKind::SchedulerTick => {
-                    let (receipt, correlation, state_delta_digest, provenance_entry) =
-                        tick_records_from_transaction(transaction)?;
-                    cursor.receipt_frontier_digest = receipt_frontier_digest(
-                        cursor.receipt_frontier_digest,
-                        receipt,
-                        &correlation,
-                    );
+                    let (records, state_delta_digest, provenance_entry) =
+                        tick_record_batch_from_transaction(transaction)?;
+                    let Some((_, first_correlation, _)) = records.first() else {
+                        return Err(decode_trusted_runtime_wal_payload(
+                            WalDecodeError::InvalidEmbeddedFrame,
+                        ));
+                    };
+                    for (receipt, correlation, _) in &records {
+                        cursor.receipt_frontier_digest = receipt_frontier_digest(
+                            cursor.receipt_frontier_digest,
+                            *receipt,
+                            correlation,
+                        );
+                    }
                     cursor.runtime_state_frontier_digest = match provenance_entry {
                         Some(entry) => runtime_state_frontier_digest_from_fields(
                             cursor.runtime_state_frontier_digest,
@@ -2880,7 +3351,7 @@ impl TrustedRuntimeWalCursor {
                         ),
                         None => recovered_legacy_runtime_state_frontier_digest(
                             cursor.runtime_state_frontier_digest,
-                            correlation,
+                            first_correlation.clone(),
                             state_delta_digest,
                         ),
                     };
@@ -3456,7 +3927,320 @@ fn validate_recovered_echo_operation_parent_states(
             });
         }
     }
+
+    let submissions = recovery
+        .witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, record))
+        .collect::<BTreeMap<_, _>>();
+    let correlations = recovery
+        .receipt_correlations
+        .iter()
+        .map(|correlation| (correlation.submission_id, correlation))
+        .collect::<BTreeMap<_, _>>();
+    let outcomes = recovery
+        .echo_operation_action_outcomes
+        .iter()
+        .map(|(submission_id, _, outcome)| (*submission_id, outcome))
+        .collect::<BTreeMap<_, _>>();
+    let mut reconstructed_preparations = BTreeMap::new();
+    let mut action_tick_members = BTreeMap::<
+        (
+            crate::WriterHeadKey,
+            crate::WorldlineTick,
+            crate::GlobalTick,
+            Hash,
+        ),
+        Vec<(Hash, Hash)>,
+    >::new();
+    for (submission_id, ingress_id, outcome) in &recovery.echo_operation_action_outcomes {
+        let submission = submissions.get(submission_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no retained submission",
+            },
+        )?;
+        let correlation = correlations.get(submission_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no retained receipt correlation",
+            },
+        )?;
+        let invocation_bytes = echo_operation_action_invocation_bytes_v1(&submission.envelope)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no canonical invocation",
+            })?;
+        let invocation = inspect_action_invocation_v1(invocation_bytes).map_err(|_| {
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome invocation cannot be inspected",
+            }
+        })?;
+        let installed = installations.get(&invocation.package_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no recovered installation",
+            },
+        )?;
+        let basis = invocation.evaluation_basis;
+        let worldline_id = basis.writer_head().worldline_id;
+        let frontier = runtime.worldlines().get(&worldline_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis names an unavailable recovery worldline",
+            },
+        )?;
+        let basis_state = recovered_provenance
+            .replay_worldline_state_at(worldline_id, frontier.state(), basis.worldline_tick())
+            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis state cannot be reconstructed",
+            })?;
+        if basis_state.state_root() != basis.state_root()
+            || !action_application_basis_matches_state_v1(installed, invocation_bytes, &basis_state)
+                .unwrap_or(false)
+            || !evaluation_basis_matches_recovered_coordinate(basis, &entries)
+        {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis disagrees with reconstructed causal state",
+            });
+        }
+        let tick_before = correlation
+            .worldline_tick_after
+            .as_u64()
+            .checked_sub(1)
+            .map(crate::WorldlineTick::from_raw)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has an impossible Tick coordinate",
+            })?;
+        let basis_is_current =
+            basis.writer_head() == correlation.head_key && basis.worldline_tick() == tick_before;
+        let basis_changed = matches!(
+            outcome,
+            EchoOperationActionOutcomeV1::Obstructed(obstruction)
+                if obstruction.kind() == crate::EchoOperationObstructionKindV1::BasisChanged
+        );
+        if basis_changed == basis_is_current {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis posture disagrees with the scheduler Tick parent",
+            });
+        }
+        let transition = entries.get(&(worldline_id, tick_before)).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no recovered scheduler transition",
+            },
+        )?;
+        let policy_id = transition
+            .patch
+            .as_ref()
+            .map(crate::WorldlineTickPatchV1::policy_id)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome scheduler transition has no retained patch",
+            })?;
+        let reconstructed = match outcome {
+            EchoOperationActionOutcomeV1::Committed(receipt) => {
+                let prepared = reconstruct_action_preparation_v1(
+                    installed,
+                    invocation_bytes,
+                    receipt.retained_invocation_admission_maximum_budget(),
+                    receipt.retained_invocation_admission_policy_id(),
+                    receipt.invocation_admission_id(),
+                    &basis_state,
+                    policy_id,
+                )
+                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "committed Action preparation cannot be reconstructed",
+                })?;
+                if prepared.package_id() != receipt.package_id()
+                    || prepared.installed_operation_id() != receipt.installed_operation_id()
+                    || prepared.invocation_id() != receipt.invocation_id()
+                    || prepared.evaluation_basis().identity() != receipt.evaluation_basis_id()
+                    || prepared.private_evaluation_id() != receipt.private_evaluation_id()
+                    || prepared.prepared_patch_digest() != receipt.prepared_patch_digest()
+                    || prepared.result_id() != receipt.prepared_result_id()
+                    || prepared.actual_footprint_digest() != receipt.actual_footprint_digest()
+                    || prepared.preparation_id() != receipt.preparation_id()
+                {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail:
+                            "committed Action evidence disagrees with reconstructed preparation",
+                    });
+                }
+                Some(prepared)
+            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                let prepared = reconstruct_action_preparation_v1(
+                    installed,
+                    invocation_bytes,
+                    conflict.invocation_admission_maximum_budget,
+                    conflict.invocation_admission_policy_id,
+                    conflict.invocation_admission_id,
+                    &basis_state,
+                    policy_id,
+                )
+                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action preparation cannot be reconstructed",
+                })?;
+                if prepared.package_id() != conflict.package_id
+                    || prepared.installed_operation_id() != conflict.installed_operation_id
+                    || prepared.invocation_id() != conflict.invocation_id
+                    || prepared.evaluation_basis().identity() != conflict.evaluation_basis_id
+                    || prepared.private_evaluation_id() != conflict.private_evaluation_id
+                    || prepared.prepared_patch_digest() != conflict.prepared_patch_digest
+                    || prepared.result_id() != conflict.prepared_result_id
+                    || prepared.actual_footprint_digest() != conflict.actual_footprint_digest
+                    || prepared.preparation_id() != conflict.preparation_id
+                {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "conflict evidence disagrees with reconstructed preparation",
+                    });
+                }
+                Some(prepared)
+            }
+            EchoOperationActionOutcomeV1::Obstructed(_) => None,
+        };
+        if let Some(prepared) = reconstructed {
+            reconstructed_preparations.insert(*submission_id, prepared);
+        }
+        action_tick_members
+            .entry((
+                correlation.head_key,
+                correlation.worldline_tick_after,
+                correlation.commit_global_tick,
+                correlation.commit_hash,
+            ))
+            .or_default()
+            .push((*ingress_id, *submission_id));
+    }
+    for ((head_key, worldline_tick_after, _, _), mut members) in action_tick_members {
+        members.sort_by_key(|(ingress_id, _)| *ingress_id);
+        let tick_before = worldline_tick_after
+            .as_u64()
+            .checked_sub(1)
+            .map(crate::WorldlineTick::from_raw)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has an impossible parent coordinate",
+            })?;
+        let transition = entries.get(&(head_key.worldline_id, tick_before)).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has no recovered state transition",
+            },
+        )?;
+        let policy_id = transition
+            .patch
+            .as_ref()
+            .map(crate::WorldlineTickPatchV1::policy_id)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has no retained replay patch",
+            })?;
+        let ordered_rule_ids = members
+            .iter()
+            .map(|(_, submission_id)| match outcomes.get(submission_id) {
+                Some(EchoOperationActionOutcomeV1::Committed(receipt)) => {
+                    Ok(receipt.installed_operation_id().as_hash())
+                }
+                Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) => {
+                    Ok(obstruction.installed_operation_id().as_hash())
+                }
+                Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) => {
+                    Ok(conflict.installed_operation_id.as_hash())
+                }
+                None => Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "Action Tick member has no recovered outcome",
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let applied_preparations = members
+            .iter()
+            .filter_map(|(_, submission_id)| {
+                if matches!(
+                    outcomes.get(submission_id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ) {
+                    reconstructed_preparations
+                        .get(submission_id)
+                        .map(Box::as_ref)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let reconstructed_patch = action_batch_patch_from_preparations_v1(
+            policy_id,
+            &ordered_rule_ids,
+            &applied_preparations,
+        );
+        if reconstructed_patch.digest() != transition.expected.patch_digest {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick patch omits or alters a reconstructed applied member",
+            });
+        }
+        for (index, (_, submission_id)) in members.iter().enumerate() {
+            let Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) =
+                outcomes.get(submission_id)
+            else {
+                continue;
+            };
+            let candidate = reconstructed_preparations.get(submission_id).ok_or(
+                TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action has no reconstructed preparation",
+                },
+            )?;
+            let mut expected_blockers = Vec::new();
+            for (earlier_index, (_, earlier_submission_id)) in members[..index].iter().enumerate() {
+                if !matches!(
+                    outcomes.get(earlier_submission_id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ) {
+                    continue;
+                }
+                let earlier = reconstructed_preparations
+                    .get(earlier_submission_id)
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "committed Action has no reconstructed preparation",
+                    })?;
+                if crate::engine_impl::footprints_conflict(
+                    candidate.actual_footprint(),
+                    earlier.actual_footprint(),
+                ) {
+                    expected_blockers.push(u32::try_from(earlier_index).map_err(|_| {
+                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "Action Tick has too many members to index",
+                        }
+                    })?);
+                }
+            }
+            if expected_blockers != conflict.blocked_by {
+                return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "conflicting Action blockers disagree with reconstructed footprints",
+                });
+            }
+        }
+    }
     Ok(())
+}
+
+fn evaluation_basis_matches_recovered_coordinate(
+    basis: EchoOperationEvaluationBasisV1,
+    entries: &BTreeMap<(crate::WorldlineId, crate::WorldlineTick), &ProvenanceEntry>,
+) -> bool {
+    if basis.worldline_tick() == crate::WorldlineTick::ZERO {
+        return basis.commit_global_tick().is_none()
+            && basis.commit_id()
+                == crate::echo_operation::genesis_commit_id(
+                    basis.writer_head(),
+                    basis.state_root(),
+                );
+    }
+    let Some(parent_tick) = basis.worldline_tick().as_u64().checked_sub(1) else {
+        return false;
+    };
+    entries
+        .get(&(
+            basis.writer_head().worldline_id,
+            crate::WorldlineTick::from_raw(parent_tick),
+        ))
+        .is_some_and(|parent| {
+            parent.head_key == Some(basis.writer_head())
+                && parent.expected.state_root == basis.state_root()
+                && parent.expected.commit_hash == basis.commit_id()
+                && basis.commit_global_tick() == Some(parent.commit_global_tick)
+        })
 }
 
 fn validate_operation_receipt_state_delta(
@@ -3576,6 +4360,10 @@ fn validate_operation_receipt_parent_material(
 struct RecoveredRuntimeStateMaterial {
     provenance_entries: Vec<ProvenanceEntry>,
     receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
+    echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
+    echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
+    echo_operation_action_installations_before_tick:
+        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
     missing_runtime_state_deltas: Vec<Hash>,
 }
 
@@ -3584,9 +4372,20 @@ fn recover_runtime_state_delta_material(
 ) -> Result<RecoveredRuntimeStateMaterial, TrustedRuntimeWalError> {
     let mut entries_by_coordinate = BTreeMap::new();
     let mut correlations_by_submission = BTreeMap::new();
+    let mut action_outcomes_by_submission = BTreeMap::new();
+    let mut action_decisions_by_submission = BTreeMap::new();
+    let mut action_installations_before_tick = BTreeMap::new();
+    let mut installed_packages = BTreeSet::new();
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
     for transaction in &report.transactions {
+        if transaction.commit.transaction_kind
+            == WalTransactionKind::ExecutableOperationInstallation
+        {
+            let (installed, _) = operation_installation_from_transaction(transaction)?;
+            installed_packages.insert(installed.package_id());
+            continue;
+        }
         if transaction.commit.transaction_kind == WalTransactionKind::ExecutableOperationTick {
             let (_, state_delta, _) = operation_tick_records_from_transaction(transaction)?;
             let entry = state_delta.provenance_entry().clone();
@@ -3606,80 +4405,96 @@ fn recover_runtime_state_delta_material(
         if transaction.commit.transaction_kind != WalTransactionKind::SchedulerTick {
             continue;
         }
-        let receipt = tick_receipt_from_transaction(transaction)?;
-        let wal_correlation = tick_correlation_from_transaction(transaction)?;
-        if wal_correlation.receipt_ref != receipt.receipt_ref {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        }
+        let (records, _, _) = tick_record_batch_from_transaction(transaction)?;
         let state_delta_frame = required_unique_transaction_frame(
             transaction,
             WalRecordKind::RuntimeStateDeltaRecorded,
         )?;
         if state_delta_frame.payload.canonical_bytes.len() == core::mem::size_of::<Hash>() {
-            missing.push(receipt.receipt_ref.identity_digest());
+            missing.extend(
+                records
+                    .iter()
+                    .map(|(receipt, _, _)| receipt.receipt_ref.identity_digest()),
+            );
             continue;
         }
         let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
             &state_delta_frame.payload.canonical_bytes,
         )?;
-        if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+        if records.iter().any(|(receipt, _, _)| {
+            state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest
+        }) {
             return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
         }
         let entry = state_delta.provenance_entry().clone();
         let head_key = entry
             .head_key
             .ok_or(RetainedProvenanceError::MissingHeadKey)?;
-        let expected_receipt_ref = crate::CausalTickReceiptRef {
-            worldline_id: entry.worldline_id,
-            worldline_tick_after: entry
-                .worldline_tick
-                .checked_add(1)
-                .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
-            commit_global_tick: entry.commit_global_tick,
-            commit_hash: entry.expected.commit_hash,
-            submission_id: receipt.receipt_ref.submission_id,
-            ticket_digest: receipt.receipt_ref.ticket_digest,
-            receipt_content_digest: state_delta.receipt_digest(),
-        };
-        if receipt.receipt_ref != expected_receipt_ref {
-            return Err(RetainedProvenanceError::Inconsistent("causal receipt ref").into());
-        }
-        let persistence = ReceiptCorrelationPersistenceRecord {
-            submission_id: receipt.receipt_ref.submission_id,
-            ticket_digest: receipt.receipt_ref.ticket_digest,
-            causal_receipt_ref: receipt.receipt_ref,
-            head_key,
-            commit_global_tick: entry.commit_global_tick,
-            worldline_tick_after: receipt.receipt_ref.worldline_tick_after,
-            tick_receipt_digest: receipt.receipt_ref.receipt_content_digest,
-            commit_hash: entry.expected.commit_hash,
-            contract: state_delta.contract().cloned(),
-            causal_parent_receipts: wal_correlation.causal_parent_receipts,
-        };
-        if correlations_by_submission
-            .get(&receipt.receipt_ref.submission_id)
-            .is_some_and(|existing| existing != &persistence)
-        {
-            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+        for (receipt, wal_correlation, action_outcome) in records {
+            let expected_receipt_ref = crate::CausalTickReceiptRef {
                 worldline_id: entry.worldline_id,
-                worldline_tick: entry.worldline_tick,
-            });
+                worldline_tick_after: entry
+                    .worldline_tick
+                    .checked_add(1)
+                    .ok_or(RetainedProvenanceError::Inconsistent("worldline tick"))?,
+                commit_global_tick: entry.commit_global_tick,
+                commit_hash: entry.expected.commit_hash,
+                submission_id: receipt.receipt_ref.submission_id,
+                ticket_digest: receipt.receipt_ref.ticket_digest,
+                receipt_content_digest: state_delta.receipt_digest(),
+            };
+            if receipt.receipt_ref != expected_receipt_ref {
+                return Err(RetainedProvenanceError::Inconsistent("causal receipt ref").into());
+            }
+            let persistence = ReceiptCorrelationPersistenceRecord {
+                submission_id: receipt.receipt_ref.submission_id,
+                ticket_digest: receipt.receipt_ref.ticket_digest,
+                causal_receipt_ref: receipt.receipt_ref,
+                head_key,
+                commit_global_tick: entry.commit_global_tick,
+                worldline_tick_after: receipt.receipt_ref.worldline_tick_after,
+                tick_receipt_digest: receipt.receipt_ref.receipt_content_digest,
+                commit_hash: entry.expected.commit_hash,
+                contract: state_delta.contract().cloned(),
+                causal_parent_receipts: wal_correlation.causal_parent_receipts,
+            };
+            if correlations_by_submission
+                .get(&receipt.receipt_ref.submission_id)
+                .is_some_and(|existing| existing != &persistence)
+            {
+                return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                    worldline_id: entry.worldline_id,
+                    worldline_tick: entry.worldline_tick,
+                });
+            }
+            if submission_by_ticket
+                .insert(
+                    receipt.receipt_ref.ticket_digest,
+                    receipt.receipt_ref.submission_id,
+                )
+                .is_some_and(|existing| existing != receipt.receipt_ref.submission_id)
+            {
+                return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                    worldline_id: entry.worldline_id,
+                    worldline_tick: entry.worldline_tick,
+                });
+            }
+            correlations_by_submission.insert(receipt.receipt_ref.submission_id, persistence);
+            if let Some((submission_id, ingress_id, outcome)) = action_outcome {
+                if submission_id != receipt.receipt_ref.submission_id
+                    || action_outcomes_by_submission
+                        .get(&submission_id)
+                        .is_some_and(|existing| existing != &(ingress_id, outcome.clone()))
+                    || action_decisions_by_submission
+                        .insert(submission_id, receipt.decision)
+                        .is_some_and(|existing| existing != receipt.decision)
+                {
+                    return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                }
+                action_outcomes_by_submission.insert(submission_id, (ingress_id, outcome));
+                action_installations_before_tick.insert(submission_id, installed_packages.clone());
+            }
         }
-        if submission_by_ticket
-            .insert(
-                receipt.receipt_ref.ticket_digest,
-                receipt.receipt_ref.submission_id,
-            )
-            .is_some_and(|existing| existing != receipt.receipt_ref.submission_id)
-        {
-            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
-                worldline_id: entry.worldline_id,
-                worldline_tick: entry.worldline_tick,
-            });
-        }
-        correlations_by_submission.insert(receipt.receipt_ref.submission_id, persistence);
         let coordinate = (entry.worldline_id, entry.worldline_tick);
         if entries_by_coordinate
             .get(&coordinate)
@@ -3711,9 +4526,16 @@ fn recover_runtime_state_delta_material(
     });
     missing.sort_unstable();
     missing.dedup();
+    let echo_operation_action_outcomes = action_outcomes_by_submission
+        .into_iter()
+        .map(|(submission_id, (ingress_id, outcome))| (submission_id, ingress_id, outcome))
+        .collect();
     Ok(RecoveredRuntimeStateMaterial {
         provenance_entries: entries,
         receipt_correlations: correlations,
+        echo_operation_action_outcomes,
+        echo_operation_action_decisions: action_decisions_by_submission,
+        echo_operation_action_installations_before_tick: action_installations_before_tick,
         missing_runtime_state_deltas: missing,
     })
 }
@@ -3741,6 +4563,273 @@ fn validate_recovered_causal_parent_evidence(
         }
     }
     Ok(())
+}
+
+fn validate_recovered_echo_operation_action_outcomes(
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    receipt_correlations: &[ReceiptCorrelationPersistenceRecord],
+    provenance_entries: &[ProvenanceEntry],
+    installed_echo_operations: &[InstalledEchoOperationV1],
+    outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
+    decisions: &BTreeMap<Hash, WalTickDecision>,
+    installations_before_tick: &BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
+) -> Result<(), TrustedRuntimeWalError> {
+    let envelopes = witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, &record.envelope))
+        .collect::<BTreeMap<_, _>>();
+    let submissions = witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, &record.submission))
+        .collect::<BTreeMap<_, _>>();
+    let correlations = receipt_correlations
+        .iter()
+        .map(|correlation| (correlation.submission_id, correlation))
+        .collect::<BTreeMap<_, _>>();
+    let provenance = provenance_entries
+        .iter()
+        .filter_map(|entry| {
+            Some((
+                (
+                    entry.head_key?,
+                    entry.worldline_tick.checked_add(1)?,
+                    entry.commit_global_tick,
+                    entry.expected.commit_hash,
+                ),
+                entry,
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut outcomes_by_tick = BTreeMap::<
+        (
+            crate::WriterHeadKey,
+            crate::WorldlineTick,
+            crate::GlobalTick,
+            Hash,
+        ),
+        Vec<(
+            Hash,
+            &EchoOperationActionOutcomeV1,
+            &ReceiptCorrelationPersistenceRecord,
+            crate::echo_operation::EchoOperationActionInvocationEvidenceV1,
+        )>,
+    >::new();
+    for (submission_id, ingress_id, outcome) in outcomes {
+        if decisions.get(submission_id) != Some(&wal_tick_decision_for_action_outcome(outcome)) {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let envelope = envelopes
+            .get(submission_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let submission = submissions
+            .get(submission_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let correlation = correlations
+            .get(submission_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let invocation_bytes = echo_operation_action_invocation_bytes_v1(envelope)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let invocation = inspect_action_invocation_v1(invocation_bytes)
+            .map_err(|_| TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let installed = installed_echo_operations
+            .iter()
+            .find(|installed| installed.package_id() == invocation.package_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        if installations_before_tick
+            .get(submission_id)
+            .is_none_or(|packages| !packages.contains(&invocation.package_id))
+        {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        if envelope.ingress_id() != *ingress_id {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let invocation_admission_id = match outcome {
+            EchoOperationActionOutcomeV1::Committed(receipt) => {
+                Some(receipt.invocation_admission_id())
+            }
+            EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                Some(obstruction.invocation_admission_id())
+            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                Some(conflict.invocation_admission_id)
+            }
+        };
+        if correlation.ticket_digest != correlation.causal_receipt_ref.ticket_digest
+            || invocation_admission_id.is_some_and(|admission_id| {
+                correlation.ticket_digest
+                    != echo_operation_action_admission_digest_from_parts(
+                        submission,
+                        invocation.package_id,
+                        installed.installed_operation_id(),
+                        admission_id,
+                    )
+            })
+        {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        match outcome {
+            EchoOperationActionOutcomeV1::Committed(receipt) => {
+                if validate_receipt_installation_v1(receipt, installed).is_err()
+                    || receipt.tick_receipt_digest() != correlation.tick_receipt_digest
+                    || receipt.commit_id() != correlation.commit_hash
+                    || receipt.commit_global_tick() != Some(correlation.commit_global_tick)
+                    || receipt.worldline_tick_after() != correlation.worldline_tick_after
+                    || receipt.evaluation_basis().writer_head() != correlation.head_key
+                    || receipt.package_id() != invocation.package_id
+                    || receipt.invocation_id() != invocation.invocation_id
+                    || receipt.invocation_bytes_digest() != invocation.invocation_bytes_digest
+                    || receipt.evaluation_basis() != invocation.evaluation_basis
+                    || receipt.terminal_posture() != EchoOperationTerminalPostureV1::Committed
+                {
+                    return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                }
+            }
+            EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                if obstruction.installed_operation_id() != installed.installed_operation_id()
+                    || obstruction.package_id() != invocation.package_id
+                    || obstruction.invocation_id() != invocation.invocation_id
+                    || obstruction.evaluation_basis_id() != invocation.evaluation_basis.identity()
+                {
+                    return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                }
+            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                if conflict.package_id != invocation.package_id
+                    || conflict.installed_operation_id != installed.installed_operation_id()
+                    || !action_admission_evidence_matches_v1(
+                        installed,
+                        invocation_bytes,
+                        conflict.invocation_admission_maximum_budget,
+                        conflict.invocation_admission_policy_id,
+                        conflict.invocation_admission_id,
+                    )
+                    || conflict.evaluation_basis_id != invocation.evaluation_basis.identity()
+                    || !action_preparation_identity_matches_v1(
+                        conflict.private_evaluation_id,
+                        conflict.prepared_patch_digest,
+                        conflict.prepared_result_id,
+                        conflict.preparation_id,
+                    )
+                    || conflict.blocked_by.is_empty()
+                    || conflict
+                        .blocked_by
+                        .windows(2)
+                        .any(|pair| pair[0] >= pair[1])
+                    || conflict.invocation_id != invocation.invocation_id
+                {
+                    return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                }
+            }
+        }
+        outcomes_by_tick
+            .entry((
+                correlation.head_key,
+                correlation.worldline_tick_after,
+                correlation.commit_global_tick,
+                correlation.commit_hash,
+            ))
+            .or_default()
+            .push((*ingress_id, outcome, correlation, invocation));
+    }
+    for (tick_coordinate, mut group) in outcomes_by_tick {
+        let entry = provenance
+            .get(&tick_coordinate)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let tick_receipt = entry
+            .tick_receipt
+            .as_ref()
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        group.sort_by_key(|(ingress_id, _, _, _)| *ingress_id);
+        if group.len() != tick_receipt.entries().len() {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let committed_receipts = group
+            .iter()
+            .filter_map(|(_, outcome, _, _)| match outcome {
+                EchoOperationActionOutcomeV1::Committed(receipt) => Some(receipt.as_ref()),
+                EchoOperationActionOutcomeV1::Obstructed(_)
+                | EchoOperationActionOutcomeV1::RejectedFootprintConflict(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if !committed_receipts.is_empty() {
+            let expected_composition_digest = action_batch_composition_digest_from_receipts_v1(
+                &committed_receipts,
+                entry.expected.patch_digest,
+            );
+            if committed_receipts
+                .iter()
+                .any(|receipt| receipt.composition_digest() != Some(expected_composition_digest))
+            {
+                return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+            }
+        }
+        for (index, (_, outcome, correlation, invocation)) in group.into_iter().enumerate() {
+            if entry.commit_global_tick != correlation.commit_global_tick
+                || entry.head_key != Some(correlation.head_key)
+                || entry.worldline_id != correlation.head_key.worldline_id
+                || tick_receipt.digest() != correlation.tick_receipt_digest
+            {
+                return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+            }
+            let tick_entry = tick_receipt
+                .entries()
+                .get(index)
+                .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+            let blockers = tick_receipt.blocked_by(index);
+            if tick_entry.scope != invocation.scope
+                || tick_entry.scope_hash
+                    != crate::scope_hash(&tick_entry.rule_id, &tick_entry.scope)
+            {
+                return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+            }
+            match outcome {
+                EchoOperationActionOutcomeV1::Committed(receipt) => {
+                    if tick_entry.disposition != TickReceiptDisposition::Applied
+                        || !blockers.is_empty()
+                        || tick_entry.rule_id != receipt.installed_operation_id().as_hash()
+                        || receipt.state_root_after() != entry.expected.state_root
+                        || receipt.committed_patch_digest() != Some(entry.expected.patch_digest)
+                    {
+                        return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                    }
+                }
+                EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                    if tick_entry.disposition
+                        != TickReceiptDisposition::Rejected(
+                            TickReceiptRejection::ExecutableOperationObstruction,
+                        )
+                        || !blockers.is_empty()
+                        || tick_entry.rule_id != obstruction.installed_operation_id().as_hash()
+                    {
+                        return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                    }
+                }
+                EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                    if tick_entry.disposition
+                        != TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
+                        || tick_entry.rule_id != conflict.installed_operation_id.as_hash()
+                        || blockers != conflict.blocked_by
+                    {
+                        return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) -> WalTickDecision {
+    match outcome {
+        EchoOperationActionOutcomeV1::Committed(_) => WalTickDecision::Applied,
+        EchoOperationActionOutcomeV1::Obstructed(_) => WalTickDecision::Obstructed,
+        EchoOperationActionOutcomeV1::RejectedFootprintConflict(_) => {
+            WalTickDecision::RejectedFootprintConflict
+        }
+    }
 }
 
 fn operation_installation_from_transaction(
@@ -3789,6 +4878,7 @@ fn operation_tick_records_from_transaction(
     Ok((receipt, state_delta, state_delta_digest))
 }
 
+#[cfg(test)]
 fn tick_records_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
 ) -> Result<
@@ -3800,15 +4890,163 @@ fn tick_records_from_transaction(
     ),
     TrustedRuntimeWalError,
 > {
-    let receipt = tick_receipt_from_transaction(transaction)?;
-    let correlation = tick_correlation_from_transaction(transaction)?;
-    if correlation.receipt_ref != receipt.receipt_ref {
+    let (mut records, state_delta_digest, provenance_entry) =
+        tick_record_batch_from_transaction(transaction)?;
+    if records.len() != 1 {
         return Err(decode_trusted_runtime_wal_payload(
             WalDecodeError::InvalidEmbeddedFrame,
         ));
     }
-    let state_delta_frame =
-        required_unique_transaction_frame(transaction, WalRecordKind::RuntimeStateDeltaRecorded)?;
+    let (receipt, correlation, action_outcome) = records.remove(0);
+    if action_outcome.is_some() {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    Ok((receipt, correlation, state_delta_digest, provenance_entry))
+}
+
+type RecoveredSchedulerTickMember = (
+    TickReceiptRecord,
+    WalReceiptCorrelationRecord,
+    Option<(Hash, Hash, EchoOperationActionOutcomeV1)>,
+);
+type RecoveredSchedulerTickBatch = (
+    Vec<RecoveredSchedulerTickMember>,
+    Hash,
+    Option<ProvenanceEntry>,
+);
+
+fn tick_record_batch_from_transaction(
+    transaction: &crate::causal_wal::WalRecoveredTransaction,
+) -> Result<RecoveredSchedulerTickBatch, TrustedRuntimeWalError> {
+    let state_delta_index = transaction
+        .frames
+        .iter()
+        .position(|frame| frame.header.record_kind == WalRecordKind::RuntimeStateDeltaRecorded)
+        .ok_or_else(missing_trusted_runtime_record)?;
+    if state_delta_index == 0 || state_delta_index + 1 != transaction.frames.len() {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    let mut records = Vec::new();
+    let first_frame = &transaction.frames[0];
+    if first_frame.header.record_kind != WalRecordKind::TickReceiptRecorded {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    if tick_receipt_payload_is_batch(&first_frame.payload.canonical_bytes) {
+        let receipts = decode_tick_receipt_records(&first_frame.payload.canonical_bytes)
+            .map_err(decode_trusted_runtime_wal_payload)?;
+        let mut index = 1;
+        for receipt in receipts {
+            let Some(correlation_frame) = transaction.frames.get(index) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            let Some(outcome_frame) = transaction.frames.get(index + 1) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            if correlation_frame.header.record_kind != WalRecordKind::ReceiptCorrelationRecorded
+                || outcome_frame.header.record_kind
+                    != WalRecordKind::ExecutableOperationActionOutcomeRecorded
+            {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
+                &correlation_frame.payload.canonical_bytes,
+            )
+            .map_err(decode_trusted_runtime_wal_payload)?;
+            let action_outcome = recover_action_outcome_v1(&outcome_frame.payload.canonical_bytes)?;
+            if correlation.receipt_ref != receipt.receipt_ref
+                || action_outcome.0 != receipt.receipt_ref.submission_id
+            {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            records.push((receipt, correlation, Some(action_outcome)));
+            index += 2;
+        }
+        if index != state_delta_index {
+            return Err(decode_trusted_runtime_wal_payload(
+                WalDecodeError::InvalidEmbeddedFrame,
+            ));
+        }
+    } else {
+        let mut index = 0;
+        while index < state_delta_index {
+            let Some(receipt_frame) = transaction.frames.get(index) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            let Some(correlation_frame) = transaction.frames.get(index + 1) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            if receipt_frame.header.record_kind != WalRecordKind::TickReceiptRecorded
+                || correlation_frame.header.record_kind != WalRecordKind::ReceiptCorrelationRecorded
+            {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            let receipt =
+                TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
+                    .map_err(decode_trusted_runtime_wal_payload)?;
+            let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
+                &correlation_frame.payload.canonical_bytes,
+            )
+            .map_err(decode_trusted_runtime_wal_payload)?;
+            if correlation.receipt_ref != receipt.receipt_ref {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            index += 2;
+            if transaction.frames.get(index).is_some_and(|frame| {
+                frame.header.record_kind == WalRecordKind::ExecutableOperationActionOutcomeRecorded
+            }) {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            records.push((receipt, correlation, None));
+        }
+    }
+    let action_outcome_count = records
+        .iter()
+        .filter(|(_, _, action_outcome)| action_outcome.is_some())
+        .count();
+    if action_outcome_count != 0 && action_outcome_count != records.len() {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    if action_outcome_count != 0 {
+        let mut previous_ingress_id = None;
+        for (_, _, action_outcome) in &records {
+            let (_, ingress_id, _) = action_outcome.as_ref().ok_or_else(|| {
+                decode_trusted_runtime_wal_payload(WalDecodeError::InvalidEmbeddedFrame)
+            })?;
+            if previous_ingress_id.is_some_and(|previous| previous >= *ingress_id) {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            previous_ingress_id = Some(*ingress_id);
+        }
+    }
+    let state_delta_frame = &transaction.frames[state_delta_index];
     let (state_delta_digest, provenance_entry) = if state_delta_frame.payload.canonical_bytes.len()
         == core::mem::size_of::<Hash>()
     {
@@ -3825,7 +5063,9 @@ fn tick_records_from_transaction(
         let state_delta = WalRuntimeStateDeltaRecord::from_payload_bytes(
             &state_delta_frame.payload.canonical_bytes,
         )?;
-        if state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest {
+        if records.iter().any(|(receipt, _, _)| {
+            state_delta.receipt_digest() != receipt.receipt_ref.receipt_content_digest
+        }) {
             return Err(RetainedProvenanceError::Inconsistent("state-delta receipt").into());
         }
         (
@@ -3833,25 +5073,7 @@ fn tick_records_from_transaction(
             Some(state_delta.provenance_entry().clone()),
         )
     };
-    Ok((receipt, correlation, state_delta_digest, provenance_entry))
-}
-
-fn tick_receipt_from_transaction(
-    transaction: &crate::causal_wal::WalRecoveredTransaction,
-) -> Result<TickReceiptRecord, TrustedRuntimeWalError> {
-    let receipt_frame =
-        required_unique_transaction_frame(transaction, WalRecordKind::TickReceiptRecorded)?;
-    TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
-        .map_err(decode_trusted_runtime_wal_payload)
-}
-
-fn tick_correlation_from_transaction(
-    transaction: &crate::causal_wal::WalRecoveredTransaction,
-) -> Result<WalReceiptCorrelationRecord, TrustedRuntimeWalError> {
-    let correlation_frame =
-        required_unique_transaction_frame(transaction, WalRecordKind::ReceiptCorrelationRecorded)?;
-    WalReceiptCorrelationRecord::from_payload_bytes(&correlation_frame.payload.canonical_bytes)
-        .map_err(decode_trusted_runtime_wal_payload)
+    Ok((records, state_delta_digest, provenance_entry))
 }
 
 fn required_unique_transaction_frame(
@@ -4104,7 +5326,16 @@ impl TrustedRuntimeApp<'_> {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, RuntimeError> {
-        self.host.runtime.submit_app_intent(envelope)
+        let is_echo_operation_action =
+            echo_operation_action_invocation_bytes_v1(&envelope).is_some();
+        let handle = self.host.runtime.submit_app_intent(envelope)?;
+        if self.host.runtime_wal.is_none() {
+            self.host.track_pending_echo_operation_action_v1(
+                handle.submission_id,
+                is_echo_operation_action,
+            );
+        }
+        Ok(handle)
     }
 
     /// Submits canonical intent material and returns only after the configured
@@ -4136,6 +5367,8 @@ impl TrustedRuntimeApp<'_> {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
 
+        let is_echo_operation_action =
+            echo_operation_action_invocation_bytes_v1(&envelope).is_some();
         let before_runtime = self.host.runtime.clone();
         let handle = match admission {
             AppIntentAdmission::Ordinary => {
@@ -4153,7 +5386,13 @@ impl TrustedRuntimeApp<'_> {
         if handle.duplicate {
             match runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
             {
-                Ok(true) => return Ok(handle),
+                Ok(true) => {
+                    self.host.track_pending_echo_operation_action_v1(
+                        handle.submission_id,
+                        is_echo_operation_action,
+                    );
+                    return Ok(handle);
+                }
                 Ok(false) => {}
                 Err(error) => {
                     self.host.runtime = before_runtime;
@@ -4166,11 +5405,17 @@ impl TrustedRuntimeApp<'_> {
                 handle.submission_id,
                 envelope.ingress_id(),
             ) {
+                self.host.track_pending_echo_operation_action_v1(
+                    handle.submission_id,
+                    is_echo_operation_action,
+                );
                 return Ok(handle);
             }
             self.host.runtime = before_runtime;
             return Err(error.into());
         }
+        self.host
+            .track_pending_echo_operation_action_v1(handle.submission_id, is_echo_operation_action);
         Ok(handle)
     }
 
@@ -4374,6 +5619,36 @@ fn provider_contract_host_admission_digest(
     hasher.finalize().into()
 }
 
+fn echo_operation_action_admission_digest(
+    submission: &IntentSubmissionRecord,
+    admitted: &AdmittedEchoOperationInvocationV1,
+) -> Hash {
+    echo_operation_action_admission_digest_from_parts(
+        submission,
+        admitted.package_id(),
+        admitted.installed_operation_id(),
+        admitted.admission_id(),
+    )
+}
+
+fn echo_operation_action_admission_digest_from_parts(
+    submission: &IntentSubmissionRecord,
+    package_id: crate::EchoOperationPackageIdV1,
+    installed_operation_id: crate::InstalledEchoOperationIdV1,
+    invocation_admission_id: crate::EchoOperationInvocationAdmissionIdV1,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN);
+    hasher.update(&submission.submission_id);
+    hasher.update(&submission.ingress_id);
+    hasher.update(submission.head_key.worldline_id.as_bytes());
+    hasher.update(submission.head_key.head_id.as_bytes());
+    hasher.update(&package_id.as_hash());
+    hasher.update(&installed_operation_id.as_hash());
+    hasher.update(&invocation_admission_id.as_hash());
+    hasher.finalize().into()
+}
+
 fn submission_frontier_digest(previous: Hash, record: SubmissionAcceptanceRecord) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
@@ -4414,6 +5689,10 @@ fn wal_tick_decision_from_observation(
             reason: TickReceiptRejection::FootprintConflict,
             ..
         } => WalTickDecision::RejectedFootprintConflict,
+        IntentOutcomeDecision::Rejected {
+            reason: TickReceiptRejection::ExecutableOperationObstruction,
+            ..
+        } => WalTickDecision::Obstructed,
         IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => {
             return Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
                 submission_id: correlation.submission_id,
@@ -4570,6 +5849,60 @@ mod tests {
             },
         )
         .expect("the recovery parent-state fixture is lawful")
+    }
+
+    #[test]
+    fn executable_operation_index_preserves_legacy_root_without_action_outcomes() {
+        let operation_coordinate = "echo.test.LegacyRecoveryIndex.v1";
+        let authority_profile_identity = [0x17; 32];
+        let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
+        let package = crate::ExecutableOperationPackageV1::new(
+            operation_coordinate,
+            crate::EchoOperationSemanticClosureV1::new(
+                [0x10; 32],
+                [0x11; 32],
+                [0x12; 32],
+                [0x13; 32],
+                "echo.test.legacy-index-schema/v1",
+                [0x14; 32],
+                "echo.test.legacy-index-lawpack/v1",
+                [0x15; 32],
+            ),
+            crate::echo_operation_target_profile_identity_v1(),
+            authority_profile_identity,
+            budget,
+            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                crate::make_type_id("legacy-index-node"),
+                crate::make_type_id("legacy-index-attachment"),
+                128,
+            ),
+        );
+        let package_bytes = package
+            .to_canonical_bytes()
+            .expect("the legacy-index package is canonical");
+        let package_id = crate::echo_operation_package_id_v1(&package_bytes);
+        let admitted = admit_package_v1(
+            &crate::EchoOperationAdmissionPolicyV1::exact(
+                package_id,
+                operation_coordinate,
+                authority_profile_identity,
+                budget,
+            ),
+            package_bytes,
+        )
+        .expect("the legacy-index package is admitted");
+        let installed =
+            installed_from_admitted(admitted).expect("the legacy-index package installs");
+
+        assert_eq!(
+            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[])
+                .expect("the legacy index root is computable"),
+            [
+                0xff, 0x77, 0x8e, 0x79, 0x1c, 0x4b, 0x7f, 0x99, 0xb7, 0xa5, 0x4c, 0x4b, 0x8d, 0xdb,
+                0x36, 0x91, 0x62, 0x17, 0x8a, 0x22, 0xe2, 0xbe, 0xde, 0xc6, 0x54, 0x4c, 0x8d, 0x25,
+                0xa1, 0xa0, 0x69, 0x04,
+            ]
+        );
     }
 
     #[test]
@@ -5013,16 +6346,28 @@ mod tests {
         let provenance = BTreeMap::from([(parent_coordinate, &parent)]);
         validate_operation_receipt_parent_material(basis, &child, &provenance)
             .expect("the exact retained parent corroborates every causal basis field");
+        assert!(evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
 
         let mut wrong_root = parent.clone();
         wrong_root.expected.state_root = [39; 32];
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+        assert!(!evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
 
         let mut wrong_global_tick = parent.clone();
         wrong_global_tick.commit_global_tick = GlobalTick::from_raw(9);
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_global_tick)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+        assert!(!evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
     }
 
     fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {
@@ -5588,6 +6933,75 @@ mod tests {
     }
 
     #[test]
+    fn runtime_wal_legacy_tick_rejects_action_outcome_frame() {
+        let wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let receipt = TickReceiptRecord {
+            receipt_ref: CausalTickReceiptRef {
+                worldline_id: WorldlineId::from_bytes([40; 32]),
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_hash: [41; 32],
+                submission_id: [42; 32],
+                ticket_digest: [43; 32],
+                receipt_content_digest: [44; 32],
+            },
+            decision: WalTickDecision::Obstructed,
+        };
+        let correlation = WalReceiptCorrelationRecord {
+            receipt_ref: receipt.receipt_ref,
+            causal_parent_receipts: Vec::new(),
+        };
+        let mut action_outcome = b"EOACT002".to_vec();
+        action_outcome.extend_from_slice(&receipt.receipt_ref.submission_id);
+        action_outcome.extend_from_slice(&[45; 32]);
+        action_outcome.extend_from_slice(&[2, 1]);
+        for byte in 46..=50 {
+            action_outcome.extend_from_slice(&[byte; 32]);
+        }
+
+        let mut builder = wal.builder(
+            WalTransactionKind::SchedulerTick,
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionId::from_hash([51; 32]),
+        );
+        builder
+            .push_record(
+                WalRecordKind::TickReceiptRecorded,
+                receipt.to_payload_bytes(),
+            )
+            .expect("fixture legacy receipt must append");
+        builder
+            .push_record(
+                WalRecordKind::ReceiptCorrelationRecorded,
+                correlation.to_payload_bytes(),
+            )
+            .expect("fixture legacy correlation must append");
+        builder
+            .push_record(
+                WalRecordKind::ExecutableOperationActionOutcomeRecorded,
+                action_outcome,
+            )
+            .expect("adversarial Action outcome must append structurally");
+        builder
+            .push_record(WalRecordKind::RuntimeStateDeltaRecorded, [52; 32].to_vec())
+            .expect("fixture state delta must append");
+        let transaction = builder
+            .commit(Vec::new())
+            .expect("adversarial legacy transaction must commit structurally");
+        let recovered = crate::causal_wal::WalRecoveredTransaction {
+            commit: transaction.commit,
+            frames: transaction.frames,
+        };
+
+        assert!(matches!(
+            tick_record_batch_from_transaction(&recovered),
+            Err(TrustedRuntimeWalError::Recovery(WalRecoveryError::Index(
+                WalRecoveryIndexError::Decode(WalDecodeError::InvalidEmbeddedFrame)
+            )))
+        ));
+    }
+
+    #[test]
     fn recovered_correlation_rejects_parents_not_bound_by_envelope() {
         let head_key = test_head_key();
         let envelope_parent = CausalTickReceiptRef {
@@ -5649,6 +7063,25 @@ fn tick_transaction_digest(
     hasher.update(&correlation.ingress_id);
     hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
     hasher.update(&[wal_tick_decision_code(decision)]);
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+fn tick_batch_transaction_digest(
+    correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"tick-batch-transaction:v1\0");
+    hasher.update(&(correlations.len() as u64).to_le_bytes());
+    for (correlation, decision) in correlations {
+        hasher.update(&correlation.ticketed_ingress_id);
+        hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
+        hasher.update(&correlation.ingress_id);
+        hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
+        hasher.update(&[wal_tick_decision_code(*decision)]);
+    }
     hasher.update(&state_delta_digest);
     hasher.finalize().into()
 }
@@ -5800,6 +7233,7 @@ struct RecoveredRuntimeWalIndexEvidence<'a> {
     causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
     installed_echo_operations: &'a [InstalledEchoOperationV1],
     echo_operation_receipts: &'a [EchoOperationReceiptV1],
+    echo_operation_action_outcomes: &'a [(Hash, Hash, EchoOperationActionOutcomeV1)],
 }
 
 fn runtime_wal_recovery_certificate(
@@ -5839,10 +7273,34 @@ fn recovered_runtime_wal_indexes_root(
         causal_anchor_root,
         indexes.installed_echo_operations,
         indexes.echo_operation_receipts,
+        indexes.echo_operation_action_outcomes,
     )
 }
 
 fn recovered_echo_operation_index_root(
+    base_root: Hash,
+    installations: &[InstalledEchoOperationV1],
+    receipts: &[EchoOperationReceiptV1],
+    action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    let legacy_root =
+        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
+    if action_outcomes.is_empty() {
+        return Ok(legacy_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
+    hasher.update(&legacy_root);
+    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
+    for (submission_id, ingress_id, outcome) in action_outcomes {
+        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn recovered_echo_operation_legacy_index_root(
     base_root: Hash,
     installations: &[InstalledEchoOperationV1],
     receipts: &[EchoOperationReceiptV1],

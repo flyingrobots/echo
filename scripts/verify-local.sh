@@ -1157,7 +1157,9 @@ pre_push_feature_string_for_test_target() {
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
     warp-core:external_consumer_contract_fixture_tests|\
-    warp-core:provider_contract_admission_tests|\
+    warp-core:provider_contract_admission_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
     warp-core:executable_operation_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
@@ -1211,6 +1213,11 @@ collect_pre_push_rust_slices() {
         target="$(basename "$file" .rs)"
         features="$(pre_push_feature_string_for_test_target "$crate" "$target")"
         append_pre_push_rust_slice "${crate}|test|${target}|${features}|" slices
+        if [[ "${crate}:${target}" == "warp-core:executable_operation_pipeline_tests" ]]; then
+          append_pre_push_rust_slice \
+            "${crate}|test|${target}|native_rule_bootstrap,trusted_runtime,host_test|" \
+            slices
+        fi
         ;;
       crates/*/src/lib.rs)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
@@ -1433,6 +1440,11 @@ run_warp_core_test_target() {
   local -a feature_args=()
   mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
   lane_cargo "$lane" test -p warp-core "${feature_args[@]}" --test "$test_target"
+  if [[ "$test_target" == "executable_operation_pipeline_tests" ]]; then
+    lane_cargo "$lane" test -p warp-core \
+      --features native_rule_bootstrap,trusted_runtime,host_test \
+      --test "$test_target"
+  fi
 }
 
 run_warp_core_clippy_test_target() {
@@ -1441,6 +1453,11 @@ run_warp_core_clippy_test_target() {
   local -a feature_args=()
   mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
   lane_cargo "$lane" clippy -p warp-core "${feature_args[@]}" --test "$test_target" -- -D warnings -D missing_docs
+  if [[ "$test_target" == "executable_operation_pipeline_tests" ]]; then
+    lane_cargo "$lane" clippy -p warp-core \
+      --features native_rule_bootstrap,trusted_runtime,host_test \
+      --test "$test_target" -- -D warnings -D missing_docs
+  fi
 }
 
 prepare_warp_wasm_scope() {

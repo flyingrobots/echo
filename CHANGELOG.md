@@ -7,14 +7,44 @@
 
 ### Added
 
+- Executable-operation application writes now enter Echo as canonical,
+  WAL-acknowledged Actions and are evaluated only by the scheduler while
+  constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
+  work. Runtime-owned admission uses a bounded pending index and cache;
+  unavailable packages are quarantined without poisoning unrelated work.
+  Scheduler selection admits at most 64 executable Actions per Tick, leaving
+  excess work pending, and meters footprint comparisons, blocker evidence, and
+  aggregate operations during composition. Two independent Actions can share
+  one exact parent coordinate and contribute to one composite Tick while
+  retaining candidate-specific application-basis propositions and per-Action
+  typed outcomes. Footprint conflicts name earlier applied members; evaluator
+  and composition-budget obstructions contribute no operations.
+  One scheduler WAL transaction retains exactly one batched Tick decision
+  record, then each Action's receipt correlation and typed outcome in canonical
+  order, followed by exactly one replayable state delta. The decided Tick is
+  durable before state, frontier, receipt, or outcome publication. Recovery
+  and same-host retry both preserve an accepted Action when Tick-WAL
+  persistence fails; runtime rollback also rolls back the corresponding
+  admission cache so the Action re-enters scheduler admission. Fresh-host
+  recovery validates every outcome against its exact envelope, admission,
+  invocation, installed operation, causal coordinate, evaluation basis,
+  reconstructed preparation and actual footprint, Tick entry, composite
+  consequence, exact reconstructed aggregate patch membership, and state root.
+  A composite receipt cannot validate outside its complete Action-batch
+  context. Legacy operation recovery-index roots remain byte-compatible when
+  no Action outcome exists. Direct operation
+  prepare/commit remains a documentation-hidden public
+  `TrustedRuntimeHost` compatibility/test seam, absent from
+  `TrustedRuntimeApp`; removal is tracked by issue #689.
 - `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
   slice. A runtime owner can admit exact canonical
   `ExecutableOperationPackageV1` bytes under a separate package policy, install
   their data-only `EchoOperationProgramV1`, independently admit an exact-basis
   invocation under caller authority and delegated budget, evaluate privately,
   and either commit one parent-visible patch or return typed noncommit evidence.
-  Only committed operation consequences enter the operation-tick WAL. The initial
-  generic program performs an anchored typed-node alpha-attachment
+  On that transitional direct seam, only committed operation consequences
+  enter the operation-tick WAL. The initial generic program performs an
+  anchored typed-node alpha-attachment
   compare-and-set; it contains no application matcher, executor, footprint
   callback, or prebuilt mutation plan. Package, installation, invocation,
   evaluation, actual-footprint, budget, patch, result, basis, and terminal
@@ -28,8 +58,7 @@
   callbacks. A program digest alone cannot install, invoke, or authorize an
   operation. This slice does not yet include Edict
   compiler emission, a structurally separate target verifier, Jedit's rope
-  lawpack, `ReplaceRange`, scheduler batch composition, or an independently
-  implemented semantic oracle.
+  lawpack, `ReplaceRange`, or an independently implemented semantic oracle.
 - The executable-operation corridor now has a separate
   `AnchoredNodeAttachmentCreateIfAbsent` program (ADR 0024). The original
   compare-and-set program remains update-only with its canonical program,

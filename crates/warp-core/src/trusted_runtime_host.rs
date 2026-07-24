@@ -452,6 +452,7 @@ pub struct TrustedRuntimeWalRecovery {
     /// Typed executable-operation Action outcomes reconstructed from
     /// scheduler-owned Tick records, keyed by witnessed submission.
     pub echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
+    echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
@@ -468,7 +469,19 @@ impl TrustedRuntimeWalRecovery {
             &self.provenance_entries,
             &self.installed_echo_operations,
             &self.echo_operation_action_outcomes,
+            &self.echo_operation_action_decisions,
         )
+    }
+
+    /// Replaces one recovered scheduler decision for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_decision_for_test(
+        &mut self,
+        submission_id: Hash,
+        decision: WalTickDecision,
+    ) {
+        self.echo_operation_action_decisions
+            .insert(submission_id, decision);
     }
 
     /// Recomputes the certificate's canonical index root from recovered evidence.
@@ -2207,6 +2220,7 @@ impl TrustedRuntimeWal {
         let provenance_entries = runtime_state.provenance_entries;
         let receipt_correlations = runtime_state.receipt_correlations;
         let echo_operation_action_outcomes = runtime_state.echo_operation_action_outcomes;
+        let echo_operation_action_decisions = runtime_state.echo_operation_action_decisions;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
@@ -2217,6 +2231,7 @@ impl TrustedRuntimeWal {
             &provenance_entries,
             &installed_echo_operations,
             &echo_operation_action_outcomes,
+            &echo_operation_action_decisions,
         )?;
         let certificate = runtime_wal_recovery_certificate(
             &report,
@@ -2246,6 +2261,7 @@ impl TrustedRuntimeWal {
             installed_echo_operations,
             echo_operation_receipts,
             echo_operation_action_outcomes,
+            echo_operation_action_decisions,
             causal_history_frontiers,
         })
     }
@@ -2613,11 +2629,15 @@ impl TrustedRuntimeWal {
             let action_outcome = action_outcomes_by_ingress
                 .get(&correlation.ingress_id)
                 .map(|outcome| {
+                    if wal_tick_decision_for_action_outcome(outcome) != *decision {
+                        return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+                    }
                     retain_action_outcome_v1(
                         correlation.submission_id,
                         correlation.ingress_id,
                         outcome,
                     )
+                    .map_err(TrustedRuntimeWalError::from)
                 })
                 .transpose()?;
             records.push((receipt, wal_correlation, action_outcome));
@@ -3887,6 +3907,7 @@ struct RecoveredRuntimeStateMaterial {
     provenance_entries: Vec<ProvenanceEntry>,
     receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
     echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
+    echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
     missing_runtime_state_deltas: Vec<Hash>,
 }
 
@@ -3896,6 +3917,7 @@ fn recover_runtime_state_delta_material(
     let mut entries_by_coordinate = BTreeMap::new();
     let mut correlations_by_submission = BTreeMap::new();
     let mut action_outcomes_by_submission = BTreeMap::new();
+    let mut action_decisions_by_submission = BTreeMap::new();
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
     for transaction in &report.transactions {
@@ -3998,6 +4020,9 @@ fn recover_runtime_state_delta_material(
                     || action_outcomes_by_submission
                         .get(&submission_id)
                         .is_some_and(|existing| existing != &(ingress_id, outcome.clone()))
+                    || action_decisions_by_submission
+                        .insert(submission_id, receipt.decision)
+                        .is_some_and(|existing| existing != receipt.decision)
                 {
                     return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                 }
@@ -4043,6 +4068,7 @@ fn recover_runtime_state_delta_material(
         provenance_entries: entries,
         receipt_correlations: correlations,
         echo_operation_action_outcomes,
+        echo_operation_action_decisions: action_decisions_by_submission,
         missing_runtime_state_deltas: missing,
     })
 }
@@ -4078,6 +4104,7 @@ fn validate_recovered_echo_operation_action_outcomes(
     provenance_entries: &[ProvenanceEntry],
     installed_echo_operations: &[InstalledEchoOperationV1],
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
+    decisions: &BTreeMap<Hash, WalTickDecision>,
 ) -> Result<(), TrustedRuntimeWalError> {
     let envelopes = witnessed_submissions
         .records()
@@ -4102,6 +4129,9 @@ fn validate_recovered_echo_operation_action_outcomes(
         )>,
     >::new();
     for (submission_id, ingress_id, outcome) in outcomes {
+        if decisions.get(submission_id) != Some(&wal_tick_decision_for_action_outcome(outcome)) {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
         let envelope = envelopes
             .get(submission_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
@@ -4255,6 +4285,16 @@ fn validate_recovered_echo_operation_action_outcomes(
         }
     }
     Ok(())
+}
+
+fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) -> WalTickDecision {
+    match outcome {
+        EchoOperationActionOutcomeV1::Committed(_) => WalTickDecision::Applied,
+        EchoOperationActionOutcomeV1::Obstructed(_) => WalTickDecision::Obstructed,
+        EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => {
+            WalTickDecision::RejectedFootprintConflict
+        }
+    }
 }
 
 fn operation_installation_from_transaction(

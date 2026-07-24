@@ -14,8 +14,8 @@ use echo_edict_canonical::{decode_canonical_cbor_v1, encode_canonical_cbor_v1, C
 use warp_core::causal_wal::{
     AffectedFrontier, AffectedFrontierKind, FilesystemWalFaultPlan, FilesystemWalFaultTarget, Lsn,
     PayloadCodecId, PayloadSchemaId, WalAppendAuthority, WalBuildError, WalDurabilityMode,
-    WalRecordKind, WalSegmentId, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WalValidationError, WriterEpochId,
+    WalRecordKind, WalSegmentId, WalTickDecision, WalTransactionBuilder, WalTransactionId,
+    WalTransactionKind, WalValidationError, WriterEpochId,
 };
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
@@ -2839,6 +2839,15 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         missing_installation.installed_echo_operations.clear();
         assert!(matches!(
             missing_installation.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
+        let mut contradictory_decision = adversarial.clone();
+        contradictory_decision.replace_echo_operation_action_decision_for_test(
+            first_submission_id,
+            WalTickDecision::Obstructed,
+        );
+        assert!(matches!(
+            contradictory_decision.validate_echo_operation_action_outcomes_for_test(),
             Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
         ));
         let mut forged_composition = adversarial.clone();

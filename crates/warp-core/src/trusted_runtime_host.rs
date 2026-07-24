@@ -1810,11 +1810,13 @@ impl TrustedRuntimeHost {
         let runtime_before = self.runtime.clone();
         let provenance_before = self.provenance.clone();
         let action_outcomes_before = self.echo_operation_action_outcomes.clone();
+        let admitted_actions_before = self.admitted_echo_operation_actions.clone();
         let admitted_actions = match self.admit_pending_echo_operation_actions_v1() {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.runtime = runtime_before;
                 self.provenance = provenance_before;
+                self.admitted_echo_operation_actions = admitted_actions_before;
                 return Err(error);
             }
         };
@@ -1850,6 +1852,7 @@ impl TrustedRuntimeHost {
                         self.runtime = runtime_before;
                         self.provenance = provenance_before;
                         self.echo_operation_action_outcomes = action_outcomes_before;
+                        self.admitted_echo_operation_actions = admitted_actions_before;
                         return Err(error.into());
                     }
                 };
@@ -1860,6 +1863,7 @@ impl TrustedRuntimeHost {
                             self.runtime = runtime_before;
                             self.provenance = provenance_before;
                             self.echo_operation_action_outcomes = action_outcomes_before;
+                            self.admitted_echo_operation_actions = admitted_actions_before;
                             return Err(error);
                         }
                     };
@@ -1887,6 +1891,7 @@ impl TrustedRuntimeHost {
                 self.runtime = runtime_before;
                 self.provenance = provenance_before;
                 self.echo_operation_action_outcomes = action_outcomes_before;
+                self.admitted_echo_operation_actions = admitted_actions_before;
                 return Err(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
                     transaction_kind: WalTransactionKind::SchedulerTick,
                     transaction_count: tick_wal_groups.len(),
@@ -1931,6 +1936,7 @@ impl TrustedRuntimeHost {
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
                     self.echo_operation_action_outcomes = action_outcomes_before;
+                    self.admitted_echo_operation_actions = admitted_actions_before;
                     return Err(error.into());
                 }
             }

@@ -22,7 +22,10 @@
   One scheduler WAL transaction retains exactly one batched Tick decision
   record, then each Action's receipt correlation and typed outcome in canonical
   order, followed by exactly one replayable state delta. The decided Tick is
-  durable before state, frontier, receipt, or outcome publication. Fresh-host
+  durable before state, frontier, receipt, or outcome publication. Recovery
+  and same-host retry both preserve an accepted Action when Tick-WAL
+  persistence fails; runtime rollback also rolls back the corresponding
+  admission cache so the Action re-enters scheduler admission. Fresh-host
   recovery validates every outcome against its exact envelope, admission,
   invocation, installed operation, causal coordinate, evaluation basis,
   reconstructed preparation and actual footprint, Tick entry, composite

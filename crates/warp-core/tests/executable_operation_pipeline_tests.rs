@@ -3730,7 +3730,7 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
 
 #[cfg(feature = "host_test")]
 #[test]
-fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
+fn scheduler_wal_failure_rolls_back_and_requeues_action() {
     let wal_dir = TempWalDir::new();
     let submission_id;
     let head_key;
@@ -3793,26 +3793,36 @@ fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
                 Bytes::from_static(b"before"),
             )))
         );
+
+        host.tick_once()
+            .expect("the same host retries the still-pending Action");
+        assert!(matches!(
+            host.echo_operation_action_outcome_v1(&submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+        assert_eq!(
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the retried worldline remains available")
+                .state()
+                .store(&node.warp_id)
+                .and_then(|store| store.node_attachment(&node.local_id)),
+            Some(&AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"must-rollback"),
+            )))
+        );
     }
 
     let (mut recovered, _, _) = fixture_host();
     recovered
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
-        .expect("recovery discards the uncommitted Tick tail");
+        .expect("recovery discards the failed Tick tail and restores the retry");
     assert!(matches!(
         recovered.runtime().observe_intent_outcome(&submission_id),
-        warp_core::IntentOutcomeObservation::Pending {
-            ticketed_ingress_id: None,
-            ..
-        }
+        warp_core::IntentOutcomeObservation::Decided { .. }
     ));
-    assert!(recovered
-        .echo_operation_action_outcome_v1(&submission_id)
-        .is_none());
-    recovered.install_echo_operation_action_admission_policy_v1(invocation_policy());
-    recovered
-        .tick_once()
-        .expect("the recovered pending Action remains executable");
     assert!(matches!(
         recovered.echo_operation_action_outcome_v1(&submission_id),
         Some(EchoOperationActionOutcomeV1::Committed(_))

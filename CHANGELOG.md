@@ -48,8 +48,10 @@
   portal-pointer read incrementally before dereferencing that portal, so
   out-of-budget ancestry cannot affect evaluation; activation recovery
   reconstructs each operation's exact parent state and rejects missing,
-  duplicate, substituted, or otherwise non-chain portal inputs. This closes only
-  the single anchored-node-plus-alpha-attachment creation gap. It does not establish
+  duplicate, substituted, or otherwise non-chain portal inputs, and
+  independently corroborates the creation receipt's total-absence proposition
+  against both target locations before replay. This closes only the single
+  anchored-node-plus-alpha-attachment creation gap. It does not establish
   Graft-style multi-record mutation or a real Edict application crossing.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with

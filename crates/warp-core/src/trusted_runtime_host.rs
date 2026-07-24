@@ -3308,6 +3308,15 @@ fn operation_patch_scope_in_parent_state_v1(
         return None;
     }
     let descent_stack = operation_descent_stack(parent_state, node.warp_id)?;
+    if matches!(
+        program,
+        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+    ) {
+        let store = parent_state.store(&node.warp_id)?;
+        if store.node(&node.local_id).is_some() || store.node_attachment(&node.local_id).is_some() {
+            return None;
+        }
+    }
     let attachment_slot = crate::AttachmentKey::node_alpha(node);
     let expected_inputs = std::iter::once(crate::SlotId::Node(node))
         .chain(std::iter::once(crate::SlotId::Attachment(attachment_slot)))
@@ -3346,18 +3355,14 @@ fn operation_tick_binds_patch_v1(
     )
 }
 
-fn operation_tick_binds_patch_in_parent_state_v1(
+fn operation_tick_scope_in_parent_state_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
     program: &crate::EchoOperationProgramV1,
     parent_state: &crate::WorldlineState,
-) -> bool {
-    let Some(expected_scope) =
-        operation_patch_scope_in_parent_state_v1(patch, program, parent_state)
-    else {
-        return false;
-    };
+) -> Option<crate::NodeKey> {
+    let expected_scope = operation_patch_scope_in_parent_state_v1(patch, program, parent_state)?;
     matches!(
         tick_receipt.entries(),
         [tick_entry]
@@ -3368,6 +3373,21 @@ fn operation_tick_binds_patch_in_parent_state_v1(
                 && tick_entry.disposition == crate::TickReceiptDisposition::Applied
                 && tick_receipt.blocked_by(0).is_empty()
     )
+    .then_some(expected_scope)
+}
+
+fn operation_application_basis_matches_scope_v1(
+    program: &crate::EchoOperationProgramV1,
+    node: crate::NodeKey,
+    application_basis: EchoOperationApplicationBasisV1,
+) -> bool {
+    match program {
+        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. } => true,
+        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+            application_basis
+                == crate::echo_operation_anchored_node_absent_application_basis_v1(node)
+        }
+    }
 }
 
 fn validate_recovered_echo_operation_parent_states(
@@ -3414,14 +3434,21 @@ fn validate_recovered_echo_operation_parent_states(
             .as_ref()
             .zip(entry.tick_receipt.as_ref())
             .is_some_and(|(patch, tick_receipt)| {
-                parent_state.state_root() == basis.state_root()
-                    && operation_tick_binds_patch_in_parent_state_v1(
-                        tick_receipt,
-                        patch,
-                        receipt.installed_operation_id().as_hash(),
+                let exact_scope = operation_tick_scope_in_parent_state_v1(
+                    tick_receipt,
+                    patch,
+                    receipt.installed_operation_id().as_hash(),
+                    installed.program(),
+                    &parent_state,
+                );
+                let application_basis_matches = exact_scope.is_some_and(|node| {
+                    operation_application_basis_matches_scope_v1(
                         installed.program(),
-                        &parent_state,
+                        node,
+                        basis.application_basis(),
                     )
+                });
+                parent_state.state_root() == basis.state_root() && application_basis_matches
             });
         if !exact_parent_state_binding {
             return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
@@ -4575,6 +4602,85 @@ mod tests {
             Some(node),
             "activation recovery must corroborate the exact retained portal chain"
         );
+        assert!(operation_application_basis_matches_scope_v1(
+            &installed_program,
+            node,
+            crate::echo_operation_anchored_node_absent_application_basis_v1(node),
+        ));
+        assert!(
+            !operation_application_basis_matches_scope_v1(
+                &installed_program,
+                node,
+                EchoOperationApplicationBasisV1::new([0x91; 32], [0x92; 32]),
+            ),
+            "creation recovery must bind the receipt to the canonical absence proposition"
+        );
+
+        let mut node_occupied_parent = parent_state.clone();
+        node_occupied_parent
+            .warp_state
+            .store_mut(&node.warp_id)
+            .expect("the fixture retains its descendant store")
+            .insert_node(
+                node.local_id,
+                crate::NodeRecord {
+                    ty: crate::make_type_id("operation-wal-existing-node"),
+                },
+            );
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(
+                &patch,
+                &installed_program,
+                &node_occupied_parent
+            ),
+            None,
+            "creation recovery must reject an occupied node even when its attachment is absent"
+        );
+
+        let mut attachment_occupied_parent = parent_state.clone();
+        attachment_occupied_parent
+            .warp_state
+            .store_mut(&node.warp_id)
+            .expect("the fixture retains its descendant store")
+            .set_node_attachment(
+                node.local_id,
+                Some(crate::AttachmentValue::Atom(crate::AtomPayload::new(
+                    crate::make_type_id("operation-wal-existing-attachment"),
+                    Bytes::from_static(b"occupied"),
+                ))),
+            );
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(
+                &patch,
+                &installed_program,
+                &attachment_occupied_parent
+            ),
+            None,
+            "creation recovery must reject an orphan attachment even when its node is absent"
+        );
+
+        let mut fully_occupied_parent = node_occupied_parent;
+        fully_occupied_parent
+            .warp_state
+            .store_mut(&node.warp_id)
+            .expect("the fixture retains its descendant store")
+            .set_node_attachment(
+                node.local_id,
+                Some(crate::AttachmentValue::Atom(crate::AtomPayload::new(
+                    crate::make_type_id("operation-wal-existing-attachment"),
+                    Bytes::from_static(b"occupied"),
+                ))),
+            );
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(
+                &patch,
+                &installed_program,
+                &fully_occupied_parent
+            ),
+            None,
+            "creation recovery must reject a fully occupied target"
+        );
+
         assert_eq!(
             operation_patch_scope_v1(&patch, &update_program),
             None,

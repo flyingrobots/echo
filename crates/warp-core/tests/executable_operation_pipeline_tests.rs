@@ -2925,6 +2925,13 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             forged_admission_ticket.validate_echo_operation_action_outcomes_for_test(),
             Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
         ));
+        let mut retroactive_installation = adversarial.clone();
+        retroactive_installation
+            .clear_echo_operation_action_installations_before_tick_for_test(first_submission_id);
+        assert!(matches!(
+            retroactive_installation.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
         let mut forged_composition = adversarial.clone();
         let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
             .echo_operation_action_outcomes

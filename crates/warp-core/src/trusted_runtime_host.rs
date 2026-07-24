@@ -453,6 +453,8 @@ pub struct TrustedRuntimeWalRecovery {
     /// scheduler-owned Tick records, keyed by witnessed submission.
     pub echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
+    echo_operation_action_installations_before_tick:
+        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
@@ -470,6 +472,7 @@ impl TrustedRuntimeWalRecovery {
             &self.installed_echo_operations,
             &self.echo_operation_action_outcomes,
             &self.echo_operation_action_decisions,
+            &self.echo_operation_action_installations_before_tick,
         )
     }
 
@@ -482,6 +485,16 @@ impl TrustedRuntimeWalRecovery {
     ) {
         self.echo_operation_action_decisions
             .insert(submission_id, decision);
+    }
+
+    /// Removes the installation-order witness for one Action in adversarial tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn clear_echo_operation_action_installations_before_tick_for_test(
+        &mut self,
+        submission_id: Hash,
+    ) {
+        self.echo_operation_action_installations_before_tick
+            .remove(&submission_id);
     }
 
     /// Recomputes the certificate's canonical index root from recovered evidence.
@@ -2215,6 +2228,8 @@ impl TrustedRuntimeWal {
         let receipt_correlations = runtime_state.receipt_correlations;
         let echo_operation_action_outcomes = runtime_state.echo_operation_action_outcomes;
         let echo_operation_action_decisions = runtime_state.echo_operation_action_decisions;
+        let echo_operation_action_installations_before_tick =
+            runtime_state.echo_operation_action_installations_before_tick;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
@@ -2226,6 +2241,7 @@ impl TrustedRuntimeWal {
             &installed_echo_operations,
             &echo_operation_action_outcomes,
             &echo_operation_action_decisions,
+            &echo_operation_action_installations_before_tick,
         )?;
         let certificate = runtime_wal_recovery_certificate(
             &report,
@@ -2256,6 +2272,7 @@ impl TrustedRuntimeWal {
             echo_operation_receipts,
             echo_operation_action_outcomes,
             echo_operation_action_decisions,
+            echo_operation_action_installations_before_tick,
             causal_history_frontiers,
         })
     }
@@ -3902,6 +3919,8 @@ struct RecoveredRuntimeStateMaterial {
     receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
     echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
+    echo_operation_action_installations_before_tick:
+        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
     missing_runtime_state_deltas: Vec<Hash>,
 }
 
@@ -3912,9 +3931,18 @@ fn recover_runtime_state_delta_material(
     let mut correlations_by_submission = BTreeMap::new();
     let mut action_outcomes_by_submission = BTreeMap::new();
     let mut action_decisions_by_submission = BTreeMap::new();
+    let mut action_installations_before_tick = BTreeMap::new();
+    let mut installed_packages = BTreeSet::new();
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
     for transaction in &report.transactions {
+        if transaction.commit.transaction_kind
+            == WalTransactionKind::ExecutableOperationInstallation
+        {
+            let (installed, _) = operation_installation_from_transaction(transaction)?;
+            installed_packages.insert(installed.package_id());
+            continue;
+        }
         if transaction.commit.transaction_kind == WalTransactionKind::ExecutableOperationTick {
             let (_, state_delta, _) = operation_tick_records_from_transaction(transaction)?;
             let entry = state_delta.provenance_entry().clone();
@@ -4021,6 +4049,7 @@ fn recover_runtime_state_delta_material(
                     return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                 }
                 action_outcomes_by_submission.insert(submission_id, (ingress_id, outcome));
+                action_installations_before_tick.insert(submission_id, installed_packages.clone());
             }
         }
         let coordinate = (entry.worldline_id, entry.worldline_tick);
@@ -4063,6 +4092,7 @@ fn recover_runtime_state_delta_material(
         receipt_correlations: correlations,
         echo_operation_action_outcomes,
         echo_operation_action_decisions: action_decisions_by_submission,
+        echo_operation_action_installations_before_tick: action_installations_before_tick,
         missing_runtime_state_deltas: missing,
     })
 }
@@ -4099,6 +4129,7 @@ fn validate_recovered_echo_operation_action_outcomes(
     installed_echo_operations: &[InstalledEchoOperationV1],
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
     decisions: &BTreeMap<Hash, WalTickDecision>,
+    installations_before_tick: &BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
 ) -> Result<(), TrustedRuntimeWalError> {
     let envelopes = witnessed_submissions
         .records()
@@ -4163,6 +4194,12 @@ fn validate_recovered_echo_operation_action_outcomes(
             .iter()
             .find(|installed| installed.package_id() == invocation.package_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        if installations_before_tick
+            .get(submission_id)
+            .is_none_or(|packages| !packages.contains(&invocation.package_id))
+        {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
         if envelope.ingress_id() != *ingress_id {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
         }

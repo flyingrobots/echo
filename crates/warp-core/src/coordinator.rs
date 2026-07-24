@@ -1141,6 +1141,11 @@ pub struct WorldlineRuntime {
     next_submission_generation: IngressSubmissionGeneration,
     /// Witnessed submission records keyed by content-addressed submission id.
     witnessed_submissions: BTreeMap<Hash, IntentSubmissionRecord>,
+    /// Undecided witnessed submission ids.
+    ///
+    /// This is a derived, recovery-rebuilt scheduler index. It keeps pending
+    /// admission proportional to outstanding work instead of retained history.
+    pending_witnessed_submission_ids: BTreeSet<Hash>,
     /// Canonical envelope material for witnessed submissions.
     witnessed_submission_envelopes: BTreeMap<Hash, IngressEnvelope>,
     /// Deterministic lookup from resolved semantic target and ingress id to
@@ -1203,6 +1208,7 @@ struct ReceiptCorrelationRollbackEntry {
     previous_receipt_ref_ticketed_ingress: Option<Hash>,
     current_basis: (WorldlineId, WorldlineTick, Hash),
     previous_current_basis_ticketed_ingresses: Option<BTreeSet<Hash>>,
+    previous_pending_submission: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1325,6 +1331,13 @@ impl WorldlineRuntime {
                         .remove(&entry.current_basis);
                 }
             }
+            if entry.previous_pending_submission {
+                self.pending_witnessed_submission_ids
+                    .insert(entry.submission_id);
+            } else {
+                self.pending_witnessed_submission_ids
+                    .remove(&entry.submission_id);
+            }
         }
     }
 
@@ -1377,6 +1390,22 @@ impl WorldlineRuntime {
     /// Iterates witnessed submissions in deterministic submission-id order.
     pub fn witnessed_submissions(&self) -> impl Iterator<Item = &IntentSubmissionRecord> {
         self.witnessed_submissions.values()
+    }
+
+    /// Iterates only undecided witnessed submissions in deterministic id order.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn pending_witnessed_submissions(
+        &self,
+    ) -> impl Iterator<Item = &IntentSubmissionRecord> {
+        self.pending_witnessed_submission_ids
+            .iter()
+            .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
+    }
+
+    /// Returns the number of witnessed submissions without a receipt decision.
+    #[must_use]
+    pub fn pending_witnessed_submission_count(&self) -> usize {
+        self.pending_witnessed_submission_ids.len()
     }
 
     /// Returns witnessed submissions in deterministic replay order.
@@ -2140,6 +2169,16 @@ impl WorldlineRuntime {
         self.next_submission_generation = next_submission_generation;
         self.submission_by_target
             .extend(staged_submission_by_target);
+        self.pending_witnessed_submission_ids.extend(
+            staged_witnessed_submissions
+                .keys()
+                .filter(|submission_id| {
+                    !self
+                        .receipt_correlation_by_submission
+                        .contains_key(*submission_id)
+                })
+                .copied(),
+        );
         self.witnessed_submissions
             .extend(staged_witnessed_submissions);
         Ok(())
@@ -2430,6 +2469,8 @@ impl WorldlineRuntime {
             .entry(current_basis)
             .or_default()
             .insert(ticketed_ingress_id);
+        self.pending_witnessed_submission_ids
+            .remove(&persisted.submission_id);
         self.worldlines
             .frontier_mut(&persisted.head_key.worldline_id)
             .ok_or(RuntimeError::UnknownWorldline(
@@ -2835,6 +2876,7 @@ impl WorldlineRuntime {
             .insert((head_key, ingress_id), submission_id);
         self.witnessed_submissions
             .insert(submission_id, record.clone());
+        self.pending_witnessed_submission_ids.insert(submission_id);
         Ok(record)
     }
 
@@ -3025,6 +3067,9 @@ impl WorldlineRuntime {
                     .receipt_correlations_by_current_basis
                     .get(&current_basis)
                     .cloned(),
+                previous_pending_submission: self
+                    .pending_witnessed_submission_ids
+                    .contains(&ticketed_ingress.submission_id),
             });
             self.receipt_correlations_by_ticketed_ingress
                 .insert(ticketed_ingress_id, record);
@@ -3038,6 +3083,8 @@ impl WorldlineRuntime {
                 .entry(current_basis)
                 .or_default()
                 .insert(ticketed_ingress_id);
+            self.pending_witnessed_submission_ids
+                .remove(&ticketed_ingress.submission_id);
         }
         Ok(())
     }

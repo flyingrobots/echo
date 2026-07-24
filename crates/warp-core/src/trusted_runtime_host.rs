@@ -1575,22 +1575,14 @@ impl TrustedRuntimeHost {
     ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
         let pending = self
             .runtime
-            .witnessed_submissions()
+            .pending_witnessed_submissions()
             .filter_map(|submission| {
-                matches!(
-                    self.runtime
-                        .observe_intent_outcome(&submission.submission_id),
-                    IntentOutcomeObservation::Pending { .. }
-                )
-                .then(|| {
-                    self.runtime
-                        .witnessed_submission_envelope(&submission.submission_id)
-                        .and_then(|envelope| {
-                            echo_operation_action_invocation_bytes_v1(envelope)
-                                .map(|bytes| (submission.clone(), envelope.clone(), bytes.to_vec()))
-                        })
-                })
-                .flatten()
+                self.runtime
+                    .witnessed_submission_envelope(&submission.submission_id)
+                    .and_then(|envelope| {
+                        echo_operation_action_invocation_bytes_v1(envelope)
+                            .map(|bytes| (submission.clone(), envelope.clone(), bytes.to_vec()))
+                    })
             })
             .collect::<Vec<_>>();
         if pending.is_empty() {
@@ -1650,16 +1642,18 @@ impl TrustedRuntimeHost {
                 &admitted_actions,
                 &self.echo_operation_evaluation_authority,
             )?;
+        let new_correlations = self
+            .runtime
+            .receipt_correlations()
+            .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let action_submission_by_ingress = new_correlations
+            .iter()
+            .map(|correlation| (correlation.ingress_id, correlation.submission_id))
+            .collect::<BTreeMap<_, _>>();
         let mut tick_wal_records = Vec::new();
         if self.runtime_wal.is_some() {
-            let new_correlations = self
-                .runtime
-                .receipt_correlations()
-                .filter(|correlation| {
-                    !existing_correlations.contains(&correlation.ticketed_ingress_id)
-                })
-                .cloned()
-                .collect::<Vec<_>>();
             for correlation in new_correlations {
                 let decision = match wal_tick_decision_from_observation(
                     self.runtime
@@ -1757,13 +1751,9 @@ impl TrustedRuntimeHost {
             }
         }
         for (ingress_id, outcome) in action_outcomes {
-            if let Some(submission) = self
-                .runtime
-                .witnessed_submissions()
-                .find(|submission| submission.ingress_id == ingress_id)
-            {
+            if let Some(submission_id) = action_submission_by_ingress.get(&ingress_id) {
                 self.echo_operation_action_outcomes
-                    .insert(submission.submission_id, outcome);
+                    .insert(*submission_id, outcome);
             }
         }
         Ok(records)

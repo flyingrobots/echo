@@ -2738,6 +2738,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             .submit_intent_with_runtime_wal_ack(second_envelope)
             .expect("the second Action is durable before acknowledgement")
             .submission_id;
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 2);
 
         assert_eq!(
             host.runtime()
@@ -2757,6 +2758,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].admitted_count, 2);
         assert_eq!(steps[0].worldline_tick_after.as_u64(), 1);
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
 
         for submission_id in [first_submission_id, second_submission_id] {
             let Some(EchoOperationActionOutcomeV1::Committed(receipt)) =
@@ -2861,6 +2863,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         .engine()
         .installed_echo_operation_package_v1(package_id)
         .is_some());
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
     for submission_id in [first_submission_id, second_submission_id] {
         assert!(matches!(
             recovered.echo_operation_action_outcome_v1(&submission_id),
@@ -2931,6 +2934,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
                 ..
             }
         ));
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
         assert_eq!(
             host.runtime()
                 .worldlines()
@@ -2958,6 +2962,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
             ..
         }
     ));
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
     recovered.install_echo_operation_action_admission_policy_v1(invocation_policy());
     let steps = recovered
         .tick_once()
@@ -2967,6 +2972,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
         recovered.echo_operation_action_outcome_v1(&submission_id),
         Some(EchoOperationActionOutcomeV1::Committed(_))
     ));
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 0);
     let state = recovered
         .runtime()
         .worldlines()

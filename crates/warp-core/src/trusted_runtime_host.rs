@@ -3256,7 +3256,7 @@ fn operation_patch_inputs_match_v1(
 ) -> bool {
     let mut has_node = false;
     let mut has_attachment = false;
-    let mut portal_count = 0_usize;
+    let mut seen_portals = std::collections::BTreeSet::new();
     let mut has_root_portal = false;
 
     for slot in &patch.in_slots {
@@ -3272,7 +3272,9 @@ fn operation_patch_inputs_match_v1(
             crate::SlotId::Attachment(portal)
                 if operation_attachment_owner_warp_v1(portal) != node.warp_id =>
             {
-                portal_count += 1;
+                if !seen_portals.insert(portal) {
+                    return false;
+                }
                 has_root_portal |= operation_attachment_owner_warp_v1(portal) == patch.warp_id;
             }
             _ => return false,
@@ -3282,9 +3284,9 @@ fn operation_patch_inputs_match_v1(
     has_node
         && has_attachment
         && if node.warp_id == patch.warp_id {
-            portal_count == 0
+            seen_portals.is_empty()
         } else {
-            portal_count > 0 && has_root_portal
+            !seen_portals.is_empty() && has_root_portal
         }
 }
 
@@ -4388,6 +4390,16 @@ mod tests {
             operation_patch_scope_v1(&missing_portal_read, &installed_program),
             None,
             "a descendant operation must retain the root portal dependency"
+        );
+
+        let mut duplicate_portal_read = patch.clone();
+        duplicate_portal_read
+            .in_slots
+            .push(duplicate_portal_read.in_slots[2]);
+        assert_eq!(
+            operation_patch_scope_v1(&duplicate_portal_read, &installed_program),
+            None,
+            "a descendant operation must reject duplicate portal dependencies"
         );
 
         let mut reversed = patch.clone();

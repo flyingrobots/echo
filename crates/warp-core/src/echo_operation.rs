@@ -1457,6 +1457,10 @@ impl InstalledEchoOperationV1 {
         self.program_id
     }
 
+    pub(crate) const fn program(&self) -> &EchoOperationProgramV1 {
+        &self.program
+    }
+
     /// Returns the semantic identity bound by the admitted package.
     #[must_use]
     pub const fn semantic_identity(&self) -> Hash {
@@ -2992,10 +2996,6 @@ impl EchoOperationReceiptV1 {
     #[must_use]
     pub const fn program_id(&self) -> EchoOperationProgramIdV1 {
         self.program_id
-    }
-
-    pub(crate) const fn target_profile_identity(&self) -> Hash {
-        self.target_profile_identity
     }
 
     /// Returns the exact private-evaluation basis identity.

@@ -40,10 +40,12 @@
   `UpsertNode` plus `SetAttachment` consequence; charges the node type,
   attachment type, and payload; and refuses every occupied target with
   `PreconditionMismatch`. Filesystem-WAL recovery validates the exact
-  profile-selected patch shape, including operations scoped to descended WARP
-  instances. This closes only the single anchored-node-plus-alpha-attachment
-  creation gap. It does not establish multi-record creation or a real Edict
-  application crossing.
+  installed-program consequence, including operation and slot shape,
+  program-owned node and attachment types, the atom-only attachment algebra,
+  replacement bounds, and operations scoped to descended WARP instances. This
+  closes only the single anchored-node-plus-alpha-attachment creation gap. It
+  does not establish multi-record creation or a real Edict application
+  crossing.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with
   `admit_provider_contract_submission_v1(...)`. The shared installed-contract

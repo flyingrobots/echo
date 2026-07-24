@@ -183,16 +183,19 @@ tag, marker, or alternate interpretation to any update result identity.
 
 ### WAL recovery validates the installed semantic shape
 
-Recovery selects the canonical patch shape using the receipt-bound target
-profile, which package and receipt validation bind back to the installed
-program:
+Recovery selects the canonical consequence from the exact installed program,
+which package and receipt validation bind to the retained commit:
 
 - compare-and-set accepts only one `SetAttachment` operation and an
   attachment-only output list;
 - create-if-absent accepts only ordered `UpsertNode`, `SetAttachment`
   operations and node-plus-attachment outputs.
 
-Missing, reversed, partial, cross-node, or cross-profile shapes are refused.
+Both profiles additionally require the program-owned attachment type, an atom
+value, and a payload no larger than `max_replacement_bytes`. Creation also
+requires the program-owned `NodeRecord.ty`. Missing, reversed, partial,
+cross-node, cross-profile, wrong-typed, non-atom, or oversized consequences are
+refused.
 
 `WorldlineTickPatchV1.warp_id` names the parent worldline's root WARP. Operation
 scope comes from the exact `NodeKey` carried by the operations and slots, which
@@ -247,9 +250,9 @@ Focused unit witnesses additionally cover:
 - exact legacy update program and invocation canonical bytes;
 - exact legacy update result identity;
 - rejection of `Null` under the legacy invocation schema;
-- target-profile-selected WAL shapes;
-- rejection of reversed, partial, wrong-output, cross-node, and cross-profile
-  creation patches;
+- installed-program-selected WAL consequences;
+- rejection of reversed, partial, wrong-output, cross-node, cross-profile,
+  wrong-typed, non-atom, and oversized creation patches;
 - descendant-node scope independent of the parent worldline root.
 
 The complete `warp-core` library suite passes with 689 tests, and the focused

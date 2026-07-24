@@ -45,7 +45,7 @@ track work, progress, priority, or release readiness.
 | [0021](0021-public-optic-observation-boundary.md)                | Accepted             | Public WARP optic over internal observation                    |
 | [0022](0022-application-requested-causal-anchor-admission.md)    | Accepted             | Application-requested, Echo-owned anchor admission             |
 | [0023](0023-admitted-executable-operation-packages.md)           | Accepted             | Admitted executable operation packages                         |
-| [0024](0024-anchored-node-creation-from-absence.md)              | Accepted             | Anchored-node creation as compare-and-set from absence         |
+| [0024](0024-anchored-node-creation-from-absence.md)              | Accepted             | Anchored-node creation as a separate executable program        |
 
 ADR 0006 predates this index contract and did not declare a status. Its
 superseded tombstone preserves that fact without silently ratifying the old

@@ -61,23 +61,23 @@ use crate::{
     ContractOperationKind, EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorV1,
     EchoOperationAdmissionPolicyV1, EchoOperationApplicationBasisV1, EchoOperationArtifactErrorV1,
     EchoOperationCommitErrorV1, EchoOperationEvaluationBasisV1, EchoOperationExecutionEvidenceV1,
-    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationPreparationV1, EchoOperationReceiptV1,
-    EchoOperationTerminalPostureV1, Engine, IngressCausalParent, IngressEnvelope,
-    IngressEnvelopeDecodeError, IngressPayload, IngressSubmissionGeneration,
-    InstalledContractPackage, InstalledContractPackageError, InstalledContractPackageRecord,
-    InstalledEchoOperationV1, InstalledProviderContractPackageRecordV1, IntentOutcome,
-    IntentOutcomeDecision, IntentOutcomeObservation, IntentSubmissionHandle,
-    IntentSubmissionRecord, ObservationArtifact, ObservationError, ObservationRequest,
-    ObservationService, OpticAdmissionTicket, PreparedEchoOperationV1, ProvenanceEntry,
-    ProvenanceService, ProvenanceStore, ProviderContractAdmissionError,
-    ProviderContractAdmissionPolicyV1, ProviderContractInstallationError,
-    ProviderContractPackageInstallerV1, ProviderContractPackageProposalV1,
-    ProviderPackageReferenceV1, ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord,
-    RetainedProvenanceError, RuntimeError, SchedulerCoordinator, StepRecord,
-    TickReceiptDisposition, TickReceiptRejection, TicketedRuntimeIngressAuthority,
-    TicketedRuntimeIngressDisposition, WitnessedSubmissionPersistenceRecord,
-    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
+    EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationPreparationV1, EchoOperationReceiptV1, EchoOperationTerminalPostureV1, Engine,
+    IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
+    IngressSubmissionGeneration, InstalledContractPackage, InstalledContractPackageError,
+    InstalledContractPackageRecord, InstalledEchoOperationV1,
+    InstalledProviderContractPackageRecordV1, IntentOutcome, IntentOutcomeDecision,
+    IntentOutcomeObservation, IntentSubmissionHandle, IntentSubmissionRecord, ObservationArtifact,
+    ObservationError, ObservationRequest, ObservationService, OpticAdmissionTicket,
+    PreparedEchoOperationV1, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+    ProviderContractAdmissionError, ProviderContractAdmissionPolicyV1,
+    ProviderContractInstallationError, ProviderContractPackageInstallerV1,
+    ProviderContractPackageProposalV1, ProviderPackageReferenceV1,
+    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RetainedProvenanceError,
+    RuntimeError, SchedulerCoordinator, StepRecord, TickReceiptDisposition, TickReceiptRejection,
+    TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
+    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 use crate::{Hash, HistoryError};
 
@@ -643,6 +643,8 @@ pub struct TrustedRuntimeHost {
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
     echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+    echo_operation_action_admission_obstructions:
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
 }
 
 impl TrustedRuntimeHost {
@@ -663,6 +665,7 @@ impl TrustedRuntimeHost {
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
             echo_operation_action_admission_policy: None,
             echo_operation_action_outcomes: BTreeMap::new(),
+            echo_operation_action_admission_obstructions: BTreeMap::new(),
         })
     }
 
@@ -682,6 +685,7 @@ impl TrustedRuntimeHost {
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
             echo_operation_action_admission_policy: None,
             echo_operation_action_outcomes: BTreeMap::new(),
+            echo_operation_action_admission_obstructions: BTreeMap::new(),
         }
     }
 
@@ -716,6 +720,7 @@ impl TrustedRuntimeHost {
         policy: EchoOperationInvocationAdmissionPolicyV1,
     ) {
         self.echo_operation_action_admission_policy = Some(policy);
+        self.echo_operation_action_admission_obstructions.clear();
     }
 
     /// Returns the typed scheduler-owned outcome for one executable-operation
@@ -726,6 +731,18 @@ impl TrustedRuntimeHost {
         submission_id: &Hash,
     ) -> Option<&EchoOperationActionOutcomeV1> {
         self.echo_operation_action_outcomes.get(submission_id)
+    }
+
+    /// Returns the typed pending posture for an executable-operation Action
+    /// which runtime-owned admission cannot currently authorize.
+    #[must_use]
+    pub fn echo_operation_action_admission_obstruction_v1(
+        &self,
+        submission_id: &Hash,
+    ) -> Option<EchoOperationInvocationAdmissionErrorKindV1> {
+        self.echo_operation_action_admission_obstructions
+            .get(submission_id)
+            .copied()
     }
 
     /// Admits exact executable-operation package bytes under independent policy.
@@ -773,6 +790,7 @@ impl TrustedRuntimeHost {
         }
         self.engine
             .restore_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
+        self.echo_operation_action_admission_obstructions.clear();
         Ok(installed)
     }
 
@@ -1062,6 +1080,7 @@ impl TrustedRuntimeHost {
             .iter()
             .map(|(submission_id, _, outcome)| (*submission_id, outcome.clone()))
             .collect();
+        self.echo_operation_action_admission_obstructions.clear();
         self.runtime = restored_runtime;
         self.provenance = restored_provenance;
         self.runtime_wal = Some(runtime_wal);
@@ -1590,18 +1609,38 @@ impl TrustedRuntimeHost {
         if pending.is_empty() {
             return Ok(BTreeMap::new());
         }
-        let policy = self
-            .echo_operation_action_admission_policy
-            .ok_or(TrustedRuntimeHostError::EchoOperationActionAdmissionPolicyUnavailable)?;
+        let Some(policy) = self.echo_operation_action_admission_policy else {
+            return Ok(BTreeMap::new());
+        };
         let mut admitted_actions = BTreeMap::new();
         for (submission, envelope, invocation_bytes) in pending {
-            let (package_id, _) = decode_invocation_route_v1(&invocation_bytes)?;
-            let admitted = admit_action_invocation_v1(
+            if self
+                .echo_operation_action_admission_obstructions
+                .contains_key(&submission.submission_id)
+            {
+                continue;
+            }
+            let package_id = match decode_invocation_route_v1(&invocation_bytes) {
+                Ok((package_id, _)) => package_id,
+                Err(error) => {
+                    self.echo_operation_action_admission_obstructions
+                        .insert(submission.submission_id, error.kind());
+                    continue;
+                }
+            };
+            let admitted = match admit_action_invocation_v1(
                 self.engine.installed_echo_operation_package_v1(package_id),
                 policy,
                 &invocation_bytes,
                 self.echo_operation_evaluation_authority.clone(),
-            )?;
+            ) {
+                Ok(admitted) => admitted,
+                Err(error) => {
+                    self.echo_operation_action_admission_obstructions
+                        .insert(submission.submission_id, error.kind());
+                    continue;
+                }
+            };
             let admission_digest = echo_operation_action_admission_digest(&submission, &admitted);
             self.runtime.ingest_echo_operation_action_v1(
                 &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
@@ -1609,6 +1648,8 @@ impl TrustedRuntimeHost {
                 admission_digest,
                 envelope,
             )?;
+            self.echo_operation_action_admission_obstructions
+                .remove(&submission.submission_id);
             admitted_actions.insert(submission.ingress_id, admitted);
         }
         Ok(admitted_actions)

@@ -3118,6 +3118,117 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
 }
 
 #[test]
+fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
+    let wal_dir = TempWalDir::new();
+    let unavailable_submission_id;
+    let valid_submission_id;
+    let head_key;
+    let node;
+
+    {
+        let (mut host, fixture_head, fixture_node) = fixture_host();
+        head_key = fixture_head;
+        node = fixture_node;
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the admission-obstruction fixture WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let unavailable_package_bytes = operation_package_at(
+            "echo.fixture.Unavailable.v1",
+            make_type_id("operation-fixture-node"),
+            make_type_id("operation-fixture-atom"),
+        )
+        .to_canonical_bytes()
+        .expect("the unavailable package is canonical");
+        let unavailable_package_id =
+            warp_core::echo_operation_package_id_v1(&unavailable_package_bytes);
+        let evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis())
+            .expect("Echo resolves the current exact parent basis");
+        let unavailable_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+                unavailable_package_id,
+                "echo.fixture.Unavailable.v1",
+                evaluation_basis,
+                digest("fixture-authority-grant"),
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                node,
+                warp_core::echo_operation_atom_value_digest_v1(
+                    make_type_id("operation-fixture-atom"),
+                    b"before",
+                ),
+                b"must-not-appear".to_vec(),
+            )
+            .to_canonical_bytes()
+            .expect("the unavailable-package invocation is canonical");
+        unavailable_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(
+                warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head_key },
+                    unavailable_invocation,
+                )
+                .expect("the unavailable-package invocation becomes an Action"),
+            )
+            .expect("the unavailable-package Action is durable before acknowledgement")
+            .submission_id;
+
+        let valid_invocation =
+            action_invocation(&host, &installed, head_key, node, b"before", b"valid-after");
+        valid_submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(
+                warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head_key },
+                    valid_invocation,
+                )
+                .expect("the valid invocation becomes an Action"),
+            )
+            .expect("the valid Action is durable before acknowledgement")
+            .submission_id;
+
+        let steps = host
+            .tick_once()
+            .expect("one unadmittable Action cannot abort unrelated scheduler work");
+        assert_eq!(steps.len(), 1);
+        assert!(matches!(
+            host.echo_operation_action_outcome_v1(&valid_submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+        assert_eq!(
+            host.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
+            Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+        );
+        assert!(host
+            .echo_operation_action_outcome_v1(&unavailable_submission_id)
+            .is_none());
+        assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+    }
+
+    let (mut recovered, recovered_head, recovered_node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh-host recovery restores the valid Tick and pending Action");
+    recovered.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    assert!(matches!(
+        recovered.echo_operation_action_outcome_v1(&valid_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let steps = recovered
+        .tick_once()
+        .expect("the recovered unavailable-package Action is quarantined");
+    assert!(steps.is_empty());
+    assert_eq!(
+        recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
+        Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+    );
+    assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
+    assert_eq!(recovered_head, head_key);
+    assert_eq!(recovered_node, node);
+}
+
+#[test]
 fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     let wal_dir = TempWalDir::new();
     let submission_id;

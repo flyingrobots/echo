@@ -1747,6 +1747,40 @@ impl WorldlineRuntime {
             .iter()
             .enumerate()
             .filter(|(_idx, entry)| entry.scope.local_id == ingress_node);
+        let positional_candidate = || {
+            let current_basis = receipt_correlation_current_basis(correlation);
+            let ticketed_ingress_ids = self
+                .receipt_correlations_by_current_basis
+                .get(&current_basis)?;
+            let mut same_tick = ticketed_ingress_ids
+                .iter()
+                .filter_map(|ticketed_ingress_id| {
+                    self.receipt_correlations_by_ticketed_ingress
+                        .get(ticketed_ingress_id)
+                })
+                .collect::<Vec<_>>();
+            same_tick.sort_by_key(|candidate| candidate.ingress_id);
+            if same_tick.len() != receipt.entries().len()
+                || same_tick
+                    .windows(2)
+                    .any(|pair| pair[0].ingress_id >= pair[1].ingress_id)
+            {
+                return None;
+            }
+            let index = same_tick.iter().position(|candidate| {
+                candidate.ticketed_ingress_id == correlation.ticketed_ingress_id
+            })?;
+            receipt.entries().get(index).map(|entry| (index, entry))
+        };
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        let is_echo_operation_action = self
+            .witnessed_submission_envelopes
+            .get(&correlation.submission_id)
+            .is_some_and(|envelope| {
+                crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope).is_some()
+            });
+        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+        let is_echo_operation_action = false;
         let candidate = if let Some(provider) = correlation
             .contract
             .as_ref()
@@ -1762,43 +1796,21 @@ impl WorldlineRuntime {
                 return no_match();
             }
             candidate
+        } else if is_echo_operation_action {
+            let Some(candidate) = positional_candidate() else {
+                return no_match();
+            };
+            candidate
         } else if let Some(candidate) = candidates.next() {
             if candidates.next().is_some() {
                 return no_match();
             }
             candidate
         } else {
-            let current_basis = receipt_correlation_current_basis(correlation);
-            let Some(ticketed_ingress_ids) = self
-                .receipt_correlations_by_current_basis
-                .get(&current_basis)
-            else {
+            let Some(candidate) = positional_candidate() else {
                 return no_match();
             };
-            let mut same_tick = ticketed_ingress_ids
-                .iter()
-                .filter_map(|ticketed_ingress_id| {
-                    self.receipt_correlations_by_ticketed_ingress
-                        .get(ticketed_ingress_id)
-                })
-                .collect::<Vec<_>>();
-            same_tick.sort_by_key(|candidate| candidate.ingress_id);
-            if same_tick.len() != receipt.entries().len()
-                || same_tick
-                    .windows(2)
-                    .any(|pair| pair[0].ingress_id >= pair[1].ingress_id)
-            {
-                return no_match();
-            }
-            let Some(index) = same_tick.iter().position(|candidate| {
-                candidate.ticketed_ingress_id == correlation.ticketed_ingress_id
-            }) else {
-                return no_match();
-            };
-            let Some(entry) = receipt.entries().get(index) else {
-                return no_match();
-            };
-            (index, entry)
+            candidate
         };
         let (idx, entry) = candidate;
         let Ok(receipt_entry_index) = u32::try_from(idx) else {

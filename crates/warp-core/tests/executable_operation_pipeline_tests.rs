@@ -3238,6 +3238,80 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
 }
 
 #[test]
+fn action_outcome_attribution_ignores_application_controlled_scope_collisions() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the scope-collision fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let valid_invocation =
+        action_invocation(&host, &installed, head_key, node, b"before", b"after");
+    let valid_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        valid_invocation,
+    )
+    .expect("the valid invocation becomes an Action");
+    let colliding_scope = NodeKey {
+        warp_id: node.warp_id,
+        local_id: warp_core::NodeId(valid_envelope.ingress_id()),
+    };
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis())
+        .expect("Echo resolves the current exact parent basis");
+    let obstructed_invocation =
+        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            evaluation_basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            colliding_scope,
+            warp_core::echo_operation_atom_value_digest_v1(
+                make_type_id("operation-fixture-atom"),
+                b"before",
+            ),
+            b"must-not-appear".to_vec(),
+        )
+        .to_canonical_bytes()
+        .expect("the scope-collision invocation is canonical");
+    let obstructed_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        obstructed_invocation,
+    )
+    .expect("the scope-collision invocation becomes an Action");
+
+    let valid_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(valid_envelope)
+        .expect("the valid Action is durable")
+        .submission_id;
+    let obstructed_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(obstructed_envelope)
+        .expect("the obstructed Action is durable")
+        .submission_id;
+
+    let steps = host
+        .tick_once()
+        .expect("scope values cannot change positional Action attribution");
+    assert_eq!(steps.len(), 1);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&valid_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&obstructed_submission_id)
+    else {
+        panic!("the colliding scope still receives its own typed obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::NodeMissing
+    );
+}
+
+#[test]
 fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     let wal_dir = TempWalDir::new();
     let submission_id;

@@ -234,6 +234,7 @@ pub use dynamic_binding::{
     StructuredBindingRuntime, StructuredRuntimeBindings,
 };
 pub use echo_operation::{
+    echo_operation_anchored_node_absent_application_basis_v1,
     echo_operation_anchored_node_application_basis_v1, echo_operation_atom_value_digest_v1,
     echo_operation_package_id_v1, echo_operation_target_profile_identity_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,

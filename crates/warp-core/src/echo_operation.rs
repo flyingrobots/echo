@@ -9,9 +9,11 @@
 //!
 //! The first earned program profile is deliberately small: an invocation
 //! anchors one typed node and compares the digest of its typed alpha attachment
-//! before replacing that attachment. It has one unique match, a closed
-//! attachment algebra, explicit resource bounds, and no callback, function
-//! pointer, matcher, executor, or application-specific intrinsic.
+//! before replacing that attachment, or -- when the invocation's precondition
+//! declares the node and attachment entirely absent -- creates both atomically
+//! (ADR 0024). It has one unique match, a closed attachment algebra, explicit
+//! resource bounds, and no callback, function pointer, matcher, executor, or
+//! application-specific intrinsic.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -30,6 +32,7 @@ use crate::{
     head::WriterHeadKey,
     ident::{EdgeKey, Hash, NodeKey, TypeId},
     receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry},
+    record::NodeRecord,
     snapshot::{compute_commit_hash_v2, Snapshot},
     tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
     tx::TxId,
@@ -68,6 +71,8 @@ const OBSTRUCTION_ID_DOMAIN: &[u8] = b"echo:operation-obstruction:v1\0";
 const TERMINAL_OUTCOME_ID_DOMAIN: &[u8] = b"echo:operation-terminal-outcome:v1\0";
 const ATOM_VALUE_DOMAIN: &[u8] = b"echo:operation-atom-value:v1\0";
 const APPLICATION_BASIS_VALUE_DOMAIN: &[u8] = b"echo:operation-anchored-node-alpha-basis:v1\0";
+const APPLICATION_BASIS_ABSENT_DOMAIN: &[u8] =
+    b"echo:operation-anchored-node-alpha-basis-absent:v1\0";
 const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
 const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
 const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
@@ -266,6 +271,26 @@ pub fn echo_operation_anchored_node_application_basis_v1(
     hasher.update(node.warp_id.as_bytes());
     hasher.update(node.local_id.as_bytes());
     hasher.update(&atom_digest);
+    EchoOperationApplicationBasisV1::new(
+        profile_digest(APPLICATION_BASIS_SCHEMA),
+        hasher.finalize().into(),
+    )
+}
+
+/// Returns the first program profile's canonical application-basis
+/// proposition for a node and attachment that do not yet exist (ADR 0024).
+///
+/// Domain-separated from
+/// [`echo_operation_anchored_node_application_basis_v1`] so that "absent" can
+/// never collide with a present value, including a legitimately empty one.
+#[must_use]
+pub fn echo_operation_anchored_node_absent_application_basis_v1(
+    node: NodeKey,
+) -> EchoOperationApplicationBasisV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(APPLICATION_BASIS_ABSENT_DOMAIN);
+    hasher.update(node.warp_id.as_bytes());
+    hasher.update(node.local_id.as_bytes());
     EchoOperationApplicationBasisV1::new(
         profile_digest(APPLICATION_BASIS_SCHEMA),
         hasher.finalize().into(),
@@ -1654,12 +1679,20 @@ pub struct EchoOperationInvocationV1 {
     authority_grant_identity: Hash,
     delegated_budget: EchoOperationBudgetV1,
     node: NodeKey,
-    expected_value_digest: Hash,
+    expected_value_digest: Option<Hash>,
     replacement_bytes: Vec<u8>,
 }
 
 impl EchoOperationInvocationV1 {
     /// Creates an invocation for the first supported operation program.
+    ///
+    /// `expected_value_digest` is the caller's precondition on the node's
+    /// current state. `Some(digest)` requires the anchored node and its typed
+    /// alpha attachment to already exist with that exact digest (update).
+    /// `None` requires the node and attachment to both be entirely absent,
+    /// and creates them atomically (create-from-absence). There is no
+    /// partial state between those two: a node that exists without its
+    /// attachment does not satisfy either precondition.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn anchored_node_attachment_compare_and_set(
@@ -1669,7 +1702,7 @@ impl EchoOperationInvocationV1 {
         authority_grant_identity: Hash,
         delegated_budget: EchoOperationBudgetV1,
         node: NodeKey,
-        expected_value_digest: Hash,
+        expected_value_digest: Option<Hash>,
         replacement_bytes: Vec<u8>,
     ) -> Self {
         Self {
@@ -1715,7 +1748,8 @@ impl EchoOperationInvocationV1 {
             ("evaluation_basis", self.evaluation_basis.to_value()),
             (
                 "expected_value_digest",
-                hash_value(self.expected_value_digest),
+                self.expected_value_digest
+                    .map_or(CanonicalValueV1::Null, hash_value),
             ),
             ("node_id", hash_value(self.node.local_id.0)),
             (
@@ -1767,7 +1801,7 @@ impl EchoOperationInvocationV1 {
                 warp_id: crate::WarpId(take_hash(&mut fields, "warp_id")?),
                 local_id: crate::NodeId(take_hash(&mut fields, "node_id")?),
             },
-            expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            expected_value_digest: take_optional_hash(&mut fields, "expected_value_digest")?,
             replacement_bytes: take_bytes(&mut fields, "replacement_bytes")?,
         };
         if invocation.operation_coordinate.is_empty() || !invocation.delegated_budget.is_nonzero() {
@@ -1995,12 +2029,30 @@ fn current_application_basis(
             let store = state
                 .store(&invocation.node.warp_id)
                 .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
-            store
-                .node(&invocation.node.local_id)
-                .ok_or_else(|| basis_mismatch("application-basis node is unavailable"))?;
-            let attachment = store
-                .node_attachment(&invocation.node.local_id)
-                .ok_or_else(|| basis_mismatch("application-basis attachment is unavailable"))?;
+            // A node that does not exist, or that exists without its alpha
+            // attachment, corroborates as absence (ADR 0024): a
+            // create-from-absence invocation's claimed application basis is
+            // then judged, like any other, by the equality check in
+            // `admit_invocation_v1` -- a claim of absence matches only real
+            // absence, exactly as a claim of a value matches only that exact
+            // value. The atomic-or-refuse distinction between "node absent"
+            // and "node exists without its attachment" belongs to
+            // `prepare_operation_v1`, not to this coarse admission check.
+            let attachment = match store.node(&invocation.node.local_id) {
+                None => None,
+                Some(_) => store.node_attachment(&invocation.node.local_id),
+            };
+            let Some(attachment) = attachment else {
+                if invocation.delegated_budget.read_bytes < 64 {
+                    return Err(invocation_admission_error(
+                        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
+                        "application-basis corroboration exceeds the delegated read budget",
+                    ));
+                }
+                return Ok(echo_operation_anchored_node_absent_application_basis_v1(
+                    invocation.node,
+                ));
+            };
             let AttachmentValue::Atom(atom) = attachment else {
                 return Err(basis_mismatch(
                     "application-basis attachment is not a canonical atom",
@@ -2092,7 +2144,9 @@ pub enum EchoOperationObstructionKindV1 {
     AttachmentNotAtom,
     /// The alpha atom has a different declared type.
     AttachmentTypeMismatch,
-    /// The current atom digest differs from the invocation precondition.
+    /// The current atom digest differs from the invocation precondition, or
+    /// the invocation expected the node and attachment to be entirely
+    /// absent (create-from-absence) but one or both already exist.
     PreconditionMismatch,
     /// Actual resource access exceeded the declared footprint contract.
     FootprintViolation,
@@ -2316,7 +2370,8 @@ pub(crate) fn prepare_operation_v1(
                 return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
             }
             let node = admitted.invocation.node;
-            let declared_footprint = anchored_node_footprint(node);
+            let expects_creation = admitted.invocation.expected_value_digest.is_none();
+            let declared_footprint = anchored_node_footprint(node, expects_creation);
             let mut actual_footprint = Footprint::default();
             let mut budget_meter =
                 EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
@@ -2327,45 +2382,99 @@ pub(crate) fn prepare_operation_v1(
                 return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
             }
             record_node_read(&mut actual_footprint, node);
-            let Some(record) = store.node(&node.local_id) else {
-                return obstruction(EchoOperationObstructionKindV1::NodeMissing);
-            };
-            if record.ty != required_node_type {
-                return obstruction(EchoOperationObstructionKindV1::NodeTypeMismatch);
-            }
             let slot = AttachmentKey::node_alpha(node);
-            if !budget_meter.charge(1, 32, 0) {
-                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-            }
-            actual_footprint.a_read.insert(slot);
-            let Some(attachment) = store.node_attachment(&node.local_id) else {
-                return obstruction(EchoOperationObstructionKindV1::AttachmentMissing);
+            // Node absent + create-from-absence is the only path that may
+            // still succeed here; every other absent-node combination
+            // refuses below. A node that exists without its attachment is
+            // deliberately not a partial-create target (see ADR 0024):
+            // create-from-absence is atomic over both slots or it refuses.
+            let write_ops = match store.node(&node.local_id) {
+                None => {
+                    if !expects_creation {
+                        return obstruction(EchoOperationObstructionKindV1::NodeMissing);
+                    }
+                    if !budget_meter.charge(1, 32, 0) {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    }
+                    actual_footprint.a_read.insert(slot);
+                    let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    };
+                    if !budget_meter.charge(1, 0, write_bytes) {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    }
+                    actual_footprint.n_write.insert(node);
+                    actual_footprint.a_write.insert(slot);
+                    vec![
+                        WarpOp::UpsertNode {
+                            node,
+                            record: NodeRecord {
+                                ty: required_node_type,
+                            },
+                        },
+                        WarpOp::SetAttachment {
+                            key: slot,
+                            value: Some(AttachmentValue::Atom(AtomPayload::new(
+                                required_attachment_type,
+                                Bytes::from(admitted.invocation.replacement_bytes.clone()),
+                            ))),
+                        },
+                    ]
+                }
+                Some(record) => {
+                    if record.ty != required_node_type {
+                        return obstruction(EchoOperationObstructionKindV1::NodeTypeMismatch);
+                    }
+                    if !budget_meter.charge(1, 32, 0) {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    }
+                    actual_footprint.a_read.insert(slot);
+                    let Some(attachment) = store.node_attachment(&node.local_id) else {
+                        return obstruction(if expects_creation {
+                            EchoOperationObstructionKindV1::PreconditionMismatch
+                        } else {
+                            EchoOperationObstructionKindV1::AttachmentMissing
+                        });
+                    };
+                    if expects_creation {
+                        return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+                    }
+                    let AttachmentValue::Atom(atom) = attachment else {
+                        return obstruction(EchoOperationObstructionKindV1::AttachmentNotAtom);
+                    };
+                    if atom.type_id != required_attachment_type {
+                        return obstruction(EchoOperationObstructionKindV1::AttachmentTypeMismatch);
+                    }
+                    let Ok(current_value_len) = u64::try_from(atom.bytes.len()) else {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    };
+                    if !budget_meter.charge(1, current_value_len, 0) {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    }
+                    if Some(echo_operation_atom_value_digest_v1(
+                        atom.type_id,
+                        &atom.bytes,
+                    )) != admitted.invocation.expected_value_digest
+                    {
+                        return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+                    }
+                    let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    };
+                    if !budget_meter.charge(1, 0, write_bytes) {
+                        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+                    }
+                    actual_footprint.a_write.insert(slot);
+                    vec![WarpOp::SetAttachment {
+                        key: slot,
+                        value: Some(AttachmentValue::Atom(AtomPayload::new(
+                            required_attachment_type,
+                            Bytes::from(admitted.invocation.replacement_bytes.clone()),
+                        ))),
+                    }]
+                }
             };
-            let AttachmentValue::Atom(atom) = attachment else {
-                return obstruction(EchoOperationObstructionKindV1::AttachmentNotAtom);
-            };
-            if atom.type_id != required_attachment_type {
-                return obstruction(EchoOperationObstructionKindV1::AttachmentTypeMismatch);
-            }
-            let Ok(current_value_len) = u64::try_from(atom.bytes.len()) else {
-                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-            };
-            if !budget_meter.charge(1, current_value_len, 0) {
-                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-            }
-            if echo_operation_atom_value_digest_v1(atom.type_id, &atom.bytes)
-                != admitted.invocation.expected_value_digest
-            {
-                return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
-            }
-            let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
-                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-            };
-            if !budget_meter.charge(1, 0, write_bytes) {
-                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-            }
             let consumed_budget = budget_meter.consumed();
-            actual_footprint.a_write.insert(slot);
             if actual_footprint != declared_footprint {
                 return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
             }
@@ -2374,14 +2483,12 @@ pub(crate) fn prepare_operation_v1(
                 installed.installed_operation_id.as_hash(),
                 TickCommitStatus::Committed,
                 vec![SlotId::Node(node), SlotId::Attachment(slot)],
-                vec![SlotId::Attachment(slot)],
-                vec![WarpOp::SetAttachment {
-                    key: slot,
-                    value: Some(AttachmentValue::Atom(AtomPayload::new(
-                        required_attachment_type,
-                        Bytes::from(admitted.invocation.replacement_bytes.clone()),
-                    ))),
-                }],
+                if expects_creation {
+                    vec![SlotId::Node(node), SlotId::Attachment(slot)]
+                } else {
+                    vec![SlotId::Attachment(slot)]
+                },
+                write_ops,
             );
             let declared_footprint_digest = footprint_digest(&declared_footprint);
             let actual_footprint_digest = footprint_digest(&actual_footprint);
@@ -3670,7 +3777,7 @@ fn invocation_admission_id(
 fn operation_result_id(
     installed: &InstalledEchoOperationV1,
     invocation: &EchoOperationInvocationV1,
-    previous_value_digest: Hash,
+    previous_value_digest: Option<Hash>,
     replacement_value_digest: Hash,
     patch_digest: Hash,
 ) -> EchoOperationResultIdV1 {
@@ -3680,7 +3787,7 @@ fn operation_result_id(
     hasher.update(&profile_digest(RESULT_SCHEMA));
     hasher.update(invocation.node.warp_id.as_bytes());
     hasher.update(invocation.node.local_id.as_bytes());
-    hasher.update(&previous_value_digest);
+    hash_optional_id(&mut hasher, previous_value_digest);
     hasher.update(&replacement_value_digest);
     hasher.update(&patch_digest);
     EchoOperationResultIdV1(hasher.finalize().into())
@@ -3744,9 +3851,12 @@ fn obstruction_kind_code(kind: EchoOperationObstructionKindV1) -> u8 {
     }
 }
 
-fn anchored_node_footprint(node: NodeKey) -> Footprint {
+fn anchored_node_footprint(node: NodeKey, expects_creation: bool) -> Footprint {
     let mut footprint = Footprint::default();
     record_node_read(&mut footprint, node);
+    if expects_creation {
+        footprint.n_write.insert(node);
+    }
     let attachment = AttachmentKey::node_alpha(node);
     footprint.a_read.insert(attachment);
     footprint.a_write.insert(attachment);
@@ -4234,7 +4344,7 @@ mod tests {
                 digest(18),
                 EchoOperationBudgetV1::new(0, 64, 32),
                 node,
-                digest(19),
+                Some(digest(19)),
                 Vec::new(),
             );
         let error = invalid_invocation

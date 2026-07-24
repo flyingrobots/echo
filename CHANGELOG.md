@@ -30,6 +30,19 @@
   compiler emission, a structurally separate target verifier, Jedit's rope
   lawpack, `ReplaceRange`, scheduler batch composition, or an independently
   implemented semantic oracle.
+- The anchored-node-attachment compare-and-set program now supports
+  create-from-absence (ADR 0024). An invocation's precondition is
+  `Some(digest)` for exactly today's update semantics, unchanged, or `None`
+  to assert the node and its typed alpha attachment are both entirely
+  absent; Echo then creates both atomically in one patch, using the
+  package-declared node type, or refuses with `PreconditionMismatch` if
+  anything already exists there. Admission's independent application-basis
+  corroboration widens the same way through a new, domain-separated absent
+  proposition (`echo_operation_anchored_node_absent_application_basis_v1`),
+  so a stale or dishonest absence claim is caught before evaluation, not
+  only during it. This closes the corridor's only remaining gap for any
+  caller whose writes are new facts rather than edits to a node created
+  through some other channel.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with
   `admit_provider_contract_submission_v1(...)`. The shared installed-contract

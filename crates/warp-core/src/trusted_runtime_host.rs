@@ -44,9 +44,9 @@ use crate::{
         decode_invocation_route_v1, genesis_commit_id, install_recovered_v1,
         installed_from_admitted, not_committed_basis_changed,
         not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
-        prepare_operation_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
-        retain_committed_execution_v1, retain_installation_v1, validate_receipt_installation_v1,
-        EchoOperationEvaluationAuthorityV1,
+        operation_descent_stack, prepare_operation_v1, recover_committed_execution_receipt_v1,
+        recover_installation_v1, retain_committed_execution_v1, retain_installation_v1,
+        validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
     },
     provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
@@ -1679,6 +1679,14 @@ fn ensure_runtime_authority_is_durable(
         });
     }
 
+    let mut recovered_provenance = provenance.clone();
+    restore_provenance_entries(&mut recovered_provenance, &recovery.provenance_entries).map_err(
+        |_| TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::Provenance,
+        },
+    )?;
+    validate_recovered_echo_operation_parent_states(runtime, &recovered_provenance, recovery)?;
+
     let recovered_submissions = recovery
         .witnessed_submissions
         .records()
@@ -3290,6 +3298,26 @@ fn operation_patch_inputs_match_v1(
         }
 }
 
+fn operation_patch_scope_in_parent_state_v1(
+    patch: &crate::WorldlineTickPatchV1,
+    program: &crate::EchoOperationProgramV1,
+    parent_state: &crate::WorldlineState,
+) -> Option<crate::NodeKey> {
+    let node = operation_patch_scope_v1(patch, program)?;
+    if patch.warp_id != parent_state.root().warp_id {
+        return None;
+    }
+    let descent_stack = operation_descent_stack(parent_state, node.warp_id)?;
+    let attachment_slot = crate::AttachmentKey::node_alpha(node);
+    let expected_inputs = std::iter::once(crate::SlotId::Node(node))
+        .chain(std::iter::once(crate::SlotId::Attachment(attachment_slot)))
+        .chain(descent_stack.into_iter().map(crate::SlotId::Attachment))
+        .collect::<BTreeSet<_>>();
+    let actual_inputs = patch.in_slots.iter().copied().collect::<BTreeSet<_>>();
+    (patch.in_slots.len() == expected_inputs.len() && actual_inputs == expected_inputs)
+        .then_some(node)
+}
+
 fn operation_attachment_owner_warp_v1(key: crate::AttachmentKey) -> crate::WarpId {
     match key.owner {
         crate::AttachmentOwner::Node(node) => node.warp_id,
@@ -3316,6 +3344,92 @@ fn operation_tick_binds_patch_v1(
                 && tick_entry.disposition == crate::TickReceiptDisposition::Applied
                 && tick_receipt.blocked_by(0).is_empty()
     )
+}
+
+fn operation_tick_binds_patch_in_parent_state_v1(
+    tick_receipt: &crate::TickReceipt,
+    patch: &crate::WorldlineTickPatchV1,
+    expected_rule_id: Hash,
+    program: &crate::EchoOperationProgramV1,
+    parent_state: &crate::WorldlineState,
+) -> bool {
+    let Some(expected_scope) =
+        operation_patch_scope_in_parent_state_v1(patch, program, parent_state)
+    else {
+        return false;
+    };
+    matches!(
+        tick_receipt.entries(),
+        [tick_entry]
+            if patch.rule_pack_id() == expected_rule_id
+                && tick_entry.rule_id == expected_rule_id
+                && tick_entry.scope == expected_scope
+                && tick_entry.scope_hash == crate::scope_hash(&expected_rule_id, &expected_scope)
+                && tick_entry.disposition == crate::TickReceiptDisposition::Applied
+                && tick_receipt.blocked_by(0).is_empty()
+    )
+}
+
+fn validate_recovered_echo_operation_parent_states(
+    runtime: &WorldlineRuntime,
+    recovered_provenance: &ProvenanceService,
+    recovery: &TrustedRuntimeWalRecovery,
+) -> Result<(), TrustedRuntimeWalError> {
+    let installations = recovery
+        .installed_echo_operations
+        .iter()
+        .map(|installed| (installed.package_id(), installed))
+        .collect::<BTreeMap<_, _>>();
+    let entries = recovery
+        .provenance_entries
+        .iter()
+        .map(|entry| ((entry.worldline_id, entry.worldline_tick), entry))
+        .collect::<BTreeMap<_, _>>();
+
+    for receipt in &recovery.echo_operation_receipts {
+        let basis = receipt.evaluation_basis();
+        let worldline_id = basis.writer_head().worldline_id;
+        let frontier = runtime.worldlines().get(&worldline_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt names an unavailable recovery worldline",
+            },
+        )?;
+        let parent_state = recovered_provenance
+            .replay_worldline_state_at(worldline_id, frontier.state(), basis.worldline_tick())
+            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt parent state cannot be reconstructed",
+            })?;
+        let entry = entries.get(&(worldline_id, basis.worldline_tick())).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt has no recovered state transition",
+            },
+        )?;
+        let installed = installations.get(&receipt.package_id()).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt has no recovered installation",
+            },
+        )?;
+        let exact_parent_state_binding = entry
+            .patch
+            .as_ref()
+            .zip(entry.tick_receipt.as_ref())
+            .is_some_and(|(patch, tick_receipt)| {
+                parent_state.state_root() == basis.state_root()
+                    && operation_tick_binds_patch_in_parent_state_v1(
+                        tick_receipt,
+                        patch,
+                        receipt.installed_operation_id().as_hash(),
+                        installed.program(),
+                        &parent_state,
+                    )
+            });
+        if !exact_parent_state_binding {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "operation receipt patch disagrees with its reconstructed parent state",
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_operation_receipt_state_delta(
@@ -4305,6 +4419,11 @@ mod tests {
             warp_id: parent_warp,
             local_id: crate::make_node_id("operation-wal-parent-portal"),
         });
+        let middle_warp = crate::make_warp_id("operation-wal-middle");
+        let middle_portal = crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: middle_warp,
+            local_id: crate::make_node_id("operation-wal-middle-portal"),
+        });
         crate::WorldlineTickPatchV1 {
             header: crate::WorldlineTickHeaderV1 {
                 commit_global_tick: GlobalTick::from_raw(1),
@@ -4336,6 +4455,7 @@ mod tests {
                 crate::SlotId::Node(node),
                 crate::SlotId::Attachment(attachment),
                 crate::SlotId::Attachment(portal),
+                crate::SlotId::Attachment(middle_portal),
             ],
             out_slots: vec![
                 crate::SlotId::Node(node),
@@ -4343,6 +4463,86 @@ mod tests {
             ],
             patch_digest: [7; 32],
         }
+    }
+
+    fn creation_scope_parent_state(node: crate::NodeKey) -> crate::WorldlineState {
+        let parent_warp = crate::make_warp_id("operation-wal-parent-root");
+        let parent_node = crate::make_node_id("operation-wal-parent-portal");
+        let portal = crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: parent_warp,
+            local_id: parent_node,
+        });
+        let middle_warp = crate::make_warp_id("operation-wal-middle");
+        let middle_node = crate::make_node_id("operation-wal-middle-portal");
+        let middle_portal = crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: middle_warp,
+            local_id: middle_node,
+        });
+        let child_root = crate::make_node_id("operation-wal-descendant-root");
+
+        let mut parent_store = crate::GraphStore::new(parent_warp);
+        parent_store.insert_node(
+            parent_node,
+            crate::NodeRecord {
+                ty: crate::make_type_id("operation-wal-parent-node"),
+            },
+        );
+        parent_store.set_node_attachment(
+            parent_node,
+            Some(crate::AttachmentValue::Descend(middle_warp)),
+        );
+        let mut middle_store = crate::GraphStore::new(middle_warp);
+        middle_store.insert_node(
+            middle_node,
+            crate::NodeRecord {
+                ty: crate::make_type_id("operation-wal-middle-node"),
+            },
+        );
+        middle_store.set_node_attachment(
+            middle_node,
+            Some(crate::AttachmentValue::Descend(node.warp_id)),
+        );
+        let mut child_store = crate::GraphStore::new(node.warp_id);
+        child_store.insert_node(
+            child_root,
+            crate::NodeRecord {
+                ty: crate::make_type_id("operation-wal-descendant-root-node"),
+            },
+        );
+
+        let mut warp_state = crate::WarpState::new();
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: parent_warp,
+                root_node: parent_node,
+                parent: None,
+            },
+            parent_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: middle_warp,
+                root_node: middle_node,
+                parent: Some(portal),
+            },
+            middle_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: node.warp_id,
+                root_node: child_root,
+                parent: Some(middle_portal),
+            },
+            child_store,
+        );
+        crate::WorldlineState::new(
+            warp_state,
+            crate::NodeKey {
+                warp_id: parent_warp,
+                local_id: parent_node,
+            },
+        )
+        .expect("the recovery parent-state fixture is lawful")
     }
 
     #[test]
@@ -4364,10 +4564,16 @@ mod tests {
                 7,
             );
         let patch = creation_scope_patch(node);
+        let parent_state = creation_scope_parent_state(node);
         assert_eq!(
             operation_patch_scope_v1(&patch, &installed_program),
             Some(node),
             "the parent worldline root must not erase descendant operation scope"
+        );
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(&patch, &installed_program, &parent_state),
+            Some(node),
+            "activation recovery must corroborate the exact retained portal chain"
         );
         assert_eq!(
             operation_patch_scope_v1(&patch, &update_program),
@@ -4400,6 +4606,39 @@ mod tests {
             operation_patch_scope_v1(&duplicate_portal_read, &installed_program),
             None,
             "a descendant operation must reject duplicate portal dependencies"
+        );
+
+        let mut substituted_root_portal = patch.clone();
+        substituted_root_portal.in_slots[2] =
+            crate::SlotId::Attachment(crate::AttachmentKey::node_alpha(crate::NodeKey {
+                warp_id: substituted_root_portal.warp_id,
+                local_id: crate::make_node_id("operation-wal-unrelated-root-portal"),
+            }));
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(
+                &substituted_root_portal,
+                &installed_program,
+                &parent_state
+            ),
+            None,
+            "recovery must reject an unrelated root-owned portal substituted for the exact descent chain"
+        );
+
+        let mut missing_middle_portal = patch.clone();
+        missing_middle_portal.in_slots.remove(3);
+        assert_eq!(
+            operation_patch_scope_v1(&missing_middle_portal, &installed_program),
+            Some(node),
+            "the byte-shape layer alone cannot infer a portal's Descend target"
+        );
+        assert_eq!(
+            operation_patch_scope_in_parent_state_v1(
+                &missing_middle_portal,
+                &installed_program,
+                &parent_state
+            ),
+            None,
+            "activation recovery must reject a patch that omits an intermediate portal"
         );
 
         let mut reversed = patch.clone();

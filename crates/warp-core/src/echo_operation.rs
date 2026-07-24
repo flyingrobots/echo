@@ -4254,7 +4254,7 @@ fn anchored_node_create_if_absent_footprint(
     footprint
 }
 
-fn operation_descent_stack(
+pub(crate) fn operation_descent_stack(
     state: &WorldlineState,
     target_warp: crate::WarpId,
 ) -> Option<Vec<AttachmentKey>> {

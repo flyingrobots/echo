@@ -45,8 +45,9 @@
   replacement bounds, and operations scoped to descended WARP instances.
   Descended evaluation now validates the complete parent chain, retains every
   portal attachment as both a footprint read and replay input, and charges each
-  portal-pointer read to the delegated budget; recovery rejects missing or
-  duplicate portal inputs. This closes only the single
+  portal-pointer read to the delegated budget; activation recovery reconstructs
+  each operation's exact parent state and rejects missing, duplicate,
+  substituted, or otherwise non-chain portal inputs. This closes only the single
   anchored-node-plus-alpha-attachment creation gap. It does not establish
   Graft-style multi-record mutation or a real Edict application crossing.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an

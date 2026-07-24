@@ -5809,6 +5809,60 @@ mod tests {
     }
 
     #[test]
+    fn executable_operation_index_preserves_legacy_root_without_action_outcomes() {
+        let operation_coordinate = "echo.test.LegacyRecoveryIndex.v1";
+        let authority_profile_identity = [0x17; 32];
+        let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
+        let package = crate::ExecutableOperationPackageV1::new(
+            operation_coordinate,
+            crate::EchoOperationSemanticClosureV1::new(
+                [0x10; 32],
+                [0x11; 32],
+                [0x12; 32],
+                [0x13; 32],
+                "echo.test.legacy-index-schema/v1",
+                [0x14; 32],
+                "echo.test.legacy-index-lawpack/v1",
+                [0x15; 32],
+            ),
+            crate::echo_operation_target_profile_identity_v1(),
+            authority_profile_identity,
+            budget,
+            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                crate::make_type_id("legacy-index-node"),
+                crate::make_type_id("legacy-index-attachment"),
+                128,
+            ),
+        );
+        let package_bytes = package
+            .to_canonical_bytes()
+            .expect("the legacy-index package is canonical");
+        let package_id = crate::echo_operation_package_id_v1(&package_bytes);
+        let admitted = admit_package_v1(
+            &crate::EchoOperationAdmissionPolicyV1::exact(
+                package_id,
+                operation_coordinate,
+                authority_profile_identity,
+                budget,
+            ),
+            package_bytes,
+        )
+        .expect("the legacy-index package is admitted");
+        let installed =
+            installed_from_admitted(admitted).expect("the legacy-index package installs");
+
+        assert_eq!(
+            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[])
+                .expect("the legacy index root is computable"),
+            [
+                0xff, 0x77, 0x8e, 0x79, 0x1c, 0x4b, 0x7f, 0x99, 0xb7, 0xa5, 0x4c, 0x4b, 0x8d, 0xdb,
+                0x36, 0x91, 0x62, 0x17, 0x8a, 0x22, 0xe2, 0xbe, 0xde, 0xc6, 0x54, 0x4c, 0x8d, 0x25,
+                0xa1, 0xa0, 0x69, 0x04,
+            ]
+        );
+    }
+
+    #[test]
     fn creation_wal_scope_accepts_descendants_and_rejects_mutated_shapes() {
         let node = crate::NodeKey {
             warp_id: crate::make_warp_id("operation-wal-descendant"),
@@ -7186,7 +7240,29 @@ fn recovered_echo_operation_index_root(
     receipts: &[EchoOperationReceiptV1],
     action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
 ) -> Result<Hash, TrustedRuntimeWalError> {
-    if installations.is_empty() && receipts.is_empty() && action_outcomes.is_empty() {
+    let legacy_root =
+        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
+    if action_outcomes.is_empty() {
+        return Ok(legacy_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
+    hasher.update(&legacy_root);
+    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
+    for (submission_id, ingress_id, outcome) in action_outcomes {
+        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn recovered_echo_operation_legacy_index_root(
+    base_root: Hash,
+    installations: &[InstalledEchoOperationV1],
+    receipts: &[EchoOperationReceiptV1],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    if installations.is_empty() && receipts.is_empty() {
         return Ok(base_root);
     }
     let mut hasher = blake3::Hasher::new();
@@ -7201,12 +7277,6 @@ fn recovered_echo_operation_index_root(
     hasher.update(&(receipts.len() as u64).to_le_bytes());
     for receipt in receipts {
         let bytes = receipt.to_canonical_bytes()?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-    }
-    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
-    for (submission_id, ingress_id, outcome) in action_outcomes {
-        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }

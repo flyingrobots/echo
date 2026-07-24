@@ -1402,6 +1402,17 @@ impl WorldlineRuntime {
             .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
     }
 
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn witnessed_submission_id_for_target(
+        &self,
+        head_key: WriterHeadKey,
+        ingress_id: Hash,
+    ) -> Option<Hash> {
+        self.submission_by_target
+            .get(&(head_key, ingress_id))
+            .copied()
+    }
+
     /// Returns the number of witnessed submissions without a receipt decision.
     #[must_use]
     pub fn pending_witnessed_submission_count(&self) -> usize {
@@ -4254,7 +4265,12 @@ impl SchedulerCoordinator {
                     let mut candidates = Vec::with_capacity(admitted.len());
                     for envelope in &admitted {
                         let ingress_id = envelope.ingress_id();
-                        let admitted_action = admitted_actions.get(&ingress_id).ok_or(
+                        let submission_id = runtime
+                            .witnessed_submission_id_for_target(*key, ingress_id)
+                            .ok_or(RuntimeError::EchoOperationActionAdmissionMissing(
+                                ingress_id,
+                            ))?;
+                        let admitted_action = admitted_actions.get(&submission_id).ok_or(
                             RuntimeError::EchoOperationActionAdmissionMissing(ingress_id),
                         )?;
                         let current_basis = resolve_echo_operation_evaluation_basis_v1(
@@ -4278,6 +4294,7 @@ impl SchedulerCoordinator {
                             evaluation_authority,
                         );
                         candidates.push(SchedulerEchoOperationCandidateV1 {
+                            submission_id,
                             ingress_id,
                             scope: admitted_action.scope(),
                             rule_id: admitted_action.installed_operation_id().as_hash(),

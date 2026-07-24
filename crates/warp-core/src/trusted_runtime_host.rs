@@ -1663,7 +1663,7 @@ impl TrustedRuntimeHost {
             )?;
             self.echo_operation_action_admission_obstructions
                 .remove(&submission.submission_id);
-            admitted_actions.insert(submission.ingress_id, admitted);
+            admitted_actions.insert(submission.submission_id, admitted);
         }
         Ok(admitted_actions)
     }
@@ -1704,10 +1704,6 @@ impl TrustedRuntimeHost {
             .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
             .cloned()
             .collect::<Vec<_>>();
-        let action_submission_by_ingress = new_correlations
-            .iter()
-            .map(|correlation| (correlation.ingress_id, correlation.submission_id))
-            .collect::<BTreeMap<_, _>>();
         let mut tick_wal_records = Vec::new();
         if self.runtime_wal.is_some() {
             for correlation in new_correlations {
@@ -1737,7 +1733,7 @@ impl TrustedRuntimeHost {
                 tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }
-        let action_outcomes_by_ingress =
+        let action_outcomes_by_submission =
             action_outcomes.iter().cloned().collect::<BTreeMap<_, _>>();
         let mut tick_wal_groups = BTreeMap::new();
         for (correlation, decision, state_delta, state_delta_digest) in tick_wal_records {
@@ -1771,7 +1767,7 @@ impl TrustedRuntimeHost {
                     continue;
                 };
                 let group_has_action_outcomes = group.iter().any(|(correlation, _, _, _)| {
-                    action_outcomes_by_ingress.contains_key(&correlation.ingress_id)
+                    action_outcomes_by_submission.contains_key(&correlation.submission_id)
                 });
                 let result = if group.len() == 1 && !group_has_action_outcomes {
                     runtime_wal.record_tick_receipt(
@@ -1787,7 +1783,7 @@ impl TrustedRuntimeHost {
                         .collect::<Vec<_>>();
                     runtime_wal.record_tick_receipt_batch(
                         &correlations,
-                        &action_outcomes_by_ingress,
+                        &action_outcomes_by_submission,
                         state_delta,
                         *state_delta_digest,
                     )
@@ -1806,11 +1802,9 @@ impl TrustedRuntimeHost {
                 }
             }
         }
-        for (ingress_id, outcome) in action_outcomes {
-            if let Some(submission_id) = action_submission_by_ingress.get(&ingress_id) {
-                self.echo_operation_action_outcomes
-                    .insert(*submission_id, outcome);
-            }
+        for (submission_id, outcome) in action_outcomes {
+            self.echo_operation_action_outcomes
+                .insert(submission_id, outcome);
         }
         Ok(records)
     }
@@ -2579,7 +2573,7 @@ impl TrustedRuntimeWal {
     fn record_tick_receipt_batch(
         &mut self,
         correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
-        action_outcomes_by_ingress: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+        action_outcomes_by_submission: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
         state_delta: &WalRuntimeStateDeltaRecord,
         state_delta_digest: Hash,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
@@ -2605,9 +2599,9 @@ impl TrustedRuntimeWal {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
         }
         let first_has_action_outcome =
-            action_outcomes_by_ingress.contains_key(&first_correlation.ingress_id);
+            action_outcomes_by_submission.contains_key(&first_correlation.submission_id);
         if correlations.iter().any(|(correlation, _)| {
-            action_outcomes_by_ingress.contains_key(&correlation.ingress_id)
+            action_outcomes_by_submission.contains_key(&correlation.submission_id)
                 != first_has_action_outcome
         }) {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
@@ -2626,8 +2620,8 @@ impl TrustedRuntimeWal {
             };
             next_receipt_frontier =
                 receipt_frontier_digest(next_receipt_frontier, receipt, &wal_correlation);
-            let action_outcome = action_outcomes_by_ingress
-                .get(&correlation.ingress_id)
+            let action_outcome = action_outcomes_by_submission
+                .get(&correlation.submission_id)
                 .map(|outcome| {
                     if wal_tick_decision_for_action_outcome(outcome) != *decision {
                         return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);

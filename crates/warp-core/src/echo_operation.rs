@@ -4150,6 +4150,7 @@ pub(crate) struct EchoOperationCommitMaterialV1 {
 }
 
 pub(crate) struct SchedulerEchoOperationCandidateV1 {
+    pub submission_id: Hash,
     pub ingress_id: Hash,
     pub scope: NodeKey,
     pub rule_id: Hash,
@@ -4235,7 +4236,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                 });
                 blocked_by.push(Vec::new());
                 decisions.push((
-                    candidate.ingress_id,
+                    candidate.submission_id,
                     SchedulerEchoOperationDecisionV1::Obstructed(obstruction),
                 ));
             }
@@ -4264,7 +4265,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     out_slots.extend_from_slice(prepared.patch().out_slots());
                     ops.extend_from_slice(prepared.patch().ops());
                     decisions.push((
-                        candidate.ingress_id,
+                        candidate.submission_id,
                         SchedulerEchoOperationDecisionV1::Applied(prepared),
                     ));
                 } else {
@@ -4278,7 +4279,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     });
                     blocked_by.push(blockers.clone());
                     decisions.push((
-                        candidate.ingress_id,
+                        candidate.submission_id,
                         SchedulerEchoOperationDecisionV1::RejectedFootprintConflict {
                             installed_operation_id: prepared.installed_operation_id(),
                             invocation_id: prepared.invocation_id(),
@@ -4343,7 +4344,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
 
     let outcomes = decisions
         .into_iter()
-        .map(|(ingress_id, decision)| {
+        .map(|(submission_id, decision)| {
             let outcome = match decision {
                 SchedulerEchoOperationDecisionV1::Applied(prepared) => {
                     let mut receipt = build_receipt(
@@ -4379,7 +4380,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     blocked_by,
                 },
             };
-            (ingress_id, outcome)
+            (submission_id, outcome)
         })
         .collect();
 

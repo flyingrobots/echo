@@ -159,6 +159,71 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     (host, head_key, node)
 }
 
+fn fixture_host_with_two_worldlines() -> (TrustedRuntimeHost, WriterHeadKey, WriterHeadKey, NodeKey)
+{
+    let warp_id = make_warp_id("operation-fixture");
+    let node_id = make_node_id("operation-fixture-root");
+    let node = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let mut store = GraphStore::new(warp_id);
+    store.insert_node(
+        node_id,
+        NodeRecord {
+            ty: make_type_id("operation-fixture-node"),
+        },
+    );
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        ))),
+    );
+    let state = WorldlineState::from_root_store(store, node_id)
+        .expect("the fixture state has one lawful root");
+    let first_head = WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes(digest("operation-fixture-worldline-first")),
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let second_head = WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes(digest("operation-fixture-worldline-second")),
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let mut runtime = WorldlineRuntime::new();
+    for head in [first_head, second_head] {
+        runtime
+            .register_worldline(head.worldline_id, state.clone())
+            .expect("the fixture worldline registers");
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                head,
+                PlaybackMode::Play,
+                InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .expect("the fixture writer registers");
+    }
+
+    let mut engine_store = GraphStore::default();
+    let engine_root = make_node_id("root");
+    engine_store.insert_node(
+        engine_root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(engine_store, engine_root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let host = TrustedRuntimeHost::new(runtime, engine)
+        .expect("the trusted Echo runtime host initializes");
+    (host, first_head, second_head, node)
+}
+
 /// Like [`fixture_host`], but the warp-scoped store also contains a second,
 /// bare node -- present, but with no alpha attachment set -- at
 /// `second_node_local_id`, typed `second_node_type`. Used to exercise
@@ -3308,6 +3373,58 @@ fn action_outcome_attribution_ignores_application_controlled_scope_collisions() 
     assert_eq!(
         obstruction.kind(),
         EchoOperationObstructionKindV1::NodeMissing
+    );
+}
+
+#[test]
+fn identical_action_payloads_on_distinct_heads_keep_distinct_outcomes() {
+    let (mut host, first_head, second_head, node) = fixture_host_with_two_worldlines();
+    host.enable_in_memory_runtime_wal()
+        .expect("the cross-head fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let invocation = action_invocation(&host, &installed, first_head, node, b"before", b"after");
+    let first_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: first_head },
+        invocation.clone(),
+    )
+    .expect("the first target accepts the canonical Action payload");
+    let second_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: second_head },
+        invocation,
+    )
+    .expect("the second target accepts the same canonical Action payload");
+    assert_eq!(first_envelope.ingress_id(), second_envelope.ingress_id());
+
+    let first_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(first_envelope)
+        .expect("the first target submission is durable")
+        .submission_id;
+    let second_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(second_envelope)
+        .expect("the second target submission is durable")
+        .submission_id;
+    assert_ne!(first_submission_id, second_submission_id);
+
+    let steps = host
+        .tick_once()
+        .expect("cross-head duplicate payloads retain distinct Action identities");
+    assert_eq!(steps.len(), 2);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&first_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&second_submission_id)
+    else {
+        panic!("the mismatched target retains its own typed basis obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BasisChanged
     );
 }
 

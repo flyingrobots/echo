@@ -140,11 +140,13 @@ exact canonical ExecutableOperationPackageV1 bytes
 -> Echo-owned package admission under a separate policy
 -> installed data-only EchoOperationProgramV1
 -> exact basis-bearing canonical invocation
+-> canonical Action submission retained before acknowledgement
 -> Echo-owned invocation admission under authority and delegated budget
--> bounded private evaluation with recorded actual footprint
--> exact-basis singleton commit attempt
--> one committed TickPatch and typed receipt, or returned typed no-patch evidence
--> committed outcomes only: execution-kernel WAL retention and callback-free recovery
+-> ordinary head-inbox staging and scheduler selection at one exact basis
+-> bounded private evaluation with recorded actual footprint during Tick construction
+-> deterministic composition of independent Actions into one Tick consequence
+-> typed committed, obstructed, or footprint-conflict outcome for every Action
+-> decided Tick WAL retention before publication and callback-free recovery
 ```
 
 The first two programs are an anchored typed-node alpha-attachment

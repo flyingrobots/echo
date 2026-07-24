@@ -7,14 +7,30 @@
 
 ### Added
 
+- Executable-operation application writes now enter Echo as canonical,
+  WAL-acknowledged Actions and are evaluated only by the scheduler while
+  constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
+  work. Two independent Actions can share one exact parent coordinate and
+  contribute to one composite Tick, while retaining candidate-specific
+  application-basis propositions and per-Action typed outcomes. Footprint
+  conflicts name earlier applied members; evaluator obstructions contribute no
+  operations. One scheduler WAL transaction retains each Action's receipt
+  correlation and typed outcome in canonical order followed by exactly one
+  replayable state delta. The decided Tick is durable before state, frontier,
+  receipt, or outcome publication, and fresh-host recovery validates every
+  outcome against its exact envelope, invocation, installed operation, Tick
+  entry, composite consequence, and state root. Direct operation
+  prepare/commit remains a hidden transitional compatibility/test seam rather
+  than an application execution lifecycle.
 - `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
   slice. A runtime owner can admit exact canonical
   `ExecutableOperationPackageV1` bytes under a separate package policy, install
   their data-only `EchoOperationProgramV1`, independently admit an exact-basis
   invocation under caller authority and delegated budget, evaluate privately,
   and either commit one parent-visible patch or return typed noncommit evidence.
-  Only committed operation consequences enter the operation-tick WAL. The initial
-  generic program performs an anchored typed-node alpha-attachment
+  On that transitional direct seam, only committed operation consequences
+  enter the operation-tick WAL. The initial generic program performs an
+  anchored typed-node alpha-attachment
   compare-and-set; it contains no application matcher, executor, footprint
   callback, or prebuilt mutation plan. Package, installation, invocation,
   evaluation, actual-footprint, budget, patch, result, basis, and terminal
@@ -28,8 +44,7 @@
   callbacks. A program digest alone cannot install, invoke, or authorize an
   operation. This slice does not yet include Edict
   compiler emission, a structurally separate target verifier, Jedit's rope
-  lawpack, `ReplaceRange`, scheduler batch composition, or an independently
-  implemented semantic oracle.
+  lawpack, `ReplaceRange`, or an independently implemented semantic oracle.
 - The executable-operation corridor now has a separate
   `AnchoredNodeAttachmentCreateIfAbsent` program (ADR 0024). The original
   compare-and-set program remains update-only with its canonical program,

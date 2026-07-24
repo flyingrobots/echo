@@ -248,17 +248,23 @@ The current executable-operation runtime slice is:
 canonical ExecutableOperationPackageV1 bytes
 -> Echo-owned package and invocation admission
 -> installed data-only EchoOperationProgramV1
--> bounded private Echo evaluation
--> exact-basis singleton commit
--> typed receipt, WAL retention, and callback-free recovery
+-> canonical Action submission retained before acknowledgement
+-> runtime-owned admission into the ordinary head inbox
+-> scheduler selection at one exact basis
+-> bounded private Echo evaluation during Tick construction
+-> one composite Tick consequence with typed per-Action outcomes
+-> decided Tick WAL retention before state, frontier, and Receipt publication
+-> callback-free pending-Action and decided-Tick recovery
 ```
 
 The first two paths are callback-shaped compatibility infrastructure. The
 third proves Echo-owned execution of admitted data-only meaning through
 separate update-only compare-and-set and single-node create-if-absent program
-profiles. No real Edict compiler output, Jedit operation, or Graft
-multi-record mutation uses them yet. The next convergence crossing must bind a
-real application-owned Edict operation and lawpack to the executable-operation
+profiles. Independent Actions for one head can share one scheduler-owned Tick;
+conflicting or obstructed Actions retain typed outcomes without hidden
+mutation. No real Edict compiler output, Jedit operation, or Graft operation
+uses this route yet. The next convergence crossing must bind a real
+application-owned Edict operation and lawpack to the executable-operation
 package without reintroducing a native implementation.
 
 ## Contracts And Boundaries

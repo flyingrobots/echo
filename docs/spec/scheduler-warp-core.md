@@ -10,6 +10,7 @@ Depends on:
 - [Canonical Inbox Sequencing](canonical-inbox-sequencing.md)
 - [SPEC-0003 - DPO Concurrency Litmus v0](SPEC-0003-dpo-concurrency-litmus-v0.md)
 - [WARP Tick Patch](warp-tick-patch.md)
+- [ADR 0025 - Scheduler-Owned Executable-Operation Actions](../adr/0025-scheduler-owned-executable-operation-actions.md)
 
 ## Purpose
 
@@ -36,10 +37,12 @@ Reservation checks all candidate resources for conflict and marks resources only
 A candidate conflicts when it writes a resource another admitted candidate reads or writes, or when its boundary port claim overlaps another admitted boundary port claim. Reads may overlap reads.
 
 The broad WARP outcome algebra is `Derived | Plural | Conflict |
-Obstruction`. Echo's local `TickReceipt` entries currently realize the narrower
-tick-scale shape `Applied / Rejected(FootprintConflict)`, with blocker
-attribution for conflicts. `Plural` belongs to broader braid/replica-scale work
-until an executable local claim requires it.
+Obstruction`. Echo's local `TickReceipt` entries realize the narrower
+tick-scale shape `Applied / Rejected(FootprintConflict |
+ExecutableOperationObstruction)`. Footprint conflicts name earlier applied
+blockers. An executable-operation obstruction has no blockers and contributes
+no mutation. `Plural` belongs to broader braid/replica-scale work until an
+executable local claim requires it.
 
 Conflict rejection is final for that tick attempt. Retry is a new explicit
 causal act, not a hidden retry queue.
@@ -56,3 +59,23 @@ Pending rewrites drain in lexicographic order derived from `scope_hash`, stable 
 ## Decision 5: Radix reservation is the default implementation
 
 The default scheduler uses generation-stamped active sets for membership checks. Expected reservation cost is proportional to candidate footprint size.
+
+## Decision 6: Executable Actions are evaluated only inside Tick construction
+
+A canonical executable-operation Action enters the same durable submission and
+head-inbox lifecycle as other work. The runtime resolves the exact installed
+package and admission policy, but neither submission nor admission evaluates
+application semantics.
+
+The scheduler partitions executable and legacy/native ingress deterministically
+at the lowest canonical ingress id so the two evaluator categories never share
+one candidate batch. Inside an executable batch, Action ingress order is
+canonical. Private bounded evaluation yields either a complete prepared
+candidate or a typed no-mutation obstruction. The scheduler reserves successful
+candidate footprints, constructs one composite consequence, and emits one Tick
+receipt entry per Action.
+
+The successor state remains private until the complete Tick transaction is
+durable. Construction failure discards it. WAL failure restores the
+accepted-pending posture. The direct executable-operation prepare/commit methods
+are transitional host/test seams, not a second application execution path.

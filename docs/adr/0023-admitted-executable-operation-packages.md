@@ -6,6 +6,14 @@
 - **Status:** Accepted
 - **Date:** 2026-07-18
 - **Partially supersedes:** ADR 0015 for newly authored executable operations
+- **Amended by:** ADR 0025 for scheduler-owned Action execution
+
+> **Scheduler lifecycle amendment:** This ADR established exact package,
+> invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
+> direct prepare/commit as the application lifecycle: canonical executable
+> Actions now enter ordinary durable ingress, and only the scheduler invokes
+> private evaluation while constructing an atomic Tick. The direct methods are
+> transitional compatibility and test seams.
 
 ## Context
 

@@ -91,11 +91,12 @@ same causal event and the retained state delta to bind that receipt's content
 commitment before the transaction can commit.
 Legacy singleton scheduler transactions contain exactly one receipt,
 correlation, and runtime state-delta frame. Scheduler-owned
-executable-operation Action Ticks instead retain one ordered receipt,
-correlation, and typed Action-outcome group per selected Action followed by
-exactly one runtime state delta for the whole Tick. Recovery rejects missing,
-duplicated, reordered, mixed, or cross-Tick claims rather than selecting
-whichever frame appears first.
+executable-operation Action Ticks instead retain exactly one batched Tick
+receipt record containing every per-Action decision, one ordered correlation
+and typed Action-outcome pair per selected Action, and exactly one runtime state
+delta for the whole Tick. Recovery rejects missing, duplicated, reordered,
+mixed, or cross-Tick claims rather than selecting whichever frame appears
+first.
 WAL activation is non-lossy: if the live host contains submissions, staged
 ingress, receipt correlations, provenance, pending inbox work, cycle progress,
 or worldline state that recovered WAL evidence cannot reproduce, activation

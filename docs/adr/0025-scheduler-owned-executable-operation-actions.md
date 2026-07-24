@@ -132,14 +132,16 @@ semantics are not inferred from a generic receipt label.
 A scheduler Tick WAL transaction contains, in canonical Action order:
 
 ```text
-TickReceiptRecorded + ReceiptCorrelationRecorded + ActionOutcomeRecorded
-... repeated for each Action ...
+TickReceiptRecorded
+ReceiptCorrelationRecorded + ActionOutcomeRecorded
+... one correlation/outcome pair per Action ...
 RuntimeStateDeltaRecorded
 ```
 
-Every receipt record cites the same Tick receipt content digest and the
-submission-specific causal coordinate. The state delta appears exactly once
-because the Tick has exactly one atomic state consequence.
+The single batched Tick receipt record retains every per-Action scheduler
+decision and exact causal receipt coordinate. Each following correlation and
+typed outcome names its corresponding Action. The state delta appears exactly
+once because the Tick has exactly one atomic state consequence.
 
 The WAL transaction is committed before the live runtime, frontier, provenance,
 Action outcomes, or receipts are published. On append failure, live state is

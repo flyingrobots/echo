@@ -73,6 +73,7 @@ use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 const WAL_FRAME_DOMAIN: &[u8] = b"echo:causal_wal:frame:v1\0";
 const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
 const WAL_TICK_RECEIPT_MAGIC_V2: &[u8; 8] = b"ETICK002";
+const WAL_TICK_RECEIPT_BATCH_MAGIC_V3: &[u8; 8] = b"ETICK003";
 const WAL_RECEIPT_CORRELATION_MAGIC_V2: &[u8; 8] = b"ERCOR002";
 const LEGACY_TICK_RECEIPT_PAYLOAD_LEN: usize = 3 * core::mem::size_of::<Hash>() + 1;
 const LEGACY_RECEIPT_CORRELATION_PREFIX_LEN: usize = 3 * core::mem::size_of::<Hash>();
@@ -2500,6 +2501,108 @@ impl TickReceiptRecord {
             decision,
         })
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TickReceiptBatchRecord {
+    members: Vec<TickReceiptRecord>,
+}
+
+impl TickReceiptBatchRecord {
+    fn new(members: Vec<TickReceiptRecord>) -> Result<Self, WalBuildError> {
+        let Some(first) = members.first() else {
+            return Err(WalBuildError::TickBatchReceiptShapeMismatch);
+        };
+        if members
+            .iter()
+            .any(|member| !same_scheduler_tick(&first.receipt_ref, &member.receipt_ref))
+        {
+            return Err(WalBuildError::TickBatchReceiptShapeMismatch);
+        }
+        Ok(Self { members })
+    }
+
+    fn to_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(WAL_TICK_RECEIPT_BATCH_MAGIC_V3);
+        out.extend_from_slice(&len_u64(self.members.len()).to_le_bytes());
+        for member in &self.members {
+            out.extend_from_slice(&member.receipt_ref.to_canonical_bytes());
+            out.push(member.decision.code());
+        }
+        out
+    }
+
+    fn from_payload_bytes(bytes: &[u8]) -> Result<Self, WalDecodeError> {
+        let mut cursor = WalPayloadCursor::new(bytes);
+        if cursor.read_exact(WAL_TICK_RECEIPT_BATCH_MAGIC_V3.len())?
+            != WAL_TICK_RECEIPT_BATCH_MAGIC_V3
+        {
+            return Err(WalDecodeError::InvalidRecordMagic {
+                record_kind: "tick-receipt-batch",
+            });
+        }
+        let member_count = cursor.read_u64()?;
+        let member_width = CAUSAL_TICK_RECEIPT_REF_LEN + 1;
+        let maximum_encoded_members = u64::try_from(
+            bytes
+                .len()
+                .saturating_sub(WAL_TICK_RECEIPT_BATCH_MAGIC_V3.len() + 8)
+                / member_width,
+        )
+        .unwrap_or(u64::MAX);
+        if member_count == 0 || member_count > maximum_encoded_members {
+            return Err(WalDecodeError::InvalidEmbeddedFrame);
+        }
+        let member_count =
+            usize::try_from(member_count).map_err(|_| WalDecodeError::UnexpectedEof)?;
+        let mut members = Vec::with_capacity(member_count);
+        for _ in 0..member_count {
+            let receipt_ref = CausalTickReceiptRef::from_canonical_bytes(
+                cursor
+                    .read_exact(CAUSAL_TICK_RECEIPT_REF_LEN)?
+                    .try_into()
+                    .map_err(|_| WalDecodeError::UnexpectedEof)?,
+            );
+            let decision = WalTickDecision::from_code(cursor.read_u8()?)?;
+            members.push(TickReceiptRecord {
+                receipt_ref,
+                decision,
+            });
+        }
+        cursor.finish()?;
+        let first = &members[0].receipt_ref;
+        if members
+            .iter()
+            .any(|member| !same_scheduler_tick(first, &member.receipt_ref))
+        {
+            return Err(WalDecodeError::InvalidEmbeddedFrame);
+        }
+        Ok(Self { members })
+    }
+}
+
+pub(crate) fn decode_tick_receipt_records(
+    bytes: &[u8],
+) -> Result<Vec<TickReceiptRecord>, WalDecodeError> {
+    if bytes.starts_with(WAL_TICK_RECEIPT_BATCH_MAGIC_V3) {
+        TickReceiptBatchRecord::from_payload_bytes(bytes).map(|batch| batch.members)
+    } else {
+        TickReceiptRecord::from_payload_bytes(bytes).map(|receipt| vec![receipt])
+    }
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn tick_receipt_payload_is_batch(bytes: &[u8]) -> bool {
+    bytes.starts_with(WAL_TICK_RECEIPT_BATCH_MAGIC_V3)
+}
+
+fn same_scheduler_tick(left: &CausalTickReceiptRef, right: &CausalTickReceiptRef) -> bool {
+    left.worldline_id == right.worldline_id
+        && left.worldline_tick_after == right.worldline_tick_after
+        && left.commit_global_tick == right.commit_global_tick
+        && left.commit_hash == right.commit_hash
+        && left.receipt_content_digest == right.receipt_content_digest
 }
 
 /// WAL receipt correlation record payload.
@@ -7823,13 +7926,31 @@ pub(crate) fn build_replayable_tick_batch_transaction(
     {
         return Err(WalBuildError::RuntimeStateDeltaReceiptMismatch);
     }
-    for (receipt, correlation, action_outcome) in receipts {
-        push_tick_receipt_records(&mut builder, receipt, &correlation)?;
-        if let Some(action_outcome) = action_outcome {
+    if action_outcome_count == receipts.len() {
+        let receipt_batch =
+            TickReceiptBatchRecord::new(receipts.iter().map(|(receipt, _, _)| *receipt).collect())?;
+        builder.push_record(
+            WalRecordKind::TickReceiptRecorded,
+            receipt_batch.to_payload_bytes(),
+        )?;
+        for (receipt, correlation, action_outcome) in receipts {
+            if receipt.receipt_ref != correlation.receipt_ref {
+                return Err(WalBuildError::ReceiptCorrelationMismatch);
+            }
+            builder.push_record(
+                WalRecordKind::ReceiptCorrelationRecorded,
+                correlation.to_payload_bytes(),
+            )?;
+            let action_outcome =
+                action_outcome.ok_or(WalBuildError::TickBatchActionOutcomeShapeMismatch)?;
             builder.push_record(
                 WalRecordKind::ExecutableOperationActionOutcomeRecorded,
                 action_outcome,
             )?;
+        }
+    } else {
+        for (receipt, correlation, _) in receipts {
+            push_tick_receipt_records(&mut builder, receipt, &correlation)?;
         }
     }
     builder.push_record(
@@ -8450,9 +8571,9 @@ pub fn recover_submission_index(
                     index.insert_acceptance_record(record)?;
                 }
                 WalRecordKind::TickReceiptRecorded => {
-                    let receipt =
-                        TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index.apply_tick_receipt_record(receipt)?;
+                    for receipt in decode_tick_receipt_records(&frame.payload.canonical_bytes)? {
+                        index.apply_tick_receipt_record(receipt)?;
+                    }
                 }
                 _ => {}
             }
@@ -8470,9 +8591,9 @@ pub fn recover_receipt_index(
         for frame in &transaction.frames {
             match frame.header.record_kind {
                 WalRecordKind::TickReceiptRecorded => {
-                    let receipt =
-                        TickReceiptRecord::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                    index.apply_tick_receipt_record(receipt)?;
+                    for receipt in decode_tick_receipt_records(&frame.payload.canonical_bytes)? {
+                        index.apply_tick_receipt_record(receipt)?;
+                    }
                 }
                 WalRecordKind::ReceiptCorrelationRecorded => {
                     let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
@@ -8904,6 +9025,9 @@ pub enum WalBuildError {
     /// A scheduler Tick batch mixes Action and non-Action receipt members.
     #[error("WAL scheduler Tick batch has inconsistent Action outcome framing")]
     TickBatchActionOutcomeShapeMismatch,
+    /// A scheduler Tick batch contains no receipt members or spans Ticks.
+    #[error("WAL scheduler Tick batch receipt shape is inconsistent")]
+    TickBatchReceiptShapeMismatch,
     /// Validation failed.
     #[error(transparent)]
     Validation(#[from] WalValidationError),

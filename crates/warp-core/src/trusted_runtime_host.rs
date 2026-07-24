@@ -24,9 +24,10 @@ use crate::{
         build_replayable_tick_batch_transaction, build_replayable_tick_transaction,
         build_submission_acceptance_with_material_transaction,
         causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
-        causal_history_genesis_frontier_digest, logical_causal_history_frontier_digest,
-        recover_filesystem_store, recover_from_frames_and_commits, recover_receipt_index,
-        recover_submission_index, recovered_submission_receipt_index_root,
+        causal_history_genesis_frontier_digest, decode_tick_receipt_records,
+        logical_causal_history_frontier_digest, recover_filesystem_store,
+        recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
+        recovered_submission_receipt_index_root, tick_receipt_payload_is_batch,
         trusted_runtime_wal_digest, validate_recovered_causal_anchor_history, AffectedFrontier,
         AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId,
         PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
@@ -4314,53 +4315,105 @@ fn tick_record_batch_from_transaction(
         ));
     }
     let mut records = Vec::new();
-    let mut index = 0;
-    while index < state_delta_index {
-        let Some(receipt_frame) = transaction.frames.get(index) else {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        };
-        let Some(correlation_frame) = transaction.frames.get(index + 1) else {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        };
-        if receipt_frame.header.record_kind != WalRecordKind::TickReceiptRecorded
-            || correlation_frame.header.record_kind != WalRecordKind::ReceiptCorrelationRecorded
-        {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        }
-        let receipt = TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
+    let first_frame = &transaction.frames[0];
+    if first_frame.header.record_kind != WalRecordKind::TickReceiptRecorded {
+        return Err(decode_trusted_runtime_wal_payload(
+            WalDecodeError::InvalidEmbeddedFrame,
+        ));
+    }
+    if tick_receipt_payload_is_batch(&first_frame.payload.canonical_bytes) {
+        let receipts = decode_tick_receipt_records(&first_frame.payload.canonical_bytes)
             .map_err(decode_trusted_runtime_wal_payload)?;
-        let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
-            &correlation_frame.payload.canonical_bytes,
-        )
-        .map_err(decode_trusted_runtime_wal_payload)?;
-        if correlation.receipt_ref != receipt.receipt_ref {
-            return Err(decode_trusted_runtime_wal_payload(
-                WalDecodeError::InvalidEmbeddedFrame,
-            ));
-        }
-        index += 2;
-        let action_outcome = if transaction.frames.get(index).is_some_and(|frame| {
-            frame.header.record_kind == WalRecordKind::ExecutableOperationActionOutcomeRecorded
-        }) {
-            let frame = &transaction.frames[index];
-            index += 1;
-            let recovered = recover_action_outcome_v1(&frame.payload.canonical_bytes)?;
-            if recovered.0 != receipt.receipt_ref.submission_id {
+        let mut index = 1;
+        for receipt in receipts {
+            let Some(correlation_frame) = transaction.frames.get(index) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            let Some(outcome_frame) = transaction.frames.get(index + 1) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            if correlation_frame.header.record_kind != WalRecordKind::ReceiptCorrelationRecorded
+                || outcome_frame.header.record_kind
+                    != WalRecordKind::ExecutableOperationActionOutcomeRecorded
+            {
                 return Err(decode_trusted_runtime_wal_payload(
                     WalDecodeError::InvalidEmbeddedFrame,
                 ));
             }
-            Some(recovered)
-        } else {
-            None
-        };
-        records.push((receipt, correlation, action_outcome));
+            let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
+                &correlation_frame.payload.canonical_bytes,
+            )
+            .map_err(decode_trusted_runtime_wal_payload)?;
+            let action_outcome = recover_action_outcome_v1(&outcome_frame.payload.canonical_bytes)?;
+            if correlation.receipt_ref != receipt.receipt_ref
+                || action_outcome.0 != receipt.receipt_ref.submission_id
+            {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            records.push((receipt, correlation, Some(action_outcome)));
+            index += 2;
+        }
+        if index != state_delta_index {
+            return Err(decode_trusted_runtime_wal_payload(
+                WalDecodeError::InvalidEmbeddedFrame,
+            ));
+        }
+    } else {
+        let mut index = 0;
+        while index < state_delta_index {
+            let Some(receipt_frame) = transaction.frames.get(index) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            let Some(correlation_frame) = transaction.frames.get(index + 1) else {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            };
+            if receipt_frame.header.record_kind != WalRecordKind::TickReceiptRecorded
+                || correlation_frame.header.record_kind != WalRecordKind::ReceiptCorrelationRecorded
+            {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            let receipt =
+                TickReceiptRecord::from_payload_bytes(&receipt_frame.payload.canonical_bytes)
+                    .map_err(decode_trusted_runtime_wal_payload)?;
+            let correlation = WalReceiptCorrelationRecord::from_payload_bytes(
+                &correlation_frame.payload.canonical_bytes,
+            )
+            .map_err(decode_trusted_runtime_wal_payload)?;
+            if correlation.receipt_ref != receipt.receipt_ref {
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            index += 2;
+            let action_outcome = if transaction.frames.get(index).is_some_and(|frame| {
+                frame.header.record_kind == WalRecordKind::ExecutableOperationActionOutcomeRecorded
+            }) {
+                let frame = &transaction.frames[index];
+                index += 1;
+                let recovered = recover_action_outcome_v1(&frame.payload.canonical_bytes)?;
+                if recovered.0 != receipt.receipt_ref.submission_id {
+                    return Err(decode_trusted_runtime_wal_payload(
+                        WalDecodeError::InvalidEmbeddedFrame,
+                    ));
+                }
+                Some(recovered)
+            } else {
+                None
+            };
+            records.push((receipt, correlation, action_outcome));
+        }
     }
     let action_outcome_count = records
         .iter()

@@ -2825,12 +2825,11 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
                 WalRecordKind::TickReceiptRecorded,
                 WalRecordKind::ReceiptCorrelationRecorded,
                 WalRecordKind::ExecutableOperationActionOutcomeRecorded,
-                WalRecordKind::TickReceiptRecorded,
                 WalRecordKind::ReceiptCorrelationRecorded,
                 WalRecordKind::ExecutableOperationActionOutcomeRecorded,
                 WalRecordKind::RuntimeStateDeltaRecorded,
             ],
-            "one composite Tick retains per-Action decisions and one state delta"
+            "one composite Tick retains one decision record, per-Action outcomes, and one state delta"
         );
 
         let mut adversarial = runtime_wal

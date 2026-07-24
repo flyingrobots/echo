@@ -14,10 +14,11 @@
   contribute to one composite Tick, while retaining candidate-specific
   application-basis propositions and per-Action typed outcomes. Footprint
   conflicts name earlier applied members; evaluator obstructions contribute no
-  operations. One scheduler WAL transaction retains each Action's receipt
-  correlation and typed outcome in canonical order followed by exactly one
-  replayable state delta. The decided Tick is durable before state, frontier,
-  receipt, or outcome publication, and fresh-host recovery validates every
+  operations. One scheduler WAL transaction retains exactly one batched Tick
+  decision record, then each Action's receipt correlation and typed outcome in
+  canonical order, followed by exactly one replayable state delta. The decided
+  Tick is durable before state, frontier, receipt, or outcome publication, and
+  fresh-host recovery validates every
   outcome against its exact envelope, invocation, installed operation, Tick
   entry, composite consequence, and state root. Direct operation
   prepare/commit remains a hidden transitional compatibility/test seam rather

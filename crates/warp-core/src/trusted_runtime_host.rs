@@ -713,8 +713,31 @@ pub struct TrustedRuntimeHost {
     echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
     echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
     echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+    pending_echo_operation_actions: BTreeSet<Hash>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
     echo_operation_action_admission_obstructions:
         BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+    #[cfg(any(test, feature = "host_test"))]
+    echo_operation_action_admission_attempts: BTreeMap<Hash, u64>,
+}
+
+fn pending_echo_operation_action_ids_v1(
+    runtime: &WorldlineRuntime,
+    decided: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+) -> BTreeSet<Hash> {
+    runtime
+        .pending_witnessed_submissions()
+        .filter_map(|submission| {
+            let submission_id = submission.submission_id;
+            (!decided.contains_key(&submission_id)
+                && runtime
+                    .witnessed_submission_envelope(&submission_id)
+                    .is_some_and(|envelope| {
+                        echo_operation_action_invocation_bytes_v1(envelope).is_some()
+                    }))
+            .then_some(submission_id)
+        })
+        .collect()
 }
 
 impl TrustedRuntimeHost {
@@ -726,6 +749,8 @@ impl TrustedRuntimeHost {
     /// Returns a provenance error if any runtime worldline cannot be registered.
     pub fn new(runtime: WorldlineRuntime, engine: Engine) -> Result<Self, TrustedRuntimeHostError> {
         let provenance = provenance_from_runtime(&runtime)?;
+        let pending_echo_operation_actions =
+            pending_echo_operation_action_ids_v1(&runtime, &BTreeMap::new());
         Ok(Self {
             runtime,
             provenance,
@@ -735,7 +760,11 @@ impl TrustedRuntimeHost {
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
             echo_operation_action_admission_policy: None,
             echo_operation_action_outcomes: BTreeMap::new(),
+            pending_echo_operation_actions,
+            admitted_echo_operation_actions: BTreeMap::new(),
             echo_operation_action_admission_obstructions: BTreeMap::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            echo_operation_action_admission_attempts: BTreeMap::new(),
         })
     }
 
@@ -746,6 +775,8 @@ impl TrustedRuntimeHost {
         provenance: ProvenanceService,
         engine: Engine,
     ) -> Self {
+        let pending_echo_operation_actions =
+            pending_echo_operation_action_ids_v1(&runtime, &BTreeMap::new());
         Self {
             runtime,
             provenance,
@@ -755,7 +786,11 @@ impl TrustedRuntimeHost {
             echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
             echo_operation_action_admission_policy: None,
             echo_operation_action_outcomes: BTreeMap::new(),
+            pending_echo_operation_actions,
+            admitted_echo_operation_actions: BTreeMap::new(),
             echo_operation_action_admission_obstructions: BTreeMap::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            echo_operation_action_admission_attempts: BTreeMap::new(),
         }
     }
 
@@ -790,7 +825,7 @@ impl TrustedRuntimeHost {
         policy: EchoOperationInvocationAdmissionPolicyV1,
     ) {
         self.echo_operation_action_admission_policy = Some(policy);
-        self.echo_operation_action_admission_obstructions.clear();
+        self.requeue_obstructed_echo_operation_actions_v1();
     }
 
     /// Returns the typed scheduler-owned outcome for one executable-operation
@@ -813,6 +848,17 @@ impl TrustedRuntimeHost {
         self.echo_operation_action_admission_obstructions
             .get(submission_id)
             .copied()
+    }
+
+    /// Returns how often runtime-owned admission evaluated one Action in
+    /// scheduler tests.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn echo_operation_action_admission_attempts_for_test(&self, submission_id: &Hash) -> u64 {
+        self.echo_operation_action_admission_attempts
+            .get(submission_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Admits exact executable-operation package bytes under independent policy.
@@ -860,7 +906,7 @@ impl TrustedRuntimeHost {
         }
         self.engine
             .restore_recovered_echo_operation_packages_v1(core::slice::from_ref(&installed))?;
-        self.echo_operation_action_admission_obstructions.clear();
+        self.requeue_obstructed_echo_operation_actions_v1();
         Ok(installed)
     }
 
@@ -1150,9 +1196,16 @@ impl TrustedRuntimeHost {
             .iter()
             .map(|(submission_id, _, outcome)| (*submission_id, outcome.clone()))
             .collect();
-        self.echo_operation_action_admission_obstructions.clear();
         self.runtime = restored_runtime;
         self.provenance = restored_provenance;
+        self.pending_echo_operation_actions = pending_echo_operation_action_ids_v1(
+            &self.runtime,
+            &self.echo_operation_action_outcomes,
+        );
+        self.admitted_echo_operation_actions.clear();
+        self.echo_operation_action_admission_obstructions.clear();
+        #[cfg(any(test, feature = "host_test"))]
+        self.echo_operation_action_admission_attempts.clear();
         self.runtime_wal = Some(runtime_wal);
         Ok(())
     }
@@ -1661,29 +1714,65 @@ impl TrustedRuntimeHost {
             )
     }
 
+    fn track_pending_echo_operation_action_v1(
+        &mut self,
+        submission_id: Hash,
+        is_echo_operation_action: bool,
+    ) {
+        if is_echo_operation_action
+            && !self
+                .echo_operation_action_outcomes
+                .contains_key(&submission_id)
+        {
+            self.pending_echo_operation_actions.insert(submission_id);
+        }
+    }
+
+    fn requeue_obstructed_echo_operation_actions_v1(&mut self) {
+        self.pending_echo_operation_actions.extend(
+            self.echo_operation_action_admission_obstructions
+                .keys()
+                .copied(),
+        );
+        self.echo_operation_action_admission_obstructions.clear();
+    }
+
     fn admit_pending_echo_operation_actions_v1(
         &mut self,
     ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
-        let pending = self
-            .runtime
-            .pending_witnessed_submissions()
-            .filter_map(|submission| {
-                self.runtime
-                    .witnessed_submission_envelope(&submission.submission_id)
-                    .and_then(|envelope| {
-                        echo_operation_action_invocation_bytes_v1(envelope)
-                            .map(|bytes| (submission.clone(), envelope.clone(), bytes.to_vec()))
-                    })
-            })
-            .collect::<Vec<_>>();
-        if pending.is_empty() {
-            return Ok(BTreeMap::new());
+        if self.pending_echo_operation_actions.is_empty() {
+            return Ok(self.admitted_echo_operation_actions.clone());
         }
         let Some(policy) = self.echo_operation_action_admission_policy else {
-            return Ok(BTreeMap::new());
+            return Ok(self.admitted_echo_operation_actions.clone());
         };
-        let mut admitted_actions = BTreeMap::new();
-        for (submission, envelope, invocation_bytes) in pending {
+        let available = crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1
+            .saturating_sub(self.admitted_echo_operation_actions.len());
+        let pending = self
+            .pending_echo_operation_actions
+            .iter()
+            .filter(|submission_id| {
+                !self
+                    .admitted_echo_operation_actions
+                    .contains_key(*submission_id)
+            })
+            .take(available)
+            .copied()
+            .collect::<Vec<_>>();
+        for submission_id in pending {
+            let submission = self
+                .runtime
+                .witnessed_submission(&submission_id)
+                .cloned()
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+            let envelope = self
+                .runtime
+                .witnessed_submission_envelope(&submission_id)
+                .cloned()
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?;
+            let invocation_bytes = echo_operation_action_invocation_bytes_v1(&envelope)
+                .ok_or(RuntimeError::UnknownIntentSubmission(submission_id))?
+                .to_vec();
             if let Some(runtime_wal) = self.runtime_wal.as_ref() {
                 let durably_accepted = runtime_wal
                     .has_submission_acceptance(submission.submission_id, submission.ingress_id)?;
@@ -1691,17 +1780,18 @@ impl TrustedRuntimeHost {
                     continue;
                 }
             }
-            if self
-                .echo_operation_action_admission_obstructions
-                .contains_key(&submission.submission_id)
-            {
-                continue;
-            }
+            #[cfg(any(test, feature = "host_test"))]
+            self.echo_operation_action_admission_attempts
+                .entry(submission_id)
+                .and_modify(|attempts| *attempts += 1)
+                .or_insert(1);
             let package_id = match decode_invocation_route_v1(&invocation_bytes) {
                 Ok((package_id, _)) => package_id,
                 Err(error) => {
                     self.echo_operation_action_admission_obstructions
                         .insert(submission.submission_id, error.kind());
+                    self.pending_echo_operation_actions
+                        .remove(&submission.submission_id);
                     continue;
                 }
             };
@@ -1715,6 +1805,8 @@ impl TrustedRuntimeHost {
                 Err(error) => {
                     self.echo_operation_action_admission_obstructions
                         .insert(submission.submission_id, error.kind());
+                    self.pending_echo_operation_actions
+                        .remove(&submission.submission_id);
                     continue;
                 }
             };
@@ -1727,9 +1819,10 @@ impl TrustedRuntimeHost {
             )?;
             self.echo_operation_action_admission_obstructions
                 .remove(&submission.submission_id);
-            admitted_actions.insert(submission.submission_id, admitted);
+            self.admitted_echo_operation_actions
+                .insert(submission.submission_id, admitted);
         }
-        Ok(admitted_actions)
+        Ok(self.admitted_echo_operation_actions.clone())
     }
 
     /// Runs one scheduler-owned pass.
@@ -1867,6 +1960,10 @@ impl TrustedRuntimeHost {
             }
         }
         for (submission_id, outcome) in action_outcomes {
+            self.pending_echo_operation_actions.remove(&submission_id);
+            self.admitted_echo_operation_actions.remove(&submission_id);
+            self.echo_operation_action_admission_obstructions
+                .remove(&submission_id);
             self.echo_operation_action_outcomes
                 .insert(submission_id, outcome);
         }
@@ -5186,7 +5283,16 @@ impl TrustedRuntimeApp<'_> {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, RuntimeError> {
-        self.host.runtime.submit_app_intent(envelope)
+        let is_echo_operation_action =
+            echo_operation_action_invocation_bytes_v1(&envelope).is_some();
+        let handle = self.host.runtime.submit_app_intent(envelope)?;
+        if self.host.runtime_wal.is_none() {
+            self.host.track_pending_echo_operation_action_v1(
+                handle.submission_id,
+                is_echo_operation_action,
+            );
+        }
+        Ok(handle)
     }
 
     /// Submits canonical intent material and returns only after the configured
@@ -5218,6 +5324,8 @@ impl TrustedRuntimeApp<'_> {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
 
+        let is_echo_operation_action =
+            echo_operation_action_invocation_bytes_v1(&envelope).is_some();
         let before_runtime = self.host.runtime.clone();
         let handle = match admission {
             AppIntentAdmission::Ordinary => {
@@ -5235,7 +5343,13 @@ impl TrustedRuntimeApp<'_> {
         if handle.duplicate {
             match runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
             {
-                Ok(true) => return Ok(handle),
+                Ok(true) => {
+                    self.host.track_pending_echo_operation_action_v1(
+                        handle.submission_id,
+                        is_echo_operation_action,
+                    );
+                    return Ok(handle);
+                }
                 Ok(false) => {}
                 Err(error) => {
                     self.host.runtime = before_runtime;
@@ -5248,11 +5362,17 @@ impl TrustedRuntimeApp<'_> {
                 handle.submission_id,
                 envelope.ingress_id(),
             ) {
+                self.host.track_pending_echo_operation_action_v1(
+                    handle.submission_id,
+                    is_echo_operation_action,
+                );
                 return Ok(handle);
             }
             self.host.runtime = before_runtime;
             return Err(error.into());
         }
+        self.host
+            .track_pending_echo_operation_action_v1(handle.submission_id, is_echo_operation_action);
         Ok(handle)
     }
 

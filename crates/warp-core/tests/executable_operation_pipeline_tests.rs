@@ -2743,6 +2743,15 @@ fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
         host.echo_operation_action_outcome_v1(&committed_submission_id),
         Some(EchoOperationActionOutcomeV1::Committed(_))
     ));
+    assert_eq!(
+        host.echo_operation_action_admission_attempts_for_test(&committed_submission_id),
+        1
+    );
+    assert_eq!(
+        host.echo_operation_action_admission_attempts_for_test(&deferred_submission_id),
+        1,
+        "the host reuses admission evidence while the inbox defers an Action"
+    );
 }
 
 #[test]
@@ -3065,6 +3074,9 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
     assert!(submission_ids.iter().all(|submission_id| host
         .echo_operation_action_outcome_v1(submission_id)
         .is_some()));
+    assert!(submission_ids.iter().all(|submission_id| {
+        host.echo_operation_action_admission_attempts_for_test(submission_id) == 1
+    }));
 }
 
 #[test]
@@ -3405,6 +3417,19 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
             .echo_operation_action_outcome_v1(&unavailable_submission_id)
             .is_none());
         assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+        assert_eq!(
+            host.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
+            1
+        );
+        assert!(host
+            .tick_once()
+            .expect("quarantined admission work does not poison an idle pass")
+            .is_empty());
+        assert_eq!(
+            host.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
+            1,
+            "a quarantined Action is not decoded and re-admitted every Tick"
+        );
     }
 
     let (mut recovered, recovered_head, recovered_node) = fixture_host();
@@ -3423,6 +3448,18 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
     assert_eq!(
         recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
         Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
+    );
+    assert_eq!(
+        recovered.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
+        1
+    );
+    assert!(recovered
+        .tick_once()
+        .expect("recovered quarantine remains idle without re-admission")
+        .is_empty());
+    assert_eq!(
+        recovered.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
+        1
     );
     assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
     assert_eq!(recovered_head, head_key);

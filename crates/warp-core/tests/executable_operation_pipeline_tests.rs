@@ -3101,6 +3101,55 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
 }
 
 #[test]
+fn wal_enabled_host_does_not_auto_admit_non_durable_action_submission() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the non-durable submission fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let invocation = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        node,
+        b"before",
+        b"must-not-run",
+    );
+    let envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        invocation,
+    )
+    .expect("the invocation becomes an Action");
+    let submission_id = host
+        .app()
+        .submit_intent(envelope)
+        .expect("ordinary intake records process-local witnessed history")
+        .submission_id;
+
+    let steps = host
+        .tick_once()
+        .expect("non-durable intake cannot enter the scheduler");
+    assert!(steps.is_empty());
+    assert!(host
+        .echo_operation_action_outcome_v1(&submission_id)
+        .is_none());
+    assert!(matches!(
+        host.runtime().observe_intent_outcome(&submission_id),
+        warp_core::IntentOutcomeObservation::Pending {
+            ticketed_ingress_id: None,
+            ..
+        }
+    ));
+    let recovery = host
+        .runtime_wal()
+        .expect("the runtime WAL remains enabled")
+        .recover_read_only()
+        .expect("the WAL contains no dangling scheduler consequence");
+    assert!(recovery.witnessed_submissions.is_empty());
+    assert!(recovery.echo_operation_action_outcomes.is_empty());
+}
+
+#[test]
 fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
     let wal_dir = TempWalDir::new();
     let submission_id;

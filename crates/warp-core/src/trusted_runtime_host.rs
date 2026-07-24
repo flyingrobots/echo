@@ -1640,6 +1640,13 @@ impl TrustedRuntimeHost {
         };
         let mut admitted_actions = BTreeMap::new();
         for (submission, envelope, invocation_bytes) in pending {
+            if let Some(runtime_wal) = self.runtime_wal.as_ref() {
+                let durably_accepted = runtime_wal
+                    .has_submission_acceptance(submission.submission_id, submission.ingress_id)?;
+                if !durably_accepted {
+                    continue;
+                }
+            }
             if self
                 .echo_operation_action_admission_obstructions
                 .contains_key(&submission.submission_id)

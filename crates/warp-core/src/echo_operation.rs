@@ -2842,6 +2842,12 @@ pub(crate) fn recover_action_outcome_v1(
             let preparation_id =
                 PreparedEchoOperationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
             let blocker_count = read_action_outcome_u64(bytes, &mut offset)?;
+            let maximum_encoded_blockers =
+                u64::try_from(bytes.len().saturating_sub(offset) / core::mem::size_of::<u32>())
+                    .unwrap_or(u64::MAX);
+            if blocker_count > maximum_encoded_blockers {
+                return Err(invalid_structure("Action blocker bytes are truncated"));
+            }
             let blocker_count = usize::try_from(blocker_count)
                 .map_err(|_| invalid_structure("Action blocker count is not representable"))?;
             let mut blocked_by = Vec::with_capacity(blocker_count);
@@ -5831,6 +5837,26 @@ mod tests {
             .expect("fixture field exists");
         field.1 = replacement;
         encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields)).expect("fixture map encodes")
+    }
+
+    #[test]
+    fn retained_action_outcome_rejects_impossible_blocker_count_before_allocation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(ACTION_OUTCOME_RECORD_MAGIC);
+        bytes.extend_from_slice(&digest(1));
+        bytes.extend_from_slice(&digest(2));
+        bytes.push(3);
+        bytes.extend_from_slice(&digest(3));
+        bytes.extend_from_slice(&digest(4));
+        bytes.extend_from_slice(&digest(5));
+        bytes.extend_from_slice(&u64::MAX.to_le_bytes());
+
+        let error = recover_action_outcome_v1(&bytes)
+            .expect_err("an impossible blocker count must fail before allocation");
+        assert_eq!(
+            error.kind(),
+            EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
     }
 
     #[test]

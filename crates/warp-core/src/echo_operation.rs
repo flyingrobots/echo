@@ -15,7 +15,10 @@
 //! callback, function pointer, matcher, executor, or application-specific
 //! intrinsic.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use blake3::Hasher;
 use bytes::Bytes;
@@ -2722,12 +2725,15 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
     }
     let node = admitted.invocation.node;
+    let Some(descent_stack) = operation_descent_stack(state, node.warp_id) else {
+        return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
+    };
     let declared_footprint = match mode {
         AnchoredNodeOperationModeV1::CompareAndSet { .. } => {
-            anchored_node_compare_and_set_footprint(node)
+            anchored_node_compare_and_set_footprint(node, &descent_stack)
         }
         AnchoredNodeOperationModeV1::CreateIfAbsent => {
-            anchored_node_create_if_absent_footprint(node)
+            anchored_node_create_if_absent_footprint(node, &descent_stack)
         }
     };
     let mut actual_footprint = Footprint::default();
@@ -2735,6 +2741,12 @@ pub(crate) fn prepare_operation_v1(
     let Some(store) = state.store(&node.warp_id) else {
         return obstruction(EchoOperationObstructionKindV1::NodeMissing);
     };
+    for portal in &descent_stack {
+        if !budget_meter.charge(1, 32, 0) {
+            return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+        }
+        actual_footprint.a_read.insert(*portal);
+    }
     if !budget_meter.charge(1, 32, 0) {
         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
     }
@@ -2835,11 +2847,13 @@ pub(crate) fn prepare_operation_v1(
     if actual_footprint != declared_footprint {
         return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
     }
+    let mut in_slots = vec![SlotId::Node(node), SlotId::Attachment(slot)];
+    in_slots.extend(descent_stack.iter().copied().map(SlotId::Attachment));
     let patch = WarpTickPatchV1::new(
         policy_id,
         installed.installed_operation_id.as_hash(),
         TickCommitStatus::Committed,
-        vec![SlotId::Node(node), SlotId::Attachment(slot)],
+        in_slots,
         out_slots,
         write_ops,
     );
@@ -4216,19 +4230,71 @@ fn obstruction_kind_code(kind: EchoOperationObstructionKindV1) -> u8 {
     }
 }
 
-fn anchored_node_compare_and_set_footprint(node: NodeKey) -> Footprint {
+fn anchored_node_compare_and_set_footprint(
+    node: NodeKey,
+    descent_stack: &[AttachmentKey],
+) -> Footprint {
     let mut footprint = Footprint::default();
     record_node_read(&mut footprint, node);
+    for portal in descent_stack {
+        footprint.a_read.insert(*portal);
+    }
     let attachment = AttachmentKey::node_alpha(node);
     footprint.a_read.insert(attachment);
     footprint.a_write.insert(attachment);
     footprint
 }
 
-fn anchored_node_create_if_absent_footprint(node: NodeKey) -> Footprint {
-    let mut footprint = anchored_node_compare_and_set_footprint(node);
+fn anchored_node_create_if_absent_footprint(
+    node: NodeKey,
+    descent_stack: &[AttachmentKey],
+) -> Footprint {
+    let mut footprint = anchored_node_compare_and_set_footprint(node, descent_stack);
     footprint.n_write.insert(node);
     footprint
+}
+
+fn operation_descent_stack(
+    state: &WorldlineState,
+    target_warp: crate::WarpId,
+) -> Option<Vec<AttachmentKey>> {
+    let mut current_warp = target_warp;
+    let mut visited = BTreeSet::new();
+    let mut reversed = Vec::new();
+
+    loop {
+        if !visited.insert(current_warp) {
+            return None;
+        }
+        let instance = state.warp_state().instance(&current_warp)?;
+        let Some(parent) = instance.parent else {
+            if current_warp != state.root().warp_id {
+                return None;
+            }
+            reversed.reverse();
+            return Some(reversed);
+        };
+        let parent_warp = match parent.owner {
+            crate::AttachmentOwner::Node(node) => {
+                if state.store(&node.warp_id)?.node_attachment(&node.local_id)
+                    != Some(&AttachmentValue::Descend(current_warp))
+                {
+                    return None;
+                }
+                node.warp_id
+            }
+            crate::AttachmentOwner::Edge(edge) => {
+                if state.store(&edge.warp_id)?.edge_attachment(&edge.local_id)
+                    != Some(&AttachmentValue::Descend(current_warp))
+                {
+                    return None;
+                }
+                edge.warp_id
+            }
+        };
+        reversed.push(parent);
+        current_warp = parent_warp;
+    }
 }
 
 fn record_node_read(footprint: &mut Footprint, node: NodeKey) {
@@ -4672,6 +4738,191 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn descended_creation_reads_and_retains_its_portal_chain() {
+        let root_warp = crate::make_warp_id("operation-descended-root");
+        let root_node = crate::make_node_id("operation-descended-root-node");
+        let root = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let root_portal = AttachmentKey::node_alpha(root);
+        let middle_warp = crate::make_warp_id("operation-descended-middle");
+        let middle_root = crate::make_node_id("operation-descended-middle-root");
+        let middle_root_key = NodeKey {
+            warp_id: middle_warp,
+            local_id: middle_root,
+        };
+        let middle_portal = AttachmentKey::node_alpha(middle_root_key);
+        let child_warp = crate::make_warp_id("operation-descended-child");
+        let child_root = crate::make_node_id("operation-descended-child-root");
+        let target = NodeKey {
+            warp_id: child_warp,
+            local_id: crate::make_node_id("operation-descended-target"),
+        };
+
+        let mut root_store = crate::GraphStore::new(root_warp);
+        root_store.insert_node(
+            root_node,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-root-type"),
+            },
+        );
+        root_store.set_node_attachment(root_node, Some(AttachmentValue::Descend(middle_warp)));
+        let mut middle_store = crate::GraphStore::new(middle_warp);
+        middle_store.insert_node(
+            middle_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-middle-root-type"),
+            },
+        );
+        middle_store.set_node_attachment(middle_root, Some(AttachmentValue::Descend(child_warp)));
+        let mut child_store = crate::GraphStore::new(child_warp);
+        child_store.insert_node(
+            child_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-child-root-type"),
+            },
+        );
+        let mut warp_state = crate::WarpState::new();
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: root_warp,
+                root_node,
+                parent: None,
+            },
+            root_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: middle_warp,
+                root_node: middle_root,
+                parent: Some(root_portal),
+            },
+            middle_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: child_warp,
+                root_node: child_root,
+                parent: Some(middle_portal),
+            },
+            child_store,
+        );
+        let state = WorldlineState::new(warp_state, root).expect("the descended fixture is lawful");
+
+        let operation_coordinate = "echo.fixture.DescendedCreateIfAbsent.v1";
+        let authority_profile = digest(40);
+        let package = ExecutableOperationPackageV1::new(
+            operation_coordinate,
+            EchoOperationSemanticClosureV1::new(
+                digest(41),
+                digest(42),
+                digest(43),
+                digest(44),
+                "echo.fixture.DescendedSchema.v1",
+                digest(45),
+                "echo.fixture.DescendedLawpack.v1",
+                digest(46),
+            ),
+            echo_operation_create_if_absent_target_profile_identity_v1(),
+            authority_profile,
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+                crate::make_type_id("operation-descended-created-node"),
+                crate::make_type_id("operation-descended-created-atom"),
+                1_024,
+            ),
+        );
+        let package_bytes = package.to_canonical_bytes().expect("package encodes");
+        let package_id = echo_operation_package_id_v1(&package_bytes);
+        let installed = installed_from_admitted(
+            admit_package_v1(
+                &EchoOperationAdmissionPolicyV1::exact(
+                    package_id,
+                    operation_coordinate,
+                    authority_profile,
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                package_bytes,
+            )
+            .expect("package admits"),
+        )
+        .expect("package installs");
+
+        let writer_head = WriterHeadKey {
+            worldline_id: crate::WorldlineId::from_bytes(digest(47)),
+            head_id: crate::HeadId::from_bytes(digest(48)),
+        };
+        let evaluation_basis = EchoOperationEvaluationBasisV1::new(
+            writer_head,
+            WorldlineTick::ZERO,
+            None,
+            state.state_root(),
+            digest(49),
+            echo_operation_anchored_node_absent_application_basis_v1(target),
+        );
+        let authority_grant = digest(50);
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+            installed.package_id,
+            operation_coordinate,
+            evaluation_basis,
+            authority_grant,
+            EchoOperationBudgetV1::new(5, 128, 71),
+            target,
+            b"created".to_vec(),
+        );
+        let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+        let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+            authority_profile,
+            authority_grant,
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        );
+        let evaluation_authority = EchoOperationEvaluationAuthorityV1::new();
+        let admitted = admit_invocation_v1(
+            Some(&installed),
+            invocation_policy,
+            &invocation_bytes,
+            evaluation_basis,
+            &state,
+            evaluation_authority.clone(),
+        )
+        .expect("the descended invocation admits");
+        let EchoOperationPreparationV1::Prepared(prepared) = prepare_operation_v1(
+            Some(&installed),
+            admitted,
+            evaluation_basis,
+            &state,
+            crate::POLICY_ID_NO_POLICY_V0,
+            &evaluation_authority,
+        ) else {
+            panic!("the descended invocation prepares");
+        };
+
+        for portal in [root_portal, middle_portal] {
+            assert!(
+                prepared
+                    .actual_footprint()
+                    .a_read
+                    .iter()
+                    .any(|key| key == &portal),
+                "a descended creation must read every portal that makes its target reachable"
+            );
+            assert!(
+                prepared
+                    .patch()
+                    .in_slots()
+                    .contains(&SlotId::Attachment(portal)),
+                "the replayable patch must retain every portal-chain dependency"
+            );
+        }
+        assert_eq!(
+            prepared.consumed_budget(),
+            EchoOperationBudgetV1::new(5, 128, 71),
+            "each portal pointer read must be charged as a bounded evaluator step"
+        );
     }
 
     #[test]

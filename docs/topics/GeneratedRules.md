@@ -185,6 +185,8 @@ batch integration, Graft-style multi-record mutation, or independent
 implementation evidence. Its canonical decoding, identity recomputation,
 budget and footprint checks, exact-basis comparison, deterministic
 repeatability, and WAL recovery are deterministic self-validation.
+For descended targets, the retained footprint and patch inputs include every
+portal attachment in the validated root-to-target reachability chain.
 
 The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
 under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That

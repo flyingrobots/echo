@@ -3204,11 +3204,7 @@ fn operation_patch_scope_v1(
                     || atom.type_id != *required_attachment_type
                     || u64::try_from(atom.bytes.len())
                         .map_or(true, |len| len > *max_replacement_bytes)
-                    || patch.in_slots.as_slice()
-                        != [
-                            crate::SlotId::Node(node),
-                            crate::SlotId::Attachment(attachment_slot),
-                        ]
+                    || !operation_patch_inputs_match_v1(patch, node, attachment_slot)
                     || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
                 {
                     return None;
@@ -3237,11 +3233,7 @@ fn operation_patch_scope_v1(
                     || atom.type_id != *required_attachment_type
                     || u64::try_from(atom.bytes.len())
                         .map_or(true, |len| len > *max_replacement_bytes)
-                    || patch.in_slots.as_slice()
-                        != [
-                            crate::SlotId::Node(node),
-                            crate::SlotId::Attachment(attachment_slot),
-                        ]
+                    || !operation_patch_inputs_match_v1(patch, node, attachment_slot)
                     || patch.out_slots.as_slice()
                         != [
                             crate::SlotId::Node(node),
@@ -3254,6 +3246,52 @@ fn operation_patch_scope_v1(
             }
             _ => None,
         },
+    }
+}
+
+fn operation_patch_inputs_match_v1(
+    patch: &crate::WorldlineTickPatchV1,
+    node: crate::NodeKey,
+    attachment_slot: crate::AttachmentKey,
+) -> bool {
+    let mut has_node = false;
+    let mut has_attachment = false;
+    let mut portal_count = 0_usize;
+    let mut has_root_portal = false;
+
+    for slot in &patch.in_slots {
+        match *slot {
+            crate::SlotId::Node(candidate) if candidate == node && !has_node => {
+                has_node = true;
+            }
+            crate::SlotId::Attachment(candidate)
+                if candidate == attachment_slot && !has_attachment =>
+            {
+                has_attachment = true;
+            }
+            crate::SlotId::Attachment(portal)
+                if operation_attachment_owner_warp_v1(portal) != node.warp_id =>
+            {
+                portal_count += 1;
+                has_root_portal |= operation_attachment_owner_warp_v1(portal) == patch.warp_id;
+            }
+            _ => return false,
+        }
+    }
+
+    has_node
+        && has_attachment
+        && if node.warp_id == patch.warp_id {
+            portal_count == 0
+        } else {
+            portal_count > 0 && has_root_portal
+        }
+}
+
+fn operation_attachment_owner_warp_v1(key: crate::AttachmentKey) -> crate::WarpId {
+    match key.owner {
+        crate::AttachmentOwner::Node(node) => node.warp_id,
+        crate::AttachmentOwner::Edge(edge) => edge.warp_id,
     }
 }
 
@@ -4260,6 +4298,11 @@ mod tests {
 
     fn creation_scope_patch(node: crate::NodeKey) -> crate::WorldlineTickPatchV1 {
         let attachment = crate::AttachmentKey::node_alpha(node);
+        let parent_warp = crate::make_warp_id("operation-wal-parent-root");
+        let portal = crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: parent_warp,
+            local_id: crate::make_node_id("operation-wal-parent-portal"),
+        });
         crate::WorldlineTickPatchV1 {
             header: crate::WorldlineTickHeaderV1 {
                 commit_global_tick: GlobalTick::from_raw(1),
@@ -4271,7 +4314,7 @@ mod tests {
             },
             // The parent worldline root is intentionally different from the
             // descendant node's WARP id.
-            warp_id: crate::make_warp_id("operation-wal-parent-root"),
+            warp_id: parent_warp,
             ops: vec![
                 crate::WarpOp::UpsertNode {
                     node,
@@ -4290,6 +4333,7 @@ mod tests {
             in_slots: vec![
                 crate::SlotId::Node(node),
                 crate::SlotId::Attachment(attachment),
+                crate::SlotId::Attachment(portal),
             ],
             out_slots: vec![
                 crate::SlotId::Node(node),
@@ -4327,6 +4371,23 @@ mod tests {
             operation_patch_scope_v1(&patch, &update_program),
             None,
             "the update profile must reject the creation program's two-op patch"
+        );
+
+        let mut missing_portal_read = patch.clone();
+        missing_portal_read.in_slots.retain(|slot| {
+            matches!(
+                slot,
+                crate::SlotId::Node(candidate) if candidate == &node
+            ) || matches!(
+                slot,
+                crate::SlotId::Attachment(candidate)
+                    if candidate == &crate::AttachmentKey::node_alpha(node)
+            )
+        });
+        assert_eq!(
+            operation_patch_scope_v1(&missing_portal_read, &installed_program),
+            None,
+            "a descendant operation must retain the root portal dependency"
         );
 
         let mut reversed = patch.clone();

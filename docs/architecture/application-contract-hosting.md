@@ -154,6 +154,8 @@ identified single-node-plus-alpha-attachment create-if-absent profile. Package
 and invocation admission, private bounded evaluation, exact-basis singleton
 commit, typed evidence, WAL, and callback-free fresh-host recovery validate the
 selected program's exact footprint, budget, result, and patch shape.
+Operations targeting a descended WARP retain and meter every portal attachment
+in the root-to-target reachability chain as a causal input.
 Noncommitted evidence is returned to the caller but does not enter the
 operation-tick WAL. The slice exposes no application matcher, executor, or
 footprint callback. It is not yet emitted by Edict, does not implement Jedit

@@ -201,6 +201,12 @@ refused.
 scope comes from the exact `NodeKey` carried by the operations and slots, which
 may name a descended WARP instance. Recovery validates the parent root and the
 operation scope independently; it does not require those WARP IDs to be equal.
+For a descended target, private evaluation walks the validated instance-parent
+chain to the root, records every portal attachment as an actual and declared
+footprint read, charges one bounded pointer read per portal, and retains the
+complete chain in the patch input slots. Recovery requires descendant
+consequences to carry attachment inputs reaching the parent root rather than
+accepting the target node and attachment alone.
 
 ## Scope
 
@@ -253,9 +259,10 @@ Focused unit witnesses additionally cover:
 - installed-program-selected WAL consequences;
 - rejection of reversed, partial, wrong-output, cross-node, cross-profile,
   wrong-typed, non-atom, and oversized creation patches;
-- descendant-node scope independent of the parent worldline root.
+- descendant-node scope independent of the parent worldline root;
+- complete descendant portal-chain footprint, budget, and patch-input binding.
 
-The complete `warp-core` library suite passes with 689 tests, and the focused
+The complete `warp-core` library suite passes with 690 tests, and the focused
 pipeline passes all 24 tests. Independent implementation or differential
 oracle evidence remains future work.
 

@@ -2725,8 +2725,21 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
     }
     let node = admitted.invocation.node;
-    let Some(descent_stack) = operation_descent_stack(state, node.warp_id) else {
-        return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
+    let mut actual_footprint = Footprint::default();
+    let mut budget_meter = EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
+    let descent_stack =
+        match operation_descent_stack_with_portal_reads(state, node.warp_id, |portal| {
+            if !budget_meter.charge(1, 32, 0) {
+                return false;
+            }
+            actual_footprint.a_read.insert(portal);
+            true
+        }) {
+            Ok(descent_stack) => descent_stack,
+            Err(kind) => return obstruction(kind),
+        };
+    let Some(store) = state.store(&node.warp_id) else {
+        return obstruction(EchoOperationObstructionKindV1::NodeMissing);
     };
     let declared_footprint = match mode {
         AnchoredNodeOperationModeV1::CompareAndSet { .. } => {
@@ -2736,17 +2749,6 @@ pub(crate) fn prepare_operation_v1(
             anchored_node_create_if_absent_footprint(node, &descent_stack)
         }
     };
-    let mut actual_footprint = Footprint::default();
-    let mut budget_meter = EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
-    let Some(store) = state.store(&node.warp_id) else {
-        return obstruction(EchoOperationObstructionKindV1::NodeMissing);
-    };
-    for portal in &descent_stack {
-        if !budget_meter.charge(1, 32, 0) {
-            return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
-        }
-        actual_footprint.a_read.insert(*portal);
-    }
     if !budget_meter.charge(1, 32, 0) {
         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
     }
@@ -4258,36 +4260,56 @@ pub(crate) fn operation_descent_stack(
     state: &WorldlineState,
     target_warp: crate::WarpId,
 ) -> Option<Vec<AttachmentKey>> {
+    operation_descent_stack_with_portal_reads(state, target_warp, |_| true).ok()
+}
+
+fn operation_descent_stack_with_portal_reads(
+    state: &WorldlineState,
+    target_warp: crate::WarpId,
+    mut read_portal: impl FnMut(AttachmentKey) -> bool,
+) -> Result<Vec<AttachmentKey>, EchoOperationObstructionKindV1> {
     let mut current_warp = target_warp;
     let mut visited = BTreeSet::new();
     let mut reversed = Vec::new();
 
     loop {
         if !visited.insert(current_warp) {
-            return None;
+            return Err(EchoOperationObstructionKindV1::FootprintViolation);
         }
-        let instance = state.warp_state().instance(&current_warp)?;
+        let instance = state
+            .warp_state()
+            .instance(&current_warp)
+            .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?;
         let Some(parent) = instance.parent else {
             if current_warp != state.root().warp_id {
-                return None;
+                return Err(EchoOperationObstructionKindV1::FootprintViolation);
             }
             reversed.reverse();
-            return Some(reversed);
+            return Ok(reversed);
         };
+        if !read_portal(parent) {
+            return Err(EchoOperationObstructionKindV1::BudgetExceeded);
+        }
         let parent_warp = match parent.owner {
             crate::AttachmentOwner::Node(node) => {
-                if state.store(&node.warp_id)?.node_attachment(&node.local_id)
+                if state
+                    .store(&node.warp_id)
+                    .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?
+                    .node_attachment(&node.local_id)
                     != Some(&AttachmentValue::Descend(current_warp))
                 {
-                    return None;
+                    return Err(EchoOperationObstructionKindV1::FootprintViolation);
                 }
                 node.warp_id
             }
             crate::AttachmentOwner::Edge(edge) => {
-                if state.store(&edge.warp_id)?.edge_attachment(&edge.local_id)
+                if state
+                    .store(&edge.warp_id)
+                    .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?
+                    .edge_attachment(&edge.local_id)
                     != Some(&AttachmentValue::Descend(current_warp))
                 {
-                    return None;
+                    return Err(EchoOperationObstructionKindV1::FootprintViolation);
                 }
                 edge.warp_id
             }
@@ -4749,6 +4771,13 @@ mod tests {
             local_id: root_node,
         };
         let root_portal = AttachmentKey::node_alpha(root);
+        let upper_warp = crate::make_warp_id("operation-descended-upper");
+        let upper_root = crate::make_node_id("operation-descended-upper-root");
+        let upper_root_key = NodeKey {
+            warp_id: upper_warp,
+            local_id: upper_root,
+        };
+        let upper_portal = AttachmentKey::node_alpha(upper_root_key);
         let middle_warp = crate::make_warp_id("operation-descended-middle");
         let middle_root = crate::make_node_id("operation-descended-middle-root");
         let middle_root_key = NodeKey {
@@ -4770,7 +4799,15 @@ mod tests {
                 ty: crate::make_type_id("operation-descended-root-type"),
             },
         );
-        root_store.set_node_attachment(root_node, Some(AttachmentValue::Descend(middle_warp)));
+        root_store.set_node_attachment(root_node, Some(AttachmentValue::Descend(upper_warp)));
+        let mut upper_store = crate::GraphStore::new(upper_warp);
+        upper_store.insert_node(
+            upper_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-upper-root-type"),
+            },
+        );
+        upper_store.set_node_attachment(upper_root, Some(AttachmentValue::Descend(middle_warp)));
         let mut middle_store = crate::GraphStore::new(middle_warp);
         middle_store.insert_node(
             middle_root,
@@ -4797,9 +4834,17 @@ mod tests {
         );
         warp_state.upsert_instance(
             crate::WarpInstance {
+                warp_id: upper_warp,
+                root_node: upper_root,
+                parent: Some(root_portal),
+            },
+            upper_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
                 warp_id: middle_warp,
                 root_node: middle_root,
-                parent: Some(root_portal),
+                parent: Some(upper_portal),
             },
             middle_store,
         );
@@ -4870,7 +4915,7 @@ mod tests {
             operation_coordinate,
             evaluation_basis,
             authority_grant,
-            EchoOperationBudgetV1::new(5, 128, 71),
+            EchoOperationBudgetV1::new(6, 160, 71),
             target,
             b"created".to_vec(),
         );
@@ -4901,7 +4946,7 @@ mod tests {
             panic!("the descended invocation prepares");
         };
 
-        for portal in [root_portal, middle_portal] {
+        for portal in [root_portal, upper_portal, middle_portal] {
             assert!(
                 prepared
                     .actual_footprint()
@@ -4920,8 +4965,69 @@ mod tests {
         }
         assert_eq!(
             prepared.consumed_budget(),
-            EchoOperationBudgetV1::new(5, 128, 71),
+            EchoOperationBudgetV1::new(6, 160, 71),
             "each portal pointer read must be charged as a bounded evaluator step"
+        );
+
+        let mut budget_limited_state = state.clone();
+        budget_limited_state
+            .warp_state
+            .store_mut(&root_warp)
+            .expect("the fixture retains its root store")
+            .set_node_attachment(
+                root_node,
+                Some(AttachmentValue::Atom(AtomPayload::new(
+                    crate::make_type_id("operation-descended-out-of-budget-corruption"),
+                    Bytes::from_static(b"must-not-be-read"),
+                ))),
+            );
+        let budget_limited_basis = EchoOperationEvaluationBasisV1::new(
+            writer_head,
+            WorldlineTick::ZERO,
+            None,
+            budget_limited_state.state_root(),
+            digest(51),
+            echo_operation_anchored_node_absent_application_basis_v1(target),
+        );
+        let budget_limited_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                installed.package_id,
+                operation_coordinate,
+                budget_limited_basis,
+                authority_grant,
+                EchoOperationBudgetV1::new(3, 64, 71),
+                target,
+                b"created".to_vec(),
+            );
+        let admitted = admit_invocation_v1(
+            Some(&installed),
+            EchoOperationInvocationAdmissionPolicyV1::new(
+                authority_profile,
+                authority_grant,
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            ),
+            &budget_limited_invocation
+                .to_canonical_bytes()
+                .expect("budget-limited invocation encodes"),
+            budget_limited_basis,
+            &budget_limited_state,
+            evaluation_authority.clone(),
+        )
+        .expect("the budget-limited invocation admits");
+        let EchoOperationPreparationV1::Obstructed(obstruction) = prepare_operation_v1(
+            Some(&installed),
+            admitted,
+            budget_limited_basis,
+            &budget_limited_state,
+            crate::POLICY_ID_NO_POLICY_V0,
+            &evaluation_authority,
+        ) else {
+            panic!("the portal traversal must stop at its delegated read allowance");
+        };
+        assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::BudgetExceeded,
+            "out-of-budget portal state must not influence the obstruction"
         );
     }
 

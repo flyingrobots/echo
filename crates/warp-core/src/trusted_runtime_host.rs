@@ -4105,6 +4105,11 @@ fn validate_recovered_echo_operation_action_outcomes(
         .iter()
         .map(|record| (record.submission.submission_id, &record.envelope))
         .collect::<BTreeMap<_, _>>();
+    let submissions = witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, &record.submission))
+        .collect::<BTreeMap<_, _>>();
     let correlations = receipt_correlations
         .iter()
         .map(|correlation| (correlation.submission_id, correlation))
@@ -4144,6 +4149,9 @@ fn validate_recovered_echo_operation_action_outcomes(
         let envelope = envelopes
             .get(submission_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let submission = submissions
+            .get(submission_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let correlation = correlations
             .get(submission_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
@@ -4156,6 +4164,28 @@ fn validate_recovered_echo_operation_action_outcomes(
             .find(|installed| installed.package_id() == invocation.package_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         if envelope.ingress_id() != *ingress_id {
+            return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
+        }
+        let invocation_admission_id = match outcome {
+            EchoOperationActionOutcomeV1::Committed(receipt) => {
+                Some(receipt.invocation_admission_id())
+            }
+            EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                Some(obstruction.invocation_admission_id())
+            }
+            EchoOperationActionOutcomeV1::RejectedFootprintConflict { .. } => None,
+        };
+        if correlation.ticket_digest != correlation.causal_receipt_ref.ticket_digest
+            || invocation_admission_id.is_some_and(|admission_id| {
+                correlation.ticket_digest
+                    != echo_operation_action_admission_digest_from_parts(
+                        submission,
+                        invocation.package_id,
+                        installed.installed_operation_id(),
+                        admission_id,
+                    )
+            })
+        {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
         }
         match outcome {
@@ -5087,15 +5117,29 @@ fn echo_operation_action_admission_digest(
     submission: &IntentSubmissionRecord,
     admitted: &AdmittedEchoOperationInvocationV1,
 ) -> Hash {
+    echo_operation_action_admission_digest_from_parts(
+        submission,
+        admitted.package_id(),
+        admitted.installed_operation_id(),
+        admitted.admission_id(),
+    )
+}
+
+fn echo_operation_action_admission_digest_from_parts(
+    submission: &IntentSubmissionRecord,
+    package_id: crate::EchoOperationPackageIdV1,
+    installed_operation_id: crate::InstalledEchoOperationIdV1,
+    invocation_admission_id: crate::EchoOperationInvocationAdmissionIdV1,
+) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN);
     hasher.update(&submission.submission_id);
     hasher.update(&submission.ingress_id);
     hasher.update(submission.head_key.worldline_id.as_bytes());
     hasher.update(submission.head_key.head_id.as_bytes());
-    hasher.update(&admitted.package_id().as_hash());
-    hasher.update(&admitted.installed_operation_id().as_hash());
-    hasher.update(&admitted.admission_id().as_hash());
+    hasher.update(&package_id.as_hash());
+    hasher.update(&installed_operation_id.as_hash());
+    hasher.update(&invocation_admission_id.as_hash());
     hasher.finalize().into()
 }
 

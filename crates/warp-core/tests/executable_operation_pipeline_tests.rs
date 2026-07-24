@@ -2915,6 +2915,16 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             contradictory_decision.validate_echo_operation_action_outcomes_for_test(),
             Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
         ));
+        let mut forged_admission_ticket = adversarial.clone();
+        let forged_ticket = digest("forged-Action-admission-ticket");
+        forged_admission_ticket.receipt_correlations[0].ticket_digest = forged_ticket;
+        forged_admission_ticket.receipt_correlations[0]
+            .causal_receipt_ref
+            .ticket_digest = forged_ticket;
+        assert!(matches!(
+            forged_admission_ticket.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
         let mut forged_composition = adversarial.clone();
         let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
             .echo_operation_action_outcomes

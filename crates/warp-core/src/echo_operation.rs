@@ -2029,20 +2029,25 @@ fn current_application_basis(
             let store = state
                 .store(&invocation.node.warp_id)
                 .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
-            // A node that does not exist, or that exists without its alpha
-            // attachment, corroborates as absence (ADR 0024): a
-            // create-from-absence invocation's claimed application basis is
-            // then judged, like any other, by the equality check in
-            // `admit_invocation_v1` -- a claim of absence matches only real
-            // absence, exactly as a claim of a value matches only that exact
-            // value. The atomic-or-refuse distinction between "node absent"
-            // and "node exists without its attachment" belongs to
-            // `prepare_operation_v1`, not to this coarse admission check.
-            let attachment = match store.node(&invocation.node.local_id) {
-                None => None,
-                Some(_) => store.node_attachment(&invocation.node.local_id),
-            };
-            let Some(attachment) = attachment else {
+            // Absence corroborates from the attachment slot alone, never from
+            // node presence (ADR 0024, PR #686 review finding #2): a node
+            // that does not exist, or that exists without its alpha
+            // attachment, both corroborate as absence, but an *attachment*
+            // that exists -- even orphaned, with no owning `NodeRecord`,
+            // which `GraphStore::set_node_attachment` never forbids -- must
+            // corroborate as present, using its real value, exactly like the
+            // ordinary case below. Deriving "absent" from node presence
+            // instead of attachment presence would let a claimed-absent
+            // invocation match an orphaned attachment's slot without ever
+            // inspecting it. A create-from-absence invocation's claimed
+            // application basis is then judged, like any other, by the
+            // equality check in `admit_invocation_v1` -- a claim of absence
+            // matches only real absence, exactly as a claim of a value
+            // matches only that exact value. The atomic-or-refuse
+            // distinction between "node absent" and "node exists without its
+            // attachment" belongs to `prepare_operation_v1`, not to this
+            // coarse admission check.
+            let Some(attachment) = store.node_attachment(&invocation.node.local_id) else {
                 // No local budget guard is needed here: `admit_invocation_v1`
                 // already requires `invocation.delegated_budget.read_bytes >=
                 // installed.program.minimum_budget().read_bytes` (64 for this
@@ -2399,6 +2404,16 @@ pub(crate) fn prepare_operation_v1(
                         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
                     }
                     actual_footprint.a_read.insert(slot);
+                    // PR #686 review finding #2 (CodeRabbit): the node being
+                    // absent does not prove the attachment slot is absent
+                    // too -- `GraphStore::set_node_attachment` never requires
+                    // the owning node to exist, so an orphaned attachment is
+                    // a real reachable state, not hypothetical. Creation is
+                    // atomic over both slots (ADR 0024); refuse rather than
+                    // silently overwrite an orphan's real value.
+                    if store.node_attachment(&node.local_id).is_some() {
+                        return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+                    }
                     let Some(write_bytes) = 32_u64.checked_add(replacement_len) else {
                         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
                     };

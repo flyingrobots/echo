@@ -230,6 +230,84 @@ fn fixture_host_with_bare_node(
     (host, head_key, node, second_node)
 }
 
+/// Like [`fixture_host`], but the warp-scoped store also contains an
+/// *orphaned* alpha attachment -- present at `orphan_local_id` with no
+/// corresponding `NodeRecord` -- reachable because
+/// `GraphStore::set_node_attachment` does not require the owning node to
+/// exist. Used to exercise create-from-absence's PR #686 review finding #2
+/// (CodeRabbit + Codex): a node that is absent must not be treated as fully
+/// absent when its attachment slot is independently occupied.
+fn fixture_host_with_orphan_attachment(
+    orphan_local_id: warp_core::NodeId,
+    orphan_attachment_type: warp_core::TypeId,
+    orphan_bytes: &[u8],
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
+    let warp_id = make_warp_id("operation-fixture");
+    let node_id = make_node_id("operation-fixture-root");
+    let node_type = make_type_id("operation-fixture-node");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let node = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let orphan_node = NodeKey {
+        warp_id,
+        local_id: orphan_local_id,
+    };
+    let mut store = GraphStore::new(warp_id);
+    store.insert_node(node_id, NodeRecord { ty: node_type });
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"before"),
+        ))),
+    );
+    store.set_node_attachment(
+        orphan_local_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            orphan_attachment_type,
+            Bytes::copy_from_slice(orphan_bytes),
+        ))),
+    );
+    let state = WorldlineState::from_root_store(store, node_id)
+        .expect("the fixture state has one lawful root");
+    let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
+    let head_key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let mut runtime = WorldlineRuntime::new();
+    runtime
+        .register_worldline(worldline_id, state)
+        .expect("the fixture worldline registers");
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            head_key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))
+        .expect("the fixture writer registers");
+
+    let mut engine_store = GraphStore::default();
+    let engine_root = make_node_id("root");
+    engine_store.insert_node(
+        engine_root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(engine_store, engine_root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let host = TrustedRuntimeHost::new(runtime, engine)
+        .expect("the trusted Echo runtime host initializes");
+    (host, head_key, node, orphan_node)
+}
+
 fn semantic_closure() -> EchoOperationSemanticClosureV1 {
     EchoOperationSemanticClosureV1::new(
         digest("fixture-edict-source"),
@@ -2154,5 +2232,124 @@ fn filesystem_wal_recovers_a_create_from_absence_commit() {
             attachment_type,
             Bytes::from_static(b"wal-created"),
         )))
+    );
+}
+
+/// Regression for PR #686 review finding #2 (CodeRabbit, P0): create-from-
+/// absence must not silently overwrite an orphaned attachment (present with
+/// no owning `NodeRecord` -- reachable because `GraphStore::set_node_attachment`
+/// never requires the node to exist). Exercised with a basis that honestly
+/// reflects the orphan's real present value, so admission passes and the
+/// evaluation-time check in `prepare_operation_v1` is isolated as the thing
+/// under test.
+#[test]
+fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
+    let orphan_local_id = make_node_id("operation-fixture-orphan-attachment");
+    let orphan_attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, orphan_node) =
+        fixture_host_with_orphan_attachment(orphan_local_id, orphan_attachment_type, b"orphaned");
+    let installed = install_fixture_operation(&mut host);
+
+    let application_basis = warp_core::echo_operation_anchored_node_application_basis_v1(
+        orphan_node,
+        orphan_attachment_type,
+        b"orphaned",
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        orphan_node,
+        None,
+        b"clobbered".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect(
+            "Echo admits the invocation -- the orphaned attachment honestly \
+             corroborates as present, matching this invocation's claimed basis",
+        );
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("create-from-absence against an orphaned attachment must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the untouched worldline remains registered")
+        .state();
+    assert_eq!(
+        state
+            .store(&orphan_node.warp_id)
+            .and_then(|store| store.node_attachment(&orphan_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            orphan_attachment_type,
+            Bytes::from_static(b"orphaned"),
+        ))),
+        "an obstructed create-from-absence must leave the orphaned attachment untouched"
+    );
+}
+
+/// Regression for PR #686 review finding #2 (Codex, P2): admission's
+/// independent application-basis corroboration must not treat a node with an
+/// orphaned attachment as absent. A create-from-absence invocation that
+/// (incorrectly) claims absence against a real orphan must be refused at
+/// admission with `BasisMismatch`, not let through to evaluation.
+#[test]
+fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attachment() {
+    let orphan_local_id = make_node_id("operation-fixture-orphan-admission");
+    let orphan_attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, orphan_node) =
+        fixture_host_with_orphan_attachment(orphan_local_id, orphan_attachment_type, b"orphaned");
+    let installed = install_fixture_operation(&mut host);
+
+    let claimed_absent_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(orphan_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, claimed_absent_basis)
+        .expect("Echo resolves a basis for the claimed proposition");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        orphan_node,
+        None,
+        b"clobbered".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let error = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect_err("a dishonest absence claim against a real orphaned attachment must refuse");
+    assert_eq!(
+        error.kind(),
+        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
     );
 }

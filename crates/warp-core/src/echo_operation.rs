@@ -73,6 +73,8 @@ const ATOM_VALUE_DOMAIN: &[u8] = b"echo:operation-atom-value:v1\0";
 const APPLICATION_BASIS_VALUE_DOMAIN: &[u8] = b"echo:operation-anchored-node-alpha-basis:v1\0";
 const APPLICATION_BASIS_ABSENT_DOMAIN: &[u8] =
     b"echo:operation-anchored-node-alpha-basis-absent:v1\0";
+const RESULT_ID_ABSENT_PREVIOUS_VALUE_DOMAIN: &[u8] =
+    b"echo:operation-result-absent-previous-value:v1\0";
 const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
 const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
 const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
@@ -3814,7 +3816,19 @@ fn operation_result_id(
     hasher.update(&profile_digest(RESULT_SCHEMA));
     hasher.update(invocation.node.warp_id.as_bytes());
     hasher.update(invocation.node.local_id.as_bytes());
-    hash_optional_id(&mut hasher, previous_value_digest);
+    // PR #686 review finding #5 (Codex + self-review): preserve the exact
+    // pre-ADR-0024 hash input for Some(...) -- a raw 32-byte digest, no
+    // discriminant tag -- so the update path's EchoOperationResultIdV1 is
+    // truly unchanged, not merely documented as an acceptable change.
+    // RESULT_ID_ABSENT_PREVIOUS_VALUE_DOMAIN's length differs from every
+    // possible digest's 32 bytes, so it cannot collide with any Some(digest)
+    // regardless of that digest's value -- no tag byte is needed here the
+    // way current_application_basis needs one for a fixed-width Option<Hash>
+    // field; this field's own two encodings already differ in length.
+    match previous_value_digest {
+        Some(digest) => hasher.update(&digest),
+        None => hasher.update(RESULT_ID_ABSENT_PREVIOUS_VALUE_DOMAIN),
+    };
     hasher.update(&replacement_value_digest);
     hasher.update(&patch_digest);
     EchoOperationResultIdV1(hasher.finalize().into())
@@ -4698,6 +4712,84 @@ mod tests {
         assert_eq!(
             error.kind(),
             EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
+    }
+
+    #[test]
+    fn operation_result_id_preserves_the_legacy_hash_for_updates() {
+        // PR #686 review finding #5 (Codex + self-review): `Some(...)` must
+        // hash exactly like the pre-ADR-0024 code did -- a raw 32-byte
+        // digest, no discriminant tag -- so EchoOperationResultIdV1 (and
+        // everything chained from it) is truly unchanged for the update
+        // path this PR did not intend to touch. `None` must be
+        // domain-separated by construction, not merely by convention: its
+        // marker has a different byte length than any 32-byte digest, so no
+        // `Some(digest)` can ever produce the same input stream as `None`
+        // regardless of which digest value is chosen.
+        let installed = retained_fixture_installation();
+        let node = node_key_from_bytes([20; 64]);
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            EchoOperationEvaluationBasisV1::new(
+                WriterHeadKey {
+                    worldline_id: crate::WorldlineId::from_bytes(digest(21)),
+                    head_id: crate::HeadId::from_bytes(digest(22)),
+                },
+                WorldlineTick::ZERO,
+                None,
+                digest(23),
+                digest(24),
+                EchoOperationApplicationBasisV1::new(digest(25), digest(26)),
+            ),
+            digest(27),
+            EchoOperationBudgetV1::new(8, 512, 512),
+            node,
+            Some(digest(28)),
+            Vec::new(),
+        );
+        let replacement_value_digest = digest(29);
+        let patch_digest = digest(30);
+        let previous = digest(28);
+
+        let mut expected = Hasher::new();
+        expected.update(RESULT_ID_DOMAIN);
+        expected.update(&installed.installed_operation_id.as_hash());
+        expected.update(&profile_digest(RESULT_SCHEMA));
+        expected.update(invocation.node.warp_id.as_bytes());
+        expected.update(invocation.node.local_id.as_bytes());
+        expected.update(&previous);
+        expected.update(&replacement_value_digest);
+        expected.update(&patch_digest);
+        let expected_some = EchoOperationResultIdV1(expected.finalize().into());
+
+        assert_eq!(
+            operation_result_id(
+                &installed,
+                &invocation,
+                Some(previous),
+                replacement_value_digest,
+                patch_digest,
+            ),
+            expected_some,
+            "Some(...) must hash identically to a plain untagged digest write"
+        );
+
+        assert_ne!(
+            RESULT_ID_ABSENT_PREVIOUS_VALUE_DOMAIN.len(),
+            32,
+            "the absent marker's length must differ from every possible digest length"
+        );
+        let none_result = operation_result_id(
+            &installed,
+            &invocation,
+            None,
+            replacement_value_digest,
+            patch_digest,
+        );
+        assert_ne!(
+            none_result, expected_some,
+            "None must not collide with any Some(digest) result"
         );
     }
 }

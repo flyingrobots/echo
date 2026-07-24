@@ -176,18 +176,21 @@ All 13 pre-existing tests in that file pass unmodified in behavior (only
 mechanically rewrapped in `Some(...)` at call sites, never changed in intent).
 This evidences that `EchoOperationInvocationV1`'s canonical byte encoding and
 `prepare_operation_v1`'s/`current_application_basis`'s update-path _behavior_
-are unchanged for `Some(...)`. It does **not** evidence that every internal
-digest is byte-identical: `operation_result_id`'s hash input now goes through
-`hash_optional_id`, which adds a one-byte discriminant tag ahead of the
-32-byte digest for _both_ `Some` and `None`, not only `None`. This changes
-`EchoOperationResultIdV1` -- and everything chained from it, including
-`preparation_id` and receipt identities -- for the update path too, not only
-the new create path. This is judged acceptable, not a correctness defect: per
-the CHANGELOG.md entry for the executable-operation-runtime slice, no real
-committed result or receipt identity exists yet for this corridor to break.
-A future change that needs `operation_result_id`'s update-path output to stay
-byte-identical across a wire revision is a separate, explicit decision, not
-something this ADR's "unchanged" claim should be read to already cover.
+are unchanged for `Some(...)`. `operation_result_id` preserves this precisely
+at the digest level too: `Some(digest)` hashes exactly `digest` -- the same
+raw 32 bytes the pre-ADR-0024 code always wrote, no discriminant tag -- so
+`EchoOperationResultIdV1` and everything chained from it (`preparation_id`,
+receipt identities) are truly unchanged for the update path, not merely
+behaviorally equivalent. `None` is domain-separated by construction rather
+than by a shared tag scheme: its marker
+(`RESULT_ID_ABSENT_PREVIOUS_VALUE_DOMAIN`) has a different byte length than
+any 32-byte digest, so it cannot collide with `Some(digest)` for any digest
+value, without needing to add a tag to the `Some` case the way
+`current_application_basis`'s fixed-width `EchoOperationApplicationBasisV1`
+field does. `operation_result_id_preserves_the_legacy_hash_for_updates`
+(in `echo_operation.rs`'s own `mod tests`) asserts this directly against a
+hand-reconstructed reference hash, not only indirectly through pipeline
+tests passing.
 
 The full `warp-core` suite (81 test binaries, 686 library tests, doctests
 included) passes with this change; `cargo clippy --all-targets` reports the
@@ -256,17 +259,13 @@ generated client.
   dead code, not defense in depth.
 - The update path's _behavior_ -- which preconditions succeed, which refuse,
   and with which obstruction -- is unchanged, evidenced by the pre-existing
-  test suite passing without behavioral modification. Its digests are not
-  entirely unchanged, though: `operation_result_id` now hashes
-  `previous_value_digest` through `hash_optional_id`, which prepends a
-  discriminant tag for both `Some` and `None`. `EchoOperationResultIdV1` (and
-  everything chained from it) therefore differs from what it would have been
-  under the prior code, for the update path as well as the new create path.
-  `EchoOperationInvocationV1`'s own canonical bytes are unaffected for
-  `Some(...)` -- only this one internal hash's input layout changed. Judged
-  acceptable for the same no-real-cutover-yet reason as the invocation
-  encoding change above; a future decision that needs this specific digest to
-  stay byte-identical across the change is separate and not yet made.
+  test suite passing without behavioral modification. Its digests are
+  unchanged too: `operation_result_id` hashes `Some(digest)` as exactly
+  `digest`, the same raw 32 bytes the prior code always wrote, so
+  `EchoOperationResultIdV1` (and everything chained from it) is identical to
+  what the prior code would have produced. `None` is domain-separated by a
+  distinctly-sized marker rather than a shared tag, so it never needed to
+  touch the `Some` encoding to stay unambiguous.
 - Echo still creates nodes of only the package-declared, static
   `required_node_type`; it still contains no application-specific intrinsic
   and no knowledge of what any caller is building.

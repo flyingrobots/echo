@@ -1157,9 +1157,11 @@ pre_push_feature_string_for_test_target() {
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
     warp-core:external_consumer_contract_fixture_tests|\
-    warp-core:provider_contract_admission_tests|\
-    warp-core:executable_operation_pipeline_tests)
+    warp-core:provider_contract_admission_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
+    warp-core:executable_operation_pipeline_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime,host_test"
       ;;
     warp-core:installed_contract_registry_tests)
       printf '%s\n' "native_rule_bootstrap"

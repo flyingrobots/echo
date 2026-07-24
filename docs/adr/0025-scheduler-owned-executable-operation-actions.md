@@ -71,10 +71,13 @@ worldline:
 - neither result mutates the parent state.
 
 The direct `prepare_echo_operation_v1` and
-`commit_prepared_echo_operation_v1` methods remain temporarily available only
-as explicitly transitional compatibility/test seams. They are not the
-application architecture and will be removed after existing convergence
-witnesses migrate.
+`commit_prepared_echo_operation_v1` methods remain publicly reachable on
+`TrustedRuntimeHost` as explicitly transitional, documentation-hidden
+compatibility/test seams. `TrustedRuntimeApp` does not expose them, but that
+application-facing type boundary is not a claim that Rust visibility prevents
+every downstream host owner from calling the methods. They are not the
+application architecture. Their migration and removal are tracked by
+[issue #689](https://github.com/flyingrobots/echo/issues/689).
 
 ### Legacy and executable ingress never share an evaluator batch
 
@@ -151,7 +154,10 @@ and receipt correlation.
 
 ## Consequences
 
-- Application code cannot invoke executable evaluation or direct commit.
+- The application-facing `TrustedRuntimeApp` cannot invoke executable
+  evaluation or direct commit. Downstream code that owns a
+  `TrustedRuntimeHost` can still reach the documentation-hidden transitional
+  methods until issue #689 removes that exception.
 - Two independent executable-operation Actions can contribute to one
   scheduler-owned Tick.
 - A typed obstruction is durable evidence and cannot hide a state mutation.
@@ -177,6 +183,8 @@ The implementation is accepted only with executable witnesses that prove:
 9. Fresh-host recovery reconstructs Action outcomes, Tick, state, and receipts.
 10. Direct prepare/commit is marked transitional and absent from the
     application-facing surface.
+11. Removal of the remaining public host-owner compatibility seams is tracked
+    separately rather than claimed complete by this decision.
 
 ## Non-Goals
 

@@ -95,7 +95,7 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[test]]
 name = "executable_operation_pipeline_tests"
-required-features = ["native_rule_bootstrap", "trusted_runtime", "host_test"]
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [build-dependencies]
 blake3 = "1.0"

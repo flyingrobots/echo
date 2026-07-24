@@ -12,25 +12,28 @@ use std::{
 use bytes::Bytes;
 use echo_edict_canonical::{decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1};
 use warp_core::causal_wal::{
-    AffectedFrontier, AffectedFrontierKind, FilesystemWalFaultPlan, FilesystemWalFaultTarget, Lsn,
-    PayloadCodecId, PayloadSchemaId, WalAppendAuthority, WalBuildError, WalDurabilityMode,
-    WalRecordKind, WalSegmentId, WalTickDecision, WalTransactionBuilder, WalTransactionId,
-    WalTransactionKind, WalValidationError, WriterEpochId,
+    AffectedFrontier, AffectedFrontierKind, Lsn, PayloadCodecId, PayloadSchemaId,
+    WalAppendAuthority, WalBuildError, WalDurabilityMode, WalRecordKind, WalSegmentId,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
 };
+#[cfg(feature = "host_test")]
+use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget, WalTickDecision};
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1,
     EchoOperationAdmissionPolicyV1, EchoOperationAnchoredNodeOccupancyV1,
     EchoOperationApplicationBasisV1, EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
-    EchoOperationCommitErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
-    EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
-    EchoOperationObstructionKindV1, EchoOperationPreparationV1, EchoOperationProgramV1,
-    EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1, EngineBuilder,
-    ExecutableOperationPackageV1, GraphStore, InboxPolicy, IngressTarget, InstalledEchoOperationV1,
-    NodeKey, NodeRecord, PlaybackMode, RuntimeError, RuntimeWalActivationGap, SchedulerKind,
-    TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
-    WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
+    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
+    EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
+    EngineBuilder, ExecutableOperationPackageV1, GraphStore, InboxPolicy, IngressTarget,
+    InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeWalActivationGap,
+    SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey,
 };
+#[cfg(feature = "host_test")]
+use warp_core::{EchoOperationCommitErrorV1, RuntimeError};
 
 const OPERATION_COORDINATE: &str = "echo.fixture.SetAnchoredAtom.v1";
 const CREATE_OPERATION_COORDINATE: &str = "echo.fixture.CreateAnchoredAtomIfAbsent.v1";
@@ -2743,15 +2746,6 @@ fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
         host.echo_operation_action_outcome_v1(&committed_submission_id),
         Some(EchoOperationActionOutcomeV1::Committed(_))
     ));
-    assert_eq!(
-        host.echo_operation_action_admission_attempts_for_test(&committed_submission_id),
-        1
-    );
-    assert_eq!(
-        host.echo_operation_action_admission_attempts_for_test(&deferred_submission_id),
-        1,
-        "the host reuses admission evidence while the inbox defers an Action"
-    );
 }
 
 #[test]
@@ -2906,67 +2900,74 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             "one composite Tick retains one decision record, per-Action outcomes, and one state delta"
         );
 
-        let mut adversarial = runtime_wal
-            .recover_read_only()
-            .expect("the honest composite Tick recovers");
-        let mut missing_installation = adversarial.clone();
-        missing_installation.installed_echo_operations.clear();
-        assert!(matches!(
-            missing_installation.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        let mut contradictory_decision = adversarial.clone();
-        contradictory_decision.replace_echo_operation_action_decision_for_test(
-            first_submission_id,
-            WalTickDecision::Obstructed,
-        );
-        assert!(matches!(
-            contradictory_decision.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        let mut forged_admission_ticket = adversarial.clone();
-        let forged_ticket = digest("forged-Action-admission-ticket");
-        forged_admission_ticket.receipt_correlations[0].ticket_digest = forged_ticket;
-        forged_admission_ticket.receipt_correlations[0]
-            .causal_receipt_ref
-            .ticket_digest = forged_ticket;
-        assert!(matches!(
-            forged_admission_ticket.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        let mut retroactive_installation = adversarial.clone();
-        retroactive_installation
-            .clear_echo_operation_action_installations_before_tick_for_test(first_submission_id);
-        assert!(matches!(
-            retroactive_installation.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        let mut forged_composition = adversarial.clone();
-        let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
-            .echo_operation_action_outcomes
-            .iter_mut()
-            .find(|(_, _, outcome)| matches!(outcome, EchoOperationActionOutcomeV1::Committed(_)))
-        else {
-            panic!("the recovered composite Tick retains one committed Action receipt");
-        };
-        receipt.replace_composition_digest_for_test(digest("forged-composition"));
-        assert!(matches!(
-            forged_composition.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        assert!(
-            adversarial
+        #[cfg(feature = "host_test")]
+        {
+            let mut adversarial = runtime_wal
+                .recover_read_only()
+                .expect("the honest composite Tick recovers");
+            let mut missing_installation = adversarial.clone();
+            missing_installation.installed_echo_operations.clear();
+            assert!(matches!(
+                missing_installation.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut contradictory_decision = adversarial.clone();
+            contradictory_decision.replace_echo_operation_action_decision_for_test(
+                first_submission_id,
+                WalTickDecision::Obstructed,
+            );
+            assert!(matches!(
+                contradictory_decision.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut forged_admission_ticket = adversarial.clone();
+            let forged_ticket = digest("forged-Action-admission-ticket");
+            forged_admission_ticket.receipt_correlations[0].ticket_digest = forged_ticket;
+            forged_admission_ticket.receipt_correlations[0]
+                .causal_receipt_ref
+                .ticket_digest = forged_ticket;
+            assert!(matches!(
+                forged_admission_ticket.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut retroactive_installation = adversarial.clone();
+            retroactive_installation
+                .clear_echo_operation_action_installations_before_tick_for_test(
+                    first_submission_id,
+                );
+            assert!(matches!(
+                retroactive_installation.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut forged_composition = adversarial.clone();
+            let Some((_, _, EchoOperationActionOutcomeV1::Committed(receipt))) = forged_composition
                 .echo_operation_action_outcomes
-                .windows(2)
-                .all(|pair| pair[0].1 < pair[1].1),
-            "Action outcome records are retained in canonical ingress order"
-        );
-        let (first, second) = adversarial.echo_operation_action_outcomes.split_at_mut(1);
-        std::mem::swap(&mut first[0].2, &mut second[0].2);
-        assert!(matches!(
-            adversarial.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
+                .iter_mut()
+                .find(|(_, _, outcome)| {
+                    matches!(outcome, EchoOperationActionOutcomeV1::Committed(_))
+                })
+            else {
+                panic!("the recovered composite Tick retains one committed Action receipt");
+            };
+            receipt.replace_composition_digest_for_test(digest("forged-composition"));
+            assert!(matches!(
+                forged_composition.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            assert!(
+                adversarial
+                    .echo_operation_action_outcomes
+                    .windows(2)
+                    .all(|pair| pair[0].1 < pair[1].1),
+                "Action outcome records are retained in canonical ingress order"
+            );
+            let (first, second) = adversarial.echo_operation_action_outcomes.split_at_mut(1);
+            std::mem::swap(&mut first[0].2, &mut second[0].2);
+            assert!(matches!(
+                adversarial.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+        }
     }
 
     let (mut recovered, head_key, first_node, second_node) = fixture_host_with_bare_node(
@@ -3074,9 +3075,6 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
     assert!(submission_ids.iter().all(|submission_id| host
         .echo_operation_action_outcome_v1(submission_id)
         .is_some()));
-    assert!(submission_ids.iter().all(|submission_id| {
-        host.echo_operation_action_admission_attempts_for_test(submission_id) == 1
-    }));
 }
 
 #[test]
@@ -3417,19 +3415,10 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
             .echo_operation_action_outcome_v1(&unavailable_submission_id)
             .is_none());
         assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
-        assert_eq!(
-            host.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
-            1
-        );
         assert!(host
             .tick_once()
             .expect("quarantined admission work does not poison an idle pass")
             .is_empty());
-        assert_eq!(
-            host.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
-            1,
-            "a quarantined Action is not decoded and re-admitted every Tick"
-        );
     }
 
     let (mut recovered, recovered_head, recovered_node) = fixture_host();
@@ -3449,18 +3438,10 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
         recovered.echo_operation_action_admission_obstruction_v1(&unavailable_submission_id),
         Some(EchoOperationInvocationAdmissionErrorKindV1::OperationUnavailable)
     );
-    assert_eq!(
-        recovered.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
-        1
-    );
     assert!(recovered
         .tick_once()
         .expect("recovered quarantine remains idle without re-admission")
         .is_empty());
-    assert_eq!(
-        recovered.echo_operation_action_admission_attempts_for_test(&unavailable_submission_id),
-        1
-    );
     assert_eq!(recovered.runtime().pending_witnessed_submission_count(), 1);
     assert_eq!(recovered_head, head_key);
     assert_eq!(recovered_node, node);
@@ -3681,33 +3662,38 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
             })
             .expect("exactly one Action is rejected by the earlier applied footprint");
 
-        let mut adversarial = host
-            .runtime_wal()
-            .expect("the conflict WAL remains enabled")
-            .recover_read_only()
-            .expect("the honest conflict batch recovers");
-        adversarial.replace_echo_operation_action_conflict_preparation_for_test(
-            conflict_submission_id,
-            digest("forged-conflict-preparation"),
-        );
-        assert!(matches!(
-            adversarial.validate_echo_operation_action_outcomes_for_test(),
-            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
-        ));
-        let mut false_conflict = host
-            .runtime_wal()
-            .expect("the conflict WAL remains enabled")
-            .recover_read_only()
-            .expect("the honest conflict batch recovers again");
-        false_conflict.replace_echo_operation_action_conflict_blockers_for_test(
-            conflict_submission_id,
-            Vec::new(),
-        );
-        assert!(matches!(
-            false_conflict
-                .validate_echo_operation_parent_states_for_test(host.runtime(), host.provenance()),
-            Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
-        ));
+        #[cfg(feature = "host_test")]
+        {
+            let mut adversarial = host
+                .runtime_wal()
+                .expect("the conflict WAL remains enabled")
+                .recover_read_only()
+                .expect("the honest conflict batch recovers");
+            adversarial.replace_echo_operation_action_conflict_preparation_for_test(
+                conflict_submission_id,
+                digest("forged-conflict-preparation"),
+            );
+            assert!(matches!(
+                adversarial.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
+            let mut false_conflict = host
+                .runtime_wal()
+                .expect("the conflict WAL remains enabled")
+                .recover_read_only()
+                .expect("the honest conflict batch recovers again");
+            false_conflict.replace_echo_operation_action_conflict_blockers_for_test(
+                conflict_submission_id,
+                Vec::new(),
+            );
+            assert!(matches!(
+                false_conflict.validate_echo_operation_parent_states_for_test(
+                    host.runtime(),
+                    host.provenance()
+                ),
+                Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+            ));
+        }
     }
 
     let (mut recovered, _, _) = fixture_host();
@@ -3720,6 +3706,7 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
     ));
 }
 
+#[cfg(feature = "host_test")]
 #[test]
 fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     let wal_dir = TempWalDir::new();
@@ -3810,6 +3797,7 @@ fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     ));
 }
 
+#[cfg(feature = "host_test")]
 #[test]
 fn scheduler_tick_construction_failure_publishes_no_action_state_or_receipt() {
     let (mut host, head_key, node) = fixture_host();

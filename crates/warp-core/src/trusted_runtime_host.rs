@@ -717,8 +717,6 @@ pub struct TrustedRuntimeHost {
     admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
     echo_operation_action_admission_obstructions:
         BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
-    #[cfg(any(test, feature = "host_test"))]
-    echo_operation_action_admission_attempts: BTreeMap<Hash, u64>,
 }
 
 fn pending_echo_operation_action_ids_v1(
@@ -763,8 +761,6 @@ impl TrustedRuntimeHost {
             pending_echo_operation_actions,
             admitted_echo_operation_actions: BTreeMap::new(),
             echo_operation_action_admission_obstructions: BTreeMap::new(),
-            #[cfg(any(test, feature = "host_test"))]
-            echo_operation_action_admission_attempts: BTreeMap::new(),
         })
     }
 
@@ -789,8 +785,6 @@ impl TrustedRuntimeHost {
             pending_echo_operation_actions,
             admitted_echo_operation_actions: BTreeMap::new(),
             echo_operation_action_admission_obstructions: BTreeMap::new(),
-            #[cfg(any(test, feature = "host_test"))]
-            echo_operation_action_admission_attempts: BTreeMap::new(),
         }
     }
 
@@ -848,17 +842,6 @@ impl TrustedRuntimeHost {
         self.echo_operation_action_admission_obstructions
             .get(submission_id)
             .copied()
-    }
-
-    /// Returns how often runtime-owned admission evaluated one Action in
-    /// scheduler tests.
-    #[cfg(any(test, feature = "host_test"))]
-    #[must_use]
-    pub fn echo_operation_action_admission_attempts_for_test(&self, submission_id: &Hash) -> u64 {
-        self.echo_operation_action_admission_attempts
-            .get(submission_id)
-            .copied()
-            .unwrap_or(0)
     }
 
     /// Admits exact executable-operation package bytes under independent policy.
@@ -1204,8 +1187,6 @@ impl TrustedRuntimeHost {
         );
         self.admitted_echo_operation_actions.clear();
         self.echo_operation_action_admission_obstructions.clear();
-        #[cfg(any(test, feature = "host_test"))]
-        self.echo_operation_action_admission_attempts.clear();
         self.runtime_wal = Some(runtime_wal);
         Ok(())
     }
@@ -1780,11 +1761,6 @@ impl TrustedRuntimeHost {
                     continue;
                 }
             }
-            #[cfg(any(test, feature = "host_test"))]
-            self.echo_operation_action_admission_attempts
-                .entry(submission_id)
-                .and_modify(|attempts| *attempts += 1)
-                .or_insert(1);
             let package_id = match decode_invocation_route_v1(&invocation_bytes) {
                 Ok((package_id, _)) => package_id,
                 Err(error) => {

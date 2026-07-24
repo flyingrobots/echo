@@ -10,19 +10,27 @@
 - Executable-operation application writes now enter Echo as canonical,
   WAL-acknowledged Actions and are evaluated only by the scheduler while
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
-  work. Two independent Actions can share one exact parent coordinate and
-  contribute to one composite Tick, while retaining candidate-specific
-  application-basis propositions and per-Action typed outcomes. Footprint
-  conflicts name earlier applied members; evaluator obstructions contribute no
-  operations. One scheduler WAL transaction retains exactly one batched Tick
-  decision record, then each Action's receipt correlation and typed outcome in
-  canonical order, followed by exactly one replayable state delta. The decided
-  Tick is durable before state, frontier, receipt, or outcome publication, and
-  fresh-host recovery validates every
-  outcome against its exact envelope, invocation, installed operation, Tick
-  entry, composite consequence, and state root. Direct operation
-  prepare/commit remains a hidden transitional compatibility/test seam rather
-  than an application execution lifecycle.
+  work. Runtime-owned admission uses a bounded pending index and cache;
+  unavailable packages are quarantined without poisoning unrelated work.
+  Scheduler selection admits at most 64 executable Actions per Tick, leaving
+  excess work pending, and meters footprint comparisons, blocker evidence, and
+  aggregate operations during composition. Two independent Actions can share
+  one exact parent coordinate and contribute to one composite Tick while
+  retaining candidate-specific application-basis propositions and per-Action
+  typed outcomes. Footprint conflicts name earlier applied members; evaluator
+  and composition-budget obstructions contribute no operations.
+  One scheduler WAL transaction retains exactly one batched Tick decision
+  record, then each Action's receipt correlation and typed outcome in canonical
+  order, followed by exactly one replayable state delta. The decided Tick is
+  durable before state, frontier, receipt, or outcome publication. Fresh-host
+  recovery validates every outcome against its exact envelope, admission,
+  invocation, installed operation, causal coordinate, evaluation basis,
+  reconstructed preparation and actual footprint, Tick entry, composite
+  consequence, and state root. Legacy operation recovery-index roots remain
+  byte-compatible when no Action outcome exists. Direct operation
+  prepare/commit remains a documentation-hidden public
+  `TrustedRuntimeHost` compatibility/test seam, absent from
+  `TrustedRuntimeApp`; removal is tracked by issue #689.
 - `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
   slice. A runtime owner can admit exact canonical
   `ExecutableOperationPackageV1` bytes under a separate package policy, install

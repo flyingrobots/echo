@@ -2443,6 +2443,19 @@ pub(crate) fn prepare_operation_v1(
                     ]
                 }
                 Some(record) => {
+                    // PR #686 review finding #4 (Codex): every occupied
+                    // create target refuses with PreconditionMismatch per
+                    // ADR 0024's own stated contract ("something already
+                    // exists where absence was claimed"), regardless of
+                    // *what* about it differs from the package's
+                    // requirements. Checking this before the type/attachment
+                    // checks below (which exist to serve the update path)
+                    // keeps that uniform for callers, rather than leaking
+                    // update-path-specific obstruction kinds through a
+                    // creation-shaped precondition.
+                    if expects_creation {
+                        return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+                    }
                     if record.ty != required_node_type {
                         return obstruction(EchoOperationObstructionKindV1::NodeTypeMismatch);
                     }
@@ -2451,15 +2464,8 @@ pub(crate) fn prepare_operation_v1(
                     }
                     actual_footprint.a_read.insert(slot);
                     let Some(attachment) = store.node_attachment(&node.local_id) else {
-                        return obstruction(if expects_creation {
-                            EchoOperationObstructionKindV1::PreconditionMismatch
-                        } else {
-                            EchoOperationObstructionKindV1::AttachmentMissing
-                        });
+                        return obstruction(EchoOperationObstructionKindV1::AttachmentMissing);
                     };
-                    if expects_creation {
-                        return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
-                    }
                     let AttachmentValue::Atom(atom) = attachment else {
                         return obstruction(EchoOperationObstructionKindV1::AttachmentNotAtom);
                     };

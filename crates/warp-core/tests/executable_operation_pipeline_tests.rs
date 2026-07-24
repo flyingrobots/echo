@@ -1978,12 +1978,16 @@ fn update_precondition_still_refuses_when_the_node_is_absent() {
     );
 }
 
-/// ADR 0024: create-from-absence refuses with `NodeTypeMismatch`, not a
-/// generic precondition failure, when a node exists at the claimed-absent
-/// coordinate but with a different `NodeRecord.ty` than the installed
-/// package declares. The node has no attachment set, so admission's coarser
-/// check (which never inspects node type) still sees "absent" and admits;
-/// `prepare_operation_v1`'s finer check is what refuses.
+/// Regression for PR #686 review finding #4 (Codex, P2): create-from-absence
+/// refuses with `PreconditionMismatch`, not `NodeTypeMismatch`, when a node
+/// exists at the claimed-absent coordinate with a different `NodeRecord.ty`
+/// than the installed package declares. ADR 0024 states every occupied
+/// create target refuses as a precondition failure, regardless of what about
+/// it differs -- `NodeTypeMismatch` is reserved for the update path, where a
+/// caller who correctly expected the node to exist got its type wrong. The
+/// node has no attachment set, so admission's coarser check (which never
+/// inspects node type) still sees "absent" and admits; `prepare_operation_v1`'s
+/// finer check is what refuses.
 #[test]
 fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     let wrong_type_node_id = make_node_id("operation-fixture-wrong-type");
@@ -2024,7 +2028,7 @@ fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
     };
     assert_eq!(
         obstruction.kind(),
-        EchoOperationObstructionKindV1::NodeTypeMismatch
+        EchoOperationObstructionKindV1::PreconditionMismatch
     );
 }
 
@@ -2410,5 +2414,58 @@ fn create_from_absence_charges_the_node_record_against_the_write_budget() {
     assert_eq!(
         obstruction.kind(),
         EchoOperationObstructionKindV1::BudgetExceeded
+    );
+}
+
+/// Companion to the PR #686 review finding #4 fix: `NodeTypeMismatch` is not
+/// dead code after `expects_creation` is checked first in the `Some(record)`
+/// arm -- it remains the correct obstruction for the update path, where a
+/// caller who correctly expected the node to exist (`Some(digest)`) named
+/// the wrong type.
+#[test]
+fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
+    let wrong_type_node_id = make_node_id("operation-fixture-update-wrong-type");
+    let wrong_node_type = make_type_id("operation-fixture-wrong-node-type");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, wrong_type_node) =
+        fixture_host_with_bare_node(wrong_type_node_id, wrong_node_type);
+    let installed = install_fixture_operation(&mut host);
+
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(wrong_type_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        wrong_type_node,
+        Some(warp_core::echo_operation_atom_value_digest_v1(
+            attachment_type,
+            b"before",
+        )),
+        b"after".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the update invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo admits the invocation -- node type is not an admission-time check");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("an update against a wrong-typed existing node must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::NodeTypeMismatch
     );
 }

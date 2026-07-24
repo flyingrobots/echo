@@ -4123,6 +4123,9 @@ pub enum EchoOperationCommitErrorV1 {
     /// The candidate count cannot be represented by Tick blocker indices.
     #[error("executable-operation Action batch has too many candidates")]
     TooManyCandidates,
+    /// More than one candidate claimed the same canonical ingress identity.
+    #[error("executable-operation Action batch contains duplicate ingress identity")]
+    DuplicateCandidateIngress,
     /// Test-only scheduler fault injected before Action Tick construction.
     #[cfg(all(
         feature = "native_rule_bootstrap",
@@ -4177,11 +4180,21 @@ struct EchoOperationTerminalMaterialV1 {
 }
 
 pub(crate) fn commit_scheduler_action_batch_to_state_v1(
-    candidates: Vec<SchedulerEchoOperationCandidateV1>,
+    mut candidates: Vec<SchedulerEchoOperationCandidateV1>,
     state: &mut WorldlineState,
     commit_global_tick: GlobalTick,
     policy_id: u32,
 ) -> Result<EchoOperationActionBatchCommitMaterialV1, EchoOperationCommitErrorV1> {
+    // This order is part of the receipt-correlation contract: coordinator
+    // outcome lookup maps the same Tick's ingress-sorted correlations onto
+    // these receipt entries by position.
+    candidates.sort_by_key(|candidate| candidate.ingress_id);
+    if candidates
+        .windows(2)
+        .any(|pair| pair[0].ingress_id == pair[1].ingress_id)
+    {
+        return Err(EchoOperationCommitErrorV1::DuplicateCandidateIngress);
+    }
     let state_root_before = state.state_root();
     let tx_raw = state
         .current_tick()

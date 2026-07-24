@@ -1783,6 +1783,13 @@ impl WorldlineRuntime {
                 })
                 .collect::<Vec<_>>();
             same_tick.sort_by_key(|candidate| candidate.ingress_id);
+            if same_tick.len() != receipt.entries().len()
+                || same_tick
+                    .windows(2)
+                    .any(|pair| pair[0].ingress_id >= pair[1].ingress_id)
+            {
+                return no_match();
+            }
             let Some(index) = same_tick.iter().position(|candidate| {
                 candidate.ticketed_ingress_id == correlation.ticketed_ingress_id
             }) else {

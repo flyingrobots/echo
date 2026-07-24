@@ -4873,22 +4873,14 @@ fn tick_record_batch_from_transaction(
                 ));
             }
             index += 2;
-            let action_outcome = if transaction.frames.get(index).is_some_and(|frame| {
+            if transaction.frames.get(index).is_some_and(|frame| {
                 frame.header.record_kind == WalRecordKind::ExecutableOperationActionOutcomeRecorded
             }) {
-                let frame = &transaction.frames[index];
-                index += 1;
-                let recovered = recover_action_outcome_v1(&frame.payload.canonical_bytes)?;
-                if recovered.0 != receipt.receipt_ref.submission_id {
-                    return Err(decode_trusted_runtime_wal_payload(
-                        WalDecodeError::InvalidEmbeddedFrame,
-                    ));
-                }
-                Some(recovered)
-            } else {
-                None
-            };
-            records.push((receipt, correlation, action_outcome));
+                return Err(decode_trusted_runtime_wal_payload(
+                    WalDecodeError::InvalidEmbeddedFrame,
+                ));
+            }
+            records.push((receipt, correlation, None));
         }
     }
     let action_outcome_count = records
@@ -6721,6 +6713,75 @@ mod tests {
                 )))
             ));
         }
+    }
+
+    #[test]
+    fn runtime_wal_legacy_tick_rejects_action_outcome_frame() {
+        let wal = TrustedRuntimeWal::new_in_memory().expect("test WAL should initialize");
+        let receipt = TickReceiptRecord {
+            receipt_ref: CausalTickReceiptRef {
+                worldline_id: WorldlineId::from_bytes([40; 32]),
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_hash: [41; 32],
+                submission_id: [42; 32],
+                ticket_digest: [43; 32],
+                receipt_content_digest: [44; 32],
+            },
+            decision: WalTickDecision::Obstructed,
+        };
+        let correlation = WalReceiptCorrelationRecord {
+            receipt_ref: receipt.receipt_ref,
+            causal_parent_receipts: Vec::new(),
+        };
+        let mut action_outcome = b"EOACT002".to_vec();
+        action_outcome.extend_from_slice(&receipt.receipt_ref.submission_id);
+        action_outcome.extend_from_slice(&[45; 32]);
+        action_outcome.extend_from_slice(&[2, 1]);
+        for byte in 46..=50 {
+            action_outcome.extend_from_slice(&[byte; 32]);
+        }
+
+        let mut builder = wal.builder(
+            WalTransactionKind::SchedulerTick,
+            WalAppendAuthority::TrustedScheduler,
+            WalTransactionId::from_hash([51; 32]),
+        );
+        builder
+            .push_record(
+                WalRecordKind::TickReceiptRecorded,
+                receipt.to_payload_bytes(),
+            )
+            .expect("fixture legacy receipt must append");
+        builder
+            .push_record(
+                WalRecordKind::ReceiptCorrelationRecorded,
+                correlation.to_payload_bytes(),
+            )
+            .expect("fixture legacy correlation must append");
+        builder
+            .push_record(
+                WalRecordKind::ExecutableOperationActionOutcomeRecorded,
+                action_outcome,
+            )
+            .expect("adversarial Action outcome must append structurally");
+        builder
+            .push_record(WalRecordKind::RuntimeStateDeltaRecorded, [52; 32].to_vec())
+            .expect("fixture state delta must append");
+        let transaction = builder
+            .commit(Vec::new())
+            .expect("adversarial legacy transaction must commit structurally");
+        let recovered = crate::causal_wal::WalRecoveredTransaction {
+            commit: transaction.commit,
+            frames: transaction.frames,
+        };
+
+        assert!(matches!(
+            tick_record_batch_from_transaction(&recovered),
+            Err(TrustedRuntimeWalError::Recovery(WalRecoveryError::Index(
+                WalRecoveryIndexError::Decode(WalDecodeError::InvalidEmbeddedFrame)
+            )))
+        ));
     }
 
     #[test]

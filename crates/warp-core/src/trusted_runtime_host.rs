@@ -42,6 +42,7 @@ use crate::{
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
+        action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, admit_action_invocation_v1,
         admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
         decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
@@ -3804,7 +3805,114 @@ fn validate_recovered_echo_operation_parent_states(
             });
         }
     }
+
+    let submissions = recovery
+        .witnessed_submissions
+        .records()
+        .iter()
+        .map(|record| (record.submission.submission_id, record))
+        .collect::<BTreeMap<_, _>>();
+    let correlations = recovery
+        .receipt_correlations
+        .iter()
+        .map(|correlation| (correlation.submission_id, correlation))
+        .collect::<BTreeMap<_, _>>();
+    for (submission_id, _, outcome) in &recovery.echo_operation_action_outcomes {
+        let submission = submissions.get(submission_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no retained submission",
+            },
+        )?;
+        let correlation = correlations.get(submission_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no retained receipt correlation",
+            },
+        )?;
+        let invocation_bytes = echo_operation_action_invocation_bytes_v1(&submission.envelope)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no canonical invocation",
+            })?;
+        let invocation = inspect_action_invocation_v1(invocation_bytes).map_err(|_| {
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome invocation cannot be inspected",
+            }
+        })?;
+        let installed = installations.get(&invocation.package_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has no recovered installation",
+            },
+        )?;
+        let basis = invocation.evaluation_basis;
+        let worldline_id = basis.writer_head().worldline_id;
+        let frontier = runtime.worldlines().get(&worldline_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis names an unavailable recovery worldline",
+            },
+        )?;
+        let basis_state = recovered_provenance
+            .replay_worldline_state_at(worldline_id, frontier.state(), basis.worldline_tick())
+            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis state cannot be reconstructed",
+            })?;
+        if basis_state.state_root() != basis.state_root()
+            || !action_application_basis_matches_state_v1(installed, invocation_bytes, &basis_state)
+                .unwrap_or(false)
+            || !evaluation_basis_matches_recovered_coordinate(basis, &entries)
+        {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis disagrees with reconstructed causal state",
+            });
+        }
+        let tick_before = correlation
+            .worldline_tick_after
+            .as_u64()
+            .checked_sub(1)
+            .map(crate::WorldlineTick::from_raw)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome has an impossible Tick coordinate",
+            })?;
+        let basis_is_current =
+            basis.writer_head() == correlation.head_key && basis.worldline_tick() == tick_before;
+        let basis_changed = matches!(
+            outcome,
+            EchoOperationActionOutcomeV1::Obstructed(obstruction)
+                if obstruction.kind() == crate::EchoOperationObstructionKindV1::BasisChanged
+        );
+        if basis_changed == basis_is_current {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action basis posture disagrees with the scheduler Tick parent",
+            });
+        }
+    }
     Ok(())
+}
+
+fn evaluation_basis_matches_recovered_coordinate(
+    basis: EchoOperationEvaluationBasisV1,
+    entries: &BTreeMap<(crate::WorldlineId, crate::WorldlineTick), &ProvenanceEntry>,
+) -> bool {
+    if basis.worldline_tick() == crate::WorldlineTick::ZERO {
+        return basis.commit_global_tick().is_none()
+            && basis.commit_id()
+                == crate::echo_operation::genesis_commit_id(
+                    basis.writer_head(),
+                    basis.state_root(),
+                );
+    }
+    let Some(parent_tick) = basis.worldline_tick().as_u64().checked_sub(1) else {
+        return false;
+    };
+    entries
+        .get(&(
+            basis.writer_head().worldline_id,
+            crate::WorldlineTick::from_raw(parent_tick),
+        ))
+        .is_some_and(|parent| {
+            parent.head_key == Some(basis.writer_head())
+                && parent.expected.state_root == basis.state_root()
+                && parent.expected.commit_hash == basis.commit_id()
+                && basis.commit_global_tick() == Some(parent.commit_global_tick)
+        })
 }
 
 fn validate_operation_receipt_state_delta(
@@ -5830,16 +5938,28 @@ mod tests {
         let provenance = BTreeMap::from([(parent_coordinate, &parent)]);
         validate_operation_receipt_parent_material(basis, &child, &provenance)
             .expect("the exact retained parent corroborates every causal basis field");
+        assert!(evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
 
         let mut wrong_root = parent.clone();
         wrong_root.expected.state_root = [39; 32];
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+        assert!(!evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
 
         let mut wrong_global_tick = parent.clone();
         wrong_global_tick.commit_global_tick = GlobalTick::from_raw(9);
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_global_tick)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());
+        assert!(!evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &provenance
+        ));
     }
 
     fn test_correlation(receipt_digest: Hash) -> ReceiptCorrelationRecord {

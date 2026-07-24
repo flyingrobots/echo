@@ -2540,6 +2540,22 @@ fn current_application_basis(
     }
 }
 
+pub(crate) fn action_application_basis_matches_state_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    state: &WorldlineState,
+) -> Result<bool, EchoOperationInvocationAdmissionErrorV1> {
+    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
+        .map_err(|error| {
+            invocation_admission_error(
+                EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation,
+                error.to_string(),
+            )
+        })?;
+    Ok(current_application_basis(installed, &invocation, state)?
+        == invocation.evaluation_basis.application_basis)
+}
+
 pub(crate) fn decode_invocation_route_v1(
     canonical_invocation_bytes: &[u8],
 ) -> Result<

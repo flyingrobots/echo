@@ -41,14 +41,15 @@ use crate::{
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
-        admit_invocation_v1, admit_package_v1, commit_prepared_to_state,
-        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
-        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
-        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
-        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
-        recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
-        retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
-        validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
+        admit_action_invocation_v1, admit_invocation_v1, admit_package_v1,
+        commit_prepared_to_state, decode_invocation_route_v1,
+        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
+        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
+        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
+        operation_descent_stack, prepare_operation_v1, recover_action_outcome_v1,
+        recover_committed_execution_receipt_v1, recover_installation_v1, retain_action_outcome_v1,
+        retain_committed_execution_v1, retain_installation_v1, validate_receipt_installation_v1,
+        EchoOperationEvaluationAuthorityV1,
     },
     provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
@@ -1600,7 +1601,13 @@ impl TrustedRuntimeHost {
             .ok_or(TrustedRuntimeHostError::EchoOperationActionAdmissionPolicyUnavailable)?;
         let mut admitted_actions = BTreeMap::new();
         for (submission, envelope, invocation_bytes) in pending {
-            let admitted = self.admit_echo_operation_invocation_v1(&policy, &invocation_bytes)?;
+            let (package_id, _) = decode_invocation_route_v1(&invocation_bytes)?;
+            let admitted = admit_action_invocation_v1(
+                self.engine.installed_echo_operation_package_v1(package_id),
+                policy,
+                &invocation_bytes,
+                self.echo_operation_evaluation_authority.clone(),
+            )?;
             let admission_digest = echo_operation_action_admission_digest(&submission, &admitted);
             self.runtime.ingest_echo_operation_action_v1(
                 &TicketedRuntimeIngressAuthority::assume_runtime_owner(),

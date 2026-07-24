@@ -170,6 +170,20 @@ fn fixture_host_with_bare_node(
     second_node_type: warp_core::TypeId,
     second_attachment: Option<(warp_core::TypeId, &'static [u8])>,
 ) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
+    fixture_host_with_bare_node_and_policy(
+        second_node_local_id,
+        second_node_type,
+        second_attachment,
+        InboxPolicy::AcceptAll,
+    )
+}
+
+fn fixture_host_with_bare_node_and_policy(
+    second_node_local_id: warp_core::NodeId,
+    second_node_type: warp_core::TypeId,
+    second_attachment: Option<(warp_core::TypeId, &'static [u8])>,
+    inbox_policy: InboxPolicy,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
     let warp_id = make_warp_id("operation-fixture");
     let node_id = make_node_id("operation-fixture-root");
     let node_type = make_type_id("operation-fixture-node");
@@ -221,7 +235,7 @@ fn fixture_host_with_bare_node(
         .register_writer_head(WriterHead::with_routing(
             head_key,
             PlaybackMode::Play,
-            InboxPolicy::AcceptAll,
+            inbox_policy,
             None,
             true,
         ))
@@ -2573,6 +2587,97 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
         obstruction.kind(),
         EchoOperationObstructionKindV1::NodeTypeMismatch
     );
+}
+
+#[test]
+fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
+    let second_node_id = make_node_id("operation-fixture-budget-deferred");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, first_node, second_node) = fixture_host_with_bare_node_and_policy(
+        second_node_id,
+        make_type_id("operation-fixture-node"),
+        Some((attachment_type, b"second-before")),
+        InboxPolicy::Budgeted { max_per_tick: 1 },
+    );
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let first = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        first_node,
+        b"before",
+        b"first-after",
+    );
+    let second = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        second_node,
+        b"second-before",
+        b"second-after",
+    );
+    let first_submission = host
+        .app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                first,
+            )
+            .expect("the first invocation is one canonical Action"),
+        )
+        .expect("the first Action is accepted");
+    let second_submission = host
+        .app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: head_key },
+                second,
+            )
+            .expect("the second invocation is one canonical Action"),
+        )
+        .expect("the second Action is accepted");
+    let first_submission_id = first_submission.submission_id;
+    let second_submission_id = second_submission.submission_id;
+
+    let first_tick = host
+        .tick_once()
+        .expect("one Action is selected at the original basis");
+    assert_eq!(first_tick.len(), 1);
+    assert_eq!(first_tick[0].admitted_count, 1);
+
+    let (committed_submission_id, deferred_submission_id) = match (
+        host.echo_operation_action_outcome_v1(&first_submission_id),
+        host.echo_operation_action_outcome_v1(&second_submission_id),
+    ) {
+        (Some(EchoOperationActionOutcomeV1::Committed(_)), None) => {
+            (first_submission_id, second_submission_id)
+        }
+        (None, Some(EchoOperationActionOutcomeV1::Committed(_))) => {
+            (second_submission_id, first_submission_id)
+        }
+        outcomes => panic!("exactly one Action must commit in the first Tick: {outcomes:?}"),
+    };
+
+    let second_tick = host
+        .tick_once()
+        .expect("the deferred Action reaches scheduler-owned private evaluation");
+    assert_eq!(second_tick.len(), 1);
+    assert_eq!(second_tick[0].admitted_count, 1);
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        host.echo_operation_action_outcome_v1(&deferred_submission_id)
+    else {
+        panic!("the stale deferred Action must receive one typed obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BasisChanged
+    );
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&committed_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
 }
 
 #[test]

@@ -2307,6 +2307,85 @@ pub(crate) fn admit_invocation_v1(
     current_state: &WorldlineState,
     evaluation_authority: EchoOperationEvaluationAuthorityV1,
 ) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+    let (invocation, installed) =
+        admit_invocation_static_v1(installed, policy, canonical_invocation_bytes)?;
+    if invocation.evaluation_basis != current_basis {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation does not name the current exact parent basis",
+        ));
+    }
+    if invocation
+        .evaluation_basis
+        .application_basis
+        .schema_identity
+        != installed.application_basis_schema_identity
+    {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation application-basis schema differs from installed package",
+        ));
+    }
+    let current_application_basis =
+        current_application_basis(installed, &invocation, current_state)?;
+    if invocation.evaluation_basis.application_basis != current_application_basis {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation application basis differs from Echo's current graph proposition",
+        ));
+    }
+    Ok(build_admitted_invocation_v1(
+        invocation,
+        installed,
+        policy,
+        canonical_invocation_bytes,
+        evaluation_authority,
+    ))
+}
+
+/// Admits the static installed meaning and runtime-owned authority for one
+/// scheduler-bound executable-operation Action.
+///
+/// Exact basis freshness is deliberately deferred to private evaluation during
+/// Tick construction. That lets an Action which was durably accepted at an
+/// earlier basis reach the evaluator and receive a typed `BasisChanged`
+/// obstruction instead of failing the host admission loop.
+pub(crate) fn admit_action_invocation_v1(
+    installed: Option<&InstalledEchoOperationV1>,
+    policy: EchoOperationInvocationAdmissionPolicyV1,
+    canonical_invocation_bytes: &[u8],
+    evaluation_authority: EchoOperationEvaluationAuthorityV1,
+) -> Result<AdmittedEchoOperationInvocationV1, EchoOperationInvocationAdmissionErrorV1> {
+    let (invocation, installed) =
+        admit_invocation_static_v1(installed, policy, canonical_invocation_bytes)?;
+    if invocation
+        .evaluation_basis
+        .application_basis
+        .schema_identity
+        != installed.application_basis_schema_identity
+    {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
+            "invocation application-basis schema differs from installed package",
+        ));
+    }
+    Ok(build_admitted_invocation_v1(
+        invocation,
+        installed,
+        policy,
+        canonical_invocation_bytes,
+        evaluation_authority,
+    ))
+}
+
+fn admit_invocation_static_v1<'a>(
+    installed: Option<&'a InstalledEchoOperationV1>,
+    policy: EchoOperationInvocationAdmissionPolicyV1,
+    canonical_invocation_bytes: &[u8],
+) -> Result<
+    (EchoOperationInvocationV1, &'a InstalledEchoOperationV1),
+    EchoOperationInvocationAdmissionErrorV1,
+> {
     let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)
         .map_err(|error| {
             invocation_admission_error(
@@ -2360,38 +2439,24 @@ pub(crate) fn admit_invocation_v1(
             "delegated budget is below the program minimum or exceeds an admitted ceiling",
         ));
     }
-    if invocation.evaluation_basis != current_basis {
-        return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
-            "invocation does not name the current exact parent basis",
-        ));
-    }
-    if invocation
-        .evaluation_basis
-        .application_basis
-        .schema_identity
-        != installed.application_basis_schema_identity
-    {
-        return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
-            "invocation application-basis schema differs from installed package",
-        ));
-    }
-    let current_application_basis =
-        current_application_basis(installed, &invocation, current_state)?;
-    if invocation.evaluation_basis.application_basis != current_application_basis {
-        return Err(invocation_admission_error(
-            EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch,
-            "invocation application basis differs from Echo's current graph proposition",
-        ));
-    }
+    Ok((invocation, installed))
+}
+
+fn build_admitted_invocation_v1(
+    invocation: EchoOperationInvocationV1,
+    installed: &InstalledEchoOperationV1,
+    policy: EchoOperationInvocationAdmissionPolicyV1,
+    canonical_invocation_bytes: &[u8],
+    evaluation_authority: EchoOperationEvaluationAuthorityV1,
+) -> AdmittedEchoOperationInvocationV1 {
     let invocation_id = EchoOperationInvocationIdV1(domain_hash(
         INVOCATION_ID_DOMAIN,
         canonical_invocation_bytes,
     ));
     let admission_policy_id = policy.identity();
     let installed_operation_id = installed.installed_operation_id;
-    Ok(AdmittedEchoOperationInvocationV1 {
+    let evaluation_basis_id = invocation.evaluation_basis.identity();
+    AdmittedEchoOperationInvocationV1 {
         invocation,
         invocation_id,
         canonical_invocation_bytes: canonical_invocation_bytes.to_vec(),
@@ -2400,12 +2465,12 @@ pub(crate) fn admit_invocation_v1(
             installed_operation_id,
             invocation_id,
             admission_policy_id,
-            current_basis.identity(),
+            evaluation_basis_id,
         ),
         installed_operation_id,
         evaluation_authority,
         admission_policy: policy,
-    })
+    }
 }
 
 fn current_application_basis(

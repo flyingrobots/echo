@@ -147,9 +147,14 @@ exact canonical ExecutableOperationPackageV1 bytes
 -> committed outcomes only: execution-kernel WAL retention and callback-free recovery
 ```
 
-The first program is an anchored typed-node alpha-attachment compare-and-set.
-It is a generic vertical witness, not Jedit `ReplaceRange`, a rope intrinsic, or
-a general-purpose virtual machine. The package binds Edict source, canonical
+The first two programs are an anchored typed-node alpha-attachment
+compare-and-set and a separate create-if-absent profile. Compare-and-set keeps
+its original update-only bytes and identities. Creation has distinct
+invocation, schema, footprint, application-basis, result, recovery, and target
+profiles; it creates exactly one node and its alpha attachment only when both
+locations are absent. These are generic vertical witnesses, not Jedit
+`ReplaceRange`, a Graft multi-record mutation, a rope intrinsic, or a
+general-purpose virtual machine. The package binds Edict source, canonical
 meaning, Core, Target IR, application-schema, and lawpack identities as opaque
 substitution evidence. Echo does not yet obtain those identities from a real
 Edict compiler crossing or validate their semantic relation through a
@@ -175,11 +180,11 @@ The program bytes bind their interpreter and intrinsic profiles directly. The
 parent patch and singleton tick entry use the admitted installed-operation
 identity as their rule-pack/rule identity, so two packages that reuse identical
 program bytes do not collapse into one causal operation identity.
-The first slice composes one preparation and does not claim general scheduler
-batch integration or independent implementation evidence. Its canonical
-decoding, identity recomputation, budget and footprint checks, exact-basis
-comparison, deterministic repeatability, and WAL recovery are deterministic
-self-validation.
+The current slice composes one preparation and does not claim general scheduler
+batch integration, multi-record creation, or independent implementation
+evidence. Its canonical decoding, identity recomputation, budget and footprint
+checks, exact-basis comparison, deterministic repeatability, and WAL recovery
+are deterministic self-validation.
 
 The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
 under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That

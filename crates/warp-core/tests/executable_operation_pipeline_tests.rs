@@ -19,7 +19,8 @@ use warp_core::causal_wal::{
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationAdmissionErrorKindV1, EchoOperationAdmissionPolicyV1,
-    EchoOperationApplicationBasisV1, EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
+    EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationBasisV1,
+    EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
@@ -30,6 +31,7 @@ use warp_core::{
 };
 
 const OPERATION_COORDINATE: &str = "echo.fixture.SetAnchoredAtom.v1";
+const CREATE_OPERATION_COORDINATE: &str = "echo.fixture.CreateAnchoredAtomIfAbsent.v1";
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 struct TempWalDir(PathBuf);
@@ -155,6 +157,169 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     (host, head_key, node)
 }
 
+/// Like [`fixture_host`], but the warp-scoped store also contains a second,
+/// bare node -- present, but with no alpha attachment set -- at
+/// `second_node_local_id`, typed `second_node_type`. Used to exercise
+/// create-from-absence's ADR 0024 "existing node, absent attachment" and
+/// "existing node, wrong type" refusal paths, which the standard fixture's
+/// single fully-populated node cannot reach.
+fn fixture_host_with_bare_node(
+    second_node_local_id: warp_core::NodeId,
+    second_node_type: warp_core::TypeId,
+    second_attachment: Option<(warp_core::TypeId, &'static [u8])>,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
+    let warp_id = make_warp_id("operation-fixture");
+    let node_id = make_node_id("operation-fixture-root");
+    let node_type = make_type_id("operation-fixture-node");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let node = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let second_node = NodeKey {
+        warp_id,
+        local_id: second_node_local_id,
+    };
+    let mut store = GraphStore::new(warp_id);
+    store.insert_node(node_id, NodeRecord { ty: node_type });
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"before"),
+        ))),
+    );
+    store.insert_node(
+        second_node_local_id,
+        NodeRecord {
+            ty: second_node_type,
+        },
+    );
+    if let Some((second_attachment_type, second_attachment_bytes)) = second_attachment {
+        store.set_node_attachment(
+            second_node_local_id,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                second_attachment_type,
+                Bytes::from_static(second_attachment_bytes),
+            ))),
+        );
+    }
+    let state = WorldlineState::from_root_store(store, node_id)
+        .expect("the fixture state has one lawful root");
+    let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
+    let head_key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let mut runtime = WorldlineRuntime::new();
+    runtime
+        .register_worldline(worldline_id, state)
+        .expect("the fixture worldline registers");
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            head_key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))
+        .expect("the fixture writer registers");
+
+    let mut engine_store = GraphStore::default();
+    let engine_root = make_node_id("root");
+    engine_store.insert_node(
+        engine_root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(engine_store, engine_root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let host = TrustedRuntimeHost::new(runtime, engine)
+        .expect("the trusted Echo runtime host initializes");
+    (host, head_key, node, second_node)
+}
+
+/// Like [`fixture_host`], but the warp-scoped store also contains an
+/// *orphaned* alpha attachment -- present at `orphan_local_id` with no
+/// corresponding `NodeRecord` -- reachable because
+/// `GraphStore::set_node_attachment` does not require the owning node to
+/// exist. Used to exercise create-from-absence's PR #686 review finding #2
+/// (CodeRabbit + Codex): a node that is absent must not be treated as fully
+/// absent when its attachment slot is independently occupied.
+fn fixture_host_with_orphan_attachment(
+    orphan_local_id: warp_core::NodeId,
+    orphan_attachment_type: warp_core::TypeId,
+    orphan_bytes: &[u8],
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey, NodeKey) {
+    let warp_id = make_warp_id("operation-fixture");
+    let node_id = make_node_id("operation-fixture-root");
+    let node_type = make_type_id("operation-fixture-node");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let node = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let orphan_node = NodeKey {
+        warp_id,
+        local_id: orphan_local_id,
+    };
+    let mut store = GraphStore::new(warp_id);
+    store.insert_node(node_id, NodeRecord { ty: node_type });
+    store.set_node_attachment(
+        node_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"before"),
+        ))),
+    );
+    store.set_node_attachment(
+        orphan_local_id,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            orphan_attachment_type,
+            Bytes::copy_from_slice(orphan_bytes),
+        ))),
+    );
+    let state = WorldlineState::from_root_store(store, node_id)
+        .expect("the fixture state has one lawful root");
+    let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
+    let head_key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("operation-fixture-writer"),
+    };
+    let mut runtime = WorldlineRuntime::new();
+    runtime
+        .register_worldline(worldline_id, state)
+        .expect("the fixture worldline registers");
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            head_key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))
+        .expect("the fixture writer registers");
+
+    let mut engine_store = GraphStore::default();
+    let engine_root = make_node_id("root");
+    engine_store.insert_node(
+        engine_root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    let engine = EngineBuilder::new(engine_store, engine_root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build();
+    let host = TrustedRuntimeHost::new(runtime, engine)
+        .expect("the trusted Echo runtime host initializes");
+    (host, head_key, node, orphan_node)
+}
+
 fn semantic_closure() -> EchoOperationSemanticClosureV1 {
     EchoOperationSemanticClosureV1::new(
         digest("fixture-edict-source"),
@@ -194,6 +359,24 @@ fn operation_package_at(
     )
 }
 
+fn creation_operation_package(
+    node_type: warp_core::TypeId,
+    attachment_type: warp_core::TypeId,
+) -> ExecutableOperationPackageV1 {
+    ExecutableOperationPackageV1::new(
+        CREATE_OPERATION_COORDINATE,
+        semantic_closure(),
+        warp_core::echo_operation_create_if_absent_target_profile_identity_v1(),
+        digest("fixture-authority-profile"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            node_type,
+            attachment_type,
+            1_024,
+        ),
+    )
+}
+
 fn install_fixture_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
     install_fixture_operation_at(host, OPERATION_COORDINATE)
 }
@@ -223,6 +406,29 @@ fn install_fixture_operation_at(
         .expect("the exact fixture package is admitted");
     host.install_admitted_echo_operation_package_v1(admitted)
         .expect("the admitted fixture package installs")
+}
+
+fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> InstalledEchoOperationV1 {
+    let package_bytes = creation_operation_package(
+        make_type_id("operation-fixture-node"),
+        make_type_id("operation-fixture-atom"),
+    )
+    .to_canonical_bytes()
+    .expect("fixture creation package encodes");
+    let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
+    let admitted = host
+        .admit_echo_operation_package_v1(
+            &EchoOperationAdmissionPolicyV1::exact(
+                package_id,
+                CREATE_OPERATION_COORDINATE,
+                digest("fixture-authority-profile"),
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            ),
+            package_bytes,
+        )
+        .expect("the exact fixture creation package is admitted");
+    host.install_admitted_echo_operation_package_v1(admitted)
+        .expect("the admitted fixture creation package installs")
 }
 
 fn application_basis() -> EchoOperationApplicationBasisV1 {
@@ -333,7 +539,7 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
         installed.operation_coordinate(),
         evaluation_basis,
         digest("fixture-authority-grant"),
-        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        EchoOperationBudgetV1::new(4, 70, 37),
         node,
         warp_core::echo_operation_atom_value_digest_v1(attachment_type, b"before"),
         b"after".to_vec(),
@@ -424,7 +630,7 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
     );
     assert_eq!(
         execution.receipt().delegated_budget(),
-        EchoOperationBudgetV1::new(16, 4_096, 4_096)
+        EchoOperationBudgetV1::new(4, 70, 37)
     );
     assert_eq!(
         execution.receipt().consumed_budget(),
@@ -1611,5 +1817,727 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
             .map(warp_core::EchoOperationReceiptV1::digest)
             .collect::<Vec<_>>(),
         receipt_digests
+    );
+}
+
+/// ADR 0024: the create-if-absent program, invoked against a node and
+/// attachment that genuinely do not exist yet, commits one atomic patch that
+/// creates both using exactly the program's declared
+/// `required_node_type`/`required_attachment_type`.
+#[test]
+fn create_from_absence_commits_one_new_node_and_attachment_patch() {
+    let (mut host, head_key, _existing_node) = fixture_host();
+    let node_type = make_type_id("operation-fixture-node");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let installed = install_fixture_creation_operation(&mut host);
+
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(3, 64, 71),
+        new_node,
+        b"created".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo independently admits the create-from-absence invocation");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Prepared(prepared) = preparation else {
+        panic!("a lawful create-from-absence invocation must prepare");
+    };
+    assert_eq!(prepared.declared_footprint(), prepared.actual_footprint());
+
+    let execution = host
+        .commit_prepared_echo_operation_v1(prepared)
+        .expect("Echo commits the create-from-absence patch");
+    assert_eq!(
+        execution.receipt().terminal_posture(),
+        EchoOperationTerminalPostureV1::Committed
+    );
+    assert_eq!(
+        execution.receipt().consumed_budget(),
+        EchoOperationBudgetV1::new(3, 64, 71)
+    );
+
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the committed worldline remains registered")
+        .state();
+    let store = state
+        .store(&new_node.warp_id)
+        .expect("the warp-scoped store exists");
+    assert_eq!(
+        store.node(&new_node.local_id),
+        Some(&NodeRecord { ty: node_type })
+    );
+    assert_eq!(
+        store.node_attachment(&new_node.local_id),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"created"),
+        )))
+    );
+}
+
+/// ADR 0024: create-from-absence is a precondition like any other -- it
+/// refuses, rather than silently updating, when the node already exists.
+#[test]
+fn create_from_absence_refuses_when_the_node_already_exists() {
+    let (mut host, head_key, node) = fixture_host();
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let installed = install_fixture_creation_operation(&mut host);
+
+    // The evaluation basis honestly reflects the real, present current value
+    // ("before") so that admission's independent basis corroboration passes.
+    // The creation program's total-absence precondition is the thing under
+    // test: it must still refuse against real existing state,
+    // exercising `prepare_operation_v1`'s defense-in-depth check rather than
+    // the coarser admission-time basis check.
+    let application_basis = warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+        node,
+        EchoOperationAnchoredNodeOccupancyV1::NodeAndAttachment,
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        node,
+        b"clobbered".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo independently admits the invocation");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("create-from-absence against an existing node must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the untouched worldline remains registered")
+        .state();
+    assert_eq!(
+        state
+            .store(&node.warp_id)
+            .and_then(|store| store.node_attachment(&node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"before"),
+        ))),
+        "an obstructed create-from-absence must leave the existing attachment untouched"
+    );
+}
+
+/// ADR 0024: the legacy update profile still rejects a genuinely absent node
+/// during admission; the separate creation profile must not widen update
+/// admission.
+#[test]
+fn update_precondition_still_refuses_when_the_node_is_absent() {
+    let (mut host, head_key, _existing_node) = fixture_host();
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let installed = install_fixture_operation(&mut host);
+
+    let absent_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-never-created"),
+    };
+    let application_basis = warp_core::echo_operation_anchored_node_application_basis_v1(
+        absent_node,
+        attachment_type,
+        b"before",
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        absent_node,
+        warp_core::echo_operation_atom_value_digest_v1(attachment_type, b"before"),
+        b"after".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the update invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let error = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect_err("the update profile must reject a missing node at admission");
+    assert_eq!(
+        error.kind(),
+        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+    );
+}
+
+/// Regression for PR #686 review finding #4 (Codex, P2): create-from-absence
+/// refuses with `PreconditionMismatch`, not `NodeTypeMismatch`, when a node
+/// exists at the claimed-absent coordinate with a different `NodeRecord.ty`
+/// than the installed package declares. ADR 0024 states every occupied
+/// create target refuses as a precondition failure, regardless of what about
+/// it differs -- `NodeTypeMismatch` is reserved for the update path, where a
+/// caller who correctly expected the node to exist got its type wrong. The
+/// node has no attachment set, so admission corroborates the honest
+/// node-only occupancy proposition; `prepare_operation_v1`'s semantic check
+/// is what classifies that occupancy as `PreconditionMismatch`.
+#[test]
+fn create_from_absence_refuses_when_the_node_exists_with_the_wrong_type() {
+    let wrong_type_node_id = make_node_id("operation-fixture-wrong-type");
+    let wrong_node_type = make_type_id("operation-fixture-wrong-node-type");
+    let (mut host, head_key, _existing_node, bare_node) =
+        fixture_host_with_bare_node(wrong_type_node_id, wrong_node_type, None);
+    let installed = install_fixture_creation_operation(&mut host);
+
+    let application_basis = warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+        bare_node,
+        EchoOperationAnchoredNodeOccupancyV1::NodeOnly,
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        bare_node,
+        b"created".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo admits the invocation -- node type is not an admission-time check");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("create-from-absence against a wrong-typed existing node must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+}
+
+/// ADR 0024: create-from-absence refuses with `PreconditionMismatch`, not
+/// silent success, when a node exists at the claimed-absent coordinate with
+/// the correct type but no alpha attachment set yet. Creation is atomic over
+/// both slots or it refuses -- there is no path that attaches onto a
+/// pre-existing bare node.
+#[test]
+fn create_from_absence_refuses_when_the_node_exists_without_its_attachment() {
+    let bare_node_id = make_node_id("operation-fixture-bare");
+    let node_type = make_type_id("operation-fixture-node");
+    let (mut host, head_key, _existing_node, bare_node) =
+        fixture_host_with_bare_node(bare_node_id, node_type, None);
+    let installed = install_fixture_creation_operation(&mut host);
+
+    let application_basis = warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+        bare_node,
+        EchoOperationAnchoredNodeOccupancyV1::NodeOnly,
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        bare_node,
+        b"created".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo admits the invocation -- a bare node still corroborates as absent");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("create-from-absence against a bare existing node must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+}
+
+/// ADR 0024: the existing basis-changed TOCTOU protection covers a prepared
+/// create-from-absence patch exactly as it already covers a prepared update,
+/// via the same generic exact-basis commit check -- not a create-specific
+/// carve-out.
+#[test]
+fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
+    let (mut host, head_key, _existing_node) = fixture_host();
+    let installed = install_fixture_creation_operation(&mut host);
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-race-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+
+    let prepare = |host: &TrustedRuntimeHost, replacement: &[u8]| {
+        let basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis)
+            .expect("Echo resolves the current basis");
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            new_node,
+            replacement.to_vec(),
+        );
+        let bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+        let admitted = host
+            .admit_echo_operation_invocation_v1(
+                &EchoOperationInvocationAdmissionPolicyV1::new(
+                    digest("fixture-authority-profile"),
+                    digest("fixture-authority-grant"),
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                &bytes,
+            )
+            .expect("invocation is admitted");
+        match host.prepare_echo_operation_v1(admitted) {
+            EchoOperationPreparationV1::Prepared(prepared) => prepared,
+            EchoOperationPreparationV1::Obstructed(obstruction) => {
+                panic!("lawful create-from-absence invocation obstructed: {obstruction:?}")
+            }
+        }
+    };
+
+    let stale_preparation = prepare(&host, b"stale-created");
+    let winning_preparation = prepare(&host, b"winning-created");
+    host.commit_prepared_echo_operation_v1(winning_preparation)
+        .expect("one exact-basis create-from-absence operation commits");
+    let evidence = host
+        .commit_prepared_echo_operation_v1(stale_preparation)
+        .expect("basis refusal is typed evidence, not a host fault");
+    assert_eq!(
+        evidence.receipt().terminal_posture(),
+        EchoOperationTerminalPostureV1::NotCommittedBasisChanged
+    );
+    assert_eq!(evidence.receipt().committed_patch_digest(), None);
+    assert_eq!(evidence.receipt().committed_result_id(), None);
+    assert_eq!(evidence.receipt().composition_digest(), None);
+
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the worldline remains registered")
+        .state();
+    assert_eq!(state.current_tick().as_u64(), 1);
+    assert_eq!(
+        state
+            .store(&new_node.warp_id)
+            .and_then(|store| store.node_attachment(&new_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"winning-created"),
+        )))
+    );
+}
+
+/// Regression for PR #686 review finding #1 (Codex, P0): a durably committed
+/// create-from-absence patch (WarpOp::UpsertNode + WarpOp::SetAttachment,
+/// two-element out_slots) must be recoverable by a fresh host, exactly like
+/// an update-shaped patch already is.
+#[test]
+fn filesystem_wal_recovers_a_create_from_absence_commit() {
+    let wal_dir = TempWalDir::new();
+    let node_type = make_type_id("operation-fixture-node");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-wal-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+    let committed_result_id;
+    let committed_receipt_digest;
+    let installed_package_id;
+
+    {
+        let (mut host, head_key, _existing_node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the fresh filesystem WAL opens");
+        let installed = install_fixture_creation_operation(&mut host);
+        let evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis)
+            .expect("Echo resolves the exact current parent basis");
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            evaluation_basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            new_node,
+            b"wal-created".to_vec(),
+        );
+        let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+        let admitted = host
+            .admit_echo_operation_invocation_v1(
+                &EchoOperationInvocationAdmissionPolicyV1::new(
+                    digest("fixture-authority-profile"),
+                    digest("fixture-authority-grant"),
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                &invocation_bytes,
+            )
+            .expect("the create-from-absence invocation is independently admitted");
+        let EchoOperationPreparationV1::Prepared(prepared) =
+            host.prepare_echo_operation_v1(admitted)
+        else {
+            panic!("the lawful create-from-absence invocation must prepare");
+        };
+        let execution = host
+            .commit_prepared_echo_operation_v1(prepared)
+            .expect("the durable create-from-absence operation commits");
+        committed_result_id = execution.receipt().committed_result_id();
+        committed_receipt_digest = execution.receipt().digest();
+        installed_package_id = installed.package_id();
+    }
+
+    let (mut recovered, head_key, _existing_node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect(
+            "a fresh host recovers a create-from-absence commit without replaying application code",
+        );
+    let state = recovered
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the recovered worldline exists")
+        .state();
+    assert_eq!(
+        state
+            .store(&new_node.warp_id)
+            .and_then(|store| store.node(&new_node.local_id)),
+        Some(&NodeRecord { ty: node_type })
+    );
+    assert_eq!(
+        state
+            .store(&new_node.warp_id)
+            .and_then(|store| store.node_attachment(&new_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"wal-created"),
+        )))
+    );
+    let recovery = recovered
+        .runtime_wal()
+        .expect("the recovered WAL remains enabled")
+        .recover_read_only()
+        .expect("fresh-host read-only recovery remains stable");
+    assert_eq!(
+        recovery
+            .installed_echo_operations
+            .iter()
+            .map(InstalledEchoOperationV1::package_id)
+            .collect::<Vec<_>>(),
+        vec![installed_package_id],
+        "the exact creation package installation must recover"
+    );
+    assert_eq!(recovery.echo_operation_receipts.len(), 1);
+    let recovered_receipt = &recovery.echo_operation_receipts[0];
+    assert_eq!(recovered_receipt.digest(), committed_receipt_digest);
+    assert_eq!(recovered_receipt.committed_result_id(), committed_result_id);
+    assert_eq!(
+        recovered_receipt.terminal_posture(),
+        EchoOperationTerminalPostureV1::Committed
+    );
+}
+
+/// Regression for PR #686 review finding #2 (CodeRabbit, P0): create-from-
+/// absence must not silently overwrite an orphaned attachment (present with
+/// no owning `NodeRecord` -- reachable because `GraphStore::set_node_attachment`
+/// never requires the node to exist). Exercised with a basis that honestly
+/// reflects the orphan's real present value, so admission passes and the
+/// evaluation-time check in `prepare_operation_v1` is isolated as the thing
+/// under test.
+#[test]
+fn create_from_absence_refuses_when_the_attachment_exists_without_its_node() {
+    let orphan_local_id = make_node_id("operation-fixture-orphan-attachment");
+    let orphan_attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, orphan_node) =
+        fixture_host_with_orphan_attachment(orphan_local_id, orphan_attachment_type, b"orphaned");
+    let installed = install_fixture_creation_operation(&mut host);
+
+    let application_basis = warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+        orphan_node,
+        EchoOperationAnchoredNodeOccupancyV1::AttachmentOnly,
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        orphan_node,
+        b"clobbered".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect(
+            "Echo admits the invocation -- the orphaned attachment honestly \
+             corroborates as present, matching this invocation's claimed basis",
+        );
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("create-from-absence against an orphaned attachment must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::PreconditionMismatch
+    );
+
+    let state = host
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the untouched worldline remains registered")
+        .state();
+    assert_eq!(
+        state
+            .store(&orphan_node.warp_id)
+            .and_then(|store| store.node_attachment(&orphan_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            orphan_attachment_type,
+            Bytes::from_static(b"orphaned"),
+        ))),
+        "an obstructed create-from-absence must leave the orphaned attachment untouched"
+    );
+}
+
+/// Regression for PR #686 review finding #2 (Codex, P2): admission's
+/// independent application-basis corroboration must not treat a node with an
+/// orphaned attachment as absent. A create-from-absence invocation that
+/// (incorrectly) claims absence against a real orphan must be refused at
+/// admission with `BasisMismatch`, not let through to evaluation.
+#[test]
+fn create_from_absence_invocation_refuses_at_admission_against_an_orphaned_attachment() {
+    let orphan_local_id = make_node_id("operation-fixture-orphan-admission");
+    let orphan_attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, orphan_node) =
+        fixture_host_with_orphan_attachment(orphan_local_id, orphan_attachment_type, b"orphaned");
+    let installed = install_fixture_creation_operation(&mut host);
+
+    let claimed_absent_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(orphan_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, claimed_absent_basis)
+        .expect("Echo resolves a basis for the claimed proposition");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        orphan_node,
+        b"clobbered".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let error = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect_err("a dishonest absence claim against a real orphaned attachment must refuse");
+    assert_eq!(
+        error.kind(),
+        EchoOperationInvocationAdmissionErrorKindV1::BasisMismatch
+    );
+}
+
+/// Regression for PR #686 review finding #3 (Codex, P2): the create-from-
+/// absence write charge must account for the `UpsertNode` op's 32-byte
+/// `NodeRecord.ty` in addition to the attachment atom's 32-byte type id and
+/// its replacement bytes -- not `32 + replacement_len` alone, which
+/// undercounts by exactly the node record's width and lets a caller commit
+/// more bytes than it delegated.
+#[test]
+fn create_from_absence_charges_the_node_record_against_the_write_budget() {
+    let (mut host, head_key, _existing_node) = fixture_host();
+    let installed = install_fixture_creation_operation(&mut host);
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-budget-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let replacement = b"created".to_vec();
+    // 32 (attachment type) + replacement.len() = 39: enough under the buggy
+    // charge, which never counts the UpsertNode's own 32-byte NodeRecord.ty.
+    // 64 (node type + attachment type) + replacement.len() = 71: the correct
+    // requirement. This budget sits strictly between the two.
+    let insufficient_for_node_record = EchoOperationBudgetV1::new(3, 64, 70);
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        insufficient_for_node_record,
+        new_node,
+        replacement,
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the create-from-absence invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("admission's coarser check does not itself meter the write charge");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!(
+            "a write budget that covers only the attachment, not the node record too, \
+             must not prepare a patch"
+        );
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BudgetExceeded
+    );
+}
+
+/// Companion to the PR #686 review finding #4 fix: `NodeTypeMismatch` is not
+/// dead code after `expects_creation` is checked first in the `Some(record)`
+/// arm -- it remains the correct obstruction for the update path, where a
+/// caller who correctly expected the exact prior digest named the wrong type.
+#[test]
+fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
+    let wrong_type_node_id = make_node_id("operation-fixture-update-wrong-type");
+    let wrong_node_type = make_type_id("operation-fixture-wrong-node-type");
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, head_key, _existing_node, wrong_type_node) = fixture_host_with_bare_node(
+        wrong_type_node_id,
+        wrong_node_type,
+        Some((attachment_type, b"before")),
+    );
+    let installed = install_fixture_operation(&mut host);
+
+    let application_basis = warp_core::echo_operation_anchored_node_application_basis_v1(
+        wrong_type_node,
+        attachment_type,
+        b"before",
+    );
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis)
+        .expect("Echo resolves the exact current parent basis");
+    let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        wrong_type_node,
+        warp_core::echo_operation_atom_value_digest_v1(attachment_type, b"before"),
+        b"after".to_vec(),
+    );
+    let invocation_bytes = invocation
+        .to_canonical_bytes()
+        .expect("the update invocation is canonical");
+    let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+        digest("fixture-authority-profile"),
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+    );
+    let admitted_invocation = host
+        .admit_echo_operation_invocation_v1(&invocation_policy, &invocation_bytes)
+        .expect("Echo admits the invocation -- node type is not an admission-time check");
+    let preparation = host.prepare_echo_operation_v1(admitted_invocation);
+    let EchoOperationPreparationV1::Obstructed(obstruction) = preparation else {
+        panic!("an update against a wrong-typed existing node must not prepare a patch");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::NodeTypeMismatch
     );
 }

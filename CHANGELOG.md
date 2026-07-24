@@ -30,6 +30,29 @@
   compiler emission, a structurally separate target verifier, Jedit's rope
   lawpack, `ReplaceRange`, scheduler batch composition, or an independently
   implemented semantic oracle.
+- The executable-operation corridor now has a separate
+  `AnchoredNodeAttachmentCreateIfAbsent` program (ADR 0024). The original
+  compare-and-set program remains update-only with its canonical program,
+  invocation, application-basis, target-profile, and result identities
+  unchanged. Creation has distinct schema, footprint, basis, result, and
+  target-profile identities; observes node and attachment occupancy
+  independently; succeeds only when both are absent; emits one atomic
+  `UpsertNode` plus `SetAttachment` consequence; charges the node type,
+  attachment type, and payload; and refuses every occupied target with
+  `PreconditionMismatch`. Filesystem-WAL recovery validates the exact
+  installed-program consequence, including operation and slot shape,
+  program-owned node and attachment types, the atom-only attachment algebra,
+  replacement bounds, and operations scoped to descended WARP instances.
+  Descended evaluation now validates the complete parent chain, retains every
+  portal attachment as both a footprint read and replay input, and charges each
+  portal-pointer read incrementally before dereferencing that portal, so
+  out-of-budget ancestry cannot affect evaluation; activation recovery
+  reconstructs each operation's exact parent state and rejects missing,
+  duplicate, substituted, or otherwise non-chain portal inputs, and
+  independently corroborates the creation receipt's total-absence proposition
+  against both target locations before replay. This closes only the single
+  anchored-node-plus-alpha-attachment creation gap. It does not establish
+  Graft-style multi-record mutation or a real Edict application crossing.
 - `TrustedRuntimeHost` can now admit a previously witnessed mutation for an
   installed Edict provider package with
   `admit_provider_contract_submission_v1(...)`. The shared installed-contract

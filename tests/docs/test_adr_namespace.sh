@@ -34,9 +34,10 @@ readonly current_adrs=(
   "0021-public-optic-observation-boundary.md"
   "0022-application-requested-causal-anchor-admission.md"
   "0023-admitted-executable-operation-packages.md"
+  "0024-anchored-node-creation-from-absence.md"
 )
 
-readonly current_adr_last=23
+readonly current_adr_last=24
 
 readonly superseded_legacy_adrs=(
   "ADR-0003-Materialization-Bus.md"

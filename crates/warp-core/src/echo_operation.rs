@@ -7,13 +7,18 @@
 //! compatibility corridor. An executable operation package instead carries the
 //! complete data-only program interpreted here by Echo.
 //!
-//! The first earned program profile is deliberately small: an invocation
-//! anchors one typed node and compares the digest of its typed alpha attachment
-//! before replacing that attachment. It has one unique match, a closed
-//! attachment algebra, explicit resource bounds, and no callback, function
-//! pointer, matcher, executor, or application-specific intrinsic.
+//! The first two earned program profiles are deliberately small. One anchors a
+//! typed node and compares the digest of its typed alpha attachment before
+//! replacing that attachment. The other requires the node and attachment to be
+//! entirely absent and creates both atomically (ADR 0024). Each has one unique
+//! match, a closed attachment algebra, explicit resource bounds, and no
+//! callback, function pointer, matcher, executor, or application-specific
+//! intrinsic.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use blake3::Hasher;
 use bytes::Bytes;
@@ -30,6 +35,7 @@ use crate::{
     head::WriterHeadKey,
     ident::{EdgeKey, Hash, NodeKey, TypeId},
     receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry},
+    record::NodeRecord,
     snapshot::{compute_commit_hash_v2, Snapshot},
     tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
     tx::TxId,
@@ -51,6 +57,22 @@ const OBSTRUCTION_INTERPRETATION: &str =
 const BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
 const APPLICATION_BASIS_SCHEMA: &str = "echo.operation.basis.anchored-node-alpha/v1";
 const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-cas/v1";
+const CREATE_INVOCATION_SCHEMA: &str =
+    "echo.operation-invocation.anchored-node-alpha-create-if-absent/v1";
+const CREATE_PROGRAM_KIND: &str = "anchored-node-attachment-create-if-absent/v1";
+const CREATE_FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-create-if-absent-exact/v1";
+const CREATE_INPUT_SCHEMA: &str = "echo.operation.input.anchored-node-alpha-create-if-absent/v1";
+const CREATE_RESULT_SCHEMA: &str = "echo.operation.result.anchored-node-alpha-create-if-absent/v1";
+const CREATE_OBSTRUCTION_SCHEMA: &str =
+    "echo.operation.obstruction.anchored-node-alpha-create-if-absent/v1";
+const CREATE_RESULT_INTERPRETATION: &str =
+    "echo.operation.result-interpretation.anchored-node-alpha-create-if-absent/v1";
+const CREATE_OBSTRUCTION_INTERPRETATION: &str =
+    "echo.operation.obstruction-interpretation.anchored-node-alpha-create-if-absent/v1";
+const CREATE_APPLICATION_BASIS_SCHEMA: &str =
+    "echo.operation.basis.anchored-node-alpha-create-if-absent/v1";
+const CREATE_TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-create-if-absent/v1";
+const CREATE_ABSENCE_PRECONDITION: &str = "node-and-alpha-attachment-absent/v1";
 const INTERPRETER_PROFILE: &str = "echo.operation-interpreter/v1";
 const INTRINSIC_PROFILE: &str = "echo.operation-attachment-algebra/v1";
 const PACKAGE_ID_DOMAIN: &[u8] = b"echo:operation-package:v1\0";
@@ -64,10 +86,16 @@ const INVOCATION_ADMISSION_ID_DOMAIN: &[u8] = b"echo:operation-invocation-admiss
 const PRIVATE_EVALUATION_ID_DOMAIN: &[u8] = b"echo:operation-private-evaluation:v1\0";
 const PREPARATION_ID_DOMAIN: &[u8] = b"echo:operation-preparation:v1\0";
 const RESULT_ID_DOMAIN: &[u8] = b"echo:operation-result:v1\0";
+const CREATE_RESULT_ID_DOMAIN: &[u8] =
+    b"echo:operation-result-anchored-node-alpha-create-if-absent:v1\0";
 const OBSTRUCTION_ID_DOMAIN: &[u8] = b"echo:operation-obstruction:v1\0";
 const TERMINAL_OUTCOME_ID_DOMAIN: &[u8] = b"echo:operation-terminal-outcome:v1\0";
 const ATOM_VALUE_DOMAIN: &[u8] = b"echo:operation-atom-value:v1\0";
 const APPLICATION_BASIS_VALUE_DOMAIN: &[u8] = b"echo:operation-anchored-node-alpha-basis:v1\0";
+const CREATE_APPLICATION_BASIS_DOMAIN: &[u8] =
+    b"echo:operation-anchored-node-alpha-create-if-absent-basis:v1\0";
+const CREATE_RESULT_ABSENCE_PROPOSITION_DOMAIN: &[u8] =
+    b"echo:operation-result-anchored-node-alpha-absence-proposition:v1\0";
 const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
 const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
 const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
@@ -272,10 +300,82 @@ pub fn echo_operation_anchored_node_application_basis_v1(
     )
 }
 
+/// Closed occupancy proposition used by the create-if-absent application
+/// basis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EchoOperationAnchoredNodeOccupancyV1 {
+    /// Neither the node nor its alpha attachment exists.
+    Absent,
+    /// The node exists but its alpha attachment does not.
+    NodeOnly,
+    /// The alpha attachment exists without its owning node.
+    AttachmentOnly,
+    /// Both the node and its alpha attachment exist.
+    NodeAndAttachment,
+}
+
+impl EchoOperationAnchoredNodeOccupancyV1 {
+    const fn from_presence(node_present: bool, attachment_present: bool) -> Self {
+        match (node_present, attachment_present) {
+            (false, false) => Self::Absent,
+            (true, false) => Self::NodeOnly,
+            (false, true) => Self::AttachmentOnly,
+            (true, true) => Self::NodeAndAttachment,
+        }
+    }
+
+    const fn stable_code(self) -> u8 {
+        match self {
+            Self::Absent => 0,
+            Self::NodeOnly => 1,
+            Self::AttachmentOnly => 2,
+            Self::NodeAndAttachment => 3,
+        }
+    }
+}
+
+/// Returns the create-if-absent profile's canonical application-basis
+/// proposition for one exact occupancy state (ADR 0024).
+///
+/// This profile observes the node and attachment locations independently, so
+/// a bare node and an orphan attachment cannot corroborate as total absence.
+#[must_use]
+pub fn echo_operation_anchored_node_creation_application_basis_v1(
+    node: NodeKey,
+    occupancy: EchoOperationAnchoredNodeOccupancyV1,
+) -> EchoOperationApplicationBasisV1 {
+    let mut hasher = Hasher::new();
+    hasher.update(CREATE_APPLICATION_BASIS_DOMAIN);
+    hasher.update(node.warp_id.as_bytes());
+    hasher.update(node.local_id.as_bytes());
+    hasher.update(&[occupancy.stable_code()]);
+    EchoOperationApplicationBasisV1::new(
+        profile_digest(CREATE_APPLICATION_BASIS_SCHEMA),
+        hasher.finalize().into(),
+    )
+}
+
+/// Returns the create-if-absent profile's total-absence application basis.
+#[must_use]
+pub fn echo_operation_anchored_node_absent_application_basis_v1(
+    node: NodeKey,
+) -> EchoOperationApplicationBasisV1 {
+    echo_operation_anchored_node_creation_application_basis_v1(
+        node,
+        EchoOperationAnchoredNodeOccupancyV1::Absent,
+    )
+}
+
 /// Returns the exact target-profile identity implemented by the v1 evaluator.
 #[must_use]
 pub fn echo_operation_target_profile_identity_v1() -> Hash {
     profile_digest(TARGET_PROFILE)
+}
+
+/// Returns the exact create-if-absent target-profile identity.
+#[must_use]
+pub fn echo_operation_create_if_absent_target_profile_identity_v1() -> Hash {
+    profile_digest(CREATE_TARGET_PROFILE)
 }
 
 /// A three-axis resource budget for one bounded operation evaluation.
@@ -385,12 +485,15 @@ impl EchoOperationBudgetMeterV1 {
 pub enum EchoOperationFootprintContractV1 {
     /// Read one anchored node and alpha attachment; write that same attachment.
     AnchoredNodeAlphaExact,
+    /// Read an absent anchored node and alpha attachment; create both.
+    AnchoredNodeAlphaCreateIfAbsentExact,
 }
 
 impl EchoOperationFootprintContractV1 {
     const fn coordinate(self) -> &'static str {
         match self {
             Self::AnchoredNodeAlphaExact => FOOTPRINT_CONTRACT,
+            Self::AnchoredNodeAlphaCreateIfAbsentExact => CREATE_FOOTPRINT_CONTRACT,
         }
     }
 }
@@ -407,6 +510,15 @@ pub enum EchoOperationProgramV1 {
         /// Maximum replacement byte count accepted by the program.
         max_replacement_bytes: u64,
     },
+    /// Create one anchored typed node and alpha attachment only when both are absent.
+    AnchoredNodeAttachmentCreateIfAbsent {
+        /// Skeleton node type created by the program.
+        required_node_type: TypeId,
+        /// Alpha attachment atom type created by the program.
+        required_attachment_type: TypeId,
+        /// Maximum attachment byte count accepted by the program.
+        max_replacement_bytes: u64,
+    },
 }
 
 impl EchoOperationProgramV1 {
@@ -418,6 +530,20 @@ impl EchoOperationProgramV1 {
         max_replacement_bytes: u64,
     ) -> Self {
         Self::AnchoredNodeAttachmentCompareAndSet {
+            required_node_type,
+            required_attachment_type,
+            max_replacement_bytes,
+        }
+    }
+
+    /// Creates the bounded create-if-absent operation program.
+    #[must_use]
+    pub const fn anchored_node_attachment_create_if_absent(
+        required_node_type: TypeId,
+        required_attachment_type: TypeId,
+        max_replacement_bytes: u64,
+    ) -> Self {
+        Self::AnchoredNodeAttachmentCreateIfAbsent {
             required_node_type,
             required_attachment_type,
             max_replacement_bytes,
@@ -443,6 +569,9 @@ impl EchoOperationProgramV1 {
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
                 EchoOperationFootprintContractV1::AnchoredNodeAlphaExact
             }
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+                EchoOperationFootprintContractV1::AnchoredNodeAlphaCreateIfAbsentExact
+            }
         }
     }
 
@@ -451,7 +580,76 @@ impl EchoOperationProgramV1 {
             Self::AnchoredNodeAttachmentCompareAndSet { .. } => {
                 EchoOperationBudgetV1::new(4, 64, 32)
             }
+            // Steps meter deterministic evaluator stages, not emitted
+            // `WarpOp`s: node probe, attachment probe, and one atomic
+            // create consequence. The consequence emits two operations but
+            // remains one semantic rewrite step.
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+                EchoOperationBudgetV1::new(3, 64, 64)
+            }
         }
+    }
+
+    const fn input_schema(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => INPUT_SCHEMA,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_INPUT_SCHEMA,
+        }
+    }
+
+    const fn result_schema(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_SCHEMA,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_SCHEMA,
+        }
+    }
+
+    const fn obstruction_schema(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_SCHEMA,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_SCHEMA,
+        }
+    }
+
+    const fn result_interpretation(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => RESULT_INTERPRETATION,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_RESULT_INTERPRETATION,
+        }
+    }
+
+    const fn obstruction_interpretation(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => OBSTRUCTION_INTERPRETATION,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_OBSTRUCTION_INTERPRETATION,
+        }
+    }
+
+    const fn application_basis_schema(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => APPLICATION_BASIS_SCHEMA,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_APPLICATION_BASIS_SCHEMA,
+        }
+    }
+
+    const fn target_profile(&self) -> &'static str {
+        match self {
+            Self::AnchoredNodeAttachmentCompareAndSet { .. } => TARGET_PROFILE,
+            Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => CREATE_TARGET_PROFILE,
+        }
+    }
+
+    const fn accepts_invocation_kind(&self, kind: EchoOperationInvocationKindV1) -> bool {
+        matches!(
+            (self, kind),
+            (
+                Self::AnchoredNodeAttachmentCompareAndSet { .. },
+                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet { .. }
+            ) | (
+                Self::AnchoredNodeAttachmentCreateIfAbsent { .. },
+                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent
+            )
+        )
     }
 
     fn validate_supported_profile(&self) -> Result<(), EchoOperationArtifactErrorV1> {
@@ -459,39 +657,61 @@ impl EchoOperationProgramV1 {
             Self::AnchoredNodeAttachmentCompareAndSet {
                 max_replacement_bytes,
                 ..
+            }
+            | Self::AnchoredNodeAttachmentCreateIfAbsent {
+                max_replacement_bytes,
+                ..
             } if *max_replacement_bytes == 0 => Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::UnsupportedProgram,
                 "program replacement bound must be nonzero",
             )),
-            Self::AnchoredNodeAttachmentCompareAndSet { .. } => Ok(()),
+            Self::AnchoredNodeAttachmentCompareAndSet { .. }
+            | Self::AnchoredNodeAttachmentCreateIfAbsent { .. } => Ok(()),
         }
     }
 
     fn to_value(&self) -> CanonicalValueV1 {
-        match self {
+        let (kind, required_node_type, required_attachment_type, max_replacement_bytes) = match self
+        {
             Self::AnchoredNodeAttachmentCompareAndSet {
                 required_node_type,
                 required_attachment_type,
                 max_replacement_bytes,
-            } => map_value([
-                (
-                    "interpreter_profile_identity",
-                    hash_value(profile_digest(INTERPRETER_PROFILE)),
-                ),
-                (
-                    "intrinsic_profile_identity",
-                    hash_value(profile_digest(INTRINSIC_PROFILE)),
-                ),
-                ("kind", text_value(PROGRAM_KIND)),
-                ("max_replacement_bytes", uint_value(*max_replacement_bytes)),
-                (
-                    "required_attachment_type",
-                    hash_value(required_attachment_type.0),
-                ),
-                ("required_node_type", hash_value(required_node_type.0)),
-                ("schema", text_value(PROGRAM_SCHEMA)),
-            ]),
-        }
+            } => (
+                PROGRAM_KIND,
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            ),
+            Self::AnchoredNodeAttachmentCreateIfAbsent {
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            } => (
+                CREATE_PROGRAM_KIND,
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            ),
+        };
+        map_value([
+            (
+                "interpreter_profile_identity",
+                hash_value(profile_digest(INTERPRETER_PROFILE)),
+            ),
+            (
+                "intrinsic_profile_identity",
+                hash_value(profile_digest(INTRINSIC_PROFILE)),
+            ),
+            ("kind", text_value(kind)),
+            ("max_replacement_bytes", uint_value(*max_replacement_bytes)),
+            (
+                "required_attachment_type",
+                hash_value(required_attachment_type.0),
+            ),
+            ("required_node_type", hash_value(required_node_type.0)),
+            ("schema", text_value(PROGRAM_SCHEMA)),
+        ])
     }
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
@@ -509,7 +729,7 @@ impl EchoOperationProgramV1 {
             ],
         )?;
         require_text(&mut fields, "schema", PROGRAM_SCHEMA)?;
-        require_text(&mut fields, "kind", PROGRAM_KIND)?;
+        let kind = take_text(&mut fields, "kind")?;
         let interpreter_profile_identity = take_hash(&mut fields, "interpreter_profile_identity")?;
         let intrinsic_profile_identity = take_hash(&mut fields, "intrinsic_profile_identity")?;
         if interpreter_profile_identity != profile_digest(INTERPRETER_PROFILE)
@@ -523,11 +743,24 @@ impl EchoOperationProgramV1 {
         let required_node_type = TypeId(take_hash(&mut fields, "required_node_type")?);
         let required_attachment_type = TypeId(take_hash(&mut fields, "required_attachment_type")?);
         let max_replacement_bytes = take_u64(&mut fields, "max_replacement_bytes")?;
-        let program = Self::anchored_node_attachment_compare_and_set(
-            required_node_type,
-            required_attachment_type,
-            max_replacement_bytes,
-        );
+        let program = match kind.as_str() {
+            PROGRAM_KIND => Self::anchored_node_attachment_compare_and_set(
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            ),
+            CREATE_PROGRAM_KIND => Self::anchored_node_attachment_create_if_absent(
+                required_node_type,
+                required_attachment_type,
+                max_replacement_bytes,
+            ),
+            _ => {
+                return Err(artifact_error(
+                    EchoOperationArtifactErrorKindV1::UnsupportedProgram,
+                    "operation program names an unsupported kind",
+                ));
+            }
+        };
         program.validate_supported_profile()?;
         Ok(program)
     }
@@ -682,6 +915,13 @@ impl ExecutableOperationPackageV1 {
         budget_ceiling: EchoOperationBudgetV1,
         program: EchoOperationProgramV1,
     ) -> Self {
+        let input_schema_identity = profile_digest(program.input_schema());
+        let result_schema_identity = profile_digest(program.result_schema());
+        let obstruction_schema_identity = profile_digest(program.obstruction_schema());
+        let result_interpretation_identity = profile_digest(program.result_interpretation());
+        let obstruction_interpretation_identity =
+            profile_digest(program.obstruction_interpretation());
+        let application_basis_schema_identity = profile_digest(program.application_basis_schema());
         Self {
             operation_coordinate: operation_coordinate.into(),
             semantic_closure,
@@ -689,12 +929,12 @@ impl ExecutableOperationPackageV1 {
             interpreter_profile_identity: profile_digest(INTERPRETER_PROFILE),
             intrinsic_profile_identity: profile_digest(INTRINSIC_PROFILE),
             authority_profile_identity,
-            input_schema_identity: profile_digest(INPUT_SCHEMA),
-            result_schema_identity: profile_digest(RESULT_SCHEMA),
-            obstruction_schema_identity: profile_digest(OBSTRUCTION_SCHEMA),
-            result_interpretation_identity: profile_digest(RESULT_INTERPRETATION),
-            obstruction_interpretation_identity: profile_digest(OBSTRUCTION_INTERPRETATION),
-            application_basis_schema_identity: profile_digest(APPLICATION_BASIS_SCHEMA),
+            input_schema_identity,
+            result_schema_identity,
+            obstruction_schema_identity,
+            result_interpretation_identity,
+            obstruction_interpretation_identity,
+            application_basis_schema_identity,
             evaluation_basis_schema_identity: profile_digest(BASIS_SCHEMA),
             footprint_contract_identity: profile_digest(program.footprint_contract().coordinate()),
             budget_ceiling,
@@ -922,32 +1162,32 @@ impl ExecutableOperationPackageV1 {
             (
                 "input schema",
                 self.input_schema_identity,
-                profile_digest(INPUT_SCHEMA),
+                profile_digest(self.program.input_schema()),
             ),
             (
                 "result schema",
                 self.result_schema_identity,
-                profile_digest(RESULT_SCHEMA),
+                profile_digest(self.program.result_schema()),
             ),
             (
                 "obstruction schema",
                 self.obstruction_schema_identity,
-                profile_digest(OBSTRUCTION_SCHEMA),
+                profile_digest(self.program.obstruction_schema()),
             ),
             (
                 "result interpretation",
                 self.result_interpretation_identity,
-                profile_digest(RESULT_INTERPRETATION),
+                profile_digest(self.program.result_interpretation()),
             ),
             (
                 "obstruction interpretation",
                 self.obstruction_interpretation_identity,
-                profile_digest(OBSTRUCTION_INTERPRETATION),
+                profile_digest(self.program.obstruction_interpretation()),
             ),
             (
                 "application basis schema",
                 self.application_basis_schema_identity,
-                profile_digest(APPLICATION_BASIS_SCHEMA),
+                profile_digest(self.program.application_basis_schema()),
             ),
             (
                 "evaluation basis schema",
@@ -969,7 +1209,7 @@ impl ExecutableOperationPackageV1 {
                 format!("unsupported {label} identity"),
             ));
         }
-        if self.target_profile_identity != profile_digest(TARGET_PROFILE) {
+        if self.target_profile_identity != profile_digest(self.program.target_profile()) {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::UnsupportedTargetProfile,
                 "unsupported Echo target profile identity",
@@ -1218,6 +1458,10 @@ impl InstalledEchoOperationV1 {
     #[must_use]
     pub const fn program_id(&self) -> EchoOperationProgramIdV1 {
         self.program_id
+    }
+
+    pub(crate) const fn program(&self) -> &EchoOperationProgramV1 {
+        &self.program
     }
 
     /// Returns the semantic identity bound by the admitted package.
@@ -1645,6 +1889,18 @@ impl EchoOperationEvaluationBasisV1 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EchoOperationInvocationKindV1 {
+    AnchoredNodeAttachmentCompareAndSet { expected_value_digest: Hash },
+    AnchoredNodeAttachmentCreateIfAbsent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnchoredNodeOperationModeV1 {
+    CompareAndSet { expected_value_digest: Hash },
+    CreateIfAbsent,
+}
+
 /// Canonical basis-bearing invocation emitted by a generated client/helper.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationInvocationV1 {
@@ -1654,12 +1910,12 @@ pub struct EchoOperationInvocationV1 {
     authority_grant_identity: Hash,
     delegated_budget: EchoOperationBudgetV1,
     node: NodeKey,
-    expected_value_digest: Hash,
+    kind: EchoOperationInvocationKindV1,
     replacement_bytes: Vec<u8>,
 }
 
 impl EchoOperationInvocationV1 {
-    /// Creates an invocation for the first supported operation program.
+    /// Creates an invocation for the update-only compare-and-set program.
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn anchored_node_attachment_compare_and_set(
@@ -1679,7 +1935,33 @@ impl EchoOperationInvocationV1 {
             authority_grant_identity,
             delegated_budget,
             node,
-            expected_value_digest,
+            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                expected_value_digest,
+            },
+            replacement_bytes,
+        }
+    }
+
+    /// Creates an invocation for the create-if-absent program.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn anchored_node_attachment_create_if_absent(
+        package_id: EchoOperationPackageIdV1,
+        operation_coordinate: impl Into<String>,
+        evaluation_basis: EchoOperationEvaluationBasisV1,
+        authority_grant_identity: Hash,
+        delegated_budget: EchoOperationBudgetV1,
+        node: NodeKey,
+        replacement_bytes: Vec<u8>,
+    ) -> Self {
+        Self {
+            package_id,
+            operation_coordinate: operation_coordinate.into(),
+            evaluation_basis,
+            authority_grant_identity,
+            delegated_budget,
+            node,
+            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
             replacement_bytes,
         }
     }
@@ -1706,51 +1988,128 @@ impl EchoOperationInvocationV1 {
                 "invocation delegated step budget must be nonzero",
             ));
         }
-        let value = map_value([
-            (
-                "authority_grant_identity",
-                hash_value(self.authority_grant_identity),
-            ),
-            ("delegated_budget", self.delegated_budget.to_value()),
-            ("evaluation_basis", self.evaluation_basis.to_value()),
-            (
-                "expected_value_digest",
-                hash_value(self.expected_value_digest),
-            ),
-            ("node_id", hash_value(self.node.local_id.0)),
-            (
-                "operation_coordinate",
-                text_value(&self.operation_coordinate),
-            ),
-            ("package_id", hash_value(self.package_id.as_hash())),
-            (
-                "replacement_bytes",
-                CanonicalValueV1::Bytes(self.replacement_bytes.clone()),
-            ),
-            ("schema", text_value(INVOCATION_SCHEMA)),
-            ("warp_id", hash_value(self.node.warp_id.0)),
-        ]);
+        let common = |schema| {
+            [
+                (
+                    "authority_grant_identity",
+                    hash_value(self.authority_grant_identity),
+                ),
+                ("delegated_budget", self.delegated_budget.to_value()),
+                ("evaluation_basis", self.evaluation_basis.to_value()),
+                ("node_id", hash_value(self.node.local_id.0)),
+                (
+                    "operation_coordinate",
+                    text_value(&self.operation_coordinate),
+                ),
+                ("package_id", hash_value(self.package_id.as_hash())),
+                (
+                    "replacement_bytes",
+                    CanonicalValueV1::Bytes(self.replacement_bytes.clone()),
+                ),
+                ("schema", text_value(schema)),
+                ("warp_id", hash_value(self.node.warp_id.0)),
+            ]
+        };
+        let value = match self.kind {
+            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                expected_value_digest,
+            } => {
+                let mut fields = Vec::from(common(INVOCATION_SCHEMA));
+                fields.push(("expected_value_digest", hash_value(expected_value_digest)));
+                CanonicalValueV1::Map(
+                    fields
+                        .into_iter()
+                        .map(|(key, value)| (text_value(key), value))
+                        .collect(),
+                )
+            }
+            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent => {
+                let mut fields = Vec::from(common(CREATE_INVOCATION_SCHEMA));
+                fields.push((
+                    "absence_precondition",
+                    text_value(CREATE_ABSENCE_PRECONDITION),
+                ));
+                CanonicalValueV1::Map(
+                    fields
+                        .into_iter()
+                        .map(|(key, value)| (text_value(key), value))
+                        .collect(),
+                )
+            }
+        };
         encode_canonical_cbor_v1(&value).map_err(canonical_error)
     }
 
     fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
-        let mut fields = exact_text_map(
-            value,
-            &[
-                "authority_grant_identity",
-                "delegated_budget",
-                "evaluation_basis",
-                "expected_value_digest",
-                "node_id",
-                "operation_coordinate",
-                "package_id",
-                "replacement_bytes",
-                "schema",
-                "warp_id",
-            ],
+        let schema = match &value {
+            CanonicalValueV1::Map(entries) => entries
+                .iter()
+                .find_map(|(key, value)| {
+                    (key == &CanonicalValueV1::Text("schema".to_owned())).then_some(value)
+                })
+                .and_then(|value| match value {
+                    CanonicalValueV1::Text(value) => Some(value.as_str()),
+                    _ => None,
+                })
+                .ok_or_else(|| invalid_structure("invocation schema must be text"))?,
+            _ => return Err(invalid_structure("artifact root must be a map")),
+        };
+        let (expected_fields, create_if_absent) = match schema {
+            INVOCATION_SCHEMA => (
+                &[
+                    "authority_grant_identity",
+                    "delegated_budget",
+                    "evaluation_basis",
+                    "expected_value_digest",
+                    "node_id",
+                    "operation_coordinate",
+                    "package_id",
+                    "replacement_bytes",
+                    "schema",
+                    "warp_id",
+                ][..],
+                false,
+            ),
+            CREATE_INVOCATION_SCHEMA => (
+                &[
+                    "absence_precondition",
+                    "authority_grant_identity",
+                    "delegated_budget",
+                    "evaluation_basis",
+                    "node_id",
+                    "operation_coordinate",
+                    "package_id",
+                    "replacement_bytes",
+                    "schema",
+                    "warp_id",
+                ][..],
+                true,
+            ),
+            _ => return Err(invalid_structure("unsupported invocation schema")),
+        };
+        let mut fields = exact_text_map(value, expected_fields)?;
+        require_text(
+            &mut fields,
+            "schema",
+            if create_if_absent {
+                CREATE_INVOCATION_SCHEMA
+            } else {
+                INVOCATION_SCHEMA
+            },
         )?;
-        require_text(&mut fields, "schema", INVOCATION_SCHEMA)?;
+        let kind = if create_if_absent {
+            require_text(
+                &mut fields,
+                "absence_precondition",
+                CREATE_ABSENCE_PRECONDITION,
+            )?;
+            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent
+        } else {
+            EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            }
+        };
         let invocation = Self {
             package_id: EchoOperationPackageIdV1(take_hash(&mut fields, "package_id")?),
             operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
@@ -1767,7 +2126,7 @@ impl EchoOperationInvocationV1 {
                 warp_id: crate::WarpId(take_hash(&mut fields, "warp_id")?),
                 local_id: crate::NodeId(take_hash(&mut fields, "node_id")?),
             },
-            expected_value_digest: take_hash(&mut fields, "expected_value_digest")?,
+            kind,
             replacement_bytes: take_bytes(&mut fields, "replacement_bytes")?,
         };
         if invocation.operation_coordinate.is_empty() || !invocation.delegated_budget.is_nonzero() {
@@ -1827,6 +2186,8 @@ pub enum EchoOperationInvocationAdmissionErrorKindV1 {
     OperationUnavailable,
     /// The invocation's public operation coordinate disagrees with the package.
     OperationCoordinateMismatch,
+    /// The invocation schema does not match the installed program profile.
+    OperationProfileMismatch,
     /// The runtime-owned authority profile disagrees with the package.
     AuthorityProfileMismatch,
     /// The invocation's authority grant was not admitted by runtime policy.
@@ -1901,6 +2262,12 @@ pub(crate) fn admit_invocation_v1(
         return Err(invocation_admission_error(
             EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch,
             "invocation operation coordinate differs from installed package",
+        ));
+    }
+    if !installed.program.accepts_invocation_kind(invocation.kind) {
+        return Err(invocation_admission_error(
+            EchoOperationInvocationAdmissionErrorKindV1::OperationProfileMismatch,
+            "invocation schema differs from the installed program profile",
         ));
     }
     if policy.authority_profile_identity != installed.authority_profile_identity {
@@ -2030,6 +2397,19 @@ fn current_application_basis(
                 &atom.bytes,
             ))
         }
+        EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+            let store = state
+                .store(&invocation.node.warp_id)
+                .ok_or_else(|| basis_mismatch("application-basis warp is unavailable"))?;
+            let occupancy = EchoOperationAnchoredNodeOccupancyV1::from_presence(
+                store.node(&invocation.node.local_id).is_some(),
+                store.node_attachment(&invocation.node.local_id).is_some(),
+            );
+            Ok(echo_operation_anchored_node_creation_application_basis_v1(
+                invocation.node,
+                occupancy,
+            ))
+        }
     }
 }
 
@@ -2092,7 +2472,9 @@ pub enum EchoOperationObstructionKindV1 {
     AttachmentNotAtom,
     /// The alpha atom has a different declared type.
     AttachmentTypeMismatch,
-    /// The current atom digest differs from the invocation precondition.
+    /// The current atom digest differs from the invocation precondition, or
+    /// the invocation expected the node and attachment to be entirely
+    /// absent (create-from-absence) but one or both already exist.
     PreconditionMismatch,
     /// Actual resource access exceeded the declared footprint contract.
     FootprintViolation,
@@ -2302,38 +2684,124 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::BasisChanged);
     }
 
-    match installed.program {
-        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
-            required_node_type,
-            required_attachment_type,
-            max_replacement_bytes,
-        } => {
-            let Ok(replacement_len) = u64::try_from(admitted.invocation.replacement_bytes.len())
-            else {
-                return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
-            };
-            if replacement_len > max_replacement_bytes {
-                return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
+    let (required_node_type, required_attachment_type, max_replacement_bytes, mode) =
+        match (&installed.program, admitted.invocation.kind) {
+            (
+                EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
+                    required_node_type,
+                    required_attachment_type,
+                    max_replacement_bytes,
+                },
+                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                    expected_value_digest,
+                },
+            ) => (
+                *required_node_type,
+                *required_attachment_type,
+                *max_replacement_bytes,
+                AnchoredNodeOperationModeV1::CompareAndSet {
+                    expected_value_digest,
+                },
+            ),
+            (
+                EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent {
+                    required_node_type,
+                    required_attachment_type,
+                    max_replacement_bytes,
+                },
+                EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
+            ) => (
+                *required_node_type,
+                *required_attachment_type,
+                *max_replacement_bytes,
+                AnchoredNodeOperationModeV1::CreateIfAbsent,
+            ),
+            _ => return obstruction(EchoOperationObstructionKindV1::OperationUnavailable),
+        };
+    let Ok(replacement_len) = u64::try_from(admitted.invocation.replacement_bytes.len()) else {
+        return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
+    };
+    if replacement_len > max_replacement_bytes {
+        return obstruction(EchoOperationObstructionKindV1::ReplacementTooLarge);
+    }
+    let node = admitted.invocation.node;
+    let mut actual_footprint = Footprint::default();
+    let mut budget_meter = EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
+    let descent_stack =
+        match operation_descent_stack_with_portal_reads(state, node.warp_id, |portal| {
+            if !budget_meter.charge(1, 32, 0) {
+                return false;
             }
-            let node = admitted.invocation.node;
-            let declared_footprint = anchored_node_footprint(node);
-            let mut actual_footprint = Footprint::default();
-            let mut budget_meter =
-                EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
-            let Some(store) = state.store(&node.warp_id) else {
-                return obstruction(EchoOperationObstructionKindV1::NodeMissing);
-            };
+            actual_footprint.a_read.insert(portal);
+            true
+        }) {
+            Ok(descent_stack) => descent_stack,
+            Err(kind) => return obstruction(kind),
+        };
+    let Some(store) = state.store(&node.warp_id) else {
+        return obstruction(EchoOperationObstructionKindV1::NodeMissing);
+    };
+    let declared_footprint = match mode {
+        AnchoredNodeOperationModeV1::CompareAndSet { .. } => {
+            anchored_node_compare_and_set_footprint(node, &descent_stack)
+        }
+        AnchoredNodeOperationModeV1::CreateIfAbsent => {
+            anchored_node_create_if_absent_footprint(node, &descent_stack)
+        }
+    };
+    if !budget_meter.charge(1, 32, 0) {
+        return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+    }
+    record_node_read(&mut actual_footprint, node);
+    let slot = AttachmentKey::node_alpha(node);
+    let (out_slots, write_ops) = match mode {
+        AnchoredNodeOperationModeV1::CreateIfAbsent => {
+            if store.node(&node.local_id).is_some() {
+                return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+            }
             if !budget_meter.charge(1, 32, 0) {
                 return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
             }
-            record_node_read(&mut actual_footprint, node);
+            actual_footprint.a_read.insert(slot);
+            if store.node_attachment(&node.local_id).is_some() {
+                return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
+            }
+            let Some(write_bytes) = 64_u64.checked_add(replacement_len) else {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            };
+            if !budget_meter.charge(1, 0, write_bytes) {
+                return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
+            }
+            actual_footprint.n_write.insert(node);
+            actual_footprint.a_write.insert(slot);
+            (
+                vec![SlotId::Node(node), SlotId::Attachment(slot)],
+                vec![
+                    WarpOp::UpsertNode {
+                        node,
+                        record: NodeRecord {
+                            ty: required_node_type,
+                        },
+                    },
+                    WarpOp::SetAttachment {
+                        key: slot,
+                        value: Some(AttachmentValue::Atom(AtomPayload::new(
+                            required_attachment_type,
+                            Bytes::from(admitted.invocation.replacement_bytes.clone()),
+                        ))),
+                    },
+                ],
+            )
+        }
+        AnchoredNodeOperationModeV1::CompareAndSet {
+            expected_value_digest,
+        } => {
             let Some(record) = store.node(&node.local_id) else {
                 return obstruction(EchoOperationObstructionKindV1::NodeMissing);
             };
             if record.ty != required_node_type {
                 return obstruction(EchoOperationObstructionKindV1::NodeTypeMismatch);
             }
-            let slot = AttachmentKey::node_alpha(node);
             if !budget_meter.charge(1, 32, 0) {
                 return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
             }
@@ -2354,7 +2822,7 @@ pub(crate) fn prepare_operation_v1(
                 return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
             }
             if echo_operation_atom_value_digest_v1(atom.type_id, &atom.bytes)
-                != admitted.invocation.expected_value_digest
+                != expected_value_digest
             {
                 return obstruction(EchoOperationObstructionKindV1::PreconditionMismatch);
             }
@@ -2364,16 +2832,8 @@ pub(crate) fn prepare_operation_v1(
             if !budget_meter.charge(1, 0, write_bytes) {
                 return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
             }
-            let consumed_budget = budget_meter.consumed();
             actual_footprint.a_write.insert(slot);
-            if actual_footprint != declared_footprint {
-                return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
-            }
-            let patch = WarpTickPatchV1::new(
-                policy_id,
-                installed.installed_operation_id.as_hash(),
-                TickCommitStatus::Committed,
-                vec![SlotId::Node(node), SlotId::Attachment(slot)],
+            (
                 vec![SlotId::Attachment(slot)],
                 vec![WarpOp::SetAttachment {
                     key: slot,
@@ -2382,57 +2842,69 @@ pub(crate) fn prepare_operation_v1(
                         Bytes::from(admitted.invocation.replacement_bytes.clone()),
                     ))),
                 }],
-            );
-            let declared_footprint_digest = footprint_digest(&declared_footprint);
-            let actual_footprint_digest = footprint_digest(&actual_footprint);
-            let replacement_value_digest = echo_operation_atom_value_digest_v1(
-                required_attachment_type,
-                &admitted.invocation.replacement_bytes,
-            );
-            let result_id = operation_result_id(
-                installed,
-                &admitted.invocation,
-                admitted.invocation.expected_value_digest,
-                replacement_value_digest,
-                patch.digest(),
-            );
-            let private_evaluation_id = private_evaluation_id_from_parts(
-                installed.installed_operation_id,
-                installed.program_id,
-                admitted.admission_id,
-                admitted.invocation_id,
-                current_basis.identity(),
-                declared_footprint_digest,
-                actual_footprint_digest,
-                consumed_budget,
-                patch.digest(),
-                result_id,
-            );
-            let preparation_id = preparation_id(private_evaluation_id, patch.digest(), result_id);
-            EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
-                installed: installed.clone(),
-                invocation: admitted.invocation,
-                invocation_id,
-                canonical_invocation_bytes: admitted.canonical_invocation_bytes,
-                invocation_admission_policy_id: admitted.admission_policy_id,
-                invocation_admission_maximum_budget: admitted
-                    .admission_policy
-                    .maximum_delegated_budget,
-                invocation_admission_id: admitted.admission_id,
-                evaluation_basis: current_basis,
-                declared_footprint,
-                actual_footprint,
-                declared_footprint_digest,
-                actual_footprint_digest,
-                consumed_budget,
-                patch,
-                result_id,
-                private_evaluation_id,
-                preparation_id,
-                evaluation_authority: admitted.evaluation_authority,
-            }))
+            )
         }
+    };
+    let consumed_budget = budget_meter.consumed();
+    if actual_footprint != declared_footprint {
+        return obstruction(EchoOperationObstructionKindV1::FootprintViolation);
     }
+    let mut in_slots = vec![SlotId::Node(node), SlotId::Attachment(slot)];
+    in_slots.extend(descent_stack.iter().copied().map(SlotId::Attachment));
+    let patch = WarpTickPatchV1::new(
+        policy_id,
+        installed.installed_operation_id.as_hash(),
+        TickCommitStatus::Committed,
+        in_slots,
+        out_slots,
+        write_ops,
+    );
+    let declared_footprint_digest = footprint_digest(&declared_footprint);
+    let actual_footprint_digest = footprint_digest(&actual_footprint);
+    let replacement_value_digest = echo_operation_atom_value_digest_v1(
+        required_attachment_type,
+        &admitted.invocation.replacement_bytes,
+    );
+    let result_id = operation_result_id(
+        installed,
+        &admitted.invocation,
+        mode,
+        replacement_value_digest,
+        patch.digest(),
+    );
+    let private_evaluation_id = private_evaluation_id_from_parts(
+        installed.installed_operation_id,
+        installed.program_id,
+        admitted.admission_id,
+        admitted.invocation_id,
+        current_basis.identity(),
+        declared_footprint_digest,
+        actual_footprint_digest,
+        consumed_budget,
+        patch.digest(),
+        result_id,
+    );
+    let preparation_id = preparation_id(private_evaluation_id, patch.digest(), result_id);
+    EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
+        installed: installed.clone(),
+        invocation: admitted.invocation,
+        invocation_id,
+        canonical_invocation_bytes: admitted.canonical_invocation_bytes,
+        invocation_admission_policy_id: admitted.admission_policy_id,
+        invocation_admission_maximum_budget: admitted.admission_policy.maximum_delegated_budget,
+        invocation_admission_id: admitted.admission_id,
+        evaluation_basis: current_basis,
+        declared_footprint,
+        actual_footprint,
+        declared_footprint_digest,
+        actual_footprint_digest,
+        consumed_budget,
+        patch,
+        result_id,
+        private_evaluation_id,
+        preparation_id,
+        evaluation_authority: admitted.evaluation_authority,
+    }))
 }
 
 /// Terminal posture bound by an executable-operation receipt.
@@ -3670,17 +4142,33 @@ fn invocation_admission_id(
 fn operation_result_id(
     installed: &InstalledEchoOperationV1,
     invocation: &EchoOperationInvocationV1,
-    previous_value_digest: Hash,
+    mode: AnchoredNodeOperationModeV1,
     replacement_value_digest: Hash,
     patch_digest: Hash,
 ) -> EchoOperationResultIdV1 {
     let mut hasher = Hasher::new();
-    hasher.update(RESULT_ID_DOMAIN);
-    hasher.update(&installed.installed_operation_id.as_hash());
-    hasher.update(&profile_digest(RESULT_SCHEMA));
-    hasher.update(invocation.node.warp_id.as_bytes());
-    hasher.update(invocation.node.local_id.as_bytes());
-    hasher.update(&previous_value_digest);
+    match mode {
+        AnchoredNodeOperationModeV1::CompareAndSet {
+            expected_value_digest,
+        } => {
+            // This is the exact pre-ADR-0024 update identity layout. Do not
+            // add a variant tag or otherwise widen these hash inputs.
+            hasher.update(RESULT_ID_DOMAIN);
+            hasher.update(&installed.installed_operation_id.as_hash());
+            hasher.update(&profile_digest(RESULT_SCHEMA));
+            hasher.update(invocation.node.warp_id.as_bytes());
+            hasher.update(invocation.node.local_id.as_bytes());
+            hasher.update(&expected_value_digest);
+        }
+        AnchoredNodeOperationModeV1::CreateIfAbsent => {
+            hasher.update(CREATE_RESULT_ID_DOMAIN);
+            hasher.update(&installed.installed_operation_id.as_hash());
+            hasher.update(&profile_digest(CREATE_RESULT_SCHEMA));
+            hasher.update(invocation.node.warp_id.as_bytes());
+            hasher.update(invocation.node.local_id.as_bytes());
+            hasher.update(CREATE_RESULT_ABSENCE_PROPOSITION_DOMAIN);
+        }
+    }
     hasher.update(&replacement_value_digest);
     hasher.update(&patch_digest);
     EchoOperationResultIdV1(hasher.finalize().into())
@@ -3744,13 +4232,91 @@ fn obstruction_kind_code(kind: EchoOperationObstructionKindV1) -> u8 {
     }
 }
 
-fn anchored_node_footprint(node: NodeKey) -> Footprint {
+fn anchored_node_compare_and_set_footprint(
+    node: NodeKey,
+    descent_stack: &[AttachmentKey],
+) -> Footprint {
     let mut footprint = Footprint::default();
     record_node_read(&mut footprint, node);
+    for portal in descent_stack {
+        footprint.a_read.insert(*portal);
+    }
     let attachment = AttachmentKey::node_alpha(node);
     footprint.a_read.insert(attachment);
     footprint.a_write.insert(attachment);
     footprint
+}
+
+fn anchored_node_create_if_absent_footprint(
+    node: NodeKey,
+    descent_stack: &[AttachmentKey],
+) -> Footprint {
+    let mut footprint = anchored_node_compare_and_set_footprint(node, descent_stack);
+    footprint.n_write.insert(node);
+    footprint
+}
+
+pub(crate) fn operation_descent_stack(
+    state: &WorldlineState,
+    target_warp: crate::WarpId,
+) -> Option<Vec<AttachmentKey>> {
+    operation_descent_stack_with_portal_reads(state, target_warp, |_| true).ok()
+}
+
+fn operation_descent_stack_with_portal_reads(
+    state: &WorldlineState,
+    target_warp: crate::WarpId,
+    mut read_portal: impl FnMut(AttachmentKey) -> bool,
+) -> Result<Vec<AttachmentKey>, EchoOperationObstructionKindV1> {
+    let mut current_warp = target_warp;
+    let mut visited = BTreeSet::new();
+    let mut reversed = Vec::new();
+
+    loop {
+        if !visited.insert(current_warp) {
+            return Err(EchoOperationObstructionKindV1::FootprintViolation);
+        }
+        let instance = state
+            .warp_state()
+            .instance(&current_warp)
+            .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?;
+        let Some(parent) = instance.parent else {
+            if current_warp != state.root().warp_id {
+                return Err(EchoOperationObstructionKindV1::FootprintViolation);
+            }
+            reversed.reverse();
+            return Ok(reversed);
+        };
+        if !read_portal(parent) {
+            return Err(EchoOperationObstructionKindV1::BudgetExceeded);
+        }
+        let parent_warp = match parent.owner {
+            crate::AttachmentOwner::Node(node) => {
+                if state
+                    .store(&node.warp_id)
+                    .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?
+                    .node_attachment(&node.local_id)
+                    != Some(&AttachmentValue::Descend(current_warp))
+                {
+                    return Err(EchoOperationObstructionKindV1::FootprintViolation);
+                }
+                node.warp_id
+            }
+            crate::AttachmentOwner::Edge(edge) => {
+                if state
+                    .store(&edge.warp_id)
+                    .ok_or(EchoOperationObstructionKindV1::FootprintViolation)?
+                    .edge_attachment(&edge.local_id)
+                    != Some(&AttachmentValue::Descend(current_warp))
+                {
+                    return Err(EchoOperationObstructionKindV1::FootprintViolation);
+                }
+                edge.warp_id
+            }
+        };
+        reversed.push(parent);
+        current_warp = parent_warp;
+    }
 }
 
 fn record_node_read(footprint: &mut Footprint, node: NodeKey) {
@@ -4197,6 +4763,275 @@ mod tests {
     }
 
     #[test]
+    fn descended_creation_reads_and_retains_its_portal_chain() {
+        let root_warp = crate::make_warp_id("operation-descended-root");
+        let root_node = crate::make_node_id("operation-descended-root-node");
+        let root = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let root_portal = AttachmentKey::node_alpha(root);
+        let upper_warp = crate::make_warp_id("operation-descended-upper");
+        let upper_root = crate::make_node_id("operation-descended-upper-root");
+        let upper_root_key = NodeKey {
+            warp_id: upper_warp,
+            local_id: upper_root,
+        };
+        let upper_portal = AttachmentKey::node_alpha(upper_root_key);
+        let middle_warp = crate::make_warp_id("operation-descended-middle");
+        let middle_root = crate::make_node_id("operation-descended-middle-root");
+        let middle_root_key = NodeKey {
+            warp_id: middle_warp,
+            local_id: middle_root,
+        };
+        let middle_portal = AttachmentKey::node_alpha(middle_root_key);
+        let child_warp = crate::make_warp_id("operation-descended-child");
+        let child_root = crate::make_node_id("operation-descended-child-root");
+        let target = NodeKey {
+            warp_id: child_warp,
+            local_id: crate::make_node_id("operation-descended-target"),
+        };
+
+        let mut root_store = crate::GraphStore::new(root_warp);
+        root_store.insert_node(
+            root_node,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-root-type"),
+            },
+        );
+        root_store.set_node_attachment(root_node, Some(AttachmentValue::Descend(upper_warp)));
+        let mut upper_store = crate::GraphStore::new(upper_warp);
+        upper_store.insert_node(
+            upper_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-upper-root-type"),
+            },
+        );
+        upper_store.set_node_attachment(upper_root, Some(AttachmentValue::Descend(middle_warp)));
+        let mut middle_store = crate::GraphStore::new(middle_warp);
+        middle_store.insert_node(
+            middle_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-middle-root-type"),
+            },
+        );
+        middle_store.set_node_attachment(middle_root, Some(AttachmentValue::Descend(child_warp)));
+        let mut child_store = crate::GraphStore::new(child_warp);
+        child_store.insert_node(
+            child_root,
+            NodeRecord {
+                ty: crate::make_type_id("operation-descended-child-root-type"),
+            },
+        );
+        let mut warp_state = crate::WarpState::new();
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: root_warp,
+                root_node,
+                parent: None,
+            },
+            root_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: upper_warp,
+                root_node: upper_root,
+                parent: Some(root_portal),
+            },
+            upper_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: middle_warp,
+                root_node: middle_root,
+                parent: Some(upper_portal),
+            },
+            middle_store,
+        );
+        warp_state.upsert_instance(
+            crate::WarpInstance {
+                warp_id: child_warp,
+                root_node: child_root,
+                parent: Some(middle_portal),
+            },
+            child_store,
+        );
+        let state = WorldlineState::new(warp_state, root).expect("the descended fixture is lawful");
+
+        let operation_coordinate = "echo.fixture.DescendedCreateIfAbsent.v1";
+        let authority_profile = digest(40);
+        let package = ExecutableOperationPackageV1::new(
+            operation_coordinate,
+            EchoOperationSemanticClosureV1::new(
+                digest(41),
+                digest(42),
+                digest(43),
+                digest(44),
+                "echo.fixture.DescendedSchema.v1",
+                digest(45),
+                "echo.fixture.DescendedLawpack.v1",
+                digest(46),
+            ),
+            echo_operation_create_if_absent_target_profile_identity_v1(),
+            authority_profile,
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+                crate::make_type_id("operation-descended-created-node"),
+                crate::make_type_id("operation-descended-created-atom"),
+                1_024,
+            ),
+        );
+        let package_bytes = package.to_canonical_bytes().expect("package encodes");
+        let package_id = echo_operation_package_id_v1(&package_bytes);
+        let installed = installed_from_admitted(
+            admit_package_v1(
+                &EchoOperationAdmissionPolicyV1::exact(
+                    package_id,
+                    operation_coordinate,
+                    authority_profile,
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                package_bytes,
+            )
+            .expect("package admits"),
+        )
+        .expect("package installs");
+
+        let writer_head = WriterHeadKey {
+            worldline_id: crate::WorldlineId::from_bytes(digest(47)),
+            head_id: crate::HeadId::from_bytes(digest(48)),
+        };
+        let evaluation_basis = EchoOperationEvaluationBasisV1::new(
+            writer_head,
+            WorldlineTick::ZERO,
+            None,
+            state.state_root(),
+            digest(49),
+            echo_operation_anchored_node_absent_application_basis_v1(target),
+        );
+        let authority_grant = digest(50);
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+            installed.package_id,
+            operation_coordinate,
+            evaluation_basis,
+            authority_grant,
+            EchoOperationBudgetV1::new(6, 160, 71),
+            target,
+            b"created".to_vec(),
+        );
+        let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+        let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
+            authority_profile,
+            authority_grant,
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+        );
+        let evaluation_authority = EchoOperationEvaluationAuthorityV1::new();
+        let admitted = admit_invocation_v1(
+            Some(&installed),
+            invocation_policy,
+            &invocation_bytes,
+            evaluation_basis,
+            &state,
+            evaluation_authority.clone(),
+        )
+        .expect("the descended invocation admits");
+        let EchoOperationPreparationV1::Prepared(prepared) = prepare_operation_v1(
+            Some(&installed),
+            admitted,
+            evaluation_basis,
+            &state,
+            crate::POLICY_ID_NO_POLICY_V0,
+            &evaluation_authority,
+        ) else {
+            panic!("the descended invocation prepares");
+        };
+
+        for portal in [root_portal, upper_portal, middle_portal] {
+            assert!(
+                prepared
+                    .actual_footprint()
+                    .a_read
+                    .iter()
+                    .any(|key| key == &portal),
+                "a descended creation must read every portal that makes its target reachable"
+            );
+            assert!(
+                prepared
+                    .patch()
+                    .in_slots()
+                    .contains(&SlotId::Attachment(portal)),
+                "the replayable patch must retain every portal-chain dependency"
+            );
+        }
+        assert_eq!(
+            prepared.consumed_budget(),
+            EchoOperationBudgetV1::new(6, 160, 71),
+            "each portal pointer read must be charged as a bounded evaluator step"
+        );
+
+        let mut budget_limited_state = state.clone();
+        budget_limited_state
+            .warp_state
+            .store_mut(&root_warp)
+            .expect("the fixture retains its root store")
+            .set_node_attachment(
+                root_node,
+                Some(AttachmentValue::Atom(AtomPayload::new(
+                    crate::make_type_id("operation-descended-out-of-budget-corruption"),
+                    Bytes::from_static(b"must-not-be-read"),
+                ))),
+            );
+        let budget_limited_basis = EchoOperationEvaluationBasisV1::new(
+            writer_head,
+            WorldlineTick::ZERO,
+            None,
+            budget_limited_state.state_root(),
+            digest(51),
+            echo_operation_anchored_node_absent_application_basis_v1(target),
+        );
+        let budget_limited_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                installed.package_id,
+                operation_coordinate,
+                budget_limited_basis,
+                authority_grant,
+                EchoOperationBudgetV1::new(3, 64, 71),
+                target,
+                b"created".to_vec(),
+            );
+        let admitted = admit_invocation_v1(
+            Some(&installed),
+            EchoOperationInvocationAdmissionPolicyV1::new(
+                authority_profile,
+                authority_grant,
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            ),
+            &budget_limited_invocation
+                .to_canonical_bytes()
+                .expect("budget-limited invocation encodes"),
+            budget_limited_basis,
+            &budget_limited_state,
+            evaluation_authority.clone(),
+        )
+        .expect("the budget-limited invocation admits");
+        let EchoOperationPreparationV1::Obstructed(obstruction) = prepare_operation_v1(
+            Some(&installed),
+            admitted,
+            budget_limited_basis,
+            &budget_limited_state,
+            crate::POLICY_ID_NO_POLICY_V0,
+            &evaluation_authority,
+        ) else {
+            panic!("the portal traversal must stop at its delegated read allowance");
+        };
+        assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::BudgetExceeded,
+            "out-of-budget portal state must not influence the obstruction"
+        );
+    }
+
+    #[test]
     fn public_artifact_encoders_refuse_values_their_decoders_refuse() {
         let invalid_program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
             crate::make_type_id("invalid-program-node"),
@@ -4561,6 +5396,174 @@ mod tests {
         assert_eq!(
             error.kind(),
             EchoOperationArtifactErrorKindV1::InvalidStructure
+        );
+    }
+
+    #[test]
+    fn operation_result_id_preserves_the_legacy_hash_for_updates() {
+        // The compare-and-set program keeps the exact pre-ADR-0024 hash
+        // layout: a raw 32-byte previous digest with no variant tag.
+        let installed = retained_fixture_installation();
+        let node = node_key_from_bytes([20; 64]);
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            EchoOperationEvaluationBasisV1::new(
+                WriterHeadKey {
+                    worldline_id: crate::WorldlineId::from_bytes(digest(21)),
+                    head_id: crate::HeadId::from_bytes(digest(22)),
+                },
+                WorldlineTick::ZERO,
+                None,
+                digest(23),
+                digest(24),
+                EchoOperationApplicationBasisV1::new(digest(25), digest(26)),
+            ),
+            digest(27),
+            EchoOperationBudgetV1::new(8, 512, 512),
+            node,
+            digest(28),
+            Vec::new(),
+        );
+        let replacement_value_digest = digest(29);
+        let patch_digest = digest(30);
+        let previous = digest(28);
+
+        let mut expected = Hasher::new();
+        expected.update(RESULT_ID_DOMAIN);
+        expected.update(&installed.installed_operation_id.as_hash());
+        expected.update(&profile_digest(RESULT_SCHEMA));
+        expected.update(invocation.node.warp_id.as_bytes());
+        expected.update(invocation.node.local_id.as_bytes());
+        expected.update(&previous);
+        expected.update(&replacement_value_digest);
+        expected.update(&patch_digest);
+        let expected_some = EchoOperationResultIdV1(expected.finalize().into());
+
+        assert_eq!(
+            operation_result_id(
+                &installed,
+                &invocation,
+                AnchoredNodeOperationModeV1::CompareAndSet {
+                    expected_value_digest: previous,
+                },
+                replacement_value_digest,
+                patch_digest,
+            ),
+            expected_some,
+            "compare-and-set must hash identically to the legacy untagged digest layout"
+        );
+    }
+
+    #[test]
+    fn legacy_compare_and_set_program_and_invocation_bytes_remain_fixed() {
+        let required_node_type = TypeId(digest(31));
+        let required_attachment_type = TypeId(digest(32));
+        let program = EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            required_node_type,
+            required_attachment_type,
+            1_024,
+        );
+        let expected_program = encode_canonical_cbor_v1(&map_value([
+            (
+                "interpreter_profile_identity",
+                hash_value(profile_digest("echo.operation-interpreter/v1")),
+            ),
+            (
+                "intrinsic_profile_identity",
+                hash_value(profile_digest("echo.operation-attachment-algebra/v1")),
+            ),
+            (
+                "kind",
+                text_value("anchored-node-attachment-compare-and-set/v1"),
+            ),
+            ("max_replacement_bytes", uint_value(1_024)),
+            (
+                "required_attachment_type",
+                hash_value(required_attachment_type.0),
+            ),
+            ("required_node_type", hash_value(required_node_type.0)),
+            ("schema", text_value("echo.operation-program/v1")),
+        ]))
+        .expect("the legacy program fixture encodes");
+        assert_eq!(
+            program.to_canonical_bytes().expect("program encodes"),
+            expected_program,
+            "the legacy update program bytes are a compatibility fixture"
+        );
+        assert_eq!(
+            program.identity().expect("program has an identity"),
+            EchoOperationProgramIdV1(domain_hash(
+                b"echo:operation-program:v1\0",
+                &expected_program,
+            ))
+        );
+
+        let node = node_key_from_bytes([33; 64]);
+        let basis = EchoOperationEvaluationBasisV1::new(
+            WriterHeadKey {
+                worldline_id: crate::WorldlineId::from_bytes(digest(34)),
+                head_id: crate::HeadId::from_bytes(digest(35)),
+            },
+            WorldlineTick::from_raw(7),
+            Some(GlobalTick::from_raw(11)),
+            digest(36),
+            digest(37),
+            EchoOperationApplicationBasisV1::new(digest(38), digest(39)),
+        );
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            EchoOperationPackageIdV1(digest(40)),
+            "echo.fixture.LegacyCompareAndSet.v1",
+            basis,
+            digest(41),
+            EchoOperationBudgetV1::new(4, 70, 37),
+            node,
+            digest(42),
+            b"after".to_vec(),
+        );
+        let expected_invocation = encode_canonical_cbor_v1(&map_value([
+            ("authority_grant_identity", hash_value(digest(41))),
+            (
+                "delegated_budget",
+                EchoOperationBudgetV1::new(4, 70, 37).to_value(),
+            ),
+            ("evaluation_basis", basis.to_value()),
+            ("expected_value_digest", hash_value(digest(42))),
+            ("node_id", hash_value(node.local_id.0)),
+            (
+                "operation_coordinate",
+                text_value("echo.fixture.LegacyCompareAndSet.v1"),
+            ),
+            ("package_id", hash_value(digest(40))),
+            (
+                "replacement_bytes",
+                CanonicalValueV1::Bytes(b"after".to_vec()),
+            ),
+            ("schema", text_value("echo.operation-invocation/v1")),
+            ("warp_id", hash_value(node.warp_id.0)),
+        ]))
+        .expect("the legacy invocation fixture encodes");
+        assert_eq!(
+            invocation.to_canonical_bytes().expect("invocation encodes"),
+            expected_invocation,
+            "the legacy update invocation bytes are a compatibility fixture"
+        );
+
+        let mut widened_value =
+            decode_canonical_cbor_v1(&expected_invocation).expect("fixture decodes");
+        let CanonicalValueV1::Map(fields) = &mut widened_value else {
+            panic!("fixture is a map");
+        };
+        let expected_digest = fields
+            .iter_mut()
+            .find(|(key, _)| key == &text_value("expected_value_digest"))
+            .expect("fixture carries the update precondition");
+        expected_digest.1 = CanonicalValueV1::Null;
+        let widened_bytes =
+            encode_canonical_cbor_v1(&widened_value).expect("mutated fixture re-encodes");
+        assert!(
+            EchoOperationInvocationV1::from_canonical_bytes(&widened_bytes).is_err(),
+            "null must never gain creation meaning under the legacy invocation schema"
         );
     }
 }

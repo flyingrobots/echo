@@ -254,10 +254,12 @@ canonical ExecutableOperationPackageV1 bytes
 ```
 
 The first two paths are callback-shaped compatibility infrastructure. The
-third proves Echo-owned execution of admitted data-only meaning, but no real
-Edict compiler output or Jedit operation uses it yet. The next convergence
-crossing must bind a real Jedit-owned Edict operation and lawpack to that
-executable-operation package without reintroducing a native implementation.
+third proves Echo-owned execution of admitted data-only meaning through
+separate update-only compare-and-set and single-node create-if-absent program
+profiles. No real Edict compiler output, Jedit operation, or Graft
+multi-record mutation uses them yet. The next convergence crossing must bind a
+real application-owned Edict operation and lawpack to the executable-operation
+package without reintroducing a native implementation.
 
 ## Contracts And Boundaries
 

@@ -148,21 +148,26 @@ Echo runtime authority.
 The preceding paragraph describes the implemented provider-v1 compatibility
 corridor. [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)
 accepts a distinct executable-operation category for new application
-mutations. Echo now implements its first generic runtime slice: package and
-invocation admission, installation of a data-only anchored-attachment program,
-private bounded evaluation, exact-basis singleton commit, typed evidence, WAL,
-and callback-free fresh-host recovery of committed consequences. Noncommitted
-evidence is returned to the caller but does not enter the operation-tick WAL.
-The slice exposes no application
-matcher, executor, or footprint callback. It is not yet emitted by Edict, does
-not implement Jedit `ReplaceRange`, and has no structurally separate target
-verifier or general scheduler batch composition. Provider v1 remains stable
-while consumers migrate; it is not renamed or silently reinterpreted as the
-executable-operation corridor. The program digest supplies executable meaning
-only: it cannot independently confer an operation coordinate, invocability, or
-authority, and Echo cannot install or invoke it naked. The admitted operation
-package binds the public contract and semantic closure to the exact program,
-after which Echo independently admits each invocation.
+mutations. Echo now implements two bounded anchored-attachment programs in that
+runtime slice: the original update-only compare-and-set and a separately
+identified single-node-plus-alpha-attachment create-if-absent profile. Package
+and invocation admission, private bounded evaluation, exact-basis singleton
+commit, typed evidence, WAL, and callback-free fresh-host recovery validate the
+selected program's exact footprint, budget, result, and patch shape.
+Operations targeting a descended WARP retain and meter every portal attachment
+in the root-to-target reachability chain as a causal input.
+Noncommitted evidence is returned to the caller but does not enter the
+operation-tick WAL. The slice exposes no application matcher, executor, or
+footprint callback. It is not yet emitted by Edict, does not implement Jedit
+`ReplaceRange` or Graft's multi-record mutation, and has no structurally
+separate target verifier or general scheduler batch composition. Provider v1
+remains stable while consumers migrate; it is not renamed or silently
+reinterpreted as the executable-operation corridor. The program digest
+supplies executable meaning only: it cannot independently confer an operation
+coordinate, invocability, or authority, and Echo cannot install or invoke it
+naked. The admitted operation package binds the public contract and semantic
+closure to the exact program, after which Echo independently admits each
+invocation.
 
 ## External Edict Provider Artifacts
 

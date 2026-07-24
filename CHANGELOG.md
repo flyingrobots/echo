@@ -26,8 +26,10 @@
   recovery validates every outcome against its exact envelope, admission,
   invocation, installed operation, causal coordinate, evaluation basis,
   reconstructed preparation and actual footprint, Tick entry, composite
-  consequence, and state root. Legacy operation recovery-index roots remain
-  byte-compatible when no Action outcome exists. Direct operation
+  consequence, exact reconstructed aggregate patch membership, and state root.
+  A composite receipt cannot validate outside its complete Action-batch
+  context. Legacy operation recovery-index roots remain byte-compatible when
+  no Action outcome exists. Direct operation
   prepare/commit remains a documentation-hidden public
   `TrustedRuntimeHost` compatibility/test seam, absent from
   `TrustedRuntimeApp`; removal is tracked by issue #689.

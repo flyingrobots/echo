@@ -3060,7 +3060,7 @@ pub(crate) fn recover_action_outcome_v1(
                 .ok_or_else(|| invalid_structure("Action receipt bytes are truncated"))?;
             offset = end;
             EchoOperationActionOutcomeV1::Committed(Box::new(
-                EchoOperationReceiptV1::from_canonical_bytes(receipt_bytes)?,
+                EchoOperationReceiptV1::from_action_batch_canonical_bytes(receipt_bytes)?,
             ))
         }
         2 => {
@@ -4018,6 +4018,19 @@ impl EchoOperationReceiptV1 {
     }
 
     pub(crate) fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+        Self::decode_canonical_bytes(bytes, false)
+    }
+
+    fn from_action_batch_canonical_bytes(
+        bytes: &[u8],
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
+        Self::decode_canonical_bytes(bytes, true)
+    }
+
+    fn decode_canonical_bytes(
+        bytes: &[u8],
+        allow_composite_context: bool,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
         let mut fields = exact_text_map(
             value,
@@ -4283,6 +4296,8 @@ impl EchoOperationReceiptV1 {
                     || receipt.committed_patch_digest.is_none()
                     || receipt.committed_result_id != Some(receipt.prepared_result_id)
                     || receipt.composition_digest.is_none()
+                    || (receipt.committed_patch_digest != Some(receipt.prepared_patch_digest)
+                        && !allow_composite_context)
                     || (receipt.committed_patch_digest == Some(receipt.prepared_patch_digest)
                         && receipt.composition_digest != Some(expected_composition_digest))
                     || receipt.state_root_before != receipt.evaluation_basis.state_root
@@ -4530,9 +4545,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     let mut blocked_by = Vec::with_capacity(candidates.len());
     let mut decisions = Vec::with_capacity(candidates.len());
     let mut accepted_footprints: Vec<(u32, Footprint)> = Vec::new();
-    let mut in_slots = Vec::new();
-    let mut out_slots = Vec::new();
-    let mut ops = Vec::new();
+    let mut accepted_operation_count = 0_usize;
     let mut ordered_rule_ids = Vec::with_capacity(candidates.len());
     let mut footprint_comparisons = 0_usize;
     let mut blocker_evidence_count = 0_usize;
@@ -4582,8 +4595,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     .checked_add(blockers.len())
                     .is_none_or(|total| total > ACTION_BATCH_BLOCKER_EVIDENCE_LIMIT_V1);
                 let operation_budget_exceeded = blockers.is_empty()
-                    && ops
-                        .len()
+                    && accepted_operation_count
                         .checked_add(prepared.patch().ops().len())
                         .is_none_or(|total| total > ACTION_BATCH_OPERATION_LIMIT_V1);
                 if comparison_budget_exceeded
@@ -4617,9 +4629,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                     blocked_by.push(Vec::new());
                     accepted_footprints
                         .push((entry_index_u32, prepared.actual_footprint().clone()));
-                    in_slots.extend_from_slice(prepared.patch().in_slots());
-                    out_slots.extend_from_slice(prepared.patch().out_slots());
-                    ops.extend_from_slice(prepared.patch().ops());
+                    accepted_operation_count += prepared.patch().ops().len();
                     decisions.push((
                         candidate.submission_id,
                         SchedulerEchoOperationDecisionV1::Applied(prepared),
@@ -4662,15 +4672,6 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         }
     }
 
-    let rule_pack_id = action_batch_rule_pack_id(&ordered_rule_ids);
-    let patch = WarpTickPatchV1::new(
-        policy_id,
-        rule_pack_id,
-        TickCommitStatus::Committed,
-        in_slots,
-        out_slots,
-        ops,
-    );
     let tick_receipt = TickReceipt::new(tx, entries, blocked_by);
     let plan_digest = action_batch_plan_digest(tick_receipt.entries());
     let applied = decisions
@@ -4681,6 +4682,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
             | SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(_) => None,
         })
         .collect::<Vec<_>>();
+    let patch = action_batch_patch_from_preparations_v1(policy_id, &ordered_rule_ids, &applied);
     let rewrites_digest = action_batch_rewrites_digest(&applied);
     let composition_digest = action_batch_composition_digest(&applied, patch.digest());
 
@@ -4759,6 +4761,29 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         patch,
         outcomes,
     })
+}
+
+pub(crate) fn action_batch_patch_from_preparations_v1(
+    policy_id: u32,
+    ordered_rule_ids: &[Hash],
+    prepared: &[&PreparedEchoOperationV1],
+) -> WarpTickPatchV1 {
+    let mut in_slots = Vec::new();
+    let mut out_slots = Vec::new();
+    let mut ops = Vec::new();
+    for member in prepared {
+        in_slots.extend_from_slice(member.patch().in_slots());
+        out_slots.extend_from_slice(member.patch().out_slots());
+        ops.extend_from_slice(member.patch().ops());
+    }
+    WarpTickPatchV1::new(
+        policy_id,
+        action_batch_rule_pack_id(ordered_rule_ids),
+        TickCommitStatus::Committed,
+        in_slots,
+        out_slots,
+        ops,
+    )
 }
 
 fn action_batch_rule_pack_id(rule_ids: &[Hash]) -> Hash {
@@ -6489,6 +6514,18 @@ mod tests {
             .expect("coordinated composition substitution encodes");
         recover_committed_execution_receipt_v1(&forged_composition_bytes)
             .expect_err("recovery must independently derive singleton composition identity");
+
+        let mut contextless_composite = receipt.clone();
+        contextless_composite.committed_patch_digest = Some(digest(92));
+        contextless_composite.composition_digest = Some(digest(93));
+        contextless_composite.terminal_outcome_digest =
+            terminal_outcome_digest(&contextless_composite);
+        contextless_composite.receipt_digest = receipt_digest(&contextless_composite);
+        let contextless_composite_bytes = contextless_composite
+            .to_canonical_bytes()
+            .expect("contextless composite receipt encodes");
+        recover_committed_execution_receipt_v1(&contextless_composite_bytes)
+            .expect_err("a composite receipt requires its complete scheduler batch context");
 
         let mut impossible_budget = receipt.clone();
         impossible_budget.delegated_budget = EchoOperationBudgetV1::new(1, 1, 1);

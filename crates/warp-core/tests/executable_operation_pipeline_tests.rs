@@ -2954,6 +2954,28 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
                 forged_composition.validate_echo_operation_action_outcomes_for_test(),
                 Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
             ));
+            let mut omitted_member_patch = runtime_wal
+                .recover_read_only()
+                .expect("the honest composite Tick recovers for membership mutation");
+            let forged_patch_digest = digest("composite-patch-omits-an-applied-member");
+            let transition = omitted_member_patch
+                .provenance_entries
+                .iter_mut()
+                .find(|entry| entry.expected.commit_hash == steps[0].commit_hash)
+                .expect("the recovered scheduler transition remains available");
+            transition.expected.patch_digest = forged_patch_digest;
+            transition
+                .patch
+                .as_mut()
+                .expect("the scheduler transition retains its replay patch")
+                .patch_digest = forged_patch_digest;
+            assert!(matches!(
+                omitted_member_patch.validate_echo_operation_parent_states_for_test(
+                    host.runtime(),
+                    host.provenance()
+                ),
+                Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+            ));
             assert!(
                 adversarial
                     .echo_operation_action_outcomes

@@ -43,9 +43,9 @@ use crate::{
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
-        action_batch_composition_digest_from_receipts_v1, action_preparation_identity_matches_v1,
-        admit_action_invocation_v1, admit_invocation_v1, admit_package_v1,
-        commit_prepared_to_state, decode_invocation_route_v1,
+        action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
+        action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
+        admit_package_v1, commit_prepared_to_state, decode_invocation_route_v1,
         echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
         install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
         not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
@@ -4101,8 +4101,69 @@ fn validate_recovered_echo_operation_parent_states(
             .or_default()
             .push((*ingress_id, *submission_id));
     }
-    for (_, mut members) in action_tick_members {
+    for ((head_key, worldline_tick_after, _, _), mut members) in action_tick_members {
         members.sort_by_key(|(ingress_id, _)| *ingress_id);
+        let tick_before = worldline_tick_after
+            .as_u64()
+            .checked_sub(1)
+            .map(crate::WorldlineTick::from_raw)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has an impossible parent coordinate",
+            })?;
+        let transition = entries.get(&(head_key.worldline_id, tick_before)).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has no recovered state transition",
+            },
+        )?;
+        let policy_id = transition
+            .patch
+            .as_ref()
+            .map(crate::WorldlineTickPatchV1::policy_id)
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick has no retained replay patch",
+            })?;
+        let ordered_rule_ids = members
+            .iter()
+            .map(|(_, submission_id)| match outcomes.get(submission_id) {
+                Some(EchoOperationActionOutcomeV1::Committed(receipt)) => {
+                    Ok(receipt.installed_operation_id().as_hash())
+                }
+                Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) => {
+                    Ok(obstruction.installed_operation_id().as_hash())
+                }
+                Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) => {
+                    Ok(conflict.installed_operation_id.as_hash())
+                }
+                None => Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail: "Action Tick member has no recovered outcome",
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let applied_preparations = members
+            .iter()
+            .filter_map(|(_, submission_id)| {
+                if matches!(
+                    outcomes.get(submission_id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ) {
+                    reconstructed_preparations
+                        .get(submission_id)
+                        .map(Box::as_ref)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let reconstructed_patch = action_batch_patch_from_preparations_v1(
+            policy_id,
+            &ordered_rule_ids,
+            &applied_preparations,
+        );
+        if reconstructed_patch.digest() != transition.expected.patch_digest {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick patch omits or alters a reconstructed applied member",
+            });
+        }
         for (index, (_, submission_id)) in members.iter().enumerate() {
             let Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) =
                 outcomes.get(submission_id)

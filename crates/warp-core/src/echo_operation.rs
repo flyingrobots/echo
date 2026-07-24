@@ -5910,9 +5910,10 @@ mod tests {
         let mut footprint = Footprint::default();
         footprint.b_out.insert(node.warp_id, 9);
         footprints.push(footprint);
-        let mut footprint = Footprint::default();
-        footprint.factor_mask = 1;
-        footprints.push(footprint);
+        footprints.push(Footprint {
+            factor_mask: 1,
+            ..Footprint::default()
+        });
 
         let digests = footprints.iter().map(footprint_digest).collect::<Vec<_>>();
         for (index, digest) in digests.iter().enumerate() {

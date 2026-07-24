@@ -3163,25 +3163,57 @@ fn recover_echo_operation_material(
     })
 }
 
+/// Recognizes the two canonical patch shapes the anchored-node-attachment
+/// compare-and-set program produces: an update (`SetAttachment` alone) and,
+/// since ADR 0024, a create-from-absence (`UpsertNode` then `SetAttachment`,
+/// writing both slots). Anything else -- including either op alone, either
+/// op out of order, or a mismatched key/owner -- does not scope to a node.
 fn operation_patch_scope_v1(patch: &crate::WorldlineTickPatchV1) -> Option<crate::NodeKey> {
-    let [crate::WarpOp::SetAttachment { key, .. }] = patch.ops.as_slice() else {
-        return None;
+    let node = match patch.ops.as_slice() {
+        [crate::WarpOp::SetAttachment { key, .. }] => {
+            let crate::AttachmentOwner::Node(node) = key.owner else {
+                return None;
+            };
+            let attachment_slot = crate::AttachmentKey::node_alpha(node);
+            if *key != attachment_slot
+                || patch.warp_id != node.warp_id
+                || patch.in_slots.as_slice()
+                    != [
+                        crate::SlotId::Node(node),
+                        crate::SlotId::Attachment(attachment_slot),
+                    ]
+                || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
+            {
+                return None;
+            }
+            node
+        }
+        [crate::WarpOp::UpsertNode { node, .. }, crate::WarpOp::SetAttachment { key, .. }] => {
+            let node = *node;
+            let crate::AttachmentOwner::Node(attachment_node) = key.owner else {
+                return None;
+            };
+            let attachment_slot = crate::AttachmentKey::node_alpha(node);
+            if attachment_node != node
+                || *key != attachment_slot
+                || patch.warp_id != node.warp_id
+                || patch.in_slots.as_slice()
+                    != [
+                        crate::SlotId::Node(node),
+                        crate::SlotId::Attachment(attachment_slot),
+                    ]
+                || patch.out_slots.as_slice()
+                    != [
+                        crate::SlotId::Node(node),
+                        crate::SlotId::Attachment(attachment_slot),
+                    ]
+            {
+                return None;
+            }
+            node
+        }
+        _ => return None,
     };
-    let crate::AttachmentOwner::Node(node) = key.owner else {
-        return None;
-    };
-    let attachment_slot = crate::AttachmentKey::node_alpha(node);
-    if *key != attachment_slot
-        || patch.warp_id != node.warp_id
-        || patch.in_slots.as_slice()
-            != [
-                crate::SlotId::Node(node),
-                crate::SlotId::Attachment(attachment_slot),
-            ]
-        || patch.out_slots.as_slice() != [crate::SlotId::Attachment(attachment_slot)]
-    {
-        return None;
-    }
     Some(node)
 }
 

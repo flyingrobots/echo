@@ -2080,3 +2080,79 @@ fn create_from_absence_cannot_commit_after_its_parent_basis_changes() {
         )))
     );
 }
+
+/// Regression for PR #686 review finding #1 (Codex, P0): a durably committed
+/// create-from-absence patch (WarpOp::UpsertNode + WarpOp::SetAttachment,
+/// two-element out_slots) must be recoverable by a fresh host, exactly like
+/// an update-shaped patch already is.
+#[test]
+fn filesystem_wal_recovers_a_create_from_absence_commit() {
+    let wal_dir = TempWalDir::new();
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let new_node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-wal-created"),
+    };
+    let application_basis =
+        warp_core::echo_operation_anchored_node_absent_application_basis_v1(new_node);
+
+    {
+        let (mut host, head_key, _existing_node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the fresh filesystem WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        let evaluation_basis = host
+            .echo_operation_evaluation_basis_v1(head_key, application_basis)
+            .expect("Echo resolves the exact current parent basis");
+        let invocation = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+            installed.package_id(),
+            installed.operation_coordinate(),
+            evaluation_basis,
+            digest("fixture-authority-grant"),
+            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+            new_node,
+            None,
+            b"wal-created".to_vec(),
+        );
+        let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+        let admitted = host
+            .admit_echo_operation_invocation_v1(
+                &EchoOperationInvocationAdmissionPolicyV1::new(
+                    digest("fixture-authority-profile"),
+                    digest("fixture-authority-grant"),
+                    EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                ),
+                &invocation_bytes,
+            )
+            .expect("the create-from-absence invocation is independently admitted");
+        let EchoOperationPreparationV1::Prepared(prepared) =
+            host.prepare_echo_operation_v1(admitted)
+        else {
+            panic!("the lawful create-from-absence invocation must prepare");
+        };
+        host.commit_prepared_echo_operation_v1(prepared)
+            .expect("the durable create-from-absence operation commits");
+    }
+
+    let (mut recovered, head_key, _existing_node) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect(
+            "a fresh host recovers a create-from-absence commit without replaying application code",
+        );
+    let state = recovered
+        .runtime()
+        .worldlines()
+        .get(&head_key.worldline_id)
+        .expect("the recovered worldline exists")
+        .state();
+    assert_eq!(
+        state
+            .store(&new_node.warp_id)
+            .and_then(|store| store.node_attachment(&new_node.local_id)),
+        Some(&AttachmentValue::Atom(AtomPayload::new(
+            attachment_type,
+            Bytes::from_static(b"wal-created"),
+        )))
+    );
+}

@@ -85,6 +85,11 @@ const ACTION_BATCH_PLAN_DOMAIN: &[u8] = b"echo:operation-action-batch-plan:v1\0"
 const ACTION_BATCH_REWRITES_DOMAIN: &[u8] = b"echo:operation-action-batch-rewrites:v1\0";
 const ACTION_BATCH_COMPOSITION_DOMAIN: &[u8] = b"echo:operation-action-batch-composition:v1\0";
 const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT002";
+pub(crate) const ACTION_BATCH_CANDIDATE_LIMIT_V1: usize = 64;
+const ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1: usize =
+    ACTION_BATCH_CANDIDATE_LIMIT_V1 * (ACTION_BATCH_CANDIDATE_LIMIT_V1 - 1) / 2;
+const ACTION_BATCH_BLOCKER_EVIDENCE_LIMIT_V1: usize = ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1;
+const ACTION_BATCH_OPERATION_LIMIT_V1: usize = ACTION_BATCH_CANDIDATE_LIMIT_V1 * 2;
 const INVOCATION_BYTES_DIGEST_DOMAIN: &[u8] = b"echo:operation-invocation-bytes:v1\0";
 const BASIS_ID_DOMAIN: &[u8] = b"echo:operation-evaluation-basis:v1\0";
 const PACKAGE_ADMISSION_ID_DOMAIN: &[u8] = b"echo:operation-package-admission:v1\0";
@@ -4470,6 +4475,19 @@ enum SchedulerEchoOperationDecisionV1 {
     RejectedFootprintConflict(Box<EchoOperationFootprintConflictV1>),
 }
 
+fn scheduler_composition_budget_obstruction_v1(
+    prepared: &PreparedEchoOperationV1,
+) -> EchoOperationObstructionV1 {
+    EchoOperationObstructionV1 {
+        kind: EchoOperationObstructionKindV1::BudgetExceeded,
+        package_id: prepared.package_id(),
+        installed_operation_id: prepared.installed_operation_id(),
+        invocation_admission_id: prepared.invocation_admission_id(),
+        invocation_id: prepared.invocation_id(),
+        evaluation_basis_id: prepared.evaluation_basis().identity(),
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct EchoOperationTerminalMaterialV1 {
     posture: EchoOperationTerminalPostureV1,
@@ -4487,6 +4505,9 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     commit_global_tick: GlobalTick,
     policy_id: u32,
 ) -> Result<EchoOperationActionBatchCommitMaterialV1, EchoOperationCommitErrorV1> {
+    if candidates.len() > ACTION_BATCH_CANDIDATE_LIMIT_V1 {
+        return Err(EchoOperationCommitErrorV1::TooManyCandidates);
+    }
     // This order is part of the receipt-correlation contract: coordinator
     // outcome lookup maps the same Tick's ingress-sorted correlations onto
     // these receipt entries by position.
@@ -4513,6 +4534,8 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     let mut out_slots = Vec::new();
     let mut ops = Vec::new();
     let mut ordered_rule_ids = Vec::with_capacity(candidates.len());
+    let mut footprint_comparisons = 0_usize;
+    let mut blocker_evidence_count = 0_usize;
 
     for (entry_index, candidate) in candidates.into_iter().enumerate() {
         let entry_index_u32 = u32::try_from(entry_index)
@@ -4536,16 +4559,54 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                 ));
             }
             EchoOperationPreparationV1::Prepared(prepared) => {
-                let blockers = accepted_footprints
-                    .iter()
-                    .filter_map(|(accepted_index, footprint)| {
-                        crate::engine_impl::footprints_conflict(
-                            prepared.actual_footprint(),
-                            footprint,
-                        )
-                        .then_some(*accepted_index)
-                    })
-                    .collect::<Vec<_>>();
+                let comparison_cost = accepted_footprints.len();
+                let comparison_budget_exceeded = footprint_comparisons
+                    .checked_add(comparison_cost)
+                    .is_none_or(|total| total > ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1);
+                let blockers = if comparison_budget_exceeded {
+                    Vec::new()
+                } else {
+                    footprint_comparisons += comparison_cost;
+                    accepted_footprints
+                        .iter()
+                        .filter_map(|(accepted_index, footprint)| {
+                            crate::engine_impl::footprints_conflict(
+                                prepared.actual_footprint(),
+                                footprint,
+                            )
+                            .then_some(*accepted_index)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let blocker_budget_exceeded = blocker_evidence_count
+                    .checked_add(blockers.len())
+                    .is_none_or(|total| total > ACTION_BATCH_BLOCKER_EVIDENCE_LIMIT_V1);
+                let operation_budget_exceeded = blockers.is_empty()
+                    && ops
+                        .len()
+                        .checked_add(prepared.patch().ops().len())
+                        .is_none_or(|total| total > ACTION_BATCH_OPERATION_LIMIT_V1);
+                if comparison_budget_exceeded
+                    || blocker_budget_exceeded
+                    || operation_budget_exceeded
+                {
+                    entries.push(TickReceiptEntry {
+                        rule_id: candidate.rule_id,
+                        scope_hash,
+                        scope: candidate.scope,
+                        disposition: TickReceiptDisposition::Rejected(
+                            TickReceiptRejection::ExecutableOperationObstruction,
+                        ),
+                    });
+                    blocked_by.push(Vec::new());
+                    decisions.push((
+                        candidate.submission_id,
+                        SchedulerEchoOperationDecisionV1::Obstructed(
+                            scheduler_composition_budget_obstruction_v1(&prepared),
+                        ),
+                    ));
+                    continue;
+                }
                 if blockers.is_empty() {
                     entries.push(TickReceiptEntry {
                         rule_id: candidate.rule_id,
@@ -4564,6 +4625,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                         SchedulerEchoOperationDecisionV1::Applied(prepared),
                     ));
                 } else {
+                    blocker_evidence_count += blockers.len();
                     entries.push(TickReceiptEntry {
                         rule_id: candidate.rule_id,
                         scope_hash,

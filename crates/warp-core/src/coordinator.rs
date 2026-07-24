@@ -4225,6 +4225,7 @@ impl SchedulerCoordinator {
             let admitted = if operation_actions.is_some() {
                 inbox.admit_partitioned(
                     crate::echo_operation::echo_operation_action_intent_kind_v1(),
+                    crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1,
                 )
             } else {
                 inbox.admit()

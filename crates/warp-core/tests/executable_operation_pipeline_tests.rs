@@ -3007,6 +3007,67 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
 }
 
 #[test]
+fn scheduler_candidate_limit_leaves_excess_action_pending() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the scheduler budget fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let mut submission_ids = Vec::new();
+    for index in 0..65 {
+        let replacement = format!("bounded-after-{index}");
+        let invocation = action_invocation(
+            &host,
+            &installed,
+            head_key,
+            node,
+            b"before",
+            replacement.as_bytes(),
+        );
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the bounded invocation becomes one canonical Action");
+        submission_ids.push(
+            host.app()
+                .submit_intent_with_runtime_wal_ack(envelope)
+                .expect("the bounded Action is durable")
+                .submission_id,
+        );
+    }
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 65);
+
+    let first_tick = host
+        .tick_once()
+        .expect("the first scheduler Tick respects its Action candidate limit");
+    assert_eq!(first_tick.len(), 1);
+    assert_eq!(first_tick[0].admitted_count, 64);
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
+    assert_eq!(
+        submission_ids
+            .iter()
+            .filter(|submission_id| {
+                host.echo_operation_action_outcome_v1(submission_id)
+                    .is_some()
+            })
+            .count(),
+        64
+    );
+
+    let second_tick = host
+        .tick_once()
+        .expect("the excess Action remains available to a later scheduler Tick");
+    assert_eq!(second_tick.len(), 1);
+    assert_eq!(second_tick[0].admitted_count, 1);
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
+    assert!(submission_ids.iter().all(|submission_id| host
+        .echo_operation_action_outcome_v1(submission_id)
+        .is_some()));
+}
+
+#[test]
 fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
     let wal_dir = TempWalDir::new();
     let submission_id;

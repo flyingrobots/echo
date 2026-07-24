@@ -799,7 +799,11 @@ impl HeadInbox {
     /// category remain pending for a later Tick. Existing per-Tick limits still
     /// bound the selected category.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-    pub(crate) fn admit_partitioned(&mut self, partition_kind: IntentKind) -> Vec<IngressEnvelope> {
+    pub(crate) fn admit_partitioned(
+        &mut self,
+        partition_kind: IntentKind,
+        partition_limit: usize,
+    ) -> Vec<IngressEnvelope> {
         let Some(first) = self.pending.first_key_value().map(|(_, envelope)| envelope) else {
             return Vec::new();
         };
@@ -808,9 +812,14 @@ impl HeadInbox {
             IngressPayload::LocalIntent { intent_kind, .. }
                 if *intent_kind == partition_kind
         );
-        let limit = match self.policy {
+        let policy_limit = match self.policy {
             InboxPolicy::Budgeted { max_per_tick } => max_per_tick as usize,
             InboxPolicy::AcceptAll | InboxPolicy::KindFilter(_) => usize::MAX,
+        };
+        let limit = if selected_partition {
+            policy_limit.min(partition_limit)
+        } else {
+            policy_limit
         };
         if limit == 0 {
             return Vec::new();
@@ -975,7 +984,7 @@ mod tests {
             assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
         }
 
-        let first_batch = inbox.admit_partitioned(partition_kind);
+        let first_batch = inbox.admit_partitioned(partition_kind, 2);
         assert_eq!(first_batch.len(), 2);
         assert!(first_batch.iter().all(|envelope| {
             matches!(
@@ -986,7 +995,7 @@ mod tests {
         }));
         assert_eq!(inbox.pending_count(), 2);
 
-        let second_batch = inbox.admit_partitioned(partition_kind);
+        let second_batch = inbox.admit_partitioned(partition_kind, 2);
         assert_eq!(second_batch.len(), 2);
         assert!(second_batch.iter().all(|envelope| {
             matches!(

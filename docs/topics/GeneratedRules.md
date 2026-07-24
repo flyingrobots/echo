@@ -181,10 +181,10 @@ parent patch and singleton tick entry use the admitted installed-operation
 identity as their rule-pack/rule identity, so two packages that reuse identical
 program bytes do not collapse into one causal operation identity.
 The current slice composes one preparation and does not claim general scheduler
-batch integration, multi-record creation, or independent implementation
-evidence. Its canonical decoding, identity recomputation, budget and footprint
-checks, exact-basis comparison, deterministic repeatability, and WAL recovery
-are deterministic self-validation.
+batch integration, Graft-style multi-record mutation, or independent
+implementation evidence. Its canonical decoding, identity recomputation,
+budget and footprint checks, exact-basis comparison, deterministic
+repeatability, and WAL recovery are deterministic self-validation.
 
 The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
 under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That

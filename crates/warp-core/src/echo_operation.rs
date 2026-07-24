@@ -2043,12 +2043,14 @@ fn current_application_basis(
                 Some(_) => store.node_attachment(&invocation.node.local_id),
             };
             let Some(attachment) = attachment else {
-                if invocation.delegated_budget.read_bytes < 64 {
-                    return Err(invocation_admission_error(
-                        EchoOperationInvocationAdmissionErrorKindV1::BudgetExceeded,
-                        "application-basis corroboration exceeds the delegated read budget",
-                    ));
-                }
+                // No local budget guard is needed here: `admit_invocation_v1`
+                // already requires `invocation.delegated_budget.read_bytes >=
+                // installed.program.minimum_budget().read_bytes` (64 for this
+                // program) before `current_application_basis` is ever called,
+                // so a `< 64` check at this point can never fire. Absence
+                // corroboration costs exactly that floor (no atom bytes to
+                // read), so the existing minimum-budget gate already covers
+                // it precisely.
                 return Ok(echo_operation_anchored_node_absent_application_basis_v1(
                     invocation.node,
                 ));

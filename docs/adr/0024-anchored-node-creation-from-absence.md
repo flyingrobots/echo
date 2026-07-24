@@ -141,7 +141,7 @@ to build.
 
 Per ADR 0023's evidence-grade table, this change's evidence is **deterministic
 self-validation**: `crates/warp-core/tests/executable_operation_pipeline_tests.rs`
-gained three tests exercising the new behavior end to end through the real
+gained six tests exercising the new behavior end to end through the real
 `TrustedRuntimeHost` (admission, private evaluation, commit, and post-commit
 store readback) --
 
@@ -158,15 +158,44 @@ store readback) --
   (update-shaped) precondition against a genuinely absent node still refuses
   with `NodeMissing`, unchanged -- proving the widening did not weaken the
   existing update path's requirements.
+- `create_from_absence_refuses_when_the_node_exists_with_the_wrong_type`: a
+  node present with a different `NodeRecord.ty` than the installed package
+  declares refuses with `NodeTypeMismatch`, not a generic precondition
+  failure, even though admission's coarser check (which never inspects node
+  type) still admits it.
+- `create_from_absence_refuses_when_the_node_exists_without_its_attachment`: a
+  node present with the correct type but no alpha attachment refuses with
+  `PreconditionMismatch` -- creation is atomic over both slots or it refuses,
+  with no path that attaches onto a pre-existing bare node.
+- `create_from_absence_cannot_commit_after_its_parent_basis_changes`: the
+  existing basis-changed TOCTOU protection covers a prepared create-from-
+  absence patch through the same generic exact-basis commit check already
+  proven for updates, not a create-specific carve-out.
 
 All 13 pre-existing tests in that file pass unmodified in behavior (only
-mechanically rewrapped in `Some(...)` at call sites, never changed in intent),
-which is itself evidence that the update path's wire encoding, admission
-behavior, and evaluation behavior are byte-for-byte unchanged. The full
-`warp-core` suite (81 test binaries, 686 library tests, doctests included)
-passes with this change; `cargo clippy --all-targets` reports the identical
-pre-existing error set before and after (57 errors, all unrelated to this
-change, none introduced by it).
+mechanically rewrapped in `Some(...)` at call sites, never changed in intent).
+This evidences that `EchoOperationInvocationV1`'s canonical byte encoding and
+`prepare_operation_v1`'s/`current_application_basis`'s update-path _behavior_
+are unchanged for `Some(...)`. It does **not** evidence that every internal
+digest is byte-identical: `operation_result_id`'s hash input now goes through
+`hash_optional_id`, which adds a one-byte discriminant tag ahead of the
+32-byte digest for _both_ `Some` and `None`, not only `None`. This changes
+`EchoOperationResultIdV1` -- and everything chained from it, including
+`preparation_id` and receipt identities -- for the update path too, not only
+the new create path. This is judged acceptable, not a correctness defect: per
+the CHANGELOG.md entry for the executable-operation-runtime slice, no real
+committed result or receipt identity exists yet for this corridor to break.
+A future change that needs `operation_result_id`'s update-path output to stay
+byte-identical across a wire revision is a separate, explicit decision, not
+something this ADR's "unchanged" claim should be read to already cover.
+
+The full `warp-core` suite (81 test binaries, 686 library tests, doctests
+included) passes with this change; `cargo clippy --all-targets` reports the
+identical pre-existing error set before and after (57 errors, all unrelated
+to this change, none introduced by it), independently confirmed against a
+clean `origin/main` worktree by exact file:line location, not only by
+message text -- the sole difference is one pre-existing lint's line number
+shifting by this change's own insertion offset.
 
 This grade is not independently implemented conformance evidence -- there is
 no second, separately-implemented evaluator checked against this one. That
@@ -218,10 +247,26 @@ generated client.
 - `current_application_basis` widens symmetrically; a create-from-absence
   invocation's freshness is corroborated exactly like an update's, just
   against a different current-state predicate (absence vs. a specific
-  value), through the same equality check.
-- The update path -- the only path any real caller has exercised so far -- is
-  unchanged bit-for-bit, evidenced by the pre-existing test suite passing
-  without behavioral modification.
+  value), through the same equality check. No local budget guard was added
+  for absence corroboration's read cost: `admit_invocation_v1`'s existing
+  `installed.program.minimum_budget().fits_within(invocation.delegated_budget)`
+  check already requires `read_bytes >= 64` -- the exact cost of probing an
+  absent node and attachment -- before `current_application_basis` is ever
+  called, so a second, local `< 64` guard at that point would be unreachable
+  dead code, not defense in depth.
+- The update path's _behavior_ -- which preconditions succeed, which refuse,
+  and with which obstruction -- is unchanged, evidenced by the pre-existing
+  test suite passing without behavioral modification. Its digests are not
+  entirely unchanged, though: `operation_result_id` now hashes
+  `previous_value_digest` through `hash_optional_id`, which prepends a
+  discriminant tag for both `Some` and `None`. `EchoOperationResultIdV1` (and
+  everything chained from it) therefore differs from what it would have been
+  under the prior code, for the update path as well as the new create path.
+  `EchoOperationInvocationV1`'s own canonical bytes are unaffected for
+  `Some(...)` -- only this one internal hash's input layout changed. Judged
+  acceptable for the same no-real-cutover-yet reason as the invocation
+  encoding change above; a future decision that needs this specific digest to
+  stay byte-identical across the change is separate and not yet made.
 - Echo still creates nodes of only the package-declared, static
   `required_node_type`; it still contains no application-specific intrinsic
   and no knowledge of what any caller is building.

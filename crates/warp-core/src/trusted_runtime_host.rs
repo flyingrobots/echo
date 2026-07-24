@@ -465,6 +465,7 @@ impl TrustedRuntimeWalRecovery {
             &self.witnessed_submissions,
             &self.receipt_correlations,
             &self.provenance_entries,
+            &self.installed_echo_operations,
             &self.echo_operation_action_outcomes,
         )
     }
@@ -2172,6 +2173,7 @@ impl TrustedRuntimeWal {
             &witnessed_submissions,
             &receipt_correlations,
             &provenance_entries,
+            &installed_echo_operations,
             &echo_operation_action_outcomes,
         )?;
         let certificate = runtime_wal_recovery_certificate(
@@ -4032,6 +4034,7 @@ fn validate_recovered_echo_operation_action_outcomes(
     witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
     receipt_correlations: &[ReceiptCorrelationPersistenceRecord],
     provenance_entries: &[ProvenanceEntry],
+    installed_echo_operations: &[InstalledEchoOperationV1],
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
 ) -> Result<(), TrustedRuntimeWalError> {
     let envelopes = witnessed_submissions
@@ -4067,12 +4070,17 @@ fn validate_recovered_echo_operation_action_outcomes(
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let invocation = inspect_action_invocation_v1(invocation_bytes)
             .map_err(|_| TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        let installed = installed_echo_operations
+            .iter()
+            .find(|installed| installed.package_id() == invocation.package_id)
+            .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         if envelope.ingress_id() != *ingress_id {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
         }
         match outcome {
             EchoOperationActionOutcomeV1::Committed(receipt) => {
-                if receipt.tick_receipt_digest() != correlation.tick_receipt_digest
+                if validate_receipt_installation_v1(receipt, installed).is_err()
+                    || receipt.tick_receipt_digest() != correlation.tick_receipt_digest
                     || receipt.commit_id() != correlation.commit_hash
                     || receipt.commit_global_tick() != Some(correlation.commit_global_tick)
                     || receipt.worldline_tick_after() != correlation.worldline_tick_after
@@ -4087,7 +4095,8 @@ fn validate_recovered_echo_operation_action_outcomes(
                 }
             }
             EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
-                if obstruction.package_id() != invocation.package_id
+                if obstruction.installed_operation_id() != installed.installed_operation_id()
+                    || obstruction.package_id() != invocation.package_id
                     || obstruction.invocation_id() != invocation.invocation_id
                     || obstruction.evaluation_basis_id() != invocation.evaluation_basis.identity()
                 {
@@ -4095,11 +4104,13 @@ fn validate_recovered_echo_operation_action_outcomes(
                 }
             }
             EchoOperationActionOutcomeV1::RejectedFootprintConflict {
+                installed_operation_id,
                 invocation_id,
                 blocked_by,
                 ..
             } => {
-                if blocked_by.is_empty()
+                if *installed_operation_id != installed.installed_operation_id()
+                    || blocked_by.is_empty()
                     || blocked_by.windows(2).any(|pair| pair[0] >= pair[1])
                     || *invocation_id != invocation.invocation_id
                 {

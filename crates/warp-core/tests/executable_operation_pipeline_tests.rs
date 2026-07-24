@@ -2836,6 +2836,12 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         let mut adversarial = runtime_wal
             .recover_read_only()
             .expect("the honest composite Tick recovers");
+        let mut missing_installation = adversarial.clone();
+        missing_installation.installed_echo_operations.clear();
+        assert!(matches!(
+            missing_installation.validate_echo_operation_action_outcomes_for_test(),
+            Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+        ));
         assert!(
             adversarial
                 .echo_operation_action_outcomes

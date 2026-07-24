@@ -3429,6 +3429,52 @@ fn identical_action_payloads_on_distinct_heads_keep_distinct_outcomes() {
 }
 
 #[test]
+fn recovery_separates_identical_commits_on_distinct_worldlines() {
+    let (mut host, first_head, second_head, node) = fixture_host_with_two_worldlines();
+    host.enable_in_memory_runtime_wal()
+        .expect("the multi-worldline recovery fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let mut submission_ids = Vec::new();
+    for head_key in [first_head, second_head] {
+        let invocation = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            invocation,
+        )
+        .expect("the exact-head invocation becomes an Action");
+        submission_ids.push(
+            host.app()
+                .submit_intent_with_runtime_wal_ack(envelope)
+                .expect("the exact-head Action is durable")
+                .submission_id,
+        );
+    }
+
+    let steps = host
+        .tick_once()
+        .expect("both exact-head Actions commit in one scheduler pass");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].commit_hash, steps[1].commit_hash);
+
+    let recovery = host
+        .runtime_wal()
+        .expect("the scheduler WAL remains enabled")
+        .recover_read_only()
+        .expect("equal commit hashes on distinct worldlines recover independently");
+    for submission_id in submission_ids {
+        assert!(recovery
+            .echo_operation_action_outcomes
+            .iter()
+            .any(|(recovered, _, outcome)| {
+                *recovered == submission_id
+                    && matches!(outcome, EchoOperationActionOutcomeV1::Committed(_))
+            }));
+    }
+}
+
+#[test]
 fn scheduler_wal_failure_publishes_no_action_state_or_receipt() {
     let wal_dir = TempWalDir::new();
     let submission_id;

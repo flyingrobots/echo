@@ -4111,10 +4111,25 @@ fn validate_recovered_echo_operation_action_outcomes(
         .collect::<BTreeMap<_, _>>();
     let provenance = provenance_entries
         .iter()
-        .map(|entry| (entry.expected.commit_hash, entry))
+        .filter_map(|entry| {
+            Some((
+                (
+                    entry.head_key?,
+                    entry.worldline_tick.checked_add(1)?,
+                    entry.commit_global_tick,
+                    entry.expected.commit_hash,
+                ),
+                entry,
+            ))
+        })
         .collect::<BTreeMap<_, _>>();
-    let mut outcomes_by_commit = BTreeMap::<
-        Hash,
+    let mut outcomes_by_tick = BTreeMap::<
+        (
+            crate::WriterHeadKey,
+            crate::WorldlineTick,
+            crate::GlobalTick,
+            Hash,
+        ),
         Vec<(
             Hash,
             &EchoOperationActionOutcomeV1,
@@ -4184,14 +4199,19 @@ fn validate_recovered_echo_operation_action_outcomes(
                 }
             }
         }
-        outcomes_by_commit
-            .entry(correlation.commit_hash)
+        outcomes_by_tick
+            .entry((
+                correlation.head_key,
+                correlation.worldline_tick_after,
+                correlation.commit_global_tick,
+                correlation.commit_hash,
+            ))
             .or_default()
             .push((*ingress_id, outcome, correlation, invocation));
     }
-    for (commit_hash, mut group) in outcomes_by_commit {
+    for (tick_coordinate, mut group) in outcomes_by_tick {
         let entry = provenance
-            .get(&commit_hash)
+            .get(&tick_coordinate)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let tick_receipt = entry
             .tick_receipt

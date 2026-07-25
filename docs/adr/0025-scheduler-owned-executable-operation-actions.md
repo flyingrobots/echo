@@ -130,12 +130,13 @@ the private successor in full.
 
 The generic Tick receipt classifies scheduler disposition. A separate typed
 executable-Action outcome binds the exact invocation, preparation or
-obstruction, Tick identity, and committed member consequence. Application
-semantics are not inferred from a generic receipt label. Obstruction and
-footprint-conflict outcomes retain the deciding writer head, worldline and
-global Tick coordinates, commit and Tick-receipt identities, and their
-canonical member index, so their evidence is interpretable without a separate
-correlation lookup.
+obstruction and Tick identity. Applied Actions additionally bind their
+committed patch member; obstruction and footprint-conflict outcomes explicitly
+carry no committed consequence. Application semantics are not inferred from a
+generic receipt label. Rejected outcomes retain the deciding writer head,
+worldline and global Tick coordinates, commit and Tick-receipt identities, and
+their canonical member index, so their evidence is interpretable without a
+separate correlation lookup.
 
 ### One Tick is one WAL transaction
 

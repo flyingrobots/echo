@@ -436,7 +436,9 @@ struct RecoveredEchoOperationActionInstallationOrder {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RecoveredEchoOperationActionOutcomeValidationMetrics {
     #[cfg(any(test, feature = "host_test"))]
-    linear_installation_comparisons: usize,
+    indexed_package_lookups: usize,
+    #[cfg(any(test, feature = "host_test"))]
+    installation_order_lookups: usize,
 }
 
 /// Read-only runtime WAL recovery report.
@@ -469,8 +471,6 @@ pub struct TrustedRuntimeWalRecovery {
     pub echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
     echo_operation_action_installation_order: RecoveredEchoOperationActionInstallationOrder,
-    #[cfg(any(test, feature = "host_test"))]
-    echo_operation_action_installation_snapshot_count: usize,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
@@ -493,12 +493,12 @@ impl TrustedRuntimeWalRecovery {
         .map(|_| ())
     }
 
-    /// Returns the number of linear installed-package comparisons used while
-    /// validating recovered Action outcomes.
+    /// Returns the indexed package and installation-order lookup counts used
+    /// while validating recovered Action outcomes.
     #[cfg(any(test, feature = "host_test"))]
-    pub fn echo_operation_action_linear_installation_comparisons_for_test(
+    pub fn echo_operation_action_installation_lookup_counts_for_test(
         &self,
-    ) -> Result<usize, TrustedRuntimeWalError> {
+    ) -> Result<(usize, usize), TrustedRuntimeWalError> {
         validate_recovered_echo_operation_action_outcomes(
             &self.witnessed_submissions,
             &self.receipt_correlations,
@@ -508,7 +508,12 @@ impl TrustedRuntimeWalRecovery {
             &self.echo_operation_action_decisions,
             &self.echo_operation_action_installation_order,
         )
-        .map(|metrics| metrics.linear_installation_comparisons)
+        .map(|metrics| {
+            (
+                metrics.indexed_package_lookups,
+                metrics.installation_order_lookups,
+            )
+        })
     }
 
     /// Replaces one recovered scheduler decision for adversarial recovery tests.
@@ -531,14 +536,6 @@ impl TrustedRuntimeWalRecovery {
         self.echo_operation_action_installation_order
             .installation_count_before_tick
             .remove(&submission_id);
-    }
-
-    /// Returns the number of per-Action installation-set snapshots constructed
-    /// during recovery.
-    #[cfg(any(test, feature = "host_test"))]
-    #[must_use]
-    pub fn echo_operation_action_installation_snapshot_count_for_test(&self) -> usize {
-        self.echo_operation_action_installation_snapshot_count
     }
 
     /// Replaces one retained obstruction kind for adversarial recovery tests.
@@ -2547,9 +2544,6 @@ impl TrustedRuntimeWal {
         let echo_operation_action_decisions = runtime_state.echo_operation_action_decisions;
         let echo_operation_action_installation_order =
             runtime_state.echo_operation_action_installation_order;
-        #[cfg(any(test, feature = "host_test"))]
-        let echo_operation_action_installation_snapshot_count =
-            runtime_state.echo_operation_action_installation_snapshot_count;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
@@ -2593,8 +2587,6 @@ impl TrustedRuntimeWal {
             echo_operation_action_outcomes,
             echo_operation_action_decisions,
             echo_operation_action_installation_order,
-            #[cfg(any(test, feature = "host_test"))]
-            echo_operation_action_installation_snapshot_count,
             causal_history_frontiers,
         })
     }
@@ -4740,8 +4732,6 @@ struct RecoveredRuntimeStateMaterial {
     echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
     echo_operation_action_installation_order: RecoveredEchoOperationActionInstallationOrder,
-    #[cfg(any(test, feature = "host_test"))]
-    echo_operation_action_installation_snapshot_count: usize,
     missing_runtime_state_deltas: Vec<Hash>,
 }
 
@@ -4753,8 +4743,6 @@ fn recover_runtime_state_delta_material(
     let mut action_outcomes_by_submission = BTreeMap::new();
     let mut action_decisions_by_submission = BTreeMap::new();
     let mut action_installation_count_before_tick = BTreeMap::new();
-    #[cfg(any(test, feature = "host_test"))]
-    let action_installation_snapshot_count = 0_usize;
     let mut installation_ordinals = BTreeMap::new();
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
@@ -4919,8 +4907,6 @@ fn recover_runtime_state_delta_material(
             package_ordinals: installation_ordinals,
             installation_count_before_tick: action_installation_count_before_tick,
         },
-        #[cfg(any(test, feature = "host_test"))]
-        echo_operation_action_installation_snapshot_count: action_installation_snapshot_count,
         missing_runtime_state_deltas: missing,
     })
 }
@@ -4959,7 +4945,8 @@ fn validate_recovered_echo_operation_action_outcomes(
     decisions: &BTreeMap<Hash, WalTickDecision>,
     installation_order: &RecoveredEchoOperationActionInstallationOrder,
 ) -> Result<RecoveredEchoOperationActionOutcomeValidationMetrics, TrustedRuntimeWalError> {
-    let metrics = RecoveredEchoOperationActionOutcomeValidationMetrics::default();
+    #[allow(unused_mut)]
+    let mut metrics = RecoveredEchoOperationActionOutcomeValidationMetrics::default();
     let envelopes = witnessed_submissions
         .records()
         .iter()
@@ -5023,9 +5010,17 @@ fn validate_recovered_echo_operation_action_outcomes(
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let invocation = inspect_action_invocation_v1(invocation_bytes)
             .map_err(|_| TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        #[cfg(any(test, feature = "host_test"))]
+        {
+            metrics.indexed_package_lookups += 1;
+        }
         let installed = installed_by_package
             .get(&invocation.package_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
+        #[cfg(any(test, feature = "host_test"))]
+        {
+            metrics.installation_order_lookups += 2;
+        }
         let installed_before_tick = installation_order
             .installation_count_before_tick
             .get(submission_id)

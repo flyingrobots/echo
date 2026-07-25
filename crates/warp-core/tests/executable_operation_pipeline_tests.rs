@@ -2930,17 +2930,16 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             let mut adversarial = runtime_wal
                 .recover_read_only()
                 .expect("the honest composite Tick recovers");
+            let (indexed_package_lookups, installation_order_lookups) = adversarial
+                .echo_operation_action_installation_lookup_counts_for_test()
+                .expect("the honest composite Tick outcomes validate");
             assert_eq!(
-                adversarial.echo_operation_action_installation_snapshot_count_for_test(),
-                0,
-                "recovery must not clone the installed-package set per Action"
+                indexed_package_lookups, 2,
+                "recovery must perform one indexed package lookup per Action"
             );
             assert_eq!(
-                adversarial
-                    .echo_operation_action_linear_installation_comparisons_for_test()
-                    .expect("the honest composite Tick outcomes validate"),
-                0,
-                "recovery must resolve installed packages through one identity index"
+                installation_order_lookups, 4,
+                "recovery must perform two indexed installation-order lookups per Action"
             );
             assert_eq!(
                 adversarial

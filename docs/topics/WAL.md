@@ -309,7 +309,17 @@ canonical package and invocation admission, authority and budget refusal,
 exact-basis noncommit, program-substitution refusal, same-host preparation
 authority, typed private-evaluation obstruction, deterministic duplicate-host
 results, append-only WAL codes, activation refusal for process-only
-installations, and fresh-host installation and consequence recovery.
+installations, accepted-Action recovery, scheduler-owned decided Ticks, and
+fresh-host installation and consequence recovery.
+
+The Action/Tick witnesses to read first are:
+
+- `accepted_executable_action_recovers_pending_before_scheduler_evaluation`
+- `scheduler_commits_two_independent_executable_actions_in_one_durable_tick`
+- `scheduler_tick_construction_failure_publishes_no_action_state_or_receipt`
+- `scheduler_wal_failure_rolls_back_and_requeues_action`
+- `typed_action_obstruction_is_durable_and_contributes_no_mutation`
+- `filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt`
 
 The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,

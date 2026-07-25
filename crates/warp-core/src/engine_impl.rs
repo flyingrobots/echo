@@ -2988,7 +2988,10 @@ fn attach_footprint_guards(
     Ok(())
 }
 
-fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {
+pub(crate) fn footprints_conflict(
+    a: &crate::footprint::Footprint,
+    b: &crate::footprint::Footprint,
+) -> bool {
     // IMPORTANT: do not use `Footprint::independent` here yet.
     //
     // This logic MUST remain consistent with the scheduler’s footprint conflict

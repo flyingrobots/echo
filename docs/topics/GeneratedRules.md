@@ -140,11 +140,13 @@ exact canonical ExecutableOperationPackageV1 bytes
 -> Echo-owned package admission under a separate policy
 -> installed data-only EchoOperationProgramV1
 -> exact basis-bearing canonical invocation
+-> canonical Action submission retained before acknowledgement
 -> Echo-owned invocation admission under authority and delegated budget
--> bounded private evaluation with recorded actual footprint
--> exact-basis singleton commit attempt
--> one committed TickPatch and typed receipt, or returned typed no-patch evidence
--> committed outcomes only: execution-kernel WAL retention and callback-free recovery
+-> ordinary head-inbox staging and scheduler selection at one exact basis
+-> bounded private evaluation with recorded actual footprint during Tick construction
+-> deterministic composition of independent Actions into one Tick consequence
+-> typed committed, obstructed, or footprint-conflict outcome for every Action
+-> decided Tick WAL retention before publication and callback-free recovery
 ```
 
 The first two programs are an anchored typed-node alpha-attachment
@@ -176,15 +178,18 @@ invocability. The subordinate program supplies executable meaning only. Echo
 cannot install or invoke a naked program digest, and a generated artifact does
 not confer caller authority. Provider v1 remains stable while existing
 consumers migrate; it is not silently reinterpreted as this new category.
-The program bytes bind their interpreter and intrinsic profiles directly. The
-parent patch and singleton tick entry use the admitted installed-operation
-identity as their rule-pack/rule identity, so two packages that reuse identical
-program bytes do not collapse into one causal operation identity.
-The current slice composes one preparation and does not claim general scheduler
-batch integration, Graft-style multi-record mutation, or independent
-implementation evidence. Its canonical decoding, identity recomputation,
-budget and footprint checks, exact-basis comparison, deterministic
-repeatability, and WAL recovery are deterministic self-validation.
+The program bytes bind their interpreter and intrinsic profiles directly.
+Direct compatibility commits retain their singleton evidence, while
+scheduler-owned Action Ticks use the admitted installed-operation identity for
+each receipt-entry rule identity and bind every applied preparation into one
+canonical composite consequence. Two packages that reuse identical program
+bytes therefore do not collapse into one causal operation identity.
+The current slice composes multiple independent, same-basis executable Actions
+inside one scheduler-owned Tick. It does not claim cross-category scheduler
+composition, Graft-style multi-record mutation, or independent implementation
+evidence. Its canonical decoding, identity recomputation, budget and footprint
+checks, exact-basis comparison, deterministic repeatability, and WAL recovery
+are deterministic self-validation.
 For descended targets, the retained footprint and patch inputs include every
 portal attachment in the validated root-to-target reachability chain.
 

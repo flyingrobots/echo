@@ -14,9 +14,9 @@ use crate::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_causal_anchor_admission_transaction, build_checkpoint_publication_transaction,
     build_materialization_outbox_transaction, build_recovery_certificate,
-    build_retained_reading_transaction, build_submission_acceptance_transaction,
-    build_submission_acceptance_with_material_transaction, build_tick_transaction,
-    build_topology_intent_transaction, canonical_segment_relative_path,
+    build_replayable_tick_batch_transaction, build_retained_reading_transaction,
+    build_submission_acceptance_transaction, build_submission_acceptance_with_material_transaction,
+    build_tick_transaction, build_topology_intent_transaction, canonical_segment_relative_path,
     causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
     causal_history_genesis_frontier_digest, doctor_in_memory_store,
     evaluate_checkpoint_publication, lint_wal_schema_terms, logical_causal_history_frontier_digest,
@@ -3185,6 +3185,37 @@ fn tick_transaction_rejects_mismatched_receipt_correlation() {
 }
 
 #[test]
+fn tick_batch_rejects_mixed_action_outcome_framing() {
+    let error = must_err(
+        build_replayable_tick_batch_transaction(
+            builder(
+                transaction_id("tx:tick:mixed-action-outcomes"),
+                Lsn::from_raw(0),
+                WalAppendAuthority::TrustedScheduler,
+                WalTransactionKind::SchedulerTick,
+            ),
+            vec![
+                (
+                    receipt_record("action", WalTickDecision::Applied),
+                    correlation_record("action"),
+                    Some(b"retained-action-outcome".to_vec()),
+                ),
+                (
+                    receipt_record("legacy", WalTickDecision::Applied),
+                    correlation_record("legacy"),
+                    None,
+                ),
+            ],
+            b"state-delta-is-not-decoded-before-shape-validation".to_vec(),
+            Vec::new(),
+        ),
+        "one scheduler Tick must not mix Action and non-Action receipt members",
+    );
+
+    assert_eq!(error, WalBuildError::TickBatchActionOutcomeShapeMismatch);
+}
+
+#[test]
 fn receipt_correlation_decode_rejects_noncanonical_parent_sets() {
     let parent_a = causal_receipt_ref("parent-a");
     let parent_b = causal_receipt_ref("parent-b");
@@ -3716,6 +3747,7 @@ fn lawful_rejection_recovers_without_fault_posture() {
             .copied()
     )
     .is_lawful_rejection());
+    assert!(WalTickDecision::Obstructed.is_lawful_rejection());
 }
 
 #[test]

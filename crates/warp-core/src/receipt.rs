@@ -87,6 +87,14 @@ pub enum TickReceiptPartsError {
         /// Rejected candidate missing its blocking attribution.
         entry: usize,
     },
+    /// A non-conflict obstruction cannot attribute an applied blocker.
+    #[error("obstructed tick receipt entry {entry} carries {blocker_count} blockers")]
+    ObstructedEntryHasBlockers {
+        /// Obstructed candidate carrying invalid blocker attribution.
+        entry: usize,
+        /// Number of invalid blockers.
+        blocker_count: usize,
+    },
 }
 
 impl TickReceipt {
@@ -141,8 +149,19 @@ impl TickReceipt {
                         entry: entry_index,
                     });
                 }
+                TickReceiptDisposition::Rejected(
+                    TickReceiptRejection::ExecutableOperationObstruction,
+                ) if !blockers.is_empty() => {
+                    return Err(TickReceiptPartsError::ObstructedEntryHasBlockers {
+                        entry: entry_index,
+                        blocker_count: blockers.len(),
+                    });
+                }
                 TickReceiptDisposition::Applied
-                | TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => {}
+                | TickReceiptDisposition::Rejected(
+                    TickReceiptRejection::FootprintConflict
+                    | TickReceiptRejection::ExecutableOperationObstruction,
+                ) => {}
             }
             if let Some(pair) = blockers.windows(2).find(|pair| pair[0] >= pair[1]) {
                 return Err(TickReceiptPartsError::BlockersNotStrictlyIncreasing {
@@ -285,6 +304,9 @@ impl TickReceiptDisposition {
 pub enum TickReceiptRejection {
     /// Candidate footprint conflicts with an already-accepted footprint.
     FootprintConflict,
+    /// Echo's bounded executable-operation evaluator returned a typed
+    /// obstruction and no candidate mutation.
+    ExecutableOperationObstruction,
 }
 
 fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
@@ -304,6 +326,9 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
         let code = match entry.disposition {
             TickReceiptDisposition::Applied => 1u8,
             TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2u8,
+            TickReceiptDisposition::Rejected(
+                TickReceiptRejection::ExecutableOperationObstruction,
+            ) => 3u8,
         };
         hasher.update(&[code]);
     }

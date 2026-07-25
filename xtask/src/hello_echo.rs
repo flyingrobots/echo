@@ -679,6 +679,12 @@ fn receipt_report(receipt: &TickReceipt) -> ReceiptReport {
                 conflict_count += 1;
                 "rejected:footprint-conflict"
             }
+            TickReceiptDisposition::Rejected(
+                TickReceiptRejection::ExecutableOperationObstruction,
+            ) => {
+                rejected_count += 1;
+                "rejected:executable-operation-obstruction"
+            }
         };
         entries.push(ReceiptEntryReport {
             index,

@@ -1157,7 +1157,9 @@ pre_push_feature_string_for_test_target() {
       printf '%s\n' "native_rule_bootstrap,host_test"
       ;;
     warp-core:external_consumer_contract_fixture_tests|\
-    warp-core:provider_contract_admission_tests|\
+    warp-core:provider_contract_admission_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime"
+      ;;
     warp-core:executable_operation_pipeline_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
@@ -1188,6 +1190,17 @@ pre_push_feature_string_for_test_target() {
   esac
 }
 
+pre_push_extra_feature_strings_for_test_target() {
+  local crate="$1"
+  local test_target="$2"
+
+  case "${crate}:${test_target}" in
+    warp-core:executable_operation_pipeline_tests)
+      printf '%s\n' "native_rule_bootstrap,trusted_runtime,host_test"
+      ;;
+  esac
+}
+
 append_pre_push_rust_slice() {
   local slice="$1"
   local slices_name="$2"
@@ -1196,7 +1209,7 @@ append_pre_push_rust_slice() {
 
 collect_pre_push_rust_slices() {
   local -a slices=()
-  local file crate target filter features relative_test
+  local file crate target filter features extra_features relative_test
 
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
@@ -1211,6 +1224,12 @@ collect_pre_push_rust_slices() {
         target="$(basename "$file" .rs)"
         features="$(pre_push_feature_string_for_test_target "$crate" "$target")"
         append_pre_push_rust_slice "${crate}|test|${target}|${features}|" slices
+        while IFS= read -r extra_features; do
+          [[ -z "$extra_features" ]] && continue
+          append_pre_push_rust_slice \
+            "${crate}|test|${target}|${extra_features}|" \
+            slices
+        done < <(pre_push_extra_feature_strings_for_test_target "$crate" "$target")
         ;;
       crates/*/src/lib.rs)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
@@ -1430,17 +1449,31 @@ warp_core_feature_args_for_test() {
 run_warp_core_test_target() {
   local lane="$1"
   local test_target="$2"
+  local extra_features
   local -a feature_args=()
   mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
   lane_cargo "$lane" test -p warp-core "${feature_args[@]}" --test "$test_target"
+  while IFS= read -r extra_features; do
+    [[ -z "$extra_features" ]] && continue
+    lane_cargo "$lane" test -p warp-core \
+      --features "$extra_features" \
+      --test "$test_target"
+  done < <(pre_push_extra_feature_strings_for_test_target "warp-core" "$test_target")
 }
 
 run_warp_core_clippy_test_target() {
   local lane="$1"
   local test_target="$2"
+  local extra_features
   local -a feature_args=()
   mapfile -t feature_args < <(warp_core_feature_args_for_test "$test_target")
   lane_cargo "$lane" clippy -p warp-core "${feature_args[@]}" --test "$test_target" -- -D warnings -D missing_docs
+  while IFS= read -r extra_features; do
+    [[ -z "$extra_features" ]] && continue
+    lane_cargo "$lane" clippy -p warp-core \
+      --features "$extra_features" \
+      --test "$test_target" -- -D warnings -D missing_docs
+  done < <(pre_push_extra_feature_strings_for_test_target "warp-core" "$test_target")
 }
 
 prepare_warp_wasm_scope() {

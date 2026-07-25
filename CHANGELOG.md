@@ -7,14 +7,92 @@
 
 ### Added
 
+- Executable-operation application writes now enter Echo as canonical,
+  WAL-acknowledged Actions and are evaluated only by the scheduler while
+  constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
+  work. Runtime-owned admission uses a bounded pending index and cache;
+  unavailable packages are quarantined without poisoning unrelated work.
+  Durable-acceptance lookup and newly committed receipt correlations are
+  indexed directly, so scheduler Ticks do not replay or diff retained history.
+  A WAL-enabled app surface rejects executable Actions submitted outside the
+  durable acknowledgement boundary before witnessed intake can mutate.
+  Mixed executable and provider/native backlogs alternate by durable parent
+  global-Tick parity. The scheduler-round coordinate advances once per pass, so
+  every head switches categories even when several heads share one worldline,
+  preventing caller-controlled ingress hashes from starving either category.
+  Homogeneous unbounded admission moves the complete inbox map instead of
+  rebuilding and removing its entries one by one.
+  Positional receipt attribution is exclusive to executable Actions; ordinary
+  correlations without an exact scope match fail closed.
+  Scheduler selection admits at most 64 executable Actions per Tick, leaving
+  excess work pending, and meters footprint comparisons, blocker evidence, and
+  aggregate operations during composition. Two independent Actions can share
+  one exact parent coordinate and contribute to one composite Tick while
+  retaining candidate-specific application-basis propositions and per-Action
+  typed outcomes. Footprint conflicts name earlier applied members; evaluator
+  and composition-budget obstructions contribute no operations. Every
+  noncommitted typed outcome carries its deciding writer head, worldline and
+  global Tick coordinates, commit and Tick-receipt identities, and canonical
+  member index. Tick construction pins that index to the corresponding receipt
+  entry with an executable alignment invariant.
+  One scheduler WAL transaction retains exactly one batched Tick decision
+  record, then each Action's receipt correlation and typed outcome in canonical
+  order, followed by exactly one replayable state delta. Recovery rejects every
+  second transaction claiming the same state-transition coordinate, including
+  a byte-identical delta, so a Tick cannot be reconstructed from split WAL
+  fragments. The decided Tick is durable before state, frontier, receipt, or
+  outcome publication. Recovery
+  and same-host retry both preserve an accepted Action when Tick-WAL
+  persistence fails; runtime rollback also rolls back the corresponding
+  admission cache so the Action re-enters scheduler admission. Fresh-host
+  recovery validates every outcome against its exact envelope, admission,
+  invocation, installed operation, causal coordinate, evaluation basis,
+  reconstructed preparation and actual footprint, Tick entry, composite
+  consequence, exact reconstructed aggregate patch membership, and state root.
+  Typed obstruction records retain their invocation-admission policy and
+  budget ceiling; recovery reproduces bounded evaluation and the complete
+  scheduler composition before accepting an obstruction kind. For a
+  cross-worldline basis obstruction, recovery reconstructs the submitted basis
+  on its named worldline but resolves the deciding transition on the target
+  head's worldline.
+  Recovery records one monotonic installation ordinal per package and one
+  installation-count boundary per Action, avoiding per-outcome package-set
+  snapshots while preserving exact installation-before-Tick validation.
+  Activation caches each reconstructed causal state by worldline coordinate,
+  so Actions sharing one scheduler basis do not replay that history repeatedly.
+  Recovered Action outcomes resolve installed packages through one package-ID
+  index instead of scanning the complete installation set per Action. Test
+  instrumentation now counts the actual package-index and installation-order
+  lookups rather than asserting constant zero-value proxies. Tick WAL staging
+  borrows its read-only outcome index instead of deep-cloning every outcome.
+  The v1 scheduler Action-candidate ceiling is exported as
+  `ACTION_BATCH_CANDIDATE_LIMIT_V1`; its acceptance witness now proves the
+  complete limit with independent, non-conflicting node targets. Admission
+  applies that ceiling independently to each runnable head, so Actions retained
+  for dormant or faulted heads cannot consume another head's Tick capacity.
+  `run_until_idle` continues after a no-Step pass that advances bounded Action
+  admission, so an obstructed prefix cannot hide later admissible work.
+  When more than that ceiling is pending, runtime admission selects the bounded
+  set by canonical ingress identity rather than submission identity.
+  `TrustedRuntimeHost::into_parts` now returns an opaque
+  `TrustedRuntimeHostParts` value consumed by `from_parts`, preserving WAL,
+  authority, policy, pending admission, and every typed Action outcome across
+  host decomposition and reconstruction.
+  A composite receipt cannot validate outside its complete Action-batch
+  context. Legacy operation recovery-index roots remain byte-compatible when
+  no Action outcome exists. Direct operation
+  prepare/commit remains a documentation-hidden public
+  `TrustedRuntimeHost` compatibility/test seam, absent from
+  `TrustedRuntimeApp`; removal is tracked by issue #689.
 - `TrustedRuntimeHost` now has the first hook-free executable-operation runtime
   slice. A runtime owner can admit exact canonical
   `ExecutableOperationPackageV1` bytes under a separate package policy, install
   their data-only `EchoOperationProgramV1`, independently admit an exact-basis
   invocation under caller authority and delegated budget, evaluate privately,
   and either commit one parent-visible patch or return typed noncommit evidence.
-  Only committed operation consequences enter the operation-tick WAL. The initial
-  generic program performs an anchored typed-node alpha-attachment
+  On that transitional direct seam, only committed operation consequences
+  enter the operation-tick WAL. The initial generic program performs an
+  anchored typed-node alpha-attachment
   compare-and-set; it contains no application matcher, executor, footprint
   callback, or prebuilt mutation plan. Package, installation, invocation,
   evaluation, actual-footprint, budget, patch, result, basis, and terminal
@@ -28,8 +106,7 @@
   callbacks. A program digest alone cannot install, invoke, or authorize an
   operation. This slice does not yet include Edict
   compiler emission, a structurally separate target verifier, Jedit's rope
-  lawpack, `ReplaceRange`, scheduler batch composition, or an independently
-  implemented semantic oracle.
+  lawpack, `ReplaceRange`, or an independently implemented semantic oracle.
 - The executable-operation corridor now has a separate
   `AnchoredNodeAttachmentCreateIfAbsent` program (ADR 0024). The original
   compare-and-set program remains update-only with its canonical program,

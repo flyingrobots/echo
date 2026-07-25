@@ -46,6 +46,7 @@ track work, progress, priority, or release readiness.
 | [0022](0022-application-requested-causal-anchor-admission.md)    | Accepted             | Application-requested, Echo-owned anchor admission             |
 | [0023](0023-admitted-executable-operation-packages.md)           | Accepted             | Admitted executable operation packages                         |
 | [0024](0024-anchored-node-creation-from-absence.md)              | Accepted             | Anchored-node creation as a separate executable program        |
+| [0025](0025-scheduler-owned-executable-operation-actions.md)     | Accepted             | Scheduler-owned executable-operation Actions                   |
 
 ADR 0006 predates this index contract and did not declare a status. Its
 superseded tombstone preserves that fact without silently ratifying the old

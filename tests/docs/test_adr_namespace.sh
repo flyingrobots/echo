@@ -35,9 +35,10 @@ readonly current_adrs=(
   "0022-application-requested-causal-anchor-admission.md"
   "0023-admitted-executable-operation-packages.md"
   "0024-anchored-node-creation-from-absence.md"
+  "0025-scheduler-owned-executable-operation-actions.md"
 )
 
-readonly current_adr_last=24
+readonly current_adr_last=25
 
 readonly superseded_legacy_adrs=(
   "ADR-0003-Materialization-Bus.md"

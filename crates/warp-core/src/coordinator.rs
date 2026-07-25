@@ -1177,6 +1177,8 @@ pub struct WorldlineRuntime {
     /// admitted by that commit.
     receipt_correlations_by_current_basis:
         BTreeMap<(WorldlineId, WorldlineTick, Hash), BTreeSet<Hash>>,
+    #[cfg(any(test, feature = "host_test"))]
+    receipt_correlation_full_scan_count: std::cell::Cell<usize>,
     /// Scheduler fault evidence keyed by content-addressed fault id.
     scheduler_faults: BTreeMap<SchedulerFaultId, SchedulerFaultRecord>,
     /// Active scoped scheduler faults by writer head.
@@ -1583,7 +1585,27 @@ impl WorldlineRuntime {
 
     /// Iterates receipt correlations in deterministic ticketed-ingress id order.
     pub fn receipt_correlations(&self) -> impl Iterator<Item = &ReceiptCorrelationRecord> {
+        #[cfg(any(test, feature = "host_test"))]
+        self.receipt_correlation_full_scan_count.set(
+            self.receipt_correlation_full_scan_count
+                .get()
+                .saturating_add(1),
+        );
         self.receipt_correlations_by_ticketed_ingress.values()
+    }
+
+    /// Resets test instrumentation for full receipt-correlation scans.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_receipt_correlation_full_scan_count_for_test(&self) {
+        self.receipt_correlation_full_scan_count.set(0);
+    }
+
+    /// Returns the number of full receipt-correlation scans since the last
+    /// instrumentation reset.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn receipt_correlation_full_scan_count_for_test(&self) -> usize {
+        self.receipt_correlation_full_scan_count.get()
     }
 
     /// Returns the number of scheduler-owned receipt correlations.
@@ -3010,7 +3032,8 @@ impl WorldlineRuntime {
         admitted: &[IngressEnvelope],
         context: ReceiptCorrelationCommitContext,
         rollback: &mut ReceiptCorrelationRollback,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Vec<ReceiptCorrelationRecord>, RuntimeError> {
+        let mut committed = Vec::new();
         for envelope in admitted {
             let ingress_id = envelope.ingress_id();
             let Some(ticketed_ingress_id) = self
@@ -3105,6 +3128,7 @@ impl WorldlineRuntime {
                     .pending_witnessed_submission_ids
                     .contains(&ticketed_ingress.submission_id),
             });
+            committed.push(record.clone());
             self.receipt_correlations_by_ticketed_ingress
                 .insert(ticketed_ingress_id, record);
             self.receipt_correlation_by_submission
@@ -3120,7 +3144,7 @@ impl WorldlineRuntime {
             self.pending_witnessed_submission_ids
                 .remove(&ticketed_ingress.submission_id);
         }
-        Ok(())
+        Ok(committed)
     }
 
     fn resolve_target(&self, target: &IngressTarget) -> Result<WriterHeadKey, RuntimeError> {
@@ -4145,7 +4169,7 @@ impl SchedulerCoordinator {
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
         Self::super_tick_inner(runtime, provenance, engine, None)
-            .map(|(records, _operation_outcomes)| records)
+            .map(|(records, _operation_outcomes, _correlations)| records)
     }
 
     /// Executes one scheduler pass with runtime-admitted executable-operation
@@ -4157,7 +4181,14 @@ impl SchedulerCoordinator {
         engine: &mut Engine,
         operation_actions: &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
         evaluation_authority: &EchoOperationEvaluationAuthorityV1,
-    ) -> Result<(Vec<StepRecord>, SchedulerOperationOutcomesV1), RuntimeError> {
+    ) -> Result<
+        (
+            Vec<StepRecord>,
+            SchedulerOperationOutcomesV1,
+            Vec<ReceiptCorrelationRecord>,
+        ),
+        RuntimeError,
+    > {
         Self::super_tick_inner(
             runtime,
             provenance,
@@ -4177,7 +4208,14 @@ impl SchedulerCoordinator {
         )>,
         #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
         _operation_actions: Option<()>,
-    ) -> Result<(Vec<StepRecord>, SchedulerOperationOutcomesV1), RuntimeError> {
+    ) -> Result<
+        (
+            Vec<StepRecord>,
+            SchedulerOperationOutcomesV1,
+            Vec<ReceiptCorrelationRecord>,
+        ),
+        RuntimeError,
+    > {
         if let Some(fault_id) = runtime.runtime_fault {
             return Err(RuntimeError::SchedulerRuntimeFaultActive(fault_id));
         }
@@ -4188,6 +4226,7 @@ impl SchedulerCoordinator {
         let mut operation_outcomes = Vec::new();
         #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
         let operation_outcomes = Vec::new();
+        let mut committed_correlations = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
         let next_global_tick = if let Some(next) = runtime.global_tick.checked_increment() {
             next
@@ -4416,7 +4455,7 @@ impl SchedulerCoordinator {
                         .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
                     (snapshot.state_root, worldline_tick_after)
                 };
-                runtime.record_receipt_correlations(
+                committed_correlations.extend(runtime.record_receipt_correlations(
                     &admitted,
                     ReceiptCorrelationCommitContext {
                         head_key: *key,
@@ -4426,7 +4465,7 @@ impl SchedulerCoordinator {
                         commit_hash: snapshot.hash,
                     },
                     &mut receipt_correlation_rollback,
-                )?;
+                )?);
 
                 Ok(StepRecord {
                     head_key: *key,
@@ -4470,7 +4509,7 @@ impl SchedulerCoordinator {
         }
 
         runtime.global_tick = next_global_tick;
-        Ok((records, operation_outcomes))
+        Ok((records, operation_outcomes, committed_correlations))
     }
 
     /// Returns the canonical ordering of runnable heads without mutating state.

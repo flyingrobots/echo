@@ -3236,6 +3236,54 @@ fn wal_enabled_host_rejects_action_submission_without_durable_ack() {
     assert!(recovery.echo_operation_action_outcomes.is_empty());
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn scheduler_action_hot_path_uses_bounded_indexes() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the indexed scheduler fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let invocation = action_invocation(
+        &host,
+        &installed,
+        head_key,
+        node,
+        b"before",
+        b"indexed-after",
+    );
+    let envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        invocation,
+    )
+    .expect("the invocation becomes an Action");
+    host.app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("the Action acceptance is durable");
+    host.runtime_wal()
+        .expect("the runtime WAL remains enabled")
+        .reset_recover_read_only_call_count_for_test();
+    host.runtime()
+        .reset_receipt_correlation_full_scan_count_for_test();
+
+    host.tick_once()
+        .expect("the indexed Action reaches one scheduler Tick");
+
+    assert_eq!(
+        host.runtime_wal()
+            .expect("the runtime WAL remains enabled")
+            .recover_read_only_call_count_for_test(),
+        0,
+        "Action admission must not replay all committed WAL history"
+    );
+    assert_eq!(
+        host.runtime()
+            .receipt_correlation_full_scan_count_for_test(),
+        0,
+        "Tick persistence must consume newly committed correlations directly"
+    );
+}
+
 #[test]
 fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
     let wal_dir = TempWalDir::new();

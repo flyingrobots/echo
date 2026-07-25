@@ -32,13 +32,12 @@ use crate::{
         AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId,
         PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
         RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport,
-        SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord, WalAppendAuthority,
-        WalBuildError, WalCommittedTransaction, WalDecodeError, WalDurabilityMode,
-        WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalRecoveryIndexError,
-        WalRuntimeStateDeltaRecord, WalSegmentId, WalStoreError, WalStorePort,
-        WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
-        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
-        TRUSTED_RUNTIME_WAL_DOMAIN,
+        SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalBuildError,
+        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
+        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalRuntimeStateDeltaRecord,
+        WalSegmentId, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision,
+        WalTransactionBuilder, WalTransactionCommit, WalTransactionId, WalTransactionKind,
+        WriterEpochId, WriterEpochRequest, TRUSTED_RUNTIME_WAL_DOMAIN,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
@@ -1774,7 +1773,7 @@ impl TrustedRuntimeHost {
                 .to_vec();
             if let Some(runtime_wal) = self.runtime_wal.as_ref() {
                 let durably_accepted = runtime_wal
-                    .has_submission_acceptance(submission.submission_id, submission.ingress_id)?;
+                    .has_submission_acceptance(submission.submission_id, submission.ingress_id);
                 if !durably_accepted {
                     continue;
                 }
@@ -1838,12 +1837,7 @@ impl TrustedRuntimeHost {
                 return Err(error);
             }
         };
-        let existing_correlations = self
-            .runtime
-            .receipt_correlations()
-            .map(|correlation| correlation.ticketed_ingress_id)
-            .collect::<BTreeSet<_>>();
-        let (records, action_outcomes) =
+        let (records, action_outcomes, new_correlations) =
             SchedulerCoordinator::super_tick_with_echo_operation_actions_v1(
                 &mut self.runtime,
                 &mut self.provenance,
@@ -1851,12 +1845,6 @@ impl TrustedRuntimeHost {
                 &admitted_actions,
                 &self.echo_operation_evaluation_authority,
             )?;
-        let new_correlations = self
-            .runtime
-            .receipt_correlations()
-            .filter(|correlation| !existing_correlations.contains(&correlation.ticketed_ingress_id))
-            .cloned()
-            .collect::<Vec<_>>();
         let mut tick_wal_records = Vec::new();
         if self.runtime_wal.is_some() {
             for correlation in new_correlations {
@@ -2239,7 +2227,7 @@ pub struct TrustedRuntimeWal {
     evidence_catalog_posture: EvidenceCatalogPosture,
     #[cfg(any(test, feature = "host_test"))]
     fail_next_evidence_catalog_update: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "host_test"))]
     recover_read_only_call_count: std::cell::Cell<usize>,
     writer_epoch: WriterEpochId,
     segment_id: WalSegmentId,
@@ -2258,6 +2246,7 @@ pub struct TrustedRuntimeWal {
     causal_anchor_frontier_digest: Hash,
     causal_history_frontier_digest: Hash,
     causal_anchor_claim_projection: CausalAnchorClaimProjection,
+    durable_submission_acceptances: BTreeMap<Hash, Hash>,
 }
 
 impl TrustedRuntimeWal {
@@ -2277,6 +2266,13 @@ impl TrustedRuntimeWal {
         let mut store = TrustedRuntimeWalStore::open(store)?;
         let recovery_report = store.recover_for_writer()?;
         let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
+        let durable_submission_acceptances = recover_submission_index(&recovery_report)
+            .map_err(WalRecoveryError::from)?
+            .entries()
+            .map(|(submission_id, entry)| {
+                (*submission_id, entry.acceptance.canonical_envelope_digest)
+            })
+            .collect();
         let evidence_catalog =
             crate::evidence::CausalSegmentCatalog::from_recovery_scan(&recovery_report)?;
         let next_lsn = if recovered_cursor.has_committed_history {
@@ -2322,11 +2318,12 @@ impl TrustedRuntimeWal {
             causal_anchor_frontier_digest: recovered_cursor.causal_anchor_frontier_digest,
             causal_history_frontier_digest: recovered_cursor.causal_history_frontier_digest,
             causal_anchor_claim_projection: recovered_cursor.causal_anchor_claim_projection,
+            durable_submission_acceptances,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "host_test"))]
             recover_read_only_call_count: std::cell::Cell::new(0),
         })
     }
@@ -2379,7 +2376,7 @@ impl TrustedRuntimeWal {
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "host_test"))]
         self.recover_read_only_call_count
             .set(self.recover_read_only_call_count.get() + 1);
         let report = self.store.recover_read_only()?;
@@ -2443,6 +2440,20 @@ impl TrustedRuntimeWal {
             echo_operation_action_installations_before_tick,
             causal_history_frontiers,
         })
+    }
+
+    /// Resets test instrumentation for full read-only WAL recovery.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_recover_read_only_call_count_for_test(&self) {
+        self.recover_read_only_call_count.set(0);
+    }
+
+    /// Returns the number of full read-only WAL recoveries since the last
+    /// instrumentation reset.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn recover_read_only_call_count_for_test(&self) -> usize {
+        self.recover_read_only_call_count.get()
     }
 
     /// Recovers the causal segment catalog from committed WAL transactions.
@@ -2524,17 +2535,8 @@ impl TrustedRuntimeWal {
         &self,
         submission_id: Hash,
         canonical_envelope_digest: Hash,
-    ) -> Result<bool, TrustedRuntimeWalError> {
-        let recovery = self.recover_read_only()?;
-        Ok(matches!(
-            recovery
-                .submissions
-                .retry_posture(submission_id, canonical_envelope_digest),
-            SubmissionRetryPosture::AlreadyAcceptedPending
-                | SubmissionRetryPosture::AlreadyDecidedApplied
-                | SubmissionRetryPosture::AlreadyDecidedRejected
-                | SubmissionRetryPosture::AlreadyObstructed
-        ))
+    ) -> bool {
+        self.durable_submission_acceptances.get(&submission_id) == Some(&canonical_envelope_digest)
     }
 
     fn uses_filesystem_store(&self) -> bool {
@@ -2554,6 +2556,13 @@ impl TrustedRuntimeWal {
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
         let report = self.store.recover_for_writer()?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
+        let durable_submission_acceptances = recover_submission_index(&report)
+            .map_err(WalRecoveryError::from)?
+            .entries()
+            .map(|(submission_id, entry)| {
+                (*submission_id, entry.acceptance.canonical_envelope_digest)
+            })
+            .collect();
         match crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report) {
             Ok(catalog) => {
                 self.evidence_catalog = Some(catalog);
@@ -2579,6 +2588,7 @@ impl TrustedRuntimeWal {
         self.causal_anchor_frontier_digest = cursor.causal_anchor_frontier_digest;
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
         self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
+        self.durable_submission_acceptances = durable_submission_acceptances;
         Ok(())
     }
 
@@ -2594,7 +2604,6 @@ impl TrustedRuntimeWal {
             return false;
         }
         self.has_submission_acceptance(submission_id, canonical_envelope_digest)
-            .unwrap_or(false)
     }
 
     fn recover_filesystem_tick_commit_after_error(
@@ -2698,6 +2707,8 @@ impl TrustedRuntimeWal {
         )?;
         let commit = self.append_transaction(transaction)?;
         self.submission_frontier_digest = next_submission_frontier;
+        self.durable_submission_acceptances
+            .insert(record.submission_id, record.canonical_envelope_digest);
         Ok(commit)
     }
 
@@ -5560,22 +5571,14 @@ impl TrustedRuntimeApp<'_> {
             self.host.runtime = before_runtime;
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
-        if handle.duplicate {
-            match runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
-            {
-                Ok(true) => {
-                    self.host.track_pending_echo_operation_action_v1(
-                        handle.submission_id,
-                        is_echo_operation_action,
-                    );
-                    return Ok(handle);
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    self.host.runtime = before_runtime;
-                    return Err(error.into());
-                }
-            }
+        if handle.duplicate
+            && runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
+        {
+            self.host.track_pending_echo_operation_action_v1(
+                handle.submission_id,
+                is_echo_operation_action,
+            );
+            return Ok(handle);
         }
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
             if runtime_wal.recover_filesystem_submission_acceptance_after_error(

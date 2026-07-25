@@ -12,6 +12,8 @@
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
   work. Runtime-owned admission uses a bounded pending index and cache;
   unavailable packages are quarantined without poisoning unrelated work.
+  Durable-acceptance lookup and newly committed receipt correlations are
+  indexed directly, so scheduler Ticks do not replay or diff retained history.
   A WAL-enabled app surface rejects executable Actions submitted outside the
   durable acknowledgement boundary before witnessed intake can mutate.
   Mixed executable and provider/native backlogs alternate by durable parent

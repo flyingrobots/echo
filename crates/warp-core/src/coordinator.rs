@@ -4301,6 +4301,10 @@ impl SchedulerCoordinator {
                 let parents = provenance.tip_ref(key.worldline_id)?.into_iter().collect();
 
                 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+                // `HeadInbox::admit_partitioned` guarantees that one admitted
+                // batch contains either executable-operation Actions or
+                // non-Action work, never both. Inspecting the first member is
+                // therefore a batch classification, not a positional guess.
                 let executable_action_batch = admitted.first().is_some_and(|envelope| {
                     crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope)
                         .is_some()

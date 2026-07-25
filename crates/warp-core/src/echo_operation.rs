@@ -6402,6 +6402,12 @@ mod tests {
         bytes.extend_from_slice(&digest(3));
         bytes.extend_from_slice(&digest(4));
         bytes.extend_from_slice(&digest(5));
+        for budget_value in [1_u64, 2, 3] {
+            bytes.extend_from_slice(&budget_value.to_le_bytes());
+        }
+        for identity_seed in 6..14 {
+            bytes.extend_from_slice(&digest(identity_seed));
+        }
         bytes.extend_from_slice(&u64::MAX.to_le_bytes());
 
         let error = recover_action_outcome_v1(&bytes)
@@ -6410,6 +6416,7 @@ mod tests {
             error.kind(),
             EchoOperationArtifactErrorKindV1::InvalidStructure
         );
+        assert_eq!(error.detail(), "Action blocker bytes are truncated");
     }
 
     #[test]

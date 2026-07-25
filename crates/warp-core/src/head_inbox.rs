@@ -680,7 +680,7 @@ pub struct HeadInbox {
     head_key: WriterHeadKey,
     pending: BTreeMap<Hash, IngressEnvelope>,
     policy: InboxPolicy,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     partitioned_filtered_removals_for_test: usize,
 }
 
@@ -693,7 +693,7 @@ impl Default for HeadInbox {
             },
             pending: BTreeMap::new(),
             policy: InboxPolicy::AcceptAll,
-            #[cfg(test)]
+            #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             partitioned_filtered_removals_for_test: 0,
         }
     }
@@ -707,7 +707,7 @@ impl HeadInbox {
             head_key,
             pending: BTreeMap::new(),
             policy,
-            #[cfg(test)]
+            #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             partitioned_filtered_removals_for_test: 0,
         }
     }
@@ -870,7 +870,7 @@ impl HeadInbox {
         selected_ids
             .into_iter()
             .filter_map(|ingress_id| {
-                #[cfg(test)]
+                #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
                 {
                     self.partitioned_filtered_removals_for_test += 1;
                 }

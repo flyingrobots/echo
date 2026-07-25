@@ -2914,6 +2914,16 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
                 0,
                 "recovery must not clone the installed-package set per Action"
             );
+            assert_eq!(
+                adversarial
+                    .echo_operation_parent_state_replay_count_for_test(
+                        host.runtime(),
+                        host.provenance()
+                    )
+                    .expect("the honest composite Tick parent states validate"),
+                1,
+                "one shared basis must be reconstructed once for the whole Action batch"
+            );
             let mut missing_installation = adversarial.clone();
             missing_installation.installed_echo_operations.clear();
             assert!(matches!(

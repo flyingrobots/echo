@@ -48,6 +48,8 @@
   Recovery records one monotonic installation ordinal per package and one
   installation-count boundary per Action, avoiding per-outcome package-set
   snapshots while preserving exact installation-before-Tick validation.
+  Activation caches each reconstructed causal state by worldline coordinate,
+  so Actions sharing one scheduler basis do not replay that history repeatedly.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

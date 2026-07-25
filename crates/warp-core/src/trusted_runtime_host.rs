@@ -571,6 +571,17 @@ impl TrustedRuntimeWalRecovery {
         runtime: &WorldlineRuntime,
         provenance: &ProvenanceService,
     ) -> Result<(), TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_parent_states(runtime, provenance, self).map(|_| ())
+    }
+
+    /// Returns the number of causal-state reconstructions used by Action
+    /// parent-state validation.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn echo_operation_parent_state_replay_count_for_test(
+        &self,
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+    ) -> Result<usize, TrustedRuntimeWalError> {
         validate_recovered_echo_operation_parent_states(runtime, provenance, self)
     }
 
@@ -3931,11 +3942,36 @@ fn operation_application_basis_matches_scope_v1(
     }
 }
 
+fn recovered_worldline_state_at<'a>(
+    cache: &'a mut BTreeMap<(crate::WorldlineId, crate::WorldlineTick), crate::WorldlineState>,
+    recovered_provenance: &ProvenanceService,
+    worldline_id: crate::WorldlineId,
+    frontier_state: &crate::WorldlineState,
+    worldline_tick: crate::WorldlineTick,
+    failure_detail: &'static str,
+) -> Result<&'a crate::WorldlineState, TrustedRuntimeWalError> {
+    let coordinate = (worldline_id, worldline_tick);
+    if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(coordinate) {
+        let state = recovered_provenance
+            .replay_worldline_state_at(worldline_id, frontier_state, worldline_tick)
+            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: failure_detail,
+            })?;
+        entry.insert(state);
+    }
+    cache
+        .get(&coordinate)
+        .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: failure_detail,
+        })
+}
+
 fn validate_recovered_echo_operation_parent_states(
     runtime: &WorldlineRuntime,
     recovered_provenance: &ProvenanceService,
     recovery: &TrustedRuntimeWalRecovery,
-) -> Result<(), TrustedRuntimeWalError> {
+) -> Result<usize, TrustedRuntimeWalError> {
+    let mut recovered_states = BTreeMap::new();
     let installations = recovery
         .installed_echo_operations
         .iter()
@@ -3955,11 +3991,14 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "operation receipt names an unavailable recovery worldline",
             },
         )?;
-        let parent_state = recovered_provenance
-            .replay_worldline_state_at(worldline_id, frontier.state(), basis.worldline_tick())
-            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "operation receipt parent state cannot be reconstructed",
-            })?;
+        let parent_state = recovered_worldline_state_at(
+            &mut recovered_states,
+            recovered_provenance,
+            worldline_id,
+            frontier.state(),
+            basis.worldline_tick(),
+            "operation receipt parent state cannot be reconstructed",
+        )?;
         let entry = entries.get(&(worldline_id, basis.worldline_tick())).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "operation receipt has no recovered state transition",
@@ -3980,7 +4019,7 @@ fn validate_recovered_echo_operation_parent_states(
                     patch,
                     receipt.installed_operation_id().as_hash(),
                     installed.program(),
-                    &parent_state,
+                    parent_state,
                 );
                 let application_basis_matches = exact_scope.is_some_and(|node| {
                     operation_application_basis_matches_scope_v1(
@@ -4059,13 +4098,16 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "Action basis names an unavailable recovery worldline",
             },
         )?;
-        let basis_state = recovered_provenance
-            .replay_worldline_state_at(worldline_id, frontier.state(), basis.worldline_tick())
-            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action basis state cannot be reconstructed",
-            })?;
+        let basis_state = recovered_worldline_state_at(
+            &mut recovered_states,
+            recovered_provenance,
+            worldline_id,
+            frontier.state(),
+            basis.worldline_tick(),
+            "Action basis state cannot be reconstructed",
+        )?;
         if basis_state.state_root() != basis.state_root()
-            || !action_application_basis_matches_state_v1(installed, invocation_bytes, &basis_state)
+            || !action_application_basis_matches_state_v1(installed, invocation_bytes, basis_state)
                 .unwrap_or(false)
             || !evaluation_basis_matches_recovered_coordinate(basis, &entries)
         {
@@ -4113,7 +4155,7 @@ fn validate_recovered_echo_operation_parent_states(
                     receipt.retained_invocation_admission_maximum_budget(),
                     receipt.retained_invocation_admission_policy_id(),
                     receipt.invocation_admission_id(),
-                    &basis_state,
+                    basis_state,
                     policy_id,
                 )
                 .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
@@ -4147,7 +4189,7 @@ fn validate_recovered_echo_operation_parent_states(
                     conflict.invocation_admission_maximum_budget,
                     conflict.invocation_admission_policy_id,
                     conflict.invocation_admission_id,
-                    &basis_state,
+                    basis_state,
                     policy_id,
                 )
                 .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
@@ -4198,7 +4240,7 @@ fn validate_recovered_echo_operation_parent_states(
                         obstruction.invocation_admission_maximum_budget(),
                         obstruction.invocation_admission_policy_id(),
                         obstruction.invocation_admission_id(),
-                        &basis_state,
+                        basis_state,
                         policy_id,
                     )
                     .ok_or(
@@ -4269,11 +4311,15 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "Action Tick names an unavailable recovery worldline",
             },
         )?;
-        let mut reconstructed_state = recovered_provenance
-            .replay_worldline_state_at(head_key.worldline_id, frontier.state(), tick_before)
-            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action Tick parent state cannot be reconstructed",
-            })?;
+        let mut reconstructed_state = recovered_worldline_state_at(
+            &mut recovered_states,
+            recovered_provenance,
+            head_key.worldline_id,
+            frontier.state(),
+            tick_before,
+            "Action Tick parent state cannot be reconstructed",
+        )?
+        .clone();
         let candidates = members
             .iter()
             .map(
@@ -4417,7 +4463,7 @@ fn validate_recovered_echo_operation_parent_states(
             }
         }
     }
-    Ok(())
+    Ok(recovered_states.len())
 }
 
 fn evaluation_basis_matches_recovered_coordinate(

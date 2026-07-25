@@ -55,6 +55,8 @@
   The v1 scheduler Action-candidate ceiling is exported as
   `ACTION_BATCH_CANDIDATE_LIMIT_V1`; its acceptance witness now proves the
   complete limit with independent, non-conflicting node targets.
+  When more than that ceiling is pending, runtime admission selects the bounded
+  set by canonical ingress identity rather than submission identity.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

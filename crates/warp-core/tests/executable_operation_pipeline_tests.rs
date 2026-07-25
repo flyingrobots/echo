@@ -3093,7 +3093,7 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
     let installed = install_fixture_operation(&mut host);
     host.install_echo_operation_action_admission_policy_v1(invocation_policy());
 
-    let mut submission_ids = Vec::new();
+    let mut submissions = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
         let replacement = format!("bounded-after-{index}");
         let invocation = action_invocation(
@@ -3109,12 +3109,13 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
             invocation,
         )
         .expect("the bounded invocation becomes one canonical Action");
-        submission_ids.push(
-            host.app()
-                .submit_intent_with_runtime_wal_ack(envelope)
-                .expect("the bounded Action is durable")
-                .submission_id,
-        );
+        let ingress_id = envelope.ingress_id();
+        let submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("the bounded Action is durable")
+            .submission_id;
+        submissions.push((ingress_id, submission_id));
     }
     assert_eq!(
         host.runtime().pending_witnessed_submission_count(),
@@ -3131,15 +3132,26 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
     );
     assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
     assert_eq!(
-        submission_ids
+        submissions
             .iter()
-            .filter(|submission_id| {
+            .filter(|(_, submission_id)| {
                 host.echo_operation_action_outcome_v1(submission_id)
                     .is_some()
             })
             .count(),
         ACTION_BATCH_CANDIDATE_LIMIT_V1
     );
+    submissions.sort_unstable();
+    assert!(submissions[..ACTION_BATCH_CANDIDATE_LIMIT_V1]
+        .iter()
+        .all(|(_, submission_id)| host
+            .echo_operation_action_outcome_v1(submission_id)
+            .is_some()));
+    assert!(submissions[ACTION_BATCH_CANDIDATE_LIMIT_V1..]
+        .iter()
+        .all(|(_, submission_id)| host
+            .echo_operation_action_outcome_v1(submission_id)
+            .is_none()));
 
     let second_tick = host
         .tick_once()
@@ -3147,7 +3159,7 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
     assert_eq!(second_tick.len(), 1);
     assert_eq!(second_tick[0].admitted_count, 1);
     assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
-    assert!(submission_ids.iter().all(|submission_id| host
+    assert!(submissions.iter().all(|(_, submission_id)| host
         .echo_operation_action_outcome_v1(submission_id)
         .is_some()));
 }

@@ -1798,7 +1798,7 @@ impl TrustedRuntimeHost {
         };
         let available = crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1
             .saturating_sub(self.admitted_echo_operation_actions.len());
-        let pending = self
+        let mut pending = self
             .pending_echo_operation_actions
             .iter()
             .filter(|submission_id| {
@@ -1806,10 +1806,17 @@ impl TrustedRuntimeHost {
                     .admitted_echo_operation_actions
                     .contains_key(*submission_id)
             })
-            .take(available)
-            .copied()
-            .collect::<Vec<_>>();
-        for submission_id in pending {
+            .map(|submission_id| {
+                let submission = self
+                    .runtime
+                    .witnessed_submission(submission_id)
+                    .ok_or(RuntimeError::UnknownIntentSubmission(*submission_id))?;
+                Ok((submission.ingress_id, *submission_id))
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
+        pending.sort_unstable();
+        pending.truncate(available);
+        for (_, submission_id) in pending {
             let submission = self
                 .runtime
                 .witnessed_submission(&submission_id)

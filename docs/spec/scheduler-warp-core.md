@@ -68,12 +68,13 @@ package and admission policy, but neither submission nor admission evaluates
 application semantics.
 
 The scheduler partitions executable and legacy/native ingress deterministically
-at the lowest canonical ingress id so the two evaluator categories never share
-one candidate batch. Inside an executable batch, Action ingress order is
-canonical. Private bounded evaluation yields either a complete prepared
-candidate or a typed no-mutation obstruction. The scheduler reserves successful
-candidate footprints, constructs one composite consequence, and emits one Tick
-receipt entry per Action.
+so the two evaluator categories never share one candidate batch. When both are
+pending, exact parent worldline-Tick parity alternates the selected category;
+when only one is pending, it proceeds immediately. Inside either category,
+ingress order is canonical. Private bounded evaluation yields either a complete
+prepared candidate or a typed no-mutation obstruction. The scheduler reserves
+successful candidate footprints, constructs one composite consequence, and
+emits one Tick receipt entry per Action.
 
 The successor state remains private until the complete Tick transaction is
 durable. Construction failure discards it. WAL failure restores the

@@ -4229,6 +4229,12 @@ impl SchedulerCoordinator {
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
         for key in &keys {
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            let partition_parent_tick = runtime
+                .worldlines
+                .get(&key.worldline_id)
+                .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?
+                .frontier_tick();
             let inbox = runtime
                 .heads
                 .inbox_mut(key)
@@ -4238,6 +4244,7 @@ impl SchedulerCoordinator {
                 inbox.admit_partitioned(
                     crate::echo_operation::echo_operation_action_intent_kind_v1(),
                     crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1,
+                    partition_parent_tick,
                 )
             } else {
                 inbox.admit()

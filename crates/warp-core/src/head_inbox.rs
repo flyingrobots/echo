@@ -794,24 +794,42 @@ impl HeadInbox {
     /// Admits one deterministic execution category without mixing it with
     /// other pending categories.
     ///
-    /// The lowest canonical ingress id chooses whether this batch contains the
-    /// supplied `partition_kind` or everything else. Entries from the other
-    /// category remain pending for a later Tick. Existing per-Tick limits still
-    /// bound the selected category.
+    /// When both categories are pending, `parent_worldline_tick` parity chooses
+    /// whether this batch contains the supplied `partition_kind` or everything
+    /// else. Using the durable parent coordinate means neither category can
+    /// starve and recovery does not depend on process-local state. When only one
+    /// category is pending, it proceeds immediately. Existing per-Tick limits
+    /// still bound the selected category.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn admit_partitioned(
         &mut self,
         partition_kind: IntentKind,
         partition_limit: usize,
+        parent_worldline_tick: crate::WorldlineTick,
     ) -> Vec<IngressEnvelope> {
-        let Some(first) = self.pending.first_key_value().map(|(_, envelope)| envelope) else {
+        if self.pending.is_empty() {
             return Vec::new();
+        }
+        let mut has_partition = false;
+        let mut has_other = false;
+        for envelope in self.pending.values() {
+            let in_partition = matches!(
+                envelope.payload(),
+                IngressPayload::LocalIntent { intent_kind, .. }
+                    if *intent_kind == partition_kind
+            );
+            has_partition |= in_partition;
+            has_other |= !in_partition;
+            if has_partition && has_other {
+                break;
+            }
+        }
+        let selected_partition = match (has_partition, has_other) {
+            (true, true) => parent_worldline_tick.as_u64().is_multiple_of(2),
+            (true, false) => true,
+            (false, true) => false,
+            (false, false) => return Vec::new(),
         };
-        let selected_partition = matches!(
-            first.payload(),
-            IngressPayload::LocalIntent { intent_kind, .. }
-                if *intent_kind == partition_kind
-        );
         let policy_limit = match self.policy {
             InboxPolicy::Budgeted { max_per_tick } => max_per_tick as usize,
             InboxPolicy::AcceptAll | InboxPolicy::KindFilter(_) => usize::MAX,
@@ -984,7 +1002,8 @@ mod tests {
             assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
         }
 
-        let first_batch = inbox.admit_partitioned(partition_kind, 2);
+        let first_tick = crate::WorldlineTick::from_raw(u64::from(!first_is_partition));
+        let first_batch = inbox.admit_partitioned(partition_kind, 2, first_tick);
         assert_eq!(first_batch.len(), 2);
         assert!(first_batch.iter().all(|envelope| {
             matches!(
@@ -995,7 +1014,10 @@ mod tests {
         }));
         assert_eq!(inbox.pending_count(), 2);
 
-        let second_batch = inbox.admit_partitioned(partition_kind, 2);
+        let second_tick = first_tick
+            .checked_add(1)
+            .expect("the fixture Tick can advance");
+        let second_batch = inbox.admit_partitioned(partition_kind, 2, second_tick);
         assert_eq!(second_batch.len(), 2);
         assert!(second_batch.iter().all(|envelope| {
             matches!(
@@ -1005,6 +1027,51 @@ mod tests {
             )
         }));
         assert!(inbox.is_empty());
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn partitioned_admission_cannot_starve_other_category_by_ingress_hash() {
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
+        let partition_kind = test_kind();
+        let legacy = (0..256_u16)
+            .map(|index| make_envelope(other_kind(), format!("legacy-{index}").as_bytes()))
+            .max_by_key(IngressEnvelope::ingress_id)
+            .expect("the deterministic legacy candidate set is nonempty");
+        let legacy_ingress_id = legacy.ingress_id();
+        assert_eq!(inbox.ingest(legacy), InboxIngestResult::Accepted);
+
+        let mut legacy_admitted = false;
+        for round in 0..2_u16 {
+            let partition = (0..1024_u16)
+                .map(|index| {
+                    make_envelope(
+                        partition_kind,
+                        format!("partition-{round}-{index}").as_bytes(),
+                    )
+                })
+                .find(|envelope| envelope.ingress_id() < legacy_ingress_id)
+                .expect("the deterministic partition candidates include a lower ingress hash");
+            assert_eq!(inbox.ingest(partition), InboxIngestResult::Accepted);
+            let batch = inbox.admit_partitioned(
+                partition_kind,
+                1,
+                crate::WorldlineTick::from_raw(u64::from(round)),
+            );
+            assert_eq!(batch.len(), 1);
+            legacy_admitted |= batch[0].ingress_id() == legacy_ingress_id;
+        }
+
+        assert!(
+            legacy_admitted,
+            "a continuously replenished lower-hash partition must not starve legacy work"
+        );
     }
 
     #[test]

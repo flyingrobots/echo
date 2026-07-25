@@ -14,6 +14,9 @@
   unavailable packages are quarantined without poisoning unrelated work.
   A WAL-enabled app surface rejects executable Actions submitted outside the
   durable acknowledgement boundary before witnessed intake can mutate.
+  Mixed executable and provider/native backlogs alternate by durable parent
+  worldline-Tick parity, preventing caller-controlled ingress hashes from
+  starving either execution category.
   Scheduler selection admits at most 64 executable Actions per Tick, leaving
   excess work pending, and meters footprint comparisons, blocker evidence, and
   aggregate operations during composition. Two independent Actions can share

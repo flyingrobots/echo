@@ -85,11 +85,14 @@ Provider/native ingress and executable-operation Actions are different
 execution categories. A head inbox may contain both while migrations are in
 flight, but one Tick candidate batch is homogeneous.
 
-The scheduler examines the lowest canonical ingress identity and drains only
-that entry's execution category, subject to the existing inbox budget. Other
-categories remain pending for a later Tick. This is deterministic, preserves
-global inbox order at category boundaries, and makes it impossible for an
-executable Action to fall through to a native callback engine.
+When both categories are pending, the exact parent worldline-Tick parity selects
+the category: an even parent Tick selects executable Actions and an odd parent
+Tick selects provider/native ingress. When only one category is pending, that
+category proceeds immediately. Entries remain canonically ordered by ingress
+identity inside the selected category and existing inbox budgets still apply.
+This durable alternating choice prevents caller-controlled hashes from starving
+one evaluator category, remains stable across restart, and makes it impossible
+for an executable Action to fall through to a native callback engine.
 
 ### One exact parent basis, per-Action application propositions
 

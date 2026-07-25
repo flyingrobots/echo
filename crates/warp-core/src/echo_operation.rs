@@ -85,7 +85,9 @@ const ACTION_BATCH_PLAN_DOMAIN: &[u8] = b"echo:operation-action-batch-plan:v1\0"
 const ACTION_BATCH_REWRITES_DOMAIN: &[u8] = b"echo:operation-action-batch-rewrites:v1\0";
 const ACTION_BATCH_COMPOSITION_DOMAIN: &[u8] = b"echo:operation-action-batch-composition:v1\0";
 const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT003";
-pub(crate) const ACTION_BATCH_CANDIDATE_LIMIT_V1: usize = 64;
+/// Maximum number of executable-operation Action candidates selected for one
+/// scheduler-owned Tick under the v1 bounded-composition profile.
+pub const ACTION_BATCH_CANDIDATE_LIMIT_V1: usize = 64;
 const ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1: usize =
     ACTION_BATCH_CANDIDATE_LIMIT_V1 * (ACTION_BATCH_CANDIDATE_LIMIT_V1 - 1) / 2;
 const ACTION_BATCH_BLOCKER_EVIDENCE_LIMIT_V1: usize = ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1;

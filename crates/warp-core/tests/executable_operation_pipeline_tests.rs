@@ -32,7 +32,7 @@ use warp_core::{
     InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
-    WriterHead, WriterHeadKey,
+    WriterHead, WriterHeadKey, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 
 const OPERATION_COORDINATE: &str = "echo.fixture.SetAnchoredAtom.v1";
@@ -107,24 +107,44 @@ fn operation_frontier(kind: AffectedFrontierKind, label: &str) -> AffectedFronti
 }
 
 fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+    let (host, head_key, nodes) = fixture_host_with_independent_nodes(1);
+    (
+        host,
+        head_key,
+        *nodes.first().expect("the fixture contains its root node"),
+    )
+}
+
+fn fixture_host_with_independent_nodes(
+    node_count: usize,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    assert!(node_count > 0, "the fixture must retain one root node");
     let warp_id = make_warp_id("operation-fixture");
-    let node_id = make_node_id("operation-fixture-root");
+    let root_id = make_node_id("operation-fixture-root");
     let node_type = make_type_id("operation-fixture-node");
     let attachment_type = make_type_id("operation-fixture-atom");
-    let node = NodeKey {
-        warp_id,
-        local_id: node_id,
-    };
+    let nodes = (0..node_count)
+        .map(|index| NodeKey {
+            warp_id,
+            local_id: if index == 0 {
+                root_id
+            } else {
+                make_node_id(&format!("operation-fixture-node-{index}"))
+            },
+        })
+        .collect::<Vec<_>>();
     let mut store = GraphStore::new(warp_id);
-    store.insert_node(node_id, NodeRecord { ty: node_type });
-    store.set_node_attachment(
-        node_id,
-        Some(AttachmentValue::Atom(AtomPayload::new(
-            attachment_type,
-            Bytes::from_static(b"before"),
-        ))),
-    );
-    let state = WorldlineState::from_root_store(store, node_id)
+    for node in &nodes {
+        store.insert_node(node.local_id, NodeRecord { ty: node_type });
+        store.set_node_attachment(
+            node.local_id,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                attachment_type,
+                Bytes::from_static(b"before"),
+            ))),
+        );
+    }
+    let state = WorldlineState::from_root_store(store, root_id)
         .expect("the fixture state has one lawful root");
     let worldline_id = WorldlineId::from_bytes(digest("operation-fixture-worldline"));
     let head_key = WriterHeadKey {
@@ -159,7 +179,7 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
         .build();
     let host = TrustedRuntimeHost::new(runtime, engine)
         .expect("the trusted Echo runtime host initializes");
-    (host, head_key, node)
+    (host, head_key, nodes)
 }
 
 fn fixture_host_with_two_worldlines() -> (TrustedRuntimeHost, WriterHeadKey, WriterHeadKey, NodeKey)
@@ -3066,14 +3086,15 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
 
 #[test]
 fn scheduler_candidate_limit_leaves_excess_action_pending() {
-    let (mut host, head_key, node) = fixture_host();
+    let candidate_count = ACTION_BATCH_CANDIDATE_LIMIT_V1 + 1;
+    let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(candidate_count);
     host.enable_in_memory_runtime_wal()
         .expect("the scheduler budget fixture WAL opens");
     let installed = install_fixture_operation(&mut host);
     host.install_echo_operation_action_admission_policy_v1(invocation_policy());
 
     let mut submission_ids = Vec::new();
-    for index in 0..65 {
+    for (index, node) in nodes.into_iter().enumerate() {
         let replacement = format!("bounded-after-{index}");
         let invocation = action_invocation(
             &host,
@@ -3095,13 +3116,19 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
                 .submission_id,
         );
     }
-    assert_eq!(host.runtime().pending_witnessed_submission_count(), 65);
+    assert_eq!(
+        host.runtime().pending_witnessed_submission_count(),
+        candidate_count
+    );
 
     let first_tick = host
         .tick_once()
         .expect("the first scheduler Tick respects its Action candidate limit");
     assert_eq!(first_tick.len(), 1);
-    assert_eq!(first_tick[0].admitted_count, 64);
+    assert_eq!(
+        first_tick[0].admitted_count,
+        ACTION_BATCH_CANDIDATE_LIMIT_V1
+    );
     assert_eq!(host.runtime().pending_witnessed_submission_count(), 1);
     assert_eq!(
         submission_ids
@@ -3111,7 +3138,7 @@ fn scheduler_candidate_limit_leaves_excess_action_pending() {
                     .is_some()
             })
             .count(),
-        64
+        ACTION_BATCH_CANDIDATE_LIMIT_V1
     );
 
     let second_tick = host

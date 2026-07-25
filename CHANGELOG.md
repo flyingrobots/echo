@@ -52,6 +52,9 @@
   so Actions sharing one scheduler basis do not replay that history repeatedly.
   Recovered Action outcomes resolve installed packages through one package-ID
   index instead of scanning the complete installation set per Action.
+  The v1 scheduler Action-candidate ceiling is exported as
+  `ACTION_BATCH_CANDIDATE_LIMIT_V1`; its acceptance witness now proves the
+  complete limit with independent, non-conflicting node targets.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

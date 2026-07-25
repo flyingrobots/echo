@@ -480,8 +480,8 @@ pub use tick_patch::{
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
     EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeHostRunReport, TrustedRuntimeWal,
-    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
+    TrustedRuntimeHostError, TrustedRuntimeHostParts, TrustedRuntimeHostRunReport,
+    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
     TrustedRuntimeWalStoreKind, WitnessedCausalAnchorAdmission,
 };
 pub use tx::TxId;

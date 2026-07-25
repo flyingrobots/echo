@@ -325,6 +325,10 @@ The host surface lives in `crates/warp-core/src/trusted_runtime_host.rs`,
 especially `TrustedRuntimeHost`, `TrustedRuntimeApp`, `TrustedRuntimeWal`,
 `submit_intent_with_runtime_wal_ack(...)`, `admit_causal_anchor(...)`,
 `causal_anchor_by_id(...)`, and `recover_read_only()`.
+`TrustedRuntimeHostParts` makes host decomposition identity-preserving:
+`into_parts()` and `from_parts(...)` carry WAL, authority, policy, pending
+admission, and typed Action outcomes together with runtime, provenance, and
+engine ownership.
 
 Related current authority lives in `docs/topics/RuntimeAuthority.md`,
 `docs/architecture/continuum-transport.md`, and

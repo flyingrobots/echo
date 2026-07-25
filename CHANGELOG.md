@@ -60,6 +60,10 @@
   complete limit with independent, non-conflicting node targets.
   When more than that ceiling is pending, runtime admission selects the bounded
   set by canonical ingress identity rather than submission identity.
+  `TrustedRuntimeHost::into_parts` now returns an opaque
+  `TrustedRuntimeHostParts` value consumed by `from_parts`, preserving WAL,
+  authority, policy, pending admission, and every typed Action outcome across
+  host decomposition and reconstruction.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

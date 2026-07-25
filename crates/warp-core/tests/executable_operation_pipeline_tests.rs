@@ -2843,6 +2843,7 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
         let steps = host
             .tick_once()
             .expect("the scheduler privately evaluates and commits both Actions");
+        let host = TrustedRuntimeHost::from_parts(host.into_parts());
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].admitted_count, 2);
         assert_eq!(steps[0].worldline_tick_after.as_u64(), 1);
@@ -3389,6 +3390,7 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
         let steps = host
             .tick_once()
             .expect("typed obstruction is a lawful scheduler decision");
+        let host = TrustedRuntimeHost::from_parts(host.into_parts());
         let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
             host.echo_operation_action_outcome_v1(&submission_id)
         else {
@@ -3823,6 +3825,7 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
         let steps = host
             .tick_once()
             .expect("the scheduler lawfully classifies the footprint conflict");
+        let host = TrustedRuntimeHost::from_parts(host.into_parts());
         assert_eq!(steps.len(), 1);
         conflict_submission_id = submission_ids
             .into_iter()

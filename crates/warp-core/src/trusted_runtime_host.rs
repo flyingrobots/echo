@@ -805,6 +805,62 @@ pub struct TrustedRuntimeHost {
         BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
 }
 
+/// Owned decomposition of a [`TrustedRuntimeHost`].
+///
+/// Besides the runtime, provenance service, and engine, this value retains
+/// host-owned WAL, authority, policy, pending-admission, and typed Action
+/// outcome state. Passing it back to [`TrustedRuntimeHost::from_parts`] is an
+/// identity-preserving host lifecycle operation.
+pub struct TrustedRuntimeHostParts {
+    runtime: WorldlineRuntime,
+    provenance: ProvenanceService,
+    engine: Engine,
+    runtime_wal: Option<TrustedRuntimeWal>,
+    causal_anchor_support_policy: Option<CausalAnchorRootSupportPolicy>,
+    echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1,
+    echo_operation_action_admission_policy: Option<EchoOperationInvocationAdmissionPolicyV1>,
+    echo_operation_action_outcomes: BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+    pending_echo_operation_actions: BTreeSet<Hash>,
+    admitted_echo_operation_actions: BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
+    echo_operation_action_admission_obstructions:
+        BTreeMap<Hash, EchoOperationInvocationAdmissionErrorKindV1>,
+}
+
+impl TrustedRuntimeHostParts {
+    /// Returns the owned runtime as read-only evidence.
+    #[must_use]
+    pub const fn runtime(&self) -> &WorldlineRuntime {
+        &self.runtime
+    }
+
+    /// Returns the owned runtime for host-level reconfiguration.
+    pub const fn runtime_mut(&mut self) -> &mut WorldlineRuntime {
+        &mut self.runtime
+    }
+
+    /// Returns the owned provenance service as read-only evidence.
+    #[must_use]
+    pub const fn provenance(&self) -> &ProvenanceService {
+        &self.provenance
+    }
+
+    /// Returns the owned provenance service for host-level reconfiguration.
+    pub const fn provenance_mut(&mut self) -> &mut ProvenanceService {
+        &mut self.provenance
+    }
+
+    /// Returns the owned execution engine as read-only evidence.
+    #[must_use]
+    pub const fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// Returns the owned execution engine for host-level reconfiguration.
+    pub const fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+}
+
 fn pending_echo_operation_action_ids_v1(
     runtime: &WorldlineRuntime,
     decided: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
@@ -850,34 +906,54 @@ impl TrustedRuntimeHost {
         })
     }
 
-    /// Builds a trusted host from already-initialized parts.
+    /// Rebuilds a trusted host from its identity-preserving owned parts.
     #[must_use]
-    pub fn from_parts(
-        runtime: WorldlineRuntime,
-        provenance: ProvenanceService,
-        engine: Engine,
-    ) -> Self {
-        let pending_echo_operation_actions =
-            pending_echo_operation_action_ids_v1(&runtime, &BTreeMap::new());
+    pub fn from_parts(parts: TrustedRuntimeHostParts) -> Self {
+        let TrustedRuntimeHostParts {
+            runtime,
+            provenance,
+            engine,
+            runtime_wal,
+            causal_anchor_support_policy,
+            echo_operation_evaluation_authority,
+            echo_operation_action_admission_policy,
+            echo_operation_action_outcomes,
+            pending_echo_operation_actions,
+            admitted_echo_operation_actions,
+            echo_operation_action_admission_obstructions,
+        } = parts;
         Self {
             runtime,
             provenance,
             engine,
-            runtime_wal: None,
-            causal_anchor_support_policy: None,
-            echo_operation_evaluation_authority: EchoOperationEvaluationAuthorityV1::new(),
-            echo_operation_action_admission_policy: None,
-            echo_operation_action_outcomes: BTreeMap::new(),
+            runtime_wal,
+            causal_anchor_support_policy,
+            echo_operation_evaluation_authority,
+            echo_operation_action_admission_policy,
+            echo_operation_action_outcomes,
             pending_echo_operation_actions,
-            admitted_echo_operation_actions: BTreeMap::new(),
-            echo_operation_action_admission_obstructions: BTreeMap::new(),
+            admitted_echo_operation_actions,
+            echo_operation_action_admission_obstructions,
         }
     }
 
     /// Consumes the host and returns owned runtime parts.
     #[must_use]
-    pub fn into_parts(self) -> (WorldlineRuntime, ProvenanceService, Engine) {
-        (self.runtime, self.provenance, self.engine)
+    pub fn into_parts(self) -> TrustedRuntimeHostParts {
+        TrustedRuntimeHostParts {
+            runtime: self.runtime,
+            provenance: self.provenance,
+            engine: self.engine,
+            runtime_wal: self.runtime_wal,
+            causal_anchor_support_policy: self.causal_anchor_support_policy,
+            echo_operation_evaluation_authority: self.echo_operation_evaluation_authority,
+            echo_operation_action_admission_policy: self.echo_operation_action_admission_policy,
+            echo_operation_action_outcomes: self.echo_operation_action_outcomes,
+            pending_echo_operation_actions: self.pending_echo_operation_actions,
+            admitted_echo_operation_actions: self.admitted_echo_operation_actions,
+            echo_operation_action_admission_obstructions: self
+                .echo_operation_action_admission_obstructions,
+        }
     }
 
     /// Returns the host-owned runtime as read-only evidence.

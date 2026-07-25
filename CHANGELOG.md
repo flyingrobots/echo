@@ -63,7 +63,8 @@
   Recovered Action outcomes resolve installed packages through one package-ID
   index instead of scanning the complete installation set per Action. Test
   instrumentation now counts the actual package-index and installation-order
-  lookups rather than asserting constant zero-value proxies.
+  lookups rather than asserting constant zero-value proxies. Tick WAL staging
+  borrows its read-only outcome index instead of deep-cloning every outcome.
   The v1 scheduler Action-candidate ceiling is exported as
   `ACTION_BATCH_CANDIDATE_LIMIT_V1`; its acceptance witness now proves the
   complete limit with independent, non-conflicting node targets. Admission

@@ -2066,8 +2066,10 @@ impl TrustedRuntimeHost {
                 tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }
-        let action_outcomes_by_submission =
-            action_outcomes.iter().cloned().collect::<BTreeMap<_, _>>();
+        let action_outcomes_by_submission = action_outcomes
+            .iter()
+            .map(|(submission_id, outcome)| (*submission_id, outcome))
+            .collect::<BTreeMap<_, _>>();
         let mut tick_wal_groups = BTreeMap::new();
         for (correlation, decision, state_delta, state_delta_digest) in tick_wal_records {
             let key = (
@@ -2963,7 +2965,7 @@ impl TrustedRuntimeWal {
     fn record_tick_receipt_batch(
         &mut self,
         correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
-        action_outcomes_by_submission: &BTreeMap<Hash, EchoOperationActionOutcomeV1>,
+        action_outcomes_by_submission: &BTreeMap<Hash, &EchoOperationActionOutcomeV1>,
         state_delta: &WalRuntimeStateDeltaRecord,
         state_delta_digest: Hash,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
@@ -6180,6 +6182,24 @@ mod tests {
         WorldlineTick, WriterHeadKey,
     };
     use bytes::Bytes;
+
+    type BorrowedActionOutcomeBatchWriter =
+        for<'a> fn(
+            &mut TrustedRuntimeWal,
+            &[(ReceiptCorrelationRecord, WalTickDecision)],
+            &BTreeMap<Hash, &'a EchoOperationActionOutcomeV1>,
+            &WalRuntimeStateDeltaRecord,
+            Hash,
+        ) -> Result<WalTransactionCommit, TrustedRuntimeWalError>;
+
+    #[test]
+    fn tick_receipt_batch_accepts_borrowed_action_outcomes() {
+        let writer: BorrowedActionOutcomeBatchWriter = TrustedRuntimeWal::record_tick_receipt_batch;
+        assert!(std::ptr::fn_addr_eq(
+            writer,
+            TrustedRuntimeWal::record_tick_receipt_batch as BorrowedActionOutcomeBatchWriter
+        ));
+    }
 
     fn test_head_key() -> WriterHeadKey {
         WriterHeadKey {

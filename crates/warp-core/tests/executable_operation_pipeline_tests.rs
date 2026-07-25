@@ -3747,6 +3747,75 @@ fn identical_action_payloads_on_distinct_heads_keep_distinct_outcomes() {
 }
 
 #[test]
+fn cross_worldline_basis_obstruction_recovers_on_the_deciding_worldline() {
+    let wal_dir = TempWalDir::new();
+    let submission_id;
+
+    {
+        let (mut host, basis_head, target_head, node) = fixture_host_with_two_worldlines();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the cross-worldline obstruction WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+        let invocation =
+            action_invocation(&host, &installed, basis_head, node, b"before", b"after");
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: target_head },
+            invocation,
+        )
+        .expect("the cross-worldline invocation becomes one Action");
+        submission_id = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("the cross-worldline Action is durable")
+            .submission_id;
+
+        let steps = host
+            .tick_once()
+            .expect("the target worldline decides the basis obstruction");
+        assert_eq!(steps.len(), 1);
+        let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+            host.echo_operation_action_outcome_v1(&submission_id)
+        else {
+            panic!("the cross-worldline Action retains one typed obstruction");
+        };
+        assert_eq!(
+            obstruction.kind(),
+            EchoOperationObstructionKindV1::BasisChanged
+        );
+        assert_eq!(
+            obstruction
+                .decision_coordinate()
+                .expect("the obstruction names its deciding Tick")
+                .writer_head(),
+            target_head
+        );
+    }
+
+    let (mut recovered, _, recovered_target_head, _) = fixture_host_with_two_worldlines();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh-host recovery resolves the target-worldline transition");
+    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
+        recovered.echo_operation_action_outcome_v1(&submission_id)
+    else {
+        panic!("fresh-host recovery restores the cross-worldline obstruction");
+    };
+    assert_eq!(
+        obstruction.kind(),
+        EchoOperationObstructionKindV1::BasisChanged
+    );
+    assert_eq!(
+        obstruction
+            .decision_coordinate()
+            .expect("the recovered obstruction names its deciding Tick")
+            .writer_head(),
+        recovered_target_head
+    );
+}
+
+#[test]
 fn recovery_separates_identical_commits_on_distinct_worldlines() {
     let (mut host, first_head, second_head, node) = fixture_host_with_two_worldlines();
     host.enable_in_memory_runtime_wal()

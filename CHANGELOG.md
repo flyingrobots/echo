@@ -48,7 +48,10 @@
   consequence, exact reconstructed aggregate patch membership, and state root.
   Typed obstruction records retain their invocation-admission policy and
   budget ceiling; recovery reproduces bounded evaluation and the complete
-  scheduler composition before accepting an obstruction kind.
+  scheduler composition before accepting an obstruction kind. For a
+  cross-worldline basis obstruction, recovery reconstructs the submitted basis
+  on its named worldline but resolves the deciding transition on the target
+  head's worldline.
   Recovery records one monotonic installation ordinal per package and one
   installation-count boundary per Action, avoiding per-outcome package-set
   snapshots while preserving exact installation-before-Tick validation.

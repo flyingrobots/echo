@@ -4235,8 +4235,8 @@ fn validate_recovered_echo_operation_parent_states(
             },
         )?;
         let basis = invocation.evaluation_basis;
-        let worldline_id = basis.writer_head().worldline_id;
-        let frontier = runtime.worldlines().get(&worldline_id).ok_or(
+        let basis_worldline_id = basis.writer_head().worldline_id;
+        let frontier = runtime.worldlines().get(&basis_worldline_id).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action basis names an unavailable recovery worldline",
             },
@@ -4244,7 +4244,7 @@ fn validate_recovered_echo_operation_parent_states(
         let basis_state = recovered_worldline_state_at(
             &mut recovered_states,
             recovered_provenance,
-            worldline_id,
+            basis_worldline_id,
             frontier.state(),
             basis.worldline_tick(),
             "Action basis state cannot be reconstructed",
@@ -4278,11 +4278,11 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "Action basis posture disagrees with the scheduler Tick parent",
             });
         }
-        let transition = entries.get(&(worldline_id, tick_before)).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+        let transition = entries
+            .get(&(correlation.head_key.worldline_id, tick_before))
+            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action outcome has no recovered scheduler transition",
-            },
-        )?;
+            })?;
         let policy_id = transition
             .patch
             .as_ref()

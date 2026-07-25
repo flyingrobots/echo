@@ -30,6 +30,9 @@
   invocation, installed operation, causal coordinate, evaluation basis,
   reconstructed preparation and actual footprint, Tick entry, composite
   consequence, exact reconstructed aggregate patch membership, and state root.
+  Typed obstruction records retain their invocation-admission policy and
+  budget ceiling; recovery reproduces bounded evaluation and the complete
+  scheduler composition before accepting an obstruction kind.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

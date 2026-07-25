@@ -84,7 +84,7 @@ const ACTION_BATCH_RULE_PACK_DOMAIN: &[u8] = b"echo:operation-action-batch-rule-
 const ACTION_BATCH_PLAN_DOMAIN: &[u8] = b"echo:operation-action-batch-plan:v1\0";
 const ACTION_BATCH_REWRITES_DOMAIN: &[u8] = b"echo:operation-action-batch-rewrites:v1\0";
 const ACTION_BATCH_COMPOSITION_DOMAIN: &[u8] = b"echo:operation-action-batch-composition:v1\0";
-const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT002";
+const ACTION_OUTCOME_RECORD_MAGIC: &[u8; 8] = b"EOACT003";
 pub(crate) const ACTION_BATCH_CANDIDATE_LIMIT_V1: usize = 64;
 const ACTION_BATCH_FOOTPRINT_COMPARISON_LIMIT_V1: usize =
     ACTION_BATCH_CANDIDATE_LIMIT_V1 * (ACTION_BATCH_CANDIDATE_LIMIT_V1 - 1) / 2;
@@ -2604,7 +2604,7 @@ pub(crate) fn action_preparation_identity_matches_v1(
     ) == expected_preparation_id
 }
 
-pub(crate) fn reconstruct_action_preparation_v1(
+pub(crate) fn reconstruct_action_evaluation_v1(
     installed: &InstalledEchoOperationV1,
     canonical_invocation_bytes: &[u8],
     maximum_budget: EchoOperationBudgetV1,
@@ -2612,7 +2612,7 @@ pub(crate) fn reconstruct_action_preparation_v1(
     expected_admission_id: EchoOperationInvocationAdmissionIdV1,
     state: &WorldlineState,
     policy_id: u32,
-) -> Option<Box<PreparedEchoOperationV1>> {
+) -> Option<EchoOperationPreparationV1> {
     if !action_admission_evidence_matches_v1(
         installed,
         canonical_invocation_bytes,
@@ -2640,14 +2640,34 @@ pub(crate) fn reconstruct_action_preparation_v1(
     if admitted.admission_id() != expected_admission_id {
         return None;
     }
-    match prepare_operation_v1(
+    Some(prepare_operation_v1(
         Some(installed),
         admitted,
         invocation.evaluation_basis,
         state,
         policy_id,
         &authority,
-    ) {
+    ))
+}
+
+pub(crate) fn reconstruct_action_preparation_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    maximum_budget: EchoOperationBudgetV1,
+    expected_policy_id: Hash,
+    expected_admission_id: EchoOperationInvocationAdmissionIdV1,
+    state: &WorldlineState,
+    policy_id: u32,
+) -> Option<Box<PreparedEchoOperationV1>> {
+    match reconstruct_action_evaluation_v1(
+        installed,
+        canonical_invocation_bytes,
+        maximum_budget,
+        expected_policy_id,
+        expected_admission_id,
+        state,
+        policy_id,
+    )? {
         EchoOperationPreparationV1::Prepared(prepared) => Some(prepared),
         EchoOperationPreparationV1::Obstructed(_) => None,
     }
@@ -2718,7 +2738,11 @@ pub(crate) fn runtime_basis_obstruction(
         kind: EchoOperationObstructionKindV1::BasisChanged,
         package_id: admitted.invocation.package_id,
         installed_operation_id: admitted.installed_operation_id,
-        invocation_admission_id: admitted.admission_id,
+        invocation_admission: Box::new(EchoOperationObstructionAdmissionEvidenceV1 {
+            policy_id: admitted.admission_policy_id,
+            maximum_budget: admitted.admission_policy.maximum_delegated_budget,
+            admission_id: admitted.admission_id,
+        }),
         invocation_id: admitted.invocation_id,
         evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
     })
@@ -2755,13 +2779,21 @@ pub enum EchoOperationObstructionKindV1 {
     ReplacementTooLarge,
 }
 
+/// Retained runtime policy evidence needed to reproduce one obstruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EchoOperationObstructionAdmissionEvidenceV1 {
+    policy_id: Hash,
+    maximum_budget: EchoOperationBudgetV1,
+    admission_id: EchoOperationInvocationAdmissionIdV1,
+}
+
 /// One typed obstruction. Obstruction never carries a parent-visible patch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationObstructionV1 {
     kind: EchoOperationObstructionKindV1,
     package_id: EchoOperationPackageIdV1,
     installed_operation_id: InstalledEchoOperationIdV1,
-    invocation_admission_id: EchoOperationInvocationAdmissionIdV1,
+    invocation_admission: Box<EchoOperationObstructionAdmissionEvidenceV1>,
     invocation_id: EchoOperationInvocationIdV1,
     evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
 }
@@ -2800,7 +2832,15 @@ impl EchoOperationObstructionV1 {
     /// Returns the exact runtime admission that authorized this evaluation attempt.
     #[must_use]
     pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
-        self.invocation_admission_id
+        self.invocation_admission.admission_id
+    }
+
+    pub(crate) const fn invocation_admission_policy_id(&self) -> Hash {
+        self.invocation_admission.policy_id
+    }
+
+    pub(crate) const fn invocation_admission_maximum_budget(&self) -> EchoOperationBudgetV1 {
+        self.invocation_admission.maximum_budget
     }
 
     /// Returns the identity of this typed no-parent-patch obstruction.
@@ -2810,7 +2850,7 @@ impl EchoOperationObstructionV1 {
         hasher.update(OBSTRUCTION_ID_DOMAIN);
         hasher.update(&self.package_id.as_hash());
         hasher.update(&self.installed_operation_id.as_hash());
-        hasher.update(&self.invocation_admission_id.as_hash());
+        hasher.update(&self.invocation_admission.admission_id.as_hash());
         hasher.update(&self.invocation_id.as_hash());
         hasher.update(&self.evaluation_basis_id.as_hash());
         hasher.update(&[obstruction_kind_code(self.kind)]);
@@ -2946,6 +2986,16 @@ pub enum EchoOperationActionOutcomeV1 {
 
 impl EchoOperationActionOutcomeV1 {
     #[cfg(any(test, feature = "host_test"))]
+    pub(crate) fn replace_obstruction_kind_for_test(
+        &mut self,
+        kind: EchoOperationObstructionKindV1,
+    ) {
+        if let Self::Obstructed(obstruction) = self {
+            obstruction.kind = kind;
+        }
+    }
+
+    #[cfg(any(test, feature = "host_test"))]
     pub(crate) fn replace_conflict_preparation_id_for_test(&mut self, digest: Hash) {
         if let Self::RejectedFootprintConflict(conflict) = self {
             conflict.preparation_id = PreparedEchoOperationIdV1(digest);
@@ -2983,7 +3033,29 @@ pub(crate) fn retain_action_outcome_v1(
             out.push(obstruction_kind_code(obstruction.kind));
             out.extend_from_slice(&obstruction.package_id.as_hash());
             out.extend_from_slice(&obstruction.installed_operation_id.as_hash());
-            out.extend_from_slice(&obstruction.invocation_admission_id.as_hash());
+            out.extend_from_slice(&obstruction.invocation_admission.policy_id);
+            out.extend_from_slice(
+                &obstruction
+                    .invocation_admission
+                    .maximum_budget
+                    .steps
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &obstruction
+                    .invocation_admission
+                    .maximum_budget
+                    .read_bytes
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &obstruction
+                    .invocation_admission
+                    .maximum_budget
+                    .write_bytes
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(&obstruction.invocation_admission.admission_id.as_hash());
             out.extend_from_slice(&obstruction.invocation_id.as_hash());
             out.extend_from_slice(&obstruction.evaluation_basis_id.as_hash());
         }
@@ -3075,9 +3147,18 @@ pub(crate) fn recover_action_outcome_v1(
                     bytes,
                     &mut offset,
                 )?),
-                invocation_admission_id: EchoOperationInvocationAdmissionIdV1(
-                    read_action_outcome_hash(bytes, &mut offset)?,
-                ),
+                invocation_admission: Box::new(EchoOperationObstructionAdmissionEvidenceV1 {
+                    policy_id: read_action_outcome_hash(bytes, &mut offset)?,
+                    maximum_budget: EchoOperationBudgetV1 {
+                        steps: read_action_outcome_u64(bytes, &mut offset)?,
+                        read_bytes: read_action_outcome_u64(bytes, &mut offset)?,
+                        write_bytes: read_action_outcome_u64(bytes, &mut offset)?,
+                    },
+                    admission_id: EchoOperationInvocationAdmissionIdV1(read_action_outcome_hash(
+                        bytes,
+                        &mut offset,
+                    )?),
+                }),
                 invocation_id: EchoOperationInvocationIdV1(read_action_outcome_hash(
                     bytes,
                     &mut offset,
@@ -3370,7 +3451,11 @@ pub(crate) fn prepare_operation_v1(
             kind,
             package_id,
             installed_operation_id: admitted.installed_operation_id,
-            invocation_admission_id: admitted.admission_id,
+            invocation_admission: Box::new(EchoOperationObstructionAdmissionEvidenceV1 {
+                policy_id: admitted.admission_policy_id,
+                maximum_budget: admitted.admission_policy.maximum_delegated_budget,
+                admission_id: admitted.admission_id,
+            }),
             invocation_id,
             evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
         })
@@ -4497,7 +4582,11 @@ fn scheduler_composition_budget_obstruction_v1(
         kind: EchoOperationObstructionKindV1::BudgetExceeded,
         package_id: prepared.package_id(),
         installed_operation_id: prepared.installed_operation_id(),
-        invocation_admission_id: prepared.invocation_admission_id(),
+        invocation_admission: Box::new(EchoOperationObstructionAdmissionEvidenceV1 {
+            policy_id: prepared.invocation_admission_policy_id(),
+            maximum_budget: prepared.invocation_admission_maximum_budget(),
+            admission_id: prepared.invocation_admission_id(),
+        }),
         invocation_id: prepared.invocation_id(),
         evaluation_basis_id: prepared.evaluation_basis().identity(),
     }

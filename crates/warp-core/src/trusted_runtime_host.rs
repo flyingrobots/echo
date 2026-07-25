@@ -45,14 +45,16 @@ use crate::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
         action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
-        admit_package_v1, commit_prepared_to_state, decode_invocation_route_v1,
-        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
-        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
-        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
-        operation_descent_stack, prepare_operation_v1, reconstruct_action_preparation_v1,
+        admit_package_v1, commit_prepared_to_state, commit_scheduler_action_batch_to_state_v1,
+        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
+        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
+        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
+        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
+        reconstruct_action_evaluation_v1, reconstruct_action_preparation_v1,
         recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
         retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
         validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
+        SchedulerEchoOperationCandidateV1,
     },
     provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
@@ -497,6 +499,22 @@ impl TrustedRuntimeWalRecovery {
     ) {
         self.echo_operation_action_installations_before_tick
             .remove(&submission_id);
+    }
+
+    /// Replaces one retained obstruction kind for adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_obstruction_kind_for_test(
+        &mut self,
+        submission_id: Hash,
+        kind: crate::EchoOperationObstructionKindV1,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(candidate, _, _)| *candidate == submission_id)
+        {
+            outcome.replace_obstruction_kind_for_test(kind);
+        }
     }
 
     /// Replaces one rejected preparation identity for adversarial tests.
@@ -3945,6 +3963,8 @@ fn validate_recovered_echo_operation_parent_states(
         .map(|(submission_id, _, outcome)| (*submission_id, outcome))
         .collect::<BTreeMap<_, _>>();
     let mut reconstructed_preparations = BTreeMap::new();
+    let mut reconstructed_evaluations = BTreeMap::new();
+    let mut action_scopes = BTreeMap::new();
     let mut action_tick_members = BTreeMap::<
         (
             crate::WriterHeadKey,
@@ -3974,6 +3994,7 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "Action outcome invocation cannot be inspected",
             }
         })?;
+        action_scopes.insert(*submission_id, invocation.scope);
         let installed = installations.get(&invocation.package_id).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action outcome has no recovered installation",
@@ -4061,6 +4082,10 @@ fn validate_recovered_echo_operation_parent_states(
                             "committed Action evidence disagrees with reconstructed preparation",
                     });
                 }
+                reconstructed_evaluations.insert(
+                    *submission_id,
+                    EchoOperationPreparationV1::Prepared(prepared.clone()),
+                );
                 Some(prepared)
             }
             EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
@@ -4090,9 +4115,66 @@ fn validate_recovered_echo_operation_parent_states(
                         detail: "conflict evidence disagrees with reconstructed preparation",
                     });
                 }
+                reconstructed_evaluations.insert(
+                    *submission_id,
+                    EchoOperationPreparationV1::Prepared(prepared.clone()),
+                );
                 Some(prepared)
             }
-            EchoOperationActionOutcomeV1::Obstructed(_) => None,
+            EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                if basis_changed {
+                    if !action_admission_evidence_matches_v1(
+                        installed,
+                        invocation_bytes,
+                        obstruction.invocation_admission_maximum_budget(),
+                        obstruction.invocation_admission_policy_id(),
+                        obstruction.invocation_admission_id(),
+                    ) {
+                        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "basis obstruction has invalid invocation-admission evidence",
+                        });
+                    }
+                    reconstructed_evaluations.insert(
+                        *submission_id,
+                        EchoOperationPreparationV1::Obstructed(obstruction.clone()),
+                    );
+                    None
+                } else {
+                    let evaluation = reconstruct_action_evaluation_v1(
+                        installed,
+                        invocation_bytes,
+                        obstruction.invocation_admission_maximum_budget(),
+                        obstruction.invocation_admission_policy_id(),
+                        obstruction.invocation_admission_id(),
+                        &basis_state,
+                        policy_id,
+                    )
+                    .ok_or(
+                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "obstructed Action evaluation cannot be reconstructed",
+                        },
+                    )?;
+                    match &evaluation {
+                        EchoOperationPreparationV1::Obstructed(reconstructed)
+                            if reconstructed == obstruction => {}
+                        EchoOperationPreparationV1::Prepared(_)
+                            if obstruction.kind()
+                                == crate::EchoOperationObstructionKindV1::BudgetExceeded => {}
+                        _ => {
+                            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail:
+                                    "obstruction evidence disagrees with reconstructed evaluation",
+                            })
+                        }
+                    }
+                    let prepared = match &evaluation {
+                        EchoOperationPreparationV1::Prepared(prepared) => Some(prepared.clone()),
+                        EchoOperationPreparationV1::Obstructed(_) => None,
+                    };
+                    reconstructed_evaluations.insert(*submission_id, evaluation);
+                    prepared
+                }
+            }
         };
         if let Some(prepared) = reconstructed {
             reconstructed_preparations.insert(*submission_id, prepared);
@@ -4107,7 +4189,9 @@ fn validate_recovered_echo_operation_parent_states(
             .or_default()
             .push((*ingress_id, *submission_id));
     }
-    for ((head_key, worldline_tick_after, _, _), mut members) in action_tick_members {
+    for ((head_key, worldline_tick_after, commit_global_tick, _), mut members) in
+        action_tick_members
+    {
         members.sort_by_key(|(ingress_id, _)| *ingress_id);
         let tick_before = worldline_tick_after
             .as_u64()
@@ -4128,6 +4212,75 @@ fn validate_recovered_echo_operation_parent_states(
             .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action Tick has no retained replay patch",
             })?;
+        let frontier = runtime.worldlines().get(&head_key.worldline_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick names an unavailable recovery worldline",
+            },
+        )?;
+        let mut reconstructed_state = recovered_provenance
+            .replay_worldline_state_at(head_key.worldline_id, frontier.state(), tick_before)
+            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action Tick parent state cannot be reconstructed",
+            })?;
+        let candidates = members
+            .iter()
+            .map(
+                |(ingress_id, submission_id)| -> Result<_, TrustedRuntimeWalError> {
+                    let outcome = outcomes.get(submission_id).ok_or(
+                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "Action Tick member has no recovered outcome",
+                        },
+                    )?;
+                    let rule_id = match outcome {
+                        EchoOperationActionOutcomeV1::Committed(receipt) => {
+                            receipt.installed_operation_id().as_hash()
+                        }
+                        EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                            obstruction.installed_operation_id().as_hash()
+                        }
+                        EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                            conflict.installed_operation_id.as_hash()
+                        }
+                    };
+                    Ok(SchedulerEchoOperationCandidateV1 {
+                        submission_id: *submission_id,
+                        ingress_id: *ingress_id,
+                        scope: *action_scopes.get(submission_id).ok_or(
+                            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail: "Action Tick member has no reconstructed scope",
+                            },
+                        )?,
+                        rule_id,
+                        preparation: reconstructed_evaluations
+                            .get(submission_id)
+                            .cloned()
+                            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail: "Action Tick member has no reconstructed evaluation",
+                            })?,
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+        let reconstructed_batch = commit_scheduler_action_batch_to_state_v1(
+            candidates,
+            &mut reconstructed_state,
+            commit_global_tick,
+            policy_id,
+        )
+        .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: "Action Tick composition cannot be reconstructed",
+        })?;
+        let reconstructed_outcomes = reconstructed_batch
+            .outcomes
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+        if members.iter().any(|(_, submission_id)| {
+            reconstructed_outcomes.get(submission_id) != outcomes.get(submission_id).copied()
+        }) {
+            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: "Action outcome disagrees with reconstructed Tick composition",
+            });
+        }
         let ordered_rule_ids = members
             .iter()
             .map(|(_, submission_id)| match outcomes.get(submission_id) {
@@ -4690,6 +4843,13 @@ fn validate_recovered_echo_operation_action_outcomes(
             EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
                 if obstruction.installed_operation_id() != installed.installed_operation_id()
                     || obstruction.package_id() != invocation.package_id
+                    || !action_admission_evidence_matches_v1(
+                        installed,
+                        invocation_bytes,
+                        obstruction.invocation_admission_maximum_budget(),
+                        obstruction.invocation_admission_policy_id(),
+                        obstruction.invocation_admission_id(),
+                    )
                     || obstruction.invocation_id() != invocation.invocation_id
                     || obstruction.evaluation_basis_id() != invocation.evaluation_basis.identity()
                 {
@@ -6951,11 +7111,17 @@ mod tests {
             receipt_ref: receipt.receipt_ref,
             causal_parent_receipts: Vec::new(),
         };
-        let mut action_outcome = b"EOACT002".to_vec();
+        let mut action_outcome = b"EOACT003".to_vec();
         action_outcome.extend_from_slice(&receipt.receipt_ref.submission_id);
         action_outcome.extend_from_slice(&[45; 32]);
         action_outcome.extend_from_slice(&[2, 1]);
-        for byte in 46..=50 {
+        for byte in 46..=48 {
+            action_outcome.extend_from_slice(&[byte; 32]);
+        }
+        action_outcome.extend_from_slice(&1_u64.to_le_bytes());
+        action_outcome.extend_from_slice(&2_u64.to_le_bytes());
+        action_outcome.extend_from_slice(&3_u64.to_le_bytes());
+        for byte in 49..=51 {
             action_outcome.extend_from_slice(&[byte; 32]);
         }
 

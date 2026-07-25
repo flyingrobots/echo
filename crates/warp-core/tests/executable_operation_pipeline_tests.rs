@@ -3318,20 +3318,25 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
             .ops()
             .is_empty());
 
-        let mut adversarial = host
-            .runtime_wal()
-            .expect("the obstruction fixture retains its WAL")
-            .recover_read_only()
-            .expect("the honest obstruction WAL recovers");
-        adversarial.replace_echo_operation_action_obstruction_kind_for_test(
-            submission_id,
-            EchoOperationObstructionKindV1::BudgetExceeded,
-        );
-        assert!(matches!(
-            adversarial
-                .validate_echo_operation_parent_states_for_test(host.runtime(), host.provenance()),
-            Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
-        ));
+        #[cfg(feature = "host_test")]
+        {
+            let mut adversarial = host
+                .runtime_wal()
+                .expect("the obstruction fixture retains its WAL")
+                .recover_read_only()
+                .expect("the honest obstruction WAL recovers");
+            adversarial.replace_echo_operation_action_obstruction_kind_for_test(
+                submission_id,
+                EchoOperationObstructionKindV1::BudgetExceeded,
+            );
+            assert!(matches!(
+                adversarial.validate_echo_operation_parent_states_for_test(
+                    host.runtime(),
+                    host.provenance()
+                ),
+                Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
+            ));
+        }
     }
 
     let (mut recovered, head_key, node) = fixture_host();

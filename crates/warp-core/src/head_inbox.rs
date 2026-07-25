@@ -1031,6 +1031,81 @@ mod tests {
 
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     #[test]
+    fn partitioned_admission_applies_both_limit_directions_and_preserves_other_partition() {
+        for (policy_limit, partition_limit, expected_partition_count) in
+            [(2_u32, 5_usize, 2_usize), (5_u32, 3_usize, 3_usize)]
+        {
+            let mut inbox = HeadInbox::new(
+                WriterHeadKey {
+                    worldline_id: wl(
+                        u8::try_from(policy_limit).expect("the fixture policy limit fits in u8")
+                    ),
+                    head_id: crate::head::make_head_id("default"),
+                },
+                InboxPolicy::Budgeted {
+                    max_per_tick: policy_limit,
+                },
+            );
+            let partition_kind = test_kind();
+            for index in 0..6_u8 {
+                assert_eq!(
+                    inbox.ingest(make_envelope(
+                        partition_kind,
+                        format!("partition-{policy_limit}-{index}").as_bytes(),
+                    )),
+                    InboxIngestResult::Accepted
+                );
+            }
+            let other = (0..2_u8)
+                .map(|index| {
+                    make_envelope(
+                        other_kind(),
+                        format!("other-{policy_limit}-{index}").as_bytes(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut other_ids = other
+                .iter()
+                .map(IngressEnvelope::ingress_id)
+                .collect::<Vec<_>>();
+            other_ids.sort_unstable();
+            for envelope in other {
+                assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
+            }
+
+            let partition_batch = inbox.admit_partitioned(
+                partition_kind,
+                partition_limit,
+                crate::WorldlineTick::ZERO,
+            );
+            assert_eq!(partition_batch.len(), expected_partition_count);
+            assert!(partition_batch.iter().all(|envelope| {
+                matches!(
+                    envelope.payload(),
+                    IngressPayload::LocalIntent { intent_kind, .. }
+                        if *intent_kind == partition_kind
+                )
+            }));
+
+            let other_batch = inbox.admit_partitioned(
+                partition_kind,
+                partition_limit,
+                crate::WorldlineTick::from_raw(1),
+            );
+            assert_eq!(
+                other_batch
+                    .iter()
+                    .map(IngressEnvelope::ingress_id)
+                    .collect::<Vec<_>>(),
+                other_ids,
+                "the non-selected partition must remain byte-for-byte pending"
+            );
+            assert_eq!(inbox.pending_count(), 6 - expected_partition_count);
+        }
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
     fn partitioned_admission_cannot_starve_other_category_by_ingress_hash() {
         let mut inbox = HeadInbox::new(
             WriterHeadKey {

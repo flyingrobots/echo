@@ -30,7 +30,8 @@
   and composition-budget obstructions contribute no operations. Every
   noncommitted typed outcome carries its deciding writer head, worldline and
   global Tick coordinates, commit and Tick-receipt identities, and canonical
-  member index.
+  member index. Tick construction pins that index to the corresponding receipt
+  entry with an executable alignment invariant.
   One scheduler WAL transaction retains exactly one batched Tick decision
   record, then each Action's receipt correlation and typed outcome in canonical
   order, followed by exactly one replayable state delta. Recovery rejects every

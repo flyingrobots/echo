@@ -4962,6 +4962,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         tx,
     };
 
+    debug_assert_action_member_alignment_v1(decisions.len(), tick_receipt.entries().len());
     let outcomes = decisions
         .into_iter()
         .enumerate()
@@ -5024,6 +5025,13 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         patch,
         outcomes,
     })
+}
+
+fn debug_assert_action_member_alignment_v1(decision_count: usize, receipt_entry_count: usize) {
+    debug_assert_eq!(
+        decision_count, receipt_entry_count,
+        "Action member index is the Tick receipt entry index"
+    );
 }
 
 pub(crate) fn action_batch_patch_from_preparations_v1(
@@ -6111,6 +6119,13 @@ mod tests {
             warp_id: crate::WarpId(warp_id),
             local_id: crate::NodeId(node_id),
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "Action member index is the Tick receipt entry index")]
+    fn action_member_alignment_rejects_divergent_decision_and_receipt_counts() {
+        debug_assert_action_member_alignment_v1(2, 1);
     }
 
     #[test]

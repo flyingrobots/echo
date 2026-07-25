@@ -2356,6 +2356,26 @@ impl TrustedRuntimeWal {
         self.store.cloned_in_memory_store()
     }
 
+    /// Re-runs state-delta recovery after repeating the last scheduler
+    /// transaction, for adversarial transaction-atomicity tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn recover_with_repeated_scheduler_tick_for_test(
+        &self,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        let mut report = self.store.recover_read_only()?;
+        let repeated = report
+            .transactions
+            .iter()
+            .rev()
+            .find(|transaction| {
+                transaction.commit.transaction_kind == WalTransactionKind::SchedulerTick
+            })
+            .cloned()
+            .ok_or_else(missing_trusted_runtime_record)?;
+        report.transactions.push(repeated);
+        recover_runtime_state_delta_material(&report).map(|_| ())
+    }
+
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
@@ -4543,10 +4563,7 @@ fn recover_runtime_state_delta_material(
             let (_, state_delta, _) = operation_tick_records_from_transaction(transaction)?;
             let entry = state_delta.provenance_entry().clone();
             let coordinate = (entry.worldline_id, entry.worldline_tick);
-            if entries_by_coordinate
-                .get(&coordinate)
-                .is_some_and(|existing| existing != &entry)
-            {
+            if entries_by_coordinate.contains_key(&coordinate) {
                 return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
                     worldline_id: entry.worldline_id,
                     worldline_tick: entry.worldline_tick,
@@ -4583,6 +4600,13 @@ fn recover_runtime_state_delta_material(
         let head_key = entry
             .head_key
             .ok_or(RetainedProvenanceError::MissingHeadKey)?;
+        let coordinate = (entry.worldline_id, entry.worldline_tick);
+        if entries_by_coordinate.contains_key(&coordinate) {
+            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
+                worldline_id: entry.worldline_id,
+                worldline_tick: entry.worldline_tick,
+            });
+        }
         for (receipt, wal_correlation, action_outcome) in records {
             let expected_receipt_ref = crate::CausalTickReceiptRef {
                 worldline_id: entry.worldline_id,
@@ -4647,16 +4671,6 @@ fn recover_runtime_state_delta_material(
                 action_outcomes_by_submission.insert(submission_id, (ingress_id, outcome));
                 action_installations_before_tick.insert(submission_id, installed_packages.clone());
             }
-        }
-        let coordinate = (entry.worldline_id, entry.worldline_tick);
-        if entries_by_coordinate
-            .get(&coordinate)
-            .is_some_and(|existing| existing != &entry)
-        {
-            return Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict {
-                worldline_id: entry.worldline_id,
-                worldline_tick: entry.worldline_tick,
-            });
         }
         entries_by_coordinate.insert(coordinate, entry);
     }

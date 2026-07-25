@@ -2902,6 +2902,10 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
 
         #[cfg(feature = "host_test")]
         {
+            assert!(matches!(
+                runtime_wal.recover_with_repeated_scheduler_tick_for_test(),
+                Err(TrustedRuntimeWalError::RuntimeStateDeltaConflict { .. })
+            ));
             let mut adversarial = runtime_wal
                 .recover_read_only()
                 .expect("the honest composite Tick recovers");

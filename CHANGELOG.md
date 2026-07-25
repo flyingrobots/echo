@@ -21,8 +21,11 @@
   and composition-budget obstructions contribute no operations.
   One scheduler WAL transaction retains exactly one batched Tick decision
   record, then each Action's receipt correlation and typed outcome in canonical
-  order, followed by exactly one replayable state delta. The decided Tick is
-  durable before state, frontier, receipt, or outcome publication. Recovery
+  order, followed by exactly one replayable state delta. Recovery rejects every
+  second transaction claiming the same state-transition coordinate, including
+  a byte-identical delta, so a Tick cannot be reconstructed from split WAL
+  fragments. The decided Tick is durable before state, frontier, receipt, or
+  outcome publication. Recovery
   and same-host retry both preserve an accepted Action when Tick-WAL
   persistence fails; runtime rollback also rolls back the corresponding
   admission cache so the Action re-enters scheduler admission. Fresh-host

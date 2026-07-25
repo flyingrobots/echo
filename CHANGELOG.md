@@ -17,8 +17,9 @@
   A WAL-enabled app surface rejects executable Actions submitted outside the
   durable acknowledgement boundary before witnessed intake can mutate.
   Mixed executable and provider/native backlogs alternate by durable parent
-  worldline-Tick parity, preventing caller-controlled ingress hashes from
-  starving either execution category.
+  global-Tick parity. The scheduler-round coordinate advances once per pass, so
+  every head switches categories even when several heads share one worldline,
+  preventing caller-controlled ingress hashes from starving either category.
   Positional receipt attribution is exclusive to executable Actions; ordinary
   correlations without an exact scope match fail closed.
   Scheduler selection admits at most 64 executable Actions per Tick, leaving

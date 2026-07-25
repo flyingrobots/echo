@@ -794,18 +794,19 @@ impl HeadInbox {
     /// Admits one deterministic execution category without mixing it with
     /// other pending categories.
     ///
-    /// When both categories are pending, `parent_worldline_tick` parity chooses
+    /// When both categories are pending, `parent_global_tick` parity chooses
     /// whether this batch contains the supplied `partition_kind` or everything
-    /// else. Using the durable parent coordinate means neither category can
-    /// starve and recovery does not depend on process-local state. When only one
-    /// category is pending, it proceeds immediately. Existing per-Tick limits
-    /// still bound the selected category.
+    /// else. The durable scheduler-round coordinate advances once per scheduler
+    /// pass, so every participating head alternates categories even when several
+    /// heads advance one shared worldline. Recovery does not depend on
+    /// process-local state. When only one category is pending, it proceeds
+    /// immediately. Existing per-Tick limits still bound the selected category.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn admit_partitioned(
         &mut self,
         partition_kind: IntentKind,
         partition_limit: usize,
-        parent_worldline_tick: crate::WorldlineTick,
+        parent_global_tick: crate::GlobalTick,
     ) -> Vec<IngressEnvelope> {
         if self.pending.is_empty() {
             return Vec::new();
@@ -825,7 +826,7 @@ impl HeadInbox {
             }
         }
         let selected_partition = match (has_partition, has_other) {
-            (true, true) => parent_worldline_tick.as_u64().is_multiple_of(2),
+            (true, true) => parent_global_tick.as_u64().is_multiple_of(2),
             (true, false) => true,
             (false, true) => false,
             (false, false) => return Vec::new(),
@@ -1002,7 +1003,7 @@ mod tests {
             assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
         }
 
-        let first_tick = crate::WorldlineTick::from_raw(u64::from(!first_is_partition));
+        let first_tick = crate::GlobalTick::from_raw(u64::from(!first_is_partition));
         let first_batch = inbox.admit_partitioned(partition_kind, 2, first_tick);
         assert_eq!(first_batch.len(), 2);
         assert!(first_batch.iter().all(|envelope| {
@@ -1027,6 +1028,55 @@ mod tests {
             )
         }));
         assert!(inbox.is_empty());
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn scheduler_round_alternates_each_head_despite_even_worldline_progress() {
+        let partition_kind = test_kind();
+        for head_label in ["first", "second"] {
+            let mut inbox = HeadInbox::new(
+                WriterHeadKey {
+                    worldline_id: wl(1),
+                    head_id: crate::head::make_head_id(head_label),
+                },
+                InboxPolicy::Budgeted { max_per_tick: 1 },
+            );
+            for index in 0..2_u8 {
+                assert_eq!(
+                    inbox.ingest(make_envelope(
+                        partition_kind,
+                        format!("{head_label}-partition-{index}").as_bytes(),
+                    )),
+                    InboxIngestResult::Accepted
+                );
+                assert_eq!(
+                    inbox.ingest(make_envelope(
+                        other_kind(),
+                        format!("{head_label}-other-{index}").as_bytes(),
+                    )),
+                    InboxIngestResult::Accepted
+                );
+            }
+
+            let first_batch = inbox.admit_partitioned(partition_kind, 1, crate::GlobalTick::ZERO);
+            let second_batch =
+                inbox.admit_partitioned(partition_kind, 1, crate::GlobalTick::from_raw(1));
+            let is_partition = |envelope: &IngressEnvelope| {
+                matches!(
+                    envelope.payload(),
+                    IngressPayload::LocalIntent { intent_kind, .. }
+                        if *intent_kind == partition_kind
+                )
+            };
+            assert_eq!(first_batch.len(), 1);
+            assert_eq!(second_batch.len(), 1);
+            assert_ne!(
+                is_partition(&first_batch[0]),
+                is_partition(&second_batch[0]),
+                "each head must switch categories on the next scheduler round"
+            );
+        }
     }
 
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -1073,11 +1123,8 @@ mod tests {
                 assert_eq!(inbox.ingest(envelope), InboxIngestResult::Accepted);
             }
 
-            let partition_batch = inbox.admit_partitioned(
-                partition_kind,
-                partition_limit,
-                crate::WorldlineTick::ZERO,
-            );
+            let partition_batch =
+                inbox.admit_partitioned(partition_kind, partition_limit, crate::GlobalTick::ZERO);
             assert_eq!(partition_batch.len(), expected_partition_count);
             assert!(partition_batch.iter().all(|envelope| {
                 matches!(
@@ -1090,7 +1137,7 @@ mod tests {
             let other_batch = inbox.admit_partitioned(
                 partition_kind,
                 partition_limit,
-                crate::WorldlineTick::from_raw(1),
+                crate::GlobalTick::from_raw(1),
             );
             assert_eq!(
                 other_batch
@@ -1137,7 +1184,7 @@ mod tests {
             let batch = inbox.admit_partitioned(
                 partition_kind,
                 1,
-                crate::WorldlineTick::from_raw(u64::from(round)),
+                crate::GlobalTick::from_raw(u64::from(round)),
             );
             assert_eq!(batch.len(), 1);
             legacy_admitted |= batch[0].ingress_id() == legacy_ingress_id;

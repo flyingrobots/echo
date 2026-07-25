@@ -5502,6 +5502,9 @@ impl TrustedRuntimeApp<'_> {
     ) -> Result<IntentSubmissionHandle, RuntimeError> {
         let is_echo_operation_action =
             echo_operation_action_invocation_bytes_v1(&envelope).is_some();
+        if is_echo_operation_action && self.host.runtime_wal.is_some() {
+            return Err(RuntimeError::EchoOperationActionRequiresRuntimeWalAck);
+        }
         let handle = self.host.runtime.submit_app_intent(envelope)?;
         if self.host.runtime_wal.is_none() {
             self.host.track_pending_echo_operation_action_v1(

@@ -138,6 +138,13 @@ pub enum RuntimeError {
     /// Ordinary submission attempted to claim the contract-inverse target role.
     #[error("contract inverse target parent requires contract inverse admission")]
     ContractInverseTargetRequiresContractAdmission,
+    /// A WAL-enabled host received an executable-operation Action through the
+    /// non-durable app submission method.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[error(
+        "executable-operation Actions on a WAL-enabled host require submit_intent_with_runtime_wal_ack"
+    )]
+    EchoOperationActionRequiresRuntimeWalAck,
     /// A commit against a worldline frontier failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
@@ -3281,7 +3288,8 @@ fn scheduler_fault_scope_for_error(
             SchedulerFaultScope::Runtime
         }
         #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-        RuntimeError::EchoOperationActionAdmissionMissing(_) => SchedulerFaultScope::Runtime,
+        RuntimeError::EchoOperationActionAdmissionMissing(_)
+        | RuntimeError::EchoOperationActionRequiresRuntimeWalAck => SchedulerFaultScope::Runtime,
     }
 }
 
@@ -3931,6 +3939,10 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::EchoOperationActionAdmissionMissing(ingress_id) => {
             hasher.update(b"echo-operation-action-admission-missing");
             hasher.update(ingress_id);
+        }
+        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        RuntimeError::EchoOperationActionRequiresRuntimeWalAck => {
+            hasher.update(b"echo-operation-action-requires-runtime-wal-ack");
         }
         RuntimeError::FrontierTickOverflow(worldline_id) => {
             hasher.update(b"frontier-tick-overflow");

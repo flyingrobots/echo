@@ -18,6 +18,8 @@ use warp_core::causal_wal::{
 };
 #[cfg(feature = "host_test")]
 use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget, WalTickDecision};
+#[cfg(feature = "host_test")]
+use warp_core::EchoOperationCommitErrorV1;
 use warp_core::{
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionErrorKindV1,
@@ -27,13 +29,11 @@ use warp_core::{
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
     EngineBuilder, ExecutableOperationPackageV1, GraphStore, InboxPolicy, IngressTarget,
-    InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeWalActivationGap,
-    SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWalConfig,
-    TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey,
+    InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
+    RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
+    WriterHead, WriterHeadKey,
 };
-#[cfg(feature = "host_test")]
-use warp_core::{EchoOperationCommitErrorV1, RuntimeError};
 
 const OPERATION_COORDINATE: &str = "echo.fixture.SetAnchoredAtom.v1";
 const CREATE_OPERATION_COORDINATE: &str = "echo.fixture.CreateAnchoredAtomIfAbsent.v1";
@@ -3198,7 +3198,7 @@ fn accepted_executable_action_recovers_pending_before_scheduler_evaluation() {
 }
 
 #[test]
-fn wal_enabled_host_does_not_auto_admit_non_durable_action_submission() {
+fn wal_enabled_host_rejects_action_submission_without_durable_ack() {
     let (mut host, head_key, node) = fixture_host();
     host.enable_in_memory_runtime_wal()
         .expect("the non-durable submission fixture WAL opens");
@@ -3217,26 +3217,16 @@ fn wal_enabled_host_does_not_auto_admit_non_durable_action_submission() {
         invocation,
     )
     .expect("the invocation becomes an Action");
-    let submission_id = host
+    let error = host
         .app()
         .submit_intent(envelope)
-        .expect("ordinary intake records process-local witnessed history")
-        .submission_id;
-
-    let steps = host
-        .tick_once()
-        .expect("non-durable intake cannot enter the scheduler");
-    assert!(steps.is_empty());
-    assert!(host
-        .echo_operation_action_outcome_v1(&submission_id)
-        .is_none());
+        .expect_err("a WAL-enabled Action must use the durable ACK boundary");
     assert!(matches!(
-        host.runtime().observe_intent_outcome(&submission_id),
-        warp_core::IntentOutcomeObservation::Pending {
-            ticketed_ingress_id: None,
-            ..
-        }
+        error,
+        RuntimeError::EchoOperationActionRequiresRuntimeWalAck
     ));
+
+    assert_eq!(host.runtime().pending_witnessed_submission_count(), 0);
     let recovery = host
         .runtime_wal()
         .expect("the runtime WAL remains enabled")

@@ -7247,19 +7247,7 @@ mod tests {
             receipt_ref: receipt.receipt_ref,
             causal_parent_receipts: Vec::new(),
         };
-        let mut action_outcome = b"EOACT003".to_vec();
-        action_outcome.extend_from_slice(&receipt.receipt_ref.submission_id);
-        action_outcome.extend_from_slice(&[45; 32]);
-        action_outcome.extend_from_slice(&[2, 1]);
-        for byte in 46..=48 {
-            action_outcome.extend_from_slice(&[byte; 32]);
-        }
-        action_outcome.extend_from_slice(&1_u64.to_le_bytes());
-        action_outcome.extend_from_slice(&2_u64.to_le_bytes());
-        action_outcome.extend_from_slice(&3_u64.to_le_bytes());
-        for byte in 49..=51 {
-            action_outcome.extend_from_slice(&[byte; 32]);
-        }
+        let action_outcome = vec![0xa5];
 
         let mut builder = wal.builder(
             WalTransactionKind::SchedulerTick,

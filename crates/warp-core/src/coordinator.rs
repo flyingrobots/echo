@@ -4368,6 +4368,7 @@ impl SchedulerCoordinator {
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                         crate::echo_operation::commit_scheduler_action_batch_to_state_v1(
                             candidates,
+                            *key,
                             frontier.state_mut(),
                             next_global_tick,
                             engine.echo_operation_policy_id(),

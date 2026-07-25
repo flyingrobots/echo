@@ -32,7 +32,7 @@ use crate::{
     attachment::{AtomPayload, AttachmentKey, AttachmentValue},
     clock::{GlobalTick, WorldlineTick},
     footprint::{Footprint, WarpScopedPortKey},
-    head::WriterHeadKey,
+    head::{HeadId, WriterHeadKey},
     head_inbox::{make_intent_kind, IngressEnvelope, IngressPayload, IngressTarget, IntentKind},
     ident::{EdgeKey, Hash, NodeKey, TypeId},
     receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection},
@@ -2747,6 +2747,7 @@ pub(crate) fn runtime_basis_obstruction(
         }),
         invocation_id: admitted.invocation_id,
         evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
+        decision_coordinate: None,
     })
 }
 
@@ -2789,6 +2790,56 @@ struct EchoOperationObstructionAdmissionEvidenceV1 {
     admission_id: EchoOperationInvocationAdmissionIdV1,
 }
 
+/// Exact scheduler-owned Tick coordinate which decided one noncommitted Action
+/// outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EchoOperationActionDecisionCoordinateV1 {
+    writer_head: WriterHeadKey,
+    worldline_tick_after: WorldlineTick,
+    commit_global_tick: GlobalTick,
+    commit_id: Hash,
+    tick_receipt_digest: Hash,
+    member_index: u32,
+}
+
+impl EchoOperationActionDecisionCoordinateV1 {
+    /// Returns the writer head whose scheduler Tick decided the Action.
+    #[must_use]
+    pub const fn writer_head(self) -> WriterHeadKey {
+        self.writer_head
+    }
+
+    /// Returns the worldline coordinate after the deciding Tick.
+    #[must_use]
+    pub const fn worldline_tick_after(self) -> WorldlineTick {
+        self.worldline_tick_after
+    }
+
+    /// Returns the runtime-global coordinate of the deciding Tick.
+    #[must_use]
+    pub const fn commit_global_tick(self) -> GlobalTick {
+        self.commit_global_tick
+    }
+
+    /// Returns the deciding Tick's commit identity.
+    #[must_use]
+    pub const fn commit_id(self) -> Hash {
+        self.commit_id
+    }
+
+    /// Returns the deciding Tick receipt's digest.
+    #[must_use]
+    pub const fn tick_receipt_digest(self) -> Hash {
+        self.tick_receipt_digest
+    }
+
+    /// Returns this Action's canonical member index in the deciding Tick.
+    #[must_use]
+    pub const fn member_index(self) -> u32 {
+        self.member_index
+    }
+}
+
 /// One typed obstruction. Obstruction never carries a parent-visible patch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationObstructionV1 {
@@ -2798,6 +2849,7 @@ pub struct EchoOperationObstructionV1 {
     invocation_admission: Box<EchoOperationObstructionAdmissionEvidenceV1>,
     invocation_id: EchoOperationInvocationIdV1,
     evaluation_basis_id: EchoOperationEvaluationBasisIdV1,
+    decision_coordinate: Option<Box<EchoOperationActionDecisionCoordinateV1>>,
 }
 
 impl EchoOperationObstructionV1 {
@@ -2831,6 +2883,16 @@ impl EchoOperationObstructionV1 {
         self.evaluation_basis_id
     }
 
+    /// Returns the deciding Tick coordinate once this obstruction becomes a
+    /// terminal Action outcome.
+    #[must_use]
+    pub const fn decision_coordinate(&self) -> Option<EchoOperationActionDecisionCoordinateV1> {
+        match &self.decision_coordinate {
+            Some(coordinate) => Some(**coordinate),
+            None => None,
+        }
+    }
+
     /// Returns the exact runtime admission that authorized this evaluation attempt.
     #[must_use]
     pub const fn invocation_admission_id(&self) -> EchoOperationInvocationAdmissionIdV1 {
@@ -2843,6 +2905,15 @@ impl EchoOperationObstructionV1 {
 
     pub(crate) const fn invocation_admission_maximum_budget(&self) -> EchoOperationBudgetV1 {
         self.invocation_admission.maximum_budget
+    }
+
+    pub(crate) fn has_same_predecision_evidence(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.package_id == other.package_id
+            && self.installed_operation_id == other.installed_operation_id
+            && self.invocation_admission == other.invocation_admission
+            && self.invocation_id == other.invocation_id
+            && self.evaluation_basis_id == other.evaluation_basis_id
     }
 
     /// Returns the identity of this typed no-parent-patch obstruction.
@@ -2890,6 +2961,8 @@ pub struct EchoOperationFootprintConflictV1 {
     pub(crate) preparation_id: PreparedEchoOperationIdV1,
     /// Canonical indices of earlier applied Tick members that blocked it.
     pub(crate) blocked_by: Vec<u32>,
+    /// Exact scheduler Tick and member position which decided the conflict.
+    pub(crate) decision_coordinate: Option<Box<EchoOperationActionDecisionCoordinateV1>>,
 }
 
 impl EchoOperationFootprintConflictV1 {
@@ -2971,6 +3044,16 @@ impl EchoOperationFootprintConflictV1 {
     pub fn blocked_by(&self) -> &[u32] {
         &self.blocked_by
     }
+
+    /// Returns the deciding Tick coordinate once this conflict becomes a
+    /// terminal Action outcome.
+    #[must_use]
+    pub const fn decision_coordinate(&self) -> Option<EchoOperationActionDecisionCoordinateV1> {
+        match &self.decision_coordinate {
+            Some(coordinate) => Some(**coordinate),
+            None => None,
+        }
+    }
 }
 
 /// Typed terminal outcome for one executable-operation Action selected by a
@@ -3008,6 +3091,20 @@ impl EchoOperationActionOutcomeV1 {
     pub(crate) fn replace_conflict_blockers_for_test(&mut self, replacement: Vec<u32>) {
         if let Self::RejectedFootprintConflict(conflict) = self {
             conflict.blocked_by = replacement;
+        }
+    }
+
+    #[cfg(any(test, feature = "host_test"))]
+    pub(crate) fn replace_decision_member_index_for_test(&mut self, replacement: u32) {
+        let coordinate = match self {
+            Self::Committed(_) => None,
+            Self::Obstructed(obstruction) => obstruction.decision_coordinate.as_deref_mut(),
+            Self::RejectedFootprintConflict(conflict) => {
+                conflict.decision_coordinate.as_deref_mut()
+            }
+        };
+        if let Some(coordinate) = coordinate {
+            coordinate.member_index = replacement;
         }
     }
 }
@@ -3060,6 +3157,12 @@ pub(crate) fn retain_action_outcome_v1(
             out.extend_from_slice(&obstruction.invocation_admission.admission_id.as_hash());
             out.extend_from_slice(&obstruction.invocation_id.as_hash());
             out.extend_from_slice(&obstruction.evaluation_basis_id.as_hash());
+            retain_action_decision_coordinate_v1(
+                &mut out,
+                obstruction.decision_coordinate().ok_or_else(|| {
+                    invalid_structure("terminal Action obstruction has no deciding Tick")
+                })?,
+            );
         }
         EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
             out.push(3);
@@ -3092,6 +3195,12 @@ pub(crate) fn retain_action_outcome_v1(
             out.extend_from_slice(&conflict.prepared_result_id.as_hash());
             out.extend_from_slice(&conflict.actual_footprint_digest);
             out.extend_from_slice(&conflict.preparation_id.as_hash());
+            retain_action_decision_coordinate_v1(
+                &mut out,
+                conflict.decision_coordinate().ok_or_else(|| {
+                    invalid_structure("terminal Action conflict has no deciding Tick")
+                })?,
+            );
             let blocker_count = u64::try_from(conflict.blocked_by.len())
                 .map_err(|_| invalid_structure("Action blocker count is not representable"))?;
             out.extend_from_slice(&blocker_count.to_le_bytes());
@@ -3101,6 +3210,44 @@ pub(crate) fn retain_action_outcome_v1(
         }
     }
     Ok(out)
+}
+
+fn retain_action_decision_coordinate_v1(
+    out: &mut Vec<u8>,
+    coordinate: EchoOperationActionDecisionCoordinateV1,
+) {
+    out.extend_from_slice(coordinate.writer_head.worldline_id.as_bytes());
+    out.extend_from_slice(coordinate.writer_head.head_id.as_bytes());
+    out.extend_from_slice(&coordinate.worldline_tick_after.as_u64().to_le_bytes());
+    out.extend_from_slice(&coordinate.commit_global_tick.as_u64().to_le_bytes());
+    out.extend_from_slice(&coordinate.commit_id);
+    out.extend_from_slice(&coordinate.tick_receipt_digest);
+    out.extend_from_slice(&u64::from(coordinate.member_index).to_le_bytes());
+}
+
+fn recover_action_decision_coordinate_v1(
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<EchoOperationActionDecisionCoordinateV1, EchoOperationArtifactErrorV1> {
+    let worldline_id = crate::WorldlineId::from_bytes(read_action_outcome_hash(bytes, offset)?);
+    let head_id = HeadId::from_bytes(read_action_outcome_hash(bytes, offset)?);
+    let worldline_tick_after = WorldlineTick::from_raw(read_action_outcome_u64(bytes, offset)?);
+    let commit_global_tick = GlobalTick::from_raw(read_action_outcome_u64(bytes, offset)?);
+    let commit_id = read_action_outcome_hash(bytes, offset)?;
+    let tick_receipt_digest = read_action_outcome_hash(bytes, offset)?;
+    let member_index = u32::try_from(read_action_outcome_u64(bytes, offset)?)
+        .map_err(|_| invalid_structure("Action Tick member index is not representable"))?;
+    Ok(EchoOperationActionDecisionCoordinateV1 {
+        writer_head: WriterHeadKey {
+            worldline_id,
+            head_id,
+        },
+        worldline_tick_after,
+        commit_global_tick,
+        commit_id,
+        tick_receipt_digest,
+        member_index,
+    })
 }
 
 pub(crate) fn recover_action_outcome_v1(
@@ -3169,6 +3316,10 @@ pub(crate) fn recover_action_outcome_v1(
                     bytes,
                     &mut offset,
                 )?),
+                decision_coordinate: Some(Box::new(recover_action_decision_coordinate_v1(
+                    bytes,
+                    &mut offset,
+                )?)),
             })
         }
         3 => {
@@ -3196,6 +3347,7 @@ pub(crate) fn recover_action_outcome_v1(
             let actual_footprint_digest = read_action_outcome_hash(bytes, &mut offset)?;
             let preparation_id =
                 PreparedEchoOperationIdV1(read_action_outcome_hash(bytes, &mut offset)?);
+            let decision_coordinate = recover_action_decision_coordinate_v1(bytes, &mut offset)?;
             let blocker_count = read_action_outcome_u64(bytes, &mut offset)?;
             let maximum_encoded_blockers =
                 u64::try_from(bytes.len().saturating_sub(offset) / core::mem::size_of::<u32>())
@@ -3233,6 +3385,7 @@ pub(crate) fn recover_action_outcome_v1(
                     actual_footprint_digest,
                     preparation_id,
                     blocked_by,
+                    decision_coordinate: Some(Box::new(decision_coordinate)),
                 },
             ))
         }
@@ -3460,6 +3613,7 @@ pub(crate) fn prepare_operation_v1(
             }),
             invocation_id,
             evaluation_basis_id: admitted.invocation.evaluation_basis.identity(),
+            decision_coordinate: None,
         })
     };
     let Some(installed) = installed else {
@@ -4591,6 +4745,7 @@ fn scheduler_composition_budget_obstruction_v1(
         }),
         invocation_id: prepared.invocation_id(),
         evaluation_basis_id: prepared.evaluation_basis().identity(),
+        decision_coordinate: None,
     }
 }
 
@@ -4607,6 +4762,7 @@ struct EchoOperationTerminalMaterialV1 {
 
 pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     mut candidates: Vec<SchedulerEchoOperationCandidateV1>,
+    writer_head: WriterHeadKey,
     state: &mut WorldlineState,
     commit_global_tick: GlobalTick,
     policy_id: u32,
@@ -4755,6 +4911,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
                                 actual_footprint_digest: prepared.actual_footprint_digest(),
                                 preparation_id: prepared.preparation_id(),
                                 blocked_by: blockers,
+                                decision_coordinate: None,
                             },
                         )),
                     ));
@@ -4807,37 +4964,52 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
 
     let outcomes = decisions
         .into_iter()
-        .map(|(submission_id, decision)| {
-            let outcome = match decision {
-                SchedulerEchoOperationDecisionV1::Applied(prepared) => {
-                    let mut receipt = build_receipt(
-                        &prepared,
-                        EchoOperationTerminalMaterialV1 {
-                            posture: EchoOperationTerminalPostureV1::Committed,
-                            state_root_before,
-                            state_root_after,
-                            commit_id,
-                            tick_receipt_digest: tick_receipt.digest(),
-                            commit_global_tick: Some(commit_global_tick),
-                            worldline_tick_after: WorldlineTick::from_raw(tx_raw),
-                        },
-                    );
-                    receipt.committed_patch_digest = Some(patch.digest());
-                    receipt.composition_digest = Some(composition_digest);
-                    receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
-                    receipt.receipt_digest = receipt_digest(&receipt);
-                    EchoOperationActionOutcomeV1::Committed(Box::new(receipt))
-                }
-                SchedulerEchoOperationDecisionV1::Obstructed(obstruction) => {
-                    EchoOperationActionOutcomeV1::Obstructed(obstruction)
-                }
-                SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(conflict) => {
-                    EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)
-                }
-            };
-            (submission_id, outcome)
-        })
-        .collect();
+        .enumerate()
+        .map(
+            |(member_index, (submission_id, decision))| -> Result<_, EchoOperationCommitErrorV1> {
+                let member_index = u32::try_from(member_index)
+                    .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)?;
+                let decision_coordinate = EchoOperationActionDecisionCoordinateV1 {
+                    writer_head,
+                    worldline_tick_after: WorldlineTick::from_raw(tx_raw),
+                    commit_global_tick,
+                    commit_id,
+                    tick_receipt_digest: tick_receipt.digest(),
+                    member_index,
+                };
+                let outcome = match decision {
+                    SchedulerEchoOperationDecisionV1::Applied(prepared) => {
+                        let mut receipt = build_receipt(
+                            &prepared,
+                            EchoOperationTerminalMaterialV1 {
+                                posture: EchoOperationTerminalPostureV1::Committed,
+                                state_root_before,
+                                state_root_after,
+                                commit_id,
+                                tick_receipt_digest: tick_receipt.digest(),
+                                commit_global_tick: Some(commit_global_tick),
+                                worldline_tick_after: WorldlineTick::from_raw(tx_raw),
+                            },
+                        );
+                        receipt.committed_patch_digest = Some(patch.digest());
+                        receipt.composition_digest = Some(composition_digest);
+                        receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
+                        receipt.receipt_digest = receipt_digest(&receipt);
+                        EchoOperationActionOutcomeV1::Committed(Box::new(receipt))
+                    }
+                    SchedulerEchoOperationDecisionV1::Obstructed(mut obstruction) => {
+                        obstruction.decision_coordinate = Some(Box::new(decision_coordinate));
+                        EchoOperationActionOutcomeV1::Obstructed(obstruction)
+                    }
+                    SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(mut conflict) => {
+                        conflict.decision_coordinate = Some(Box::new(decision_coordinate));
+                        EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)
+                    }
+                };
+                Ok((submission_id, outcome))
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()?;
 
     state.warp_state = next_state;
     state.last_snapshot = Some(snapshot.clone());
@@ -6408,6 +6580,20 @@ mod tests {
         for identity_seed in 6..14 {
             bytes.extend_from_slice(&digest(identity_seed));
         }
+        retain_action_decision_coordinate_v1(
+            &mut bytes,
+            EchoOperationActionDecisionCoordinateV1 {
+                writer_head: WriterHeadKey {
+                    worldline_id: crate::WorldlineId::from_bytes(digest(14)),
+                    head_id: crate::make_head_id("blocker-count-guard"),
+                },
+                worldline_tick_after: WorldlineTick::from_raw(1),
+                commit_global_tick: GlobalTick::from_raw(1),
+                commit_id: digest(15),
+                tick_receipt_digest: digest(16),
+                member_index: 0,
+            },
+        );
         bytes.extend_from_slice(&u64::MAX.to_le_bytes());
 
         let error = recover_action_outcome_v1(&bytes)

@@ -589,6 +589,23 @@ impl TrustedRuntimeWalRecovery {
         }
     }
 
+    /// Replaces one noncommitted Action outcome's deciding member index for
+    /// adversarial recovery tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn replace_echo_operation_action_decision_member_index_for_test(
+        &mut self,
+        submission_id: Hash,
+        replacement: u32,
+    ) {
+        if let Some((_, _, outcome)) = self
+            .echo_operation_action_outcomes
+            .iter_mut()
+            .find(|(retained_submission_id, _, _)| *retained_submission_id == submission_id)
+        {
+            outcome.replace_decision_member_index_for_test(replacement);
+        }
+    }
+
     /// Re-runs activation-time Action parent-state checks for adversarial tests.
     #[cfg(any(test, feature = "host_test"))]
     pub fn validate_echo_operation_parent_states_for_test(
@@ -4282,7 +4299,7 @@ fn validate_recovered_echo_operation_parent_states(
                     )?;
                     match &evaluation {
                         EchoOperationPreparationV1::Obstructed(reconstructed)
-                            if reconstructed == obstruction => {}
+                            if reconstructed.has_same_predecision_evidence(obstruction) => {}
                         EchoOperationPreparationV1::Prepared(_)
                             if obstruction.kind()
                                 == crate::EchoOperationObstructionKindV1::BudgetExceeded => {}
@@ -4393,6 +4410,7 @@ fn validate_recovered_echo_operation_parent_states(
             .collect::<Result<Vec<_>, _>>()?;
         let reconstructed_batch = commit_scheduler_action_batch_to_state_v1(
             candidates,
+            head_key,
             &mut reconstructed_state,
             commit_global_tick,
             policy_id,
@@ -5105,21 +5123,39 @@ fn validate_recovered_echo_operation_action_outcomes(
                     }
                 }
                 EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                    let decision_coordinate_matches =
+                        obstruction.decision_coordinate().is_some_and(|coordinate| {
+                            action_decision_coordinate_matches_correlation_v1(
+                                coordinate,
+                                correlation,
+                                index,
+                            )
+                        });
                     if tick_entry.disposition
                         != TickReceiptDisposition::Rejected(
                             TickReceiptRejection::ExecutableOperationObstruction,
                         )
                         || !blockers.is_empty()
                         || tick_entry.rule_id != obstruction.installed_operation_id().as_hash()
+                        || !decision_coordinate_matches
                     {
                         return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                     }
                 }
                 EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                    let decision_coordinate_matches =
+                        conflict.decision_coordinate().is_some_and(|coordinate| {
+                            action_decision_coordinate_matches_correlation_v1(
+                                coordinate,
+                                correlation,
+                                index,
+                            )
+                        });
                     if tick_entry.disposition
                         != TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
                         || tick_entry.rule_id != conflict.installed_operation_id.as_hash()
                         || blockers != conflict.blocked_by
+                        || !decision_coordinate_matches
                     {
                         return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                     }
@@ -5128,6 +5164,21 @@ fn validate_recovered_echo_operation_action_outcomes(
         }
     }
     Ok(metrics)
+}
+
+fn action_decision_coordinate_matches_correlation_v1(
+    coordinate: crate::EchoOperationActionDecisionCoordinateV1,
+    correlation: &ReceiptCorrelationPersistenceRecord,
+    member_index: usize,
+) -> bool {
+    u32::try_from(member_index).is_ok_and(|member_index| {
+        coordinate.writer_head() == correlation.head_key
+            && coordinate.worldline_tick_after() == correlation.worldline_tick_after
+            && coordinate.commit_global_tick() == correlation.commit_global_tick
+            && coordinate.commit_id() == correlation.commit_hash
+            && coordinate.tick_receipt_digest() == correlation.tick_receipt_digest
+            && coordinate.member_index() == member_index
+    })
 }
 
 fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) -> WalTickDecision {

@@ -3386,7 +3386,8 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
             .submit_intent_with_runtime_wal_ack(envelope)
             .expect("the Action itself is durably accepted")
             .submission_id;
-        host.tick_once()
+        let steps = host
+            .tick_once()
             .expect("typed obstruction is a lawful scheduler decision");
         let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
             host.echo_operation_action_outcome_v1(&submission_id)
@@ -3397,6 +3398,16 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
             obstruction.kind(),
             EchoOperationObstructionKindV1::PreconditionMismatch
         );
+        let decision = obstruction
+            .decision_coordinate()
+            .expect("the terminal obstruction names its deciding Tick");
+        assert_eq!(decision.writer_head(), head_key);
+        assert_eq!(
+            decision.worldline_tick_after(),
+            steps[0].worldline_tick_after
+        );
+        assert_eq!(decision.commit_id(), steps[0].commit_hash);
+        assert_eq!(decision.member_index(), 0);
         let state = host
             .runtime()
             .worldlines()
@@ -3439,6 +3450,17 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
                 ),
                 Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch { .. })
             ));
+            let mut forged_decision = host
+                .runtime_wal()
+                .expect("the obstruction fixture retains its WAL")
+                .recover_read_only()
+                .expect("the honest obstruction WAL recovers again");
+            forged_decision
+                .replace_echo_operation_action_decision_member_index_for_test(submission_id, 1);
+            assert!(matches!(
+                forged_decision.validate_echo_operation_action_outcomes_for_test(),
+                Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch)
+            ));
         }
     }
 
@@ -3455,6 +3477,11 @@ fn typed_action_obstruction_is_durable_and_contributes_no_mutation() {
         obstruction.kind(),
         EchoOperationObstructionKindV1::PreconditionMismatch
     );
+    let recovered_decision = obstruction
+        .decision_coordinate()
+        .expect("recovered obstruction retains its deciding Tick");
+    assert_eq!(recovered_decision.writer_head(), head_key);
+    assert_eq!(recovered_decision.member_index(), 0);
     let state = recovered
         .runtime()
         .worldlines()
@@ -3806,6 +3833,22 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
                 )
             })
             .expect("exactly one Action is rejected by the earlier applied footprint");
+        let Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) =
+            host.echo_operation_action_outcome_v1(&conflict_submission_id)
+        else {
+            panic!("the rejected Action retains typed conflict evidence");
+        };
+        let decision = conflict
+            .decision_coordinate()
+            .expect("the terminal conflict names its deciding Tick");
+        assert_eq!(decision.writer_head(), head_key);
+        assert_eq!(
+            decision.worldline_tick_after(),
+            steps[0].worldline_tick_after
+        );
+        assert_eq!(decision.commit_id(), steps[0].commit_hash);
+        assert_eq!(decision.member_index(), 1);
+        assert_eq!(conflict.blocked_by(), &[0]);
 
         #[cfg(feature = "host_test")]
         {
@@ -3841,14 +3884,22 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
         }
     }
 
-    let (mut recovered, _, _) = fixture_host();
+    let (mut recovered, recovered_head, _) = fixture_host();
     recovered
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
         .expect("fresh-host recovery reconstructs the honest footprint conflict");
-    assert!(matches!(
-        recovered.echo_operation_action_outcome_v1(&conflict_submission_id),
-        Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(_))
-    ));
+    let Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) =
+        recovered.echo_operation_action_outcome_v1(&conflict_submission_id)
+    else {
+        panic!("fresh-host recovery restores the typed conflict");
+    };
+    assert_eq!(
+        conflict
+            .decision_coordinate()
+            .expect("recovered conflict retains its deciding Tick")
+            .writer_head(),
+        recovered_head
+    );
 }
 
 #[cfg(feature = "host_test")]

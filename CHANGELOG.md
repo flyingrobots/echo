@@ -27,7 +27,10 @@
   one exact parent coordinate and contribute to one composite Tick while
   retaining candidate-specific application-basis propositions and per-Action
   typed outcomes. Footprint conflicts name earlier applied members; evaluator
-  and composition-budget obstructions contribute no operations.
+  and composition-budget obstructions contribute no operations. Every
+  noncommitted typed outcome carries its deciding writer head, worldline and
+  global Tick coordinates, commit and Tick-receipt identities, and canonical
+  member index.
   One scheduler WAL transaction retains exactly one batched Tick decision
   record, then each Action's receipt correlation and typed outcome in canonical
   order, followed by exactly one replayable state delta. Recovery rejects every

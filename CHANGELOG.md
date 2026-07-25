@@ -45,6 +45,9 @@
   Typed obstruction records retain their invocation-admission policy and
   budget ceiling; recovery reproduces bounded evaluation and the complete
   scheduler composition before accepting an obstruction kind.
+  Recovery records one monotonic installation ordinal per package and one
+  installation-count boundary per Action, avoiding per-outcome package-set
+  snapshots while preserving exact installation-before-Tick validation.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

@@ -2909,6 +2909,11 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             let mut adversarial = runtime_wal
                 .recover_read_only()
                 .expect("the honest composite Tick recovers");
+            assert_eq!(
+                adversarial.echo_operation_action_installation_snapshot_count_for_test(),
+                0,
+                "recovery must not clone the installed-package set per Action"
+            );
             let mut missing_installation = adversarial.clone();
             missing_installation.installed_echo_operations.clear();
             assert!(matches!(

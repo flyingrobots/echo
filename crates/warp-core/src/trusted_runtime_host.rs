@@ -427,6 +427,12 @@ impl WitnessedCausalAnchorAdmission {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct RecoveredEchoOperationActionInstallationOrder {
+    package_ordinals: BTreeMap<crate::EchoOperationPackageIdV1, usize>,
+    installation_count_before_tick: BTreeMap<Hash, usize>,
+}
+
 /// Read-only runtime WAL recovery report.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustedRuntimeWalRecovery {
@@ -456,8 +462,9 @@ pub struct TrustedRuntimeWalRecovery {
     /// scheduler-owned Tick records, keyed by witnessed submission.
     pub echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
-    echo_operation_action_installations_before_tick:
-        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
+    echo_operation_action_installation_order: RecoveredEchoOperationActionInstallationOrder,
+    #[cfg(any(test, feature = "host_test"))]
+    echo_operation_action_installation_snapshot_count: usize,
     causal_history_frontiers: Vec<CausalFrontierRef>,
 }
 
@@ -475,7 +482,7 @@ impl TrustedRuntimeWalRecovery {
             &self.installed_echo_operations,
             &self.echo_operation_action_outcomes,
             &self.echo_operation_action_decisions,
-            &self.echo_operation_action_installations_before_tick,
+            &self.echo_operation_action_installation_order,
         )
     }
 
@@ -496,8 +503,17 @@ impl TrustedRuntimeWalRecovery {
         &mut self,
         submission_id: Hash,
     ) {
-        self.echo_operation_action_installations_before_tick
+        self.echo_operation_action_installation_order
+            .installation_count_before_tick
             .remove(&submission_id);
+    }
+
+    /// Returns the number of per-Action installation-set snapshots constructed
+    /// during recovery.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn echo_operation_action_installation_snapshot_count_for_test(&self) -> usize {
+        self.echo_operation_action_installation_snapshot_count
     }
 
     /// Replaces one retained obstruction kind for adversarial recovery tests.
@@ -2393,8 +2409,11 @@ impl TrustedRuntimeWal {
         let receipt_correlations = runtime_state.receipt_correlations;
         let echo_operation_action_outcomes = runtime_state.echo_operation_action_outcomes;
         let echo_operation_action_decisions = runtime_state.echo_operation_action_decisions;
-        let echo_operation_action_installations_before_tick =
-            runtime_state.echo_operation_action_installations_before_tick;
+        let echo_operation_action_installation_order =
+            runtime_state.echo_operation_action_installation_order;
+        #[cfg(any(test, feature = "host_test"))]
+        let echo_operation_action_installation_snapshot_count =
+            runtime_state.echo_operation_action_installation_snapshot_count;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
         let echo_operation_receipts = operation_material.receipts;
@@ -2406,7 +2425,7 @@ impl TrustedRuntimeWal {
             &installed_echo_operations,
             &echo_operation_action_outcomes,
             &echo_operation_action_decisions,
-            &echo_operation_action_installations_before_tick,
+            &echo_operation_action_installation_order,
         )?;
         let certificate = runtime_wal_recovery_certificate(
             &report,
@@ -2437,7 +2456,9 @@ impl TrustedRuntimeWal {
             echo_operation_receipts,
             echo_operation_action_outcomes,
             echo_operation_action_decisions,
-            echo_operation_action_installations_before_tick,
+            echo_operation_action_installation_order,
+            #[cfg(any(test, feature = "host_test"))]
+            echo_operation_action_installation_snapshot_count,
             causal_history_frontiers,
         })
     }
@@ -4546,8 +4567,9 @@ struct RecoveredRuntimeStateMaterial {
     receipt_correlations: Vec<ReceiptCorrelationPersistenceRecord>,
     echo_operation_action_outcomes: Vec<(Hash, Hash, EchoOperationActionOutcomeV1)>,
     echo_operation_action_decisions: BTreeMap<Hash, WalTickDecision>,
-    echo_operation_action_installations_before_tick:
-        BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
+    echo_operation_action_installation_order: RecoveredEchoOperationActionInstallationOrder,
+    #[cfg(any(test, feature = "host_test"))]
+    echo_operation_action_installation_snapshot_count: usize,
     missing_runtime_state_deltas: Vec<Hash>,
 }
 
@@ -4558,8 +4580,10 @@ fn recover_runtime_state_delta_material(
     let mut correlations_by_submission = BTreeMap::new();
     let mut action_outcomes_by_submission = BTreeMap::new();
     let mut action_decisions_by_submission = BTreeMap::new();
-    let mut action_installations_before_tick = BTreeMap::new();
-    let mut installed_packages = BTreeSet::new();
+    let mut action_installation_count_before_tick = BTreeMap::new();
+    #[cfg(any(test, feature = "host_test"))]
+    let action_installation_snapshot_count = 0_usize;
+    let mut installation_ordinals = BTreeMap::new();
     let mut submission_by_ticket = BTreeMap::new();
     let mut missing = Vec::new();
     for transaction in &report.transactions {
@@ -4567,7 +4591,10 @@ fn recover_runtime_state_delta_material(
             == WalTransactionKind::ExecutableOperationInstallation
         {
             let (installed, _) = operation_installation_from_transaction(transaction)?;
-            installed_packages.insert(installed.package_id());
+            let next_ordinal = installation_ordinals.len();
+            installation_ordinals
+                .entry(installed.package_id())
+                .or_insert(next_ordinal);
             continue;
         }
         if transaction.commit.transaction_kind == WalTransactionKind::ExecutableOperationTick {
@@ -4669,18 +4696,21 @@ fn recover_runtime_state_delta_material(
             }
             correlations_by_submission.insert(receipt.receipt_ref.submission_id, persistence);
             if let Some((submission_id, ingress_id, outcome)) = action_outcome {
+                let decision_conflicts = action_decisions_by_submission
+                    .get(&submission_id)
+                    .is_some_and(|existing| *existing != receipt.decision);
                 if submission_id != receipt.receipt_ref.submission_id
                     || action_outcomes_by_submission
                         .get(&submission_id)
                         .is_some_and(|existing| existing != &(ingress_id, outcome.clone()))
-                    || action_decisions_by_submission
-                        .insert(submission_id, receipt.decision)
-                        .is_some_and(|existing| existing != receipt.decision)
+                    || decision_conflicts
                 {
                     return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
                 }
+                action_decisions_by_submission.insert(submission_id, receipt.decision);
                 action_outcomes_by_submission.insert(submission_id, (ingress_id, outcome));
-                action_installations_before_tick.insert(submission_id, installed_packages.clone());
+                action_installation_count_before_tick
+                    .insert(submission_id, installation_ordinals.len());
             }
         }
         entries_by_coordinate.insert(coordinate, entry);
@@ -4713,7 +4743,12 @@ fn recover_runtime_state_delta_material(
         receipt_correlations: correlations,
         echo_operation_action_outcomes,
         echo_operation_action_decisions: action_decisions_by_submission,
-        echo_operation_action_installations_before_tick: action_installations_before_tick,
+        echo_operation_action_installation_order: RecoveredEchoOperationActionInstallationOrder {
+            package_ordinals: installation_ordinals,
+            installation_count_before_tick: action_installation_count_before_tick,
+        },
+        #[cfg(any(test, feature = "host_test"))]
+        echo_operation_action_installation_snapshot_count: action_installation_snapshot_count,
         missing_runtime_state_deltas: missing,
     })
 }
@@ -4750,7 +4785,7 @@ fn validate_recovered_echo_operation_action_outcomes(
     installed_echo_operations: &[InstalledEchoOperationV1],
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
     decisions: &BTreeMap<Hash, WalTickDecision>,
-    installations_before_tick: &BTreeMap<Hash, BTreeSet<crate::EchoOperationPackageIdV1>>,
+    installation_order: &RecoveredEchoOperationActionInstallationOrder,
 ) -> Result<(), TrustedRuntimeWalError> {
     let envelopes = witnessed_submissions
         .records()
@@ -4815,10 +4850,16 @@ fn validate_recovered_echo_operation_action_outcomes(
             .iter()
             .find(|installed| installed.package_id() == invocation.package_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
-        if installations_before_tick
+        let installed_before_tick = installation_order
+            .installation_count_before_tick
             .get(submission_id)
-            .is_none_or(|packages| !packages.contains(&invocation.package_id))
-        {
+            .zip(
+                installation_order
+                    .package_ordinals
+                    .get(&invocation.package_id),
+            )
+            .is_some_and(|(count, ordinal)| ordinal < count);
+        if !installed_before_tick {
             return Err(TrustedRuntimeWalError::SchedulerTickBatchMismatch);
         }
         if envelope.ingress_id() != *ingress_id {

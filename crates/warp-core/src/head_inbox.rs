@@ -680,6 +680,8 @@ pub struct HeadInbox {
     head_key: WriterHeadKey,
     pending: BTreeMap<Hash, IngressEnvelope>,
     policy: InboxPolicy,
+    #[cfg(test)]
+    partitioned_filtered_removals_for_test: usize,
 }
 
 impl Default for HeadInbox {
@@ -691,6 +693,8 @@ impl Default for HeadInbox {
             },
             pending: BTreeMap::new(),
             policy: InboxPolicy::AcceptAll,
+            #[cfg(test)]
+            partitioned_filtered_removals_for_test: 0,
         }
     }
 }
@@ -703,6 +707,8 @@ impl HeadInbox {
             head_key,
             pending: BTreeMap::new(),
             policy,
+            #[cfg(test)]
+            partitioned_filtered_removals_for_test: 0,
         }
     }
 
@@ -843,6 +849,9 @@ impl HeadInbox {
         if limit == 0 {
             return Vec::new();
         }
+        if !(has_partition && has_other) && limit >= self.pending.len() {
+            return std::mem::take(&mut self.pending).into_values().collect();
+        }
 
         let mut selected_ids = Vec::new();
         for (ingress_id, envelope) in &self.pending {
@@ -860,7 +869,13 @@ impl HeadInbox {
         }
         selected_ids
             .into_iter()
-            .filter_map(|ingress_id| self.pending.remove(&ingress_id))
+            .filter_map(|ingress_id| {
+                #[cfg(test)]
+                {
+                    self.partitioned_filtered_removals_for_test += 1;
+                }
+                self.pending.remove(&ingress_id)
+            })
             .collect()
     }
 
@@ -1028,6 +1043,34 @@ mod tests {
             )
         }));
         assert!(inbox.is_empty());
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn homogeneous_unbounded_partitioned_admission_moves_the_whole_inbox() {
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
+        let partition_kind = test_kind();
+        for payload in [b"partition-a", b"partition-b", b"partition-c"] {
+            assert_eq!(
+                inbox.ingest(make_envelope(partition_kind, payload)),
+                InboxIngestResult::Accepted
+            );
+        }
+
+        let admitted = inbox.admit_partitioned(partition_kind, usize::MAX, crate::GlobalTick::ZERO);
+
+        assert_eq!(admitted.len(), 3);
+        assert!(inbox.is_empty());
+        assert_eq!(
+            inbox.partitioned_filtered_removals_for_test, 0,
+            "homogeneous unbounded admission must move the map without per-key removals"
+        );
     }
 
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]

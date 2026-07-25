@@ -2916,6 +2916,13 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             );
             assert_eq!(
                 adversarial
+                    .echo_operation_action_linear_installation_comparisons_for_test()
+                    .expect("the honest composite Tick outcomes validate"),
+                0,
+                "recovery must resolve installed packages through one identity index"
+            );
+            assert_eq!(
+                adversarial
                     .echo_operation_parent_state_replay_count_for_test(
                         host.runtime(),
                         host.provenance()

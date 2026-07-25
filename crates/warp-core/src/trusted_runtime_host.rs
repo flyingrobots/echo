@@ -433,6 +433,12 @@ struct RecoveredEchoOperationActionInstallationOrder {
     installation_count_before_tick: BTreeMap<Hash, usize>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RecoveredEchoOperationActionOutcomeValidationMetrics {
+    #[cfg(any(test, feature = "host_test"))]
+    linear_installation_comparisons: usize,
+}
+
 /// Read-only runtime WAL recovery report.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustedRuntimeWalRecovery {
@@ -484,6 +490,25 @@ impl TrustedRuntimeWalRecovery {
             &self.echo_operation_action_decisions,
             &self.echo_operation_action_installation_order,
         )
+        .map(|_| ())
+    }
+
+    /// Returns the number of linear installed-package comparisons used while
+    /// validating recovered Action outcomes.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn echo_operation_action_linear_installation_comparisons_for_test(
+        &self,
+    ) -> Result<usize, TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_action_outcomes(
+            &self.witnessed_submissions,
+            &self.receipt_correlations,
+            &self.provenance_entries,
+            &self.installed_echo_operations,
+            &self.echo_operation_action_outcomes,
+            &self.echo_operation_action_decisions,
+            &self.echo_operation_action_installation_order,
+        )
+        .map(|metrics| metrics.linear_installation_comparisons)
     }
 
     /// Replaces one recovered scheduler decision for adversarial recovery tests.
@@ -4832,7 +4857,8 @@ fn validate_recovered_echo_operation_action_outcomes(
     outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
     decisions: &BTreeMap<Hash, WalTickDecision>,
     installation_order: &RecoveredEchoOperationActionInstallationOrder,
-) -> Result<(), TrustedRuntimeWalError> {
+) -> Result<RecoveredEchoOperationActionOutcomeValidationMetrics, TrustedRuntimeWalError> {
+    let metrics = RecoveredEchoOperationActionOutcomeValidationMetrics::default();
     let envelopes = witnessed_submissions
         .records()
         .iter()
@@ -4860,6 +4886,10 @@ fn validate_recovered_echo_operation_action_outcomes(
                 entry,
             ))
         })
+        .collect::<BTreeMap<_, _>>();
+    let installed_by_package = installed_echo_operations
+        .iter()
+        .map(|installed| (installed.package_id(), installed))
         .collect::<BTreeMap<_, _>>();
     let mut outcomes_by_tick = BTreeMap::<
         (
@@ -4892,9 +4922,8 @@ fn validate_recovered_echo_operation_action_outcomes(
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let invocation = inspect_action_invocation_v1(invocation_bytes)
             .map_err(|_| TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
-        let installed = installed_echo_operations
-            .iter()
-            .find(|installed| installed.package_id() == invocation.package_id)
+        let installed = installed_by_package
+            .get(&invocation.package_id)
             .ok_or(TrustedRuntimeWalError::SchedulerTickBatchMismatch)?;
         let installed_before_tick = installation_order
             .installation_count_before_tick
@@ -5091,7 +5120,7 @@ fn validate_recovered_echo_operation_action_outcomes(
             }
         }
     }
-    Ok(())
+    Ok(metrics)
 }
 
 fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) -> WalTickDecision {

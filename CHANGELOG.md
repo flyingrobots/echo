@@ -50,6 +50,8 @@
   snapshots while preserving exact installation-before-Tick validation.
   Activation caches each reconstructed causal state by worldline coordinate,
   so Actions sharing one scheduler basis do not replay that history repeatedly.
+  Recovered Action outcomes resolve installed packages through one package-ID
+  index instead of scanning the complete installation set per Action.
   A composite receipt cannot validate outside its complete Action-batch
   context. Legacy operation recovery-index roots remain byte-compatible when
   no Action outcome exists. Direct operation

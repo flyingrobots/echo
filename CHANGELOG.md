@@ -67,6 +67,8 @@
   complete limit with independent, non-conflicting node targets. Admission
   applies that ceiling independently to each runnable head, so Actions retained
   for dormant or faulted heads cannot consume another head's Tick capacity.
+  `run_until_idle` continues after a no-Step pass that advances bounded Action
+  admission, so an obstructed prefix cannot hide later admissible work.
   When more than that ceiling is pending, runtime admission selects the bounded
   set by canonical ingress identity rather than submission identity.
   `TrustedRuntimeHost::into_parts` now returns an opaque

@@ -380,6 +380,13 @@ pub struct TrustedRuntimeHostRunReport {
     pub committed_steps: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct EchoOperationActionSchedulerPostureV1 {
+    pending: usize,
+    admitted: usize,
+    admission_obstructions: usize,
+}
+
 /// One Echo causal-anchor admission observed in committed control history.
 ///
 /// The enclosed fact and receipt are the semantic evidence. WAL coordinates on
@@ -1868,6 +1875,14 @@ impl TrustedRuntimeHost {
         }
     }
 
+    fn echo_operation_action_scheduler_posture_v1(&self) -> EchoOperationActionSchedulerPostureV1 {
+        EchoOperationActionSchedulerPostureV1 {
+            pending: self.pending_echo_operation_actions.len(),
+            admitted: self.admitted_echo_operation_actions.len(),
+            admission_obstructions: self.echo_operation_action_admission_obstructions.len(),
+        }
+    }
+
     fn requeue_obstructed_echo_operation_actions_v1(&mut self) {
         self.pending_echo_operation_actions.extend(
             self.echo_operation_action_admission_obstructions
@@ -2133,7 +2148,8 @@ impl TrustedRuntimeHost {
         Ok(records)
     }
 
-    /// Runs scheduler-owned passes until an idle pass occurs.
+    /// Runs scheduler-owned passes until one pass commits no steps and makes
+    /// no executable-Action admission progress.
     ///
     /// # Errors
     ///
@@ -2156,9 +2172,12 @@ impl TrustedRuntimeHost {
                     max_scheduler_passes,
                 });
             }
+            let action_posture_before = self.echo_operation_action_scheduler_posture_v1();
             let steps = self.tick_once()?;
+            let action_admission_progressed =
+                self.echo_operation_action_scheduler_posture_v1() != action_posture_before;
             report.scheduler_passes += 1;
-            if steps.is_empty() {
+            if steps.is_empty() && !action_admission_progressed {
                 return Ok(report);
             }
             report.committed_steps += steps.len();

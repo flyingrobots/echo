@@ -3621,6 +3621,91 @@ fn unavailable_action_package_does_not_poison_unrelated_scheduler_work() {
 }
 
 #[test]
+fn run_until_idle_continues_after_admission_only_progress() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_in_memory_runtime_wal()
+        .expect("the bounded-admission fixture WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    let valid_invocation =
+        action_invocation(&host, &installed, head_key, node, b"before", b"valid-after");
+    let valid_envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        valid_invocation,
+    )
+    .expect("the valid invocation becomes an Action");
+    let valid_ingress_id = valid_envelope.ingress_id();
+
+    let unavailable_package_bytes = operation_package_at(
+        "echo.fixture.BoundedUnavailable.v1",
+        make_type_id("operation-fixture-node"),
+        make_type_id("operation-fixture-atom"),
+    )
+    .to_canonical_bytes()
+    .expect("the unavailable package is canonical");
+    let unavailable_package_id =
+        warp_core::echo_operation_package_id_v1(&unavailable_package_bytes);
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(head_key, application_basis())
+        .expect("Echo resolves the current exact parent basis");
+    let mut unavailable_envelopes = Vec::new();
+    for ordinal in 0..4096_u32 {
+        let unavailable_invocation =
+            EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+                unavailable_package_id,
+                "echo.fixture.BoundedUnavailable.v1",
+                evaluation_basis,
+                digest("fixture-authority-grant"),
+                EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                node,
+                warp_core::echo_operation_atom_value_digest_v1(
+                    make_type_id("operation-fixture-atom"),
+                    b"before",
+                ),
+                format!("unavailable-{ordinal}").into_bytes(),
+            )
+            .to_canonical_bytes()
+            .expect("the unavailable invocation is canonical");
+        let envelope = warp_core::echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: head_key },
+            unavailable_invocation,
+        )
+        .expect("the unavailable invocation becomes an Action");
+        if envelope.ingress_id() < valid_ingress_id {
+            unavailable_envelopes.push(envelope);
+            if unavailable_envelopes.len() == ACTION_BATCH_CANDIDATE_LIMIT_V1 {
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        unavailable_envelopes.len(),
+        ACTION_BATCH_CANDIDATE_LIMIT_V1,
+        "the deterministic fixture must fill the first bounded admission prefix"
+    );
+    for envelope in unavailable_envelopes {
+        host.app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("each unavailable Action is durable");
+    }
+    let valid_submission_id = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(valid_envelope)
+        .expect("the later valid Action is durable")
+        .submission_id;
+
+    let report = host
+        .run_until_idle(4)
+        .expect("admission-only progress keeps the bounded drain alive");
+    assert_eq!(report.committed_steps, 1);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&valid_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
+}
+
+#[test]
 fn action_outcome_attribution_ignores_application_controlled_scope_collisions() {
     let (mut host, head_key, node) = fixture_host();
     host.enable_in_memory_runtime_wal()

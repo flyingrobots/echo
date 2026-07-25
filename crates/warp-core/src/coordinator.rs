@@ -1825,10 +1825,7 @@ impl WorldlineRuntime {
             }
             candidate
         } else {
-            let Some(candidate) = positional_candidate() else {
-                return no_match();
-            };
-            candidate
+            return no_match();
         };
         let (idx, entry) = candidate;
         let Ok(receipt_entry_index) = u32::try_from(idx) else {
@@ -6636,6 +6633,60 @@ mod tests {
             panic!("expected obstructed contract outcome");
         };
         assert!(obstruction.contract.is_some());
+    }
+
+    #[test]
+    fn ordinary_outcome_never_uses_positional_action_attribution() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let head_key = runtime
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
+            .expect("the toy runtime has a default writer");
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        let mut correlation = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            envelope,
+            hash(91),
+        );
+        let receipt = &runtime
+            .worldlines()
+            .get(&worldline_id)
+            .expect("the toy worldline remains registered")
+            .state()
+            .tick_history()
+            .last()
+            .expect("the toy intent commits one Tick")
+            .1;
+        assert_eq!(receipt.entries().len(), 1);
+        correlation.ingress_id = (92_u8..=u8::MAX)
+            .map(hash)
+            .find(|candidate| {
+                receipt
+                    .entries()
+                    .iter()
+                    .all(|entry| entry.scope.local_id != NodeId(*candidate))
+            })
+            .expect("the fixture provides an ingress id outside the receipt scopes");
+        runtime
+            .receipt_correlations_by_ticketed_ingress
+            .insert(correlation.ticketed_ingress_id, correlation.clone());
+
+        assert!(matches!(
+            runtime.observe_intent_outcome(&correlation.submission_id),
+            IntentOutcomeObservation::Decided {
+                decision: IntentOutcomeDecision::NoMatchingReceiptEntry {
+                    tick_receipt_digest,
+                },
+                ..
+            } if tick_receipt_digest == correlation.tick_receipt_digest
+        ));
     }
 
     #[test]

@@ -17,6 +17,8 @@
   Mixed executable and provider/native backlogs alternate by durable parent
   worldline-Tick parity, preventing caller-controlled ingress hashes from
   starving either execution category.
+  Positional receipt attribution is exclusive to executable Actions; ordinary
+  correlations without an exact scope match fail closed.
   Scheduler selection admits at most 64 executable Actions per Tick, leaving
   excess work pending, and meters footprint comparisons, blocker evidence, and
   aggregate operations during composition. Two independent Actions can share

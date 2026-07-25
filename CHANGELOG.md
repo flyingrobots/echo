@@ -60,7 +60,9 @@
   lookups rather than asserting constant zero-value proxies.
   The v1 scheduler Action-candidate ceiling is exported as
   `ACTION_BATCH_CANDIDATE_LIMIT_V1`; its acceptance witness now proves the
-  complete limit with independent, non-conflicting node targets.
+  complete limit with independent, non-conflicting node targets. Admission
+  applies that ceiling independently to each runnable head, so Actions retained
+  for dormant or faulted heads cannot consume another head's Tick capacity.
   When more than that ceiling is pending, runtime admission selects the bounded
   set by canonical ingress identity rather than submission identity.
   `TrustedRuntimeHost::into_parts` now returns an opaque

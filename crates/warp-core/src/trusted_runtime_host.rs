@@ -1886,8 +1886,24 @@ impl TrustedRuntimeHost {
         let Some(policy) = self.echo_operation_action_admission_policy else {
             return Ok(self.admitted_echo_operation_actions.clone());
         };
-        let available = crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1
-            .saturating_sub(self.admitted_echo_operation_actions.len());
+        let mut available_by_head = SchedulerCoordinator::peek_order(&self.runtime)
+            .into_iter()
+            .map(|head_key| {
+                (
+                    head_key,
+                    crate::echo_operation::ACTION_BATCH_CANDIDATE_LIMIT_V1,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        for submission_id in self.admitted_echo_operation_actions.keys() {
+            let submission = self
+                .runtime
+                .witnessed_submission(submission_id)
+                .ok_or(RuntimeError::UnknownIntentSubmission(*submission_id))?;
+            if let Some(available) = available_by_head.get_mut(&submission.head_key) {
+                *available = available.saturating_sub(1);
+            }
+        }
         let mut pending = self
             .pending_echo_operation_actions
             .iter()
@@ -1901,11 +1917,21 @@ impl TrustedRuntimeHost {
                     .runtime
                     .witnessed_submission(submission_id)
                     .ok_or(RuntimeError::UnknownIntentSubmission(*submission_id))?;
-                Ok((submission.ingress_id, *submission_id))
+                Ok((submission.ingress_id, *submission_id, submission.head_key))
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         pending.sort_unstable();
-        pending.truncate(available);
+        let pending = pending
+            .into_iter()
+            .filter_map(|(ingress_id, submission_id, head_key)| {
+                let available = available_by_head.get_mut(&head_key)?;
+                if *available == 0 {
+                    return None;
+                }
+                *available -= 1;
+                Some((ingress_id, submission_id))
+            })
+            .collect::<Vec<_>>();
         for (_, submission_id) in pending {
             let submission = self
                 .runtime

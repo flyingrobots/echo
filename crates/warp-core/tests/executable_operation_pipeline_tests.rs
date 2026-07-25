@@ -28,8 +28,8 @@ use warp_core::{
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    EngineBuilder, ExecutableOperationPackageV1, GraphStore, InboxPolicy, IngressTarget,
-    InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
+    EngineBuilder, ExecutableOperationPackageV1, GraphStore, HeadEligibility, InboxPolicy,
+    IngressTarget, InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
     WriterHead, WriterHeadKey, ACTION_BATCH_CANDIDATE_LIMIT_V1,
@@ -3902,6 +3902,94 @@ fn footprint_conflict_recovery_reconstructs_the_rejected_preparation() {
             .writer_head(),
         recovered_head
     );
+}
+
+#[test]
+fn dormant_head_actions_do_not_consume_runnable_head_admission_capacity() {
+    let attachment_type = make_type_id("operation-fixture-atom");
+    let (mut host, runnable_head, runnable_node, dormant_node) = fixture_host_with_bare_node(
+        make_node_id("operation-fixture-dormant-node"),
+        make_type_id("operation-fixture-node"),
+        Some((attachment_type, b"dormant-before")),
+    );
+    let dormant_head = WriterHeadKey {
+        worldline_id: runnable_head.worldline_id,
+        head_id: make_head_id("operation-fixture-dormant-writer"),
+    };
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .register_writer_head(WriterHead::with_routing(
+            dormant_head,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            false,
+        ))
+        .expect("the dormant sibling head registers");
+    host = TrustedRuntimeHost::from_parts(parts);
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+
+    for ordinal in 0..ACTION_BATCH_CANDIDATE_LIMIT_V1 {
+        let replacement = format!("dormant-after-{ordinal}");
+        let invocation = action_invocation(
+            &host,
+            &installed,
+            dormant_head,
+            dormant_node,
+            b"dormant-before",
+            replacement.as_bytes(),
+        );
+        host.app()
+            .submit_intent(
+                warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: dormant_head },
+                    invocation,
+                )
+                .expect("the dormant invocation is one canonical Action"),
+            )
+            .expect("the dormant Action is accepted");
+    }
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .set_head_eligibility(dormant_head, HeadEligibility::Dormant)
+        .expect("the sibling head becomes dormant before admission");
+    host = TrustedRuntimeHost::from_parts(parts);
+    assert!(host
+        .tick_once()
+        .expect("dormant Actions do not execute")
+        .is_empty());
+
+    let runnable_invocation = action_invocation(
+        &host,
+        &installed,
+        runnable_head,
+        runnable_node,
+        b"before",
+        b"runnable-after",
+    );
+    let runnable_submission_id = host
+        .app()
+        .submit_intent(
+            warp_core::echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: runnable_head },
+                runnable_invocation,
+            )
+            .expect("the runnable invocation is one canonical Action"),
+        )
+        .expect("the runnable Action is accepted")
+        .submission_id;
+
+    let steps = host
+        .tick_once()
+        .expect("the runnable Action is not starved by the dormant head");
+    assert_eq!(steps.len(), 1);
+    assert!(matches!(
+        host.echo_operation_action_outcome_v1(&runnable_submission_id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    ));
 }
 
 #[cfg(feature = "host_test")]

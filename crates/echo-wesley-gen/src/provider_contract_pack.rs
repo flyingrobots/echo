@@ -4,7 +4,7 @@
 //!
 //! The generator receives the CDDL and manifest bytes explicitly. This module
 //! performs no filesystem, registry, environment, or network discovery. It
-//! admits only the publication merged in Edict PR #162: internal manifest
+//! admits only the publication produced by the pinned Edict revision: internal manifest
 //! consistency is necessary, but does not substitute for the pinned external
 //! identity checked here.
 
@@ -32,18 +32,19 @@ pub const EDICT_PROVIDER_CONTRACT_PACK_LICENSE: &str = "Apache-2.0";
 
 /// SHA-256 of the admitted self-contained CDDL bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256: &str =
-    "92697bc9a5262c68258be9ee451ee8c144aeb363b92142915b8224430b85cf74";
+    "a5d5ea82a9e64aa78c4a44204d3e8919c1c590febb967f1d31639fdc2a20a96c";
 
 /// SHA-256 of the admitted Edict publication manifest bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256: &str =
-    "6902467149fec3e0338bb90e8cd7963ee21b8ce24f368f9b12e748343cbe0e4f";
+    "f78dc8bb32f04f3e246f57e4228077c2a243827dd243525b9bd2e1d81dfa07ff";
 
 /// Maximum manifest size parsed at the contract-pack authority boundary.
-pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 61_713;
+pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 65_797;
 
-const EXPECTED_CONTRACTS: [(&str, &str); 9] = [
+const EXPECTED_CONTRACTS: [(&str, &str); 10] = [
     ("authority-facts", "authority-facts"),
     ("core-module", "core-module"),
+    ("lawpack-adapter", "lawpack-adapter"),
     ("lawpack-exports", "lawpack-exports"),
     ("lawpack-manifest", "lawpack-manifest"),
     ("lowering-requirements", "lowering-requirements"),

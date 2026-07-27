@@ -7,6 +7,25 @@
 
 ### Added
 
+- Echo's checked Edict provider now lowers arbitrary application-owned Core
+  coordinates through one generic executable-operation route. Exact Edict
+  source, Core, lawpack, exports, target adapter, target configuration, and
+  Target IR artifacts produce a canonical `echo.operation-package/v1` for the
+  bounded anchored create-if-absent capability without application-specific
+  dispatch or a native callback. A structurally separate verifier reconstructs
+  the source-to-package relation and emits an exact accepted or rejected
+  `echo.operation-package-verifier-report/v1`. The provider package exposes six
+  new closure domains through 30 total schema bindings. Its lowerer and verifier
+  components were independently reproduced in mount-free designated
+  `linux/amd64` containers and promoted at 225,428 bytes /
+  `3a0a1ce454f3083df814f60554997d26d0b539f7977a7aae6b00e7e09159e392`
+  and 242,350 bytes /
+  `660ad5ad875b844e30c027e2a861e7941b5905098311fe578ae7fed732cf322c`,
+  respectively. The resulting 25-file package has provider identity
+  `sha256:a546b932ae11778935a6b0ed6a26ef2c9210397435553d865a9e7b5b255b58b2`.
+  This proves generic compiler/provider lowering and independent verification;
+  Edict's public application-build boundary and Echo runtime execution remain
+  separate downstream crossings.
 - Executable-operation application writes now enter Echo as canonical,
   WAL-acknowledged Actions and are evaluated only by the scheduler while
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending
@@ -205,9 +224,10 @@
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten
-  exact routes and 24 schema bindings—nine invocation domains, the generated
-  artifact profile, and 14 generated-resource domains—but never inventories
-  itself. A versioned canonical-CBOR package root binds those semantics plus raw hashes of
+  exact routes and 30 schema bindings—nine compatibility invocation domains,
+  the generated artifact profile, 14 generated-resource domains, and six
+  generic executable-operation closure domains—but never inventories itself. A
+  versioned canonical-CBOR package root binds those semantics plus raw hashes of
   all 24 non-manifest members, while the exact 25-file inventory, deterministic
   JSON rendering, mixed raw/domain-framed digest laws, packaged Wesley
   provenance/review, component bounds, and an external expected provider pin
@@ -282,9 +302,9 @@
   exact Rust and Cargo executables, binds Cargo to that compiler, owns the inner
   Cargo home, removes ambient Cargo profile/build/target overrides, remaps its
   dependency source paths to `/cargo`, and atomically promotes only distinct
-  candidates matching a reviewed repository digest. The promoted 189,668-byte
+  candidates matching a reviewed repository digest. The promoted 225,428-byte
   component has SHA-256
-  `f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`.
+  `3a0a1ce454f3083df814f60554997d26d0b539f7977a7aae6b00e7e09159e392`.
   Other-host builds are structural and semantic witnesses
   rather than cross-host compiler-identity claims. The publication-enabled,
   archive-self-contained `echo-edict-provider-lowerer` source crate carries
@@ -339,8 +359,8 @@
   predicate, input-constraint, require-failure, and Core-value shapes before
   separating malformed artifacts from well-formed unsupported semantics, and
   one admitted diagnostic-ABI identity now binds both the target profile and
-  every emitted report. The 189,922-byte checked component has SHA-256
-  `632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`
+  every emitted report. The 242,350-byte checked component has SHA-256
+  `660ad5ad875b844e30c027e2a861e7941b5905098311fe578ae7fed732cf322c`
   and reproduces byte-for-byte across independently provisioned designated
   `linux/amd64` builders. The isolated pinned Edict host preflights the exact
   request artifacts and declared output schema, invokes that checked component,

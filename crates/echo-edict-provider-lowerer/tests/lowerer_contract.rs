@@ -45,7 +45,7 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
-    "faece52eaf8ec040c374e5fe2a5ea040b522b58f415973f481e9c836ecfc4cde";
+    "c604b7bf9e20db02dac9c010a01470d711335953cb31e6a603fb1e9cb818e8fa";
 const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
 const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 
@@ -114,6 +114,27 @@ fn map(entries: impl IntoIterator<Item = (&'static str, CanonicalValueV1)>) -> C
         .collect::<Vec<_>>();
     entries.sort_by_cached_key(|(key, _)| canonical_bytes(key));
     CanonicalValueV1::Map(entries)
+}
+
+fn resource_ref(reference: &ResourceRef) -> CanonicalValueV1 {
+    map([
+        ("id", text(&reference.coordinate)),
+        (
+            "digest",
+            CanonicalValueV1::Array(vec![
+                text("sha256"),
+                CanonicalValueV1::Bytes(reference.digest.bytes.clone()),
+            ]),
+        ),
+    ])
+}
+
+fn insert_map_field(value: &mut CanonicalValueV1, key: &'static str, field: CanonicalValueV1) {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("expected canonical map");
+    };
+    entries.push((text(key), field));
+    entries.sort_by_cached_key(|(entry_key, _)| canonical_bytes(entry_key));
 }
 
 fn string_map(
@@ -648,6 +669,20 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(core_bytes.len(), 1209);
     let mut request = request();
     request.core = bound("a.b@1", CORE_DOMAIN, core_bytes);
+    let semantic_closure = map([
+        ("sourceCore", resource_ref(&request.core.reference)),
+        (
+            "lawpacks",
+            CanonicalValueV1::Array(
+                request
+                    .semantic_inputs
+                    .iter()
+                    .filter(|input| input.kind == SemanticInputKind::Lawpack)
+                    .map(|input| resource_ref(&input.artifact.reference))
+                    .collect(),
+            ),
+        ),
+    ]);
     let target_profile_digest = request.target_profile.reference.digest.bytes.clone();
     assert_eq!(
         hex::encode(&request.core.reference.digest.bytes),
@@ -668,6 +703,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
             text("sha256"),
             CanonicalValueV1::Bytes(target_profile_digest),
         ]);
+    insert_map_field(&mut expected, "semanticClosure", semantic_closure);
     let expected =
         encode_canonical_cbor_v1(&expected).expect("rebound Edict oracle remains canonical");
     assert_ne!(prior_oracle, expected);
@@ -678,7 +714,7 @@ fn reviewed_edict_fixture_has_exact_builtin_wrapper_parity() {
     assert_eq!(
         digest_canonical_value_v1(OUTER_TARGET_IR_DOMAIN, &output_value)
             .expect("oracle-parity output has a domain-framed digest"),
-        "sha256:d4689abc5c2275ea9c7e1b743197a0d8b4625091632e8f5162eba9ff88d568ad"
+        "sha256:40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da"
     );
 }
 
@@ -1233,31 +1269,53 @@ fn unsupported_core_abi_and_semantics_refuse_without_artifacts() {
 }
 
 #[test]
-fn fully_qualified_core_intent_key_refuses_instead_of_broadening_the_boundary() {
+fn fully_qualified_core_intent_key_is_preserved_as_authored_semantics() {
     let mut core = core_value(ordinary_result(), Some("target.replace"));
     let CanonicalValueV1::Map(intents) = map_field_mut(&mut core, "intents") else {
         panic!("Core intents is not a map");
     };
     intents[0].0 = text("a.b@1.t");
 
-    assert_eq!(
-        lower(request_with_core(core))
-            .expect_err("the canonical Core intent key is package-local")
-            .kind,
-        ProviderRefusalKind::UnsupportedSemantics
-    );
+    let success = lower(request_with_core(core))
+        .expect("intent coordinates are authored rather than provider-owned");
+    let target_ir = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+        .expect("lowered Target IR is canonical");
+    let intent = map_field(map_field(&target_ir, "intents"), "a.b@1.t");
+    let CanonicalValueV1::Array(steps) = map_field(intent, "steps") else {
+        panic!("lowered intent steps are not an array");
+    };
+    assert_eq!(text_value(map_field(&steps[0], "id")), "a.b@1.t.step.0");
 }
 
 #[test]
-fn rebound_core_coordinate_refuses_as_unsupported_semantics() {
+fn one_provider_binary_lowers_a_renamed_application_and_intent() {
     let mut core = core_value(ordinary_result(), Some("target.replace"));
-    *map_field_mut(&mut core, "coordinate") = text("x.y@1");
+    *map_field_mut(&mut core, "coordinate") = text("examples.hello_echo@1");
+    let CanonicalValueV1::Map(intents) = map_field_mut(&mut core, "intents") else {
+        panic!("Core intents is not a map");
+    };
+    intents[0].0 = text("createGreeting");
     let mut request = request_with_core(core);
-    request.core.reference.coordinate = "x.y@1".to_owned();
+    request.core.reference.coordinate = "examples.hello_echo@1".to_owned();
 
-    let refusal = lower(request).expect_err("a rebound Core module is not the reviewed operation");
-    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
-    assert_eq!(refusal.subject.as_deref(), Some("x.y@1"));
+    let success =
+        lower(request).expect("application coordinates and intent names are authored semantics");
+    let target_ir = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+        .expect("renamed application output is canonical");
+
+    assert_eq!(
+        text_value(map_field(&target_ir, "sourceCoreCoordinate")),
+        "examples.hello_echo@1"
+    );
+    let intents = map_field(&target_ir, "intents");
+    let intent = map_field(intents, "createGreeting");
+    let CanonicalValueV1::Array(steps) = map_field(intent, "steps") else {
+        panic!("lowered intent steps are not an array");
+    };
+    assert_eq!(
+        text_value(map_field(&steps[0], "id")),
+        "createGreeting.step.0"
+    );
 }
 
 #[test]
@@ -1294,40 +1352,47 @@ fn authored_core_optic_refuses_instead_of_being_silently_discarded() {
 }
 
 #[test]
-fn unsupported_intent_type_bindings_refuse_instead_of_being_ignored() {
-    for field in ["input", "output"] {
-        let mut core = core_value(ordinary_result(), Some("target.replace"));
-        let CanonicalValueV1::Map(intents) = map_field_mut(&mut core, "intents") else {
-            panic!("Core intents is not a map");
-        };
-        *map_field_mut(&mut intents[0].1, field) = text("x.y@1.Other");
+fn input_local_type_must_match_the_authored_intent_input() {
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_intent_mut(&mut core), "input") = text("x.y@1.Other");
 
-        let refusal = lower(request_with_core(core))
-            .expect_err("unsupported operation type bindings cannot disappear across lowering");
-        assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
-        assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
-    }
+    let refusal = lower(request_with_core(core))
+        .expect_err("the effect input local cannot claim another authored type");
+    assert_eq!(refusal.kind, ProviderRefusalKind::InvalidSemanticArtifact);
+    assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
 }
 
 #[test]
-fn altered_core_type_definitions_refuse_instead_of_disappearing() {
+fn authored_output_type_changes_remain_bound_by_the_source_core_identity() {
+    let baseline = lower(request()).expect("baseline lowers").outputs.remove(0);
+    let mut core = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(operation_intent_mut(&mut core), "output") = text("x.y@1.Other");
+
+    let changed = lower(request_with_core(core))
+        .expect("authored output types are not provider vocabulary")
+        .outputs
+        .remove(0);
+
+    assert_ne!(baseline.artifact.bytes, changed.artifact.bytes);
+}
+
+#[test]
+fn altered_core_type_definitions_change_the_bound_semantic_closure() {
+    let baseline = lower(request()).expect("baseline lowers").outputs.remove(0);
     let mut core = core_value(ordinary_result(), Some("target.replace"));
     let input_id = map_field_mut(map_field_mut(&mut core, "types"), "Input.id");
     *map_field_mut(input_id, "max") = integer(17);
 
-    let refusal = lower(request_with_core(core))
-        .expect_err("changed Core type semantics cannot disappear across lowering");
-    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
-    assert_eq!(refusal.subject.as_deref(), Some("a.b@1"));
-    assert_eq!(refusal.diagnostics.len(), 1);
-    assert_eq!(
-        refusal.diagnostics[0].code,
-        "echo.provider.unsupported-semantics"
-    );
+    let changed = lower(request_with_core(core))
+        .expect("bounded type changes may lower")
+        .outputs
+        .remove(0);
+
+    assert_ne!(baseline.artifact.bytes, changed.artifact.bytes);
 }
 
 #[test]
-fn changed_evaluation_budget_refuses_instead_of_broadening_the_closure() {
+fn changed_evaluation_budget_is_preserved_in_target_ir() {
     for (field, value) in [
         ("maxSteps", 0),
         ("maxAllocatedBytes", 2048),
@@ -1337,14 +1402,14 @@ fn changed_evaluation_budget_refuses_instead_of_broadening_the_closure() {
         let intent = map_field_mut(map_field_mut(&mut core, "intents"), "t");
         *map_field_mut(map_field_mut(intent, "coreEvaluationBudget"), field) = integer(value);
 
-        let refusal = lower(request_with_core(core))
-            .expect_err("a different evaluation budget is outside the reviewed closure");
-        assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
-        assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
-        assert_eq!(refusal.diagnostics.len(), 1);
+        let success =
+            lower(request_with_core(core)).expect("bounded budgets are authored semantics");
+        let target_ir = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+            .expect("lowered Target IR is canonical");
+        let intent = map_field(map_field(&target_ir, "intents"), "t");
         assert_eq!(
-            refusal.diagnostics[0].code,
-            "echo.provider.unsupported-semantics"
+            map_field(map_field(intent, "coreEvaluationBudget"), field),
+            &integer(value)
         );
     }
 }
@@ -1477,7 +1542,7 @@ fn local_inventory_is_exactly_the_reviewed_binding_closure() {
 }
 
 #[test]
-fn local_binding_roles_authenticate_their_reviewed_types() {
+fn input_binding_type_matches_the_intent_while_effect_types_remain_authored() {
     let mut input = core_value(ordinary_result(), Some("target.replace"));
     *map_field_mut(local_by_id_mut(&mut input, "local:0"), "type") = text("a.b@1.Output");
     assert_invalid_local_declarations(input);
@@ -1488,7 +1553,21 @@ fn local_binding_roles_authenticate_their_reviewed_types() {
         map_field_mut(operation_node_mut(&mut receipt), "binding"),
         "type",
     ) = text("a.b@1.Output");
-    assert_invalid_local_declarations(receipt);
+    let receipt_success =
+        lower(request_with_core(receipt)).expect("effect result types are lawpack-authored");
+    let receipt_target_ir = decode_canonical_cbor_v1(&receipt_success.outputs[0].artifact.bytes)
+        .expect("receipt Target IR is canonical");
+    let receipt_step = &match map_field(
+        map_field(map_field(&receipt_target_ir, "intents"), "t"),
+        "steps",
+    ) {
+        CanonicalValueV1::Array(steps) => steps,
+        _ => panic!("steps are not an array"),
+    }[0];
+    assert_eq!(
+        text_value(map_field(map_field(receipt_step, "binding"), "type")),
+        "a.b@1.Output"
+    );
 
     let mut reason = core_value(ordinary_result(), Some("target.replace"));
     *map_field_mut(local_by_id_mut(&mut reason, "local:2"), "type") = text("a.b@1.Input");
@@ -1496,13 +1575,32 @@ fn local_binding_roles_authenticate_their_reviewed_types() {
         map_field_mut(obstruction_arm_mut(&mut reason), "binder"),
         "type",
     ) = text("a.b@1.Input");
-    assert_invalid_local_declarations(reason);
+    lower(request_with_core(reason)).expect("effect failure payload types are lawpack-authored");
 }
 
 #[test]
-fn obstruction_constructor_is_exactly_the_reviewed_mapping() {
+fn obstruction_constructor_name_is_authored_but_arguments_remain_closed() {
+    let mut authored = core_value(ordinary_result(), Some("target.replace"));
+    *map_field_mut(
+        map_field_mut(obstruction_arm_mut(&mut authored), "value"),
+        "callee",
+    ) = text("examples.hello_echo.AlreadyExists");
+    let success =
+        lower(request_with_core(authored)).expect("domain obstruction names are authored");
+    let target_ir = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+        .expect("obstruction Target IR is canonical");
+    let CanonicalValueV1::Array(steps) =
+        map_field(map_field(map_field(&target_ir, "intents"), "t"), "steps")
+    else {
+        panic!("steps are not an array");
+    };
+    let arm = map_field(map_field(&steps[0], "obstructionArms"), "rejected");
+    assert_eq!(
+        text_value(map_field(map_field(arm, "value"), "callee")),
+        "examples.hello_echo.AlreadyExists"
+    );
+
     for (field, changed) in [
-        ("callee", text("domain.Unreviewed")),
         ("typeArgs", CanonicalValueV1::Array(vec![text("T")])),
         (
             "args",

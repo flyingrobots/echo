@@ -660,9 +660,11 @@ dependencies = [
 name = "echo-edict-provider-lowerer"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "echo-edict-canonical",
  "hex",
  "sha2",
+ "warp-core",
  "wit-bindgen 0.58.0",
 ]
 
@@ -670,7 +672,9 @@ dependencies = [
 name = "echo-edict-provider-verifier"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "echo-edict-canonical",
+ "echo-edict-provider-lowerer",
  "hex",
  "sha2",
  "wit-bindgen 0.58.0",

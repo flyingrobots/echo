@@ -12,6 +12,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+mod executable_operation;
 mod semantic_resources;
 
 use std::fmt::Write as _;
@@ -289,6 +290,9 @@ pub fn verify(request: VerificationRequestV1) -> VerificationResultV1 {
             "the verifier accepts only target-provider protocol 1.0.0",
         ));
     }
+    if executable_operation::is_requested(&request) {
+        return executable_operation::verify(&request);
+    }
     let _semantic_closure =
         semantic_resources::admit_packaged_semantic_resources().map_err(|error| {
             match error.kind() {
@@ -313,8 +317,14 @@ pub fn verify(request: VerificationRequestV1) -> VerificationResultV1 {
 
     let core = validate_core(&request.core)?;
     let target_ir = validate_target_ir_artifact(&request.target_ir)?;
-    let expected = expected_target_ir(&core, &request.target_profile.reference.digest)
-        .map_err(|()| unsupported_semantics(OPERATION_COORDINATE))?;
+    let expected = expected_target_ir(
+        &core,
+        &request.core.reference,
+        &request.target_profile.reference.digest,
+        &request.semantic_inputs,
+        map_field(&target_ir, "semanticClosure").is_some(),
+    )
+    .map_err(|()| unsupported_semantics(OPERATION_COORDINATE))?;
     let failure = relation_failure(&target_ir, &expected);
     let (outcome, diagnostics) = match failure {
         None => ("accepted", Vec::new()),
@@ -657,19 +667,31 @@ fn validate_target_ir_artifact(
 }
 
 fn validate_target_ir_shape(value: &CanonicalValueV1) -> bool {
-    if !has_exact_fields(
-        value,
+    let fields = if map_field(value, "semanticClosure").is_some() {
+        &[
+            "kind",
+            "domain",
+            "targetProfile",
+            "semanticClosure",
+            "sourceCoreCoordinate",
+            "intents",
+        ][..]
+    } else {
         &[
             "kind",
             "domain",
             "targetProfile",
             "sourceCoreCoordinate",
             "intents",
-        ],
-    ) || text_field(value, "kind") != Some("targetIrArtifact")
+        ][..]
+    };
+    if !has_exact_fields(value, fields)
+        || text_field(value, "kind") != Some("targetIrArtifact")
         || text_field(value, "domain").is_none_or(str::is_empty)
         || text_field(value, "sourceCoreCoordinate").is_none_or(str::is_empty)
         || !map_field(value, "targetProfile").is_some_and(validate_resource_ref_value)
+        || !map_field(value, "semanticClosure")
+            .is_none_or(validate_target_ir_semantic_closure_shape)
     {
         return false;
     }
@@ -681,6 +703,13 @@ fn validate_target_ir_shape(value: &CanonicalValueV1) -> bool {
                     && validate_target_intent_shape(intent)
             })
         })
+}
+
+fn validate_target_ir_semantic_closure_shape(value: &CanonicalValueV1) -> bool {
+    has_exact_fields(value, &["sourceCore", "lawpacks"])
+        && map_field(value, "sourceCore").is_some_and(validate_resource_ref_value)
+        && array_field(value, "lawpacks")
+            .is_some_and(|lawpacks| lawpacks.iter().all(validate_resource_ref_value))
 }
 
 fn validate_target_intent_shape(value: &CanonicalValueV1) -> bool {
@@ -782,7 +811,10 @@ fn validate_target_expr_shape(value: &CanonicalValueV1) -> bool {
 
 fn expected_target_ir(
     core: &CanonicalValueV1,
+    core_reference: &ResourceRef,
     target_profile_digest: &Digest,
+    semantic_inputs: &[SemanticInput],
+    include_semantic_closure: bool,
 ) -> Result<CanonicalValueV1, ()> {
     let intent = map_field(map_field(core, "intents").ok_or(())?, "t").ok_or(())?;
     let body = map_field(intent, "body").ok_or(())?;
@@ -817,7 +849,7 @@ fn expected_target_ir(
         ("steps", CanonicalValueV1::Array(vec![expected_step])),
         ("result", map_field(body, "result").ok_or(())?.clone()),
     ])?;
-    canonical_sorted_map([
+    let mut fields = vec![
         ("kind", canonical_text("targetIrArtifact")),
         ("domain", canonical_text(INNER_TARGET_IR_DOMAIN)),
         (
@@ -829,7 +861,22 @@ fn expected_target_ir(
         ),
         ("sourceCoreCoordinate", canonical_text(CORE_COORDINATE)),
         ("intents", canonical_sorted_map([("t", expected_intent)])?),
-    ])
+    ];
+    if include_semantic_closure {
+        let lawpacks = semantic_inputs
+            .iter()
+            .filter(|input| input.kind == SemanticInputKind::Lawpack)
+            .map(|input| resource_ref_value(&input.artifact.reference))
+            .collect::<Result<Vec<_>, ()>>()?;
+        fields.push((
+            "semanticClosure",
+            canonical_sorted_map([
+                ("sourceCore", resource_ref_value(core_reference)?),
+                ("lawpacks", CanonicalValueV1::Array(lawpacks)),
+            ])?,
+        ));
+    }
+    canonical_sorted_map(fields)
 }
 
 struct RelationFailure {
@@ -851,6 +898,12 @@ fn relation_failure(
         return Some(RelationFailure {
             code: "echo.verifier.target-profile-mismatch",
             message: "Target IR does not bind the exact supplied Echo target profile",
+        });
+    }
+    if map_field(target_ir, "semanticClosure") != map_field(expected, "semanticClosure") {
+        return Some(RelationFailure {
+            code: "echo.verifier.semantic-closure-mismatch",
+            message: "Target IR does not bind the exact supplied semantic closure",
         });
     }
 

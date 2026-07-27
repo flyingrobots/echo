@@ -19,11 +19,21 @@ native verifier checks its complete expression, predicate, input-constraint,
 require-failure, and Core-value shape under the fixed recursion bound. The
 target profile's diagnostic ABI and every emitted report consume one shared
 admitted identity.
+
+The verifier also owns the structurally separate executable-operation route. It
+accepts the exact source, Core, lawpack, exports, adapter, target
+configuration, Target IR, and compiler-emitted package as digest-bound inputs,
+then reconstructs the expected generic package without importing or calling
+the lowerer. Exact equality yields an accepted
+`echo.operation-package-verifier-report/v1`; a rebound or otherwise
+self-consistent package mutation yields a typed rejected report. Application
+vocabulary is treated only as opaque authored data.
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 189,922-byte checked
+transport-to-model conversion. Its reproducibly built 242,350-byte checked
 component has SHA-256
-`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
+`660ad5ad875b844e30c027e2a861e7941b5905098311fe578ae7fed732cf322c`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

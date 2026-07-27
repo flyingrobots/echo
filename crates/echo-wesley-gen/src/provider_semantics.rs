@@ -802,6 +802,8 @@ pub enum InvocationInputKind {
     LowerabilityFacts,
     /// Target IR supplied to the verifier.
     TargetIr,
+    /// Provider-profile-specific, schema-bound semantic input.
+    Auxiliary,
 }
 
 /// One output role that a provider component may return.
@@ -3133,7 +3135,7 @@ fn validate_artifact_closure(
         ));
     }
     if target.accepted_core_abis != ["edict.core/v1"]
-        || !target.accepted_lawpack_adapter_abis.is_empty()
+        || target.accepted_lawpack_adapter_abis != ["edict.lawpack-adapter/v1"]
         || target.application_model != "atomic"
         || target.read_consistency != "application-snapshot"
         || target.guard_evaluation != "precommit-atomic"
@@ -3367,10 +3369,11 @@ fn validate_invocation_schema_bindings(
     for (kind, expected_count) in [
         (InvocationInputKind::Core, 1),
         (InvocationInputKind::TargetProfile, 1),
-        (InvocationInputKind::Lawpack, 1),
+        (InvocationInputKind::Lawpack, 2),
         (InvocationInputKind::AuthorityFacts, 2),
         (InvocationInputKind::LowerabilityFacts, 1),
-        (InvocationInputKind::TargetIr, 1),
+        (InvocationInputKind::TargetIr, 2),
+        (InvocationInputKind::Auxiliary, 5),
     ] {
         let actual = source
             .invocation_inputs
@@ -3386,7 +3389,7 @@ fn validate_invocation_schema_bindings(
         }
     }
     for input in &source.invocation_inputs {
-        let expected_domain = expected_input_domain(input.kind);
+        let expected_domain = expected_input_domain(input);
         if input.domain != expected_domain {
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::InputDomainMismatch,
@@ -3395,18 +3398,18 @@ fn validate_invocation_schema_bindings(
             ));
         }
     }
-    for kind in [
-        InvocationOutputKind::TargetIr,
-        InvocationOutputKind::GeneratedArtifact,
-        InvocationOutputKind::ReviewPayload,
-        InvocationOutputKind::VerifierReport,
+    for (kind, expected_count) in [
+        (InvocationOutputKind::TargetIr, 1),
+        (InvocationOutputKind::GeneratedArtifact, 2),
+        (InvocationOutputKind::ReviewPayload, 1),
+        (InvocationOutputKind::VerifierReport, 2),
     ] {
         let actual = source
             .invocation_outputs
             .iter()
             .filter(|output| output.kind == kind)
             .count();
-        if actual != 1 {
+        if actual != expected_count {
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::InvocationOutputClosureMismatch,
                 "invocationOutputs",
@@ -3458,7 +3461,7 @@ fn validate_invocation_schema_bindings(
         .map(|(_, domain, _)| *domain)
         .collect::<BTreeSet<_>>();
     for output in &source.invocation_outputs {
-        let (expected_domain, _) = expected_output_contract(output.kind);
+        let (expected_domain, _) = expected_output_contract(output);
         if output.domain != expected_domain {
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::OutputDomainMismatch,
@@ -3526,7 +3529,7 @@ fn validate_invocation_schema_bindings(
             ProviderSemanticSourceErrorKind::UnknownSchemaRole,
             &input.role,
         )?;
-        if let Some(expected_kind) = input_artifact_kind(input.kind) {
+        if let Some(expected_kind) = input_artifact_kind(input) {
             if artifact_roles.get(input.role.as_str()) != Some(&expected_kind) {
                 return Err(ProviderSemanticSourceError::new(
                     ProviderSemanticSourceErrorKind::InvocationInputClosureMismatch,
@@ -3558,7 +3561,7 @@ fn validate_invocation_schema_bindings(
             ProviderSemanticSourceErrorKind::UnknownSchemaRole,
             &output.role,
         )?;
-        let (_, expected_root) = expected_output_contract(output.kind);
+        let (_, expected_root) = expected_output_contract(output);
         let Some(binding) = bindings.get(output.domain.as_str()) else {
             return Err(ProviderSemanticSourceError::new(
                 ProviderSemanticSourceErrorKind::MissingSchemaBinding,
@@ -3584,13 +3587,24 @@ fn validate_invocation_schema_bindings(
     Ok(())
 }
 
-fn expected_output_contract(kind: InvocationOutputKind) -> (&'static str, &'static str) {
-    match kind {
+fn expected_output_contract(output: &InvocationOutputDeclaration) -> (&'static str, &'static str) {
+    match output.kind {
         InvocationOutputKind::TargetIr => ("edict.target-ir.artifact/v1", "target-ir-artifact"),
+        InvocationOutputKind::GeneratedArtifact
+            if output.role == "executable-operation-package.echo" =>
+        {
+            ("echo.operation-package/v1", "echo-operation-package")
+        }
         InvocationOutputKind::GeneratedArtifact => {
             ("echo.generated-artifact/v1", "generated-artifact")
         }
         InvocationOutputKind::ReviewPayload => ("echo.review-payload/v1", "review-payload"),
+        InvocationOutputKind::VerifierReport if output.role == "verifier-report.echo-operation" => {
+            (
+                "echo.operation-package-verifier-report/v1",
+                "echo-operation-package-verifier-report",
+            )
+        }
         InvocationOutputKind::VerifierReport => ("echo.verifier-report/v1", "verifier-report"),
     }
 }
@@ -3637,14 +3651,22 @@ pub(crate) fn generated_resource_root(role: &str) -> Option<&'static str> {
     }
 }
 
-const fn expected_input_domain(kind: InvocationInputKind) -> &'static str {
-    match kind {
+fn expected_input_domain(input: &InvocationInputDeclaration) -> &'static str {
+    match input.kind {
         InvocationInputKind::Core => "edict.core.module/v1",
         InvocationInputKind::TargetProfile => "edict.target-profile/v1",
         InvocationInputKind::Lawpack => "edict.lawpack/v1",
         InvocationInputKind::AuthorityFacts => "edict.authority-facts/v1",
         InvocationInputKind::LowerabilityFacts => "edict.lowering-requirements/v1",
         InvocationInputKind::TargetIr => "edict.target-ir.artifact/v1",
+        InvocationInputKind::Auxiliary => match input.role.as_str() {
+            "adapter.echo-operation" => "edict.lawpack-adapter/v1",
+            "exports.echo-operation" => "edict.lawpack-exports/v1",
+            "executable-operation-package.echo" => "echo.operation-package/v1",
+            "source.echo-operation" => "edict.source/v1",
+            "target-configuration.echo-operation" => "echo.operation-lowering-configuration/v1",
+            _ => "",
+        },
     }
 }
 
@@ -3656,17 +3678,22 @@ const fn invocation_input_kind_name(kind: InvocationInputKind) -> &'static str {
         InvocationInputKind::AuthorityFacts => "authorityFacts",
         InvocationInputKind::LowerabilityFacts => "lowerabilityFacts",
         InvocationInputKind::TargetIr => "targetIr",
+        InvocationInputKind::Auxiliary => "auxiliary",
     }
 }
 
-const fn input_artifact_kind(kind: InvocationInputKind) -> Option<GeneratedArtifactKind> {
-    match kind {
+fn input_artifact_kind(input: &InvocationInputDeclaration) -> Option<GeneratedArtifactKind> {
+    match input.kind {
         InvocationInputKind::TargetProfile => Some(GeneratedArtifactKind::TargetProfile),
-        InvocationInputKind::Lawpack => Some(GeneratedArtifactKind::Lawpack),
+        InvocationInputKind::Lawpack if input.role == "lawpack.echo-dpo" => {
+            Some(GeneratedArtifactKind::Lawpack)
+        }
         InvocationInputKind::AuthorityFacts => Some(GeneratedArtifactKind::AuthorityFacts),
-        InvocationInputKind::Core
+        InvocationInputKind::Lawpack
+        | InvocationInputKind::Core
         | InvocationInputKind::LowerabilityFacts
-        | InvocationInputKind::TargetIr => None,
+        | InvocationInputKind::TargetIr
+        | InvocationInputKind::Auxiliary => None,
     }
 }
 
@@ -3683,12 +3710,20 @@ fn expected_schema_root(domain: &str) -> Option<&'static str> {
     match domain {
         "edict.authority-facts/v1" => Some("authority-facts"),
         "edict.core.module/v1" => Some("core-module"),
+        "edict.lawpack-adapter/v1" => Some("lawpack-adapter"),
+        "edict.lawpack-exports/v1" => Some("lawpack-exports"),
         "edict.lawpack/v1" => Some("lawpack-manifest"),
         "edict.lowering-requirements/v1" => Some("lowering-requirements"),
+        "edict.source/v1" => Some("edict-source-bytes"),
         "edict.target-profile/v1" => Some("target-profile-manifest"),
         "edict.target-ir.artifact/v1" => Some("target-ir-artifact"),
         "echo.generated-artifact-profile/v1" => Some("generated-artifact-profile"),
         "echo.generated-artifact/v1" => Some("generated-artifact"),
+        "echo.operation-lowering-configuration/v1" => Some("echo-operation-lowering-configuration"),
+        "echo.operation-package-verifier-report/v1" => {
+            Some("echo-operation-package-verifier-report")
+        }
+        "echo.operation-package/v1" => Some("echo-operation-package"),
         "echo.review-payload/v1" => Some("review-payload"),
         "echo.verifier-report/v1" => Some("verifier-report"),
         _ => None,

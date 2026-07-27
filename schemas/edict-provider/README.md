@@ -169,10 +169,10 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-189,668 bytes with SHA-256
-`f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`; the
-promoted verifier is 189,922 bytes with SHA-256
-`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
+225,428 bytes with SHA-256
+`3a0a1ce454f3083df814f60554997d26d0b539f7977a7aae6b00e7e09159e392`; the
+promoted verifier is 242,350 bytes with SHA-256
+`660ad5ad875b844e30c027e2a861e7941b5905098311fe578ae7fed732cf322c`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication merged in
@@ -285,9 +285,10 @@ independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
-routes, 24 domain-to-root bindings (nine invocation domains, the generated
-artifact profile, and 14 generated-resource domains), and raw SHA-256 of all 24
-physical members without hashing the derived manifest into itself. The five routed
+routes, 30 domain-to-root bindings (nine compatibility invocation domains, the
+generated artifact profile, 14 generated-resource domains, and six generic
+executable-operation closure domains), and raw SHA-256 of all 24 physical
+members without hashing the derived manifest into itself. The five routed
 canonical-CBOR artifacts use their Edict domain-framed identities in the
 manifest, while CDDL, Wesley JSON evidence, and components use raw exact-byte
 identities. Pure digest admission also rebinds the generated routes to the

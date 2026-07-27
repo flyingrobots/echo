@@ -16,12 +16,14 @@ categories = ["compilers", "wasm", "development-tools"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+blake3 = "1.0"
 echo-edict-canonical = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc"] }
 
 [dev-dependencies]
+echo-edict-provider-lowerer = { path = "../echo-edict-provider-lowerer" }
 hex = "0.4"
 sha2 = "0.10"
 

@@ -23,7 +23,7 @@ use edict_provider_host_wasmtime::{
 use edict_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
 use edict_syntax::{
     bind_target_provider_manifest, compile_to_core, decode_canonical_cbor,
-    digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
+    digest_core_module, digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
     encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
     validate_provider_lowering_request, BuiltinLowererRequest, BuiltinTargetLowerer,
     CanonicalValue, CompilerContext, CoreBudget, CoreModule, ProviderArtifact,
@@ -36,8 +36,9 @@ use edict_syntax::{
     ProviderSemanticInput, ProviderSemanticInputBinding, ProviderSemanticInputKind,
     ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ProviderVerificationSuccess,
-    ResourceRef, TargetEffectLowering, TargetIrLoweringFacts, TargetProviderManifest,
-    ValidatedProviderLoweringRequest, ValidatedProviderVerificationRequest, WriteClass,
+    ResourceRef, TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts,
+    TargetIrSemanticClosure, TargetProviderManifest, ValidatedProviderLoweringRequest,
+    ValidatedProviderVerificationRequest, WriteClass,
     AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
     ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
@@ -63,13 +64,13 @@ const DIAGNOSTIC_ABI_DIGEST: &str =
     "28fd72a98223153982ca084c29dbb1b2d430623967ab3b6db9d7fee668e614b9";
 const SCHEMA_ROLE: &str = "schema.echo-provider-artifacts";
 const RAW_TARGET_IR_SHA256: &str =
-    "9cc5b163ae43116d561071f0b9a59f98d894d858f787ddedd8690ad1451f17d1";
+    "5955207bd319a6b214bd6412421be1b62d5f73bb3ad10dfb0f485e708147ba89";
 const DOMAIN_TARGET_IR_SHA256: &str =
-    "d4689abc5c2275ea9c7e1b743197a0d8b4625091632e8f5162eba9ff88d568ad";
+    "40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da";
 const RAW_TARGET_PROFILE_SHA256: &str =
-    "a2ecfe500dcedb25b22129a412a7c83379fc265d9f04792355425ff80b52a2ba";
+    "1b105d1b1f6cdf5fecdef98b7adeb238525047d43581fe9fd8c44fd213e1788e";
 const DOMAIN_TARGET_PROFILE_SHA256: &str =
-    "eedf7bdbf6fe4b6a4036695f41c3dc0a5c692d27e206c9d4c0c5eab41e2f63c9";
+    "2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04";
 const OBSERVATION_MARKER: &str = "ECHO_EDICT_HOST_OBSERVATION=";
 
 const SCHEMA_BYTES: &[u8] = include_bytes!(
@@ -719,7 +720,7 @@ fn canonical_core_intent_mut(core: &mut CanonicalValue) -> &mut CanonicalValue {
 }
 
 fn target_ir_with_mismatched_intrinsic(core: &CoreModule) -> Vec<u8> {
-    let (target_ir_bytes, _) = oracle_target_ir(core);
+    let (target_ir_bytes, _) = compatibility_verifier_target_ir(core);
     let mut target_ir =
         decode_canonical_cbor(&target_ir_bytes).expect("oracle Target IR decodes canonically");
     let intent = canonical_map_field_mut(canonical_map_field_mut(&mut target_ir, "intents"), "t");
@@ -734,7 +735,7 @@ fn target_ir_with_mismatched_intrinsic(core: &CoreModule) -> Vec<u8> {
 }
 
 fn target_ir_without_obstruction_arm(core: &CoreModule) -> Vec<u8> {
-    let (target_ir_bytes, _) = oracle_target_ir(core);
+    let (target_ir_bytes, _) = compatibility_verifier_target_ir(core);
     let mut target_ir =
         decode_canonical_cbor(&target_ir_bytes).expect("oracle Target IR decodes canonically");
     let intent = canonical_map_field_mut(canonical_map_field_mut(&mut target_ir, "intents"), "t");
@@ -1089,7 +1090,7 @@ fn echo_observation() -> String {
 
 fn echo_verifier_observation() -> String {
     let core = echo_core();
-    let (accepted_target_ir, _) = oracle_target_ir(&core);
+    let (accepted_target_ir, _) = compatibility_verifier_target_ir(&core);
     let accepted = echo_verifier_harness(&core, &accepted_target_ir);
     let accepted_outcome = accepted
         .host
@@ -1204,7 +1205,7 @@ fn echo_verifier_observation() -> String {
     )
 }
 
-fn oracle_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
+fn oracle_target_ir_artifact(core: &CoreModule) -> TargetIrArtifact {
     let facts = TargetIrLoweringFacts {
         target_profile: ResourceRef {
             coordinate: ECHO_DPO_TARGET_PROFILE.to_owned(),
@@ -1226,9 +1227,12 @@ fn oracle_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
         },
     )
     .expect("Edict built-in Echo lowerer accepts the exact fixture");
-    let artifact = report.artifact.expect("Echo Core lowers to Target IR");
-    let bytes = encode_target_ir_artifact(&artifact).expect("oracle Target IR encodes");
-    let digest = digest_target_ir_artifact(&artifact).expect("oracle Target IR digests");
+    report.artifact.expect("Echo Core lowers to Target IR")
+}
+
+fn encode_oracle_target_ir(artifact: &TargetIrArtifact) -> (Vec<u8>, ProviderDigest) {
+    let bytes = encode_target_ir_artifact(artifact).expect("oracle Target IR encodes");
+    let digest = digest_target_ir_artifact(artifact).expect("oracle Target IR digests");
     assert_eq!(digest.algorithm(), "sha256");
     (
         bytes,
@@ -1237,6 +1241,35 @@ fn oracle_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
             bytes: digest.bytes().to_vec(),
         },
     )
+}
+
+fn compatibility_verifier_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
+    encode_oracle_target_ir(&oracle_target_ir_artifact(core))
+}
+
+fn closed_lowerer_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
+    let mut artifact = oracle_target_ir_artifact(core);
+    artifact.semantic_closure = Some(TargetIrSemanticClosure {
+        source_core: ResourceRef {
+            coordinate: core.coordinate.clone(),
+            digest: Some(
+                digest_core_module(core)
+                    .expect("oracle Core has an Edict domain-framed digest")
+                    .to_review_string(),
+            ),
+        },
+        lawpacks: vec![ResourceRef {
+            coordinate: "echo.dpo-lawpack@1".to_owned(),
+            digest: Some(format!(
+                "sha256:{}",
+                hex(
+                    &provider_digest(PROVIDER_LAWPACK_ARTIFACT_DOMAIN, LAWPACK_BYTES)
+                        .bytes
+                )
+            )),
+        }],
+    });
+    encode_oracle_target_ir(&artifact)
 }
 
 #[test]
@@ -1254,7 +1287,7 @@ fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
         DOMAIN_TARGET_PROFILE_SHA256
     );
 
-    let (oracle_bytes, oracle_digest) = oracle_target_ir(&core);
+    let (oracle_bytes, oracle_digest) = closed_lowerer_target_ir(&core);
     let harness = echo_harness(&core, TARGET_IR_ROLE);
     let outcome = harness
         .host
@@ -1275,7 +1308,7 @@ fn echo_component_matches_independent_edict_target_ir_bytes_and_digest() {
     assert_eq!(output.artifact.domain, TARGET_IR_ARTIFACT_DIGEST_DOMAIN);
     assert_eq!(output.logical_path, None);
     assert_eq!(output.artifact.bytes, oracle_bytes);
-    assert_eq!(output.artifact.bytes.len(), 848);
+    assert_eq!(output.artifact.bytes.len(), 1017);
     assert_eq!(raw_sha256(&output.artifact.bytes), RAW_TARGET_IR_SHA256);
 
     let manifest = outcome.manifest().expect("host authors an output manifest");
@@ -1431,16 +1464,15 @@ fn echo_component_refuses_an_unsupported_profile_through_the_actual_host() {
 
 fn assert_unsupported_core_semantics_contract() {
     let mut core = echo_core();
-    "x.y@1".clone_into(&mut core.coordinate);
-    let (mut contract, mut request) = echo_request(&core, TARGET_IR_ROLE);
-    request.core.reference.coordinate = core.coordinate;
-    contract.core = artifact_binding(&request.core);
-    let harness = echo_harness_with_request(contract, request);
+    for intent in core.intents.values_mut() {
+        intent.body.nodes.clear();
+    }
+    let harness = echo_harness(&core, TARGET_IR_ROLE);
 
     let refusal = assert_echo_refusal(
         &harness,
         ProviderRefusalKind::UnsupportedSemantics,
-        Some("x.y@1"),
+        Some("a.b@1.t"),
     );
     let [diagnostic] = refusal.diagnostics.as_slice() else {
         panic!("unsupported semantics produces one provider diagnostic");
@@ -1856,7 +1888,7 @@ fn independent_processes_reproduce_the_same_echo_component_observation() {
 #[test]
 fn echo_verifier_component_admits_the_exact_relation_through_the_actual_host() {
     let core = echo_core();
-    let (target_ir_bytes, _) = oracle_target_ir(&core);
+    let (target_ir_bytes, _) = compatibility_verifier_target_ir(&core);
     let harness = echo_verifier_harness(&core, &target_ir_bytes);
     let outcome = harness
         .host
@@ -1955,7 +1987,7 @@ fn echo_verifier_component_rejects_a_dropped_obstruction_arm() {
 
 fn assert_unsupported_verifier_output_role_contract() {
     let core = echo_core();
-    let (target_ir_bytes, _) = oracle_target_ir(&core);
+    let (target_ir_bytes, _) = compatibility_verifier_target_ir(&core);
     let (contract, mut request) = echo_verification_request(&core, &target_ir_bytes);
     request
         .requested_outputs
@@ -2003,7 +2035,7 @@ fn echo_verifier_component_preserves_a_typed_output_overclaim_refusal() {
 #[test]
 fn echo_verifier_component_replays_all_completed_outcome_classes_identically() {
     let core = echo_core();
-    let (accepted_target_ir, _) = oracle_target_ir(&core);
+    let (accepted_target_ir, _) = compatibility_verifier_target_ir(&core);
     let accepted = echo_verifier_harness(&core, &accepted_target_ir);
     let rejected_target_ir = target_ir_with_mismatched_intrinsic(&core);
     let rejected = echo_verifier_harness(&core, &rejected_target_ir);

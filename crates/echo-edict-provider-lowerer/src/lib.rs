@@ -14,6 +14,7 @@ use echo_edict_canonical::{
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+mod executable_operation;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
     major: 1,
@@ -22,7 +23,6 @@ const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {
 };
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const CORE_ABI: &str = "edict.core/v1";
-const CORE_COORDINATE: &str = "a.b@1";
 const TARGET_PROFILE_DOMAIN: &str = "edict.target-profile/v1";
 const TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
 const LAWPACK_DOMAIN: &str = "edict.lawpack/v1";
@@ -49,15 +49,10 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const OPERATION_COORDINATE: &str = "a.b@1.t";
-const OPERATION_INPUT_TYPE: &str = "a.b@1.Input";
-const OPERATION_OUTPUT_TYPE: &str = "a.b@1.Output";
-const OPERATION_RECEIPT_TYPE: &str = "a.b@1.Receipt";
 const OPERATION_PROFILE: &str = "continuum.profile.write/v1";
 const SEMANTIC_EFFECT: &str = "target.replace";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.replace";
 const FAILURE_COORDINATE: &str = "rejected";
-const FAILURE_PAYLOAD_TYPE: &str = "target.replace.rejected";
-const DOMAIN_OBSTRUCTION: &str = "domain.WriteRejected";
 
 const TARGET_PROFILE_BYTES: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const LAWPACK_BYTES: &[u8] = include_bytes!("../resources/lawpack.echo-dpo.cbor");
@@ -296,9 +291,16 @@ pub fn lower(request: LoweringRequestV1) -> LoweringResultV1 {
     }
 
     validate_target_profile(&request.target_profile)?;
+    if executable_operation::is_requested(&request) {
+        return executable_operation::lower(&request);
+    }
     validate_semantic_closure(&request.semantic_inputs)?;
     validate_requested_outputs(&request.requested_outputs)?;
-    let target_ir = lower_core(&request.core, &request.target_profile.reference.digest)?;
+    let target_ir = lower_core(
+        &request.core,
+        &request.target_profile.reference.digest,
+        &request.semantic_inputs,
+    )?;
 
     let outputs = build_requested_outputs(
         &request.requested_outputs,
@@ -443,43 +445,6 @@ fn expected_lowerability() -> Result<CanonicalValueV1, ()> {
     ])
 }
 
-fn expected_core_types() -> Result<CanonicalValueV1, ()> {
-    canonical_sorted_map([
-        ("Input", expected_record_type("a.b@1.Input.id")?),
-        ("Output", expected_record_type("a.b@1.Output.id")?),
-        ("Receipt", expected_record_type("a.b@1.Receipt.id")?),
-        ("Input.id", expected_string_type()?),
-        ("Output.id", expected_string_type()?),
-        ("Receipt.id", expected_string_type()?),
-    ])
-}
-
-fn expected_record_type(field_type: &str) -> Result<CanonicalValueV1, ()> {
-    canonical_sorted_map([
-        ("kind", canonical_text("Record")),
-        (
-            "fields",
-            canonical_sorted_map([("id", canonical_text(field_type))])?,
-        ),
-    ])
-}
-
-fn expected_string_type() -> Result<CanonicalValueV1, ()> {
-    canonical_sorted_map([
-        ("kind", canonical_text("String")),
-        ("max", CanonicalValueV1::Integer(16)),
-        ("canonical", canonical_text("raw-utf8")),
-    ])
-}
-
-fn expected_core_evaluation_budget() -> Result<CanonicalValueV1, ()> {
-    canonical_sorted_map([
-        ("maxSteps", CanonicalValueV1::Integer(8)),
-        ("maxAllocatedBytes", CanonicalValueV1::Integer(1024)),
-        ("maxOutputBytes", CanonicalValueV1::Integer(256)),
-    ])
-}
-
 fn canonical_sorted_map<'a>(
     entries: impl IntoIterator<Item = (&'a str, CanonicalValueV1)>,
 ) -> Result<CanonicalValueV1, ()> {
@@ -487,6 +452,26 @@ fn canonical_sorted_map<'a>(
         .into_iter()
         .map(|(key, value)| {
             let key = canonical_text(key);
+            let encoded_key = encode_canonical_cbor_v1(&key).map_err(|_| ())?;
+            Ok((encoded_key, key, value))
+        })
+        .collect::<Result<Vec<_>, ()>>()?;
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(CanonicalValueV1::Map(
+        entries
+            .into_iter()
+            .map(|(_, key, value)| (key, value))
+            .collect(),
+    ))
+}
+
+fn canonical_owned_map(
+    entries: impl IntoIterator<Item = (String, CanonicalValueV1)>,
+) -> Result<CanonicalValueV1, ()> {
+    let mut entries = entries
+        .into_iter()
+        .map(|(key, value)| {
+            let key = canonical_text(&key);
             let encoded_key = encode_canonical_cbor_v1(&key).map_err(|_| ())?;
             Ok((encoded_key, key, value))
         })
@@ -824,7 +809,7 @@ pub mod echo_dpo {
     pub const PROVIDER_SCHEMA_COORDINATE: &str = "echo.provider-artifacts.cddl@1";
     /// Raw SHA-256 of the exact self-contained provider CDDL bytes.
     pub const PROVIDER_SCHEMA_SHA256_HEX: &str =
-        "faece52eaf8ec040c374e5fe2a5ea040b522b58f415973f481e9c836ecfc4cde";
+        "c604b7bf9e20db02dac9c010a01470d711335953cb31e6a603fb1e9cb818e8fa";
     /// Exact generated-artifact profile coordinate owning operation schemas.
     pub const GENERATED_ARTIFACT_PROFILE: &str = "echo.dpo.registration/v1";
     /// Digest-framing domain for the generated-artifact profile.
@@ -861,7 +846,7 @@ pub mod echo_dpo {
 
     const MUTATION_RULE_NAME: &str = concat!(
         "cmd/contract/",
-        "faece52eaf8ec040c374e5fe2a5ea040b522b58f415973f481e9c836ecfc4cde",
+        "c604b7bf9e20db02dac9c010a01470d711335953cb31e6a603fb1e9cb818e8fa",
         "/3389142194/a.b@1.t"
     );
     const PROVIDER_OPERATIONS: [ProviderOperationV1<'static>; 1] = [ProviderOperationV1 {
@@ -1550,6 +1535,7 @@ fn invalid_output_artifact(subject: &str, code: &str, message: &str) -> Provider
 fn lower_core(
     core: &BoundArtifact,
     target_profile_digest: &Digest,
+    semantic_inputs: &[SemanticInput],
 ) -> Result<CanonicalValueV1, ProviderRefusalV1> {
     if core.artifact.domain != CORE_DOMAIN {
         return Err(invalid_artifact(
@@ -1578,18 +1564,9 @@ fn lower_core(
             "Core coordinate does not equal its bound reference",
         ));
     }
-    if coordinate != CORE_COORDINATE {
-        return Err(unsupported_semantics(coordinate));
-    }
-    let expected_types = expected_core_types().map_err(|()| {
-        invalid_artifact(
-            "core.echo-provider",
-            "reviewed Core type definitions are invalid",
-        )
-    })?;
-    if !matches!(array_field(&value, "imports"), Some(imports) if imports.is_empty())
-        || map_field(&value, "types") != Some(&expected_types)
-        || !matches!(array_field(&value, "requiredCoreCapabilities"), Some(capabilities) if capabilities.is_empty())
+    if array_field(&value, "imports").is_none()
+        || map_field(&value, "types").and_then(as_map).is_none()
+        || array_field(&value, "requiredCoreCapabilities").is_none()
     {
         return Err(unsupported_semantics(coordinate));
     }
@@ -1597,16 +1574,41 @@ fn lower_core(
     let intents = map_field(&value, "intents")
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact("core.echo-provider", "Core intents map is invalid"))?;
-    let [(intent_key, intent)] = intents.as_slice() else {
+    if intents.is_empty() {
         return Err(unsupported_semantics(coordinate));
-    };
-    let intent_name = as_text(intent_key).ok_or_else(|| unsupported_semantics(coordinate))?;
-    if intent_name != "t" {
-        return Err(unsupported_semantics(intent_name));
     }
-    let lowered_intent = lower_intent(intent_name, intent)?;
+    let mut lowered_intents = Vec::with_capacity(intents.len());
+    for (intent_key, intent) in intents {
+        let intent_name = as_text(intent_key)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| unsupported_semantics(coordinate))?;
+        lowered_intents.push((
+            intent_name.to_owned(),
+            lower_intent(coordinate, intent_name, intent)?,
+        ));
+    }
+    let lowered_intents = canonical_owned_map(lowered_intents).map_err(|()| {
+        invalid_artifact(
+            "core.echo-provider",
+            "lowered Core intent names are not canonically encodable",
+        )
+    })?;
     let digest_value = target_profile_digest_value(target_profile_digest)
         .ok_or_else(|| invalid_artifact("target-profile.echo-dpo", "digest is invalid"))?;
+    let source_core = resource_ref_value(
+        &core.reference.coordinate,
+        core.reference.digest.bytes.clone(),
+    )?;
+    let lawpacks = semantic_inputs
+        .iter()
+        .filter(|input| input.kind == SemanticInputKind::Lawpack)
+        .map(|input| {
+            resource_ref_value(
+                &input.artifact.reference.coordinate,
+                input.artifact.reference.digest.bytes.clone(),
+            )
+        })
+        .collect::<Result<Vec<_>, ProviderRefusalV1>>()?;
 
     Ok(canonical_map([
         ("kind", canonical_text("targetIrArtifact")),
@@ -1618,64 +1620,67 @@ fn lower_core(
                 ("digest", digest_value),
             ]),
         ),
+        (
+            "semanticClosure",
+            canonical_map([
+                ("sourceCore", source_core),
+                ("lawpacks", CanonicalValueV1::Array(lawpacks)),
+            ]),
+        ),
         ("sourceCoreCoordinate", canonical_text(coordinate)),
-        ("intents", canonical_map([(intent_name, lowered_intent)])),
+        ("intents", lowered_intents),
     ]))
 }
 
 fn lower_intent(
+    core_coordinate: &str,
     intent_name: &str,
     intent: &CanonicalValueV1,
 ) -> Result<CanonicalValueV1, ProviderRefusalV1> {
-    if text_field(intent, "input") != Some(OPERATION_INPUT_TYPE)
-        || text_field(intent, "output") != Some(OPERATION_OUTPUT_TYPE)
-    {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
-    }
+    let operation_coordinate = format!("{core_coordinate}.{intent_name}");
+    let input_type = text_field(intent, "input")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| unsupported_semantics(&operation_coordinate))?;
+    text_field(intent, "output")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| unsupported_semantics(&operation_coordinate))?;
     if map_field(intent, "optic").is_some() {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(&operation_coordinate));
     }
     if text_field(intent, "requiredOperationProfile") != Some(OPERATION_PROFILE) {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(&operation_coordinate));
     }
     let input_constraints = array_field(intent, "inputConstraints")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "input constraints are invalid"))?;
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "input constraints are invalid"))?;
     if !input_constraints.is_empty() {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(&operation_coordinate));
     }
     let budget = map_field(intent, "coreEvaluationBudget")
         .filter(|budget| validate_budget(budget))
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core budget is invalid"))?;
-    let expected_budget = expected_core_evaluation_budget().map_err(|()| {
-        invalid_artifact(
-            OPERATION_COORDINATE,
-            "reviewed Core evaluation budget is invalid",
-        )
-    })?;
-    if budget != &expected_budget {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
-    }
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core budget is invalid"))?;
     let body = map_field(intent, "body")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core body is absent"))?;
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core body is absent"))?;
     let locals = array_field(body, "locals")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core locals are invalid"))?;
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core locals are invalid"))?;
     if !validate_local_inventory(locals) {
         return Err(invalid_artifact(
-            OPERATION_COORDINATE,
+            &operation_coordinate,
             "Core local declarations are invalid",
         ));
     }
     let nodes = array_field(body, "nodes")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core nodes are invalid"))?;
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core nodes are invalid"))?;
     let [node] = nodes.as_slice() else {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(&operation_coordinate));
     };
-    let lowered_effect = lower_effect_node(intent_name, node, locals)?;
+    let lowered_effect =
+        lower_effect_node(&operation_coordinate, intent_name, input_type, node, locals)?;
     let result_scope = [lowered_effect.input_local, lowered_effect.binding];
     let result = map_field(body, "result")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core result is invalid"))?;
-    validate_expr(result, &result_scope, &[])
-        .map_err(|error| expression_refusal(error, "Core result is invalid"))?;
+        .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core result is invalid"))?;
+    validate_expr(result, &result_scope, &[]).map_err(|error| {
+        expression_refusal(&operation_coordinate, error, "Core result is invalid")
+    })?;
 
     Ok(canonical_map([
         ("operationProfile", canonical_text(OPERATION_PROFILE)),
@@ -1697,53 +1702,59 @@ struct LoweredEffect<'a> {
 }
 
 fn lower_effect_node<'a>(
+    operation_coordinate: &str,
     intent_name: &str,
+    input_type: &str,
     node: &'a CanonicalValueV1,
     locals: &'a [CanonicalValueV1],
 ) -> Result<LoweredEffect<'a>, ProviderRefusalV1> {
     if text_field(node, "kind") != Some("effect")
         || text_field(node, "effect") != Some(SEMANTIC_EFFECT)
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(operation_coordinate));
     }
     let binding = map_field(node, "binding")
         .filter(|binding| validate_local(binding))
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect binding is invalid"))?;
+        .ok_or_else(|| invalid_artifact(operation_coordinate, "effect binding is invalid"))?;
     let obstruction_map = map_field(node, "obstructionMap")
         .and_then(as_map)
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction map is invalid"))?;
+        .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction map is invalid"))?;
     let [(failure, arm)] = obstruction_map.as_slice() else {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(operation_coordinate));
     };
-    if as_text(failure) != Some(FAILURE_COORDINATE) {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
-    }
+    let failure = as_text(failure)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| unsupported_semantics(operation_coordinate))?;
     let obstruction_binder = map_field(arm, "binder")
         .filter(|binder| validate_local(binder))
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction binder is invalid"))?;
-    let input_local =
-        reviewed_input_local(locals, binding, obstruction_binder).ok_or_else(|| {
-            invalid_artifact(OPERATION_COORDINATE, "Core local declarations are invalid")
+        .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction binder is invalid"))?;
+    let input_local = reviewed_input_local(locals, binding, obstruction_binder, input_type)
+        .ok_or_else(|| {
+            invalid_artifact(operation_coordinate, "Core local declarations are invalid")
         })?;
 
     let pre_effect_scope = [input_local];
     let input = map_field(node, "input")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect input is invalid"))?;
-    validate_expr(input, &pre_effect_scope, &[])
-        .map_err(|error| expression_refusal(error, "effect input is invalid"))?;
+        .ok_or_else(|| invalid_artifact(operation_coordinate, "effect input is invalid"))?;
+    validate_expr(input, &pre_effect_scope, &[]).map_err(|error| {
+        expression_refusal(operation_coordinate, error, "effect input is invalid")
+    })?;
 
     let obstruction_scope = [input_local, obstruction_binder];
     let obstruction_value = map_field(arm, "value")
-        .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction value is invalid"))?;
+        .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction value is invalid"))?;
+    let obstruction_callee = text_field(obstruction_value, "callee")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| unsupported_semantics(operation_coordinate))?;
     if text_field(obstruction_value, "kind") != Some("call")
-        || text_field(obstruction_value, "callee") != Some(DOMAIN_OBSTRUCTION)
         || !matches!(array_field(obstruction_value, "typeArgs"), Some(arguments) if arguments.is_empty())
         || !matches!(array_field(obstruction_value, "args"), Some(arguments) if arguments.is_empty())
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(operation_coordinate));
     }
-    validate_expr(obstruction_value, &obstruction_scope, &[DOMAIN_OBSTRUCTION])
-        .map_err(|error| expression_refusal(error, "obstruction value is invalid"))?;
+    validate_expr(obstruction_value, &obstruction_scope, &[obstruction_callee]).map_err(
+        |error| expression_refusal(operation_coordinate, error, "obstruction value is invalid"),
+    )?;
 
     Ok(LoweredEffect {
         value: canonical_map([
@@ -1754,11 +1765,16 @@ fn lower_effect_node<'a>(
             ("input", input.clone()),
             (
                 "obstructionFailures",
-                CanonicalValueV1::Array(vec![canonical_text(FAILURE_COORDINATE)]),
+                CanonicalValueV1::Array(vec![canonical_text(failure)]),
             ),
             (
                 "obstructionArms",
-                canonical_map([(FAILURE_COORDINATE, arm.clone())]),
+                canonical_owned_map(vec![(failure.to_owned(), arm.clone())]).map_err(|()| {
+                    invalid_artifact(
+                        operation_coordinate,
+                        "obstruction coordinate is not canonically encodable",
+                    )
+                })?,
             ),
         ]),
         input_local,
@@ -1827,10 +1843,9 @@ fn reviewed_input_local<'a>(
     locals: &'a [CanonicalValueV1],
     binding: &CanonicalValueV1,
     obstruction_binder: &CanonicalValueV1,
+    input_type: &str,
 ) -> Option<&'a CanonicalValueV1> {
     if locals.len() != 3
-        || text_field(binding, "type") != Some(OPERATION_RECEIPT_TYPE)
-        || text_field(obstruction_binder, "type") != Some(FAILURE_PAYLOAD_TYPE)
         || !locals.contains(binding)
         || !locals.contains(obstruction_binder)
         || same_local_id(binding, obstruction_binder)
@@ -1842,7 +1857,7 @@ fn reviewed_input_local<'a>(
         !same_local_id(local, binding) && !same_local_id(local, obstruction_binder)
     });
     let input = inputs.next()?;
-    if inputs.next().is_some() || text_field(input, "type") != Some(OPERATION_INPUT_TYPE) {
+    if inputs.next().is_some() || text_field(input, "type") != Some(input_type) {
         return None;
     }
     Some(input)
@@ -1923,15 +1938,16 @@ fn validate_expr(
 }
 
 fn expression_refusal(
+    operation_coordinate: &str,
     error: ExpressionValidationError,
     invalid_message: &str,
 ) -> ProviderRefusalV1 {
     match error {
         ExpressionValidationError::Invalid => {
-            invalid_artifact(OPERATION_COORDINATE, invalid_message)
+            invalid_artifact(operation_coordinate, invalid_message)
         }
-        ExpressionValidationError::LocalOutOfScope => local_scope_refusal(),
-        ExpressionValidationError::UnsupportedCall => unsupported_semantics(OPERATION_COORDINATE),
+        ExpressionValidationError::LocalOutOfScope => local_scope_refusal(operation_coordinate),
+        ExpressionValidationError::UnsupportedCall => unsupported_semantics(operation_coordinate),
     }
 }
 
@@ -2025,10 +2041,10 @@ fn invalid_artifact(subject: &str, message: &str) -> ProviderRefusalV1 {
     )
 }
 
-fn local_scope_refusal() -> ProviderRefusalV1 {
+fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
     refusal(
         ProviderRefusalKind::InvalidSemanticArtifact,
-        OPERATION_COORDINATE,
+        operation_coordinate,
         "echo.provider.local-reference-out-of-scope",
         "Core local reference is not in scope",
     )

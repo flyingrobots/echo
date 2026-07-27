@@ -15,17 +15,20 @@
   dispatch or a native callback. A structurally separate verifier reconstructs
   the source-to-package relation and emits an exact accepted or rejected
   `echo.operation-package-verifier-report/v1`. The provider package exposes six
-  new closure domains through 30 total schema bindings. Its lowerer and verifier
-  components were independently reproduced in mount-free designated
-  `linux/amd64` containers and promoted at 225,428 bytes /
-  `3a0a1ce454f3083df814f60554997d26d0b539f7977a7aae6b00e7e09159e392`
-  and 242,350 bytes /
-  `660ad5ad875b844e30c027e2a861e7941b5905098311fe578ae7fed732cf322c`,
+  new closure domains through 30 total schema bindings. The generic route now
+  binds source-local capability aliases to canonical lawpack exports through
+  the exact digest-locked Edict import and corroborates lawpack-owned
+  coordinate-framed exports and adapter references independently from their
+  provider-envelope domains. Its lowerer and verifier components were
+  independently reproduced in copy-only, mount-free designated `linux/amd64`
+  containers and promoted at 230,285 bytes /
+  `9575ca8c843f3dfe4e5550ecdc40a8a8584c1aa7012b5b6f6a76e3f05f1b68f3`
+  and 247,754 bytes /
+  `d87f3df6cdeca0b14032a23b614e9b9ba1f53ea3955a5a0aebda6c61450c3e51`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:a546b932ae11778935a6b0ed6a26ef2c9210397435553d865a9e7b5b255b58b2`.
+  `sha256:4318f83a6412231b3459c0803bb6191d2e20d3f1e5bca0e09b1a73b031458f44`.
   This proves generic compiler/provider lowering and independent verification;
-  Edict's public application-build boundary and Echo runtime execution remain
-  separate downstream crossings.
+  Echo runtime execution remains a separate downstream crossing.
 - Executable-operation application writes now enter Echo as canonical,
   WAL-acknowledged Actions and are evaluated only by the scheduler while
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending

@@ -111,8 +111,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 225,428-byte checked lowerer component has SHA-256
-`3a0a1ce454f3083df814f60554997d26d0b539f7977a7aae6b00e7e09159e392` and has
+The refreshed 230,285-byte checked lowerer component has SHA-256
+`9575ca8c843f3dfe4e5550ecdc40a8a8584c1aa7012b5b6f6a76e3f05f1b68f3` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -120,6 +120,11 @@ packing, borrowed registry, and non-installing proposal contract. Host-side
 admission of the review envelope remains an independent crossing. The same host
 witness proves that unrelated application coordinates produce compiler-bound
 packages through the generic route without changing the component.
+Real Edict Core may preserve a source-local capability alias; the lowerer binds
+that alias to the canonical effect only through the exact digest-locked
+lawpack import in the supplied source. Lawpack-owned export and adapter
+references retain their coordinate-framed digests independently from the
+provider envelope's schema-domain digests.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

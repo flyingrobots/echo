@@ -28,6 +28,8 @@ const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mism
 struct FixtureNames<'a> {
     application: &'a str,
     intent: &'a str,
+    alias: &'a str,
+    effect_member: &'a str,
     lawpack: &'a str,
     lawpack_id: &'a str,
     lawpack_version: &'a str,
@@ -45,6 +47,8 @@ struct FixtureNames<'a> {
 const ALPHA: FixtureNames<'static> = FixtureNames {
     application: "examples.alpha@1",
     intent: "createGreeting",
+    alias: "cell",
+    effect_member: "createIfAbsent",
     lawpack: "causal.cell@1",
     lawpack_id: "causal.cell",
     lawpack_version: "1",
@@ -62,6 +66,8 @@ const ALPHA: FixtureNames<'static> = FixtureNames {
 const BETA: FixtureNames<'static> = FixtureNames {
     application: "notes.beta@7",
     intent: "createNote",
+    alias: "portable",
+    effect_member: "createIfAbsent",
     lawpack: "portable.cell@3",
     lawpack_id: "portable.cell",
     lawpack_version: "3",
@@ -171,8 +177,13 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
         "edict.source/v1",
         canonical_bytes(&CanonicalValueV1::Bytes(
             format!(
-                "package {}; intent {} uses {};",
-                names.application, names.intent, names.effect
+                "package {};\n\nuse lawpack {} digest \"{}\" as {};\n\nintent {} uses {};",
+                names.application,
+                names.lawpack,
+                digest_review(&lawpack.reference.digest.bytes),
+                names.alias,
+                names.intent,
+                names.effect
             )
             .into_bytes(),
         )),
@@ -253,7 +264,10 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                             "nodes",
                             CanonicalValueV1::Array(vec![owned_map([
                                 ("kind", text("effect")),
-                                ("effect", text(names.effect)),
+                                (
+                                    "effect",
+                                    text(format!("{}.{}", names.alias, names.effect_member)),
+                                ),
                                 (
                                     "obstructionMap",
                                     dynamic_map([(
@@ -268,6 +282,15 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
             )]),
         ),
     ])
+}
+
+fn digest_review(bytes: &[u8]) -> String {
+    let mut value = String::from("sha256:");
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(value, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    value
 }
 
 fn exports(names: FixtureNames<'_>) -> CanonicalValueV1 {
@@ -356,16 +379,33 @@ fn lawpack(
         ("apiVersion", text("edict.lawpack/v1")),
         ("id", text(names.lawpack_id)),
         ("version", text(names.lawpack_version)),
-        ("exports", resource_ref(&exports.reference)),
+        ("exports", owner_resource_ref(exports)),
         (
             "targetAdapters",
             CanonicalValueV1::Array(vec![owned_map([
-                ("adapter", resource_ref(&adapter.reference)),
+                ("adapter", owner_resource_ref(adapter)),
                 (
                     "acceptedTargetProfile",
                     resource_ref(&target_profile.reference),
                 ),
             ])]),
+        ),
+    ])
+}
+
+fn owner_resource_ref(artifact: &BoundArtifact) -> CanonicalValueV1 {
+    let value =
+        decode_canonical_cbor_v1(&artifact.artifact.bytes).expect("owner artifact is canonical");
+    let digest = digest_canonical_value_bytes_v1(&artifact.reference.coordinate, &value)
+        .expect("owner-framed digest is computable");
+    owned_map([
+        ("id", text(&artifact.reference.coordinate)),
+        (
+            "digest",
+            CanonicalValueV1::Array(vec![
+                text("sha256"),
+                CanonicalValueV1::Bytes(digest.to_vec()),
+            ]),
         ),
     ])
 }

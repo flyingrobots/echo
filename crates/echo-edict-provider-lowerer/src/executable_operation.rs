@@ -3,7 +3,9 @@
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
 use blake3::Hasher;
-use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1};
+use echo_edict_canonical::{
+    digest_canonical_value_bytes_v1, encode_canonical_cbor_v1, CanonicalValueV1,
+};
 
 use super::{
     array_field, as_map, as_text, canonical_map, canonical_text, invalid_artifact, map_field,
@@ -96,16 +98,20 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     let configuration = validate_bound(&closure.configuration.artifact, CONFIGURATION_DOMAIN)?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
 
-    validate_source(&source, closure.source, &request.core)?;
-    validate_exports(&exports, &intent)?;
+    let source = validate_source(&source, closure.source, &request.core)?;
+    let semantic_effect =
+        semantic_effect_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+    validate_exports(&exports, &intent, &semantic_effect)?;
     validate_lawpack(
         &lawpack,
+        &exports,
+        &adapter,
         closure.lawpack,
         closure.exports,
         closure.adapter,
         &request.target_profile,
     )?;
-    validate_adapter(&adapter, closure.configuration, &intent)?;
+    validate_adapter(&adapter, closure.configuration, &intent, &semantic_effect)?;
     validate_target_ir(
         &target_ir,
         closure.target_ir,
@@ -251,11 +257,11 @@ fn validate_core<'a>(
     })
 }
 
-fn validate_source(
-    value: &CanonicalValueV1,
+fn validate_source<'a>(
+    value: &'a CanonicalValueV1,
     source: &SemanticInput,
     core: &BoundArtifact,
-) -> Result<(), ProviderRefusalV1> {
+) -> Result<&'a str, ProviderRefusalV1> {
     if source.artifact.reference.coordinate != core.reference.coordinate {
         return Err(super::unsupported_semantics(&source.role));
     }
@@ -266,18 +272,18 @@ fn validate_source(
         ));
     };
     std::str::from_utf8(source_bytes)
-        .map(|_| ())
         .map_err(|_| invalid_artifact(&source.role, "Edict source must be valid UTF-8"))
 }
 
 fn validate_exports(
     value: &CanonicalValueV1,
     intent: &ApplicationIntent<'_>,
+    semantic_effect: &str,
 ) -> Result<(), ProviderRefusalV1> {
     let effects = required_array(value, "effects", "exports.echo-operation")?;
     let effect = effects
         .iter()
-        .find(|effect| text_field(effect, "coordinate") == Some(intent.effect_coordinate))
+        .find(|effect| text_field(effect, "coordinate") == Some(semantic_effect))
         .ok_or_else(|| super::unsupported_semantics("exports.echo-operation"))?;
     if text_field(effect, "executionClass") != Some("runtime") {
         return Err(super::unsupported_semantics("exports.echo-operation"));
@@ -293,6 +299,8 @@ fn validate_exports(
 
 fn validate_lawpack(
     value: &CanonicalValueV1,
+    exports_value: &CanonicalValueV1,
+    adapter_value: &CanonicalValueV1,
     lawpack: &SemanticInput,
     exports: &SemanticInput,
     adapter: &SemanticInput,
@@ -305,9 +313,10 @@ fn validate_lawpack(
     {
         return Err(super::unsupported_semantics("lawpack.echo-operation"));
     }
-    require_resource_ref(
+    require_owner_resource_ref(
         required_map(value, "exports", "lawpack.echo-operation")?,
         &exports.artifact,
+        exports_value,
         "lawpack.echo-operation",
     )?;
     let adapters = required_array(value, "targetAdapters", "lawpack.echo-operation")?;
@@ -318,9 +327,10 @@ fn validate_lawpack(
                 .is_ok_and(|reference| resource_ref_matches(reference, target_profile))
         })
         .ok_or_else(|| super::unsupported_semantics("lawpack.echo-operation"))?;
-    require_resource_ref(
+    require_owner_resource_ref(
         required_map(selected, "adapter", "lawpack.echo-operation")?,
         &adapter.artifact,
+        adapter_value,
         "lawpack.echo-operation",
     )
 }
@@ -329,6 +339,7 @@ fn validate_adapter(
     value: &CanonicalValueV1,
     configuration: &SemanticInput,
     intent: &ApplicationIntent<'_>,
+    semantic_effect: &str,
 ) -> Result<(), ProviderRefusalV1> {
     if text_field(value, "apiVersion") != Some(ADAPTER_ABI)
         || text_field(value, "class") != Some("declarative")
@@ -336,8 +347,7 @@ fn validate_adapter(
         return Err(super::unsupported_semantics("adapter.echo-operation"));
     }
     let effects = required_map(value, "effectImplementations", "adapter.echo-operation")?;
-    let implementation =
-        required_map_field(effects, intent.effect_coordinate, "adapter.echo-operation")?;
+    let implementation = required_map_field(effects, semantic_effect, "adapter.echo-operation")?;
     if text_field(implementation, "targetIntrinsic") != Some(TARGET_INTRINSIC)
         || text_field(implementation, "writeClass") != Some("create")
     {
@@ -357,6 +367,49 @@ fn validate_adapter(
         return Err(super::unsupported_semantics("adapter.echo-operation"));
     }
     Ok(())
+}
+
+fn semantic_effect_coordinate(
+    source: &str,
+    lawpack: &SemanticInput,
+    core_effect: &str,
+) -> Result<String, ProviderRefusalV1> {
+    let lawpack_coordinate = lawpack.artifact.reference.coordinate.as_str();
+    if core_effect
+        .strip_prefix(lawpack_coordinate)
+        .is_some_and(|suffix| suffix.starts_with('.') && suffix.len() > 1)
+    {
+        return Ok(core_effect.to_owned());
+    }
+    let expected_digest = super::digest_review(&lawpack.artifact.reference.digest);
+    for line in source.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let [use_keyword, kind, coordinate, digest_keyword, digest, as_keyword, alias] =
+            fields.as_slice()
+        else {
+            continue;
+        };
+        let alias = alias.strip_suffix(';').unwrap_or(alias);
+        let digest = digest
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'));
+        if *use_keyword == "use"
+            && *kind == "lawpack"
+            && *coordinate == lawpack_coordinate
+            && *digest_keyword == "digest"
+            && digest == Some(expected_digest.as_str())
+            && *as_keyword == "as"
+        {
+            let prefix = format!("{alias}.");
+            if let Some(member) = core_effect
+                .strip_prefix(&prefix)
+                .filter(|member| !member.is_empty())
+            {
+                return Ok(format!("{lawpack_coordinate}.{member}"));
+            }
+        }
+    }
+    Err(super::unsupported_semantics("source.lawpack-alias"))
 }
 
 fn validate_target_ir(
@@ -647,6 +700,32 @@ fn require_resource_ref(
     subject: &str,
 ) -> Result<(), ProviderRefusalV1> {
     if resource_ref_matches(value, artifact) {
+        Ok(())
+    } else {
+        Err(super::unsupported_semantics(subject))
+    }
+}
+
+fn require_owner_resource_ref(
+    value: &CanonicalValueV1,
+    artifact: &BoundArtifact,
+    artifact_value: &CanonicalValueV1,
+    subject: &str,
+) -> Result<(), ProviderRefusalV1> {
+    let Some(coordinate) = text_field(value, "id") else {
+        return Err(super::unsupported_semantics(subject));
+    };
+    let Some(digest) = array_field(value, "digest")
+        .and_then(|values| <&[CanonicalValueV1; 2]>::try_from(values.as_slice()).ok())
+    else {
+        return Err(super::unsupported_semantics(subject));
+    };
+    let expected = digest_canonical_value_bytes_v1(coordinate, artifact_value)
+        .map_err(|_| invalid_artifact(coordinate, "owner-framed digest could not be computed"))?;
+    if coordinate == artifact.reference.coordinate
+        && digest[0] == canonical_text("sha256")
+        && digest[1] == CanonicalValueV1::Bytes(expected.to_vec())
+    {
         Ok(())
     } else {
         Err(super::unsupported_semantics(subject))

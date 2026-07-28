@@ -188,9 +188,11 @@ fixed-seed stress set. The runner validates the manifest-to-adapter-to-target
 configuration chain before Echo independently admits the package. Target
 configuration names the key and replacement input fields, node-id derivation,
 Action-lane WARP source, authority profile, type profiles, and budget. The
-runtime-owned basis selector, configured fields, package meaning, and
-verification report all influence the canonical invocation; no application
-matcher, executor, footprint callback, or handwritten package participates.
+accepted report's Target IR identity must equal the package semantic closure's
+Target IR identity. The runtime-owned basis selector, configured fields,
+package meaning, and verification report all influence the canonical
+invocation; no application matcher, executor, footprint callback, or
+handwritten package participates.
 
 This is singleton scheduler integration, not a claim that the external
 application can compose multiple Actions into one Tick. The kernel's synthetic

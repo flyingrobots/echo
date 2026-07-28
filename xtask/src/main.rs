@@ -496,8 +496,8 @@ fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!(
-            "{}: {} package=sha256:{}",
-            report.operation, report.verdict, report.artifacts.package_sha256
+            "{}: complete package=sha256:{}",
+            report.operation, report.artifacts.package.digest_hex
         );
         println!(
             "submission_wal_before_ack={} scheduler_actions={}",

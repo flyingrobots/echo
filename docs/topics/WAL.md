@@ -314,8 +314,12 @@ fresh-host installation and consequence recovery.
 
 The external compiler-to-runtime singleton witness lives in
 `xtask/tests/run_edict_operation.rs`. Its checked fixture contains exact package
-and verification-report bytes plus the manifest, target adapter, and target
-configuration that closed the compiler build. The witness proves
+and verification-report bytes emitted by the compiler build plus the exact
+generator-owned manifest, target adapter, and target configuration inputs that
+the build consumed. The runtime witness binds the executable-operation subset
+of that closure; dormant declarative verifier, compatibility, and conformance
+resource references remain Edict fixture identities rather than Echo runtime
+inputs. The witness proves
 accepted-submission durability before acknowledgement, fresh-host recovery of
 the installed package and pending Action before scheduler selection,
 scheduler-owned evaluation of that recovered work, decided-Tick durability, a

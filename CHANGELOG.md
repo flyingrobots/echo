@@ -18,10 +18,14 @@
   only after the decided-Tick WAL commit. A second fresh filesystem host
   recovers the package, Action, Tick, state, typed outcome, and Receipt.
   Repeating creation yields the typed precondition obstruction with no hidden
-  mutation, while a changed initial state refuses recovery. The checked
-  external fixture and bounded failure/stress suite contain application
-  vocabulary only under `xtask/tests`; the production runner is generic and
-  contains no native application callback or handwritten package.
+  mutation, while a changed initial state produces the typed
+  `echo-operation-execution-mismatch/action-basis` recovery refusal. Admission
+  binds the accepted verification report's Target IR to the package semantic
+  closure, and the machine-readable witness reports exact package,
+  verification-report, and lawpack-manifest digests. The checked external
+  fixture and bounded failure/stress suite contain application vocabulary only
+  under `xtask/tests`; the production runner is generic and contains no native
+  application callback or handwritten package.
 - The former native `hello-echo` counter capsule is now explicitly named
   `runtime-counter-diagnostic`, including its command, artifact paths, and
   internal identities. It remains a low-level callback-based maintenance

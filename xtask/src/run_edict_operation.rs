@@ -25,8 +25,9 @@ use warp_core::{
     EchoOperationAnchoredNodeOccupancyV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
     EchoOperationObstructionKindV1, EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId,
-    NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeWalConfig,
-    TypeId, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
+    TrustedRuntimeWalConfig, TrustedRuntimeWalError, TypeId, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey,
 };
 
 const MAX_ARTIFACT_BYTES: u64 = 1_048_576;
@@ -58,7 +59,6 @@ pub struct RunEdictOperationConfig {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunEdictOperationReport {
-    pub verdict: &'static str,
     pub operation: String,
     pub artifacts: ArtifactReport,
     pub submission: SubmissionReport,
@@ -71,9 +71,16 @@ pub struct RunEdictOperationReport {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactReport {
-    pub package_sha256: String,
-    pub verification_outcome: &'static str,
-    pub closure_bound: bool,
+    pub package: ArtifactIdentity,
+    pub verification_report: ArtifactIdentity,
+    pub lawpack_manifest: ArtifactIdentity,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactIdentity {
+    pub algorithm: &'static str,
+    pub digest_hex: String,
 }
 
 #[derive(Serialize)]
@@ -86,7 +93,6 @@ pub struct SubmissionReport {
 #[serde(rename_all = "camelCase")]
 pub struct SchedulerReport {
     pub action_count: usize,
-    pub singleton_integration: bool,
 }
 
 #[derive(Serialize)]
@@ -104,14 +110,13 @@ pub struct RecoveryReport {
     pub state_recovered: bool,
     pub outcome_recovered: bool,
     pub receipt_recovered: bool,
-    pub mutated_initial_state_refused: bool,
+    pub mutated_initial_state_refusal: &'static str,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DuplicateReport {
     pub obstruction: &'static str,
-    pub hidden_mutation: bool,
 }
 
 struct PackageMetadata {
@@ -120,6 +125,7 @@ struct PackageMetadata {
     lawpack_identity: [u8; 32],
     authority_profile_identity: [u8; 32],
     target_profile_identity: [u8; 32],
+    target_ir_identity: [u8; 32],
     budget: EchoOperationBudgetV1,
     required_node_type: TypeId,
     required_attachment_type: TypeId,
@@ -157,11 +163,13 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         MAX_ARTIFACT_BYTES,
         "verification report",
     )?;
+    let verification_report_sha256 = hex::encode(Sha256::digest(&report_bytes));
     let manifest_bytes = read_bounded(
         &config.lawpack_manifest,
         MAX_ARTIFACT_BYTES,
         "lawpack manifest",
     )?;
+    let lawpack_manifest_sha256 = hex::encode(Sha256::digest(&manifest_bytes));
     let adapter_bytes = read_bounded(
         &config.lawpack_adapter,
         MAX_ARTIFACT_BYTES,
@@ -177,7 +185,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let package_value =
         decode_canonical_cbor_v1(&package_bytes).context("package is not canonical Edict CBOR")?;
     let package = parse_package(&package_value)?;
-    validate_verification_report(&report_bytes, &package_value)?;
+    validate_verification_report(&report_bytes, &package_value, package.target_ir_identity)?;
     let target_configuration = validate_closure(
         &manifest_bytes,
         &adapter_bytes,
@@ -431,31 +439,38 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         bail!("obstructed duplicate Action changed committed state");
     }
 
-    let mutated_initial_state_refused = {
+    let mutated_initial_state_refusal = {
         let mut mutated = build_host(&input.basis, &input.key, true)?;
-        mutated
+        match mutated
             .host
             .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&config.wal_dir))
-            .is_err()
+        {
+            Err(TrustedRuntimeHostError::Wal(
+                TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                    detail:
+                        "Action basis disagrees with reconstructed causal state"
+                        | "Action basis state cannot be reconstructed",
+                },
+            )) => "echo-operation-execution-mismatch/action-basis",
+            Err(error) => {
+                bail!("mutated initial state produced an unexpected recovery refusal: {error}")
+            }
+            Ok(()) => bail!("runtime WAL recovery accepted a mutated initial state"),
+        }
     };
-    if !mutated_initial_state_refused {
-        bail!("runtime WAL recovery accepted a mutated initial state");
-    }
 
     Ok(RunEdictOperationReport {
-        verdict: "pass",
         operation: package.operation_coordinate,
         artifacts: ArtifactReport {
-            package_sha256,
-            verification_outcome: "accepted",
-            closure_bound: true,
+            package: artifact_identity(package_sha256),
+            verification_report: artifact_identity(verification_report_sha256),
+            lawpack_manifest: artifact_identity(lawpack_manifest_sha256),
         },
         submission: SubmissionReport {
             wal_committed_before_ack,
         },
         scheduler: SchedulerReport {
             action_count: scheduler_action_count,
-            singleton_integration: true,
         },
         state: StateReport {
             value_utf8: String::from_utf8(input.replacement)
@@ -468,13 +483,19 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             state_recovered,
             outcome_recovered,
             receipt_recovered,
-            mutated_initial_state_refused,
+            mutated_initial_state_refusal,
         },
         duplicate: DuplicateReport {
             obstruction: duplicate_obstruction,
-            hidden_mutation,
         },
     })
+}
+
+fn artifact_identity(digest_hex: String) -> ArtifactIdentity {
+    ArtifactIdentity {
+        algorithm: "sha256",
+        digest_hex,
+    }
 }
 
 fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>> {
@@ -525,6 +546,7 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
         lawpack_identity: hash_field(semantic_closure, "lawpack_identity", "semantic closure")?,
         authority_profile_identity: hash_field(value, "authority_profile_identity", "package")?,
         target_profile_identity: hash_field(value, "target_profile_identity", "package")?,
+        target_ir_identity: hash_field(semantic_closure, "target_ir_identity", "semantic closure")?,
         budget: budget_value(
             budget,
             "steps",
@@ -546,7 +568,11 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
     })
 }
 
-fn validate_verification_report(bytes: &[u8], package: &CanonicalValueV1) -> Result<()> {
+fn validate_verification_report(
+    bytes: &[u8],
+    package: &CanonicalValueV1,
+    expected_target_ir_identity: [u8; 32],
+) -> Result<()> {
     let report = decode_canonical_cbor_v1(bytes)
         .context("verification report is not canonical Edict CBOR")?;
     require_text(
@@ -563,6 +589,9 @@ fn validate_verification_report(bytes: &[u8], package: &CanonicalValueV1) -> Res
     validate_resource_ref(package_ref, PACKAGE_ROLE, PACKAGE_DOMAIN, package)?;
     let target_ir = map_field(&report, "targetIr", "verification report")?;
     require_resource_identity(target_ir, TARGET_IR_COORDINATE)?;
+    if resource_digest(target_ir)? != expected_target_ir_identity {
+        bail!("verification report Target IR does not bind the package semantic closure");
+    }
     let diagnostic_abi = map_field(&report, "diagnosticAbi", "verification report")?;
     require_resource_identity(diagnostic_abi, DIAGNOSTIC_ABI)?;
     Ok(())
@@ -607,11 +636,7 @@ fn validate_closure(
         .filter_map(|selection| {
             map_field(selection, "adapter", "target adapter selection")
                 .ok()
-                .filter(|resource| {
-                    resource_coordinate(resource).is_ok_and(|coordinate| {
-                        resource_ref_matches(resource, coordinate, &adapter)
-                    })
-                })
+                .filter(|resource| resource_ref_binds_declared_coordinate(resource, &adapter))
         })
         .count();
     if matching_adapters != 1 {
@@ -631,10 +656,7 @@ fn validate_closure(
             )
             .ok()
         })
-        .filter(|resource| {
-            resource_coordinate(resource)
-                .is_ok_and(|coordinate| resource_ref_matches(resource, coordinate, &configuration))
-        })
+        .filter(|resource| resource_ref_binds_declared_coordinate(resource, &configuration))
         .count();
     if matching_configurations == 0 {
         bail!("lawpack adapter does not bind the supplied target configuration");
@@ -915,16 +937,19 @@ fn validate_resource_ref(
     Ok(())
 }
 
-fn resource_ref_matches(
+fn resource_ref_binds_declared_coordinate(
     resource: &CanonicalValueV1,
-    expected_coordinate: &str,
     value: &CanonicalValueV1,
 ) -> bool {
-    resource_coordinate(resource).is_ok_and(|coordinate| coordinate == expected_coordinate)
-        && resource_digest(resource).is_ok_and(|actual| {
-            digest_canonical_value_bytes_v1(expected_coordinate, value)
+    // Edict lawpack-v1 resource references use their manifest-declared ID as
+    // the canonical digest domain. The containing manifest or adapter is
+    // independently digest-bound before this relation is evaluated.
+    resource_coordinate(resource).is_ok_and(|coordinate| {
+        resource_digest(resource).is_ok_and(|actual| {
+            digest_canonical_value_bytes_v1(coordinate, value)
                 .is_ok_and(|expected| actual == expected)
         })
+    })
 }
 
 fn require_resource_identity(resource: &CanonicalValueV1, expected: &str) -> Result<()> {

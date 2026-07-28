@@ -2741,6 +2741,7 @@ dependencies = [
  "bytes",
  "clap",
  "clap_mangen",
+ "echo-edict-canonical",
  "hex",
  "pulldown-cmark",
  "same-file",

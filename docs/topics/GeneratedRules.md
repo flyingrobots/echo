@@ -173,9 +173,10 @@ standalone application-owned Edict source
 -> structurally separate accepted verification report
 -> generic typed-input binding into one canonical Action
 -> accepted-submission WAL commit before acknowledgement
--> scheduler-owned private evaluation and one singleton Tick
+-> fresh-host recovery of the exact installed package and pending Action
+-> scheduler-owned private evaluation of the recovered Action and one singleton Tick
 -> decided-Tick WAL commit before publication
--> fresh-host package, Action, Tick, state, outcome, and Receipt recovery
+-> second fresh-host package, Action, Tick, state, outcome, and Receipt recovery
 -> typed duplicate-create obstruction with no hidden mutation
 -> refusal to recover against a mutated initial state
 ```

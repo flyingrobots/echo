@@ -316,11 +316,13 @@ The external compiler-to-runtime singleton witness lives in
 `xtask/tests/run_edict_operation.rs`. Its checked fixture contains exact package
 and verification-report bytes plus the manifest, target adapter, and target
 configuration that closed the compiler build. The witness proves
-accepted-submission durability before acknowledgement, scheduler-owned
-evaluation, decided-Tick durability, complete fresh-host recovery, a typed
-duplicate-create obstruction without mutation, and recovery refusal when the
-registered initial state changes. It uses the strict filesystem adapter and no
-native application callback.
+accepted-submission durability before acknowledgement, fresh-host recovery of
+the installed package and pending Action before scheduler selection,
+scheduler-owned evaluation of that recovered work, decided-Tick durability, a
+second complete fresh-host recovery, a typed duplicate-create obstruction
+without mutation, and recovery refusal when the registered initial state
+changes. It uses the strict filesystem adapter and no native application
+callback.
 
 The Action/Tick witnesses to read first are:
 

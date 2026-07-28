@@ -252,6 +252,7 @@ external compiler-produced ExecutableOperationPackageV1 bytes
 -> Echo-owned package and invocation admission
 -> installed data-only EchoOperationProgramV1
 -> canonical Action submission retained before acknowledgement
+-> fresh-host package and pending-Action recovery
 -> runtime-owned admission into the ordinary head inbox
 -> scheduler selection at one exact basis
 -> bounded private Echo evaluation during Tick construction

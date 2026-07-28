@@ -4,7 +4,7 @@ schema = "echo.edict-operation-fixture-origin/v1"
 repository = "https://github.com/flyingrobots/hello-echo"
 commit = "8dd96de482ffee8fa6efb2ebe508f649e1d878a7"
 edict_commit = "296bf1f6c76af1e011f5214b6d3de260c67ca84a"
-echo_commit = "dc81f04429d4e142ace8fe0804e8db58155b392b"
+echo_commit = "f324ae18226f685fe8ff2f3f6c57d2592fbd0c1d"
 build_command = "EDICT_REPO=<edict> ECHO_REPO=<echo> ./tests/build.sh"
 
 [artifacts.executable_operation_package]

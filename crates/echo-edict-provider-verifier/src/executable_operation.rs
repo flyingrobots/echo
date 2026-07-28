@@ -502,7 +502,7 @@ fn validate_target_ir(
         return Err(super::unsupported_semantics("target-ir.echo-operation"));
     };
     if text_field(step, "targetIntrinsic") != Some(TARGET_INTRINSIC)
-        || as_text(failure) != Some(intent.failure_name)
+        || as_text(failure) != Some(PRECONDITION_MISMATCH)
     {
         return Err(super::unsupported_semantics("target-ir.echo-operation"));
     }

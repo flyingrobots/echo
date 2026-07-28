@@ -250,7 +250,8 @@ fn validate_core<'a>(
     let (failure_name, obstruction_arm) =
         single_text_map_entry(required_map(node, "obstructionMap", coordinate)?)
             .ok_or_else(|| super::unsupported_semantics(coordinate))?;
-    let obstruction_coordinate = required_text(obstruction_arm, "callee", coordinate)?;
+    let obstruction_value = required_map(obstruction_arm, "value", coordinate)?;
+    let obstruction_coordinate = required_text(obstruction_value, "callee", coordinate)?;
     if obstruction_coordinate.is_empty() {
         return Err(super::unsupported_semantics(coordinate));
     }

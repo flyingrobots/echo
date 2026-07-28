@@ -397,7 +397,10 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                                     "obstructionMap",
                                     dynamic_map([(
                                         names.failure,
-                                        map([("callee", text(names.obstruction))]),
+                                        map([(
+                                            "value",
+                                            map([("callee", text(names.obstruction))]),
+                                        )]),
                                     )]),
                                 ),
                             ])]),

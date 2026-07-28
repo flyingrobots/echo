@@ -164,16 +164,38 @@ reconstructs the semantic relation. Target IR carries target obstruction
 coordinates; source-lawpack failure names reach Echo only through the
 independently checked adapter mapping.
 
-The remaining compiler and application closure is:
+The first external compiler-to-runtime singleton witness is:
 
 ```text
-Jedit-owned Edict operation source and public contract
--> canonical meaning, Core, and exact Jedit schema/lawpack closure
--> exact subordinate EchoOperationProgramV1
--> structurally separate target verification
--> the implemented Echo package, invocation, evaluation, commit, receipt,
-   WAL, and recovery crossings above
+standalone application-owned Edict source
+-> exact Core, lawpack, exports, target adapter, target configuration, and Target IR
+-> compiler-produced ExecutableOperationPackageV1
+-> structurally separate accepted verification report
+-> generic typed-input binding into one canonical Action
+-> accepted-submission WAL commit before acknowledgement
+-> scheduler-owned private evaluation and one singleton Tick
+-> decided-Tick WAL commit before publication
+-> fresh-host package, Action, Tick, state, outcome, and Receipt recovery
+-> typed duplicate-create obstruction with no hidden mutation
+-> refusal to recover against a mutated initial state
 ```
+
+`xtask run-edict-operation` owns that local host witness.
+`xtask/tests/run_edict_operation.rs` exercises exact external compiler bytes,
+malformed and mismatched artifact refusal, input and WAL bounds, and a bounded
+fixed-seed stress set. The runner validates the manifest-to-adapter-to-target
+configuration chain before Echo independently admits the package. Target
+configuration names the key and replacement input fields, node-id derivation,
+Action-lane WARP source, authority profile, type profiles, and budget. The
+runtime-owned basis selector, configured fields, package meaning, and
+verification report all influence the canonical invocation; no application
+matcher, executor, footprint callback, or handwritten package participates.
+
+This is singleton scheduler integration, not a claim that the external
+application can compose multiple Actions into one Tick. The kernel's synthetic
+multi-Action tests remain separate generic runtime evidence. Product-facing
+invocation packaging and the standalone application's own run command remain
+downstream integration work.
 
 The operation package owns the public contract and runtime-recognized
 invocability. The subordinate program supplies executable meaning only. Echo
@@ -198,7 +220,8 @@ portal attachment in the validated root-to-target reachability chain.
 The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
 under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
 compile-time coupling does not place a callback in the operation program, but
-it prevents the surface from serving as the final product cutover boundary.
+it prevents the maintenance runner from serving as the final product cutover
+boundary.
 The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
 can delete the legacy feature without also losing executable operations.
 

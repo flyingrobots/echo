@@ -23,7 +23,7 @@ echo-edict-canonical = { workspace = true }
 wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc"] }
 
 [dev-dependencies]
-echo-edict-provider-lowerer = { path = "../echo-edict-provider-lowerer" }
+echo-edict-provider-lowerer = { version = "0.1.0", path = "../echo-edict-provider-lowerer" }
 hex = "0.4"
 sha2 = "0.10"
 

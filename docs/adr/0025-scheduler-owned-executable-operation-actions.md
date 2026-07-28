@@ -67,7 +67,8 @@ Action. The evaluator remains private and pure with respect to the parent
 worldline:
 
 - success returns one complete prepared candidate;
-- obstruction returns typed evidence and no parent-visible operations;
+- obstruction returns the package-declared, lawpack-qualified typed coordinate
+  and no parent-visible operations;
 - neither result mutates the parent state.
 
 The direct `prepare_echo_operation_v1` and

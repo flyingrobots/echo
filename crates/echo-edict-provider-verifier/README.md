@@ -26,14 +26,16 @@ configuration, Target IR, and compiler-emitted package as digest-bound inputs,
 then reconstructs the expected generic package without importing or calling
 the lowerer. Exact equality yields an accepted
 `echo.operation-package-verifier-report/v1`; a rebound or otherwise
-self-consistent package mutation yields a typed rejected report. Application
+self-consistent package mutation yields a typed rejected report. The verifier
+independently resolves source-local effect and obstruction aliases through the
+exact lawpack import before comparing the canonical package. Application
 vocabulary is treated only as opaque authored data.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 247,754-byte checked
+transport-to-model conversion. Its reproducibly built 248,221-byte checked
 component has SHA-256
-`d87f3df6cdeca0b14032a23b614e9b9ba1f53ea3955a5a0aebda6c61450c3e51`.
+`744a511137608634b88abf7bd7e61da9bf81a5cacff7b190fc2530c346ba36cc`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

@@ -65,6 +65,7 @@ struct ProgramConfiguration<'a> {
 struct ApplicationIntent<'a> {
     name: &'a str,
     operation_coordinate: String,
+    obstruction_coordinate: &'a str,
     effect_coordinate: &'a str,
     failure_name: &'a str,
 }
@@ -100,7 +101,9 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
 
     let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
-        semantic_effect_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+    let semantic_obstruction =
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.obstruction_coordinate)?;
     validate_exports(&exports, &intent, &semantic_effect)?;
     validate_lawpack(
         &lawpack,
@@ -121,7 +124,13 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     )?;
     let configuration = validate_configuration(&configuration)?;
 
-    let package = encode_package(request, &closure, &intent, configuration)?;
+    let package = encode_package(
+        request,
+        &closure,
+        &intent,
+        &semantic_obstruction,
+        configuration,
+    )?;
     let _ = request.limits;
     Ok(LoweringSuccessV1 {
         outputs: vec![LoweringOutputArtifact {
@@ -246,12 +255,18 @@ fn validate_core<'a>(
         return Err(super::unsupported_semantics(coordinate));
     }
     let effect_coordinate = required_text(node, "effect", coordinate)?;
-    let (failure_name, _) =
+    let (failure_name, obstruction_arm) =
         single_text_map_entry(required_map(node, "obstructionMap", coordinate)?)
             .ok_or_else(|| super::unsupported_semantics(coordinate))?;
+    let obstruction_value = required_map(obstruction_arm, "value", coordinate)?;
+    let obstruction_coordinate = required_text(obstruction_value, "callee", coordinate)?;
+    if obstruction_coordinate.is_empty() {
+        return Err(super::unsupported_semantics(coordinate));
+    }
     Ok(ApplicationIntent {
         name: intent_name,
         operation_coordinate: format!("{coordinate}.{intent_name}"),
+        obstruction_coordinate,
         effect_coordinate,
         failure_name,
     })
@@ -369,7 +384,7 @@ fn validate_adapter(
     Ok(())
 }
 
-fn semantic_effect_coordinate(
+fn semantic_lawpack_member_coordinate(
     source: &str,
     lawpack: &SemanticInput,
     core_effect: &str,
@@ -553,6 +568,7 @@ fn encode_package(
     request: &LoweringRequestV1,
     closure: &ClosureInputs<'_>,
     intent: &ApplicationIntent<'_>,
+    obstruction_coordinate: &str,
     configuration: ProgramConfiguration<'_>,
 ) -> Result<Vec<u8>, ProviderRefusalV1> {
     let program = canonical_map([
@@ -669,6 +685,10 @@ fn encode_package(
         (
             "obstruction_interpretation_identity",
             hash_value(profile_digest(OBSTRUCTION_INTERPRETATION)),
+        ),
+        (
+            "obstruction_coordinate",
+            canonical_text(obstruction_coordinate),
         ),
         (
             "operation_coordinate",

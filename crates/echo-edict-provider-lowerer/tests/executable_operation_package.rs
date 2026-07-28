@@ -107,6 +107,14 @@ fn one_provider_binary_lowers_two_unrelated_application_vocabularies() {
         text_field(&beta_decoded, "operation_coordinate"),
         Some("notes.beta@7.createNote")
     );
+    assert_eq!(
+        text_field(&alpha_decoded, "obstruction_coordinate"),
+        Some(ALPHA.obstruction)
+    );
+    assert_eq!(
+        text_field(&beta_decoded, "obstruction_coordinate"),
+        Some(BETA.obstruction)
+    );
 }
 
 #[test]
@@ -272,7 +280,21 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                                     "obstructionMap",
                                     dynamic_map([(
                                         names.failure,
-                                        owned_map([("callee", text(names.obstruction))]),
+                                        owned_map([(
+                                            "value",
+                                            owned_map([(
+                                                "callee",
+                                                text(format!(
+                                                    "{}.{}",
+                                                    names.alias,
+                                                    names
+                                                        .obstruction
+                                                        .rsplit_once('.')
+                                                        .expect("fixture obstruction has a member",)
+                                                        .1
+                                                )),
+                                            )]),
+                                        )]),
                                     )]),
                                 ),
                             ])]),
@@ -472,6 +494,7 @@ fn expected_package(
     let core_identity = hash(&request.core.reference.digest);
     ExecutableOperationPackageV1::new(
         format!("{}.{}", names.application, names.intent),
+        names.obstruction,
         EchoOperationSemanticClosureV1::new(
             hash(&source.reference.digest),
             core_identity,

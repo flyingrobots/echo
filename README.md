@@ -186,7 +186,10 @@ result, composition, and terminal outcome. Runtime-control installation and
 scheduler Tick records permit callback-free fresh-host recovery. Program bytes
 explicitly bind the interpreter and intrinsic profiles, while Tick evidence
 binds each admitted installation. A program digest cannot confer operation
-identity, invocability, or authority.
+identity, invocability, or authority. Each package also retains the canonical
+lawpack obstruction coordinate resolved from the authored source-local import;
+the scheduler reports that exact typed coordinate without interpreting
+application vocabulary.
 
 That generic runtime witness is not yet the Jim/Jedit vertical. A standalone
 application-owned Edict operation now crosses it through a compiler-produced
@@ -270,9 +273,9 @@ conflicting or obstructed Actions retain typed outcomes without hidden
 mutation. A standalone application-owned Edict create-if-absent operation now
 crosses this route as an exact compiler-produced package and independently
 accepted verification report through `cargo xtask run-edict-operation`. That
-witness is one Action in one Tick; it does not claim external multi-Action Tick
-composition, a product-ready application runner, a Jedit operation, or a Graft
-operation.
+witness proves its package-declared typed obstruction and one Action in one
+Tick; it does not claim external multi-Action Tick composition, a product-ready
+application runner, a Jedit operation, or a Graft operation.
 
 ## Contracts And Boundaries
 

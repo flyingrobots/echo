@@ -451,6 +451,7 @@ fn operation_package_at(
 ) -> ExecutableOperationPackageV1 {
     ExecutableOperationPackageV1::new(
         operation_coordinate,
+        "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
@@ -469,6 +470,7 @@ fn creation_operation_package(
 ) -> ExecutableOperationPackageV1 {
     ExecutableOperationPackageV1::new(
         CREATE_OPERATION_COORDINATE,
+        "echo.fixture.AlreadyExists/v1",
         semantic_closure(),
         warp_core::echo_operation_create_if_absent_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
@@ -1106,6 +1108,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
 
     let unsupported_target_bytes = ExecutableOperationPackageV1::new(
         OPERATION_COORDINATE,
+        "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         digest("unsupported-target-profile"),
         digest("fixture-authority-profile"),
@@ -1225,6 +1228,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
 
     let impossible_package = ExecutableOperationPackageV1::new(
         OPERATION_COORDINATE,
+        "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),

@@ -4,16 +4,16 @@ schema = "echo.edict-operation-fixture-origin/v1"
 repository = "https://github.com/flyingrobots/hello-echo"
 commit = "8dd96de482ffee8fa6efb2ebe508f649e1d878a7"
 edict_commit = "296bf1f6c76af1e011f5214b6d3de260c67ca84a"
-echo_commit = "eb0abb6ea90d1968e5d10922dc6d88eb7b361460"
+echo_commit = "f324ae18226f685fe8ff2f3f6c57d2592fbd0c1d"
 build_command = "EDICT_REPO=<edict> ECHO_REPO=<echo> ./tests/build.sh"
 
 [artifacts.executable_operation_package]
 path = ".build/application/executable-operation-package.cbor"
-sha256 = "8a602e9bf2dfeae1a3bc033d299dc7b6b348a08c777756c7b1b855bd099dab93"
+sha256 = "67dc6d23e223e78b6aa774a2f57c86db2eff4981ea793975d39c66f731f02fd1"
 
 [artifacts.verification_report]
 path = ".build/application/verification-report.cbor"
-sha256 = "8a72bff53649a448d7f880ed27bb21a52daab3a43eb2e0579e46ac35296e34dd"
+sha256 = "8a5153b4ec25ebe979f0ceab373d03969e30a64d7973b3a83e3c84877c5aa564"
 
 [artifacts.lawpack_manifest]
 path = "vendor/causal-cell/manifest.cbor"

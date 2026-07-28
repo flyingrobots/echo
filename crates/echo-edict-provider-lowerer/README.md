@@ -45,7 +45,10 @@ exact digest-bound source, Core, lawpack, lawpack-exports, target-adapter,
 target-configuration, and Target IR artifacts. It derives the operation
 coordinate from the authored Core package and intent, validates the complete
 portable capability closure, and emits canonical `echo.operation-package/v1`
-bytes for Echo's bounded anchored create-if-absent profile. Application
+bytes for Echo's bounded anchored create-if-absent profile. Both the effect and
+obstruction coordinates are resolved from source-local aliases through the
+exact digest-locked lawpack import, so the package retains stable
+lawpack-qualified identities. Application
 coordinates, intent names, effect names, failure names, type profiles, and
 authority profiles remain opaque artifact data; production lowering contains
 no application-specific dispatch or native callback.
@@ -111,8 +114,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 230,285-byte checked lowerer component has SHA-256
-`9575ca8c843f3dfe4e5550ecdc40a8a8584c1aa7012b5b6f6a76e3f05f1b68f3` and has
+The refreshed 230,875-byte checked lowerer component has SHA-256
+`08277d4ba7d98e0b143c06c208abc306f133bda510caa5393da08aa490334a6e` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

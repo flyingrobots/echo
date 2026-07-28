@@ -4941,10 +4941,11 @@ fn recover_runtime_state_delta_material(
     });
     missing.sort_unstable();
     missing.dedup();
-    let echo_operation_action_outcomes = action_outcomes_by_submission
+    let mut echo_operation_action_outcomes = action_outcomes_by_submission
         .into_iter()
         .map(|(submission_id, (ingress_id, outcome))| (submission_id, ingress_id, outcome))
-        .collect();
+        .collect::<Vec<_>>();
+    echo_operation_action_outcomes.sort_by_key(|(_, ingress_id, _)| *ingress_id);
     Ok(RecoveredRuntimeStateMaterial {
         provenance_entries: entries,
         receipt_correlations: correlations,
@@ -6348,6 +6349,7 @@ mod tests {
         let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
         let package = crate::ExecutableOperationPackageV1::new(
             operation_coordinate,
+            "echo.test.LegacyRecoveryIndex.Obstruction.v1",
             crate::EchoOperationSemanticClosureV1::new(
                 [0x10; 32],
                 [0x11; 32],
@@ -6388,9 +6390,9 @@ mod tests {
             recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[])
                 .expect("the legacy index root is computable"),
             [
-                0xff, 0x77, 0x8e, 0x79, 0x1c, 0x4b, 0x7f, 0x99, 0xb7, 0xa5, 0x4c, 0x4b, 0x8d, 0xdb,
-                0x36, 0x91, 0x62, 0x17, 0x8a, 0x22, 0xe2, 0xbe, 0xde, 0xc6, 0x54, 0x4c, 0x8d, 0x25,
-                0xa1, 0xa0, 0x69, 0x04,
+                0xf9, 0xcf, 0x53, 0xf2, 0xad, 0xaf, 0x93, 0x1a, 0xa0, 0xe6, 0x06, 0xc6, 0x5a, 0x91,
+                0x6f, 0xfa, 0x0b, 0x4f, 0xf5, 0x50, 0x66, 0x32, 0x8c, 0x1c, 0x48, 0xf7, 0x22, 0xcd,
+                0x1e, 0x0d, 0x40, 0x2e,
             ]
         );
     }

@@ -17,8 +17,9 @@
   recovered work while constructing one singleton Tick. Publication follows
   only after the decided-Tick WAL commit. A second fresh filesystem host
   recovers the package, Action, Tick, state, typed outcome, and Receipt.
-  Repeating creation yields the typed precondition obstruction with no hidden
-  mutation, while a changed initial state produces the typed
+  Repeating creation yields the package-declared, lawpack-qualified typed
+  obstruction with no hidden mutation, while a changed initial state produces
+  the typed
   `echo-operation-execution-mismatch/action-basis` recovery refusal. Admission
   binds the accepted verification report's Target IR to the package semantic
   closure, selects target configuration only from the package-supported target
@@ -49,12 +50,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 230,297 bytes /
-  `f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`
-  and 247,766 bytes /
-  `edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`,
+  containers and promoted at 230,875 bytes /
+  `08277d4ba7d98e0b143c06c208abc306f133bda510caa5393da08aa490334a6e`
+  and 248,221 bytes /
+  `744a511137608634b88abf7bd7e61da9bf81a5cacff7b190fc2530c346ba36cc`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:d8d433725fbece1ba657cd456720c1b788344f9034b1735ab99cf209d835038a`.
+  `sha256:a7ab6bfbbedc3a6b61a8559dc6506cfc3d2836b46dac3cc825e5b05b16b94fa5`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.
@@ -1517,6 +1518,12 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Generic executable-operation lowering and independent verification now
+  resolve source-local obstruction constructor aliases through the exact
+  digest-locked lawpack import before encoding or comparing the package.
+  Runtime duplicate outcomes therefore retain the capability-owned obstruction
+  coordinate instead of exposing an application-local alias or collapsing it
+  into the generic precondition-mismatch class.
 - Provider-native installation now applies the same pure structural validation
   used to reconstruct retained invocation evidence before mutating any Echo
   engine index. Empty operation or Target IR coordinates, empty Target IR

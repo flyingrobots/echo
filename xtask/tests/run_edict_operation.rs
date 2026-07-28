@@ -160,7 +160,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["artifacts"]["package"]["algorithm"], "sha256");
     assert_eq!(
         report["artifacts"]["package"]["digestHex"],
-        "8a602e9bf2dfeae1a3bc033d299dc7b6b348a08c777756c7b1b855bd099dab93"
+        "67dc6d23e223e78b6aa774a2f57c86db2eff4981ea793975d39c66f731f02fd1"
     );
     assert_eq!(
         report["artifacts"]["verificationReport"]["algorithm"],
@@ -168,7 +168,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     );
     assert_eq!(
         report["artifacts"]["verificationReport"]["digestHex"],
-        "8a72bff53649a448d7f880ed27bb21a52daab3a43eb2e0579e46ac35296e34dd"
+        "8a5153b4ec25ebe979f0ceab373d03969e30a64d7973b3a83e3c84877c5aa564"
     );
     assert_eq!(
         report["artifacts"]["lawpackManifest"]["algorithm"],
@@ -490,7 +490,7 @@ fn fixed_seed_keys_preserve_the_generic_durable_witness_under_bounded_stress() {
         );
         assert_eq!(
             report["duplicate"]["obstruction"],
-            "echo.executable-operation/precondition-mismatch/v1"
+            "causal.cell@1.AlreadyExists"
         );
     }
     assert_eq!(retained_receipts.len(), CASES);

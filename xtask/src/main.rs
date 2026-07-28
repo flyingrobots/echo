@@ -22,9 +22,9 @@ use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-mod hello_echo;
 mod provider_lowerer_component;
 mod run_edict_operation;
+mod runtime_counter_diagnostic;
 
 #[derive(Parser)]
 #[command(
@@ -43,8 +43,8 @@ enum Commands {
     Bench(BenchArgs),
     /// Emit agent-native Doghouse recorder events.
     Doghouse(DoghouseArgs),
-    /// Run the 30-second Hello Echo evidence capsule.
-    HelloEcho(HelloEchoArgs),
+    /// Run the low-level native counter runtime diagnostic.
+    RuntimeCounterDiagnostic(RuntimeCounterDiagnosticArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
@@ -145,12 +145,12 @@ struct ProviderLowererComponentPromoteArgs {
 }
 
 #[derive(Args)]
-struct HelloEchoArgs {
+struct RuntimeCounterDiagnosticArgs {
     /// Output the evidence capsule as JSON.
     #[arg(long)]
     json: bool,
     /// Directory for generated WSC and report artifacts.
-    #[arg(long, default_value = "target/hello-echo")]
+    #[arg(long, default_value = "target/runtime-counter-diagnostic")]
     out_dir: PathBuf,
     /// Fail if the demo exceeds this local wall-clock budget in milliseconds.
     #[arg(long, default_value = "30000")]
@@ -464,7 +464,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Bench(args) => run_bench(args),
         Commands::Doghouse(args) => run_doghouse(args),
-        Commands::HelloEcho(args) => run_hello_echo(args),
+        Commands::RuntimeCounterDiagnostic(args) => run_runtime_counter_diagnostic(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
         Commands::ProviderLowererComponent(args) => run_provider_lowerer_component(args),
@@ -805,16 +805,18 @@ fn print_provider_component(
     }
 }
 
-fn run_hello_echo(args: HelloEchoArgs) -> Result<()> {
-    let report = hello_echo::run(hello_echo::HelloEchoConfig {
-        out_dir: args.out_dir,
-        max_ms: args.max_ms,
-    })?;
+fn run_runtime_counter_diagnostic(args: RuntimeCounterDiagnosticArgs) -> Result<()> {
+    let report = runtime_counter_diagnostic::run(
+        runtime_counter_diagnostic::RuntimeCounterDiagnosticConfig {
+            out_dir: args.out_dir,
+            max_ms: args.max_ms,
+        },
+    )?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!("Hello Echo: {}", report.verdict);
+        println!("runtime counter diagnostic: {}", report.verdict);
         println!(
             "elapsed={}ms budget={}ms evidence={}",
             report.elapsed_ms, report.max_ms, report.deterministic_evidence_digest

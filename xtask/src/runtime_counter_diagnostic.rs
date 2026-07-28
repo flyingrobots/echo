@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-//! Thirty-second Hello Echo evidence capsule.
+//! Low-level native counter diagnostic for Echo runtime maintenance.
 
 use anyhow::{bail, Context, Result};
 use bytes::Bytes;
@@ -21,19 +21,19 @@ use warp_core::{
     WitnessedSuffixLocalAdmissionPosture, WorldlineId, WorldlineState, WorldlineTick,
 };
 
-const COUNTER_RULE_NAME: &str = "cmd/hello_echo_counter";
-const COUNTER_VALUE_TYPE: &str = "hello-echo/counter-value/v1";
-const COUNTER_NODE: &str = "hello-echo/counter";
-const INTENT_PREFIX: &str = "hello-echo.intent/v1;";
-const WSC_SCHEMA: &str = "hello-echo/wsc-schema/v1";
+const COUNTER_RULE_NAME: &str = "cmd/runtime_counter_diagnostic";
+const COUNTER_VALUE_TYPE: &str = "runtime-counter-diagnostic/counter-value/v1";
+const COUNTER_NODE: &str = "runtime-counter-diagnostic/counter";
+const INTENT_PREFIX: &str = "runtime-counter-diagnostic.intent/v1;";
+const WSC_SCHEMA: &str = "runtime-counter-diagnostic/wsc-schema/v1";
 
-pub(crate) struct HelloEchoConfig {
+pub(crate) struct RuntimeCounterDiagnosticConfig {
     pub(crate) out_dir: PathBuf,
     pub(crate) max_ms: u64,
 }
 
 #[derive(Serialize)]
-pub(crate) struct HelloEchoReport {
+pub(crate) struct RuntimeCounterDiagnosticReport {
     pub(crate) demo: &'static str,
     pub(crate) verdict: &'static str,
     pub(crate) elapsed_ms: u128,
@@ -151,14 +151,16 @@ pub(crate) struct InspectionReport {
     pub(crate) verify_wsc: String,
 }
 
-pub(crate) fn run(config: HelloEchoConfig) -> Result<HelloEchoReport> {
+pub(crate) fn run(
+    config: RuntimeCounterDiagnosticConfig,
+) -> Result<RuntimeCounterDiagnosticReport> {
     let start = Instant::now();
     let mut artifacts = run_capsule(&config.out_dir)?;
     artifacts.elapsed_ms = start.elapsed().as_millis();
 
     if artifacts.elapsed_ms > u128::from(config.max_ms) {
         bail!(
-            "Hello Echo demo exceeded budget: {}ms > {}ms",
+            "runtime counter diagnostic exceeded budget: {}ms > {}ms",
             artifacts.elapsed_ms,
             config.max_ms
         );
@@ -199,7 +201,7 @@ struct ContinuumArtifacts {
 }
 
 impl CapsuleArtifacts {
-    fn into_report(self, max_ms: u64) -> HelloEchoReport {
+    fn into_report(self, max_ms: u64) -> RuntimeCounterDiagnosticReport {
         let root = self.state.root();
         let receipt = self.outcome.receipt;
         let patch = self.outcome.patch;
@@ -246,8 +248,8 @@ impl CapsuleArtifacts {
         let verify_wsc =
             format!("cargo run -p warp-cli -- verify {wsc_path} --expected {wsc_warp_state_root}");
 
-        HelloEchoReport {
-            demo: "hello-echo",
+        RuntimeCounterDiagnosticReport {
+            demo: "runtime-counter-diagnostic",
             verdict: "pass",
             elapsed_ms: self.elapsed_ms,
             max_ms,
@@ -261,7 +263,9 @@ impl CapsuleArtifacts {
                 explicit_basis: "u0 -> tick:1".to_string(),
             },
             ingress: IngressReport {
-                intent_kind: hash_hex(make_intent_kind("hello-echo/increment").as_hash()),
+                intent_kind: hash_hex(
+                    make_intent_kind("runtime-counter-diagnostic/increment").as_hash(),
+                ),
                 submitted: self.ingress.len(),
                 ingress_ids,
                 payloads,
@@ -322,17 +326,17 @@ fn run_capsule(out_dir: &Path) -> Result<CapsuleArtifacts> {
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
 
-    let root_node = make_node_id("hello-echo/root");
+    let root_node = make_node_id("runtime-counter-diagnostic/root");
     let store = initial_store(root_node);
     let mut engine = warp_core::Engine::new(store.clone(), root_node);
     engine
         .register_rule(counter_rule())
-        .context("failed to register Hello Echo counter rule")?;
+        .context("failed to register runtime counter diagnostic rule")?;
 
     let mut state =
         WorldlineState::from_root_store(store, root_node).context("failed to build worldline")?;
     let worldline_id = WorldlineId::from_bytes([0xE0; 32]);
-    let intent_kind = make_intent_kind("hello-echo/increment");
+    let intent_kind = make_intent_kind("runtime-counter-diagnostic/increment");
     let ingress = vec![
         IngressEnvelope::local_intent(
             IngressTarget::DefaultWriter { worldline_id },
@@ -348,7 +352,7 @@ fn run_capsule(out_dir: &Path) -> Result<CapsuleArtifacts> {
 
     let outcome = engine
         .commit_with_state(&mut state, &ingress)
-        .context("failed to commit Hello Echo runtime tick")?;
+        .context("failed to commit runtime counter diagnostic tick")?;
     let counter_value = read_counter_from_state(&state)?;
     let (wsc_path, wsc_file_digest, wsc_warp_state_root, wsc_verified, wsc_counts) =
         write_and_validate_wsc(&state, out_dir)?;
@@ -376,22 +380,22 @@ fn initial_store(root: NodeId) -> GraphStore {
     store.insert_node(
         root,
         NodeRecord {
-            ty: make_type_id("hello-echo/world"),
+            ty: make_type_id("runtime-counter-diagnostic/world"),
         },
     );
     store.insert_node(
         counter,
         NodeRecord {
-            ty: make_type_id("hello-echo/counter"),
+            ty: make_type_id("runtime-counter-diagnostic/counter"),
         },
     );
     store.insert_edge(
         root,
         EdgeRecord {
-            id: make_edge_id("hello-echo/root/counter"),
+            id: make_edge_id("runtime-counter-diagnostic/root/counter"),
             from: root,
             to: counter,
-            ty: make_type_id("hello-echo/contains"),
+            ty: make_type_id("runtime-counter-diagnostic/contains"),
         },
     );
     store.set_node_attachment(counter, Some(counter_attachment(0)));
@@ -400,7 +404,7 @@ fn initial_store(root: NodeId) -> GraphStore {
 
 fn counter_rule() -> RewriteRule {
     RewriteRule {
-        id: make_type_id("rule:cmd/hello_echo_counter").0,
+        id: make_type_id("rule:cmd/runtime_counter_diagnostic").0,
         name: COUNTER_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: counter_matcher,
@@ -768,7 +772,7 @@ fn deterministic_evidence_digest(
     counter_value: u64,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"hello-echo/evidence/v1");
+    hasher.update(b"runtime-counter-diagnostic/evidence/v1");
     hasher.update(commit_hash);
     hasher.update(receipt_digest);
     hasher.update(patch_digest);

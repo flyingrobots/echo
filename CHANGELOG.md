@@ -7,6 +7,23 @@
 
 ### Added
 
+- `cargo xtask run-edict-operation` now consumes an exact external
+  compiler-produced executable-operation package, its structurally separate
+  accepted verification report, the manifest-to-adapter-to-target-configuration
+  closure, and typed JSON input. The generic runner durably installs the
+  package, acknowledges one canonical Action only after accepted-submission WAL
+  commit, lets the scheduler privately evaluate it while constructing one
+  singleton Tick, and publishes only after the decided-Tick WAL commit. A fresh
+  filesystem host recovers the package, Action, Tick, state, typed outcome, and
+  Receipt. Repeating creation yields the typed precondition obstruction with no
+  hidden mutation, while a changed initial state refuses recovery. The checked
+  external fixture and bounded failure/stress suite contain application
+  vocabulary only under `xtask/tests`; the production runner is generic and
+  contains no native application callback or handwritten package.
+- The former native `hello-echo` counter capsule is now explicitly named
+  `runtime-counter-diagnostic`, including its command, artifact paths, and
+  internal identities. It remains a low-level callback-based maintenance
+  diagnostic and no longer claims to be the external application proof.
 - Echo's checked Edict provider now lowers arbitrary application-owned Core
   coordinates through one generic executable-operation route. Exact Edict
   source, Core, lawpack, exports, target adapter, target configuration, and

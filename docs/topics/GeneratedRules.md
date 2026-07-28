@@ -158,9 +158,11 @@ locations are absent. These are generic vertical witnesses, not Jedit
 `ReplaceRange`, a Graft multi-record mutation, a rope intrinsic, or a
 general-purpose virtual machine. The package binds Edict source, canonical
 meaning, Core, Target IR, application-schema, and lawpack identities as opaque
-substitution evidence. Echo does not yet obtain those identities from a real
-Edict compiler crossing or validate their semantic relation through a
-structurally separate target verifier.
+substitution evidence. The checked provider lowerer obtains those identities
+from a real Edict compiler crossing, and its structurally separate verifier
+reconstructs the semantic relation. Target IR carries target obstruction
+coordinates; source-lawpack failure names reach Echo only through the
+independently checked adapter mapping.
 
 The remaining compiler and application closure is:
 

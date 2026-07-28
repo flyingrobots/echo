@@ -12,7 +12,7 @@ distribution. Its inventory is fixed at 25 files:
 
 The manifest never inventories itself. Its `provider.digest` names an
 Echo-owned, domain-framed canonical-CBOR closure over the manifest contract,
-routes, 24 schema bindings, and raw identities of all 24 non-manifest members.
+routes, 30 schema bindings, and raw identities of all 24 non-manifest members.
 The manifest file has a separate raw content identity.
 
 Regenerate the package only from the repository root:
@@ -37,7 +37,7 @@ prove Edict schema admission, component-host readiness, Echo installation,
 runtime authority, invocation, execution, commitment, observation, or receipt.
 
 The separate isolated Edict c75 host gate binds this exact manifest, constructs
-all 24 schema bindings, validates every canonical primary and generated
+all 30 schema bindings, validates every canonical primary and generated
 resource, proves the field-level resource identity graph, prepares both exact
 components, and validates both request kinds without invoking guest code. Run
 it from the repository root with:

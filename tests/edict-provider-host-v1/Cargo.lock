@@ -468,7 +468,7 @@ dependencies = [
 [[package]]
 name = "edict-provider-host-wasmtime"
 version = "0.11.0-alpha.1"
-source = "git+https://github.com/flyingrobots/edict?rev=c75c3f550d049485ba00eae0dc272c6dd6aca11f#c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+source = "git+https://github.com/flyingrobots/edict?rev=2e3f52f9e6d615f96eb594a40126e223a9253d98#2e3f52f9e6d615f96eb594a40126e223a9253d98"
 dependencies = [
  "edict-provider-schema",
  "edict-syntax",
@@ -480,7 +480,7 @@ dependencies = [
 [[package]]
 name = "edict-provider-schema"
 version = "0.11.0-alpha.1"
-source = "git+https://github.com/flyingrobots/edict?rev=c75c3f550d049485ba00eae0dc272c6dd6aca11f#c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+source = "git+https://github.com/flyingrobots/edict?rev=2e3f52f9e6d615f96eb594a40126e223a9253d98#2e3f52f9e6d615f96eb594a40126e223a9253d98"
 dependencies = [
  "cddl-cat",
  "ciborium",
@@ -491,7 +491,7 @@ dependencies = [
 [[package]]
 name = "edict-syntax"
 version = "0.11.0-alpha.1"
-source = "git+https://github.com/flyingrobots/edict?rev=c75c3f550d049485ba00eae0dc272c6dd6aca11f#c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+source = "git+https://github.com/flyingrobots/edict?rev=2e3f52f9e6d615f96eb594a40126e223a9253d98#2e3f52f9e6d615f96eb594a40126e223a9253d98"
 dependencies = [
  "serde",
  "serde_json",

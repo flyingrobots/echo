@@ -30,8 +30,8 @@ use edict_provider_schema::{
 };
 use edict_syntax::{
     assemble_contract_bundle_from_target_ir, bind_target_provider_manifest, compile_to_core,
-    decode_canonical_cbor, encode_canonical_cbor, encode_core_module, encode_target_ir_artifact,
-    lower_with_builtin_lowerer, parse_module, select_provider_component,
+    decode_canonical_cbor, digest_core_module, encode_canonical_cbor, encode_core_module,
+    encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
     validate_provider_lowering_request, validate_provider_verification_request,
     BuiltinLowererRequest, BuiltinTargetLowerer, CanonicalValue, CompilerContext,
     ContractBundleAssemblyFromTargetIrInput, ContractBundleManifest, ContractBundleSourceArtifact,
@@ -43,9 +43,9 @@ use edict_syntax::{
     ProviderSemanticInput, ProviderSemanticInputBinding, ProviderSemanticInputKind,
     ProviderVerificationInvocationContract, ProviderVerificationOutputKind,
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ResourceRef,
-    TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts, TargetProviderManifest,
-    WriteClass, AUTHORITY_FACTS_API_VERSION, CANONICAL_CBOR_ABI, CORE_DIGEST_FRAME,
-    CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
+    TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts, TargetIrSemanticClosure,
+    TargetProviderManifest, WriteClass, AUTHORITY_FACTS_API_VERSION, CANONICAL_CBOR_ABI,
+    CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
@@ -68,7 +68,7 @@ const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
 const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 24;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 30;
 
 const MANIFEST_BYTES: &[u8] =
     include_bytes!("../../../schemas/edict-provider/package/v1/provider-manifest.echo.json");
@@ -106,11 +106,11 @@ const LOWERER_BYTES: &[u8] = include_bytes!(
 const VERIFIER_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
-const EDICT_REVISION: &str = "c75c3f550d049485ba00eae0dc272c6dd6aca11f";
+const EDICT_REVISION: &str = "2e3f52f9e6d615f96eb594a40126e223a9253d98";
 const EDICT_COMPILER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::compile_to_core\n";
+    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::compile_to_core\n";
 const BUILTIN_LOWERER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
+    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
 const NON_SEMANTIC_COMPILE_OPTIONS: &[u8] = b"{\"profile\":\"release\"}\n";
 
 struct RoutedCanonicalArtifact {
@@ -608,6 +608,7 @@ fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> 
         effect_lowerings: vec![TargetEffectLowering {
             effect: "target.replace".to_owned(),
             target_intrinsic: "echo.dpo@1.replace".to_owned(),
+            failure_mappings: BTreeMap::new(),
         }],
     };
     let report = lower_with_builtin_lowerer(
@@ -618,9 +619,27 @@ fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> 
         },
     )
     .expect("Edict's built-in Echo lowerer accepts the exact fixture");
-    report
+    let mut artifact = report
         .artifact
-        .expect("the exact fixture lowers to Target IR")
+        .expect("the exact fixture lowers to Target IR");
+    artifact.semantic_closure = Some(TargetIrSemanticClosure {
+        source_core: ResourceRef {
+            coordinate: core.coordinate.clone(),
+            digest: Some(
+                digest_core_module(core)
+                    .expect("oracle Core has an Edict domain-framed digest")
+                    .to_review_string(),
+            ),
+        },
+        lawpacks: vec![ResourceRef {
+            coordinate: "echo.dpo-lawpack@1".to_owned(),
+            digest: Some(format!(
+                "sha256:{}",
+                hex(&provider_digest(PROVIDER_LAWPACK_ARTIFACT_DOMAIN, LAWPACK_BYTES).bytes)
+            )),
+        }],
+    });
+    artifact
 }
 
 fn oracle_target_ir(core: &CoreModule, target_profile: ResourceRef) -> Vec<u8> {
@@ -2170,7 +2189,7 @@ fn declared_package_cases_execute_their_exact_typed_contracts() {
 
     assert_eq!(
         observation.target_ir_digest,
-        "sha256:d4689abc5c2275ea9c7e1b743197a0d8b4625091632e8f5162eba9ff88d568ad"
+        "sha256:40f470b7657aec681e6f99c2a57a445c42426c8d96196e569e8afb18013037da"
     );
     assert_eq!(observation.verifier_outcome, "accepted");
     assert_eq!(

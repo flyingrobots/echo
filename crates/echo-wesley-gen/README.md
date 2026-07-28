@@ -117,9 +117,10 @@ identity, not an executable-build or supply-chain attestation.
 provider components into one 24-member, non-self-referential package closure,
 then derives the separate `edict.provider-manifest/v1` JSON file. The Echo-owned
 package root is a domain-framed canonical-CBOR value over the exact manifest
-routes, 24 schema bindings (nine invocation domains, the generated artifact
-profile, and 14 generated-resource domains), and raw SHA-256 of every
-non-manifest member.
+routes, 30 schema bindings (nine compatibility invocation domains, the
+generated artifact profile, 14 generated-resource domains, and six generic
+executable-operation closure domains), and raw SHA-256 of every non-manifest
+member.
 Canonical-CBOR artifact routes retain their Edict domain-framed identities;
 CDDL, Wesley evidence JSON, components, and every physical member retain raw
 exact-byte identities. Digest admission requires exact deterministic manifest

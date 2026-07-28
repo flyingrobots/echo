@@ -390,7 +390,7 @@
       "generated-artifact-profile.echo-dpo-registration"
     ],
     "canonicalEncodingRulesResource": "resource.canonical-encoding",
-    "acceptedLawpackAdapterAbis": [],
+    "acceptedLawpackAdapterAbis": ["edict.lawpack-adapter/v1"],
     "diagnosticAbiResource": "resource.diagnostic-abi",
     "applicationModel": "atomic",
     "readConsistency": "application-snapshot",
@@ -486,6 +486,12 @@
   },
   "invocationInputs": [
     {
+      "role": "adapter.echo-operation",
+      "kind": "auxiliary",
+      "domain": "edict.lawpack-adapter/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
       "role": "authority-facts.echo-dpo",
       "kind": "authorityFacts",
       "domain": "edict.authority-facts/v1",
@@ -504,7 +510,25 @@
       "schemaRole": "schema.echo-provider-artifacts"
     },
     {
+      "role": "executable-operation-package.echo",
+      "kind": "auxiliary",
+      "domain": "echo.operation-package/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "exports.echo-operation",
+      "kind": "auxiliary",
+      "domain": "edict.lawpack-exports/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
       "role": "lawpack.echo-dpo",
+      "kind": "lawpack",
+      "domain": "edict.lawpack/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "lawpack.echo-operation",
       "kind": "lawpack",
       "domain": "edict.lawpack/v1",
       "schemaRole": "schema.echo-provider-artifacts"
@@ -516,7 +540,25 @@
       "schemaRole": "schema.echo-provider-artifacts"
     },
     {
+      "role": "source.echo-operation",
+      "kind": "auxiliary",
+      "domain": "edict.source/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "target-configuration.echo-operation",
+      "kind": "auxiliary",
+      "domain": "echo.operation-lowering-configuration/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
       "role": "target-ir.echo-dpo",
+      "kind": "targetIr",
+      "domain": "edict.target-ir.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "target-ir.echo-operation",
       "kind": "targetIr",
       "domain": "edict.target-ir.artifact/v1",
       "schemaRole": "schema.echo-provider-artifacts"
@@ -529,6 +571,12 @@
     }
   ],
   "invocationOutputs": [
+    {
+      "role": "executable-operation-package.echo",
+      "kind": "generatedArtifact",
+      "domain": "echo.operation-package/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
     {
       "role": "generated.echo-dpo",
       "kind": "generatedArtifact",
@@ -551,6 +599,12 @@
       "role": "verifier-report.echo-dpo",
       "kind": "verifierReport",
       "domain": "echo.verifier-report/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
+      "role": "verifier-report.echo-operation",
+      "kind": "verifierReport",
+      "domain": "echo.operation-package-verifier-report/v1",
       "schemaRole": "schema.echo-provider-artifacts"
     }
   ],
@@ -646,6 +700,24 @@
       "rootRule": "generated-artifact"
     },
     {
+      "domain": "echo.operation-lowering-configuration/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-operation-lowering-configuration"
+    },
+    {
+      "domain": "echo.operation-package-verifier-report/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-operation-package-verifier-report"
+    },
+    {
+      "domain": "echo.operation-package/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "echo-operation-package"
+    },
+    {
       "domain": "echo.review-payload/v1",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
@@ -676,6 +748,18 @@
       "rootRule": "core-module"
     },
     {
+      "domain": "edict.lawpack-adapter/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lawpack-adapter"
+    },
+    {
+      "domain": "edict.lawpack-exports/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "lawpack-exports"
+    },
+    {
       "domain": "edict.lawpack/v1",
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
@@ -686,6 +770,12 @@
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "lowering-requirements"
+    },
+    {
+      "domain": "edict.source/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "edict-source-bytes"
     },
     {
       "domain": "edict.target-ir.artifact/v1",

@@ -212,8 +212,70 @@ fn target_ir_value() -> CanonicalValueV1 {
     target_ir
 }
 
+fn resource_ref_value(reference: &ResourceRef) -> CanonicalValueV1 {
+    map([
+        ("id", text(&reference.coordinate)),
+        (
+            "digest",
+            CanonicalValueV1::Array(vec![
+                text("sha256"),
+                CanonicalValueV1::Bytes(reference.digest.bytes.clone()),
+            ]),
+        ),
+    ])
+}
+
+fn semantic_closure_for_request(request: &VerificationRequestV1) -> CanonicalValueV1 {
+    let lawpacks = request
+        .semantic_inputs
+        .iter()
+        .filter(|input| input.kind == SemanticInputKind::Lawpack)
+        .map(|input| resource_ref_value(&input.artifact.reference))
+        .collect();
+    map([
+        ("sourceCore", resource_ref_value(&request.core.reference)),
+        ("lawpacks", CanonicalValueV1::Array(lawpacks)),
+    ])
+}
+
 fn bind_core(request: &mut VerificationRequestV1, core: &CanonicalValueV1) {
     request.core = bound("a.b@1", CORE_DOMAIN, canonical_bytes(core));
+}
+
+#[test]
+fn exact_semantic_closure_is_accepted_and_mismatch_is_rejected() {
+    let mut accepted = request();
+    let mut accepted_target_ir = target_ir_value();
+    insert_map_field(
+        &mut accepted_target_ir,
+        "semanticClosure",
+        semantic_closure_for_request(&accepted),
+    );
+    bind_target_ir(&mut accepted, &accepted_target_ir);
+    let target_ir_reference = accepted.target_ir.reference.clone();
+    let success = verify(accepted).expect("the exact bound semantic closure verifies");
+    assert_accepted(&success, &target_ir_reference);
+
+    let mut mismatched = request();
+    let mut mismatched_closure = semantic_closure_for_request(&mismatched);
+    let CanonicalValueV1::Array(source_digest) = map_field_mut(
+        map_field_mut(&mut mismatched_closure, "sourceCore"),
+        "digest",
+    ) else {
+        panic!("source Core digest is an algorithm-byte pair");
+    };
+    let CanonicalValueV1::Bytes(bytes) = &mut source_digest[1] else {
+        panic!("source Core digest payload is bytes");
+    };
+    bytes[0] ^= 0x01;
+    let mut mismatched_target_ir = target_ir_value();
+    insert_map_field(
+        &mut mismatched_target_ir,
+        "semanticClosure",
+        mismatched_closure,
+    );
+    bind_target_ir(&mut mismatched, &mismatched_target_ir);
+    assert_rejected(mismatched, "echo.verifier.semantic-closure-mismatch");
 }
 
 fn bind_target_ir(request: &mut VerificationRequestV1, target_ir: &CanonicalValueV1) {
@@ -408,19 +470,19 @@ fn packaged_semantic_resource_bytes_are_pinned() {
     let resources = [
         (
             TARGET_PROFILE,
-            "a2ecfe500dcedb25b22129a412a7c83379fc265d9f04792355425ff80b52a2ba",
+            "1b105d1b1f6cdf5fecdef98b7adeb238525047d43581fe9fd8c44fd213e1788e",
         ),
         (
             LAWPACK,
-            "2539a9856295db8545db10d1001b6b1697e40bff0ea07b45afd33255d45d4269",
+            "8c570362671a0b1cd1a992d8210e4a90ffd153ad06dcdf1e0cb36033cc971e2c",
         ),
         (
             TARGET_AUTHORITY,
-            "e4ecd21b5b4d7c97c66f9aa9ef55794fd8610f58a6ccb5e37f411576b8247ca9",
+            "e2a6a539a7156296c18ff1bc02f80dcabf62b42bb4314d0737527869e43986d6",
         ),
         (
             LAWPACK_AUTHORITY,
-            "893af4f37e2821525cc609e5740e7e95ae0e1795ca2444d2267f438a69d2283f",
+            "ce1af559551f8b8242c4b290b620c5a28323b9e43f8bc6bb161a191001b6f4b9",
         ),
     ];
 

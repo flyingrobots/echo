@@ -48,8 +48,9 @@ const GENERATED_PROFILE_DOMAIN: &str = "echo.generated-artifact-profile/v1";
 const PROVIDER_SCHEMA_SUFFIX: &str = r#"
 
 ; --- Echo provider-generated declarative contracts -----------------------
-; These roots validate provider semantic descriptions. They confer no Echo
-; runtime authority and contain no package, component, or installation state.
+; These roots validate provider semantic descriptions and data-only executable
+; package bytes. They confer no Echo runtime authority, component installation,
+; Action admission, scheduler selection, or Tick publication.
 
 generated-artifact-profile = {
   apiVersion: "echo.generated-artifact-profile/v1",
@@ -228,6 +229,74 @@ echo-dpo-verifier = {
 }
 
 echo-nonempty-tstr = tstr .regexp "(?s).+"
+
+edict-source-bytes = bstr
+
+echo-operation-package = {
+  "application_basis_schema_identity": bstr .size 32,
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-operation-budget,
+  "evaluation_basis_schema_identity": bstr .size 32,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "input_schema_identity": bstr .size 32,
+  "intrinsic_profile_identity": bstr .size 32,
+  "obstruction_schema_identity": bstr .size 32,
+  "obstruction_interpretation_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  program: bstr,
+  "result_schema_identity": bstr .size 32,
+  "result_interpretation_identity": bstr .size 32,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-operation-budget = {
+  "read_bytes": uint,
+  steps: 1..18446744073709551615,
+  "write_bytes": uint,
+}
+
+echo-operation-semantic-closure = {
+  "application_schema_coordinate": echo-nonempty-tstr,
+  "application_schema_identity": bstr .size 32,
+  "canonical_meaning_identity": bstr .size 32,
+  "core_identity": bstr .size 32,
+  "edict_source_identity": bstr .size 32,
+  "lawpack_coordinate": echo-nonempty-tstr,
+  "lawpack_identity": bstr .size 32,
+  "target_ir_identity": bstr .size 32,
+}
+
+echo-operation-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  authorityProfile: echo-nonempty-tstr,
+  budgetCeiling: {
+    readBytes: uint,
+    steps: 1..18446744073709551615,
+    writeBytes: uint,
+  },
+  invocationBinding: {
+    nodeIdDerivation: "sha256-utf8/v1",
+    nodeKeyField: echo-nonempty-tstr,
+    replacementField: echo-nonempty-tstr,
+    warpIdSource: "action-lane/v1",
+  },
+  maxReplacementBytes: 1..18446744073709551615,
+  programKind: "anchored-node-attachment-create-if-absent/v1",
+  requiredAttachmentTypeProfile: echo-nonempty-tstr,
+  requiredNodeTypeProfile: echo-nonempty-tstr,
+}
+
+echo-operation-package-verifier-report = {
+  apiVersion: "echo.operation-package-verifier-report/v1",
+  package: resource-ref,
+  targetIr: resource-ref,
+  outcome: "accepted" / "rejected",
+  diagnosticAbi: resource-ref,
+  diagnosticBytes: bstr,
+}
 
 generated-artifact = {
   apiVersion: "echo.generated-artifact/v1",
@@ -1179,13 +1248,10 @@ fn build_target_profile(
         "generatedArtifactProfiles".to_owned(),
         JsonValue::Array(vec![output_reference(generated_profile)?]),
     );
-    if !target.accepted_lawpack_adapter_abis.is_empty() {
-        return Err(ProviderArtifactGenerationError::new(
-            ProviderArtifactGenerationErrorKind::SemanticProjectionMismatch,
-            "targetProfile.acceptedLawpackAdapterAbi",
-            "empty-v1-reservation",
-        ));
-    }
+    value.insert(
+        "acceptedLawpackAdapterAbi".to_owned(),
+        json!(target.accepted_lawpack_adapter_abis),
+    );
     value.insert(
         "applicationModel".to_owned(),
         json!(target.application_model),

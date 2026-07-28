@@ -475,6 +475,12 @@ fn checked_echo_provider_semantic_source_validates() {
             .generated_artifact_profile_roles,
         ["generated-artifact-profile.echo-dpo-registration"]
     );
+    assert_eq!(
+        source
+            .target_profile_projection
+            .accepted_lawpack_adapter_abis,
+        ["edict.lawpack-adapter/v1"]
+    );
 
     let outputs = source
         .invocation_outputs
@@ -484,6 +490,11 @@ fn checked_echo_provider_semantic_source_validates() {
     assert_eq!(
         outputs,
         vec![
+            (
+                "executable-operation-package.echo",
+                InvocationOutputKind::GeneratedArtifact,
+                "echo.operation-package/v1",
+            ),
             (
                 "generated.echo-dpo",
                 InvocationOutputKind::GeneratedArtifact,
@@ -504,6 +515,11 @@ fn checked_echo_provider_semantic_source_validates() {
                 InvocationOutputKind::VerifierReport,
                 "echo.verifier-report/v1",
             ),
+            (
+                "verifier-report.echo-operation",
+                InvocationOutputKind::VerifierReport,
+                "echo.operation-package-verifier-report/v1",
+            ),
         ]
     );
     assert_eq!(
@@ -513,6 +529,11 @@ fn checked_echo_provider_semantic_source_validates() {
             .map(|input| (input.role.as_str(), input.kind, input.domain.as_str()))
             .collect::<Vec<_>>(),
         vec![
+            (
+                "adapter.echo-operation",
+                InvocationInputKind::Auxiliary,
+                "edict.lawpack-adapter/v1",
+            ),
             (
                 "authority-facts.echo-dpo",
                 InvocationInputKind::AuthorityFacts,
@@ -529,7 +550,22 @@ fn checked_echo_provider_semantic_source_validates() {
                 "edict.core.module/v1",
             ),
             (
+                "executable-operation-package.echo",
+                InvocationInputKind::Auxiliary,
+                "echo.operation-package/v1",
+            ),
+            (
+                "exports.echo-operation",
+                InvocationInputKind::Auxiliary,
+                "edict.lawpack-exports/v1",
+            ),
+            (
                 "lawpack.echo-dpo",
+                InvocationInputKind::Lawpack,
+                "edict.lawpack/v1",
+            ),
+            (
+                "lawpack.echo-operation",
                 InvocationInputKind::Lawpack,
                 "edict.lawpack/v1",
             ),
@@ -539,7 +575,22 @@ fn checked_echo_provider_semantic_source_validates() {
                 "edict.lowering-requirements/v1",
             ),
             (
+                "source.echo-operation",
+                InvocationInputKind::Auxiliary,
+                "edict.source/v1",
+            ),
+            (
+                "target-configuration.echo-operation",
+                InvocationInputKind::Auxiliary,
+                "echo.operation-lowering-configuration/v1",
+            ),
+            (
                 "target-ir.echo-dpo",
+                InvocationInputKind::TargetIr,
+                "edict.target-ir.artifact/v1",
+            ),
+            (
+                "target-ir.echo-operation",
                 InvocationInputKind::TargetIr,
                 "edict.target-ir.artifact/v1",
             ),
@@ -587,13 +638,25 @@ fn checked_echo_provider_semantic_source_validates() {
                 "generated-artifact-profile",
             ),
             ("echo.generated-artifact/v1", "generated-artifact"),
+            (
+                "echo.operation-lowering-configuration/v1",
+                "echo-operation-lowering-configuration",
+            ),
+            (
+                "echo.operation-package-verifier-report/v1",
+                "echo-operation-package-verifier-report",
+            ),
+            ("echo.operation-package/v1", "echo-operation-package"),
             ("echo.review-payload/v1", "review-payload"),
             ("echo.span-ir/v1", "echo-span-ir"),
             ("echo.verifier-report/v1", "verifier-report"),
             ("edict.authority-facts/v1", "authority-facts"),
             ("edict.core.module/v1", "core-module"),
+            ("edict.lawpack-adapter/v1", "lawpack-adapter"),
+            ("edict.lawpack-exports/v1", "lawpack-exports"),
             ("edict.lawpack/v1", "lawpack-manifest"),
             ("edict.lowering-requirements/v1", "lowering-requirements"),
+            ("edict.source/v1", "edict-source-bytes"),
             ("edict.target-ir.artifact/v1", "target-ir-artifact"),
             ("edict.target-profile/v1", "target-profile-manifest"),
         ]
@@ -1924,7 +1987,7 @@ fn invocation_inputs_and_outputs_require_declared_schema_roles_and_domains() {
             source["invocationInputs"]
                 .as_array_mut()
                 .expect("invocation inputs")
-                .remove(2);
+                .remove(3);
         },
         (
             ProviderSemanticSourceErrorKind::InvocationInputClosureMismatch,
@@ -1934,7 +1997,7 @@ fn invocation_inputs_and_outputs_require_declared_schema_roles_and_domains() {
     );
     assert_failure_tuple(
         |source| {
-            source["invocationInputs"][2]["domain"] = Value::String("edict.wrong/v1".to_owned());
+            source["invocationInputs"][3]["domain"] = Value::String("edict.wrong/v1".to_owned());
         },
         (
             ProviderSemanticSourceErrorKind::InputDomainMismatch,

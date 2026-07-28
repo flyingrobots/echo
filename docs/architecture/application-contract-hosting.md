@@ -163,16 +163,20 @@ state, frontier, or Receipt publication. The transitional direct
 prepare/commit seam can still return noncommitted evidence to trusted host
 tests, but it is not the application lifecycle.
 
-The slice exposes no application matcher, executor, or footprint callback. It
-is not yet emitted by Edict, does not implement Jedit `ReplaceRange` or any
-Graft operation, has no structurally separate target verifier, and does not
-claim cross-head atomic filesystem-WAL persistence. Provider v1 remains stable
-while consumers migrate; it is not renamed or silently reinterpreted as the
-executable-operation corridor. The program digest supplies executable meaning
-only: it cannot independently confer an operation coordinate, invocability, or
-authority, and Echo cannot install or invoke it naked. The admitted operation
-package binds the public contract and semantic closure to the exact program,
-after which Echo independently admits each invocation.
+The slice exposes no application matcher, executor, or footprint callback. A
+generic provider lowerer now emits the package from exact Edict source, Core,
+lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a
+structurally separate provider verifier independently reconstructs that
+relation. Edict's public application-build command does not yet assemble those
+inputs end to end, and the slice does not implement Jedit `ReplaceRange`, any
+Graft operation, or cross-head atomic filesystem-WAL persistence. Provider v1
+remains stable while consumers migrate; it is not renamed or silently
+reinterpreted as the executable-operation corridor. The program digest supplies
+executable meaning only: it cannot independently confer an operation
+coordinate, invocability, or authority, and Echo cannot install or invoke it
+naked. The admitted operation package binds the public contract and semantic
+closure to the exact program, after which Echo independently admits each
+invocation.
 
 ## External Edict Provider Artifacts
 
@@ -420,10 +424,10 @@ and operation-specific validation of codec-owned EINT variables also remain
 outside this generic provider invocation closure.
 
 Both refreshed components have crossed reproducible checked promotion. The
-lowerer is 189,668 bytes with SHA-256
-`f2063b66798fbb1c2b27c3af56e4b78184ffc22c9ed9c7a32c483d05b8c1d382`; the
-verifier is 189,922 bytes with SHA-256
-`632cc5134861c0b31ccc9ca77d4a09fe757094964369d057b62ca6ba6ad38ad7`.
+lowerer is 230,297 bytes with SHA-256
+`f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`; the
+verifier is 247,766 bytes with SHA-256
+`edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing

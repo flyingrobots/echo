@@ -297,6 +297,7 @@ core-intent = {
   input: core-type-ref,
   output: core-type-ref,
   requiredOperationProfile: tstr,
+  ? basis: core-expr,
   inputConstraints: [* input-constraint],
   coreEvaluationBudget: core-budget,
   body: core-block,
@@ -535,6 +536,57 @@ obstruction-def = {
 ; effect-failure-body, effect-kind, authority-class, and core-type-ref are defined
 ; once in edict-common.cddl and assembled with this schema (EDICT-ABI-NODUP-001).
 
+; --- edict-lawpack-adapter.cddl ---
+; edict-lawpack-adapter.cddl
+; Canonical schema for one direct declarative lawpack target adapter.
+; Authoritative byte encoding: edict.canonical-cbor/v1.
+;
+; The enclosing lawpack manifest selects the exact target profile, target IR,
+; and adapter resource digest. Those identities are not repeated here.
+
+lawpack-adapter = {
+  apiVersion: "edict.lawpack-adapter/v1",
+  class: "declarative",
+  operationProfiles: {
+    * tstr => lawpack-adapter-operation-profile
+  },
+  effectImplementations: {
+    * tstr => lawpack-adapter-effect
+  },
+  budgets: {
+    * tstr => lawpack-adapter-budget
+  },
+}
+
+; Keys are canonical lawpack operation-profile coordinates.
+lawpack-adapter-operation-profile = {
+  core: tstr,
+  semanticEffects: [+ tstr],
+}
+
+; Keys are canonical lawpack semantic-effect coordinates. Footprint, cost, and
+; failure fields must exactly discharge the matching exported effect.
+lawpack-adapter-effect = {
+  targetIntrinsic: tstr,
+  targetConfiguration: resource-ref,
+  writeClass: lawpack-adapter-write-class,
+  footprintObligation: tstr,
+  costObligation: tstr,
+  failureMappings: { * failure-ident => tstr },
+}
+
+; Keys are canonical exported cost-obligation coordinates.
+lawpack-adapter-budget = {
+  maxSteps: uint,
+  maxAllocatedBytes: uint,
+  maxOutputBytes: uint,
+}
+
+lawpack-adapter-write-class = "none" / "read" / "create" / "ensure" /
+                              "append" / "modify" / "delete"
+
+; failure-ident is defined in edict-common.cddl.
+
 ; --- edict-target-profile.cddl ---
 ; edict-target-profile.cddl
 ; Canonical schema for the Edict target profile manifest.
@@ -568,11 +620,10 @@ target-profile-manifest = {
   bundleProfile: resource-ref,
   generatedArtifactProfiles: [* resource-ref],
   canonicalEncodingRules: resource-ref,
-  ; Reserved/deferred: will list accepted lawpack-adapter ABI ids once that
-  ; byte-level ABI (edict.lawpack-adapter/v1) is specified. The schema enforces
-  ; emptiness now — the type is the empty array, so non-empty values are
-  ; rejected, not merely discouraged (EDICT-ABI-LAWPACK-ADAPTER-DEFER-001).
-  ? acceptedLawpackAdapterAbi: [],
+  ; A profile that accepts the direct declarative lawpack-adapter ABI names it
+  ; exactly once. Profiles that do not consume lawpack adapters leave this
+  ; optional slot absent or empty.
+  ? acceptedLawpackAdapterAbi: [] / ["edict.lawpack-adapter/v1"],
   diagnosticAbi: resource-ref,
 
   ; application doctrine
@@ -759,22 +810,48 @@ target-ir-resource-ref = {
   digest: sha256-digest,
 }
 
-target-ir-artifact = {
+target-ir-artifact = target-ir-closed-artifact / target-ir-legacy-artifact
+
+target-ir-artifact-common = (
   kind: "targetIrArtifact",
   domain: tstr,
   targetProfile: target-ir-resource-ref,
-  sourceCoreCoordinate: tstr,
+  sourceCoreCoordinate: tstr .regexp "(?s).+",
+)
+
+target-ir-closed-artifact = {
+  target-ir-artifact-common,
+  semanticClosure: target-ir-semantic-closure,
   intents: { * tstr => target-ir-intent },
 }
 
+target-ir-legacy-artifact = {
+  target-ir-artifact-common,
+  intents: { * tstr => target-ir-legacy-intent },
+}
+
+target-ir-semantic-closure = {
+  sourceCore: target-ir-resource-ref,
+  lawpacks: [* target-ir-resource-ref],
+}
+
 target-ir-intent = {
+  target-ir-intent-common,
+  ? basis: core-expr,
+}
+
+target-ir-legacy-intent = {
+  target-ir-intent-common,
+}
+
+target-ir-intent-common = (
   operationProfile: tstr,
   inputConstraints: [* input-constraint],
   coreEvaluationBudget: core-budget,
   requirements: [* target-ir-requirement],
   steps: [* target-ir-step],
   result: core-expr,
-}
+)
 
 target-ir-requirement = {
   id: tstr,
@@ -794,8 +871,9 @@ target-ir-step = {
 
 
 ; --- Echo provider-generated declarative contracts -----------------------
-; These roots validate provider semantic descriptions. They confer no Echo
-; runtime authority and contain no package, component, or installation state.
+; These roots validate provider semantic descriptions and data-only executable
+; package bytes. They confer no Echo runtime authority, component installation,
+; Action admission, scheduler selection, or Tick publication.
 
 generated-artifact-profile = {
   apiVersion: "echo.generated-artifact-profile/v1",
@@ -974,6 +1052,74 @@ echo-dpo-verifier = {
 }
 
 echo-nonempty-tstr = tstr .regexp "(?s).+"
+
+edict-source-bytes = bstr
+
+echo-operation-package = {
+  "application_basis_schema_identity": bstr .size 32,
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-operation-budget,
+  "evaluation_basis_schema_identity": bstr .size 32,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "input_schema_identity": bstr .size 32,
+  "intrinsic_profile_identity": bstr .size 32,
+  "obstruction_schema_identity": bstr .size 32,
+  "obstruction_interpretation_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  program: bstr,
+  "result_schema_identity": bstr .size 32,
+  "result_interpretation_identity": bstr .size 32,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-operation-budget = {
+  "read_bytes": uint,
+  steps: 1..18446744073709551615,
+  "write_bytes": uint,
+}
+
+echo-operation-semantic-closure = {
+  "application_schema_coordinate": echo-nonempty-tstr,
+  "application_schema_identity": bstr .size 32,
+  "canonical_meaning_identity": bstr .size 32,
+  "core_identity": bstr .size 32,
+  "edict_source_identity": bstr .size 32,
+  "lawpack_coordinate": echo-nonempty-tstr,
+  "lawpack_identity": bstr .size 32,
+  "target_ir_identity": bstr .size 32,
+}
+
+echo-operation-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  authorityProfile: echo-nonempty-tstr,
+  budgetCeiling: {
+    readBytes: uint,
+    steps: 1..18446744073709551615,
+    writeBytes: uint,
+  },
+  invocationBinding: {
+    nodeIdDerivation: "sha256-utf8/v1",
+    nodeKeyField: echo-nonempty-tstr,
+    replacementField: echo-nonempty-tstr,
+    warpIdSource: "action-lane/v1",
+  },
+  maxReplacementBytes: 1..18446744073709551615,
+  programKind: "anchored-node-attachment-create-if-absent/v1",
+  requiredAttachmentTypeProfile: echo-nonempty-tstr,
+  requiredNodeTypeProfile: echo-nonempty-tstr,
+}
+
+echo-operation-package-verifier-report = {
+  apiVersion: "echo.operation-package-verifier-report/v1",
+  package: resource-ref,
+  targetIr: resource-ref,
+  outcome: "accepted" / "rejected",
+  diagnosticAbi: resource-ref,
+  diagnosticBytes: bstr,
+}
 
 generated-artifact = {
   apiVersion: "echo.generated-artifact/v1",

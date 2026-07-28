@@ -312,6 +312,24 @@ results, append-only WAL codes, activation refusal for process-only
 installations, accepted-Action recovery, scheduler-owned decided Ticks, and
 fresh-host installation and consequence recovery.
 
+The external compiler-to-runtime singleton witness lives in
+`xtask/tests/run_edict_operation.rs`. Its checked fixture contains exact package
+and verification-report bytes emitted by the compiler build plus the exact
+generator-owned manifest, target adapter, and target configuration inputs that
+the build consumed. The runtime witness binds the executable-operation subset
+of that closure; dormant declarative verifier, compatibility, and conformance
+resource references remain Edict fixture identities rather than Echo runtime
+inputs. Its report retains the input basis and node key, derived worldline and
+node identities, accepted submission identity, committed Tick identity, and
+typed Receipt identity. The witness proves
+accepted-submission durability before acknowledgement, fresh-host recovery of
+the installed package and pending Action before scheduler selection,
+scheduler-owned evaluation of that recovered work, decided-Tick durability, a
+second complete fresh-host recovery, a typed duplicate-create obstruction
+without mutation, and recovery refusal when the registered initial state
+changes. It uses the strict filesystem adapter and no native application
+callback.
+
 The Action/Tick witnesses to read first are:
 
 - `accepted_executable_action_recovers_pending_before_scheduler_evaluation`

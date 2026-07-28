@@ -22,8 +22,9 @@ use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-mod hello_echo;
 mod provider_lowerer_component;
+mod run_edict_operation;
+mod runtime_counter_diagnostic;
 
 #[derive(Parser)]
 #[command(
@@ -42,8 +43,8 @@ enum Commands {
     Bench(BenchArgs),
     /// Emit agent-native Doghouse recorder events.
     Doghouse(DoghouseArgs),
-    /// Run the 30-second Hello Echo evidence capsule.
-    HelloEcho(HelloEchoArgs),
+    /// Run the low-level native counter runtime diagnostic.
+    RuntimeCounterDiagnostic(RuntimeCounterDiagnosticArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
@@ -52,6 +53,8 @@ enum Commands {
     ProviderLowererComponent(ProviderLowererComponentArgs),
     /// Build or check the exact Echo Edict provider verifier component.
     ProviderVerifierComponent(ProviderLowererComponentArgs),
+    /// Run one compiler-produced Edict operation through Echo's durable scheduler.
+    RunEdictOperation(RunEdictOperationArgs),
     /// List, reply to, or resolve PR review threads via `gh`.
     PrThreads(PrThreadsArgs),
     /// Run the high-signal local gate before opening a PR.
@@ -142,16 +145,44 @@ struct ProviderLowererComponentPromoteArgs {
 }
 
 #[derive(Args)]
-struct HelloEchoArgs {
+struct RuntimeCounterDiagnosticArgs {
     /// Output the evidence capsule as JSON.
     #[arg(long)]
     json: bool,
     /// Directory for generated WSC and report artifacts.
-    #[arg(long, default_value = "target/hello-echo")]
+    #[arg(long, default_value = "target/runtime-counter-diagnostic")]
     out_dir: PathBuf,
     /// Fail if the demo exceeds this local wall-clock budget in milliseconds.
     #[arg(long, default_value = "30000")]
     max_ms: u64,
+}
+
+#[derive(Args)]
+struct RunEdictOperationArgs {
+    /// Exact compiler-produced executable-operation package.
+    #[arg(long)]
+    package: PathBuf,
+    /// Exact structurally independent verifier report.
+    #[arg(long)]
+    verification_report: PathBuf,
+    /// Exact lawpack manifest in the compiler input closure.
+    #[arg(long)]
+    lawpack_manifest: PathBuf,
+    /// Exact target adapter in the compiler input closure.
+    #[arg(long)]
+    lawpack_adapter: PathBuf,
+    /// Exact target configuration in the compiler input closure.
+    #[arg(long)]
+    target_configuration: PathBuf,
+    /// Typed operation input encoded as JSON.
+    #[arg(long)]
+    input: PathBuf,
+    /// Empty directory owned by this run's strict filesystem WAL.
+    #[arg(long)]
+    wal_dir: PathBuf,
+    /// Emit the witness report as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -433,11 +464,12 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Bench(args) => run_bench(args),
         Commands::Doghouse(args) => run_doghouse(args),
-        Commands::HelloEcho(args) => run_hello_echo(args),
+        Commands::RuntimeCounterDiagnostic(args) => run_runtime_counter_diagnostic(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
         Commands::ProviderLowererComponent(args) => run_provider_lowerer_component(args),
         Commands::ProviderVerifierComponent(args) => run_provider_verifier_component(args),
+        Commands::RunEdictOperation(args) => run_edict_operation(args),
         Commands::PrThreads(args) => run_pr_threads(args),
         Commands::PrPreflight(args) => run_pr_preflight(args),
         Commands::Dind(args) => run_dind(args),
@@ -447,6 +479,42 @@ fn main() -> Result<()> {
         Commands::DocsLint(args) => run_docs_lint(args),
         Commands::TestSlice(args) => run_test_slice(args),
     }
+}
+
+fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
+    let report = run_edict_operation::run(run_edict_operation::RunEdictOperationConfig {
+        package: args.package,
+        verification_report: args.verification_report,
+        lawpack_manifest: args.lawpack_manifest,
+        lawpack_adapter: args.lawpack_adapter,
+        target_configuration: args.target_configuration,
+        input: args.input,
+        wal_dir: args.wal_dir,
+    })?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "{}: complete package=sha256:{}",
+            report.operation, report.artifacts.package.digest_hex
+        );
+        println!(
+            "submission_wal_before_ack={} scheduler_actions={}",
+            report.submission.wal_committed_before_ack, report.scheduler.action_count
+        );
+        println!(
+            "recovered=pending:{} action:{} tick:{} state:{} outcome:{} receipt:{}",
+            report.recovery.pending_action_recovered,
+            report.recovery.action_recovered,
+            report.recovery.tick_recovered,
+            report.recovery.state_recovered,
+            report.recovery.outcome_recovered,
+            report.recovery.receipt_recovered
+        );
+    }
+
+    Ok(())
 }
 
 fn run_provider_lowerer_component(args: ProviderLowererComponentArgs) -> Result<()> {
@@ -738,16 +806,18 @@ fn print_provider_component(
     }
 }
 
-fn run_hello_echo(args: HelloEchoArgs) -> Result<()> {
-    let report = hello_echo::run(hello_echo::HelloEchoConfig {
-        out_dir: args.out_dir,
-        max_ms: args.max_ms,
-    })?;
+fn run_runtime_counter_diagnostic(args: RuntimeCounterDiagnosticArgs) -> Result<()> {
+    let report = runtime_counter_diagnostic::run(
+        runtime_counter_diagnostic::RuntimeCounterDiagnosticConfig {
+            out_dir: args.out_dir,
+            max_ms: args.max_ms,
+        },
+    )?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!("Hello Echo: {}", report.verdict);
+        println!("runtime counter diagnostic: {}", report.verdict);
         println!(
             "elapsed={}ms budget={}ms evidence={}",
             report.elapsed_ms, report.max_ms, report.deterministic_evidence_digest

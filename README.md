@@ -188,14 +188,15 @@ explicitly bind the interpreter and intrinsic profiles, while Tick evidence
 binds each admitted installation. A program digest cannot confer operation
 identity, invocability, or authority.
 
-That generic runtime witness is not yet the Jim/Jedit vertical. No real Edict
-compiler output, Jedit rope lawpack, or `ReplaceRange` operation uses it, and it
-does not yet claim structurally separate target verification, cross-category
-scheduler composition, or independently implemented semantic conformance. It
-also temporarily reuses `TrustedRuntimeHost`'s joint `native_rule_bootstrap`
-and `trusted_runtime` feature gate. The program itself has no native hooks, but
-the host surface must be decoupled from the legacy bootstrap feature before a
-product can remove that compatibility feature.
+That generic runtime witness is not yet the Jim/Jedit vertical. A standalone
+application-owned Edict operation now crosses it through a compiler-produced
+package and structurally separate accepted verification report, but no Jedit
+rope lawpack or `ReplaceRange` operation uses it. It does not yet claim
+cross-category scheduler composition or independently implemented semantic
+conformance. It also temporarily reuses `TrustedRuntimeHost`'s joint
+`native_rule_bootstrap` and `trusted_runtime` feature gate. The program itself
+has no native hooks, but the host surface must be decoupled from the legacy
+bootstrap feature before a product can remove that compatibility feature.
 
 The following sequence is the existing Wesley bootstrap fixture:
 
@@ -246,10 +247,13 @@ Edict source
 The current executable-operation runtime slice is:
 
 ```text
-canonical ExecutableOperationPackageV1 bytes
+external compiler-produced ExecutableOperationPackageV1 bytes
+-> structurally separate accepted verification report
+-> exact manifest, target-adapter, and target-configuration closure
 -> Echo-owned package and invocation admission
 -> installed data-only EchoOperationProgramV1
 -> canonical Action submission retained before acknowledgement
+-> fresh-host package and pending-Action recovery
 -> runtime-owned admission into the ordinary head inbox
 -> scheduler selection at one exact basis
 -> bounded private Echo evaluation during Tick construction
@@ -263,10 +267,12 @@ third proves Echo-owned execution of admitted data-only meaning through
 separate update-only compare-and-set and single-node create-if-absent program
 profiles. Independent Actions for one head can share one scheduler-owned Tick;
 conflicting or obstructed Actions retain typed outcomes without hidden
-mutation. No real Edict compiler output, Jedit operation, or Graft operation
-uses this route yet. The next convergence crossing must bind a real
-application-owned Edict operation and lawpack to the executable-operation
-package without reintroducing a native implementation.
+mutation. A standalone application-owned Edict create-if-absent operation now
+crosses this route as an exact compiler-produced package and independently
+accepted verification report through `cargo xtask run-edict-operation`. That
+witness is one Action in one Tick; it does not claim external multi-Action Tick
+composition, a product-ready application runner, a Jedit operation, or a Graft
+operation.
 
 ## Contracts And Boundaries
 
@@ -566,10 +572,14 @@ boundary.
 
 ```bash
 make hooks
-cargo xtask hello-echo
+cargo xtask runtime-counter-diagnostic
 cargo xtask test-slice warp-core-smoke
 cargo xtask dind run
 ```
+
+`runtime-counter-diagnostic` is a native low-level maintenance diagnostic, not
+the external Hello Echo application. Compiler-produced application packages use
+the generic `run-edict-operation` witness command.
 
 Live work, priorities, and status are maintained in GitHub Issues, Projects,
 pull requests, and review threads. Architectural decisions live in

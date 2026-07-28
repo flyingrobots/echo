@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+schema = "echo.edict-operation-fixture-origin/v1"
+repository = "https://github.com/flyingrobots/hello-echo"
+commit = "8dd96de482ffee8fa6efb2ebe508f649e1d878a7"
+edict_commit = "296bf1f6c76af1e011f5214b6d3de260c67ca84a"
+echo_commit = "eb0abb6ea90d1968e5d10922dc6d88eb7b361460"
+build_command = "EDICT_REPO=<edict> ECHO_REPO=<echo> ./tests/build.sh"
+
+[artifacts.executable_operation_package]
+path = ".build/application/executable-operation-package.cbor"
+sha256 = "8a602e9bf2dfeae1a3bc033d299dc7b6b348a08c777756c7b1b855bd099dab93"
+
+[artifacts.verification_report]
+path = ".build/application/verification-report.cbor"
+sha256 = "8a72bff53649a448d7f880ed27bb21a52daab3a43eb2e0579e46ac35296e34dd"
+
+[artifacts.lawpack_manifest]
+path = "vendor/causal-cell/manifest.cbor"
+sha256 = "7bb901c984a92ed50795f8b5f7efe8d0648124574fa82250c6373a30e94333c9"
+
+[artifacts.lawpack_adapter]
+path = "vendor/causal-cell/adapter.cbor"
+sha256 = "9ff972460a34a566ebc2d9fd34853468ec6c7378a642f9026767f0d16a841ca3"
+
+[artifacts.target_configuration]
+path = "vendor/causal-cell/echo-operation-configuration.cbor"
+sha256 = "c3101946866fcc4c353f212e649aef1a367fe6b4155859486f71a3e4b2b8d89a"

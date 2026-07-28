@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:d8a55600a6f7a07033beff405e4a539f36f803644756c5e4f2b5e5a6d37c976a"
+    "digest": "sha256:d8d433725fbece1ba657cd456720c1b788344f9034b1735ab99cf209d835038a"
   },
   "artifacts": [
     {
@@ -21,7 +21,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -40,7 +40,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -59,7 +59,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -78,7 +78,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -102,7 +102,7 @@
       "artifactKind": "generationProvenance",
       "resource": {
         "coordinate": "echo.edict-provider-generation-provenance@1",
-        "digest": "sha256:d36024d4f7c8f3047d2ea9a18f6691df00345a22fecbabb8249acb79537be290"
+        "digest": "sha256:eac361e4ffa9ef4f45060b449fa2ccef7b0434df4d26a0408c358ffdd264a670"
       },
       "source": {
         "kind": "generated",
@@ -112,7 +112,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -121,7 +121,7 @@
       "artifactKind": "reviewArtifact",
       "resource": {
         "coordinate": "echo.edict-provider-generation-review@1",
-        "digest": "sha256:32c710fce0cf82dfb6e17fa768e009f8ee9836a33af28cd15b02621278b1ee54"
+        "digest": "sha256:6c98d739be1a26289e13a08aff00e08ec98d2374eacad01278d263020b779cbd"
       },
       "source": {
         "kind": "generated",
@@ -131,7 +131,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -150,7 +150,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },
@@ -169,7 +169,7 @@
         },
         "generator": {
           "coordinate": "echo-wesley-gen.provider-artifact-generator@1",
-          "digest": "sha256:4f52429cadc97847ed5c83f4447e414ee8c4fd1ae552e8c9cdfd5e446892111d"
+          "digest": "sha256:04f4674a16275a9f69d2cf0ea3c0e9d5fffb079698a633f9ccd4aef73d787770"
         }
       }
     },

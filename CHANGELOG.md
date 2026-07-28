@@ -7,6 +7,32 @@
 
 ### Added
 
+- `cargo xtask run-edict-operation` now consumes an exact external
+  compiler-produced executable-operation package, its structurally separate
+  accepted verification report, the manifest-to-adapter-to-target-configuration
+  closure, and typed JSON input. The generic runner durably installs the
+  package, acknowledges one canonical Action only after accepted-submission WAL
+  commit, drops that host, recovers the exact installed package and pending
+  Action into a fresh host, then lets the scheduler privately evaluate the
+  recovered work while constructing one singleton Tick. Publication follows
+  only after the decided-Tick WAL commit. A second fresh filesystem host
+  recovers the package, Action, Tick, state, typed outcome, and Receipt.
+  Repeating creation yields the typed precondition obstruction with no hidden
+  mutation, while a changed initial state produces the typed
+  `echo-operation-execution-mismatch/action-basis` recovery refusal. Admission
+  binds the accepted verification report's Target IR to the package semantic
+  closure, selects target configuration only from the package-supported target
+  intrinsic, and verifies both created node and attachment types. The
+  machine-readable witness reports exact package, verification-report, and
+  lawpack-manifest digests plus basis, node, submission, Tick-commit, and typed
+  Receipt identities. The checked external fixture and bounded failure/stress
+  suite contain application vocabulary only under `xtask/tests`; the
+  production runner is generic and contains no native application callback or
+  handwritten package.
+- The former native `hello-echo` counter capsule is now explicitly named
+  `runtime-counter-diagnostic`, including its command, artifact paths, and
+  internal identities. It remains a low-level callback-based maintenance
+  diagnostic and no longer claims to be the external application proof.
 - Echo's checked Edict provider now lowers arbitrary application-owned Core
   coordinates through one generic executable-operation route. Exact Edict
   source, Core, lawpack, exports, target adapter, target configuration, and
@@ -28,9 +54,10 @@
   and 247,766 bytes /
   `edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:d8a55600a6f7a07033beff405e4a539f36f803644756c5e4f2b5e5a6d37c976a`.
-  This proves generic compiler/provider lowering and independent verification;
-  Echo runtime execution remains a separate downstream crossing.
+  `sha256:d8d433725fbece1ba657cd456720c1b788344f9034b1735ab99cf209d835038a`.
+  This package build proves generic compiler/provider lowering and independent
+  verification. The separate `run-edict-operation` witness now consumes that
+  crossing through Echo-owned runtime execution.
 - Executable-operation application writes now enter Echo as canonical,
   WAL-acknowledged Actions and are evaluated only by the scheduler while
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending

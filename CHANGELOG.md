@@ -23,12 +23,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 230,285 bytes /
-  `9575ca8c843f3dfe4e5550ecdc40a8a8584c1aa7012b5b6f6a76e3f05f1b68f3`
-  and 247,754 bytes /
-  `d87f3df6cdeca0b14032a23b614e9b9ba1f53ea3955a5a0aebda6c61450c3e51`,
+  containers and promoted at 230,297 bytes /
+  `f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`
+  and 247,766 bytes /
+  `edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:4318f83a6412231b3459c0803bb6191d2e20d3f1e5bca0e09b1a73b031458f44`.
+  `sha256:d8a55600a6f7a07033beff405e4a539f36f803644756c5e4f2b5e5a6d37c976a`.
   This proves generic compiler/provider lowering and independent verification;
   Echo runtime execution remains a separate downstream crossing.
 - Executable-operation application writes now enter Echo as canonical,

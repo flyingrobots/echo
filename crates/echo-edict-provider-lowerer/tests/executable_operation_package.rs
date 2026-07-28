@@ -443,7 +443,7 @@ fn target_ir(
                             ("targetIntrinsic", text(TARGET_INTRINSIC)),
                             (
                                 "obstructionFailures",
-                                CanonicalValueV1::Array(vec![text(names.failure)]),
+                                CanonicalValueV1::Array(vec![text(PRECONDITION_MISMATCH)]),
                             ),
                         ])]),
                     ),

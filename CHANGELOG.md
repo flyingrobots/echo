@@ -14,7 +14,9 @@
   bounded anchored create-if-absent capability without application-specific
   dispatch or a native callback. A structurally separate verifier reconstructs
   the source-to-package relation and emits an exact accepted or rejected
-  `echo.operation-package-verifier-report/v1`. The provider package exposes six
+  `echo.operation-package-verifier-report/v1`. Target IR validation consumes
+  the adapter-lowered target obstruction coordinate while independently
+  corroborating its source-failure mapping. The provider package exposes six
   new closure domains through 30 total schema bindings. The generic route now
   binds source-local capability aliases to canonical lawpack exports through
   the exact digest-locked Edict import and corroborates lawpack-owned

@@ -107,6 +107,14 @@ fn one_provider_binary_lowers_two_unrelated_application_vocabularies() {
         text_field(&beta_decoded, "operation_coordinate"),
         Some("notes.beta@7.createNote")
     );
+    assert_eq!(
+        text_field(&alpha_decoded, "obstruction_coordinate"),
+        Some(ALPHA.obstruction)
+    );
+    assert_eq!(
+        text_field(&beta_decoded, "obstruction_coordinate"),
+        Some(BETA.obstruction)
+    );
 }
 
 #[test]

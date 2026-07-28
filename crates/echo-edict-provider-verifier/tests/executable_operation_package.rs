@@ -93,6 +93,12 @@ fn verifier_accepts_generic_lowerer_output_for_two_application_vocabularies() {
     for names in FIXTURES {
         let fixture = raw_fixture(names);
         let package = lower_package(names, &fixture);
+        let package_value =
+            decode_canonical_cbor_v1(&package).expect("the lowered package is canonical");
+        assert_eq!(
+            text_field(&package_value, "obstruction_coordinate"),
+            Some(names.obstruction)
+        );
 
         let verified = verifier::verify(verification_request(names, &fixture, package))
             .expect("the independent verifier completes");
@@ -122,6 +128,30 @@ fn verifier_rejects_a_canonical_package_with_a_rebound_operation_coordinate() {
         decode_canonical_cbor_v1(&package).expect("the lowered package is canonical");
     *map_field_mut(&mut package_value, "operation_coordinate") =
         text("forged.application@1.createAnything");
+    let package = encode_canonical_cbor_v1(&package_value).expect("the mutation remains canonical");
+
+    let verified = verifier::verify(verification_request(names, &fixture, package))
+        .expect("semantic mismatch is a completed verification");
+
+    assert_eq!(verified.diagnostics.len(), 1);
+    assert_eq!(
+        verified.diagnostics[0].code,
+        "echo.verifier.executable-operation-package-mismatch"
+    );
+    let report = decode_canonical_cbor_v1(&verified.outputs[0].artifact.bytes)
+        .expect("the rejection report is canonical");
+    assert_eq!(text_field(&report, "outcome"), Some("rejected"));
+}
+
+#[test]
+fn verifier_rejects_a_canonical_package_with_a_rebound_obstruction_coordinate() {
+    let names = FIXTURES[0];
+    let fixture = raw_fixture(names);
+    let package = lower_package(names, &fixture);
+    let mut package_value =
+        decode_canonical_cbor_v1(&package).expect("the lowered package is canonical");
+    *map_field_mut(&mut package_value, "obstruction_coordinate") =
+        text("forged.domain@9.NotTheAuthoredObstruction");
     let package = encode_canonical_cbor_v1(&package_value).expect("the mutation remains canonical");
 
     let verified = verifier::verify(verification_request(names, &fixture, package))

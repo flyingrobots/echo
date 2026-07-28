@@ -214,7 +214,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["recovery"]["receiptRecovered"], true);
     assert_eq!(
         report["duplicate"]["obstruction"],
-        "echo.executable-operation/precondition-mismatch/v1"
+        "causal.cell@1.AlreadyExists"
     );
     assert_eq!(
         report["recovery"]["mutatedInitialStateRefusal"],

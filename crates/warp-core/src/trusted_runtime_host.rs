@@ -4941,10 +4941,11 @@ fn recover_runtime_state_delta_material(
     });
     missing.sort_unstable();
     missing.dedup();
-    let echo_operation_action_outcomes = action_outcomes_by_submission
+    let mut echo_operation_action_outcomes = action_outcomes_by_submission
         .into_iter()
         .map(|(submission_id, (ingress_id, outcome))| (submission_id, ingress_id, outcome))
-        .collect();
+        .collect::<Vec<_>>();
+    echo_operation_action_outcomes.sort_by_key(|(_, ingress_id, _)| *ingress_id);
     Ok(RecoveredRuntimeStateMaterial {
         provenance_entries: entries,
         receipt_correlations: correlations,

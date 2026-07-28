@@ -101,7 +101,9 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
 
     let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
-        semantic_effect_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+    let semantic_obstruction =
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.obstruction_coordinate)?;
     validate_exports(&exports, &intent, &semantic_effect)?;
     validate_lawpack(
         &lawpack,
@@ -122,7 +124,13 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     )?;
     let configuration = validate_configuration(&configuration)?;
 
-    let package = encode_package(request, &closure, &intent, configuration)?;
+    let package = encode_package(
+        request,
+        &closure,
+        &intent,
+        &semantic_obstruction,
+        configuration,
+    )?;
     let _ = request.limits;
     Ok(LoweringSuccessV1 {
         outputs: vec![LoweringOutputArtifact {
@@ -376,7 +384,7 @@ fn validate_adapter(
     Ok(())
 }
 
-fn semantic_effect_coordinate(
+fn semantic_lawpack_member_coordinate(
     source: &str,
     lawpack: &SemanticInput,
     core_effect: &str,
@@ -560,6 +568,7 @@ fn encode_package(
     request: &LoweringRequestV1,
     closure: &ClosureInputs<'_>,
     intent: &ApplicationIntent<'_>,
+    obstruction_coordinate: &str,
     configuration: ProgramConfiguration<'_>,
 ) -> Result<Vec<u8>, ProviderRefusalV1> {
     let program = canonical_map([
@@ -679,7 +688,7 @@ fn encode_package(
         ),
         (
             "obstruction_coordinate",
-            canonical_text(intent.obstruction_coordinate),
+            canonical_text(obstruction_coordinate),
         ),
         (
             "operation_coordinate",

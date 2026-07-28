@@ -112,7 +112,9 @@ pub(super) fn verify(
 
     let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
-        semantic_effect_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
+    let semantic_obstruction =
+        semantic_lawpack_member_coordinate(source, closure.lawpack, intent.obstruction_coordinate)?;
     validate_exports(&exports, &intent, &semantic_effect)?;
     validate_lawpack(
         &lawpack,
@@ -126,7 +128,13 @@ pub(super) fn verify(
     validate_adapter(&adapter, closure.configuration, &intent, &semantic_effect)?;
     validate_target_ir(&target_ir, request, closure.lawpack, &intent)?;
     let configuration = validate_configuration(&configuration)?;
-    let expected = encode_expected_package(request, &closure, &intent, configuration)?;
+    let expected = encode_expected_package(
+        request,
+        &closure,
+        &intent,
+        &semantic_obstruction,
+        configuration,
+    )?;
     let actual = encode_canonical_cbor_v1(&package)
         .map_err(|_| invalid_artifact(PACKAGE_COORDINATE, "package could not be re-encoded"))?;
 
@@ -413,7 +421,7 @@ fn validate_adapter(
     Ok(())
 }
 
-fn semantic_effect_coordinate(
+fn semantic_lawpack_member_coordinate(
     source: &str,
     lawpack: &SemanticInput,
     core_effect: &str,
@@ -596,6 +604,7 @@ fn encode_expected_package(
     request: &VerificationRequestV1,
     closure: &ClosureInputs<'_>,
     intent: &ApplicationIntent<'_>,
+    obstruction_coordinate: &str,
     configuration: ProgramConfiguration<'_>,
 ) -> Result<Vec<u8>, ProviderRefusalV1> {
     let program = canonical_map([
@@ -712,7 +721,7 @@ fn encode_expected_package(
         ),
         (
             "obstruction_coordinate",
-            canonical_text(intent.obstruction_coordinate),
+            canonical_text(obstruction_coordinate),
         ),
         (
             "operation_coordinate",

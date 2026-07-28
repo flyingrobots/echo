@@ -282,7 +282,18 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                                         names.failure,
                                         owned_map([(
                                             "value",
-                                            owned_map([("callee", text(names.obstruction))]),
+                                            owned_map([(
+                                                "callee",
+                                                text(format!(
+                                                    "{}.{}",
+                                                    names.alias,
+                                                    names
+                                                        .obstruction
+                                                        .rsplit_once('.')
+                                                        .expect("fixture obstruction has a member",)
+                                                        .1
+                                                )),
+                                            )]),
                                         )]),
                                     )]),
                                 ),

@@ -47,7 +47,7 @@
   and 247,766 bytes /
   `edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:d8a55600a6f7a07033beff405e4a539f36f803644756c5e4f2b5e5a6d37c976a`.
+  `sha256:d8d433725fbece1ba657cd456720c1b788344f9034b1735ab99cf209d835038a`.
   This proves generic compiler/provider lowering and independent verification;
   Echo runtime execution remains a separate downstream crossing.
 - Executable-operation application writes now enter Echo as canonical,

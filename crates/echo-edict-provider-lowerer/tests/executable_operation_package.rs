@@ -480,6 +480,7 @@ fn expected_package(
     let core_identity = hash(&request.core.reference.digest);
     ExecutableOperationPackageV1::new(
         format!("{}.{}", names.application, names.intent),
+        names.obstruction,
         EchoOperationSemanticClosureV1::new(
             hash(&source.reference.digest),
             core_identity,

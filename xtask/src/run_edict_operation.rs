@@ -44,7 +44,6 @@ const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
 const DIAGNOSTIC_ABI: &str = "edict.diagnostics/v1";
 const NODE_ID_DERIVATION: &str = "sha256-utf8/v1";
 const WARP_ID_SOURCE: &str = "action-lane/v1";
-const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
 
 /// Inputs needed to run one exact compiler-produced package.
 pub struct RunEdictOperationConfig {
@@ -133,11 +132,12 @@ pub struct RecoveryReport {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DuplicateReport {
-    pub obstruction: &'static str,
+    pub obstruction: String,
 }
 
 struct PackageMetadata {
     operation_coordinate: String,
+    obstruction_coordinate: String,
     lawpack_coordinate: String,
     lawpack_identity: [u8; 32],
     authority_profile_identity: [u8; 32],
@@ -467,7 +467,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             Some(EchoOperationActionOutcomeV1::Obstructed(obstruction))
                 if obstruction.kind() == EchoOperationObstructionKindV1::PreconditionMismatch =>
             {
-                PRECONDITION_MISMATCH
+                package.obstruction_coordinate.clone()
             }
             outcome => bail!("duplicate Action produced unexpected outcome: {outcome:?}"),
         };
@@ -603,6 +603,8 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
     let semantic_closure = map_field(value, "semantic_closure", "package")?;
     Ok(PackageMetadata {
         operation_coordinate: nonempty_text_field(value, "operation_coordinate", "package")?
+            .to_owned(),
+        obstruction_coordinate: nonempty_text_field(value, "obstruction_coordinate", "package")?
             .to_owned(),
         lawpack_coordinate: nonempty_text_field(
             semantic_closure,

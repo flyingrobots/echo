@@ -6348,6 +6348,7 @@ mod tests {
         let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
         let package = crate::ExecutableOperationPackageV1::new(
             operation_coordinate,
+            "echo.test.LegacyRecoveryIndex.Obstruction.v1",
             crate::EchoOperationSemanticClosureV1::new(
                 [0x10; 32],
                 [0x11; 32],

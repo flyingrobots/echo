@@ -944,6 +944,7 @@ impl EchoOperationSemanticClosureV1 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutableOperationPackageV1 {
     operation_coordinate: String,
+    obstruction_coordinate: String,
     semantic_closure: EchoOperationSemanticClosureV1,
     target_profile_identity: Hash,
     interpreter_profile_identity: Hash,
@@ -966,6 +967,7 @@ impl ExecutableOperationPackageV1 {
     #[must_use]
     pub fn new(
         operation_coordinate: impl Into<String>,
+        obstruction_coordinate: impl Into<String>,
         semantic_closure: EchoOperationSemanticClosureV1,
         target_profile_identity: Hash,
         authority_profile_identity: Hash,
@@ -981,6 +983,7 @@ impl ExecutableOperationPackageV1 {
         let application_basis_schema_identity = profile_digest(program.application_basis_schema());
         Self {
             operation_coordinate: operation_coordinate.into(),
+            obstruction_coordinate: obstruction_coordinate.into(),
             semantic_closure,
             target_profile_identity,
             interpreter_profile_identity: profile_digest(INTERPRETER_PROFILE),
@@ -1003,6 +1006,12 @@ impl ExecutableOperationPackageV1 {
     #[must_use]
     pub fn operation_coordinate(&self) -> &str {
         &self.operation_coordinate
+    }
+
+    /// Returns the application-authored obstruction coordinate.
+    #[must_use]
+    pub fn obstruction_coordinate(&self) -> &str {
+        &self.obstruction_coordinate
     }
 
     /// Returns the Edict semantic identity bound by this package.
@@ -1047,6 +1056,12 @@ impl ExecutableOperationPackageV1 {
             return Err(artifact_error(
                 EchoOperationArtifactErrorKindV1::EmptyOperationCoordinate,
                 "operation coordinate must not be empty",
+            ));
+        }
+        if self.obstruction_coordinate.is_empty() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
+                "obstruction coordinate must not be empty",
             ));
         }
         if !self.budget_ceiling.is_nonzero() {
@@ -1106,6 +1121,10 @@ impl ExecutableOperationPackageV1 {
                 hash_value(self.obstruction_interpretation_identity),
             ),
             (
+                "obstruction_coordinate",
+                text_value(&self.obstruction_coordinate),
+            ),
+            (
                 "operation_coordinate",
                 text_value(&self.operation_coordinate),
             ),
@@ -1143,6 +1162,7 @@ impl ExecutableOperationPackageV1 {
                 "intrinsic_profile_identity",
                 "obstruction_schema_identity",
                 "obstruction_interpretation_identity",
+                "obstruction_coordinate",
                 "operation_coordinate",
                 "program",
                 "result_schema_identity",
@@ -1160,10 +1180,18 @@ impl ExecutableOperationPackageV1 {
                 "operation coordinate must not be empty",
             ));
         }
+        let obstruction_coordinate = take_text(&mut fields, "obstruction_coordinate")?;
+        if obstruction_coordinate.is_empty() {
+            return Err(artifact_error(
+                EchoOperationArtifactErrorKindV1::EmptyObstructionCoordinate,
+                "obstruction coordinate must not be empty",
+            ));
+        }
         let program_bytes = take_bytes(&mut fields, "program")?;
         let program = EchoOperationProgramV1::from_canonical_bytes(&program_bytes)?;
         let package = Self {
             operation_coordinate,
+            obstruction_coordinate,
             semantic_closure: EchoOperationSemanticClosureV1::from_value(take_field(
                 &mut fields,
                 "semantic_closure",
@@ -1295,6 +1323,8 @@ pub enum EchoOperationArtifactErrorKindV1 {
     NonCanonical,
     /// The public operation coordinate was empty.
     EmptyOperationCoordinate,
+    /// The application-authored obstruction coordinate was empty.
+    EmptyObstructionCoordinate,
     /// The target profile is not implemented by this Echo runtime.
     UnsupportedTargetProfile,
     /// A schema or footprint profile is not implemented by this runtime.
@@ -6310,6 +6340,7 @@ mod tests {
         let authority_profile = digest(40);
         let package = ExecutableOperationPackageV1::new(
             operation_coordinate,
+            "echo.fixture.DescendedCreateIfAbsent.AlreadyExists/v1",
             EchoOperationSemanticClosureV1::new(
                 digest(41),
                 digest(42),
@@ -6534,6 +6565,7 @@ mod tests {
     fn retained_fixture_installation() -> InstalledEchoOperationV1 {
         let package = ExecutableOperationPackageV1::new(
             "echo.fixture.Retention.v1",
+            "echo.fixture.Retention.Obstruction/v1",
             EchoOperationSemanticClosureV1::new(
                 digest(1),
                 digest(2),

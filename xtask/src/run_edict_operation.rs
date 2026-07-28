@@ -38,6 +38,7 @@ const MANIFEST_DOMAIN: &str = "edict.lawpack/v1";
 const ADAPTER_DOMAIN: &str = "edict.lawpack-adapter/v1";
 const CONFIGURATION_DOMAIN: &str = "echo.operation-lowering-configuration/v1";
 const PROGRAM_KIND: &str = "anchored-node-attachment-create-if-absent/v1";
+const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
 const VERIFICATION_REPORT_ABI: &str = "echo.operation-package-verifier-report/v1";
 const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
 const DIAGNOSTIC_ABI: &str = "edict.diagnostics/v1";
@@ -61,6 +62,7 @@ pub struct RunEdictOperationConfig {
 pub struct RunEdictOperationReport {
     pub operation: String,
     pub artifacts: ArtifactReport,
+    pub causal_site: CausalSiteReport,
     pub submission: SubmissionReport,
     pub scheduler: SchedulerReport,
     pub state: StateReport,
@@ -81,6 +83,21 @@ pub struct ArtifactReport {
 pub struct ArtifactIdentity {
     pub algorithm: &'static str,
     pub digest_hex: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CausalSiteReport {
+    pub basis: String,
+    pub node_key: String,
+    pub worldline_id: String,
+    pub warp_id: String,
+    pub node_id: String,
+    pub submission_id: String,
+    pub tick_commit_id: String,
+    pub receipt_digest: String,
+    pub commit_global_tick: u64,
+    pub worldline_tick_after: u64,
 }
 
 #[derive(Serialize)]
@@ -126,6 +143,7 @@ struct PackageMetadata {
     authority_profile_identity: [u8; 32],
     target_profile_identity: [u8; 32],
     target_ir_identity: [u8; 32],
+    target_intrinsic: &'static str,
     budget: EchoOperationBudgetV1,
     required_node_type: TypeId,
     required_attachment_type: TypeId,
@@ -192,6 +210,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         &configuration_bytes,
         &package.lawpack_coordinate,
         package.lawpack_identity,
+        package.target_intrinsic,
     )?;
     validate_package_configuration(&package, &target_configuration)?;
     let input = parse_input(&input_bytes, &target_configuration)?;
@@ -227,6 +246,13 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let scheduler_action_count;
     let wal_committed_before_ack;
     let pending_action_recovered;
+    let worldline_id;
+    let warp_id;
+    let node_id;
+    let tick_commit_id;
+    let receipt_digest;
+    let commit_global_tick;
+    let worldline_tick_after;
 
     {
         let mut fixture = build_host(&input.basis, &input.key, false)?;
@@ -236,6 +262,9 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         install_package(&mut fixture.host, &package, package_id, package_bytes)?;
 
         initial_state_root = current_state(&fixture)?.state_root();
+        worldline_id = hex::encode(fixture.head.worldline_id.as_bytes());
+        warp_id = hex::encode(fixture.node.warp_id.0);
+        node_id = hex::encode(fixture.node.local_id.0);
         let invocation = invocation(
             &fixture,
             &package,
@@ -319,15 +348,25 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             bail!("singleton proof produced an unexpected scheduler selection");
         }
         scheduler_action_count = steps[0].admitted_count;
-        if !matches!(
-            pending
-                .host
-                .echo_operation_action_outcome_v1(&first_submission_id),
-            Some(EchoOperationActionOutcomeV1::Committed(_))
-        ) {
-            bail!("scheduler did not publish a committed typed Action outcome");
-        }
-        let value = node_value(&pending, package.required_attachment_type)?;
+        let committed_receipt = match pending
+            .host
+            .echo_operation_action_outcome_v1(&first_submission_id)
+        {
+            Some(EchoOperationActionOutcomeV1::Committed(receipt)) => receipt,
+            _ => bail!("scheduler did not publish a committed typed Action outcome"),
+        };
+        tick_commit_id = hex::encode(committed_receipt.commit_id());
+        receipt_digest = hex::encode(committed_receipt.digest());
+        commit_global_tick = committed_receipt
+            .commit_global_tick()
+            .context("committed Action receipt has no global Tick coordinate")?
+            .as_u64();
+        worldline_tick_after = committed_receipt.worldline_tick_after().as_u64();
+        let value = node_value(
+            &pending,
+            package.required_node_type,
+            package.required_attachment_type,
+        )?;
         if value != input.replacement {
             bail!("committed state does not contain the typed replacement bytes");
         }
@@ -363,7 +402,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .iter()
             .any(|record| record.submission_id == first_submission_id);
         state_recovered = current_state(&recovered)?.state_root() == committed_state_root
-            && node_value(&recovered, package.required_attachment_type)? == input.replacement;
+            && node_value(
+                &recovered,
+                package.required_node_type,
+                package.required_attachment_type,
+            )? == input.replacement;
         outcome_recovered = matches!(
             recovered
                 .host
@@ -384,7 +427,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .host
             .install_echo_operation_action_admission_policy_v1(invocation_policy);
         let state_before_duplicate = current_state(&recovered)?.state_root();
-        let value_before_duplicate = node_value(&recovered, package.required_attachment_type)?;
+        let value_before_duplicate = node_value(
+            &recovered,
+            package.required_node_type,
+            package.required_attachment_type,
+        )?;
         let duplicate_invocation = invocation(
             &recovered,
             &package,
@@ -425,7 +472,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             outcome => bail!("duplicate Action produced unexpected outcome: {outcome:?}"),
         };
         hidden_mutation = current_state(&recovered)?.state_root() != state_before_duplicate
-            || node_value(&recovered, package.required_attachment_type)? != value_before_duplicate;
+            || node_value(
+                &recovered,
+                package.required_node_type,
+                package.required_attachment_type,
+            )? != value_before_duplicate;
     }
     if !action_recovered
         || !tick_recovered
@@ -465,6 +516,18 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             package: artifact_identity(package_sha256),
             verification_report: artifact_identity(verification_report_sha256),
             lawpack_manifest: artifact_identity(lawpack_manifest_sha256),
+        },
+        causal_site: CausalSiteReport {
+            basis: input.basis,
+            node_key: input.key,
+            worldline_id,
+            warp_id,
+            node_id,
+            submission_id: hex::encode(first_submission_id),
+            tick_commit_id,
+            receipt_digest,
+            commit_global_tick,
+            worldline_tick_after,
         },
         submission: SubmissionReport {
             wal_committed_before_ack,
@@ -531,7 +594,11 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
         "package program",
         "echo.operation-program/v1",
     )?;
-    require_text(&program, "kind", "package program", PROGRAM_KIND)?;
+    let target_intrinsic = target_intrinsic_for_program_kind(nonempty_text_field(
+        &program,
+        "kind",
+        "package program",
+    )?)?;
     let budget = map_field(value, "budget_ceiling", "package")?;
     let semantic_closure = map_field(value, "semantic_closure", "package")?;
     Ok(PackageMetadata {
@@ -547,6 +614,7 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
         authority_profile_identity: hash_field(value, "authority_profile_identity", "package")?,
         target_profile_identity: hash_field(value, "target_profile_identity", "package")?,
         target_ir_identity: hash_field(semantic_closure, "target_ir_identity", "semantic closure")?,
+        target_intrinsic,
         budget: budget_value(
             budget,
             "steps",
@@ -566,6 +634,13 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
         )?),
         maximum_replacement_bytes: u64_field(&program, "max_replacement_bytes", "package program")?,
     })
+}
+
+fn target_intrinsic_for_program_kind(program_kind: &str) -> Result<&'static str> {
+    match program_kind {
+        PROGRAM_KIND => Ok(TARGET_INTRINSIC),
+        unsupported => bail!("package program uses unsupported kind {unsupported}"),
+    }
 }
 
 fn validate_verification_report(
@@ -603,6 +678,7 @@ fn validate_closure(
     configuration_bytes: &[u8],
     package_lawpack_coordinate: &str,
     expected_lawpack_identity: [u8; 32],
+    selected_target_intrinsic: &str,
 ) -> Result<TargetConfiguration> {
     let manifest =
         decode_canonical_cbor_v1(manifest_bytes).context("lawpack manifest is not canonical")?;
@@ -646,20 +722,29 @@ fn validate_closure(
     require_text(&adapter, "apiVersion", "lawpack adapter", ADAPTER_DOMAIN)?;
     let effects = map_field(&adapter, "effectImplementations", "lawpack adapter")?;
     let implementations = map_entries(effects, "lawpack adapter effect implementations")?;
-    let matching_configurations = implementations
+    let selected_implementations = implementations
         .values()
-        .filter_map(|implementation| {
-            map_field(
+        .filter(|implementation| {
+            nonempty_text_field(
                 implementation,
-                "targetConfiguration",
+                "targetIntrinsic",
                 "lawpack adapter effect implementation",
             )
-            .ok()
+            .is_ok_and(|intrinsic| intrinsic == selected_target_intrinsic)
         })
-        .filter(|resource| resource_ref_binds_declared_coordinate(resource, &configuration))
-        .count();
-    if matching_configurations == 0 {
-        bail!("lawpack adapter does not bind the supplied target configuration");
+        .collect::<Vec<_>>();
+    let [selected_implementation] = selected_implementations.as_slice() else {
+        bail!("lawpack adapter must declare exactly one implementation for the selected package intrinsic");
+    };
+    let selected_configuration = map_field(
+        selected_implementation,
+        "targetConfiguration",
+        "selected lawpack effect implementation",
+    )?;
+    if !resource_ref_binds_declared_coordinate(selected_configuration, &configuration) {
+        bail!(
+            "selected lawpack effect implementation does not bind the supplied target configuration"
+        );
     }
     parse_target_configuration(&configuration)
 }
@@ -908,15 +993,27 @@ fn current_state(fixture: &HostFixture) -> Result<&WorldlineState> {
         .context("operation worldline is unavailable")
 }
 
-fn node_value(fixture: &HostFixture, expected_type: TypeId) -> Result<Vec<u8>> {
-    let attachment = current_state(fixture)?
+fn node_value(
+    fixture: &HostFixture,
+    expected_node_type: TypeId,
+    expected_attachment_type: TypeId,
+) -> Result<Vec<u8>> {
+    let store = current_state(fixture)?
         .store(&fixture.node.warp_id)
-        .and_then(|store| store.node_attachment(&fixture.node.local_id))
+        .context("operation node store is absent")?;
+    let node = store
+        .node(&fixture.node.local_id)
+        .context("operation node is absent")?;
+    if node.ty != expected_node_type {
+        bail!("operation node has the wrong declared type");
+    }
+    let attachment = store
+        .node_attachment(&fixture.node.local_id)
         .context("operation node attachment is absent")?;
     let AttachmentValue::Atom(atom) = attachment else {
         bail!("operation node attachment is not an atom");
     };
-    if atom.type_id != expected_type {
+    if atom.type_id != expected_attachment_type {
         bail!("operation node attachment has the wrong declared type");
     }
     Ok(atom.bytes.to_vec())

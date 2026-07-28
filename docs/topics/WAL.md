@@ -319,7 +319,9 @@ generator-owned manifest, target adapter, and target configuration inputs that
 the build consumed. The runtime witness binds the executable-operation subset
 of that closure; dormant declarative verifier, compatibility, and conformance
 resource references remain Edict fixture identities rather than Echo runtime
-inputs. The witness proves
+inputs. Its report retains the input basis and node key, derived worldline and
+node identities, accepted submission identity, committed Tick identity, and
+typed Receipt identity. The witness proves
 accepted-submission durability before acknowledgement, fresh-host recovery of
 the installed package and pending Action before scheduler selection,
 scheduler-owned evaluation of that recovered work, decided-Tick durability, a

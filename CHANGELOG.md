@@ -21,11 +21,14 @@
   mutation, while a changed initial state produces the typed
   `echo-operation-execution-mismatch/action-basis` recovery refusal. Admission
   binds the accepted verification report's Target IR to the package semantic
-  closure, and the machine-readable witness reports exact package,
-  verification-report, and lawpack-manifest digests. The checked external
-  fixture and bounded failure/stress suite contain application vocabulary only
-  under `xtask/tests`; the production runner is generic and contains no native
-  application callback or handwritten package.
+  closure, selects target configuration only from the package-supported target
+  intrinsic, and verifies both created node and attachment types. The
+  machine-readable witness reports exact package, verification-report, and
+  lawpack-manifest digests plus basis, node, submission, Tick-commit, and typed
+  Receipt identities. The checked external fixture and bounded failure/stress
+  suite contain application vocabulary only under `xtask/tests`; the
+  production runner is generic and contains no native application callback or
+  handwritten package.
 - The former native `hello-echo` counter capsule is now explicitly named
   `runtime-counter-diagnostic`, including its command, artifact paths, and
   internal identities. It remains a low-level callback-based maintenance
@@ -52,8 +55,9 @@
   `edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`,
   respectively. The resulting 25-file package has provider identity
   `sha256:d8d433725fbece1ba657cd456720c1b788344f9034b1735ab99cf209d835038a`.
-  This proves generic compiler/provider lowering and independent verification;
-  Echo runtime execution remains a separate downstream crossing.
+  This package build proves generic compiler/provider lowering and independent
+  verification. The separate `run-edict-operation` witness now consumes that
+  crossing through Echo-owned runtime execution.
 - Executable-operation application writes now enter Echo as canonical,
   WAL-acknowledged Actions and are evaluated only by the scheduler while
   constructing a Tick (ADR 0025). Accepted pre-Tick Actions recover as pending

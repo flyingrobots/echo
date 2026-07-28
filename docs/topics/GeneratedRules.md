@@ -189,7 +189,13 @@ configuration chain before Echo independently admits the package. Target
 configuration names the key and replacement input fields, node-id derivation,
 Action-lane WARP source, authority profile, type profiles, and budget. The
 accepted report's Target IR identity must equal the package semantic closure's
-Target IR identity. The runtime-owned basis selector, configured fields,
+Target IR identity. Target configuration is selected from the adapter
+implementation whose target intrinsic matches the package-supported program;
+an unrelated effect cannot substitute a configuration with compatible profile
+and budget values. State validation checks both the declared node type and the
+attachment type. The retained report binds its reading to the input basis and
+node key, derived worldline and node, accepted submission, committed Tick, and
+typed Receipt identities. The runtime-owned basis selector, configured fields,
 package meaning, and verification report all influence the canonical
 invocation; no application matcher, executor, footprint callback, or
 handwritten package participates.

@@ -188,14 +188,15 @@ explicitly bind the interpreter and intrinsic profiles, while Tick evidence
 binds each admitted installation. A program digest cannot confer operation
 identity, invocability, or authority.
 
-That generic runtime witness is not yet the Jim/Jedit vertical. No real Edict
-compiler output, Jedit rope lawpack, or `ReplaceRange` operation uses it, and it
-does not yet claim structurally separate target verification, cross-category
-scheduler composition, or independently implemented semantic conformance. It
-also temporarily reuses `TrustedRuntimeHost`'s joint `native_rule_bootstrap`
-and `trusted_runtime` feature gate. The program itself has no native hooks, but
-the host surface must be decoupled from the legacy bootstrap feature before a
-product can remove that compatibility feature.
+That generic runtime witness is not yet the Jim/Jedit vertical. A standalone
+application-owned Edict operation now crosses it through a compiler-produced
+package and structurally separate accepted verification report, but no Jedit
+rope lawpack or `ReplaceRange` operation uses it. It does not yet claim
+cross-category scheduler composition or independently implemented semantic
+conformance. It also temporarily reuses `TrustedRuntimeHost`'s joint
+`native_rule_bootstrap` and `trusted_runtime` feature gate. The program itself
+has no native hooks, but the host surface must be decoupled from the legacy
+bootstrap feature before a product can remove that compatibility feature.
 
 The following sequence is the existing Wesley bootstrap fixture:
 

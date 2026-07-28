@@ -207,6 +207,19 @@ fn replacement_bound_is_enforced_before_runtime_submission() {
     .output()
     .expect("the oversized-input case starts");
     assert_rejected(&output);
+
+    let host_oversized_input = run_dir.path().join("host-oversized-input.json");
+    fs::write(&host_oversized_input, vec![b'x'; 65_537])
+        .expect("the host-oversized input fixture is writable");
+    let host_bounded = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &fixture_path("verification-report.cbor"),
+        &host_oversized_input,
+        &run_dir.path().join("host-oversized-input-wal"),
+    )
+    .output()
+    .expect("the host-oversized-input case starts");
+    assert_rejected(&host_bounded);
 }
 
 #[test]

@@ -4,7 +4,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fs::{self, File},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -203,7 +204,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let package_id = echo_operation_package_id_v1(&package_bytes);
     let authority_grant_identity = domain_hash(
         b"echo:edict-operation-runner-authority-grant:v1\0",
-        input.basis.as_bytes(),
+        &package_id.as_hash(),
     );
     let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
         package.authority_profile_identity,
@@ -439,15 +440,25 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
 }
 
 fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>> {
-    let metadata = fs::metadata(path)
+    let file =
+        File::open(path).with_context(|| format!("failed to open {label} {}", path.display()))?;
+    let metadata = file
+        .metadata()
         .with_context(|| format!("failed to inspect {label} {}", path.display()))?;
     if !metadata.is_file() {
         bail!("{label} is not a regular file: {}", path.display());
     }
-    if metadata.len() > maximum {
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(metadata.len().min(maximum))
+            .context("host byte bound does not fit this platform")?,
+    );
+    file.take(maximum.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read {label} {}", path.display()))?;
+    if u64::try_from(bytes.len())? > maximum {
         bail!("{label} exceeds the {maximum}-byte host bound");
     }
-    fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))
+    Ok(bytes)
 }
 
 fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {

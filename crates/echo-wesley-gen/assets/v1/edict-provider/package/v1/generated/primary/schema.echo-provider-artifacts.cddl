@@ -1064,6 +1064,7 @@ echo-operation-package = {
   "interpreter_profile_identity": bstr .size 32,
   "input_schema_identity": bstr .size 32,
   "intrinsic_profile_identity": bstr .size 32,
+  "obstruction_coordinate": echo-nonempty-tstr,
   "obstruction_schema_identity": bstr .size 32,
   "obstruction_interpretation_identity": bstr .size 32,
   "operation_coordinate": echo-nonempty-tstr,

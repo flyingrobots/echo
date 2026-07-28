@@ -22,8 +22,8 @@ use edict_provider_host_wasmtime::{
 };
 use edict_provider_schema::{ProviderArtifactSchemaRegistry, ResolvedProviderSchemaArtifact};
 use edict_syntax::{
-    bind_target_provider_manifest, compile_to_core, decode_canonical_cbor,
-    digest_core_module, digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
+    bind_target_provider_manifest, compile_to_core, decode_canonical_cbor, digest_core_module,
+    digest_target_ir_artifact, encode_canonical_cbor, encode_core_module,
     encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
     validate_provider_lowering_request, BuiltinLowererRequest, BuiltinTargetLowerer,
     CanonicalValue, CompilerContext, CoreBudget, CoreModule, ProviderArtifact,
@@ -38,11 +38,11 @@ use edict_syntax::{
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ProviderVerificationSuccess,
     ResourceRef, TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts,
     TargetIrSemanticClosure, TargetProviderManifest, ValidatedProviderLoweringRequest,
-    ValidatedProviderVerificationRequest, WriteClass,
-    AUTHORITY_FACTS_API_VERSION, CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN,
-    ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN, MAX_CANONICAL_NESTING_DEPTH,
-    PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
-    TARGET_PROVIDER_ABI, TARGET_PROVIDER_LOWERER_CONTRACT, TARGET_PROVIDER_MANIFEST_API_VERSION,
+    ValidatedProviderVerificationRequest, WriteClass, AUTHORITY_FACTS_API_VERSION,
+    CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
+    MAX_CANONICAL_NESTING_DEPTH, PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
+    TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION, TARGET_PROVIDER_ABI,
+    TARGET_PROVIDER_LOWERER_CONTRACT, TARGET_PROVIDER_MANIFEST_API_VERSION,
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
 use sha2::{Digest as _, Sha256};
@@ -1262,10 +1262,7 @@ fn closed_lowerer_target_ir(core: &CoreModule) -> (Vec<u8>, ProviderDigest) {
             coordinate: "echo.dpo-lawpack@1".to_owned(),
             digest: Some(format!(
                 "sha256:{}",
-                hex(
-                    &provider_digest(PROVIDER_LAWPACK_ARTIFACT_DOMAIN, LAWPACK_BYTES)
-                        .bytes
-                )
+                hex(&provider_digest(PROVIDER_LAWPACK_ARTIFACT_DOMAIN, LAWPACK_BYTES).bytes)
             )),
         }],
     });

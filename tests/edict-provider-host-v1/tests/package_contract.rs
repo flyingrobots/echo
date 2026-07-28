@@ -31,8 +31,7 @@ use edict_provider_schema::{
 use edict_syntax::{
     assemble_contract_bundle_from_target_ir, bind_target_provider_manifest, compile_to_core,
     decode_canonical_cbor, digest_core_module, encode_canonical_cbor, encode_core_module,
-    encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module,
-    select_provider_component,
+    encode_target_ir_artifact, lower_with_builtin_lowerer, parse_module, select_provider_component,
     validate_provider_lowering_request, validate_provider_verification_request,
     BuiltinLowererRequest, BuiltinTargetLowerer, CanonicalValue, CompilerContext,
     ContractBundleAssemblyFromTargetIrInput, ContractBundleManifest, ContractBundleSourceArtifact,
@@ -46,8 +45,7 @@ use edict_syntax::{
     ProviderVerificationOutputRequest, ProviderVerificationRequest, ResourceRef,
     TargetEffectLowering, TargetIrArtifact, TargetIrLoweringFacts, TargetIrSemanticClosure,
     TargetProviderManifest, WriteClass, AUTHORITY_FACTS_API_VERSION, CANONICAL_CBOR_ABI,
-    CORE_DIGEST_FRAME,
-    CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
+    CORE_DIGEST_FRAME, CORE_MODULE_DIGEST_DOMAIN, ECHO_DPO_TARGET_PROFILE, ECHO_SPAN_IR_DOMAIN,
     PROVIDER_LAWPACK_ARTIFACT_DOMAIN, TARGET_IR_ARTIFACT_DIGEST_DOMAIN, TARGET_PROFILE_API_VERSION,
     TARGET_PROVIDER_PROTOCOL_VERSION,
 };
@@ -636,11 +634,7 @@ fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> 
             coordinate: "echo.dpo-lawpack@1".to_owned(),
             digest: Some(format!(
                 "sha256:{}",
-                hex(&provider_digest(
-                    PROVIDER_LAWPACK_ARTIFACT_DOMAIN,
-                    LAWPACK_BYTES
-                )
-                .bytes)
+                hex(&provider_digest(PROVIDER_LAWPACK_ARTIFACT_DOMAIN, LAWPACK_BYTES).bytes)
             )),
         }],
     });

@@ -12,11 +12,13 @@
   accepted verification report, the manifest-to-adapter-to-target-configuration
   closure, and typed JSON input. The generic runner durably installs the
   package, acknowledges one canonical Action only after accepted-submission WAL
-  commit, lets the scheduler privately evaluate it while constructing one
-  singleton Tick, and publishes only after the decided-Tick WAL commit. A fresh
-  filesystem host recovers the package, Action, Tick, state, typed outcome, and
-  Receipt. Repeating creation yields the typed precondition obstruction with no
-  hidden mutation, while a changed initial state refuses recovery. The checked
+  commit, drops that host, recovers the exact installed package and pending
+  Action into a fresh host, then lets the scheduler privately evaluate the
+  recovered work while constructing one singleton Tick. Publication follows
+  only after the decided-Tick WAL commit. A second fresh filesystem host
+  recovers the package, Action, Tick, state, typed outcome, and Receipt.
+  Repeating creation yields the typed precondition obstruction with no hidden
+  mutation, while a changed initial state refuses recovery. The checked
   external fixture and bounded failure/stress suite contain application
   vocabulary only under `xtask/tests`; the production runner is generic and
   contains no native application callback or handwritten package.

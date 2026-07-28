@@ -106,11 +106,11 @@ const LOWERER_BYTES: &[u8] = include_bytes!(
 const VERIFIER_BYTES: &[u8] = include_bytes!(
     "../../../schemas/edict-provider/package/v1/components/verifier.echo-dpo.component.wasm"
 );
-const EDICT_REVISION: &str = "c75c3f550d049485ba00eae0dc272c6dd6aca11f";
+const EDICT_REVISION: &str = "2e3f52f9e6d615f96eb594a40126e223a9253d98";
 const EDICT_COMPILER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::compile_to_core\n";
+    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::compile_to_core\n";
 const BUILTIN_LOWERER_DESCRIPTOR: &[u8] =
-    b"https://github.com/flyingrobots/edict\nc75c3f550d049485ba00eae0dc272c6dd6aca11f\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
+    b"https://github.com/flyingrobots/edict\n2e3f52f9e6d615f96eb594a40126e223a9253d98\nedict_syntax::BuiltinTargetLowerer::EchoDpo\n";
 const NON_SEMANTIC_COMPILE_OPTIONS: &[u8] = b"{\"profile\":\"release\"}\n";
 
 struct RoutedCanonicalArtifact {
@@ -608,6 +608,7 @@ fn oracle_target_ir_artifact(core: &CoreModule, target_profile: ResourceRef) -> 
         effect_lowerings: vec![TargetEffectLowering {
             effect: "target.replace".to_owned(),
             target_intrinsic: "echo.dpo@1.replace".to_owned(),
+            failure_mappings: BTreeMap::new(),
         }],
     };
     let report = lower_with_builtin_lowerer(

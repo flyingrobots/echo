@@ -13,9 +13,9 @@ publish = false
 resolver = "2"
 
 [dependencies]
-edict-provider-host-wasmtime = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
-edict-provider-schema = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
-edict-syntax = { git = "https://github.com/flyingrobots/edict", rev = "c75c3f550d049485ba00eae0dc272c6dd6aca11f" }
+edict-provider-host-wasmtime = { git = "https://github.com/flyingrobots/edict", rev = "2e3f52f9e6d615f96eb594a40126e223a9253d98" }
+edict-provider-schema = { git = "https://github.com/flyingrobots/edict", rev = "2e3f52f9e6d615f96eb594a40126e223a9253d98" }
+edict-syntax = { git = "https://github.com/flyingrobots/edict", rev = "2e3f52f9e6d615f96eb594a40126e223a9253d98" }
 echo-registry-api = { path = "../../crates/echo-registry-api" }
 echo-wasm-abi = { path = "../../crates/echo-wasm-abi" }
 warp-core = { path = "../../crates/warp-core" }

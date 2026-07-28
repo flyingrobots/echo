@@ -2,7 +2,7 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 repository = "https://github.com/flyingrobots/edict"
-commit = "c75c3f550d049485ba00eae0dc272c6dd6aca11f"
+commit = "2e3f52f9e6d615f96eb594a40126e223a9253d98"
 source = "crates/edict-syntax/tests/provider_lowering.rs::EFFECTFUL_REPLACE"
 license = "Apache-2.0"
 

@@ -10,7 +10,7 @@
 
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -1217,6 +1217,7 @@ fn oracle_target_ir_artifact(core: &CoreModule) -> TargetIrArtifact {
         effect_lowerings: vec![TargetEffectLowering {
             effect: "target.replace".to_owned(),
             target_intrinsic: "echo.dpo@1.replace".to_owned(),
+            failure_mappings: BTreeMap::new(),
         }],
     };
     let report = lower_with_builtin_lowerer(

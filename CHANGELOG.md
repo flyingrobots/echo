@@ -51,11 +51,11 @@
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
   containers and promoted at 230,875 bytes /
-  `2122c9c05c00efa7b99a74ad9d8d16415fd7f09b704cc5004d6c2d977642d4a3`
+  `08277d4ba7d98e0b143c06c208abc306f133bda510caa5393da08aa490334a6e`
   and 248,221 bytes /
   `744a511137608634b88abf7bd7e61da9bf81a5cacff7b190fc2530c346ba36cc`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:de52e08e1f95a67ddffba354d576bf0813ef378f2582b382b05a46cb692dff8f`.
+  `sha256:a7ab6bfbbedc3a6b61a8559dc6506cfc3d2836b46dac3cc825e5b05b16b94fa5`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.

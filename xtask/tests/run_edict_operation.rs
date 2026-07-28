@@ -127,6 +127,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["submission"]["walCommittedBeforeAck"], true);
     assert_eq!(report["scheduler"]["actionCount"], 1);
     assert_eq!(report["state"]["valueUtf8"], "Hello Echo");
+    assert_eq!(report["recovery"]["pendingActionRecovered"], true);
     assert_eq!(report["recovery"]["actionRecovered"], true);
     assert_eq!(report["recovery"]["tickRecovered"], true);
     assert_eq!(report["recovery"]["stateRecovered"], true);

@@ -98,6 +98,7 @@ pub struct StateReport {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoveryReport {
+    pub pending_action_recovered: bool,
     pub action_recovered: bool,
     pub tick_recovered: bool,
     pub state_recovered: bool,
@@ -213,9 +214,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     );
 
     let first_submission_id;
+    let initial_state_root;
     let committed_state_root;
     let scheduler_action_count;
     let wal_committed_before_ack;
+    let pending_action_recovered;
 
     {
         let mut fixture = build_host(&input.basis, &input.key, false)?;
@@ -223,11 +226,8 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .host
             .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&config.wal_dir))?;
         install_package(&mut fixture.host, &package, package_id, package_bytes)?;
-        fixture
-            .host
-            .install_echo_operation_action_admission_policy_v1(invocation_policy);
 
-        let state_root_before = current_state(&fixture)?.state_root();
+        initial_state_root = current_state(&fixture)?.state_root();
         let invocation = invocation(
             &fixture,
             &package,
@@ -261,32 +261,69 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .any(|record| record.submission.submission_id == first_submission_id);
         if !wal_committed_before_ack
             || !accepted.provenance_entries.is_empty()
-            || current_state(&fixture)?.state_root() != state_root_before
+            || current_state(&fixture)?.state_root() != initial_state_root
         {
             bail!("Action acknowledgement preceded durable acceptance or mutated pre-Tick state");
         }
+    }
 
-        let steps = fixture
+    {
+        let mut pending = build_host(&input.basis, &input.key, false)?;
+        pending
+            .host
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&config.wal_dir))?;
+        let pending_wal = pending
+            .host
+            .runtime_wal()
+            .context("pending-recovery runtime WAL is unavailable")?
+            .recover_read_only()
+            .context("failed to inspect pending-Action recovery")?;
+        pending_action_recovered = pending_wal
+            .witnessed_submissions
+            .records()
+            .iter()
+            .any(|record| record.submission.submission_id == first_submission_id)
+            && pending_wal.provenance_entries.is_empty()
+            && pending_wal.receipt_correlations.is_empty()
+            && pending
+                .host
+                .echo_operation_action_outcome_v1(&first_submission_id)
+                .is_none()
+            && pending.host.runtime().pending_witnessed_submission_count() == 1
+            && pending
+                .host
+                .engine()
+                .installed_echo_operation_package_v1(package_id)
+                .is_some()
+            && current_state(&pending)?.state_root() == initial_state_root;
+        if !pending_action_recovered {
+            bail!("fresh host did not recover the accepted Action as pending work");
+        }
+
+        pending
+            .host
+            .install_echo_operation_action_admission_policy_v1(invocation_policy);
+        let steps = pending
             .host
             .tick_once()
-            .context("scheduler failed to construct the executable-operation Tick")?;
+            .context("scheduler failed to construct the recovered executable-operation Tick")?;
         if steps.len() != 1 || steps[0].admitted_count != 1 {
             bail!("singleton proof produced an unexpected scheduler selection");
         }
         scheduler_action_count = steps[0].admitted_count;
         if !matches!(
-            fixture
+            pending
                 .host
                 .echo_operation_action_outcome_v1(&first_submission_id),
             Some(EchoOperationActionOutcomeV1::Committed(_))
         ) {
             bail!("scheduler did not publish a committed typed Action outcome");
         }
-        let value = node_value(&fixture, package.required_attachment_type)?;
+        let value = node_value(&pending, package.required_attachment_type)?;
         if value != input.replacement {
             bail!("committed state does not contain the typed replacement bytes");
         }
-        committed_state_root = current_state(&fixture)?.state_root();
+        committed_state_root = current_state(&pending)?.state_root();
     }
 
     let action_recovered;
@@ -425,6 +462,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
                 .context("replacement value is not UTF-8")?,
         },
         recovery: RecoveryReport {
+            pending_action_recovered,
             action_recovered,
             tick_recovered,
             state_recovered,

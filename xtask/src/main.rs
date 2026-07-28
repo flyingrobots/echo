@@ -504,7 +504,8 @@ fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
             report.submission.wal_committed_before_ack, report.scheduler.action_count
         );
         println!(
-            "recovered=action:{} tick:{} state:{} outcome:{} receipt:{}",
+            "recovered=pending:{} action:{} tick:{} state:{} outcome:{} receipt:{}",
+            report.recovery.pending_action_recovered,
             report.recovery.action_recovered,
             report.recovery.tick_recovered,
             report.recovery.state_recovered,

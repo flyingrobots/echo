@@ -15,9 +15,11 @@ use thiserror::Error;
 
 use crate::causal_wal::{
     affected_frontiers_root, recover_from_frames_and_commits, AffectedFrontier,
-    AffectedFrontierKind, RecoveryAccessMode, RecoveryScanReport, RecoveryTailPosture,
-    WalBuildError, WalCommittedTransaction, WalDecodeError, WalRecordKind, WalRecoveryError,
-    WalStoreError, WalStorePort, WalTransactionBuilder, WalTransactionKind,
+    AffectedFrontierKind, Lsn, PayloadCodecId, PayloadSchemaId, RecoveryAccessMode,
+    RecoveryScanReport, RecoveryTailPosture, WalBuildError, WalCommittedTransaction,
+    WalDecodeError, WalDurabilityMode, WalRecordKind, WalRecoveryError, WalSegmentId,
+    WalStoreError, WalStorePort, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
+    WriterEpochId,
 };
 use crate::{Hash, WorldlineId};
 
@@ -34,6 +36,32 @@ const SETTLEMENT_PAYLOAD_MAGIC: &[u8; 4] = b"EAS1";
 
 /// Absolute v1 ceiling for settlement bytes retained directly in the WAL.
 pub const MAX_EXTERNAL_ACTION_SETTLEMENT_BYTES_V1: u64 = 1_048_576;
+
+/// Non-causal transaction metadata supplied to the external-action coordinator.
+///
+/// LSN and predecessor coordinates are intentionally absent: the coordinator
+/// derives them from its checked local WAL continuation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExternalActionTransactionContextV1 {
+    /// Active writer epoch.
+    pub writer_epoch: WriterEpochId,
+    /// Active WAL segment.
+    pub segment_id: WalSegmentId,
+    /// Identity of this lifecycle transaction.
+    pub transaction_id: WalTransactionId,
+    /// Required durability mode.
+    pub durability_mode: WalDurabilityMode,
+    /// Canonical payload codec.
+    pub payload_codec_id: PayloadCodecId,
+    /// Canonical payload schema.
+    pub payload_schema_id: PayloadSchemaId,
+    /// Payload schema version.
+    pub payload_schema_version: u16,
+    /// Canonical encoding version.
+    pub canonical_encoding_version: u16,
+    /// Digest domain for WAL framing.
+    pub digest_domain: Hash,
+}
 
 /// Stable identity of one external operation family.
 #[repr(transparent)]
@@ -712,20 +740,26 @@ pub enum RecoveredExternalActionPostureV1 {
     Settled(ExternalActionSettlementKindV1),
 }
 
-/// One request reconstructed entirely from committed WAL history.
+/// Observation-only lifecycle reconstructed from a supplied recovery report.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecoveredExternalActionV1 {
     /// Canonical request.
     pub request: ExternalActionRequestV1,
+    /// Commit that durably admitted the request.
+    pub request_commit_digest: Hash,
     /// Recorded claim, when present.
     pub claim: Option<ExternalActionClaimV1>,
+    /// Commit that durably admitted the claim, when present.
+    pub claim_commit_digest: Option<Hash>,
     /// Admitted settlement, when present.
     pub settlement: Option<ExternalActionSettlementV1>,
+    /// Commit that durably admitted the settlement, when present.
+    pub settlement_commit_digest: Option<Hash>,
     /// Lifecycle posture.
     pub posture: RecoveredExternalActionPostureV1,
 }
 
-/// Recovered external-action lifecycle index.
+/// Observation-only external-action lifecycle index.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredExternalActionIndexV1 {
     entries: BTreeMap<ExternalActionRequestIdV1, RecoveredExternalActionV1>,
@@ -736,6 +770,176 @@ pub struct RecoveredExternalActionIndexV1 {
 struct ExternalActionIndexNodeKeyV1 {
     depth: u16,
     prefix: Hash,
+}
+
+/// Trusted local coordinator state recovered from one fallible WAL snapshot.
+///
+/// Arbitrary recovery reports expose observation-only lifecycle values.
+/// Transition grants and resumable settlement facts can be reconstructed only
+/// through this locally recovered coordinator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalActionCoordinatorV1 {
+    index: RecoveredExternalActionIndexV1,
+    next_lsn: Lsn,
+    previous_frame_digest: Hash,
+    previous_commit_digest: Hash,
+    ready: bool,
+}
+
+impl ExternalActionCoordinatorV1 {
+    /// Recovers coordinator authority from one checked local-store snapshot.
+    pub fn recover(store: &impl WalStorePort) -> Result<Self, ExternalActionProtocolErrorV1> {
+        let snapshot = store.read_snapshot()?;
+        let report = recover_from_frames_and_commits(
+            &snapshot.frames,
+            &snapshot.commits,
+            RecoveryAccessMode::ReadOnly,
+        )?;
+        if report.tail_posture != RecoveryTailPosture::Clean {
+            return Err(ExternalActionProtocolErrorV1::WalTailNotClean);
+        }
+        let index = observe_external_actions(&report)?;
+        let (next_lsn, previous_frame_digest, previous_commit_digest) =
+            external_action_wal_continuation(&report)?;
+        Ok(Self {
+            index,
+            next_lsn,
+            previous_frame_digest,
+            previous_commit_digest,
+            ready: true,
+        })
+    }
+
+    /// Returns the observation-only lifecycle index.
+    #[must_use]
+    pub const fn observed_index(&self) -> &RecoveredExternalActionIndexV1 {
+        &self.index
+    }
+
+    /// Reconstructs request-transition authority after a request-commit crash.
+    pub fn recorded_request(
+        &self,
+        request_id: ExternalActionRequestIdV1,
+    ) -> Result<DurablyRecordedExternalActionRequestV1, ExternalActionProtocolErrorV1> {
+        self.ensure_ready()?;
+        let entry = self
+            .index
+            .get(request_id)
+            .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
+        if entry.claim.is_some() {
+            return Err(ExternalActionProtocolErrorV1::DuplicateClaim);
+        }
+        Ok(DurablyRecordedExternalActionRequestV1 {
+            request: entry.request,
+            request_commit_digest: entry.request_commit_digest,
+        })
+    }
+
+    /// Reconstructs adapter settlement authority after a claim-commit crash.
+    pub fn claim_grant(
+        &self,
+        request_id: ExternalActionRequestIdV1,
+    ) -> Result<ExternalActionClaimGrantV1, ExternalActionProtocolErrorV1> {
+        self.ensure_ready()?;
+        let entry = self
+            .index
+            .get(request_id)
+            .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
+        let claim = entry
+            .claim
+            .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
+        if entry.settlement.is_some() {
+            return Err(ExternalActionProtocolErrorV1::DuplicateSettlement);
+        }
+        Ok(ExternalActionClaimGrantV1 {
+            request: entry.request,
+            claim,
+            claim_commit_digest: entry
+                .claim_commit_digest
+                .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?,
+        })
+    }
+
+    /// Reconstructs the deterministic resumption fact after settlement commit.
+    pub fn admitted_settlement(
+        &self,
+        request_id: ExternalActionRequestIdV1,
+    ) -> Result<AdmittedExternalActionSettlementV1, ExternalActionProtocolErrorV1> {
+        self.ensure_ready()?;
+        let entry = self
+            .index
+            .get(request_id)
+            .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
+        Ok(AdmittedExternalActionSettlementV1 {
+            settlement: entry
+                .settlement
+                .clone()
+                .ok_or(ExternalActionProtocolErrorV1::MissingSettlement)?,
+            settlement_commit_digest: entry
+                .settlement_commit_digest
+                .ok_or(ExternalActionProtocolErrorV1::MissingSettlement)?,
+        })
+    }
+
+    fn ensure_ready(&self) -> Result<(), ExternalActionProtocolErrorV1> {
+        if self.ready {
+            Ok(())
+        } else {
+            Err(ExternalActionProtocolErrorV1::CoordinatorRecoveryRequired)
+        }
+    }
+
+    fn transaction_builder(
+        &self,
+        context: ExternalActionTransactionContextV1,
+        expected_kind: WalTransactionKind,
+    ) -> Result<WalTransactionBuilder, ExternalActionProtocolErrorV1> {
+        self.ensure_ready()?;
+        Ok(WalTransactionBuilder::new_external_action(
+            context.writer_epoch,
+            context.segment_id,
+            context.transaction_id,
+            expected_kind,
+            self.next_lsn,
+            self.previous_frame_digest,
+            self.previous_commit_digest,
+            context.durability_mode,
+            context.payload_codec_id,
+            context.payload_schema_id,
+            context.payload_schema_version,
+            context.canonical_encoding_version,
+            context.digest_domain,
+        ))
+    }
+
+    fn append_transaction(
+        &mut self,
+        store: &mut impl WalStorePort,
+        transaction: WalCommittedTransaction,
+    ) -> Result<Hash, ExternalActionProtocolErrorV1> {
+        transaction.validate().map_err(WalBuildError::Validation)?;
+        let capability = transaction
+            .external_action_coordinator_capability()
+            .ok_or(WalBuildError::ExternalActionCoordinatorCapabilityRequired)?;
+        let epoch_id = transaction.commit.writer_epoch;
+        let commit = transaction.commit;
+        let last_lsn = commit.last_lsn;
+        let last_frame_digest = transaction
+            .frames
+            .last()
+            .map(crate::causal_wal::WalFrame::digest)
+            .ok_or(WalBuildError::EmptyTransaction)?;
+        self.ready = false;
+        for frame in transaction.frames {
+            store.append_frame(epoch_id, frame)?;
+        }
+        store.flush_external_action_commit(epoch_id, commit.clone(), capability)?;
+        self.next_lsn = last_lsn.checked_next().ok_or(WalBuildError::LsnOverflow)?;
+        self.previous_frame_digest = last_frame_digest;
+        self.previous_commit_digest = commit.commit_digest;
+        self.ready = true;
+        Ok(commit.commit_digest)
+    }
 }
 
 impl RecoveredExternalActionIndexV1 {
@@ -769,9 +973,17 @@ impl RecoveredExternalActionIndexV1 {
             .unwrap_or_else(|| external_action_empty_hashes()[0])
     }
 
-    fn root_digest_with_entry(&self, entry: &RecoveredExternalActionV1) -> Hash {
+    fn plan_entry(&self, entry: RecoveredExternalActionV1) -> ExternalActionIndexMutationV1 {
         let request_hash = entry.request.request_id.as_hash();
-        let mut child_hash = external_action_index_leaf(entry);
+        let mut child_hash = external_action_index_leaf(&entry);
+        let mut node_updates = Vec::with_capacity(257);
+        node_updates.push((
+            ExternalActionIndexNodeKeyV1 {
+                depth: 256,
+                prefix: request_hash,
+            },
+            child_hash,
+        ));
         for depth in (0_u16..256).rev() {
             let child_depth = depth + 1;
             let mut sibling_prefix = external_action_index_prefix(request_hash, child_depth);
@@ -789,8 +1001,19 @@ impl RecoveredExternalActionIndexV1 {
             } else {
                 external_action_index_node_hash(depth, child_hash, sibling_hash)
             };
+            node_updates.push((
+                ExternalActionIndexNodeKeyV1 {
+                    depth,
+                    prefix: external_action_index_prefix(request_hash, depth),
+                },
+                child_hash,
+            ));
         }
-        child_hash
+        ExternalActionIndexMutationV1 {
+            entry,
+            node_updates,
+            root_digest: child_hash,
+        }
     }
 
     fn insert_entry(&mut self, entry: RecoveredExternalActionV1) -> bool {
@@ -798,63 +1021,32 @@ impl RecoveredExternalActionIndexV1 {
         if self.entries.contains_key(&request_id) {
             return false;
         }
-        let leaf_hash = external_action_index_leaf(&entry);
-        self.entries.insert(request_id, entry);
-        self.refresh_merkle_path(request_id, leaf_hash);
+        let mutation = self.plan_entry(entry);
+        self.apply_mutation(mutation);
         true
     }
 
     fn replace_entry(&mut self, entry: RecoveredExternalActionV1) {
         let request_id = entry.request.request_id;
         debug_assert!(self.entries.contains_key(&request_id));
-        let leaf_hash = external_action_index_leaf(&entry);
-        self.entries.insert(request_id, entry);
-        self.refresh_merkle_path(request_id, leaf_hash);
+        let mutation = self.plan_entry(entry);
+        self.apply_mutation(mutation);
     }
 
-    fn refresh_merkle_path(&mut self, request_id: ExternalActionRequestIdV1, leaf_hash: Hash) {
-        let request_hash = request_id.as_hash();
-        self.merkle_nodes.insert(
-            ExternalActionIndexNodeKeyV1 {
-                depth: 256,
-                prefix: request_hash,
-            },
-            leaf_hash,
-        );
-
-        for depth in (0_u16..256).rev() {
-            let child_depth = depth + 1;
-            let own_child_prefix = external_action_index_prefix(request_hash, child_depth);
-            let mut sibling_prefix = own_child_prefix;
-            external_action_toggle_index_bit(&mut sibling_prefix, depth);
-            let own_hash = self
-                .merkle_nodes
-                .get(&ExternalActionIndexNodeKeyV1 {
-                    depth: child_depth,
-                    prefix: own_child_prefix,
-                })
-                .copied()
-                .unwrap_or_else(|| external_action_empty_hashes()[usize::from(child_depth)]);
-            let sibling_hash = self
-                .merkle_nodes
-                .get(&ExternalActionIndexNodeKeyV1 {
-                    depth: child_depth,
-                    prefix: sibling_prefix,
-                })
-                .copied()
-                .unwrap_or_else(|| external_action_empty_hashes()[usize::from(child_depth)]);
-            let (left, right) = if external_action_index_bit(request_hash, depth) {
-                (sibling_hash, own_hash)
-            } else {
-                (own_hash, sibling_hash)
-            };
-            let prefix = external_action_index_prefix(request_hash, depth);
-            self.merkle_nodes.insert(
-                ExternalActionIndexNodeKeyV1 { depth, prefix },
-                external_action_index_node_hash(depth, left, right),
-            );
+    fn apply_mutation(&mut self, mutation: ExternalActionIndexMutationV1) {
+        self.entries
+            .insert(mutation.entry.request.request_id, mutation.entry);
+        for (key, digest) in mutation.node_updates {
+            self.merkle_nodes.insert(key, digest);
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ExternalActionIndexMutationV1 {
+    entry: RecoveredExternalActionV1,
+    node_updates: Vec<(ExternalActionIndexNodeKeyV1, Hash)>,
+    root_digest: Hash,
 }
 
 /// Fail-closed protocol and admission errors.
@@ -923,6 +1115,12 @@ pub enum ExternalActionProtocolErrorV1 {
     /// A settlement appeared without its claim.
     #[error("external-action settlement is missing its claim")]
     MissingClaim,
+    /// Deterministic resumption was requested before settlement admission.
+    #[error("external-action request is missing its settlement")]
+    MissingSettlement,
+    /// A prior append failed after mutation may have begun; local recovery is required.
+    #[error("external-action coordinator requires trusted local recovery")]
+    CoordinatorRecoveryRequired,
     /// WAL recovery found an uncommitted tail; lifecycle admission must stop.
     #[error("external-action admission requires a clean committed WAL tail")]
     WalTailNotClean,
@@ -954,10 +1152,9 @@ pub enum ExternalActionProtocolErrorV1 {
     WalRecovery(#[from] WalRecoveryError),
 }
 
-/// Builds a request-admission WAL transaction.
-pub fn build_external_action_request_transaction(
+fn build_external_action_request_transaction(
     mut builder: WalTransactionBuilder,
-    request: ExternalActionRequestV1,
+    request: &ExternalActionRequestV1,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
     request.validate_identity()?;
@@ -968,10 +1165,9 @@ pub fn build_external_action_request_transaction(
     Ok(builder.commit(affected_frontiers)?)
 }
 
-/// Builds a claim WAL transaction.
-pub fn build_external_action_claim_transaction(
+fn build_external_action_claim_transaction(
     mut builder: WalTransactionBuilder,
-    claim: ExternalActionClaimV1,
+    claim: &ExternalActionClaimV1,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
     builder.push_record(
@@ -981,10 +1177,9 @@ pub fn build_external_action_claim_transaction(
     Ok(builder.commit(affected_frontiers)?)
 }
 
-/// Builds a settlement-admission WAL transaction.
-pub fn build_external_action_settlement_transaction(
+fn build_external_action_settlement_transaction(
     mut builder: WalTransactionBuilder,
-    settlement: ExternalActionSettlementV1,
+    settlement: &ExternalActionSettlementV1,
     affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
     builder.push_record(
@@ -994,31 +1189,74 @@ pub fn build_external_action_settlement_transaction(
     Ok(builder.commit(affected_frontiers)?)
 }
 
+/// Echo-owned fixture seams for negative host protocol tests.
+#[cfg(feature = "host_test")]
+pub mod testing {
+    use super::{
+        build_external_action_request_transaction, build_external_action_settlement_transaction,
+        AffectedFrontier, ExternalActionCoordinatorV1, ExternalActionProtocolErrorV1,
+        ExternalActionRequestV1, ExternalActionSettlementV1, ExternalActionTransactionContextV1,
+        WalCommittedTransaction, WalTransactionKind,
+    };
+
+    /// Builds one coordinator-authorized request transaction with explicit
+    /// frontier evidence.
+    pub fn build_request_transaction(
+        coordinator: &ExternalActionCoordinatorV1,
+        context: ExternalActionTransactionContextV1,
+        request: &ExternalActionRequestV1,
+        affected_frontiers: Vec<AffectedFrontier>,
+    ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
+        let builder =
+            coordinator.transaction_builder(context, WalTransactionKind::ExternalActionRequest)?;
+        build_external_action_request_transaction(builder, request, affected_frontiers)
+    }
+
+    /// Builds one coordinator-authorized settlement transaction with explicit
+    /// frontier evidence.
+    pub fn build_settlement_transaction(
+        coordinator: &ExternalActionCoordinatorV1,
+        context: ExternalActionTransactionContextV1,
+        settlement: &ExternalActionSettlementV1,
+        affected_frontiers: Vec<AffectedFrontier>,
+    ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
+        let builder = coordinator
+            .transaction_builder(context, WalTransactionKind::ExternalActionSettlement)?;
+        build_external_action_settlement_transaction(builder, settlement, affected_frontiers)
+    }
+}
+
 /// Commits a request before returning the only value accepted by claim admission.
 pub fn record_external_action_request(
     store: &mut impl WalStorePort,
-    builder: WalTransactionBuilder,
+    coordinator: &mut ExternalActionCoordinatorV1,
+    context: ExternalActionTransactionContextV1,
     request: ExternalActionRequestV1,
 ) -> Result<DurablyRecordedExternalActionRequestV1, ExternalActionProtocolErrorV1> {
-    let index = recover_external_action_index_from_store(store)?;
-    if index.get(request.request_id).is_some() {
+    coordinator.ensure_ready()?;
+    if coordinator.index.get(request.request_id).is_some() {
         return Err(ExternalActionProtocolErrorV1::DuplicateRequest);
     }
     let next_entry = RecoveredExternalActionV1 {
         request,
+        request_commit_digest: [0; 32],
         claim: None,
+        claim_commit_digest: None,
         settlement: None,
+        settlement_commit_digest: None,
         posture: RecoveredExternalActionPostureV1::Requested,
     };
+    let mut mutation = coordinator.index.plan_entry(next_entry);
+    let builder =
+        coordinator.transaction_builder(context, WalTransactionKind::ExternalActionRequest)?;
     let transaction = build_external_action_request_transaction(
         builder,
-        request,
-        external_action_index_frontier(
-            index.root_digest(),
-            index.root_digest_with_entry(&next_entry),
-        ),
+        &request,
+        external_action_index_frontier(coordinator.index.root_digest(), mutation.root_digest),
     )?;
-    let request_commit_digest = append_external_action_transaction(store, transaction)?;
+    let request_commit_digest = coordinator.append_transaction(store, transaction)?;
+    mutation.entry.request_commit_digest = request_commit_digest;
+    coordinator.index.apply_mutation(mutation);
     Ok(DurablyRecordedExternalActionRequestV1 {
         request,
         request_commit_digest,
@@ -1029,18 +1267,21 @@ pub fn record_external_action_request(
 #[allow(clippy::too_many_arguments)]
 pub fn claim_external_action(
     store: &mut impl WalStorePort,
-    builder: WalTransactionBuilder,
+    coordinator: &mut ExternalActionCoordinatorV1,
+    context: ExternalActionTransactionContextV1,
     recorded_request: DurablyRecordedExternalActionRequestV1,
     authorization: ExternalActionAdapterAuthorizationV1,
     current_basis_digest: Hash,
     attempt_ordinal: u32,
     lease_evidence_digest: Hash,
 ) -> Result<ExternalActionClaimGrantV1, ExternalActionProtocolErrorV1> {
+    coordinator.ensure_ready()?;
     let request = recorded_request.request;
     request.validate_identity()?;
-    let index = recover_external_action_index_from_store(store)?;
-    let recovered = index
+    let recovered = coordinator
+        .index
         .get(request.request_id)
+        .cloned()
         .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
     if recovered.request != request {
         return Err(ExternalActionProtocolErrorV1::RequestIdentityMismatch);
@@ -1075,18 +1316,21 @@ pub fn claim_external_action(
         lease_evidence_digest,
         authorization.registry_policy_digest,
     );
-    let mut next_entry = recovered.clone();
+    let mut next_entry = recovered;
     next_entry.claim = Some(claim);
+    next_entry.claim_commit_digest = None;
     next_entry.posture = RecoveredExternalActionPostureV1::Claimed;
+    let mut mutation = coordinator.index.plan_entry(next_entry);
+    let builder =
+        coordinator.transaction_builder(context, WalTransactionKind::ExternalActionClaim)?;
     let transaction = build_external_action_claim_transaction(
         builder,
-        claim,
-        external_action_index_frontier(
-            index.root_digest(),
-            index.root_digest_with_entry(&next_entry),
-        ),
+        &claim,
+        external_action_index_frontier(coordinator.index.root_digest(), mutation.root_digest),
     )?;
-    let claim_commit_digest = append_external_action_transaction(store, transaction)?;
+    let claim_commit_digest = coordinator.append_transaction(store, transaction)?;
+    mutation.entry.claim_commit_digest = Some(claim_commit_digest);
+    coordinator.index.apply_mutation(mutation);
     Ok(ExternalActionClaimGrantV1 {
         request,
         claim,
@@ -1097,13 +1341,16 @@ pub fn claim_external_action(
 /// Validates and commits a settlement before returning a resumable fact.
 pub fn admit_external_action_settlement(
     store: &mut impl WalStorePort,
-    builder: WalTransactionBuilder,
+    coordinator: &mut ExternalActionCoordinatorV1,
+    context: ExternalActionTransactionContextV1,
     claim_grant: ExternalActionClaimGrantV1,
     candidate: ExternalActionSettlementCandidateV1,
 ) -> Result<AdmittedExternalActionSettlementV1, ExternalActionProtocolErrorV1> {
-    let index = recover_external_action_index_from_store(store)?;
-    let recovered = index
+    coordinator.ensure_ready()?;
+    let recovered = coordinator
+        .index
         .get(claim_grant.request.request_id)
+        .cloned()
         .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
     let recovered_claim = recovered
         .claim
@@ -1116,26 +1363,33 @@ pub fn admit_external_action_settlement(
     }
     validate_settlement_candidate(&claim_grant.request, &claim_grant.claim, &candidate)?;
     let settlement = ExternalActionSettlementV1::from_candidate(candidate);
-    let mut next_entry = recovered.clone();
+    let mut next_entry = recovered;
     next_entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
     next_entry.settlement = Some(settlement.clone());
+    next_entry.settlement_commit_digest = None;
+    let mut mutation = coordinator.index.plan_entry(next_entry);
+    let builder =
+        coordinator.transaction_builder(context, WalTransactionKind::ExternalActionSettlement)?;
     let transaction = build_external_action_settlement_transaction(
         builder,
-        settlement.clone(),
-        external_action_index_frontier(
-            index.root_digest(),
-            index.root_digest_with_entry(&next_entry),
-        ),
+        &settlement,
+        external_action_index_frontier(coordinator.index.root_digest(), mutation.root_digest),
     )?;
-    let settlement_commit_digest = append_external_action_transaction(store, transaction)?;
+    let settlement_commit_digest = coordinator.append_transaction(store, transaction)?;
+    mutation.entry.settlement_commit_digest = Some(settlement_commit_digest);
+    coordinator.index.apply_mutation(mutation);
     Ok(AdmittedExternalActionSettlementV1 {
         settlement,
         settlement_commit_digest,
     })
 }
 
-/// Reconstructs request, claim, and settlement posture from committed WAL history.
-pub fn recover_external_actions(
+/// Observes request, claim, and settlement posture in an arbitrary recovery report.
+///
+/// This projection carries no transition or replay authority. Use
+/// [`ExternalActionCoordinatorV1::recover`] to reconstruct trusted local
+/// transition grants and resumable settlements.
+pub fn observe_external_actions(
     report: &RecoveryScanReport,
 ) -> Result<RecoveredExternalActionIndexV1, ExternalActionProtocolErrorV1> {
     let mut index = RecoveredExternalActionIndexV1::default();
@@ -1152,8 +1406,11 @@ pub fn recover_external_actions(
                     ExternalActionRequestV1::from_payload_bytes(&frame.payload.canonical_bytes)?;
                 if !index.insert_entry(RecoveredExternalActionV1 {
                     request,
+                    request_commit_digest: transaction.commit.commit_digest,
                     claim: None,
+                    claim_commit_digest: None,
                     settlement: None,
+                    settlement_commit_digest: None,
                     posture: RecoveredExternalActionPostureV1::Requested,
                 }) {
                     return Err(ExternalActionProtocolErrorV1::DuplicateRequest);
@@ -1171,6 +1428,7 @@ pub fn recover_external_actions(
                 }
                 validate_claim(&entry.request, &claim)?;
                 entry.claim = Some(claim);
+                entry.claim_commit_digest = Some(transaction.commit.commit_digest);
                 entry.posture = RecoveredExternalActionPostureV1::Claimed;
                 index.replace_entry(entry);
             }
@@ -1194,6 +1452,7 @@ pub fn recover_external_actions(
                 }
                 entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
                 entry.settlement = Some(settlement);
+                entry.settlement_commit_digest = Some(transaction.commit.commit_digest);
                 index.replace_entry(entry);
             }
             _ => unreachable!("external_action_frame filters record kinds"),
@@ -1415,48 +1674,34 @@ fn validate_settlement(
     )
 }
 
-fn append_external_action_transaction(
-    store: &mut impl WalStorePort,
-    transaction: WalCommittedTransaction,
-) -> Result<Hash, ExternalActionProtocolErrorV1> {
-    transaction.validate().map_err(WalBuildError::Validation)?;
-    let epoch_id = transaction.commit.writer_epoch;
-    let commit = transaction.commit;
-    for frame in transaction.frames {
-        store.append_frame(epoch_id, frame)?;
-    }
-    store.flush_commit(epoch_id, commit.clone())?;
-    Ok(commit.commit_digest)
-}
-
-fn recover_external_action_index_from_store(
-    store: &impl WalStorePort,
-) -> Result<RecoveredExternalActionIndexV1, ExternalActionProtocolErrorV1> {
-    let report = recover_from_frames_and_commits(
-        &store.read_frames(),
-        &store.read_commits(),
-        RecoveryAccessMode::ReadOnly,
-    )?;
-    if report.tail_posture != RecoveryTailPosture::Clean {
-        return Err(ExternalActionProtocolErrorV1::WalTailNotClean);
-    }
-    recover_external_actions(&report)
+fn external_action_wal_continuation(
+    report: &RecoveryScanReport,
+) -> Result<(Lsn, Hash, Hash), ExternalActionProtocolErrorV1> {
+    let Some(last_transaction) = report.transactions.last() else {
+        return Ok((Lsn::from_raw(0), [0; 32], [0; 32]));
+    };
+    let next_lsn = last_transaction
+        .commit
+        .last_lsn
+        .checked_next()
+        .ok_or(WalBuildError::LsnOverflow)?;
+    let previous_frame_digest = last_transaction
+        .frames
+        .last()
+        .map(crate::causal_wal::WalFrame::digest)
+        .ok_or(WalBuildError::EmptyTransaction)?;
+    Ok((
+        next_lsn,
+        previous_frame_digest,
+        last_transaction.commit.commit_digest,
+    ))
 }
 
 fn external_action_frame(
     transaction_kind: WalTransactionKind,
     frames: &[crate::causal_wal::WalFrame],
 ) -> Result<Option<&crate::causal_wal::WalFrame>, ExternalActionProtocolErrorV1> {
-    let expected = match transaction_kind {
-        WalTransactionKind::ExternalActionRequest => {
-            Some(WalRecordKind::ExternalActionRequestRecorded)
-        }
-        WalTransactionKind::ExternalActionClaim => Some(WalRecordKind::ExternalActionClaimRecorded),
-        WalTransactionKind::ExternalActionSettlement => {
-            Some(WalRecordKind::ExternalActionSettlementRecorded)
-        }
-        _ => None,
-    };
+    let expected = transaction_kind.external_action_record_kind();
     let Some(expected) = expected else {
         return Ok(None);
     };

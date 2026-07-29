@@ -29,15 +29,16 @@ use crate::{
         recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
         recovered_submission_receipt_index_root, tick_receipt_payload_is_batch,
         trusted_runtime_wal_digest, validate_recovered_causal_anchor_history, AffectedFrontier,
-        AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId,
-        PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
-        RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport,
-        SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalBuildError,
-        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
-        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalRuntimeStateDeltaRecord,
-        WalSegmentId, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision,
-        WalTransactionBuilder, WalTransactionCommit, WalTransactionId, WalTransactionKind,
-        WriterEpochId, WriterEpochRequest, TRUSTED_RUNTIME_WAL_DOMAIN,
+        AffectedFrontierKind, ExternalActionCoordinatorCapability, FilesystemWalStore,
+        InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, RecoveredCausalAnchorAdmission,
+        RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
+        RecoveryScanReport, SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority,
+        WalBuildError, WalCommittedTransaction, WalDecodeError, WalDurabilityMode,
+        WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalRecoveryIndexError,
+        WalRuntimeStateDeltaRecord, WalSegmentId, WalStoreError, WalStorePort, WalStoreSnapshot,
+        WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
+        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
+        TRUSTED_RUNTIME_WAL_DOMAIN,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
@@ -3449,6 +3450,22 @@ impl WalStorePort for TrustedRuntimeWalStore {
         }
     }
 
+    fn flush_external_action_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        capability: ExternalActionCoordinatorCapability,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => {
+                store.flush_external_action_commit(epoch_id, commit, capability)
+            }
+            Self::Filesystem(store) => {
+                store.flush_external_action_commit(epoch_id, commit, capability)
+            }
+        }
+    }
+
     fn read_frames(&self) -> Vec<crate::causal_wal::WalFrame> {
         match self {
             Self::InMemory(store) => store.read_frames(),
@@ -3460,6 +3477,13 @@ impl WalStorePort for TrustedRuntimeWalStore {
         match self {
             Self::InMemory(store) => store.read_commits(),
             Self::Filesystem(store) => store.read_commits(),
+        }
+    }
+
+    fn read_snapshot(&self) -> Result<WalStoreSnapshot, WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.read_snapshot(),
+            Self::Filesystem(store) => store.read_snapshot(),
         }
     }
 

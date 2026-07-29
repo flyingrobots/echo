@@ -547,6 +547,8 @@ fn validate_configuration(
         "replacementField",
         "target-configuration.echo-operation",
     )?;
+    validate_projection_text(node_key_field, "target-configuration.echo-operation")?;
+    validate_projection_text(replacement_field, "target-configuration.echo-operation")?;
     if node_key_field == replacement_field
         || text_field(invocation, "nodeIdDerivation") != Some("sha256-utf8/v1")
         || text_field(invocation, "warpIdSource") != Some("action-lane/v1")

@@ -121,17 +121,29 @@ transaction contains exactly one matching record and advances exactly one
 external-action frontier. A frame without its transaction commit is not a
 request, claim, or settlement.
 
-The high-level coordinator derives both frontier roots from the complete
-canonical lifecycle index. The root is a domain-separated sparse Merkle
-commitment keyed by request id, so insertion order cannot move the reading and
-one lifecycle update touches one bounded 256-bit path. Callers cannot select
-those roots. Recovery reconstructs the index around every transition and
-rejects a WAL commit whose frontier commitment differs.
+Raw WAL builders and raw commit flushes do not carry the coordinator's opaque
+capability. A high-level caller supplies only non-causal transaction metadata.
+The coordinator derives the next LSN, previous-frame digest, and
+previous-commit digest from its checked local WAL continuation. A caller
+therefore cannot manufacture coordinator authority or select transaction
+coordinates that make a successful append unrecoverable.
+
+The coordinator derives both frontier roots from its canonical lifecycle
+index. The root is a domain-separated sparse Merkle commitment keyed by request
+id, so insertion order cannot move the reading and one lifecycle update touches
+one bounded 256-bit path. One planned mutation computes and retains that path,
+then advances the in-memory index only after commit. The request, claim, and
+settlement hot paths do not replay prior WAL payloads. Full reconstruction is
+reserved for initial or crash recovery. Callers cannot select frontier roots.
+Recovery rebuilds the index around every transition and rejects a WAL commit
+whose frontier commitment differs.
 
 The high-level APIs return a durable request token, adapter work grant, or
 resumable settlement only after the corresponding commit marker flushes. A
-commit failure returns no token. An uncommitted tail obstructs further
-external-action admission until ordinary WAL recovery resolves it.
+commit failure returns no token and poisons that coordinator instance; trusted
+local recovery is required before another transition. An uncommitted tail
+obstructs further external-action admission until ordinary WAL recovery
+resolves it.
 
 ### Recovery and replay
 
@@ -150,9 +162,18 @@ Replay does not invoke an adapter. Consulting the current external world again
 requires a new program transition and a new request; changing worldline or
 basis changes request identity.
 
-The filesystem recovery witness drops the live store, reopens its strict
-filesystem WAL, and recovers the exact settled bytes without invoking adapter
-execution.
+An arbitrary `RecoveryScanReport` produces observation-only lifecycle values.
+It cannot mint request-transition tokens, adapter work grants, or resumable
+settlement facts. `ExternalActionCoordinatorV1::recover` alone reads one
+fallible, coherent local-store snapshot, validates its clean committed history,
+and reconstructs those authorities. A crash after request or claim commit can
+therefore resume from the durable lifecycle without an ephemeral native return
+value.
+
+Filesystem snapshot read or decode failure is an obstruction, never an empty
+genesis history. The filesystem recovery witness drops the live store, reopens
+its strict filesystem WAL, and recovers the exact settled bytes without
+invoking adapter execution.
 
 ## Consequences
 
@@ -162,6 +183,8 @@ execution.
 - Adapter credentials and host capabilities stay outside Edict and the model.
 - Request-before-effect and settlement-before-resumption are type-visible API
   boundaries backed by WAL commits.
+- Arbitrary recovered reports remain observation-only; trusted local recovery
+  owns transition and replay authority.
 - Crash ambiguity has an explicit causal representation.
 - Operation-specific idempotency and reconciliation laws remain mandatory;
   Echo does not claim general exactly-once external execution.

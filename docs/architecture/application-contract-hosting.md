@@ -1136,5 +1136,9 @@ filesystem, process, network, timer, model, Git, or GitHub imports.
 Adapter authorization is a runtime-owned registry decision bound to the exact
 request, basis, and registry-policy digest. Echo derives the lifecycle frontier
 for every request, claim, and settlement transition; applications and adapters
-cannot supply it. Recovery validates that commitment before exposing retained
-settlement bytes.
+cannot supply it. The locally recovered coordinator also derives WAL
+continuation coordinates and carries the opaque authority required to flush
+those commits. Arbitrary recovery reports are observation-only; they cannot
+reconstruct adapter work grants or resumable settlement facts. Checked local
+recovery validates the frontier commitment and storage snapshot before
+restoring those authorities.

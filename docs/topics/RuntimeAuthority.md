@@ -47,9 +47,14 @@ evidence posture.
 - Adapter output is untrusted settlement input until Echo validates its exact
   request, attempt, adapter, basis, schema, digest, evidence, and budget
   bindings.
+- Raw WAL callers cannot mint `ExternalActionCoordinator` authority. The
+  coordinator owns an opaque commit capability and derives causal transaction
+  coordinates from one checked local continuation.
 - Echo commits `SETTLED` before deterministic program resumption.
 - Recovery of a claimed request requires reconciliation. It does not authorize
   blind re-execution.
+- Arbitrary recovery reports expose observation-only lifecycle values. Trusted
+  local coordinator recovery reconstructs interrupted transition grants.
 - Replay consumes the admitted settlement bytes and never invokes the adapter.
 - `OutcomeUnknown` is a first-class terminal observation, not an alias for
   failure.

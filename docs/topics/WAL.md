@@ -163,7 +163,10 @@ canonical registry-policy digest. Every transition advances an
 `ExternalActionIndex` frontier whose before and after roots Echo derives from
 the complete lifecycle index through a request-id-keyed sparse Merkle
 commitment. Recovery recomputes those roots and rejects caller-selected or
-substituted frontier evidence.
+substituted frontier evidence. The live coordinator advances one planned
+256-bit Merkle path after each successful commit; it does not replay the full
+WAL on every transition. Full reconstruction is reserved for initial and crash
+recovery.
 
 An admitted settlement binds the exact request, attempt, adapter, basis,
 settlement schema, canonical result bytes, result digest, schema-admission
@@ -176,7 +179,12 @@ claims, conflicting settlements, malformed payloads, wrong schemas, stale
 bases, digest substitution, and budget overruns. A recovered claim is a
 reconciliation obligation rather than permission to reissue an effect.
 Settled replay, including strict filesystem WAL reopen, consumes retained
-result bytes and does not invoke an adapter.
+result bytes without consulting an adapter. Arbitrary recovery reports are
+observation-only. Only a coordinator recovered from one fallible local-store
+snapshot can reconstruct request tokens, claim grants, or resumable settlement
+facts. Raw WAL builders and commit flushes lack its opaque capability, and the
+coordinator derives LSN and predecessor coordinates from the validated local
+continuation.
 
 ## Boundaries
 

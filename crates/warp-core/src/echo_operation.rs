@@ -129,6 +129,8 @@ const MAX_RESULT_PROJECTION_NODES: usize = 256;
 const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
 const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
 const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
+const MAX_APPLICATION_INPUT_BYTES: usize = 64 * 1_024;
+const MAX_APPLICATION_RESULT_BYTES: u64 = 64 * 1_024;
 
 /// Process-local capability proving that admission, evaluation, and commit are
 /// owned by the same Echo runtime instance.
@@ -1361,6 +1363,11 @@ fn validate_edict_result_projection(
     if max_output_bytes == 0 {
         return Err(invalid_structure(
             "result projection output bound must be positive",
+        ));
+    }
+    if max_output_bytes > MAX_APPLICATION_RESULT_BYTES {
+        return Err(invalid_structure(
+            "result projection output bound exceeds the runtime byte ceiling",
         ));
     }
     let mut nodes = 0;
@@ -2862,6 +2869,11 @@ impl EchoOperationInvocationV1 {
                     text_value(CREATE_ABSENCE_PRECONDITION),
                 ));
                 if let Some(application_input_bytes) = &self.application_input_bytes {
+                    if application_input_bytes.len() > MAX_APPLICATION_INPUT_BYTES {
+                        return Err(invalid_structure(
+                            "application input exceeds the projected invocation byte ceiling",
+                        ));
+                    }
                     let application_input = decode_canonical_cbor_v1(application_input_bytes)
                         .map_err(canonical_error)?;
                     if encode_canonical_cbor_v1(&application_input).map_err(canonical_error)?

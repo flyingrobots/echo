@@ -4,13 +4,16 @@
 
 #![allow(clippy::panic)]
 
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use warp_core::causal_wal::{
-    recover_from_frames_and_commits, recover_in_memory_store, AffectedFrontier,
-    AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
-    RecoveryAccessMode, RecoveryTailPosture, WalAppendAuthority, WalDurabilityMode, WalFrame,
-    WalManifest, WalSegmentId, WalSegmentSeal, WalStoreError, WalStorePort, WalTransactionBuilder,
-    WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpoch, WriterEpochId,
-    WriterEpochRequest,
+    recover_filesystem_store, recover_from_frames_and_commits, recover_in_memory_store,
+    AffectedFrontier, AffectedFrontierKind, FilesystemWalStore, InMemoryWalStore, Lsn,
+    PayloadCodecId, PayloadSchemaId, RecoveryAccessMode, RecoveryTailPosture, WalAppendAuthority,
+    WalDurabilityMode, WalFrame, WalManifest, WalSegmentId, WalSegmentSeal, WalStoreError,
+    WalStorePort, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
+    WalTransactionKind, WriterEpoch, WriterEpochId, WriterEpochRequest,
 };
 use warp_core::external_action::{
     admit_external_action_settlement, build_external_action_request_transaction,
@@ -54,6 +57,15 @@ fn store() -> InMemoryWalStore {
 }
 
 fn builder(label: &str, first_lsn: u64, kind: WalTransactionKind) -> WalTransactionBuilder {
+    builder_with_durability(label, first_lsn, kind, WalDurabilityMode::Buffered)
+}
+
+fn builder_with_durability(
+    label: &str,
+    first_lsn: u64,
+    kind: WalTransactionKind,
+    durability_mode: WalDurabilityMode,
+) -> WalTransactionBuilder {
     WalTransactionBuilder::new(
         epoch_id(),
         WalSegmentId::from_raw(1),
@@ -63,13 +75,38 @@ fn builder(label: &str, first_lsn: u64, kind: WalTransactionKind) -> WalTransact
         Lsn::from_raw(first_lsn),
         digest("external-action:previous-frame"),
         digest("external-action:previous-commit"),
-        WalDurabilityMode::Buffered,
+        durability_mode,
         PayloadCodecId::from_hash(digest("external-action:codec")),
         PayloadSchemaId::from_hash(digest("external-action:schema")),
         1,
         1,
         digest("external-action:domain"),
     )
+}
+
+static TEMP_WAL_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct TempWalDir(PathBuf);
+
+impl TempWalDir {
+    fn new(label: &str) -> Self {
+        let counter = TEMP_WAL_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "echo-external-action-{}-{counter}-{label}",
+            std::process::id()
+        ));
+        if path.exists() {
+            must_ok(std::fs::remove_dir_all(&path));
+        }
+        must_ok(std::fs::create_dir_all(&path));
+        Self(path)
+    }
+}
+
+impl Drop for TempWalDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn frontier(label: &str) -> Vec<AffectedFrontier> {
@@ -128,7 +165,6 @@ fn record(
         store,
         builder(label, lsn, WalTransactionKind::ExternalActionRequest),
         request,
-        frontier(label),
     ))
 }
 
@@ -149,7 +185,6 @@ fn claim(
         basis,
         0,
         digest(&format!("{label}:lease")),
-        frontier(label),
     ))
 }
 
@@ -220,7 +255,6 @@ fn request_and_settlement_are_committed_before_authority_crosses_the_boundary() 
         ),
         grant,
         candidate,
-        frontier("settlement:golden"),
     ));
     assert_eq!(store.read_commits().len(), 3);
     assert_eq!(
@@ -254,7 +288,6 @@ fn unauthorized_adapter_and_stale_basis_obstruct_before_claim_commit() {
             digest("basis:changed"),
             0,
             digest("claim:stale:lease"),
-            frontier("claim:stale"),
         ),
         Err(ExternalActionProtocolErrorV1::StaleBasis)
     );
@@ -286,7 +319,6 @@ fn adapter_authorization_is_bound_to_the_exact_request() {
         claimed_request.basis_digest,
         0,
         digest("claim:authorization-target:lease"),
-        frontier("claim:authorization-target"),
     )
     .is_err());
     assert_eq!(store.read_commits().len(), commits_before);
@@ -315,7 +347,6 @@ fn claims_and_settlements_require_nonzero_external_evidence() {
         claim_request.basis_digest,
         0,
         [0; 32],
-        frontier("claim:missing-lease-evidence"),
     )
     .is_err());
     assert_eq!(claim_store.read_commits().len(), claim_commits_before);
@@ -350,7 +381,6 @@ fn claims_and_settlements_require_nonzero_external_evidence() {
         ),
         grant,
         candidate,
-        frontier("settlement:missing-external-evidence"),
     )
     .is_err());
     assert_eq!(
@@ -432,7 +462,6 @@ fn malformed_schema_digest_and_oversized_settlements_fail_closed() {
                 ),
                 grant,
                 candidate,
-                frontier(&format!("settlement:{label}")),
             ),
             Err(expected)
         );
@@ -512,7 +541,6 @@ fn request_and_attempt_budget_boundaries_obstruct_before_commit() {
             request.basis_digest,
             1,
             digest("claim:attempt-budget:lease"),
-            frontier("claim:attempt-budget"),
         ),
         Err(ExternalActionProtocolErrorV1::AttemptBudgetExhausted)
     );
@@ -547,7 +575,6 @@ fn recovery_distinguishes_unclaimed_claimed_settled_and_ambiguous_requests() {
         ),
         settled_grant,
         settled_candidate,
-        frontier("settlement:settled"),
     ));
 
     let ambiguous = request_with("ambiguous", 10, 64);
@@ -567,7 +594,6 @@ fn recovery_distinguishes_unclaimed_claimed_settled_and_ambiguous_requests() {
         ),
         ambiguous_grant,
         ambiguous_candidate,
-        frontier("settlement:ambiguous"),
     ));
 
     let report = must_ok(recover_in_memory_store(
@@ -618,7 +644,6 @@ fn replay_returns_admitted_bytes_without_reissuing_an_effect() {
         ),
         grant,
         candidate,
-        frontier("settlement:replay"),
     ));
 
     let report = must_ok(recover_in_memory_store(
@@ -636,6 +661,91 @@ fn replay_returns_admitted_bytes_without_reissuing_an_effect() {
             .as_ref()
             .map(|value| value.canonical_result_bytes.as_slice()),
         Some(b"recorded-result".as_slice())
+    );
+}
+
+#[test]
+fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
+    let wal_dir = TempWalDir::new("reopen");
+    let request = request_with("filesystem-reopen", 21, 128);
+    let result_bytes = b"durable observed bytes".to_vec();
+    {
+        let mut store = must_ok(FilesystemWalStore::open(
+            &wal_dir.0,
+            WalSegmentId::from_raw(1),
+        ));
+        must_ok(store.acquire_writer_epoch(WriterEpochRequest {
+            epoch_id: epoch_id(),
+            storage_fencing_token: digest("external-action:fencing"),
+            process_identity: digest("external-action:process"),
+            host_identity: digest("external-action:host"),
+            started_at_lsn: Lsn::from_raw(0),
+            previous_epoch_id: None,
+            previous_epoch_final_commit_digest: None,
+            lease_or_lock_evidence: digest("external-action:lease"),
+        }));
+        let recorded = must_ok(record_external_action_request(
+            &mut store,
+            builder_with_durability(
+                "request:filesystem-reopen",
+                0,
+                WalTransactionKind::ExternalActionRequest,
+                WalDurabilityMode::StrictFilesystem,
+            ),
+            request,
+        ));
+        let grant = must_ok(claim_external_action(
+            &mut store,
+            builder_with_durability(
+                "claim:filesystem-reopen",
+                1,
+                WalTransactionKind::ExternalActionClaim,
+                WalDurabilityMode::StrictFilesystem,
+            ),
+            recorded,
+            authorization(&request),
+            request.basis_digest,
+            0,
+            digest("claim:filesystem-reopen:lease"),
+        ));
+        let candidate = candidate(
+            &grant,
+            ExternalActionSettlementKindV1::Succeeded,
+            result_bytes.clone(),
+        );
+        must_ok(admit_external_action_settlement(
+            &mut store,
+            builder_with_durability(
+                "settlement:filesystem-reopen",
+                2,
+                WalTransactionKind::ExternalActionSettlement,
+                WalDurabilityMode::StrictFilesystem,
+            ),
+            grant,
+            candidate,
+        ));
+    }
+
+    let report = must_ok(recover_filesystem_store(
+        &wal_dir.0,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    let index = must_ok(recover_external_actions(&report));
+    let recovered = match index.get(request.request_id()) {
+        Some(recovered) => recovered,
+        None => panic!("filesystem settlement was not recovered"),
+    };
+    assert_eq!(
+        recovered.posture,
+        RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::Succeeded)
+    );
+    assert_eq!(
+        recovered
+            .settlement
+            .as_ref()
+            .map(|settlement| settlement.canonical_result_bytes.as_slice()),
+        Some(result_bytes.as_slice())
     );
 }
 
@@ -723,18 +833,35 @@ fn duplicate_and_conflicting_settlements_are_recovery_obstructions() {
         let mut second = first.clone();
         second.canonical_result_bytes = second_bytes;
         second.declared_result_digest = blake3::hash(&second.canonical_result_bytes).into();
-        for (lsn, suffix, candidate_value) in [(2, "first", first), (3, "second", second)] {
-            let transaction = must_ok(build_external_action_settlement_transaction(
-                builder(
-                    &format!("settlement:{label}:{suffix}"),
-                    lsn,
-                    WalTransactionKind::ExternalActionSettlement,
-                ),
-                settlement(&candidate_value),
-                frontier(&format!("settlement:{label}:{suffix}")),
-            ));
-            must_ok(store.append_transaction(transaction));
-        }
+        must_ok(admit_external_action_settlement(
+            &mut store,
+            builder(
+                &format!("settlement:{label}:first"),
+                2,
+                WalTransactionKind::ExternalActionSettlement,
+            ),
+            grant,
+            first,
+        ));
+        let first_report = must_ok(recover_in_memory_store(
+            &mut store,
+            RecoveryAccessMode::ReadOnly,
+        ));
+        let settled_root = must_ok(recover_external_actions(&first_report)).root_digest();
+        let duplicate_transaction = must_ok(build_external_action_settlement_transaction(
+            builder(
+                &format!("settlement:{label}:second"),
+                3,
+                WalTransactionKind::ExternalActionSettlement,
+            ),
+            settlement(&second),
+            vec![AffectedFrontier {
+                kind: AffectedFrontierKind::ExternalActionIndex,
+                before_digest: settled_root,
+                after_digest: settled_root,
+            }],
+        ));
+        must_ok(store.append_transaction(duplicate_transaction));
 
         let report = must_ok(recover_in_memory_store(
             &mut store,
@@ -821,7 +948,6 @@ fn failed_request_commit_exposes_no_adapter_reachable_token() {
                 WalTransactionKind::ExternalActionRequest,
             ),
             request,
-            frontier("request:commit-failure"),
         ),
         Err(ExternalActionProtocolErrorV1::WalStore(WalStoreError::Io(
             "injected external-action commit failure".to_owned()
@@ -858,7 +984,6 @@ fn malformed_committed_settlement_payload_is_rejected() {
         ),
         grant,
         candidate,
-        frontier("settlement:malformed-payload"),
     ));
     let mut report = must_ok(recover_in_memory_store(
         &mut store,

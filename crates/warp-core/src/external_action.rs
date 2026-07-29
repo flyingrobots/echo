@@ -13,15 +13,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use crate::causal_wal::{
-    recover_from_frames_and_commits, AffectedFrontier, RecoveryAccessMode, RecoveryScanReport,
-    RecoveryTailPosture, WalBuildError, WalCommittedTransaction, WalDecodeError, WalRecordKind,
-    WalRecoveryError, WalStoreError, WalStorePort, WalTransactionBuilder, WalTransactionKind,
+    affected_frontiers_root, recover_from_frames_and_commits, AffectedFrontier,
+    AffectedFrontierKind, RecoveryAccessMode, RecoveryScanReport, RecoveryTailPosture,
+    WalBuildError, WalCommittedTransaction, WalDecodeError, WalRecordKind, WalRecoveryError,
+    WalStoreError, WalStorePort, WalTransactionBuilder, WalTransactionKind,
 };
 use crate::{Hash, WorldlineId};
 
 const REQUEST_ID_DOMAIN: &[u8] = b"echo:external-action:request-id:v1\0";
 const ATTEMPT_ID_DOMAIN: &[u8] = b"echo:external-action:attempt-id:v1\0";
 const IDEMPOTENCY_KEY_DOMAIN: &[u8] = b"echo:external-action:idempotency-key:v1\0";
+const ADAPTER_REGISTRY_ID_DOMAIN: &[u8] = b"echo:external-action:adapter-registry-id:v1\0";
+const INDEX_ROOT_DOMAIN: &[u8] = b"echo:external-action:index-root:v1\0";
 const REQUEST_PAYLOAD_MAGIC: &[u8; 4] = b"EAR1";
 const CLAIM_PAYLOAD_MAGIC: &[u8; 4] = b"EAC1";
 const SETTLEMENT_PAYLOAD_MAGIC: &[u8; 4] = b"EAS1";
@@ -304,7 +307,33 @@ impl ExternalActionAdapterRegistryV1 {
             adapter_id,
             operation_id: request.operation_id,
             authority_scope_digest: request.authority_scope_digest,
+            request_id: request.request_id,
+            basis_digest: request.basis_digest,
+            registry_policy_digest: self.identity_digest(),
         })
+    }
+
+    /// Returns the canonical identity of the complete runtime-owned registry.
+    #[must_use]
+    pub fn identity_digest(&self) -> Hash {
+        let binding_count = self
+            .bindings
+            .values()
+            .map(BTreeSet::len)
+            .fold(0_u64, |count, len| {
+                count.saturating_add(u64::try_from(len).unwrap_or(u64::MAX))
+            });
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(ADAPTER_REGISTRY_ID_DOMAIN);
+        hasher.update(&binding_count.to_le_bytes());
+        for ((operation_id, authority_scope_digest), adapters) in &self.bindings {
+            for adapter_id in adapters {
+                hasher.update(&operation_id.as_hash());
+                hasher.update(authority_scope_digest);
+                hasher.update(&adapter_id.as_hash());
+            }
+        }
+        hasher.finalize().into()
     }
 }
 
@@ -314,6 +343,9 @@ pub struct ExternalActionAdapterAuthorizationV1 {
     adapter_id: ExternalActionAdapterIdV1,
     operation_id: ExternalActionOperationIdV1,
     authority_scope_digest: Hash,
+    request_id: ExternalActionRequestIdV1,
+    basis_digest: Hash,
+    registry_policy_digest: Hash,
 }
 
 /// One durably recorded adapter claim.
@@ -335,6 +367,8 @@ pub struct ExternalActionClaimV1 {
     pub reconciliation_law_digest: Hash,
     /// Exact basis copied from the request.
     pub basis_digest: Hash,
+    /// Runtime-owned registry policy that admitted this exact request.
+    pub authorization_policy_digest: Hash,
 }
 
 impl ExternalActionClaimV1 {
@@ -343,6 +377,7 @@ impl ExternalActionClaimV1 {
         adapter_id: ExternalActionAdapterIdV1,
         attempt_ordinal: u32,
         lease_evidence_digest: Hash,
+        authorization_policy_digest: Hash,
     ) -> Self {
         let idempotency_key = external_action_idempotency_key(request);
         let attempt_id = external_action_attempt_id(
@@ -350,6 +385,7 @@ impl ExternalActionClaimV1 {
             attempt_ordinal,
             adapter_id,
             lease_evidence_digest,
+            authorization_policy_digest,
         );
         Self {
             request_id: request.request_id,
@@ -360,11 +396,12 @@ impl ExternalActionClaimV1 {
             idempotency_key,
             reconciliation_law_digest: request.reconciliation_law_digest,
             basis_digest: request.basis_digest,
+            authorization_policy_digest,
         }
     }
 
     fn to_payload_bytes(self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(4 + (7 * 32) + 4);
+        let mut out = Vec::with_capacity(4 + (8 * 32) + 4);
         out.extend_from_slice(CLAIM_PAYLOAD_MAGIC);
         out.extend_from_slice(&self.request_id.as_hash());
         out.extend_from_slice(&self.attempt_id.as_hash());
@@ -374,6 +411,7 @@ impl ExternalActionClaimV1 {
         out.extend_from_slice(&self.idempotency_key);
         out.extend_from_slice(&self.reconciliation_law_digest);
         out.extend_from_slice(&self.basis_digest);
+        out.extend_from_slice(&self.authorization_policy_digest);
         out
     }
 
@@ -389,6 +427,7 @@ impl ExternalActionClaimV1 {
             idempotency_key: cursor.read_hash()?,
             reconciliation_law_digest: cursor.read_hash()?,
             basis_digest: cursor.read_hash()?,
+            authorization_policy_digest: cursor.read_hash()?,
         };
         cursor.finish()?;
         Ok(claim)
@@ -707,6 +746,41 @@ impl RecoveredExternalActionIndexV1 {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Commits the complete authoritative external-action lifecycle index.
+    #[must_use]
+    pub fn root_digest(&self) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(INDEX_ROOT_DOMAIN);
+        hasher.update(
+            &u64::try_from(self.entries.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        for (request_id, entry) in &self.entries {
+            hasher.update(&request_id.as_hash());
+            hash_len_prefixed(&mut hasher, &entry.request.to_payload_bytes());
+            match entry.claim {
+                Some(claim) => {
+                    hasher.update(&[1]);
+                    hash_len_prefixed(&mut hasher, &claim.to_payload_bytes());
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+            match &entry.settlement {
+                Some(settlement) => {
+                    hasher.update(&[1]);
+                    hash_len_prefixed(&mut hasher, &settlement.to_payload_bytes());
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+        }
+        hasher.finalize().into()
+    }
 }
 
 /// Fail-closed protocol and admission errors.
@@ -727,6 +801,15 @@ pub enum ExternalActionProtocolErrorV1 {
     /// The adapter did not own the requested operation and scope.
     #[error("external-action adapter is unauthorized")]
     UnauthorizedAdapter,
+    /// The adapter authorization named a different request, basis, or policy.
+    #[error("external-action adapter authorization binding mismatch")]
+    AuthorizationBindingMismatch,
+    /// The adapter claim omitted lease or fencing evidence.
+    #[error("external-action claim omitted lease evidence")]
+    MissingLeaseEvidence,
+    /// The adapter claim omitted runtime registry policy evidence.
+    #[error("external-action claim omitted authorization policy evidence")]
+    MissingAuthorizationPolicyEvidence,
     /// The current basis differed from the request basis.
     #[error("external-action request basis is stale")]
     StaleBasis,
@@ -772,6 +855,17 @@ pub enum ExternalActionProtocolErrorV1 {
     /// Schema admission evidence was absent.
     #[error("external-action settlement omitted schema admission evidence")]
     MissingSchemaAdmissionEvidence,
+    /// External observation or reconciliation evidence was absent.
+    #[error("external-action settlement omitted external evidence")]
+    MissingExternalEvidence,
+    /// The WAL frontier did not commit the Echo-derived lifecycle index roots.
+    #[error("external-action frontier mismatch")]
+    ExternalActionFrontierMismatch {
+        /// Frontier root required by the reconstructed lifecycle transition.
+        expected: Hash,
+        /// Frontier root retained by the WAL commit.
+        actual: Hash,
+    },
     /// Canonical payload decoding failed.
     #[error(transparent)]
     Decode(#[from] WalDecodeError),
@@ -831,14 +925,26 @@ pub fn record_external_action_request(
     store: &mut impl WalStorePort,
     builder: WalTransactionBuilder,
     request: ExternalActionRequestV1,
-    affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<DurablyRecordedExternalActionRequestV1, ExternalActionProtocolErrorV1> {
     let index = recover_external_action_index_from_store(store)?;
     if index.get(request.request_id).is_some() {
         return Err(ExternalActionProtocolErrorV1::DuplicateRequest);
     }
-    let transaction =
-        build_external_action_request_transaction(builder, request, affected_frontiers)?;
+    let mut next_index = index.clone();
+    next_index.entries.insert(
+        request.request_id,
+        RecoveredExternalActionV1 {
+            request,
+            claim: None,
+            settlement: None,
+            posture: RecoveredExternalActionPostureV1::Requested,
+        },
+    );
+    let transaction = build_external_action_request_transaction(
+        builder,
+        request,
+        external_action_index_frontier(&index, &next_index),
+    )?;
     let request_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(DurablyRecordedExternalActionRequestV1 {
         request,
@@ -856,7 +962,6 @@ pub fn claim_external_action(
     current_basis_digest: Hash,
     attempt_ordinal: u32,
     lease_evidence_digest: Hash,
-    affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<ExternalActionClaimGrantV1, ExternalActionProtocolErrorV1> {
     let request = recorded_request.request;
     request.validate_identity()?;
@@ -875,19 +980,38 @@ pub fn claim_external_action(
     {
         return Err(ExternalActionProtocolErrorV1::UnauthorizedAdapter);
     }
+    if authorization.request_id != request.request_id
+        || authorization.basis_digest != request.basis_digest
+        || authorization.registry_policy_digest == [0; 32]
+    {
+        return Err(ExternalActionProtocolErrorV1::AuthorizationBindingMismatch);
+    }
     if current_basis_digest != request.basis_digest {
         return Err(ExternalActionProtocolErrorV1::StaleBasis);
     }
     if attempt_ordinal >= request.budget.max_attempts {
         return Err(ExternalActionProtocolErrorV1::AttemptBudgetExhausted);
     }
+    if lease_evidence_digest == [0; 32] {
+        return Err(ExternalActionProtocolErrorV1::MissingLeaseEvidence);
+    }
     let claim = ExternalActionClaimV1::for_request(
         &request,
         authorization.adapter_id,
         attempt_ordinal,
         lease_evidence_digest,
+        authorization.registry_policy_digest,
     );
-    let transaction = build_external_action_claim_transaction(builder, claim, affected_frontiers)?;
+    let mut next_index = index.clone();
+    if let Some(entry) = next_index.entries.get_mut(&request.request_id) {
+        entry.claim = Some(claim);
+        entry.posture = RecoveredExternalActionPostureV1::Claimed;
+    }
+    let transaction = build_external_action_claim_transaction(
+        builder,
+        claim,
+        external_action_index_frontier(&index, &next_index),
+    )?;
     let claim_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(ExternalActionClaimGrantV1 {
         request,
@@ -902,7 +1026,6 @@ pub fn admit_external_action_settlement(
     builder: WalTransactionBuilder,
     claim_grant: ExternalActionClaimGrantV1,
     candidate: ExternalActionSettlementCandidateV1,
-    affected_frontiers: Vec<AffectedFrontier>,
 ) -> Result<AdmittedExternalActionSettlementV1, ExternalActionProtocolErrorV1> {
     let index = recover_external_action_index_from_store(store)?;
     let recovered = index
@@ -917,12 +1040,17 @@ pub fn admit_external_action_settlement(
     if recovered.settlement.is_some() {
         return Err(ExternalActionProtocolErrorV1::DuplicateSettlement);
     }
-    validate_settlement_candidate(&claim_grant.request, claim_grant.claim, &candidate)?;
+    validate_settlement_candidate(&claim_grant.request, &claim_grant.claim, &candidate)?;
     let settlement = ExternalActionSettlementV1::from_candidate(candidate);
+    let mut next_index = index.clone();
+    if let Some(entry) = next_index.entries.get_mut(&claim_grant.request.request_id) {
+        entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
+        entry.settlement = Some(settlement.clone());
+    }
     let transaction = build_external_action_settlement_transaction(
         builder,
         settlement.clone(),
-        affected_frontiers,
+        external_action_index_frontier(&index, &next_index),
     )?;
     let settlement_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(AdmittedExternalActionSettlementV1 {
@@ -942,6 +1070,10 @@ pub fn recover_external_actions(
         else {
             continue;
         };
+        let before_root = RecoveredExternalActionIndexV1 {
+            entries: entries.clone(),
+        }
+        .root_digest();
         match frame.header.record_kind {
             WalRecordKind::ExternalActionRequestRecorded => {
                 let request =
@@ -968,7 +1100,7 @@ pub fn recover_external_actions(
                 if entry.claim.is_some() {
                     return Err(ExternalActionProtocolErrorV1::DuplicateClaim);
                 }
-                validate_claim(&entry.request, claim)?;
+                validate_claim(&entry.request, &claim)?;
                 entry.claim = Some(claim);
                 entry.posture = RecoveredExternalActionPostureV1::Claimed;
             }
@@ -981,7 +1113,7 @@ pub fn recover_external_actions(
                 let claim = entry
                     .claim
                     .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
-                validate_settlement(&entry.request, claim, &settlement)?;
+                validate_settlement(&entry.request, &claim, &settlement)?;
                 if let Some(existing) = &entry.settlement {
                     return if existing == &settlement {
                         Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
@@ -994,8 +1126,41 @@ pub fn recover_external_actions(
             }
             _ => unreachable!("external_action_frame filters record kinds"),
         }
+        let after_root = RecoveredExternalActionIndexV1 {
+            entries: entries.clone(),
+        }
+        .root_digest();
+        let expected_frontier_root = affected_frontiers_root(&[AffectedFrontier {
+            kind: AffectedFrontierKind::ExternalActionIndex,
+            before_digest: before_root,
+            after_digest: after_root,
+        }]);
+        if transaction.commit.affected_frontiers_root != expected_frontier_root {
+            return Err(
+                ExternalActionProtocolErrorV1::ExternalActionFrontierMismatch {
+                    expected: expected_frontier_root,
+                    actual: transaction.commit.affected_frontiers_root,
+                },
+            );
+        }
     }
     Ok(RecoveredExternalActionIndexV1 { entries })
+}
+
+fn external_action_index_frontier(
+    before: &RecoveredExternalActionIndexV1,
+    after: &RecoveredExternalActionIndexV1,
+) -> Vec<AffectedFrontier> {
+    vec![AffectedFrontier {
+        kind: AffectedFrontierKind::ExternalActionIndex,
+        before_digest: before.root_digest(),
+        after_digest: after.root_digest(),
+    }]
+}
+
+fn hash_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
+    hasher.update(&u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
+    hasher.update(bytes);
 }
 
 fn external_action_idempotency_key(request: &ExternalActionRequestV1) -> Hash {
@@ -1011,6 +1176,7 @@ fn external_action_attempt_id(
     attempt_ordinal: u32,
     adapter_id: ExternalActionAdapterIdV1,
     lease_evidence_digest: Hash,
+    authorization_policy_digest: Hash,
 ) -> ExternalActionAttemptIdV1 {
     let mut hasher = blake3::Hasher::new();
     hasher.update(ATTEMPT_ID_DOMAIN);
@@ -1018,31 +1184,39 @@ fn external_action_attempt_id(
     hasher.update(&attempt_ordinal.to_le_bytes());
     hasher.update(&adapter_id.as_hash());
     hasher.update(&lease_evidence_digest);
+    hasher.update(&authorization_policy_digest);
     ExternalActionAttemptIdV1::from_hash(hasher.finalize().into())
 }
 
 fn validate_claim(
     request: &ExternalActionRequestV1,
-    claim: ExternalActionClaimV1,
+    claim: &ExternalActionClaimV1,
 ) -> Result<(), ExternalActionProtocolErrorV1> {
     let expected = ExternalActionClaimV1::for_request(
         request,
         claim.adapter_id,
         claim.attempt_ordinal,
         claim.lease_evidence_digest,
+        claim.authorization_policy_digest,
     );
-    if claim != expected {
+    if *claim != expected {
         return Err(ExternalActionProtocolErrorV1::ClaimBindingMismatch);
     }
     if claim.attempt_ordinal >= request.budget.max_attempts {
         return Err(ExternalActionProtocolErrorV1::AttemptBudgetExhausted);
+    }
+    if claim.lease_evidence_digest == [0; 32] {
+        return Err(ExternalActionProtocolErrorV1::MissingLeaseEvidence);
+    }
+    if claim.authorization_policy_digest == [0; 32] {
+        return Err(ExternalActionProtocolErrorV1::MissingAuthorizationPolicyEvidence);
     }
     Ok(())
 }
 
 fn validate_settlement_candidate(
     request: &ExternalActionRequestV1,
-    claim: ExternalActionClaimV1,
+    claim: &ExternalActionClaimV1,
     candidate: &ExternalActionSettlementCandidateV1,
 ) -> Result<(), ExternalActionProtocolErrorV1> {
     if candidate.request_id != request.request_id
@@ -1057,6 +1231,9 @@ fn validate_settlement_candidate(
     }
     if candidate.schema_admission_evidence_digest == [0; 32] {
         return Err(ExternalActionProtocolErrorV1::MissingSchemaAdmissionEvidence);
+    }
+    if candidate.external_evidence_digest == [0; 32] {
+        return Err(ExternalActionProtocolErrorV1::MissingExternalEvidence);
     }
     if u64::try_from(candidate.canonical_result_bytes.len()).unwrap_or(u64::MAX)
         > request.budget.max_settlement_bytes
@@ -1073,7 +1250,7 @@ fn validate_settlement_candidate(
 
 fn validate_settlement(
     request: &ExternalActionRequestV1,
-    claim: ExternalActionClaimV1,
+    claim: &ExternalActionClaimV1,
     settlement: &ExternalActionSettlementV1,
 ) -> Result<(), ExternalActionProtocolErrorV1> {
     validate_settlement_candidate(

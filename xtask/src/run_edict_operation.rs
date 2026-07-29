@@ -19,6 +19,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_creation_application_basis_v1,
+    echo_operation_atom_value_digest_v1,
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicyV1,
@@ -133,6 +134,10 @@ pub struct RecoveryReport {
 #[serde(rename_all = "camelCase")]
 pub struct DuplicateReport {
     pub obstruction: String,
+    pub application_state_root_before: String,
+    pub application_state_root_after: String,
+    pub target_value_digest_before: String,
+    pub target_value_digest_after: String,
 }
 
 struct PackageMetadata {
@@ -474,6 +479,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             duplicate_obstruction,
             state_before_duplicate,
             current_state(&recovered)?.state_root(),
+            package.required_attachment_type,
             &value_before_duplicate,
             &node_value(
                 &recovered,
@@ -556,6 +562,7 @@ fn duplicate_report(
     obstruction: String,
     application_state_root_before: [u8; 32],
     application_state_root_after: [u8; 32],
+    target_value_type: TypeId,
     target_value_before: &[u8],
     target_value_after: &[u8],
 ) -> Result<DuplicateReport> {
@@ -564,7 +571,19 @@ fn duplicate_report(
     {
         bail!("obstructed duplicate Action changed committed state");
     }
-    Ok(DuplicateReport { obstruction })
+    Ok(DuplicateReport {
+        obstruction,
+        application_state_root_before: hex::encode(application_state_root_before),
+        application_state_root_after: hex::encode(application_state_root_after),
+        target_value_digest_before: hex::encode(echo_operation_atom_value_digest_v1(
+            target_value_type,
+            target_value_before,
+        )),
+        target_value_digest_after: hex::encode(echo_operation_atom_value_digest_v1(
+            target_value_type,
+            target_value_after,
+        )),
+    })
 }
 
 fn artifact_identity(digest_hex: String) -> ArtifactIdentity {
@@ -1220,15 +1239,18 @@ fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::duplicate_report;
+    use warp_core::make_type_id;
 
     #[test]
     fn duplicate_mutation_cannot_produce_a_passing_witness() {
         let root = [0x11; 32];
+        let target_value_type = make_type_id("test.target-value/v1");
 
         let root_mutation = duplicate_report(
             "test.obstruction".to_owned(),
             root,
             [0x22; 32],
+            target_value_type,
             b"value",
             b"value",
         );
@@ -1241,6 +1263,7 @@ mod tests {
             "test.obstruction".to_owned(),
             root,
             root,
+            target_value_type,
             b"value",
             b"changed",
         );

@@ -122,6 +122,11 @@ canonical application input required by that projection. Echo validates both
 bindings during admission, but it does not author the result schema or
 reconstruct application meaning in native code.
 
+The v1 admission profile caps both the retained canonical application input and
+the compiler-declared result at 65,536 bytes. These fixed ceilings apply before
+scheduler evaluation; the projection artifact, expression-node count, path
+depth, and text segments retain their separate structural bounds.
+
 During private Tick construction, the scheduler evaluates the installed
 projection over that admitted input. A successful applied Action retains:
 

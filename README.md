@@ -287,6 +287,8 @@ result bytes, and domain-separated result identity. A second fresh host must
 recover byte-identical result evidence from the decided-Tick WAL; Echo does not
 invoke a native application callback or reconstruct the result from target
 state.
+Projected invocations and compiler-declared results are each capped at 65,536
+bytes before private scheduler evaluation.
 
 ## Contracts And Boundaries
 

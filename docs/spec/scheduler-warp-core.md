@@ -82,7 +82,9 @@ private evaluation produces exact typed result bytes. The applied Action
 outcome, Receipt, and WAL retain the projection identity, output type, canonical
 bytes, and result identity. Recovery revalidates that evidence against the
 installed projection. Obstructions carry no result, and neither evaluation nor
-recovery invokes a native application callback.
+recovery invokes a native application callback. Admission rejects canonical
+application input or a compiler-declared result ceiling above 65,536 bytes
+before either value reaches private scheduler evaluation.
 
 The successor state remains private until the complete Tick transaction is
 durable. Construction failure discards it. WAL failure restores the

@@ -22,11 +22,13 @@
   application input at 65,536 bytes and the compiler-declared result ceiling at
   65,536 before private scheduler evaluation. Both independent provider
   components reject result ceilings above that runtime maximum and ambiguous
-  input bindings. Package admission preserves authored source kinds and paths,
-  and optional result evidence carries an explicit presence tag. Evaluation
-  preflights exact canonical output size before constructing the projected
-  value, while recovery re-evaluates the projection over the retained
-  invocation input and refuses substituted result bytes before publication.
+  input bindings. Configuration-derived node-key and replacement field names
+  share the projection path-segment text ceiling. Package admission preserves
+  authored source kinds and paths, and optional result evidence carries an
+  explicit presence tag. Evaluation preflights exact canonical output size
+  before constructing the projected value, while recovery re-evaluates the
+  projection over the retained invocation input and refuses substituted result
+  bytes before publication.
 - The generic Edict-operation runner's duplicate witness now exposes canonical
   before/after application-state roots and typed target-value digests. The
   graph-only roots commit reachable application state without conflating WAL,

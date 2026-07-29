@@ -9,6 +9,7 @@
 //! model authority.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use thiserror::Error;
 
@@ -24,7 +25,9 @@ const REQUEST_ID_DOMAIN: &[u8] = b"echo:external-action:request-id:v1\0";
 const ATTEMPT_ID_DOMAIN: &[u8] = b"echo:external-action:attempt-id:v1\0";
 const IDEMPOTENCY_KEY_DOMAIN: &[u8] = b"echo:external-action:idempotency-key:v1\0";
 const ADAPTER_REGISTRY_ID_DOMAIN: &[u8] = b"echo:external-action:adapter-registry-id:v1\0";
-const INDEX_ROOT_DOMAIN: &[u8] = b"echo:external-action:index-root:v1\0";
+const INDEX_EMPTY_LEAF_DOMAIN: &[u8] = b"echo:external-action:index-empty-leaf:v1\0";
+const INDEX_LEAF_DOMAIN: &[u8] = b"echo:external-action:index-leaf:v1\0";
+const INDEX_NODE_DOMAIN: &[u8] = b"echo:external-action:index-node:v1\0";
 const REQUEST_PAYLOAD_MAGIC: &[u8; 4] = b"EAR1";
 const CLAIM_PAYLOAD_MAGIC: &[u8; 4] = b"EAC1";
 const SETTLEMENT_PAYLOAD_MAGIC: &[u8; 4] = b"EAS1";
@@ -726,6 +729,13 @@ pub struct RecoveredExternalActionV1 {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecoveredExternalActionIndexV1 {
     entries: BTreeMap<ExternalActionRequestIdV1, RecoveredExternalActionV1>,
+    merkle_nodes: BTreeMap<ExternalActionIndexNodeKeyV1, Hash>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ExternalActionIndexNodeKeyV1 {
+    depth: u16,
+    prefix: Hash,
 }
 
 impl RecoveredExternalActionIndexV1 {
@@ -750,36 +760,100 @@ impl RecoveredExternalActionIndexV1 {
     /// Commits the complete authoritative external-action lifecycle index.
     #[must_use]
     pub fn root_digest(&self) -> Hash {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(INDEX_ROOT_DOMAIN);
-        hasher.update(
-            &u64::try_from(self.entries.len())
-                .unwrap_or(u64::MAX)
-                .to_le_bytes(),
-        );
-        for (request_id, entry) in &self.entries {
-            hasher.update(&request_id.as_hash());
-            hash_len_prefixed(&mut hasher, &entry.request.to_payload_bytes());
-            match entry.claim {
-                Some(claim) => {
-                    hasher.update(&[1]);
-                    hash_len_prefixed(&mut hasher, &claim.to_payload_bytes());
-                }
-                None => {
-                    hasher.update(&[0]);
-                }
-            }
-            match &entry.settlement {
-                Some(settlement) => {
-                    hasher.update(&[1]);
-                    hash_len_prefixed(&mut hasher, &settlement.to_payload_bytes());
-                }
-                None => {
-                    hasher.update(&[0]);
-                }
-            }
+        self.merkle_nodes
+            .get(&ExternalActionIndexNodeKeyV1 {
+                depth: 0,
+                prefix: [0; 32],
+            })
+            .copied()
+            .unwrap_or_else(|| external_action_empty_hashes()[0])
+    }
+
+    fn root_digest_with_entry(&self, entry: &RecoveredExternalActionV1) -> Hash {
+        let request_hash = entry.request.request_id.as_hash();
+        let mut child_hash = external_action_index_leaf(entry);
+        for depth in (0_u16..256).rev() {
+            let child_depth = depth + 1;
+            let mut sibling_prefix = external_action_index_prefix(request_hash, child_depth);
+            external_action_toggle_index_bit(&mut sibling_prefix, depth);
+            let sibling_hash = self
+                .merkle_nodes
+                .get(&ExternalActionIndexNodeKeyV1 {
+                    depth: child_depth,
+                    prefix: sibling_prefix,
+                })
+                .copied()
+                .unwrap_or_else(|| external_action_empty_hashes()[usize::from(child_depth)]);
+            child_hash = if external_action_index_bit(request_hash, depth) {
+                external_action_index_node_hash(depth, sibling_hash, child_hash)
+            } else {
+                external_action_index_node_hash(depth, child_hash, sibling_hash)
+            };
         }
-        hasher.finalize().into()
+        child_hash
+    }
+
+    fn insert_entry(&mut self, entry: RecoveredExternalActionV1) -> bool {
+        let request_id = entry.request.request_id;
+        if self.entries.contains_key(&request_id) {
+            return false;
+        }
+        let leaf_hash = external_action_index_leaf(&entry);
+        self.entries.insert(request_id, entry);
+        self.refresh_merkle_path(request_id, leaf_hash);
+        true
+    }
+
+    fn replace_entry(&mut self, entry: RecoveredExternalActionV1) {
+        let request_id = entry.request.request_id;
+        debug_assert!(self.entries.contains_key(&request_id));
+        let leaf_hash = external_action_index_leaf(&entry);
+        self.entries.insert(request_id, entry);
+        self.refresh_merkle_path(request_id, leaf_hash);
+    }
+
+    fn refresh_merkle_path(&mut self, request_id: ExternalActionRequestIdV1, leaf_hash: Hash) {
+        let request_hash = request_id.as_hash();
+        self.merkle_nodes.insert(
+            ExternalActionIndexNodeKeyV1 {
+                depth: 256,
+                prefix: request_hash,
+            },
+            leaf_hash,
+        );
+
+        for depth in (0_u16..256).rev() {
+            let child_depth = depth + 1;
+            let own_child_prefix = external_action_index_prefix(request_hash, child_depth);
+            let mut sibling_prefix = own_child_prefix;
+            external_action_toggle_index_bit(&mut sibling_prefix, depth);
+            let own_hash = self
+                .merkle_nodes
+                .get(&ExternalActionIndexNodeKeyV1 {
+                    depth: child_depth,
+                    prefix: own_child_prefix,
+                })
+                .copied()
+                .unwrap_or_else(|| external_action_empty_hashes()[usize::from(child_depth)]);
+            let sibling_hash = self
+                .merkle_nodes
+                .get(&ExternalActionIndexNodeKeyV1 {
+                    depth: child_depth,
+                    prefix: sibling_prefix,
+                })
+                .copied()
+                .unwrap_or_else(|| external_action_empty_hashes()[usize::from(child_depth)]);
+            let (left, right) = if external_action_index_bit(request_hash, depth) {
+                (sibling_hash, own_hash)
+            } else {
+                (own_hash, sibling_hash)
+            };
+            let prefix = external_action_index_prefix(request_hash, depth);
+            self.merkle_nodes.insert(
+                ExternalActionIndexNodeKeyV1 { depth, prefix },
+                external_action_index_node_hash(depth, left, right),
+            );
+        }
     }
 }
 
@@ -930,20 +1004,19 @@ pub fn record_external_action_request(
     if index.get(request.request_id).is_some() {
         return Err(ExternalActionProtocolErrorV1::DuplicateRequest);
     }
-    let mut next_index = index.clone();
-    next_index.entries.insert(
-        request.request_id,
-        RecoveredExternalActionV1 {
-            request,
-            claim: None,
-            settlement: None,
-            posture: RecoveredExternalActionPostureV1::Requested,
-        },
-    );
+    let next_entry = RecoveredExternalActionV1 {
+        request,
+        claim: None,
+        settlement: None,
+        posture: RecoveredExternalActionPostureV1::Requested,
+    };
     let transaction = build_external_action_request_transaction(
         builder,
         request,
-        external_action_index_frontier(&index, &next_index),
+        external_action_index_frontier(
+            index.root_digest(),
+            index.root_digest_with_entry(&next_entry),
+        ),
     )?;
     let request_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(DurablyRecordedExternalActionRequestV1 {
@@ -1002,15 +1075,16 @@ pub fn claim_external_action(
         lease_evidence_digest,
         authorization.registry_policy_digest,
     );
-    let mut next_index = index.clone();
-    if let Some(entry) = next_index.entries.get_mut(&request.request_id) {
-        entry.claim = Some(claim);
-        entry.posture = RecoveredExternalActionPostureV1::Claimed;
-    }
+    let mut next_entry = recovered.clone();
+    next_entry.claim = Some(claim);
+    next_entry.posture = RecoveredExternalActionPostureV1::Claimed;
     let transaction = build_external_action_claim_transaction(
         builder,
         claim,
-        external_action_index_frontier(&index, &next_index),
+        external_action_index_frontier(
+            index.root_digest(),
+            index.root_digest_with_entry(&next_entry),
+        ),
     )?;
     let claim_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(ExternalActionClaimGrantV1 {
@@ -1042,15 +1116,16 @@ pub fn admit_external_action_settlement(
     }
     validate_settlement_candidate(&claim_grant.request, &claim_grant.claim, &candidate)?;
     let settlement = ExternalActionSettlementV1::from_candidate(candidate);
-    let mut next_index = index.clone();
-    if let Some(entry) = next_index.entries.get_mut(&claim_grant.request.request_id) {
-        entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
-        entry.settlement = Some(settlement.clone());
-    }
+    let mut next_entry = recovered.clone();
+    next_entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
+    next_entry.settlement = Some(settlement.clone());
     let transaction = build_external_action_settlement_transaction(
         builder,
         settlement.clone(),
-        external_action_index_frontier(&index, &next_index),
+        external_action_index_frontier(
+            index.root_digest(),
+            index.root_digest_with_entry(&next_entry),
+        ),
     )?;
     let settlement_commit_digest = append_external_action_transaction(store, transaction)?;
     Ok(AdmittedExternalActionSettlementV1 {
@@ -1063,39 +1138,33 @@ pub fn admit_external_action_settlement(
 pub fn recover_external_actions(
     report: &RecoveryScanReport,
 ) -> Result<RecoveredExternalActionIndexV1, ExternalActionProtocolErrorV1> {
-    let mut entries = BTreeMap::<ExternalActionRequestIdV1, RecoveredExternalActionV1>::new();
+    let mut index = RecoveredExternalActionIndexV1::default();
     for transaction in &report.transactions {
         let Some(frame) =
             external_action_frame(transaction.commit.transaction_kind, &transaction.frames)?
         else {
             continue;
         };
-        let before_root = RecoveredExternalActionIndexV1 {
-            entries: entries.clone(),
-        }
-        .root_digest();
+        let before_root = index.root_digest();
         match frame.header.record_kind {
             WalRecordKind::ExternalActionRequestRecorded => {
                 let request =
                     ExternalActionRequestV1::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                if entries.contains_key(&request.request_id) {
+                if !index.insert_entry(RecoveredExternalActionV1 {
+                    request,
+                    claim: None,
+                    settlement: None,
+                    posture: RecoveredExternalActionPostureV1::Requested,
+                }) {
                     return Err(ExternalActionProtocolErrorV1::DuplicateRequest);
                 }
-                entries.insert(
-                    request.request_id,
-                    RecoveredExternalActionV1 {
-                        request,
-                        claim: None,
-                        settlement: None,
-                        posture: RecoveredExternalActionPostureV1::Requested,
-                    },
-                );
             }
             WalRecordKind::ExternalActionClaimRecorded => {
                 let claim =
                     ExternalActionClaimV1::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                let entry = entries
-                    .get_mut(&claim.request_id)
+                let mut entry = index
+                    .get(claim.request_id)
+                    .cloned()
                     .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
                 if entry.claim.is_some() {
                     return Err(ExternalActionProtocolErrorV1::DuplicateClaim);
@@ -1103,12 +1172,14 @@ pub fn recover_external_actions(
                 validate_claim(&entry.request, &claim)?;
                 entry.claim = Some(claim);
                 entry.posture = RecoveredExternalActionPostureV1::Claimed;
+                index.replace_entry(entry);
             }
             WalRecordKind::ExternalActionSettlementRecorded => {
                 let settlement =
                     ExternalActionSettlementV1::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                let entry = entries
-                    .get_mut(&settlement.request_id)
+                let mut entry = index
+                    .get(settlement.request_id)
+                    .cloned()
                     .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
                 let claim = entry
                     .claim
@@ -1123,13 +1194,11 @@ pub fn recover_external_actions(
                 }
                 entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
                 entry.settlement = Some(settlement);
+                index.replace_entry(entry);
             }
             _ => unreachable!("external_action_frame filters record kinds"),
         }
-        let after_root = RecoveredExternalActionIndexV1 {
-            entries: entries.clone(),
-        }
-        .root_digest();
+        let after_root = index.root_digest();
         let expected_frontier_root = affected_frontiers_root(&[AffectedFrontier {
             kind: AffectedFrontierKind::ExternalActionIndex,
             before_digest: before_root,
@@ -1144,23 +1213,98 @@ pub fn recover_external_actions(
             );
         }
     }
-    Ok(RecoveredExternalActionIndexV1 { entries })
+    Ok(index)
 }
 
 fn external_action_index_frontier(
-    before: &RecoveredExternalActionIndexV1,
-    after: &RecoveredExternalActionIndexV1,
+    before_digest: Hash,
+    after_digest: Hash,
 ) -> Vec<AffectedFrontier> {
     vec![AffectedFrontier {
         kind: AffectedFrontierKind::ExternalActionIndex,
-        before_digest: before.root_digest(),
-        after_digest: after.root_digest(),
+        before_digest,
+        after_digest,
     }]
 }
 
 fn hash_len_prefixed(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(&u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
     hasher.update(bytes);
+}
+
+fn external_action_index_leaf(entry: &RecoveredExternalActionV1) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(INDEX_LEAF_DOMAIN);
+    hasher.update(&entry.request.request_id.as_hash());
+    hash_len_prefixed(&mut hasher, &entry.request.to_payload_bytes());
+    match entry.claim {
+        Some(claim) => {
+            hasher.update(&[1]);
+            hash_len_prefixed(&mut hasher, &claim.to_payload_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    match &entry.settlement {
+        Some(settlement) => {
+            hasher.update(&[1]);
+            hash_len_prefixed(&mut hasher, &settlement.to_payload_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
+    hasher.finalize().into()
+}
+
+fn external_action_index_node_hash(depth: u16, left: Hash, right: Hash) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(INDEX_NODE_DOMAIN);
+    hasher.update(&depth.to_le_bytes());
+    hasher.update(&left);
+    hasher.update(&right);
+    hasher.finalize().into()
+}
+
+fn external_action_empty_hashes() -> &'static [Hash; 257] {
+    static EMPTY_HASHES: OnceLock<[Hash; 257]> = OnceLock::new();
+    EMPTY_HASHES.get_or_init(|| {
+        let mut hashes = [[0; 32]; 257];
+        hashes[256] = blake3::hash(INDEX_EMPTY_LEAF_DOMAIN).into();
+        for depth in (0_u16..256).rev() {
+            let child = hashes[usize::from(depth + 1)];
+            hashes[usize::from(depth)] = external_action_index_node_hash(depth, child, child);
+        }
+        hashes
+    })
+}
+
+fn external_action_index_prefix(mut request_id: Hash, depth: u16) -> Hash {
+    if depth == 256 {
+        return request_id;
+    }
+    let byte_index = usize::from(depth / 8);
+    let retained_bits = depth % 8;
+    if retained_bits == 0 {
+        request_id[byte_index..].fill(0);
+    } else {
+        request_id[byte_index] &= u8::MAX << (8 - retained_bits);
+        request_id[(byte_index + 1)..].fill(0);
+    }
+    request_id
+}
+
+fn external_action_index_bit(request_id: Hash, depth: u16) -> bool {
+    let byte_index = usize::from(depth / 8);
+    let bit_index = 7 - (depth % 8);
+    request_id[byte_index] & (1_u8 << bit_index) != 0
+}
+
+fn external_action_toggle_index_bit(prefix: &mut Hash, depth: u16) {
+    let byte_index = usize::from(depth / 8);
+    let bit_index = 7 - (depth % 8);
+    prefix[byte_index] ^= 1_u8 << bit_index;
 }
 
 fn external_action_idempotency_key(request: &ExternalActionRequestV1) -> Hash {

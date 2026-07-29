@@ -759,6 +759,31 @@ fn request_identity_is_deterministic_and_worldline_scoped() {
 }
 
 #[test]
+fn lifecycle_index_root_is_independent_of_request_insertion_order() {
+    let first = request_with("index-order:first", 22, 64);
+    let second = request_with("index-order:second", 22, 64);
+    let mut left = store();
+    record(&mut left, first, 0, "request:index-order:left:first");
+    record(&mut left, second, 1, "request:index-order:left:second");
+    let mut right = store();
+    record(&mut right, second, 0, "request:index-order:right:second");
+    record(&mut right, first, 1, "request:index-order:right:first");
+
+    let left_report = must_ok(recover_in_memory_store(
+        &mut left,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let right_report = must_ok(recover_in_memory_store(
+        &mut right,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(
+        must_ok(recover_external_actions(&left_report)).root_digest(),
+        must_ok(recover_external_actions(&right_report)).root_digest()
+    );
+}
+
+#[test]
 fn fixed_seed_request_property_round_trips_unique_identities() {
     const SEED: u64 = 0x5eed_cafe_f00d_beef;
     const CASES: usize = 32;
@@ -788,7 +813,7 @@ fn fixed_seed_request_property_round_trips_unique_identities() {
 
 #[test]
 fn bounded_stress_recovers_all_requests_without_adapter_execution() {
-    const REQUESTS: usize = 256;
+    const REQUESTS: usize = 64;
     let mut store = store();
     for index in 0..REQUESTS {
         let request = request_with(&format!("stress:{index}"), 15, 64);

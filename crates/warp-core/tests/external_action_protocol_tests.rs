@@ -13,13 +13,13 @@ use warp_core::causal_wal::{
     WriterEpochRequest,
 };
 use warp_core::external_action::{
-    admit_external_action_settlement, build_external_action_settlement_transaction,
-    claim_external_action, record_external_action_request, recover_external_actions,
-    ExternalActionAdapterAuthorizationV1, ExternalActionAdapterBindingV1,
-    ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1, ExternalActionBudgetV1,
-    ExternalActionClaimGrantV1, ExternalActionOperationIdV1, ExternalActionProtocolErrorV1,
-    ExternalActionRequestV1, ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
-    ExternalActionSettlementV1, RecoveredExternalActionPostureV1,
+    admit_external_action_settlement, build_external_action_request_transaction,
+    build_external_action_settlement_transaction, claim_external_action,
+    record_external_action_request, recover_external_actions, ExternalActionAdapterAuthorizationV1,
+    ExternalActionAdapterBindingV1, ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1,
+    ExternalActionBudgetV1, ExternalActionClaimGrantV1, ExternalActionOperationIdV1,
+    ExternalActionProtocolErrorV1, ExternalActionRequestV1, ExternalActionSettlementCandidateV1,
+    ExternalActionSettlementKindV1, ExternalActionSettlementV1, RecoveredExternalActionPostureV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -259,6 +259,126 @@ fn unauthorized_adapter_and_stale_basis_obstruct_before_claim_commit() {
         Err(ExternalActionProtocolErrorV1::StaleBasis)
     );
     assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn adapter_authorization_is_bound_to_the_exact_request() {
+    let mut store = store();
+    let authorized_request = request_with("authorization-source", 8, 64);
+    let claimed_request = request_with("authorization-target", 8, 64);
+    let recorded = record(
+        &mut store,
+        claimed_request,
+        0,
+        "request:authorization-target",
+    );
+    let commits_before = store.read_commits().len();
+
+    assert!(claim_external_action(
+        &mut store,
+        builder(
+            "claim:authorization-target",
+            1,
+            WalTransactionKind::ExternalActionClaim,
+        ),
+        recorded,
+        authorization(&authorized_request),
+        claimed_request.basis_digest,
+        0,
+        digest("claim:authorization-target:lease"),
+        frontier("claim:authorization-target"),
+    )
+    .is_err());
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn claims_and_settlements_require_nonzero_external_evidence() {
+    let mut claim_store = store();
+    let claim_request = request_with("missing-lease-evidence", 8, 64);
+    let claim_recorded = record(
+        &mut claim_store,
+        claim_request,
+        0,
+        "request:missing-lease-evidence",
+    );
+    let claim_commits_before = claim_store.read_commits().len();
+    assert!(claim_external_action(
+        &mut claim_store,
+        builder(
+            "claim:missing-lease-evidence",
+            1,
+            WalTransactionKind::ExternalActionClaim,
+        ),
+        claim_recorded,
+        authorization(&claim_request),
+        claim_request.basis_digest,
+        0,
+        [0; 32],
+        frontier("claim:missing-lease-evidence"),
+    )
+    .is_err());
+    assert_eq!(claim_store.read_commits().len(), claim_commits_before);
+
+    let mut settlement_store = store();
+    let settlement_request = request_with("missing-external-evidence", 8, 64);
+    let settlement_recorded = record(
+        &mut settlement_store,
+        settlement_request,
+        0,
+        "request:missing-external-evidence",
+    );
+    let grant = claim(
+        &mut settlement_store,
+        settlement_recorded,
+        1,
+        "claim:missing-external-evidence",
+    );
+    let mut candidate = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"observed".to_vec(),
+    );
+    candidate.external_evidence_digest = [0; 32];
+    let settlement_commits_before = settlement_store.read_commits().len();
+    assert!(admit_external_action_settlement(
+        &mut settlement_store,
+        builder(
+            "settlement:missing-external-evidence",
+            2,
+            WalTransactionKind::ExternalActionSettlement,
+        ),
+        grant,
+        candidate,
+        frontier("settlement:missing-external-evidence"),
+    )
+    .is_err());
+    assert_eq!(
+        settlement_store.read_commits().len(),
+        settlement_commits_before
+    );
+}
+
+#[test]
+fn recovery_rejects_forged_external_action_frontier_evidence() {
+    let mut store = store();
+    let request = request_with("forged-frontier", 8, 64);
+    let transaction = must_ok(build_external_action_request_transaction(
+        builder(
+            "request:forged-frontier",
+            0,
+            WalTransactionKind::ExternalActionRequest,
+        ),
+        request,
+        frontier("forged-frontier"),
+    ));
+    must_ok(store.append_transaction(transaction));
+
+    let report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert!(recover_external_actions(&report).is_err());
 }
 
 #[test]

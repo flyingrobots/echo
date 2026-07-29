@@ -139,6 +139,8 @@ pub struct RecoveryReport {
     pub outcome_recovered: bool,
     pub receipt_recovered: bool,
     pub application_result_recovered: bool,
+    pub fresh_host_application_result: ApplicationResultReport,
+    pub wal_application_result: ApplicationResultReport,
     pub mutated_initial_state_refusal: &'static str,
 }
 
@@ -409,7 +411,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let state_recovered;
     let outcome_recovered;
     let receipt_recovered;
-    let application_result_recovered;
+    let recovered_application_results;
     let duplicate;
 
     {
@@ -472,8 +474,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
                 .receipt_correlations
                 .iter()
                 .any(|record| record.submission_id == first_submission_id);
-        application_result_recovered = recovered_result.as_ref() == Some(&application_result)
-            && wal_result.as_ref() == Some(&application_result);
+        recovered_application_results = comparable_recovered_application_results(
+            &application_result,
+            recovered_result,
+            wal_result,
+        )?;
 
         recovered
             .host
@@ -541,7 +546,6 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         || !state_recovered
         || !outcome_recovered
         || !receipt_recovered
-        || !application_result_recovered
     {
         bail!("fresh host did not recover the complete Action/Tick/state/outcome/Receipt witness");
     }
@@ -602,7 +606,9 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             state_recovered,
             outcome_recovered,
             receipt_recovered,
-            application_result_recovered,
+            application_result_recovered: true,
+            fresh_host_application_result: recovered_application_results.fresh_host,
+            wal_application_result: recovered_application_results.wal,
             mutated_initial_state_refusal,
         },
         duplicate,
@@ -651,6 +657,25 @@ fn application_result_report(result: &EchoOperationApplicationResultV1) -> Appli
         canonical_bytes_hex: hex::encode(result.canonical_bytes()),
         result_identity: hex::encode(result.identity()),
     }
+}
+
+struct ComparableRecoveredApplicationResults {
+    fresh_host: ApplicationResultReport,
+    wal: ApplicationResultReport,
+}
+
+fn comparable_recovered_application_results(
+    expected: &ApplicationResultReport,
+    fresh_host: Option<ApplicationResultReport>,
+    wal: Option<ApplicationResultReport>,
+) -> Result<ComparableRecoveredApplicationResults> {
+    let (Some(fresh_host), Some(wal)) = (fresh_host, wal) else {
+        bail!("fresh host or WAL is missing the recovered application result");
+    };
+    if fresh_host != *expected || wal != *expected {
+        bail!("fresh host or WAL recovered substituted application result evidence");
+    }
+    Ok(ComparableRecoveredApplicationResults { fresh_host, wal })
 }
 
 fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>> {
@@ -1365,8 +1390,44 @@ fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use super::duplicate_report;
+    use super::{
+        comparable_recovered_application_results, duplicate_report, ApplicationResultReport,
+    };
     use warp_core::make_type_id;
+
+    #[test]
+    fn substituted_recovered_application_result_cannot_produce_a_passing_witness() {
+        let expected = ApplicationResultReport {
+            projection_identity: "11".repeat(32),
+            output_type: "test.output/v1".to_owned(),
+            canonical_bytes_hex: "a0".to_owned(),
+            result_identity: "22".repeat(32),
+        };
+
+        let mut changed_fresh_host = expected.clone();
+        changed_fresh_host.canonical_bytes_hex = "f6".to_owned();
+        assert!(
+            comparable_recovered_application_results(
+                &expected,
+                Some(changed_fresh_host),
+                Some(expected.clone()),
+            )
+            .is_err(),
+            "substituted fresh-host result bytes must fail closed"
+        );
+
+        let mut changed_wal = expected.clone();
+        changed_wal.output_type = "test.other-output/v1".to_owned();
+        assert!(
+            comparable_recovered_application_results(
+                &expected,
+                Some(expected.clone()),
+                Some(changed_wal),
+            )
+            .is_err(),
+            "a substituted WAL result schema must fail closed"
+        );
+    }
 
     #[test]
     fn duplicate_mutation_cannot_produce_a_passing_witness() {

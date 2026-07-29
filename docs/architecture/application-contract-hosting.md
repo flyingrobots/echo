@@ -1132,3 +1132,9 @@ settlement before deterministic execution resumes. Replay consumes the
 committed settlement and never repeats the effect. This protocol is outside the
 compiler/provider seam: lowering and independent verification gain no
 filesystem, process, network, timer, model, Git, or GitHub imports.
+
+Adapter authorization is a runtime-owned registry decision bound to the exact
+request, basis, and registry-policy digest. Echo derives the lifecycle frontier
+for every request, claim, and settlement transition; applications and adapters
+cannot supply it. Recovery validates that commitment before exposing retained
+settlement bytes.

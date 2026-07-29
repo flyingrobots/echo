@@ -158,9 +158,16 @@ claim transaction before it can return adapter work authority. The compiler,
 provider seam, Edict program, and application receive no filesystem, process,
 network, or model authority from those values.
 
+The runtime-owned registry decision is bound to the exact request, basis, and
+canonical registry-policy digest. Every transition advances an
+`ExternalActionIndex` frontier whose before and after roots Echo derives from
+the complete lifecycle index through a request-id-keyed sparse Merkle
+commitment. Recovery recomputes those roots and rejects caller-selected or
+substituted frontier evidence.
+
 An admitted settlement binds the exact request, attempt, adapter, basis,
 settlement schema, canonical result bytes, result digest, schema-admission
-evidence, and external evidence. It has one of four explicit outcomes:
+evidence, and nonzero external evidence. It has one of four explicit outcomes:
 `Succeeded`, `Rejected`, `Failed`, or `OutcomeUnknown`. Echo flushes the
 settlement before exposing the result to deterministic resumption. Recovery
 reconstructs `REQUESTED`, `CLAIMED`, or the exact settled outcome using only
@@ -168,7 +175,8 @@ committed records. It rejects missing predecessors, duplicate requests or
 claims, conflicting settlements, malformed payloads, wrong schemas, stale
 bases, digest substitution, and budget overruns. A recovered claim is a
 reconciliation obligation rather than permission to reissue an effect.
-Settled replay consumes retained result bytes and does not invoke an adapter.
+Settled replay, including strict filesystem WAL reopen, consumes retained
+result bytes and does not invoke an adapter.
 
 ## Boundaries
 

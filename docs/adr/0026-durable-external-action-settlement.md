@@ -65,13 +65,16 @@ application default. Operation profiles should delegate smaller bounds.
 
 The runtime owner installs an `ExternalActionAdapterRegistryV1` containing
 operation-, scope-, and adapter-specific bindings. Registry lookup attenuates
-that policy into a request-specific authorization. Application code and Edict
-receive neither the registry nor the adapter's external credential.
+that policy into an authorization bound to the exact request id, request basis,
+and canonical registry-policy digest. An authorization for another request
+cannot be replayed even when operation and scope match. Application code and
+Edict receive neither the registry nor the adapter's external credential.
 
 A claim commits the request id, attempt id, zero-based attempt ordinal, adapter
 identity, lease or fencing evidence, request-stable idempotency key,
-reconciliation law, and basis. The adapter work grant becomes constructible
-only after the claim transaction commits.
+reconciliation law, basis, and registry-policy digest. The attempt identity
+binds the registry policy and nonzero lease evidence. The adapter work grant
+becomes constructible only after the claim transaction commits.
 
 Protocol v1 admits exactly one claim per request. Recovery of `CLAIMED` is a
 reconciliation obligation, not permission to repeat the operation. A retry is
@@ -94,9 +97,9 @@ request-stable idempotency key remain available for a later explicit decision.
 A settlement binds the exact request, attempt, adapter, basis, settlement
 schema, canonical result bytes, result digest, schema-admission evidence, and
 external evidence. Echo rejects mismatched claims, stale bases, wrong schemas,
-missing schema-admission evidence, digest substitution, oversize results,
-duplicate settlements, conflicting settlements, malformed payloads, and
-unknown outcome codes.
+missing schema-admission or external evidence, digest substitution, oversize
+results, duplicate settlements, conflicting settlements, malformed payloads,
+and unknown outcome codes.
 
 The schema-admission evidence is a protocol binding, not a general schema
 engine. Each operation profile must define which validator produces that
@@ -117,6 +120,13 @@ All three require `ExternalActionCoordinator` append authority. Each
 transaction contains exactly one matching record and advances exactly one
 external-action frontier. A frame without its transaction commit is not a
 request, claim, or settlement.
+
+The high-level coordinator derives both frontier roots from the complete
+canonical lifecycle index. The root is a domain-separated sparse Merkle
+commitment keyed by request id, so insertion order cannot move the reading and
+one lifecycle update touches one bounded 256-bit path. Callers cannot select
+those roots. Recovery reconstructs the index around every transition and
+rejects a WAL commit whose frontier commitment differs.
 
 The high-level APIs return a durable request token, adapter work grant, or
 resumable settlement only after the corresponding commit marker flushes. A
@@ -139,6 +149,10 @@ settlements obstruct recovery. Settled canonical result bytes are replay input.
 Replay does not invoke an adapter. Consulting the current external world again
 requires a new program transition and a new request; changing worldline or
 basis changes request identity.
+
+The filesystem recovery witness drops the live store, reopens its strict
+filesystem WAL, and recovers the exact settled bytes without invoking adapter
+execution.
 
 ## Consequences
 

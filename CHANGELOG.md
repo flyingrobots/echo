@@ -7,6 +7,11 @@
 
 ### Added
 
+- The generic Edict-operation runner now exposes complete fresh-host and
+  WAL-recovered application-result records beside the applied result. Report
+  construction fails closed unless all three schema-neutral projection
+  identities, output types, canonical bytes, and result identities are exactly
+  equal.
 - Executable-operation packages can now bind an exact compiler-owned
   `edict.result-projection.artifact/v1`. Projected invocations retain the exact
   canonical application input, scheduler-owned private evaluation emits the

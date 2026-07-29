@@ -8,9 +8,10 @@ Rust rule registration is not a supported product authoring surface. The first
 Edict provider-v1 compatibility closure now reaches provider-native scheduling,
 receipts, and WAL recovery. Its semantic implementation remains host-bound.
 Echo now also has the first generic, hook-free executable-operation runtime
-slice. No Edict compiler or Jedit consumer emits its package yet. Wesley
-packaging and the generated bounded-read corridor remain incomplete and must
-not borrow evidence from either mutation path.
+slice. The standalone Hello Echo application emits its package through Edict;
+no Jedit consumer emits one yet. Wesley packaging and the generated
+bounded-read corridor remain incomplete and must not borrow evidence from
+either mutation path.
 
 ## Current Implementation
 
@@ -210,8 +211,10 @@ type coordinate, exact canonical result bytes, and domain-separated result
 identity. The committed Receipt, recovered Action outcome, and recovered WAL
 outcome must agree on all four propositions. Corrupting or coherently rebinding
 the projection artifact fails independent Echo admission; substituting retained
-result bytes fails recovery validation. The runner never decodes
-application-specific fields in production.
+result bytes fails recovery validation. The machine report exposes the applied
+result plus independently comparable fresh-host and WAL-recovered result
+records, and fails closed unless all three generic records are exactly equal.
+The runner never decodes application-specific fields in production.
 
 The duplicate witness reports the graph-only application-state root and typed
 target-value digest immediately before and after the obstructed Action. The

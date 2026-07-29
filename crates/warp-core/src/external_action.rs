@@ -1189,43 +1189,6 @@ fn build_external_action_settlement_transaction(
     Ok(builder.commit(affected_frontiers)?)
 }
 
-/// Echo-owned fixture seams for negative host protocol tests.
-#[cfg(feature = "host_test")]
-pub mod testing {
-    use super::{
-        build_external_action_request_transaction, build_external_action_settlement_transaction,
-        AffectedFrontier, ExternalActionCoordinatorV1, ExternalActionProtocolErrorV1,
-        ExternalActionRequestV1, ExternalActionSettlementV1, ExternalActionTransactionContextV1,
-        WalCommittedTransaction, WalTransactionKind,
-    };
-
-    /// Builds one coordinator-authorized request transaction with explicit
-    /// frontier evidence.
-    pub fn build_request_transaction(
-        coordinator: &ExternalActionCoordinatorV1,
-        context: ExternalActionTransactionContextV1,
-        request: &ExternalActionRequestV1,
-        affected_frontiers: Vec<AffectedFrontier>,
-    ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
-        let builder =
-            coordinator.transaction_builder(context, WalTransactionKind::ExternalActionRequest)?;
-        build_external_action_request_transaction(builder, request, affected_frontiers)
-    }
-
-    /// Builds one coordinator-authorized settlement transaction with explicit
-    /// frontier evidence.
-    pub fn build_settlement_transaction(
-        coordinator: &ExternalActionCoordinatorV1,
-        context: ExternalActionTransactionContextV1,
-        settlement: &ExternalActionSettlementV1,
-        affected_frontiers: Vec<AffectedFrontier>,
-    ) -> Result<WalCommittedTransaction, ExternalActionProtocolErrorV1> {
-        let builder = coordinator
-            .transaction_builder(context, WalTransactionKind::ExternalActionSettlement)?;
-        build_external_action_settlement_transaction(builder, settlement, affected_frontiers)
-    }
-}
-
 /// Commits a request before returning the only value accepted by claim admission.
 pub fn record_external_action_request(
     store: &mut impl WalStorePort,
@@ -1435,25 +1398,11 @@ pub fn observe_external_actions(
             WalRecordKind::ExternalActionSettlementRecorded => {
                 let settlement =
                     ExternalActionSettlementV1::from_payload_bytes(&frame.payload.canonical_bytes)?;
-                let mut entry = index
-                    .get(settlement.request_id)
-                    .cloned()
-                    .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
-                let claim = entry
-                    .claim
-                    .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
-                validate_settlement(&entry.request, &claim, &settlement)?;
-                if let Some(existing) = &entry.settlement {
-                    return if existing == &settlement {
-                        Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
-                    } else {
-                        Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
-                    };
-                }
-                entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
-                entry.settlement = Some(settlement);
-                entry.settlement_commit_digest = Some(transaction.commit.commit_digest);
-                index.replace_entry(entry);
+                apply_recovered_settlement(
+                    &mut index,
+                    settlement,
+                    transaction.commit.commit_digest,
+                )?;
             }
             _ => unreachable!("external_action_frame filters record kinds"),
         }
@@ -1473,6 +1422,33 @@ pub fn observe_external_actions(
         }
     }
     Ok(index)
+}
+
+fn apply_recovered_settlement(
+    index: &mut RecoveredExternalActionIndexV1,
+    settlement: ExternalActionSettlementV1,
+    commit_digest: Hash,
+) -> Result<(), ExternalActionProtocolErrorV1> {
+    let mut entry = index
+        .get(settlement.request_id)
+        .cloned()
+        .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
+    let claim = entry
+        .claim
+        .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
+    validate_settlement(&entry.request, &claim, &settlement)?;
+    if let Some(existing) = &entry.settlement {
+        return if existing == &settlement {
+            Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+        } else {
+            Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+        };
+    }
+    entry.posture = RecoveredExternalActionPostureV1::Settled(settlement.kind);
+    entry.settlement = Some(settlement);
+    entry.settlement_commit_digest = Some(commit_digest);
+    index.replace_entry(entry);
+    Ok(())
 }
 
 fn external_action_index_frontier(
@@ -1775,5 +1751,88 @@ impl<'a> ExternalActionPayloadCursor<'a> {
             return Err(WalDecodeError::TrailingBytes);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn digest(label: &str) -> Hash {
+        blake3::hash(label.as_bytes()).into()
+    }
+
+    fn request() -> ExternalActionRequestV1 {
+        match ExternalActionRequestV1::new(
+            WorldlineId::from_bytes([41; 32]),
+            ExternalActionOperationIdV1::from_hash(digest("test.operation@1")),
+            digest("test.operation@1.input"),
+            digest("test.operation@1.settlement"),
+            digest("test.scope"),
+            digest("test.basis"),
+            ExternalActionBudgetV1 {
+                max_settlement_bytes: 64,
+                max_attempts: 1,
+            },
+            digest("test.input"),
+            digest("test.reconciliation"),
+        ) {
+            Ok(request) => request,
+            Err(error) => panic!("request fixture failed: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn conflicting_recovered_settlement_is_obstructed() {
+        let request = request();
+        let claim = ExternalActionClaimV1::for_request(
+            &request,
+            ExternalActionAdapterIdV1::from_hash(digest("test.adapter")),
+            0,
+            digest("test.lease"),
+            digest("test.policy"),
+        );
+        let mut index = RecoveredExternalActionIndexV1::default();
+        assert!(index.insert_entry(RecoveredExternalActionV1 {
+            request,
+            request_commit_digest: digest("request.commit"),
+            claim: Some(claim),
+            claim_commit_digest: Some(digest("claim.commit")),
+            settlement: None,
+            settlement_commit_digest: None,
+            posture: RecoveredExternalActionPostureV1::Claimed,
+        }));
+        let first =
+            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
+                request.request_id,
+                claim.attempt_id,
+                claim.adapter_id,
+                ExternalActionSettlementKindV1::Succeeded,
+                request.settlement_schema_digest,
+                request.basis_digest,
+                b"first".to_vec(),
+                digest("test.schema-evidence"),
+                digest("test.external-evidence"),
+            ));
+        assert_eq!(
+            apply_recovered_settlement(&mut index, first, digest("settlement.commit")),
+            Ok(())
+        );
+        let conflicting =
+            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
+                request.request_id,
+                claim.attempt_id,
+                claim.adapter_id,
+                ExternalActionSettlementKindV1::Succeeded,
+                request.settlement_schema_digest,
+                request.basis_digest,
+                b"second".to_vec(),
+                digest("test.schema-evidence"),
+                digest("test.external-evidence"),
+            ));
+        assert_eq!(
+            apply_recovered_settlement(&mut index, conflicting, digest("conflict.commit")),
+            Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+        );
     }
 }

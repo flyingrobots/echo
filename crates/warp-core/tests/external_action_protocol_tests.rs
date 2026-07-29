@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use warp_core::causal_wal::{
     recover_filesystem_store, recover_from_frames_and_commits, recover_in_memory_store,
-    AffectedFrontier, AffectedFrontierKind, ExternalActionCoordinatorCapability,
-    FilesystemWalStore, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, RecoveryAccessMode,
+    AffectedFrontierKind, ExternalActionCoordinatorCapability, FilesystemWalStore,
+    InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, RecoveryAccessMode,
     RecoveryTailPosture, WalAppendAuthority, WalBuildError, WalDurabilityMode, WalFrame,
     WalManifest, WalRecordKind, WalSegmentId, WalSegmentSeal, WalStoreError, WalStorePort,
     WalStoreSnapshot, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
@@ -19,13 +19,12 @@ use warp_core::causal_wal::{
 };
 use warp_core::external_action::{
     admit_external_action_settlement, claim_external_action, observe_external_actions,
-    record_external_action_request, testing, ExternalActionAdapterAuthorizationV1,
+    record_external_action_request, ExternalActionAdapterAuthorizationV1,
     ExternalActionAdapterBindingV1, ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1,
     ExternalActionBudgetV1, ExternalActionClaimGrantV1, ExternalActionCoordinatorV1,
     ExternalActionOperationIdV1, ExternalActionProtocolErrorV1, ExternalActionRequestV1,
     ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
-    ExternalActionSettlementV1, ExternalActionTransactionContextV1,
-    RecoveredExternalActionPostureV1,
+    ExternalActionTransactionContextV1, RecoveredExternalActionPostureV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -128,14 +127,6 @@ impl Drop for TempWalDir {
     }
 }
 
-fn frontier(label: &str) -> Vec<AffectedFrontier> {
-    vec![AffectedFrontier {
-        kind: AffectedFrontierKind::ExternalActionIndex,
-        before_digest: digest(&format!("{label}:before")),
-        after_digest: digest(&format!("{label}:after")),
-    }]
-}
-
 fn request_with(
     label: &str,
     worldline_byte: u8,
@@ -227,21 +218,6 @@ fn candidate(
         digest("settlement:schema-admission"),
         digest("settlement:external-evidence"),
     )
-}
-
-fn settlement(candidate: &ExternalActionSettlementCandidateV1) -> ExternalActionSettlementV1 {
-    ExternalActionSettlementV1 {
-        request_id: candidate.request_id,
-        attempt_id: candidate.attempt_id,
-        adapter_id: candidate.adapter_id,
-        kind: candidate.kind,
-        settlement_schema_digest: candidate.settlement_schema_digest,
-        basis_digest: candidate.basis_digest,
-        canonical_result_bytes: candidate.canonical_result_bytes.clone(),
-        result_digest: candidate.declared_result_digest,
-        schema_admission_evidence_digest: candidate.schema_admission_evidence_digest,
-        external_evidence_digest: candidate.external_evidence_digest,
-    }
 }
 
 #[test]
@@ -418,20 +394,24 @@ fn claims_and_settlements_require_nonzero_external_evidence() {
 #[test]
 fn recovery_rejects_forged_external_action_frontier_evidence() {
     let mut store = store();
-    let coordinator = coordinator(&store);
+    let mut coordinator = coordinator(&store);
     let request = request_with("forged-frontier", 8, 64);
-    let transaction = must_ok(testing::build_request_transaction(
-        &coordinator,
-        context("request:forged-frontier"),
-        &request,
-        frontier("forged-frontier"),
-    ));
-    must_ok(store.append_transaction(transaction));
-
-    let report = must_ok(recover_in_memory_store(
+    record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:forged-frontier",
+    );
+    let mut report = must_ok(recover_in_memory_store(
         &mut store,
         RecoveryAccessMode::ReadOnly,
     ));
+    match report.transactions.first_mut() {
+        Some(transaction) => {
+            transaction.commit.affected_frontiers_root = digest("forged-frontier-root");
+        }
+        None => panic!("request transaction was not recovered"),
+    }
     assert!(matches!(
         observe_external_actions(&report),
         Err(ExternalActionProtocolErrorV1::ExternalActionFrontierMismatch { .. })
@@ -1030,72 +1010,37 @@ fn bounded_stress_recovers_all_requests_without_adapter_execution() {
 }
 
 #[test]
-fn duplicate_and_conflicting_settlements_are_recovery_obstructions() {
-    for (label, second_bytes, expected) in [
-        (
-            "duplicate",
-            b"first".to_vec(),
-            ExternalActionProtocolErrorV1::DuplicateSettlement,
-        ),
-        (
-            "conflict",
-            b"second".to_vec(),
-            ExternalActionProtocolErrorV1::ConflictingSettlement,
-        ),
-    ] {
-        let mut store = store();
-        let mut coordinator = coordinator(&store);
-        let request = request_with(label, 16, 64);
-        let recorded = record(
-            &mut store,
-            &mut coordinator,
-            request,
-            &format!("request:{label}"),
-        );
-        let grant = claim(
-            &mut store,
-            &mut coordinator,
-            recorded,
-            &format!("claim:{label}"),
-        );
-        let first = candidate(
-            &grant,
-            ExternalActionSettlementKindV1::Succeeded,
-            b"first".to_vec(),
-        );
-        let mut second = first.clone();
-        second.canonical_result_bytes = second_bytes;
-        second.declared_result_digest = blake3::hash(&second.canonical_result_bytes).into();
-        must_ok(admit_external_action_settlement(
-            &mut store,
-            &mut coordinator,
-            context(&format!("settlement:{label}:first")),
-            grant,
-            first,
-        ));
-        let first_report = must_ok(recover_in_memory_store(
-            &mut store,
-            RecoveryAccessMode::ReadOnly,
-        ));
-        let settled_root = must_ok(observe_external_actions(&first_report)).root_digest();
-        let duplicate_transaction = must_ok(testing::build_settlement_transaction(
-            &coordinator,
-            context(&format!("settlement:{label}:second")),
-            &settlement(&second),
-            vec![AffectedFrontier {
-                kind: AffectedFrontierKind::ExternalActionIndex,
-                before_digest: settled_root,
-                after_digest: settled_root,
-            }],
-        ));
-        must_ok(store.append_transaction(duplicate_transaction));
-
-        let report = must_ok(recover_in_memory_store(
-            &mut store,
-            RecoveryAccessMode::ReadOnly,
-        ));
-        assert_eq!(observe_external_actions(&report), Err(expected));
-    }
+fn duplicate_settlement_is_a_recovery_obstruction() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("duplicate", 16, 64);
+    let recorded = record(&mut store, &mut coordinator, request, "request:duplicate");
+    let grant = claim(&mut store, &mut coordinator, recorded, "claim:duplicate");
+    let first = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"first".to_vec(),
+    );
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:duplicate"),
+        grant,
+        first,
+    ));
+    let mut report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let duplicate = match report.transactions.last().cloned() {
+        Some(transaction) => transaction,
+        None => panic!("settlement transaction was not recovered"),
+    };
+    report.transactions.push(duplicate);
+    assert_eq!(
+        observe_external_actions(&report),
+        Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+    );
 }
 
 #[derive(Debug)]

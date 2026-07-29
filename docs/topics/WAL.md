@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says ten concrete things.
+The current runtime WAL evidence says eleven concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -148,6 +148,28 @@ envelope, invocation identity, installed operation, scope, Tick entry,
 disposition, blocker set, composite patch, and final state root. Swapped or
 misclassified outcome evidence therefore fails closed.
 
+Eleventh, external actions use a separate request, claim, and settlement
+protocol under Echo-owned `ExternalActionCoordinator` authority. The canonical
+request commits its originating worldline, operation family, input and
+settlement schemas, authority scope, exact basis, retained-result and
+single-claim budgets, input digest, and reconciliation law. Echo flushes the
+request transaction before it can return a claimable token, and flushes the
+claim transaction before it can return adapter work authority. The compiler,
+provider seam, Edict program, and application receive no filesystem, process,
+network, or model authority from those values.
+
+An admitted settlement binds the exact request, attempt, adapter, basis,
+settlement schema, canonical result bytes, result digest, schema-admission
+evidence, and external evidence. It has one of four explicit outcomes:
+`Succeeded`, `Rejected`, `Failed`, or `OutcomeUnknown`. Echo flushes the
+settlement before exposing the result to deterministic resumption. Recovery
+reconstructs `REQUESTED`, `CLAIMED`, or the exact settled outcome using only
+committed records. It rejects missing predecessors, duplicate requests or
+claims, conflicting settlements, malformed payloads, wrong schemas, stale
+bases, digest substitution, and budget overruns. A recovered claim is a
+reconciliation obligation rather than permission to reissue an effect.
+Settled replay consumes retained result bytes and does not invoke an adapter.
+
 ## Boundaries
 
 The WAL belongs to the trusted runtime host. Application-facing code can submit
@@ -172,6 +194,17 @@ The useful postures are:
 | `decided_rejected` | A recovered receipt says the work was rejected or conflicted.                                                         |
 | `obstructed`       | Recovery found accepted or decided evidence, but required material or consistency checks obstruct restoring the work. |
 | `recovery_faulted` | Required committed WAL evidence or retained material is missing or corrupt.                                           |
+
+External-action recovery has its own narrower lifecycle:
+
+| Posture                    | Meaning                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| `REQUESTED`                | The request commit exists; no adapter claim is committed.                             |
+| `CLAIMED`                  | One bounded claim exists; recovery must reconcile and must not blindly execute again. |
+| `SETTLED(SUCCEEDED)`       | The external postcondition was witnessed and admitted.                                |
+| `SETTLED(REJECTED)`        | The external system's typed refusal was witnessed and admitted.                       |
+| `SETTLED(FAILED)`          | A definite adapter failure was witnessed and admitted.                                |
+| `SETTLED(OUTCOME_UNKNOWN)` | The external outcome is ambiguous and remains explicit causal evidence.               |
 
 An app such as `jedit` maps these generic postures into product language
 outside Echo. Echo should not grow editor, file, buffer, or dirty-state nouns in

@@ -47,6 +47,7 @@ track work, progress, priority, or release readiness.
 | [0023](0023-admitted-executable-operation-packages.md)           | Accepted             | Admitted executable operation packages                         |
 | [0024](0024-anchored-node-creation-from-absence.md)              | Accepted             | Anchored-node creation as a separate executable program        |
 | [0025](0025-scheduler-owned-executable-operation-actions.md)     | Accepted             | Scheduler-owned executable-operation Actions                   |
+| [0026](0026-durable-external-action-settlement.md)               | Accepted             | Request-before-effect and settlement-before-resumption         |
 
 ADR 0006 predates this index contract and did not declare a status. Its
 superseded tombstone preserves that fact without silently ratifying the old

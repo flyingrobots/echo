@@ -56,6 +56,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Admitted executable-operation packages](adr/0023-admitted-executable-operation-packages.md)
 - [Anchored-node creation from absence](adr/0024-anchored-node-creation-from-absence.md)
 - [Scheduler-owned executable-operation Actions](adr/0025-scheduler-owned-executable-operation-actions.md)
+- [Durable external-action settlement](adr/0026-durable-external-action-settlement.md)
 
 ## Normative Contracts
 

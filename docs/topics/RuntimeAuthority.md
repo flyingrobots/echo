@@ -34,6 +34,26 @@ read-only observers. They do not tick the runtime or invoke mutation handlers.
 Reading envelopes identify their basis, aperture, observer plan, budget, and
 evidence posture.
 
+## External Actions
+
+- Edict may construct a typed request value; it receives no authority to
+  perform the operation.
+- Echo commits `REQUESTED` before it can expose claimable work.
+- Runtime-owner adapter registration attenuates operation and scope policy into
+  one request-specific authorization.
+- Echo commits `CLAIMED` before it can expose an adapter work grant.
+- Only an operation-specific adapter possesses filesystem, process, network,
+  timer, model, or other world-touching authority.
+- Adapter output is untrusted settlement input until Echo validates its exact
+  request, attempt, adapter, basis, schema, digest, evidence, and budget
+  bindings.
+- Echo commits `SETTLED` before deterministic program resumption.
+- Recovery of a claimed request requires reconciliation. It does not authorize
+  blind re-execution.
+- Replay consumes the admitted settlement bytes and never invokes the adapter.
+- `OutcomeUnknown` is a first-class terminal observation, not an alias for
+  failure.
+
 ## Host Boundary
 
 Trusted hosts may install verified generated packages, stage ticketed ingress,
@@ -45,6 +65,7 @@ adapters.
 ## Evidence Anchors
 
 - [Registry/provider/host boundary](../adr/0015-registry-provider-host-boundary.md)
+- [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
 - `docs/architecture/application-contract-hosting.md`
 - `crates/warp-core/src/trusted_runtime_host.rs`
 - `crates/warp-core/src/engine_impl.rs`

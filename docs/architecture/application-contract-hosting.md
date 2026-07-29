@@ -1122,3 +1122,13 @@ jedit renders buffers, cursors, diffs, diagnostics, history, and UI.
 Echo gives applications deterministic causal substrate, witnessed ingress,
 reading envelopes, product-shaped optic DTOs, registry identity, and retention
 hooks. It should not become the application.
+
+World-touching operations cross a distinct durable external-action boundary.
+An Edict-authored decision produces a typed request value; Echo commits that
+request before an operation-specific adapter can receive work authority. The
+adapter alone holds the external credential or host access. Its result returns
+as a schema-bound settlement candidate, and Echo commits the accepted
+settlement before deterministic execution resumes. Replay consumes the
+committed settlement and never repeats the effect. This protocol is outside the
+compiler/provider seam: lowering and independent verification gain no
+filesystem, process, network, timer, model, Git, or GitHub imports.

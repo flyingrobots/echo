@@ -68,30 +68,33 @@ support and durable evidence can be validated.
 
 ## Proposition Ledger
 
-| Artifact or mechanism | Proposition it can support | What it does not prove |
-| --------------------- | -------------------------- | ---------------------- |
-| Canonical bytes | The value has one deterministic encoding under the named schema and version. | Validity under current policy, admission, authenticity, authorization, confidentiality, or availability. |
-| Domain-separated BLAKE3 digest | The canonical bytes match the named digest domain, assuming collision resistance. | Who created the bytes, whether they are lawful, whether they are secret, or whether they are current. |
-| Header or frame checksum | Accidental corruption is detectable relative to the checksum algorithm. | Adversarial authenticity or tamper resistance. |
-| Content-addressed CAS id | Retrieved bytes match the addressed content hash. | Semantic coordinate, causal authority, retention, reveal permission, or future availability. |
-| WSC payload | A deterministic physical representation can be decoded and validated under its profile. | Causal admission, WAL commit, recovery authority, or application meaning. |
-| Storage locator or file path | A host suggests where bytes may be found. | Identity, integrity, durability, authority, or causal meaning. |
-| Application proposal | A caller requested a specific operation against supplied coordinates. | Echo acceptance, eligibility, execution, or success. |
-| Trusted admission support chain | A receipt-backed trusted-host result or recovery-validated record proves Echo admitted the exact claim under the bound basis and policy. | Application execution, domain success, reveal permission, or material availability. A copied public ticket or fact is not sufficient support. |
-| Trusted-host or recovery-validated tick receipt | Echo committed the exact scheduler-owned outcome and evidence named by the receipt. | That a copied receipt value has trusted support, or that unrelated operations are authorized. |
-| Causal parent reference | The child cites a specific admitted parent event. | Undo, redo, compensation, or any other domain semantics not supplied by the application contract. |
-| Causal-anchor claim | A canonical caller claim binds a subject, supplied basis, roots, purpose, and schema. | Echo admission, root existence, root authority, retention pinning, or domain checkpoint validity. |
-| Trusted-host or recovery-validated causal-anchor admission | Echo committed the exact claim at its current logical basis under the bound support-policy digest. | Physical retention, materialization availability, application-domain validity, or text mutation. A standalone copied fact or anchor id is not sufficient support. |
-| Capability presentation | A caller cites a grant identity in a presentation shape. | That the grant exists, is authentic, is unexpired, covers the artifact/operation/scope, or authorizes the current request. |
-| Validated capability grant | The named grant covers the validated identity requirements under the evaluated policy posture. | Runtime support, scheduler work, law execution, unlimited aperture, or automatic reveal of retained material. |
-| Reading envelope | Echo reports the basis, observer plan, aperture, budget, rights, residual, and evidence posture for a reading. | Causal mutation authority or permission to widen the reading. |
-| Proof opening | The named commitment proposition verified for the named coordinates under the named proof system. | Capability, admission, scheduler, WAL, recovery, or reveal authority. |
-| Graph or hologram materialization | A derived view was computed from a named basis and support set. | Substrate truth, freshness at another basis, or validity for another observer. |
-| Projection-cache hit | A cached artifact matches the complete cache key and coverage contract. | That an incomplete key is safe, that the observer is equivalent, or that source authority remains available. |
-| WAL frame | A record claims a typed payload and coordinate with integrity metadata. | A committed transaction when viewed alone. |
-| WAL commit marker | The complete transaction validated and crossed the adapter's commit boundary. | Confidentiality, remote freshness, application authorization, or protection from a compromised adapter. |
-| Recovery certificate | Echo derived a named recovery posture and index root from a committed replay range. | That omitted external retained material is available or that the store is not a valid old prefix. |
-| Obstruction fact | Echo could not lawfully produce the requested result under the named posture and evidence. | Permanent impossibility, authorization for retry, or application success. |
+| Artifact or mechanism                                      | Proposition it can support                                                                                                                                  | What it does not prove                                                                                                                                            |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical bytes                                            | The value has one deterministic encoding under the named schema and version.                                                                                | Validity under current policy, admission, authenticity, authorization, confidentiality, or availability.                                                          |
+| Domain-separated BLAKE3 digest                             | The canonical bytes match the named digest domain, assuming collision resistance.                                                                           | Who created the bytes, whether they are lawful, whether they are secret, or whether they are current.                                                             |
+| Header or frame checksum                                   | Accidental corruption is detectable relative to the checksum algorithm.                                                                                     | Adversarial authenticity or tamper resistance.                                                                                                                    |
+| Content-addressed CAS id                                   | Retrieved bytes match the addressed content hash.                                                                                                           | Semantic coordinate, causal authority, retention, reveal permission, or future availability.                                                                      |
+| WSC payload                                                | A deterministic physical representation can be decoded and validated under its profile.                                                                     | Causal admission, WAL commit, recovery authority, or application meaning.                                                                                         |
+| Storage locator or file path                               | A host suggests where bytes may be found.                                                                                                                   | Identity, integrity, durability, authority, or causal meaning.                                                                                                    |
+| Application proposal                                       | A caller requested a specific operation against supplied coordinates.                                                                                       | Echo acceptance, eligibility, execution, or success.                                                                                                              |
+| External-action request                                    | An Edict decision named one operation family, scope, basis, budget, input digest, settlement schema, and reconciliation law.                                | That Echo committed the request, that an adapter is authorized, or that any external effect occurred.                                                             |
+| Committed external-action claim                            | Echo durably selected one runtime-owner-authorized adapter attempt under the request scope, basis, lease evidence, idempotency key, and reconciliation law. | That the adapter began or completed the effect, or that a recovered claim may be blindly reissued.                                                                |
+| Admitted external-action settlement                        | Echo durably admitted one schema-, request-, attempt-, adapter-, basis-, digest-, evidence-, and budget-bound external observation.                         | That an external claim is objectively true, that another request has the same outcome, or that `OutcomeUnknown` means failure.                                    |
+| Trusted admission support chain                            | A receipt-backed trusted-host result or recovery-validated record proves Echo admitted the exact claim under the bound basis and policy.                    | Application execution, domain success, reveal permission, or material availability. A copied public ticket or fact is not sufficient support.                     |
+| Trusted-host or recovery-validated tick receipt            | Echo committed the exact scheduler-owned outcome and evidence named by the receipt.                                                                         | That a copied receipt value has trusted support, or that unrelated operations are authorized.                                                                     |
+| Causal parent reference                                    | The child cites a specific admitted parent event.                                                                                                           | Undo, redo, compensation, or any other domain semantics not supplied by the application contract.                                                                 |
+| Causal-anchor claim                                        | A canonical caller claim binds a subject, supplied basis, roots, purpose, and schema.                                                                       | Echo admission, root existence, root authority, retention pinning, or domain checkpoint validity.                                                                 |
+| Trusted-host or recovery-validated causal-anchor admission | Echo committed the exact claim at its current logical basis under the bound support-policy digest.                                                          | Physical retention, materialization availability, application-domain validity, or text mutation. A standalone copied fact or anchor id is not sufficient support. |
+| Capability presentation                                    | A caller cites a grant identity in a presentation shape.                                                                                                    | That the grant exists, is authentic, is unexpired, covers the artifact/operation/scope, or authorizes the current request.                                        |
+| Validated capability grant                                 | The named grant covers the validated identity requirements under the evaluated policy posture.                                                              | Runtime support, scheduler work, law execution, unlimited aperture, or automatic reveal of retained material.                                                     |
+| Reading envelope                                           | Echo reports the basis, observer plan, aperture, budget, rights, residual, and evidence posture for a reading.                                              | Causal mutation authority or permission to widen the reading.                                                                                                     |
+| Proof opening                                              | The named commitment proposition verified for the named coordinates under the named proof system.                                                           | Capability, admission, scheduler, WAL, recovery, or reveal authority.                                                                                             |
+| Graph or hologram materialization                          | A derived view was computed from a named basis and support set.                                                                                             | Substrate truth, freshness at another basis, or validity for another observer.                                                                                    |
+| Projection-cache hit                                       | A cached artifact matches the complete cache key and coverage contract.                                                                                     | That an incomplete key is safe, that the observer is equivalent, or that source authority remains available.                                                      |
+| WAL frame                                                  | A record claims a typed payload and coordinate with integrity metadata.                                                                                     | A committed transaction when viewed alone.                                                                                                                        |
+| WAL commit marker                                          | The complete transaction validated and crossed the adapter's commit boundary.                                                                               | Confidentiality, remote freshness, application authorization, or protection from a compromised adapter.                                                           |
+| Recovery certificate                                       | Echo derived a named recovery posture and index root from a committed replay range.                                                                         | That omitted external retained material is available or that the store is not a valid old prefix.                                                                 |
+| Obstruction fact                                           | Echo could not lawfully produce the requested result under the named posture and evidence.                                                                  | Permanent impossibility, authorization for retry, or application success.                                                                                         |
 
 ## Caller Claim Versus Echo Evidence
 
@@ -229,6 +232,13 @@ that check. The lower-level raw observation path and current high-level bridge
 must not be advertised as a complete product authorization boundary until
 trusted capability and law binding is end to end.
 
+External-action adapter registration follows the same separation. The runtime
+owner installs operation-, scope-, and adapter-specific bindings. Lookup
+attenuates that policy into a request-specific authorization; the request
+itself is not a credential. The adapter's external credential remains outside
+Echo history, Edict, and model output. A committed claim records which adapter
+was authorized without turning that public evidence into the credential.
+
 ## Confidentiality, Revelation, And Erasure
 
 Confidentiality requires more than a content hash or redaction flag. A complete
@@ -303,15 +313,15 @@ host threat model.
 
 Security-sensitive failures must preserve their category:
 
-| Posture | Meaning | Caller response |
-| ------- | ------- | --------------- |
-| Rejected | Named law evaluated the candidate and lawfully declined it. | Change the proposal or accept the decision. |
-| Obstructed | Required basis, capability, support, material, policy, or budget is unavailable. | Repair the named condition or make a new explicit request. |
-| Conflict | Causal expectations or declared footprints are incompatible. | Preserve plurality or invoke an explicit resolution law. |
-| Corrupt | Evidence fails canonical, integrity, or cross-evidence validation. | Quarantine and recover from trusted evidence; never normalize into success. |
-| Internal fault | Echo failed its own invariant. | Isolate or quarantine the affected runtime scope and use trusted recovery. |
-| Missing | Referenced material is absent. | Restore material or return an availability obstruction. |
-| Redacted | Policy intentionally withholds material. | Do not infer absence or reveal through another cache. |
+| Posture        | Meaning                                                                          | Caller response                                                             |
+| -------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Rejected       | Named law evaluated the candidate and lawfully declined it.                      | Change the proposal or accept the decision.                                 |
+| Obstructed     | Required basis, capability, support, material, policy, or budget is unavailable. | Repair the named condition or make a new explicit request.                  |
+| Conflict       | Causal expectations or declared footprints are incompatible.                     | Preserve plurality or invoke an explicit resolution law.                    |
+| Corrupt        | Evidence fails canonical, integrity, or cross-evidence validation.               | Quarantine and recover from trusted evidence; never normalize into success. |
+| Internal fault | Echo failed its own invariant.                                                   | Isolate or quarantine the affected runtime scope and use trusted recovery.  |
+| Missing        | Referenced material is absent.                                                   | Restore material or return an availability obstruction.                     |
+| Redacted       | Policy intentionally withholds material.                                         | Do not infer absence or reveal through another cache.                       |
 
 Retry is a new causal act unless the API explicitly defines exact idempotent
 recovery of the same claim. Hidden retry loops can duplicate effects and erase

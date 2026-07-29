@@ -20,7 +20,11 @@
   recovers this evidence without a native application callback or
   application-specific reconstruction. Runtime admission caps both canonical
   application input and compiler-declared result bytes at 65,536 before private
-  scheduler evaluation.
+  scheduler evaluation. Both independent provider components reject result
+  ceilings above that runtime maximum and ambiguous input bindings. Evaluation
+  preflights exact canonical output size before constructing the projected
+  value, while recovery re-evaluates the projection over the retained
+  invocation input and refuses substituted result bytes before publication.
 - The generic Edict-operation runner's duplicate witness now exposes canonical
   before/after application-state roots and typed target-value digests. The
   graph-only roots commit reachable application state without conflating WAL,

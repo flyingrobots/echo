@@ -575,6 +575,11 @@ fn checked_echo_provider_semantic_source_validates() {
                 "edict.lowering-requirements/v1",
             ),
             (
+                "result-projection.echo-operation",
+                InvocationInputKind::Auxiliary,
+                "edict.result-projection.artifact/v1",
+            ),
+            (
                 "source.echo-operation",
                 InvocationInputKind::Auxiliary,
                 "edict.source/v1",
@@ -656,6 +661,7 @@ fn checked_echo_provider_semantic_source_validates() {
             ("edict.lawpack-exports/v1", "lawpack-exports"),
             ("edict.lawpack/v1", "lawpack-manifest"),
             ("edict.lowering-requirements/v1", "lowering-requirements"),
+            ("edict.result-projection.artifact/v1", "result-projection",),
             ("edict.source/v1", "edict-source-bytes"),
             ("edict.target-ir.artifact/v1", "target-ir-artifact"),
             ("edict.target-profile/v1", "target-profile-manifest"),

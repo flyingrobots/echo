@@ -211,6 +211,42 @@ fn rebound_result_projection_coordinate_is_an_invalid_artifact() {
 }
 
 #[test]
+fn projection_output_ceiling_accepts_the_boundary_and_rejects_the_next_byte() {
+    let mut boundary = fixture_request(ALPHA);
+    replace_projection(
+        &mut boundary,
+        result_projection_with_max_output(ALPHA, 65_536),
+    );
+    lower(boundary).expect("the Echo runtime output ceiling is accepted");
+
+    let mut over_limit = fixture_request(ALPHA);
+    replace_projection(
+        &mut over_limit,
+        result_projection_with_max_output(ALPHA, 65_537),
+    );
+    let refusal =
+        lower(over_limit).expect_err("a package above Echo's output ceiling must fail closed");
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+    );
+}
+
+#[test]
+fn invocation_binding_fields_must_be_distinct() {
+    let request =
+        fixture_request_with_configuration(ALPHA, configuration_with_fields(ALPHA, "key", "key"));
+
+    let refusal =
+        lower(request).expect_err("one input field cannot bind two distinct runtime values");
+
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
+#[test]
 fn projection_node_limit_accepts_the_boundary_and_rejects_the_next_node() {
     let mut boundary = fixture_request(ALPHA);
     replace_projection(&mut boundary, result_projection_with_fields(ALPHA, 255));
@@ -294,6 +330,13 @@ fn projection_field_order_is_canonical_for_fixed_seed_permutations() {
 }
 
 fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
+    fixture_request_with_configuration(names, configuration(names))
+}
+
+fn fixture_request_with_configuration(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+) -> LoweringRequestV1 {
     let target_profile = bound(
         "echo.dpo@1",
         "edict.target-profile/v1",
@@ -307,7 +350,7 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
     let configuration = bound(
         names.configuration,
         "echo.operation-lowering-configuration/v1",
-        canonical_bytes(&configuration(names)),
+        canonical_bytes(&configuration_value),
     );
     let adapter = bound(
         names.adapter,
@@ -487,6 +530,14 @@ fn exports(names: FixtureNames<'_>) -> CanonicalValueV1 {
 }
 
 fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    configuration_with_fields(names, "key", "value")
+}
+
+fn configuration_with_fields(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+) -> CanonicalValueV1 {
     owned_map([
         (
             "apiVersion",
@@ -511,8 +562,8 @@ fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
         (
             "invocationBinding",
             owned_map([
-                ("nodeKeyField", text("key")),
-                ("replacementField", text("value")),
+                ("nodeKeyField", text(node_key_field)),
+                ("replacementField", text(replacement_field)),
                 ("nodeIdDerivation", text("sha256-utf8/v1")),
                 ("warpIdSource", text("action-lane/v1")),
             ]),
@@ -631,6 +682,13 @@ fn target_ir(
 }
 
 fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    result_projection_with_max_output(names, 512)
+}
+
+fn result_projection_with_max_output(
+    names: FixtureNames<'_>,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
     owned_map([
         ("schema", text("edict.result-projection/v1")),
         (
@@ -638,7 +696,7 @@ fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
             text(format!("{}.{}", names.application, names.intent)),
         ),
         ("outputType", text(format!("{}.Output", names.application))),
-        ("maxOutputBytes", integer(512)),
+        ("maxOutputBytes", integer(max_output_bytes)),
         (
             "expression",
             owned_map([

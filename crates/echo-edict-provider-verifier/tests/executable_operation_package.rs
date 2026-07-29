@@ -215,6 +215,46 @@ fn verifier_requires_the_compiler_projection_input() {
     );
 }
 
+#[test]
+fn verifier_refuses_a_projection_above_the_echo_runtime_output_ceiling() {
+    let names = FIXTURES[0];
+    let package_fixture = raw_fixture(names);
+    let package = lower_package(names, &package_fixture);
+    let fixture = raw_fixture_with_values(
+        names,
+        configuration(names),
+        result_projection_with_max_output(names, 65_537),
+    );
+
+    let refusal = verifier::verify(verification_request(names, &fixture, package))
+        .expect_err("an impossible Echo output ceiling must be an invalid semantic artifact");
+
+    assert_eq!(
+        refusal.kind,
+        verifier::ProviderRefusalKind::InvalidSemanticArtifact
+    );
+}
+
+#[test]
+fn verifier_refuses_equal_invocation_binding_fields() {
+    let names = FIXTURES[0];
+    let package_fixture = raw_fixture(names);
+    let package = lower_package(names, &package_fixture);
+    let fixture = raw_fixture_with_values(
+        names,
+        configuration_with_fields(names, "key", "key"),
+        result_projection(names),
+    );
+
+    let refusal = verifier::verify(verification_request(names, &fixture, package))
+        .expect_err("one input field cannot bind two distinct runtime values");
+
+    assert_eq!(
+        refusal.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
 fn lower_package(names: FixtureNames<'_>, fixture: &RawFixture) -> Vec<u8> {
     let success =
         lowerer::lower(lowering_request(names, fixture)).expect("the generic lowerer completes");
@@ -366,11 +406,19 @@ fn verification_request(
 }
 
 fn raw_fixture(names: FixtureNames<'_>) -> RawFixture {
+    raw_fixture_with_values(names, configuration(names), result_projection(names))
+}
+
+fn raw_fixture_with_values(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+    result_projection_value: CanonicalValueV1,
+) -> RawFixture {
     let target_profile = TARGET_PROFILE.to_vec();
     let target_profile_ref = raw_ref("echo.dpo@1", "edict.target-profile/v1", &target_profile);
     let exports = canonical_bytes(&exports(names));
     let exports_ref = raw_ref(names.exports, "edict.lawpack-exports/v1", &exports);
-    let configuration = canonical_bytes(&configuration(names));
+    let configuration = canonical_bytes(&configuration_value);
     let configuration_ref = raw_ref(
         names.configuration,
         "echo.operation-lowering-configuration/v1",
@@ -406,7 +454,7 @@ fn raw_fixture(names: FixtureNames<'_>) -> RawFixture {
         &lawpack_ref,
         &target_profile_ref,
     ));
-    let result_projection = canonical_bytes(&result_projection(names));
+    let result_projection = canonical_bytes(&result_projection_value);
     RawFixture {
         core,
         target_profile,
@@ -516,6 +564,14 @@ fn exports(names: FixtureNames<'_>) -> CanonicalValueV1 {
 }
 
 fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    configuration_with_fields(names, "key", "value")
+}
+
+fn configuration_with_fields(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+) -> CanonicalValueV1 {
     map([
         (
             "apiVersion",
@@ -540,8 +596,8 @@ fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
         (
             "invocationBinding",
             map([
-                ("nodeKeyField", text("key")),
-                ("replacementField", text("value")),
+                ("nodeKeyField", text(node_key_field)),
+                ("replacementField", text(replacement_field)),
                 ("nodeIdDerivation", text("sha256-utf8/v1")),
                 ("warpIdSource", text("action-lane/v1")),
             ]),
@@ -655,10 +711,25 @@ fn target_ir(
 }
 
 fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
-    result_projection_with_fields(names, 1)
+    result_projection_with_max_output(names, 512)
+}
+
+fn result_projection_with_max_output(
+    names: FixtureNames<'_>,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
+    result_projection_with_fields_and_max_output(names, 1, max_output_bytes)
 }
 
 fn result_projection_with_fields(names: FixtureNames<'_>, field_count: usize) -> CanonicalValueV1 {
+    result_projection_with_fields_and_max_output(names, field_count, 512)
+}
+
+fn result_projection_with_fields_and_max_output(
+    names: FixtureNames<'_>,
+    field_count: usize,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
     let fields = (0..field_count)
         .map(|index| {
             let source = if index == 0 {
@@ -687,7 +758,7 @@ fn result_projection_with_fields(names: FixtureNames<'_>, field_count: usize) ->
             text(format!("{}.{}", names.application, names.intent)),
         ),
         ("outputType", text(format!("{}.Output", names.application))),
-        ("maxOutputBytes", integer(512)),
+        ("maxOutputBytes", integer(max_output_bytes)),
         (
             "expression",
             map([

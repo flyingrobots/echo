@@ -1216,6 +1216,7 @@ dependencies = [
  "echo-wasm-abi",
  "hex",
  "rustc-hash",
+ "sha2",
  "thiserror 1.0.69",
  "warp-math",
 ]

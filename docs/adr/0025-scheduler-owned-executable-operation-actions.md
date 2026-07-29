@@ -129,7 +129,9 @@ provider components reject a declared result ceiling above Echo's runtime
 maximum. Runtime evaluation then computes the produced canonical output length
 against that admitted bound before it clones or assembles the projected value.
 The projection artifact, expression-node count, path depth, and text segments
-retain their separate structural bounds.
+retain their separate structural bounds. Configuration-derived node-key and
+replacement field names become projection path segments and must satisfy the
+same 1,024-byte text bound before package construction.
 
 During private Tick construction, the scheduler evaluates the installed
 projection over that admitted input. A successful applied Action retains:

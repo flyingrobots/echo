@@ -337,10 +337,12 @@ no native application callback.
 For a successful projected Action, the decided-Tick transaction also retains
 the compiler-owned projection identity, output type coordinate, exact canonical
 application-result bytes, and their domain-separated result identity. Recovery
-requires that evidence to reproduce under the exact installed package
-projection before publishing the Action outcome or Receipt. Rebound projection
-artifacts and substituted result bytes therefore fail closed. An obstructed
-Action carries no application result.
+deterministically re-evaluates the installed pure-data projection over the
+exact application input retained by the original invocation and requires
+byte-for-byte equality with that evidence before publishing the Action outcome
+or Receipt. This verification performs no native callback and reads no current
+application state. Rebound projection artifacts and substituted result bytes
+therefore fail closed. An obstructed Action carries no application result.
 
 The Action/Tick witnesses to read first are:
 

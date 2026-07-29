@@ -153,6 +153,9 @@ impl ExternalActionRequestV1 {
         if budget.max_settlement_bytes == 0 || budget.max_attempts == 0 {
             return Err(ExternalActionProtocolErrorV1::EmptyBudget);
         }
+        if budget.max_attempts != 1 {
+            return Err(ExternalActionProtocolErrorV1::UnsupportedAttemptBudget);
+        }
         if budget.max_settlement_bytes > MAX_EXTERNAL_ACTION_SETTLEMENT_BYTES_V1 {
             return Err(ExternalActionProtocolErrorV1::RequestBudgetLimitExceeded);
         }
@@ -201,6 +204,9 @@ impl ExternalActionRequestV1 {
         }
         if self.budget.max_settlement_bytes == 0 || self.budget.max_attempts == 0 {
             return Err(ExternalActionProtocolErrorV1::EmptyBudget);
+        }
+        if self.budget.max_attempts != 1 {
+            return Err(ExternalActionProtocolErrorV1::UnsupportedAttemptBudget);
         }
         if self.budget.max_settlement_bytes > MAX_EXTERNAL_ACTION_SETTLEMENT_BYTES_V1 {
             return Err(ExternalActionProtocolErrorV1::RequestBudgetLimitExceeded);
@@ -712,6 +718,9 @@ pub enum ExternalActionProtocolErrorV1 {
     /// A request exceeded Echo's absolute retained-settlement ceiling.
     #[error("external-action request settlement budget exceeds the v1 limit")]
     RequestBudgetLimitExceeded,
+    /// Protocol v1 permits exactly one claim per request.
+    #[error("external-action protocol v1 requires exactly one attempt per request")]
+    UnsupportedAttemptBudget,
     /// The request identity did not match its canonical fields.
     #[error("external-action request identity mismatch")]
     RequestIdentityMismatch,

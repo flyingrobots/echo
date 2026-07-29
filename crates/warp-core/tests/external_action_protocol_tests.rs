@@ -357,6 +357,23 @@ fn request_and_attempt_budget_boundaries_obstruct_before_commit() {
         ),
         Err(ExternalActionProtocolErrorV1::RequestBudgetLimitExceeded)
     );
+    assert_eq!(
+        ExternalActionRequestV1::new(
+            WorldlineId::from_bytes([19; 32]),
+            ExternalActionOperationIdV1::from_hash(digest("workspace.observe@1")),
+            digest("workspace.observe@1.input"),
+            digest("workspace.observe@1.settlement"),
+            digest("workspace:/bounded"),
+            digest("basis:multi-attempt-budget"),
+            ExternalActionBudgetV1 {
+                max_settlement_bytes: 64,
+                max_attempts: 2,
+            },
+            digest("input:multi-attempt-budget"),
+            digest("workspace.observe@1.reconcile"),
+        ),
+        Err(ExternalActionProtocolErrorV1::UnsupportedAttemptBudget)
+    );
 
     let mut store = store();
     let request = request_with("attempt-budget", 19, 64);

@@ -169,10 +169,10 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-258,744 bytes with SHA-256
-`3e0f3a8e635feecb748bb42b0b9332b442c2c5dae4e0595dc229f83570c8aab8`; the
-promoted verifier is 277,793 bytes with SHA-256
-`97c43c1138a1b8cc58bc2333b540d89179b00047e5348c9a724cdf26d2850728`.
+258,519 bytes with SHA-256
+`fc85a0c33a78116946835e3d502c06be3c9527b5aeb1e2ad8a8c7f6576c628cc`; the
+promoted verifier is 277,568 bytes with SHA-256
+`574073ef2281e5cbec27951d7e53d061cac27d0c84a7db1f1a252e8639ce4b6b`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication introduced in

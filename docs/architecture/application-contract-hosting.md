@@ -167,16 +167,16 @@ The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a
 structurally separate provider verifier independently reconstructs that
-relation. Edict's public application-build command does not yet assemble those
-inputs end to end, and the slice does not implement Jedit `ReplaceRange`, any
-Graft operation, or cross-head atomic filesystem-WAL persistence. Provider v1
-remains stable while consumers migrate; it is not renamed or silently
-reinterpreted as the executable-operation corridor. The program digest supplies
-executable meaning only: it cannot independently confer an operation
-coordinate, invocability, or authority, and Echo cannot install or invoke it
-naked. The admitted operation package binds the public contract and semantic
-closure to the exact program, after which Echo independently admits each
-invocation.
+relation. Edict's public application-build command assembles those inputs end
+to end and invokes the checked Echo lowerer and structurally separate
+verifier. The slice does not implement Jedit `ReplaceRange`, any Graft
+operation, or cross-head atomic filesystem-WAL persistence. Provider v1 remains
+stable while consumers migrate; it is not renamed or silently reinterpreted as
+the executable-operation corridor. The program digest supplies executable
+meaning only: it cannot independently confer an operation coordinate,
+invocability, or authority, and Echo cannot install or invoke it naked. The
+admitted operation package binds the public contract and semantic closure to
+the exact program, after which Echo independently admits each invocation.
 
 ## External Edict Provider Artifacts
 

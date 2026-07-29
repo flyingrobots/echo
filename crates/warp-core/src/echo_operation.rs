@@ -1153,7 +1153,7 @@ impl EchoOperationApplicationResultProjectionV1 {
         )?;
         let (operation_coordinate, output_type, max_output_bytes, authored_expression) =
             validate_edict_result_projection(&artifact_bytes, artifact_identity)?;
-        if !same_projection_shape(&authored_expression, &runtime_expression) {
+        if !same_projection_shape(&authored_expression, &runtime_expression, &node_key_path) {
             return Err(invalid_structure(
                 "runtime result plan does not preserve the authored projection shape",
             ));
@@ -1456,7 +1456,8 @@ fn validate_edict_result_projection(
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum EchoOperationResultExpressionShapeV1 {
     Record(BTreeMap<String, Self>),
-    Source,
+    ApplicationInput(Vec<String>),
+    CapabilityResult(Vec<String>),
 }
 
 fn parse_edict_result_projection_shape(
@@ -1489,20 +1490,22 @@ fn parse_edict_result_projection_shape(
         "source" => {
             require_field_names(&fields, &["path", "source"])?;
             let mut source = text_map(take_field(&mut fields, "source")?)?;
-            match take_text(&mut source, "kind")?.as_str() {
-                "applicationInput" => require_field_names(&source, &[])?,
+            let source_kind = take_text(&mut source, "kind")?;
+            let path = take_projection_path(&mut fields, "path")?;
+            match source_kind.as_str() {
+                "applicationInput" => {
+                    require_field_names(&source, &[])?;
+                    Ok(EchoOperationResultExpressionShapeV1::ApplicationInput(path))
+                }
                 "capabilityResult" => {
                     require_field_names(&source, &["stepId"])?;
                     validate_projection_text(&take_text(&mut source, "stepId")?)?;
+                    Ok(EchoOperationResultExpressionShapeV1::CapabilityResult(path))
                 }
-                _ => {
-                    return Err(invalid_structure(
-                        "result projection contains an unsupported source",
-                    ));
-                }
+                _ => Err(invalid_structure(
+                    "result projection contains an unsupported source",
+                )),
             }
-            let _ = take_projection_path(&mut fields, "path")?;
-            Ok(EchoOperationResultExpressionShapeV1::Source)
         }
         _ => Err(invalid_structure(
             "result projection contains an unsupported expression",
@@ -1513,6 +1516,7 @@ fn parse_edict_result_projection_shape(
 fn same_projection_shape(
     authored: &EchoOperationResultExpressionShapeV1,
     runtime: &EchoOperationResultExpressionV1,
+    capability_result_path: &[String],
 ) -> bool {
     match (authored, runtime) {
         (
@@ -1521,15 +1525,19 @@ fn same_projection_shape(
         ) => {
             authored.len() == runtime.len()
                 && authored.iter().all(|(name, authored)| {
-                    runtime
-                        .get(name)
-                        .is_some_and(|runtime| same_projection_shape(authored, runtime))
+                    runtime.get(name).is_some_and(|runtime| {
+                        same_projection_shape(authored, runtime, capability_result_path)
+                    })
                 })
         }
         (
-            EchoOperationResultExpressionShapeV1::Source,
-            EchoOperationResultExpressionV1::ApplicationInputPath(_),
-        ) => true,
+            EchoOperationResultExpressionShapeV1::ApplicationInput(authored_path),
+            EchoOperationResultExpressionV1::ApplicationInputPath(runtime_path),
+        ) => authored_path == runtime_path,
+        (
+            EchoOperationResultExpressionShapeV1::CapabilityResult(authored_path),
+            EchoOperationResultExpressionV1::ApplicationInputPath(runtime_path),
+        ) => authored_path == capability_result_path && runtime_path == capability_result_path,
         _ => false,
     }
 }
@@ -6558,7 +6566,9 @@ fn hash_optional_application_result(
     result: Option<&EchoOperationApplicationResultV1>,
 ) {
     match result {
-        None => {}
+        None => {
+            hasher.update(&[0]);
+        }
         Some(result) => {
             hasher.update(&[1]);
             hasher.update(&result.identity);

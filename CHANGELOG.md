@@ -7,6 +7,11 @@
 
 ### Added
 
+- The generic Edict-operation runner's duplicate witness now exposes canonical
+  before/after application-state roots and typed target-value digests. The
+  graph-only roots commit reachable application state without conflating WAL,
+  Tick history, Receipts, or commit metadata; report emission fails closed if
+  either the root or target value changes during an obstructed duplicate.
 - `cargo xtask run-edict-operation` now consumes an exact external
   compiler-produced executable-operation package, its structurally separate
   accepted verification report, the manifest-to-adapter-to-target-configuration

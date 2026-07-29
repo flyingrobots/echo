@@ -327,8 +327,12 @@ the installed package and pending Action before scheduler selection,
 scheduler-owned evaluation of that recovered work, decided-Tick durability, a
 second complete fresh-host recovery, a typed duplicate-create obstruction
 without mutation, and recovery refusal when the registered initial state
-changes. It uses the strict filesystem adapter and no native application
-callback.
+changes. Duplicate no-mutation evidence consists of equal graph-only
+application-state roots and equal typed target-value digests captured before
+and after the obstructed Action. WAL frames, Tick history, Receipts, and commit
+metadata are excluded from the application-state root because the obstruction
+legitimately extends causal history. It uses the strict filesystem adapter and
+no native application callback.
 
 The Action/Tick witnesses to read first are:
 

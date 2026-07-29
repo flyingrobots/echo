@@ -899,6 +899,7 @@ fn duplicate_and_conflicting_settlements_are_recovery_obstructions() {
 #[derive(Debug)]
 struct CommitFailingStore {
     inner: InMemoryWalStore,
+    fail_on_commit_ordinal: usize,
 }
 
 impl WalStorePort for CommitFailingStore {
@@ -919,12 +920,16 @@ impl WalStorePort for CommitFailingStore {
 
     fn flush_commit(
         &mut self,
-        _epoch_id: WriterEpochId,
-        _commit: WalTransactionCommit,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        Err(WalStoreError::Io(
-            "injected external-action commit failure".to_owned(),
-        ))
+        if self.inner.read_commits().len() == self.fail_on_commit_ordinal {
+            Err(WalStoreError::Io(
+                "injected external-action commit failure".to_owned(),
+            ))
+        } else {
+            self.inner.flush_commit(epoch_id, commit)
+        }
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -962,7 +967,10 @@ impl WalStorePort for CommitFailingStore {
 
 #[test]
 fn failed_request_commit_exposes_no_adapter_reachable_token() {
-    let mut store = CommitFailingStore { inner: store() };
+    let mut store = CommitFailingStore {
+        inner: store(),
+        fail_on_commit_ordinal: 0,
+    };
     let request = request_with("commit-failure", 17, 64);
     assert_eq!(
         record_external_action_request(
@@ -987,6 +995,97 @@ fn failed_request_commit_exposes_no_adapter_reachable_token() {
     ));
     assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
     assert!(must_ok(recover_external_actions(&report)).is_empty());
+}
+
+#[test]
+fn failed_claim_commit_exposes_no_adapter_work_grant() {
+    let mut store = CommitFailingStore {
+        inner: store(),
+        fail_on_commit_ordinal: 1,
+    };
+    let request = request_with("claim-commit-failure", 17, 64);
+    let recorded = must_ok(record_external_action_request(
+        &mut store,
+        builder(
+            "request:claim-commit-failure",
+            0,
+            WalTransactionKind::ExternalActionRequest,
+        ),
+        request,
+    ));
+    assert_eq!(
+        claim_external_action(
+            &mut store,
+            builder(
+                "claim:commit-failure",
+                1,
+                WalTransactionKind::ExternalActionClaim,
+            ),
+            recorded,
+            authorization(&request),
+            request.basis_digest,
+            0,
+            digest("claim:commit-failure:lease"),
+        ),
+        Err(ExternalActionProtocolErrorV1::WalStore(WalStoreError::Io(
+            "injected external-action commit failure".to_owned()
+        )))
+    );
+    assert_eq!(store.read_commits().len(), 1);
+    assert_eq!(store.read_frames().len(), 2);
+}
+
+#[test]
+fn failed_settlement_commit_exposes_no_resumable_fact() {
+    let mut store = CommitFailingStore {
+        inner: store(),
+        fail_on_commit_ordinal: 2,
+    };
+    let request = request_with("settlement-commit-failure", 17, 64);
+    let recorded = must_ok(record_external_action_request(
+        &mut store,
+        builder(
+            "request:settlement-commit-failure",
+            0,
+            WalTransactionKind::ExternalActionRequest,
+        ),
+        request,
+    ));
+    let grant = must_ok(claim_external_action(
+        &mut store,
+        builder(
+            "claim:settlement-commit-failure",
+            1,
+            WalTransactionKind::ExternalActionClaim,
+        ),
+        recorded,
+        authorization(&request),
+        request.basis_digest,
+        0,
+        digest("claim:settlement-commit-failure:lease"),
+    ));
+    let candidate = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"uncommitted-result".to_vec(),
+    );
+    assert_eq!(
+        admit_external_action_settlement(
+            &mut store,
+            builder(
+                "settlement:commit-failure",
+                2,
+                WalTransactionKind::ExternalActionSettlement,
+            ),
+            grant,
+            candidate,
+        ),
+        Err(ExternalActionProtocolErrorV1::WalStore(WalStoreError::Io(
+            "injected external-action commit failure".to_owned()
+        )))
+    );
+    assert_eq!(store.read_commits().len(), 2);
+    assert_eq!(store.read_frames().len(), 3);
 }
 
 #[test]

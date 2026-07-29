@@ -230,6 +230,14 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["recovery"]["receiptRecovered"], true);
     assert_eq!(report["recovery"]["applicationResultRecovered"], true);
     assert_eq!(
+        report["recovery"]["freshHostApplicationResult"], report["applicationResult"],
+        "fresh-host recovery must expose the exact applied application result"
+    );
+    assert_eq!(
+        report["recovery"]["walApplicationResult"], report["applicationResult"],
+        "WAL recovery must expose the exact applied application result"
+    );
+    assert_eq!(
         report["duplicate"]["obstruction"],
         "causal.cell@1.AlreadyExists"
     );
@@ -596,6 +604,14 @@ fn fixed_seed_keys_preserve_the_generic_durable_witness_under_bounded_stress() {
             "examples.hello_echo@1.GreetingCreated"
         );
         assert_eq!(report["recovery"]["applicationResultRecovered"], true);
+        assert_eq!(
+            report["recovery"]["freshHostApplicationResult"], report["applicationResult"],
+            "fixed-seed fresh-host recovery must preserve the exact application result"
+        );
+        assert_eq!(
+            report["recovery"]["walApplicationResult"], report["applicationResult"],
+            "fixed-seed WAL recovery must preserve the exact application result"
+        );
         let result = decode_canonical_cbor_v1(
             &hex::decode(
                 report["applicationResult"]["canonicalBytesHex"]

@@ -266,6 +266,7 @@ external compiler-produced ExecutableOperationPackageV1 bytes
 -> one composite Tick consequence with typed per-Action outcomes
 -> decided Tick WAL retention before state, frontier, and Receipt publication
 -> callback-free pending-Action, result, and decided-Tick recovery
+-> independently comparable applied, fresh-host, and WAL result evidence
 ```
 
 The first two paths are callback-shaped compatibility infrastructure. The

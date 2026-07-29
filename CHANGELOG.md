@@ -7,6 +7,18 @@
 
 ### Added
 
+- Executable-operation packages can now bind an exact compiler-owned
+  `edict.result-projection.artifact/v1`. Projected invocations retain the exact
+  canonical application input, scheduler-owned private evaluation emits the
+  compiler-declared output type and canonical result bytes, and a
+  domain-separated identity binds that evidence. Applied Action outcomes,
+  Receipts, and decided-Tick WAL transactions retain the same projection,
+  bytes, type, and identity; fresh-host recovery revalidates them against the
+  installed package before publication. Rebound projections, mismatched
+  application inputs, and substituted result evidence fail closed. Obstructed
+  Actions carry no application result. The generic external runner reports and
+  recovers this evidence without a native application callback or
+  application-specific reconstruction.
 - The generic Edict-operation runner's duplicate witness now exposes canonical
   before/after application-state roots and typed target-value digests. The
   graph-only roots commit reachable application state without conflating WAL,
@@ -30,11 +42,12 @@
   closure, selects target configuration only from the package-supported target
   intrinsic, and verifies both created node and attachment types. The
   machine-readable witness reports exact package, verification-report, and
-  lawpack-manifest digests plus basis, node, submission, Tick-commit, and typed
-  Receipt identities. The checked external fixture and bounded failure/stress
-  suite contain application vocabulary only under `xtask/tests`; the
-  production runner is generic and contains no native application callback or
-  handwritten package.
+  lawpack-manifest digests plus basis, node, submission, Tick-commit, typed
+  Receipt, result-projection, output-type, canonical-result, and result
+  identities. The checked external fixture and bounded failure/stress suite
+  contain application vocabulary only under `xtask/tests`; the production
+  runner is generic and contains no native application callback or handwritten
+  package.
 - The former native `hello-echo` counter capsule is now explicitly named
   `runtime-counter-diagnostic`, including its command, artifact paths, and
   internal identities. It remains a low-level callback-based maintenance
@@ -48,19 +61,19 @@
   the source-to-package relation and emits an exact accepted or rejected
   `echo.operation-package-verifier-report/v1`. Target IR validation consumes
   the adapter-lowered target obstruction coordinate while independently
-  corroborating its source-failure mapping. The provider package exposes six
-  new closure domains through 30 total schema bindings. The generic route now
+  corroborating its source-failure mapping. The provider package exposes seven
+  new closure domains through 31 total schema bindings. The generic route now
   binds source-local capability aliases to canonical lawpack exports through
   the exact digest-locked Edict import and corroborates lawpack-owned
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 230,875 bytes /
-  `08277d4ba7d98e0b143c06c208abc306f133bda510caa5393da08aa490334a6e`
-  and 248,221 bytes /
-  `744a511137608634b88abf7bd7e61da9bf81a5cacff7b190fc2530c346ba36cc`,
+  containers and promoted at 258,744 bytes /
+  `58b42234ced1c70885197fceea47e12b5dd4da2fd0ece0cc69087b15270add20`
+  and 277,793 bytes /
+  `97c43c1138a1b8cc58bc2333b540d89179b00047e5348c9a724cdf26d2850728`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:a7ab6bfbbedc3a6b61a8559dc6506cfc3d2836b46dac3cc825e5b05b16b94fa5`.
+  `sha256:5f78f7251653c7b215b9b323aaf7f6a8730aa73bed8d2e83c82c9859b59c968f`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.
@@ -262,8 +275,8 @@
 - `echo-wesley-gen` now purely assembles and digest-admits the first complete
   Echo Edict provider distribution from the verified 22-file generated corpus
   and explicit lowerer/verifier bytes. The derived provider manifest carries ten
-  exact routes and 30 schema bindings—nine compatibility invocation domains,
-  the generated artifact profile, 14 generated-resource domains, and six
+  exact routes and 31 schema bindings—nine compatibility invocation domains,
+  the generated artifact profile, 14 generated-resource domains, and seven
   generic executable-operation closure domains—but never inventories itself. A
   versioned canonical-CBOR package root binds those semantics plus raw hashes of
   all 24 non-manifest members, while the exact 25-file inventory, deterministic
@@ -455,7 +468,8 @@
   operations as bounded observers rather than mutation DPOs. These artifacts
   describe provider semantics and confer no Echo runtime authority.
 - `echo-wesley-gen` now admits the exact Apache-2.0 Edict provider contract
-  pack merged in Edict PR #162 as an explicit generator input. The pure
+  pack introduced in Edict PR #162 and extended with the result-projection
+  contract in Edict PR #174 as an explicit generator input. The pure
   boundary pins the CDDL and manifest publication, verifies strict contract and
   domain inventories plus every embedded resource byte, digest, and provenance
   record, rejects tampering with stable structured error kinds, and performs no

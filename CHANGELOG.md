@@ -7,6 +7,19 @@
 
 ### Added
 
+- Echo now admits domain-neutral external actions through separate
+  request-before-effect, bounded claim, and settlement-before-resumption WAL
+  transactions (ADR 0026). Canonical requests bind worldline, operation,
+  schemas, authority scope, basis, single-claim and retained-byte budgets, input
+  digest, and reconciliation law. Runtime-owner adapter registration attenuates
+  operation and scope policy without granting Edict or the provider seam
+  external authority. `Succeeded`, `Rejected`, `Failed`, and
+  `OutcomeUnknown` settlements bind the exact request, attempt, adapter, basis,
+  schema, canonical result bytes, admission evidence, and external evidence.
+  Recovery reconstructs requested, claimed, and settled posture from committed
+  WAL records; duplicate, conflicting, stale, unauthorized, malformed, and
+  over-budget evidence fails closed. Replay consumes retained settlement bytes
+  and never invokes an adapter.
 - The generic Edict-operation runner now exposes complete fresh-host and
   WAL-recovered application-result records beside the applied result. Report
   construction fails closed unless all three schema-neutral projection

@@ -124,8 +124,11 @@ reconstruct application meaning in native code.
 
 The v1 admission profile caps both the retained canonical application input and
 the compiler-declared result at 65,536 bytes. These fixed ceilings apply before
-scheduler evaluation; the projection artifact, expression-node count, path
-depth, and text segments retain their separate structural bounds.
+scheduler evaluation: both independent provider components reject a declared
+result ceiling above Echo's runtime maximum, and runtime evaluation computes
+the exact canonical output length against that bound before it clones or
+assembles the projected value. The projection artifact, expression-node count,
+path depth, and text segments retain their separate structural bounds.
 
 During private Tick construction, the scheduler evaluates the installed
 projection over that admitted input. A successful applied Action retains:
@@ -136,11 +139,12 @@ projection over that admitted input. A successful applied Action retains:
 - a domain-separated result identity over those propositions.
 
 The same evidence is carried by the typed Action outcome, committed Receipt,
-and scheduler WAL transaction. Recovery revalidates the retained result against
-the installed package projection before publishing the recovered outcome or
-Receipt. An obstruction carries no application result and no state mutation.
-Replay consumes the retained bytes; no native callback or application-specific
-result reconstruction participates.
+and scheduler WAL transaction. Recovery re-evaluates the installed projection
+over the exact application input retained by the original invocation and
+requires byte-for-byte equality with the retained typed result before
+publishing the recovered outcome or Receipt. An obstruction carries no
+application result and no state mutation. Replay consumes the retained bytes;
+no native callback or application-specific result reconstruction participates.
 
 ### Tick construction is atomic
 

@@ -18,7 +18,9 @@
   application inputs, and substituted result evidence fail closed. Obstructed
   Actions carry no application result. The generic external runner reports and
   recovers this evidence without a native application callback or
-  application-specific reconstruction.
+  application-specific reconstruction. Runtime admission caps both canonical
+  application input and compiler-declared result bytes at 65,536 before private
+  scheduler evaluation.
 - The generic Edict-operation runner's duplicate witness now exposes canonical
   before/after application-state roots and typed target-value digests. The
   graph-only roots commit reachable application state without conflating WAL,

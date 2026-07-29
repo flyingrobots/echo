@@ -308,6 +308,8 @@ pub enum WalAppendAuthority {
     AdmissionKernel,
     /// Echo executable-operation interpreter and commit authority.
     ExecutionKernel,
+    /// Echo external-action request and settlement coordinator authority.
+    ExternalActionCoordinator,
     /// Recovery authority.
     Recovery,
 }
@@ -333,6 +335,12 @@ pub enum WalTransactionKind {
     ExecutableOperationInstallation,
     /// Execution-kernel-owned commit of one executable operation consequence.
     ExecutableOperationTick,
+    /// Echo-owned admission of one external-action request before execution.
+    ExternalActionRequest,
+    /// Echo-owned claim of one admitted external-action request.
+    ExternalActionClaim,
+    /// Echo-owned admission of one external-action settlement.
+    ExternalActionSettlement,
 }
 
 impl WalTransactionKind {
@@ -349,6 +357,9 @@ impl WalTransactionKind {
             Self::CausalAnchorAdmission => 7,
             Self::ExecutableOperationInstallation => 8,
             Self::ExecutableOperationTick => 9,
+            Self::ExternalActionRequest => 10,
+            Self::ExternalActionClaim => 11,
+            Self::ExternalActionSettlement => 12,
         }
     }
 
@@ -367,7 +378,19 @@ impl WalTransactionKind {
             }
             Self::CausalAnchorAdmission => WalAppendAuthority::AdmissionKernel,
             Self::ExecutableOperationTick => WalAppendAuthority::ExecutionKernel,
+            Self::ExternalActionRequest
+            | Self::ExternalActionClaim
+            | Self::ExternalActionSettlement => WalAppendAuthority::ExternalActionCoordinator,
             Self::Checkpoint => WalAppendAuthority::Recovery,
+        }
+    }
+
+    pub(crate) const fn external_action_record_kind(self) -> Option<WalRecordKind> {
+        match self {
+            Self::ExternalActionRequest => Some(WalRecordKind::ExternalActionRequestRecorded),
+            Self::ExternalActionClaim => Some(WalRecordKind::ExternalActionClaimRecorded),
+            Self::ExternalActionSettlement => Some(WalRecordKind::ExternalActionSettlementRecorded),
+            _ => None,
         }
     }
 
@@ -382,6 +405,9 @@ impl WalTransactionKind {
             7 => Ok(Self::CausalAnchorAdmission),
             8 => Ok(Self::ExecutableOperationInstallation),
             9 => Ok(Self::ExecutableOperationTick),
+            10 => Ok(Self::ExternalActionRequest),
+            11 => Ok(Self::ExternalActionClaim),
+            12 => Ok(Self::ExternalActionSettlement),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -450,6 +476,12 @@ pub enum WalRecordKind {
     /// Trusted scheduler retained one typed executable-operation Action
     /// outcome inside a scheduler-owned Tick.
     ExecutableOperationActionOutcomeRecorded,
+    /// Echo recorded a canonical external-action request before execution.
+    ExternalActionRequestRecorded,
+    /// Echo recorded one bounded external-action claim.
+    ExternalActionClaimRecorded,
+    /// Echo admitted one schema-bound external-action settlement.
+    ExternalActionSettlementRecorded,
 }
 
 impl WalRecordKind {
@@ -486,6 +518,9 @@ impl WalRecordKind {
             Self::ExecutableOperationActionOutcomeRecorded => {
                 "ExecutableOperationActionOutcomeRecorded"
             }
+            Self::ExternalActionRequestRecorded => "ExternalActionRequestRecorded",
+            Self::ExternalActionClaimRecorded => "ExternalActionClaimRecorded",
+            Self::ExternalActionSettlementRecorded => "ExternalActionSettlementRecorded",
         }
     }
 
@@ -519,6 +554,11 @@ impl WalRecordKind {
             | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
                 WalAppendAuthority::AdmissionKernel
+            }
+            Self::ExternalActionRequestRecorded
+            | Self::ExternalActionClaimRecorded
+            | Self::ExternalActionSettlementRecorded => {
+                WalAppendAuthority::ExternalActionCoordinator
             }
             Self::CheckpointPublicationRecorded | Self::RecoveryPostureRecorded => {
                 WalAppendAuthority::Recovery
@@ -567,6 +607,9 @@ impl WalRecordKind {
             Self::ExecutableOperationExecutionRecorded => 26,
             Self::ExecutableOperationStateDeltaRecorded => 27,
             Self::ExecutableOperationActionOutcomeRecorded => 28,
+            Self::ExternalActionRequestRecorded => 29,
+            Self::ExternalActionClaimRecorded => 30,
+            Self::ExternalActionSettlementRecorded => 31,
         }
     }
 
@@ -600,6 +643,9 @@ impl WalRecordKind {
             26 => Ok(Self::ExecutableOperationExecutionRecorded),
             27 => Ok(Self::ExecutableOperationStateDeltaRecorded),
             28 => Ok(Self::ExecutableOperationActionOutcomeRecorded),
+            29 => Ok(Self::ExternalActionRequestRecorded),
+            30 => Ok(Self::ExternalActionClaimRecorded),
+            31 => Ok(Self::ExternalActionSettlementRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -731,6 +777,8 @@ pub enum AffectedFrontierKind {
     ExecutableOperationCatalog,
     /// Typed executable-operation receipt frontier.
     ExecutableOperationReceiptIndex,
+    /// Durable external-action lifecycle frontier.
+    ExternalActionIndex,
 }
 
 impl AffectedFrontierKind {
@@ -748,6 +796,7 @@ impl AffectedFrontierKind {
             Self::CausalAnchorIndex => 8,
             Self::ExecutableOperationCatalog => 9,
             Self::ExecutableOperationReceiptIndex => 10,
+            Self::ExternalActionIndex => 11,
         }
     }
 
@@ -1028,6 +1077,7 @@ pub struct WalCommittedTransaction {
     /// Commit marker.
     pub commit: WalTransactionCommit,
     admission_kernel_capability: Option<AdmissionKernelCapability>,
+    external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
 }
 
 impl WalCommittedTransaction {
@@ -1036,6 +1086,10 @@ impl WalCommittedTransaction {
         validate_admission_kernel_capability(
             self.commit.transaction_kind,
             self.admission_kernel_capability,
+        )?;
+        validate_external_action_coordinator_capability(
+            self.commit.transaction_kind,
+            self.external_action_coordinator_capability,
         )?;
         validate_transaction_frames(&self.frames, &self.commit)?;
         validate_transaction_semantics(&self.frames, self.commit.transaction_kind)?;
@@ -1049,10 +1103,30 @@ impl WalCommittedTransaction {
         }
         Ok(())
     }
+
+    pub(crate) const fn external_action_coordinator_capability(
+        &self,
+    ) -> Option<ExternalActionCoordinatorCapability> {
+        self.external_action_coordinator_capability
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AdmissionKernelCapability;
+
+/// Opaque authority required to flush an external-action lifecycle commit.
+///
+/// Only Echo's external-action coordinator can construct this value. WAL
+/// stores receive it solely to distinguish coordinator-owned commits from raw
+/// caller-authored commit markers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExternalActionCoordinatorCapability(());
+
+impl ExternalActionCoordinatorCapability {
+    const fn new() -> Self {
+        Self(())
+    }
+}
 
 fn validate_admission_kernel_capability(
     transaction_kind: WalTransactionKind,
@@ -1060,6 +1134,16 @@ fn validate_admission_kernel_capability(
 ) -> Result<(), WalValidationError> {
     if transaction_kind == WalTransactionKind::CausalAnchorAdmission && capability.is_none() {
         return Err(WalValidationError::AdmissionKernelCapabilityRequired);
+    }
+    Ok(())
+}
+
+fn validate_external_action_coordinator_capability(
+    transaction_kind: WalTransactionKind,
+    capability: Option<ExternalActionCoordinatorCapability>,
+) -> Result<(), WalValidationError> {
+    if transaction_kind.external_action_record_kind().is_some() && capability.is_none() {
+        return Err(WalValidationError::ExternalActionCoordinatorCapabilityRequired);
     }
     Ok(())
 }
@@ -1085,6 +1169,7 @@ pub struct WalTransactionBuilder {
     frames: Vec<WalFrame>,
     closed: bool,
     admission_kernel_capability: Option<AdmissionKernelCapability>,
+    external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
 }
 
 impl WalTransactionBuilder {
@@ -1106,7 +1191,7 @@ impl WalTransactionBuilder {
         canonical_encoding_version: u16,
         digest_domain: Hash,
     ) -> Self {
-        Self::new_with_admission_kernel_capability(
+        Self::new_with_capabilities(
             writer_epoch,
             segment_id,
             transaction_id,
@@ -1121,6 +1206,7 @@ impl WalTransactionBuilder {
             payload_schema_version,
             canonical_encoding_version,
             digest_domain,
+            None,
             None,
         )
     }
@@ -1145,7 +1231,7 @@ impl WalTransactionBuilder {
         canonical_encoding_version: u16,
         digest_domain: Hash,
     ) -> Self {
-        Self::new_with_admission_kernel_capability(
+        Self::new_with_capabilities(
             writer_epoch,
             segment_id,
             transaction_id,
@@ -1161,11 +1247,12 @@ impl WalTransactionBuilder {
             canonical_encoding_version,
             digest_domain,
             Some(AdmissionKernelCapability),
+            None,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_with_admission_kernel_capability(
+    fn new_with_capabilities(
         writer_epoch: WriterEpochId,
         segment_id: WalSegmentId,
         transaction_id: WalTransactionId,
@@ -1181,6 +1268,7 @@ impl WalTransactionBuilder {
         canonical_encoding_version: u16,
         digest_domain: Hash,
         admission_kernel_capability: Option<AdmissionKernelCapability>,
+        external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
     ) -> Self {
         Self {
             writer_epoch,
@@ -1201,7 +1289,45 @@ impl WalTransactionBuilder {
             frames: Vec::new(),
             closed: false,
             admission_kernel_capability,
+            external_action_coordinator_capability,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_external_action(
+        writer_epoch: WriterEpochId,
+        segment_id: WalSegmentId,
+        transaction_id: WalTransactionId,
+        transaction_kind: WalTransactionKind,
+        first_lsn: Lsn,
+        previous_frame_digest: Hash,
+        previous_committed_transaction_digest: Hash,
+        durability_mode: WalDurabilityMode,
+        payload_codec_id: PayloadCodecId,
+        payload_schema_id: PayloadSchemaId,
+        payload_schema_version: u16,
+        canonical_encoding_version: u16,
+        digest_domain: Hash,
+    ) -> Self {
+        debug_assert!(transaction_kind.external_action_record_kind().is_some());
+        Self::new_with_capabilities(
+            writer_epoch,
+            segment_id,
+            transaction_id,
+            transaction_kind,
+            WalAppendAuthority::ExternalActionCoordinator,
+            first_lsn,
+            previous_frame_digest,
+            previous_committed_transaction_digest,
+            durability_mode,
+            payload_codec_id,
+            payload_schema_id,
+            payload_schema_version,
+            canonical_encoding_version,
+            digest_domain,
+            None,
+            Some(ExternalActionCoordinatorCapability::new()),
+        )
     }
 
     /// Appends a record to the transaction.
@@ -1217,6 +1343,11 @@ impl WalTransactionBuilder {
             && self.admission_kernel_capability.is_none()
         {
             return Err(WalBuildError::AdmissionKernelCapabilityRequired);
+        }
+        if kind.required_authority() == WalAppendAuthority::ExternalActionCoordinator
+            && self.external_action_coordinator_capability.is_none()
+        {
+            return Err(WalBuildError::ExternalActionCoordinatorCapabilityRequired);
         }
         if kind.required_authority() != self.authority {
             return Err(WalBuildError::WrongAppendAuthority {
@@ -1301,6 +1432,7 @@ impl WalTransactionBuilder {
             affected_frontiers,
             commit,
             admission_kernel_capability: self.admission_kernel_capability,
+            external_action_coordinator_capability: self.external_action_coordinator_capability,
         };
         transaction.validate()?;
         Ok(transaction)
@@ -1333,11 +1465,30 @@ pub trait WalStorePort {
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError>;
 
+    /// Flushes one Echo-coordinator-owned external-action commit marker.
+    ///
+    /// The opaque capability cannot be constructed by callers of the raw WAL
+    /// surface.
+    fn flush_external_action_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        capability: ExternalActionCoordinatorCapability,
+    ) -> Result<(), WalStoreError>;
+
     /// Reads the recorded frames.
     fn read_frames(&self) -> Vec<WalFrame>;
 
     /// Reads the flushed commit markers.
     fn read_commits(&self) -> Vec<WalTransactionCommit>;
+
+    /// Reads one fallible, causally coherent WAL snapshot.
+    fn read_snapshot(&self) -> Result<WalStoreSnapshot, WalStoreError> {
+        Ok(WalStoreSnapshot {
+            frames: self.read_frames(),
+            commits: self.read_commits(),
+        })
+    }
 
     /// Seals a segment.
     fn seal_segment(
@@ -1358,6 +1509,15 @@ pub trait WalStorePort {
 
     /// Closes the writer epoch.
     fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError>;
+}
+
+/// One fallible WAL storage snapshot used for trusted local recovery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalStoreSnapshot {
+    /// Recorded frames in storage order.
+    pub frames: Vec<WalFrame>,
+    /// Flushed commit markers in storage order.
+    pub commits: Vec<WalTransactionCommit>,
 }
 
 /// Writer epoch acquisition request.
@@ -1765,18 +1925,26 @@ impl InMemoryWalStore {
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
         let admission_kernel_capability = transaction.admission_kernel_capability;
+        let external_action_coordinator_capability =
+            transaction.external_action_coordinator_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+        self.flush_commit_with_capabilities(
+            epoch_id,
+            transaction.commit,
+            admission_kernel_capability,
+            external_action_coordinator_capability,
+        )
     }
 
-    fn flush_commit_with_capability(
+    fn flush_commit_with_capabilities(
         &mut self,
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
         admission_kernel_capability: Option<AdmissionKernelCapability>,
+        external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
     ) -> Result<(), WalStoreError> {
         let active_epoch = self
             .active_epoch
@@ -1786,6 +1954,10 @@ impl InMemoryWalStore {
             return Err(WalStoreError::WriterEpochMismatch);
         }
         validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        validate_external_action_coordinator_capability(
+            commit.transaction_kind,
+            external_action_coordinator_capability,
+        )?;
         self.epoch_closures.insert(
             epoch_id,
             WriterEpochClosure {
@@ -1809,6 +1981,12 @@ impl InMemoryWalStore {
     /// Returns published manifests.
     pub fn manifests(&self) -> &[WalManifest] {
         &self.manifests
+    }
+
+    /// Returns the number of durably flushed commit markers.
+    #[must_use]
+    pub const fn commit_count(&self) -> usize {
+        self.commits.len()
     }
 }
 
@@ -1849,7 +2027,16 @@ impl WalStorePort for InMemoryWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        self.flush_commit_with_capability(epoch_id, commit, None)
+        self.flush_commit_with_capabilities(epoch_id, commit, None, None)
+    }
+
+    fn flush_external_action_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        capability: ExternalActionCoordinatorCapability,
+    ) -> Result<(), WalStoreError> {
+        self.flush_commit_with_capabilities(epoch_id, commit, None, Some(capability))
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -5471,18 +5658,26 @@ impl FilesystemWalStore {
     ) -> Result<(), WalStoreError> {
         transaction.validate()?;
         let admission_kernel_capability = transaction.admission_kernel_capability;
+        let external_action_coordinator_capability =
+            transaction.external_action_coordinator_capability;
         let epoch_id = transaction.commit.writer_epoch;
         for frame in transaction.frames {
             self.append_frame(epoch_id, frame)?;
         }
-        self.flush_commit_with_capability(epoch_id, transaction.commit, admission_kernel_capability)
+        self.flush_commit_with_capabilities(
+            epoch_id,
+            transaction.commit,
+            admission_kernel_capability,
+            external_action_coordinator_capability,
+        )
     }
 
-    fn flush_commit_with_capability(
+    fn flush_commit_with_capabilities(
         &mut self,
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
         admission_kernel_capability: Option<AdmissionKernelCapability>,
+        external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
     ) -> Result<(), WalStoreError> {
         let active_epoch = self
             .active_epoch
@@ -5492,6 +5687,10 @@ impl FilesystemWalStore {
             return Err(WalStoreError::WriterEpochMismatch);
         }
         validate_admission_kernel_capability(commit.transaction_kind, admission_kernel_capability)?;
+        validate_external_action_coordinator_capability(
+            commit.transaction_kind,
+            external_action_coordinator_capability,
+        )?;
         #[cfg(any(test, feature = "host_test"))]
         if self
             .fault_plan
@@ -5622,7 +5821,16 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        self.flush_commit_with_capability(epoch_id, commit, None)
+        self.flush_commit_with_capabilities(epoch_id, commit, None, None)
+    }
+
+    fn flush_external_action_commit(
+        &mut self,
+        epoch_id: WriterEpochId,
+        commit: WalTransactionCommit,
+        capability: ExternalActionCoordinatorCapability,
+    ) -> Result<(), WalStoreError> {
+        self.flush_commit_with_capabilities(epoch_id, commit, None, Some(capability))
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -5637,6 +5845,11 @@ impl WalStorePort for FilesystemWalStore {
             Ok((_, commits, _)) => commits,
             Err(_) => Vec::new(),
         }
+    }
+
+    fn read_snapshot(&self) -> Result<WalStoreSnapshot, WalStoreError> {
+        let (frames, commits, _) = read_filesystem_segments(&self.root)?;
+        Ok(WalStoreSnapshot { frames, commits })
     }
 
     fn seal_segment(
@@ -8983,6 +9196,9 @@ pub enum WalBuildError {
     /// Public builders do not carry Echo's causal-anchor admission capability.
     #[error("Echo admission-kernel capability is required")]
     AdmissionKernelCapabilityRequired,
+    /// Public builders do not carry Echo's external-action coordinator capability.
+    #[error("Echo external-action coordinator capability is required")]
+    ExternalActionCoordinatorCapabilityRequired,
     /// Record requires a different append authority.
     #[error(
         "wrong append authority for {record_kind:?}: required {required:?}, actual {actual:?}"
@@ -9039,6 +9255,9 @@ pub enum WalValidationError {
     /// A causal-anchor transaction lacks Echo's private admission capability.
     #[error("WAL causal-anchor transaction lacks Echo admission-kernel capability")]
     AdmissionKernelCapabilityRequired,
+    /// An external-action transaction lacks Echo's private coordinator capability.
+    #[error("WAL external-action transaction lacks Echo coordinator capability")]
+    ExternalActionCoordinatorCapabilityRequired,
     /// Frame payload kind does not match header kind.
     #[error("WAL frame record kind mismatch")]
     RecordKindMismatch,
@@ -9063,12 +9282,18 @@ pub enum WalValidationError {
     /// Executable-operation commit does not contain one receipt followed by one state delta.
     #[error("WAL executable-operation tick frame shape is invalid")]
     ExecutableOperationTickFrameShapeMismatch,
+    /// External-action transitions do not contain their one canonical record.
+    #[error("WAL external-action frame shape is invalid")]
+    ExternalActionFrameShapeMismatch,
     /// Executable-operation installation does not advance exactly its catalog frontier.
     #[error("WAL executable-operation installation frontier shape is invalid")]
     ExecutableOperationInstallationFrontierShapeMismatch,
     /// Executable-operation commit does not advance its receipt and runtime frontiers in order.
     #[error("WAL executable-operation tick frontier shape is invalid")]
     ExecutableOperationTickFrontierShapeMismatch,
+    /// External-action transitions do not advance exactly their lifecycle frontier.
+    #[error("WAL external-action frontier shape is invalid")]
+    ExternalActionFrontierShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -9577,6 +9802,12 @@ fn validate_transaction_semantics(
     {
         return Err(WalValidationError::ExecutableOperationTickFrameShapeMismatch);
     }
+    if transaction_kind
+        .external_action_record_kind()
+        .is_some_and(|record_kind| frames.len() != 1 || frames[0].header.record_kind != record_kind)
+    {
+        return Err(WalValidationError::ExternalActionFrameShapeMismatch);
+    }
     Ok(())
 }
 
@@ -9596,6 +9827,15 @@ fn validate_transaction_frontiers(
             || frontiers[1].kind != AffectedFrontierKind::RuntimeState)
     {
         return Err(WalValidationError::ExecutableOperationTickFrontierShapeMismatch);
+    }
+    if matches!(
+        transaction_kind,
+        WalTransactionKind::ExternalActionRequest
+            | WalTransactionKind::ExternalActionClaim
+            | WalTransactionKind::ExternalActionSettlement
+    ) && (frontiers.len() != 1 || frontiers[0].kind != AffectedFrontierKind::ExternalActionIndex)
+    {
+        return Err(WalValidationError::ExternalActionFrontierShapeMismatch);
     }
     for frontier in frontiers {
         if !frontier_kind_allowed_for_transaction(transaction_kind, frontier.kind) {
@@ -9643,6 +9883,11 @@ fn frontier_kind_allowed_for_transaction(
             AffectedFrontierKind::RuntimeState
                 | AffectedFrontierKind::ExecutableOperationReceiptIndex
         ),
+        WalTransactionKind::ExternalActionRequest
+        | WalTransactionKind::ExternalActionClaim
+        | WalTransactionKind::ExternalActionSettlement => {
+            matches!(frontier_kind, AffectedFrontierKind::ExternalActionIndex)
+        }
     }
 }
 

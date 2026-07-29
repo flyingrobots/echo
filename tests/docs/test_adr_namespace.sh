@@ -36,9 +36,10 @@ readonly current_adrs=(
   "0023-admitted-executable-operation-packages.md"
   "0024-anchored-node-creation-from-absence.md"
   "0025-scheduler-owned-executable-operation-actions.md"
+  "0026-durable-external-action-settlement.md"
 )
 
-readonly current_adr_last=25
+readonly current_adr_last=26
 
 readonly superseded_legacy_adrs=(
   "ADR-0003-Materialization-Bus.md"

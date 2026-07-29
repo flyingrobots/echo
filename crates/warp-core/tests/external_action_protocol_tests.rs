@@ -5,15 +5,18 @@
 #![allow(clippy::panic)]
 
 use warp_core::causal_wal::{
-    recover_in_memory_store, AffectedFrontier, AffectedFrontierKind, InMemoryWalStore, Lsn,
-    PayloadCodecId, PayloadSchemaId, RecoveryAccessMode, WalAppendAuthority, WalDurabilityMode,
-    WalSegmentId, WalStorePort, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WriterEpochId, WriterEpochRequest,
+    recover_from_frames_and_commits, recover_in_memory_store, AffectedFrontier,
+    AffectedFrontierKind, InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId,
+    RecoveryAccessMode, RecoveryTailPosture, WalAppendAuthority, WalDurabilityMode, WalFrame,
+    WalManifest, WalSegmentId, WalSegmentSeal, WalStoreError, WalStorePort, WalTransactionBuilder,
+    WalTransactionCommit, WalTransactionId, WalTransactionKind, WriterEpoch, WriterEpochId,
+    WriterEpochRequest,
 };
 use warp_core::external_action::{
     admit_external_action_settlement, build_external_action_settlement_transaction,
     claim_external_action, record_external_action_request, recover_external_actions,
-    ExternalActionAdapterAuthorizationV1, ExternalActionAdapterIdV1, ExternalActionBudgetV1,
+    ExternalActionAdapterAuthorizationV1, ExternalActionAdapterBindingV1,
+    ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1, ExternalActionBudgetV1,
     ExternalActionClaimGrantV1, ExternalActionOperationIdV1, ExternalActionProtocolErrorV1,
     ExternalActionRequestV1, ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
     ExternalActionSettlementV1, RecoveredExternalActionPostureV1,
@@ -98,14 +101,23 @@ fn request_with(
     ))
 }
 
-fn authorization() -> ExternalActionAdapterAuthorizationV1 {
-    ExternalActionAdapterAuthorizationV1 {
-        adapter_id: ExternalActionAdapterIdV1::from_hash(digest("adapter:workspace-observer")),
-        operation_id: ExternalActionOperationIdV1::from_hash(digest("workspace.observe@1")),
-        authority_scope_digest: digest("workspace:/bounded"),
-    }
+fn adapter_id() -> ExternalActionAdapterIdV1 {
+    ExternalActionAdapterIdV1::from_hash(digest("adapter:workspace-observer"))
 }
 
+fn adapter_registry() -> ExternalActionAdapterRegistryV1 {
+    ExternalActionAdapterRegistryV1::new([ExternalActionAdapterBindingV1 {
+        adapter_id: adapter_id(),
+        operation_id: ExternalActionOperationIdV1::from_hash(digest("workspace.observe@1")),
+        authority_scope_digest: digest("workspace:/bounded"),
+    }])
+}
+
+fn authorization(request: &ExternalActionRequestV1) -> ExternalActionAdapterAuthorizationV1 {
+    must_ok(adapter_registry().authorize(request, adapter_id()))
+}
+
+#[allow(clippy::large_types_passed_by_value)]
 fn record(
     store: &mut InMemoryWalStore,
     request: ExternalActionRequestV1,
@@ -120,6 +132,7 @@ fn record(
     ))
 }
 
+#[allow(clippy::large_types_passed_by_value)]
 fn claim(
     store: &mut InMemoryWalStore,
     recorded: warp_core::external_action::DurablyRecordedExternalActionRequestV1,
@@ -127,11 +140,12 @@ fn claim(
     label: &str,
 ) -> ExternalActionClaimGrantV1 {
     let basis = recorded.request().basis_digest;
+    let authorization = authorization(&recorded.request());
     must_ok(claim_external_action(
         store,
         builder(label, lsn, WalTransactionKind::ExternalActionClaim),
         recorded,
-        authorization(),
+        authorization,
         basis,
         0,
         digest(&format!("{label}:lease")),
@@ -222,24 +236,10 @@ fn unauthorized_adapter_and_stale_basis_obstruct_before_claim_commit() {
     let request = request_with("claim-obstructions", 8, 64);
     let recorded = record(&mut store, request, 0, "request:claim-obstructions");
     let commits_before = store.read_commits().len();
-    let unauthorized = ExternalActionAdapterAuthorizationV1 {
-        adapter_id: ExternalActionAdapterIdV1::from_hash(digest("adapter:unauthorized")),
-        ..authorization()
-    };
     assert_eq!(
-        claim_external_action(
-            &mut store,
-            builder(
-                "claim:unauthorized",
-                1,
-                WalTransactionKind::ExternalActionClaim,
-            ),
-            recorded,
-            unauthorized,
-            request.basis_digest,
-            0,
-            digest("claim:unauthorized:lease"),
-            frontier("claim:unauthorized"),
+        adapter_registry().authorize(
+            &request,
+            ExternalActionAdapterIdV1::from_hash(digest("adapter:unauthorized")),
         ),
         Err(ExternalActionProtocolErrorV1::UnauthorizedAdapter)
     );
@@ -250,7 +250,7 @@ fn unauthorized_adapter_and_stale_basis_obstruct_before_claim_commit() {
             &mut store,
             builder("claim:stale", 1, WalTransactionKind::ExternalActionClaim),
             recorded,
-            authorization(),
+            authorization(&request),
             digest("basis:changed"),
             0,
             digest("claim:stale:lease"),
@@ -279,6 +279,11 @@ fn malformed_schema_digest_and_oversized_settlements_fail_closed() {
             3_u8,
             ExternalActionProtocolErrorV1::SettlementBudgetExceeded,
         ),
+        (
+            "schema-evidence",
+            4_u8,
+            ExternalActionProtocolErrorV1::MissingSchemaAdmissionEvidence,
+        ),
     ] {
         let mut store = store();
         let request = request_with(label, 9, 4);
@@ -293,6 +298,7 @@ fn malformed_schema_digest_and_oversized_settlements_fail_closed() {
             1 => candidate.settlement_schema_digest = digest("wrong-schema"),
             2 => candidate.declared_result_digest = digest("wrong-result"),
             3 => candidate.canonical_result_bytes.push(b'!'),
+            4 => candidate.schema_admission_evidence_digest = [0; 32],
             _ => unreachable!(),
         }
         let commits_before = store.read_commits().len();
@@ -312,6 +318,68 @@ fn malformed_schema_digest_and_oversized_settlements_fail_closed() {
         );
         assert_eq!(store.read_commits().len(), commits_before);
     }
+}
+
+#[test]
+fn request_and_attempt_budget_boundaries_obstruct_before_commit() {
+    assert_eq!(
+        ExternalActionRequestV1::new(
+            WorldlineId::from_bytes([19; 32]),
+            ExternalActionOperationIdV1::from_hash(digest("workspace.observe@1")),
+            digest("workspace.observe@1.input"),
+            digest("workspace.observe@1.settlement"),
+            digest("workspace:/bounded"),
+            digest("basis:empty-budget"),
+            ExternalActionBudgetV1 {
+                max_settlement_bytes: 0,
+                max_attempts: 1,
+            },
+            digest("input:empty-budget"),
+            digest("workspace.observe@1.reconcile"),
+        ),
+        Err(ExternalActionProtocolErrorV1::EmptyBudget)
+    );
+    assert_eq!(
+        ExternalActionRequestV1::new(
+            WorldlineId::from_bytes([19; 32]),
+            ExternalActionOperationIdV1::from_hash(digest("workspace.observe@1")),
+            digest("workspace.observe@1.input"),
+            digest("workspace.observe@1.settlement"),
+            digest("workspace:/bounded"),
+            digest("basis:oversized-budget"),
+            ExternalActionBudgetV1 {
+                max_settlement_bytes:
+                    warp_core::external_action::MAX_EXTERNAL_ACTION_SETTLEMENT_BYTES_V1 + 1,
+                max_attempts: 1,
+            },
+            digest("input:oversized-budget"),
+            digest("workspace.observe@1.reconcile"),
+        ),
+        Err(ExternalActionProtocolErrorV1::RequestBudgetLimitExceeded)
+    );
+
+    let mut store = store();
+    let request = request_with("attempt-budget", 19, 64);
+    let recorded = record(&mut store, request, 0, "request:attempt-budget");
+    let commits_before = store.read_commits().len();
+    assert_eq!(
+        claim_external_action(
+            &mut store,
+            builder(
+                "claim:attempt-budget",
+                1,
+                WalTransactionKind::ExternalActionClaim,
+            ),
+            recorded,
+            authorization(&request),
+            request.basis_digest,
+            1,
+            digest("claim:attempt-budget:lease"),
+            frontier("claim:attempt-budget"),
+        ),
+        Err(ExternalActionProtocolErrorV1::AttemptBudgetExhausted)
+    );
+    assert_eq!(store.read_commits().len(), commits_before);
 }
 
 #[test]
@@ -421,7 +489,10 @@ fn replay_returns_admitted_bytes_without_reissuing_an_effect() {
         RecoveryAccessMode::ReadOnly,
     ));
     let index = must_ok(recover_external_actions(&report));
-    let recovered = index.get(request.request_id()).expect("request recovered");
+    let recovered = match index.get(request.request_id()) {
+        Some(recovered) => recovered,
+        None => panic!("request was not recovered"),
+    };
     assert_eq!(
         recovered
             .settlement
@@ -534,4 +605,164 @@ fn duplicate_and_conflicting_settlements_are_recovery_obstructions() {
         ));
         assert_eq!(recover_external_actions(&report), Err(expected));
     }
+}
+
+#[derive(Debug)]
+struct CommitFailingStore {
+    inner: InMemoryWalStore,
+}
+
+impl WalStorePort for CommitFailingStore {
+    fn acquire_writer_epoch(
+        &mut self,
+        request: WriterEpochRequest,
+    ) -> Result<WriterEpoch, WalStoreError> {
+        self.inner.acquire_writer_epoch(request)
+    }
+
+    fn append_frame(
+        &mut self,
+        epoch_id: WriterEpochId,
+        frame: WalFrame,
+    ) -> Result<(), WalStoreError> {
+        self.inner.append_frame(epoch_id, frame)
+    }
+
+    fn flush_commit(
+        &mut self,
+        _epoch_id: WriterEpochId,
+        _commit: WalTransactionCommit,
+    ) -> Result<(), WalStoreError> {
+        Err(WalStoreError::Io(
+            "injected external-action commit failure".to_owned(),
+        ))
+    }
+
+    fn read_frames(&self) -> Vec<WalFrame> {
+        self.inner.read_frames()
+    }
+
+    fn read_commits(&self) -> Vec<WalTransactionCommit> {
+        self.inner.read_commits()
+    }
+
+    fn seal_segment(
+        &mut self,
+        epoch_id: WriterEpochId,
+        segment_id: WalSegmentId,
+    ) -> Result<WalSegmentSeal, WalStoreError> {
+        self.inner.seal_segment(epoch_id, segment_id)
+    }
+
+    fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
+        self.inner.truncate_tail_after(after_lsn)
+    }
+
+    fn publish_manifest(
+        &mut self,
+        epoch_id: WriterEpochId,
+        manifest: WalManifest,
+    ) -> Result<(), WalStoreError> {
+        self.inner.publish_manifest(epoch_id, manifest)
+    }
+
+    fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError> {
+        self.inner.close_epoch(epoch_id)
+    }
+}
+
+#[test]
+fn failed_request_commit_exposes_no_adapter_reachable_token() {
+    let mut store = CommitFailingStore { inner: store() };
+    let request = request_with("commit-failure", 17, 64);
+    assert_eq!(
+        record_external_action_request(
+            &mut store,
+            builder(
+                "request:commit-failure",
+                0,
+                WalTransactionKind::ExternalActionRequest,
+            ),
+            request,
+            frontier("request:commit-failure"),
+        ),
+        Err(ExternalActionProtocolErrorV1::WalStore(WalStoreError::Io(
+            "injected external-action commit failure".to_owned()
+        )))
+    );
+    assert_eq!(store.read_commits().len(), 0);
+    assert_eq!(store.read_frames().len(), 1);
+    let report = must_ok(recover_from_frames_and_commits(
+        &store.read_frames(),
+        &store.read_commits(),
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::WouldTruncateAll);
+    assert!(must_ok(recover_external_actions(&report)).is_empty());
+}
+
+#[test]
+fn malformed_committed_settlement_payload_is_rejected() {
+    let mut store = store();
+    let request = request_with("malformed-payload", 18, 64);
+    let recorded = record(&mut store, request, 0, "request:malformed-payload");
+    let grant = claim(&mut store, recorded, 1, "claim:malformed-payload");
+    let candidate = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"retained".to_vec(),
+    );
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        builder(
+            "settlement:malformed-payload",
+            2,
+            WalTransactionKind::ExternalActionSettlement,
+        ),
+        grant,
+        candidate,
+        frontier("settlement:malformed-payload"),
+    ));
+    let mut report = must_ok(recover_in_memory_store(
+        &mut store,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let settlement_frame = match report
+        .transactions
+        .last_mut()
+        .and_then(|transaction| transaction.frames.first_mut())
+    {
+        Some(frame) => frame,
+        None => panic!("settlement frame was not recovered"),
+    };
+    settlement_frame.payload.canonical_bytes.truncate(7);
+    assert!(matches!(
+        recover_external_actions(&report),
+        Err(ExternalActionProtocolErrorV1::Decode(
+            warp_core::causal_wal::WalDecodeError::UnexpectedEof
+        ))
+    ));
+}
+
+#[test]
+fn external_action_wal_codes_and_frontier_are_stable() {
+    assert_eq!(WalTransactionKind::ExternalActionRequest.stable_code(), 10);
+    assert_eq!(WalTransactionKind::ExternalActionClaim.stable_code(), 11);
+    assert_eq!(
+        WalTransactionKind::ExternalActionSettlement.stable_code(),
+        12
+    );
+    assert_eq!(
+        warp_core::causal_wal::WalRecordKind::ExternalActionRequestRecorded.stable_code(),
+        29
+    );
+    assert_eq!(
+        warp_core::causal_wal::WalRecordKind::ExternalActionClaimRecorded.stable_code(),
+        30
+    );
+    assert_eq!(
+        warp_core::causal_wal::WalRecordKind::ExternalActionSettlementRecorded.stable_code(),
+        31
+    );
+    assert_eq!(AffectedFrontierKind::ExternalActionIndex.stable_code(), 11);
 }

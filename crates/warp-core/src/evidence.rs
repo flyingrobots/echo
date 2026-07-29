@@ -371,6 +371,21 @@ mod tests {
                 WalRecordKind::ExecutableOperationExecutionRecorded,
                 AffectedFrontierKind::ExecutableOperationReceiptIndex,
             ),
+            WalTransactionKind::ExternalActionRequest => (
+                WalAppendAuthority::ExternalActionCoordinator,
+                WalRecordKind::ExternalActionRequestRecorded,
+                AffectedFrontierKind::ExternalActionIndex,
+            ),
+            WalTransactionKind::ExternalActionClaim => (
+                WalAppendAuthority::ExternalActionCoordinator,
+                WalRecordKind::ExternalActionClaimRecorded,
+                AffectedFrontierKind::ExternalActionIndex,
+            ),
+            WalTransactionKind::ExternalActionSettlement => (
+                WalAppendAuthority::ExternalActionCoordinator,
+                WalRecordKind::ExternalActionSettlementRecorded,
+                AffectedFrontierKind::ExternalActionIndex,
+            ),
         }
     }
 

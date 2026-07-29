@@ -62,6 +62,7 @@ const MAX_RESULT_PROJECTION_NODES: usize = 256;
 const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
 const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
 const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
+const MAX_APPLICATION_RESULT_BYTES: u64 = 64 * 1_024;
 
 #[derive(Clone, Copy)]
 struct ProgramConfiguration<'a> {
@@ -573,18 +574,17 @@ fn validate_configuration(
         "invocationBinding",
         "target-configuration.echo-operation",
     )?;
-    if required_nonempty_text(
+    let node_key_field = required_nonempty_text(
         invocation,
         "nodeKeyField",
         "target-configuration.echo-operation",
-    )?
-    .is_empty()
-        || required_nonempty_text(
-            invocation,
-            "replacementField",
-            "target-configuration.echo-operation",
-        )?
-        .is_empty()
+    )?;
+    let replacement_field = required_nonempty_text(
+        invocation,
+        "replacementField",
+        "target-configuration.echo-operation",
+    )?;
+    if node_key_field == replacement_field
         || text_field(invocation, "nodeIdDerivation") != Some("sha256-utf8/v1")
         || text_field(invocation, "warpIdSource") != Some("action-lane/v1")
     {
@@ -621,16 +621,8 @@ fn validate_configuration(
         steps: required_u64(budget, "steps", "target-configuration.echo-operation")?,
         read_bytes: required_u64(budget, "readBytes", "target-configuration.echo-operation")?,
         write_bytes: required_u64(budget, "writeBytes", "target-configuration.echo-operation")?,
-        node_key_field: required_nonempty_text(
-            invocation,
-            "nodeKeyField",
-            "target-configuration.echo-operation",
-        )?,
-        replacement_field: required_nonempty_text(
-            invocation,
-            "replacementField",
-            "target-configuration.echo-operation",
-        )?,
+        node_key_field,
+        replacement_field,
     };
     if configuration.max_replacement_bytes == 0
         || configuration.steps < 3
@@ -681,10 +673,11 @@ fn validate_result_projection(
         required_nonempty_text(value, "outputType", &input.role)?,
         &input.role,
     )?;
-    if required_u64(value, "maxOutputBytes", &input.role)? == 0 {
+    let max_output_bytes = required_u64(value, "maxOutputBytes", &input.role)?;
+    if max_output_bytes == 0 || max_output_bytes > MAX_APPLICATION_RESULT_BYTES {
         return Err(invalid_artifact(
             &input.role,
-            "result projection output bound must be positive",
+            "result projection output bound is outside the Echo runtime ceiling",
         ));
     }
     let target_intents = required_map(target_ir, "intents", &input.role)?;

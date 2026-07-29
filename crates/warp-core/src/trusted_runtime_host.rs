@@ -52,8 +52,8 @@ use crate::{
         reconstruct_action_evaluation_v1, reconstruct_action_preparation_v1,
         recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
         retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
-        validate_receipt_installation_v1, EchoOperationEvaluationAuthorityV1,
-        SchedulerEchoOperationCandidateV1,
+        validate_receipt_application_result_v1, validate_receipt_installation_v1,
+        EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
     },
     provider_contract::admit_provider_contract_package_v1,
     AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
@@ -5111,6 +5111,8 @@ fn validate_recovered_echo_operation_action_outcomes(
         match outcome {
             EchoOperationActionOutcomeV1::Committed(receipt) => {
                 if validate_receipt_installation_v1(receipt, installed).is_err()
+                    || validate_receipt_application_result_v1(receipt, installed, invocation_bytes)
+                        .is_err()
                     || receipt.tick_receipt_digest() != correlation.tick_receipt_digest
                     || receipt.commit_id() != correlation.commit_hash
                     || receipt.commit_global_tick() != Some(correlation.commit_global_tick)

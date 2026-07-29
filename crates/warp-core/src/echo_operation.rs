@@ -1050,6 +1050,65 @@ impl EchoOperationResultExpressionV1 {
             }
         }
     }
+
+    fn encoded_len_with_limit(
+        &self,
+        application_input: &CanonicalValueV1,
+        limit: usize,
+    ) -> Result<usize, EchoOperationArtifactErrorV1> {
+        match self {
+            Self::Record(fields) => {
+                let mut encoded_len =
+                    bounded_projection_len(0, canonical_map_header_len(fields.len()), limit)?;
+                for (name, expression) in fields {
+                    let encoded_name =
+                        encode_canonical_cbor_v1(&text_value(name)).map_err(canonical_error)?;
+                    encoded_len = bounded_projection_len(encoded_len, encoded_name.len(), limit)?;
+                    let remaining = limit
+                        .checked_sub(encoded_len)
+                        .ok_or_else(projected_result_exceeds_bound)?;
+                    let expression_len =
+                        expression.encoded_len_with_limit(application_input, remaining)?;
+                    encoded_len = bounded_projection_len(encoded_len, expression_len, limit)?;
+                }
+                Ok(encoded_len)
+            }
+            Self::ApplicationInputPath(path) => {
+                let value = value_at_projection_path(application_input, path)?;
+                let encoded_value = encode_canonical_cbor_v1(value).map_err(canonical_error)?;
+                bounded_projection_len(0, encoded_value.len(), limit)
+            }
+        }
+    }
+}
+
+fn canonical_map_header_len(entry_count: usize) -> usize {
+    if entry_count <= 23 {
+        1
+    } else if u8::try_from(entry_count).is_ok() {
+        2
+    } else if u16::try_from(entry_count).is_ok() {
+        3
+    } else if u32::try_from(entry_count).is_ok() {
+        5
+    } else {
+        9
+    }
+}
+
+fn bounded_projection_len(
+    current: usize,
+    additional: usize,
+    limit: usize,
+) -> Result<usize, EchoOperationArtifactErrorV1> {
+    current
+        .checked_add(additional)
+        .filter(|encoded_len| *encoded_len <= limit)
+        .ok_or_else(projected_result_exceeds_bound)
+}
+
+fn projected_result_exceeds_bound() -> EchoOperationArtifactErrorV1 {
+    invalid_structure("application result exceeds the compiler-declared output bound")
 }
 
 /// Compiler-owned application-result projection plus Echo's verified target plan.
@@ -1200,6 +1259,10 @@ impl EchoOperationApplicationResultProjectionV1 {
                 "application input did not reproduce the exact invocation bytes",
             ));
         }
+        let max_output_bytes = usize::try_from(self.max_output_bytes)
+            .map_err(|_| invalid_structure("application result bound is not representable"))?;
+        self.runtime_expression
+            .encoded_len_with_limit(&application_input, max_output_bytes)?;
         let result = self.runtime_expression.evaluate(&application_input)?;
         let canonical_result_bytes = encode_canonical_cbor_v1(&result).map_err(canonical_error)?;
         let result_len = u64::try_from(canonical_result_bytes.len())
@@ -5643,6 +5706,31 @@ pub(crate) fn validate_receipt_installation_v1(
     Ok(())
 }
 
+pub(crate) fn validate_receipt_application_result_v1(
+    receipt: &EchoOperationReceiptV1,
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+) -> Result<(), EchoOperationArtifactErrorV1> {
+    let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)?;
+    let result_matches = match (
+        installed.application_result_projection.as_ref(),
+        receipt.prepared_application_result.as_ref(),
+        invocation.application_input_bytes.as_deref(),
+    ) {
+        (None, None, None) => true,
+        (Some(projection), Some(retained_result), Some(application_input_bytes)) => projection
+            .evaluate(application_input_bytes)
+            .is_ok_and(|expected_result| expected_result == *retained_result),
+        _ => false,
+    };
+    if !result_matches {
+        return Err(invalid_structure(
+            "operation receipt result does not reproduce from the retained invocation",
+        ));
+    }
+    Ok(())
+}
+
 /// Failure while turning one complete private preparation into commit material.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum EchoOperationCommitErrorV1 {
@@ -7432,6 +7520,38 @@ mod tests {
     }
 
     #[test]
+    fn projected_result_size_preflight_rejects_repeated_large_input() {
+        let expression = EchoOperationResultExpressionV1::Record(
+            (0..MAX_RESULT_PROJECTION_NODES - 1)
+                .map(|index| {
+                    (
+                        format!("field-{index:03}"),
+                        EchoOperationResultExpressionV1::ApplicationInputPath(vec![
+                            "message".to_owned()
+                        ]),
+                    )
+                })
+                .collect(),
+        );
+        let application_input = map_value([("message", text_value(&"x".repeat(32_768)))]);
+
+        let error = expression
+            .encoded_len_with_limit(
+                &application_input,
+                usize::try_from(MAX_APPLICATION_RESULT_BYTES)
+                    .expect("runtime result ceiling fits in usize"),
+            )
+            .expect_err("projection expansion must fail before constructing the result value");
+
+        assert!(
+            error
+                .to_string()
+                .contains("application result exceeds the compiler-declared output bound"),
+            "unexpected refusal: {error}"
+        );
+    }
+
+    #[test]
     fn scheduler_evaluation_commits_and_recovers_exact_projected_result() {
         let (installed, mut state, basis, policy, invocation, _) = projected_create_fixture(1_024);
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
@@ -7492,6 +7612,8 @@ mod tests {
         );
         validate_receipt_installation_v1(&recovered, &installed)
             .expect("recovered result remains bound to the installed projection");
+        validate_receipt_application_result_v1(&recovered, &installed, &invocation_bytes)
+            .expect("recovered result reproduces from the retained invocation");
 
         let mut substituted = recovered;
         let retained_result = substituted
@@ -7511,6 +7633,8 @@ mod tests {
         .expect("substituted result remains canonical");
         substituted.prepared_application_result = Some(substituted_result.clone());
         substituted.committed_application_result = Some(substituted_result);
+        validate_receipt_application_result_v1(&substituted, &installed, &invocation_bytes)
+            .expect_err("substituted result bytes must not reproduce from the invocation");
         substituted.terminal_outcome_digest = terminal_outcome_digest(&substituted);
         substituted.receipt_digest = receipt_digest(&substituted);
         recover_committed_execution_receipt_v1(

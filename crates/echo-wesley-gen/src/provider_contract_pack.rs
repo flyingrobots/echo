@@ -32,22 +32,23 @@ pub const EDICT_PROVIDER_CONTRACT_PACK_LICENSE: &str = "Apache-2.0";
 
 /// SHA-256 of the admitted self-contained CDDL bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256: &str =
-    "a5d5ea82a9e64aa78c4a44204d3e8919c1c590febb967f1d31639fdc2a20a96c";
+    "ff5405708185e0bcf33dac263000fcb772c79e21145ad69da7cad0692e1a9552";
 
 /// SHA-256 of the admitted Edict publication manifest bytes.
 pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_SHA256: &str =
-    "f78dc8bb32f04f3e246f57e4228077c2a243827dd243525b9bd2e1d81dfa07ff";
+    "e31d0452bf9d8ba84eaa1ce8c09fa1c25f740decd0ab08cd9c2fde533bdef1fa";
 
 /// Maximum manifest size parsed at the contract-pack authority boundary.
-pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 65_797;
+pub const EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES: usize = 68_359;
 
-const EXPECTED_CONTRACTS: [(&str, &str); 10] = [
+const EXPECTED_CONTRACTS: [(&str, &str); 11] = [
     ("authority-facts", "authority-facts"),
     ("core-module", "core-module"),
     ("lawpack-adapter", "lawpack-adapter"),
     ("lawpack-exports", "lawpack-exports"),
     ("lawpack-manifest", "lawpack-manifest"),
     ("lowering-requirements", "lowering-requirements"),
+    ("result-projection", "result-projection"),
     ("target-ir-artifact", "target-ir-artifact"),
     ("target-profile-intrinsics", "intrinsics-document"),
     ("target-profile-manifest", "target-profile-manifest"),
@@ -57,11 +58,12 @@ const EXPECTED_CONTRACTS: [(&str, &str); 10] = [
     ),
 ];
 
-const EXPECTED_DOMAINS: [(&str, &str); 6] = [
+const EXPECTED_DOMAINS: [(&str, &str); 7] = [
     ("edict.authority-facts/v1", "authority-facts"),
     ("edict.core.module/v1", "core-module"),
     ("edict.lawpack/v1", "lawpack-manifest"),
     ("edict.lowering-requirements/v1", "lowering-requirements"),
+    ("edict.result-projection.artifact/v1", "result-projection"),
     ("edict.target-ir.artifact/v1", "target-ir-artifact"),
     ("edict.target-profile/v1", "target-profile-manifest"),
 ];

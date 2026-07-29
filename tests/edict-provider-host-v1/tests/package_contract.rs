@@ -1763,6 +1763,11 @@ fn checked_package_is_ready_for_edict_before_guest_execution() {
         EXPECTED_SCHEMA_BINDING_COUNT
     );
     assert_eq!(registry.bindings().len(), EXPECTED_SCHEMA_BINDING_COUNT);
+    assert_schema_binding(
+        &manifest,
+        "edict.result-projection.artifact/v1",
+        "result-projection",
+    );
     assert_routed_canonical_artifacts(&manifest, &registry);
     assert_generated_resources(&manifest, &registry);
     let lawpack = decode_canonical_cbor(LAWPACK_BYTES).expect("lawpack is canonical");

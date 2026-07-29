@@ -7227,6 +7227,76 @@ mod tests {
         ])
     }
 
+    fn projection_test_package(operation_coordinate: &str) -> ExecutableOperationPackageV1 {
+        ExecutableOperationPackageV1::new(
+            operation_coordinate,
+            "echo.fixture.ProjectionBinding.Obstruction/v1",
+            EchoOperationSemanticClosureV1::new(
+                digest(171),
+                digest(172),
+                digest(173),
+                digest(174),
+                "echo.fixture.ProjectionBindingSchema.v1",
+                digest(175),
+                "echo.fixture.ProjectionBindingLawpack.v1",
+                digest(176),
+            ),
+            echo_operation_create_if_absent_target_profile_identity_v1(),
+            digest(177),
+            EchoOperationBudgetV1::new(8, 1_024, 1_024),
+            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+                crate::make_type_id("projection-binding-node"),
+                crate::make_type_id("projection-binding-atom"),
+                1_024,
+            ),
+        )
+    }
+
+    #[test]
+    fn runtime_projection_cannot_rebind_authored_source_kind_or_path() {
+        let operation_coordinate = "echo.fixture.ProjectionBinding.v1";
+        let cases = [
+            (
+                result_source("applicationInput", None, &["message"]),
+                result_source("applicationInput", None, &["key"]),
+            ),
+            (
+                result_source("capabilityResult", Some("create"), &["key"]),
+                result_source("applicationInput", None, &["message"]),
+            ),
+        ];
+
+        for (authored_expression, runtime_expression) in cases {
+            let projection_value = map_value([
+                ("expression", authored_expression),
+                ("maxOutputBytes", uint_value(1_024)),
+                ("operationCoordinate", text_value(operation_coordinate)),
+                (
+                    "outputType",
+                    text_value("echo.fixture.ProjectionBindingResult/v1"),
+                ),
+                ("schema", text_value(RESULT_PROJECTION_SCHEMA)),
+            ]);
+            let projection_bytes =
+                encode_canonical_cbor_v1(&projection_value).expect("projection encodes");
+            let projection_identity =
+                digest_canonical_value_bytes_v1(RESULT_PROJECTION_DOMAIN, &projection_value)
+                    .expect("projection identity computes");
+            let runtime_expression_bytes =
+                encode_canonical_cbor_v1(&runtime_expression).expect("runtime expression encodes");
+
+            projection_test_package(operation_coordinate)
+                .with_application_result_projection(
+                    projection_bytes,
+                    projection_identity,
+                    vec!["key".to_owned()],
+                    vec!["message".to_owned()],
+                    &runtime_expression_bytes,
+                )
+                .expect_err("runtime projection cannot rebind an authored source");
+        }
+    }
+
     fn projected_create_fixture(
         max_output_bytes: u64,
     ) -> (
@@ -7549,6 +7619,16 @@ mod tests {
                 .contains("application result exceeds the compiler-declared output bound"),
             "unexpected refusal: {error}"
         );
+    }
+
+    #[test]
+    fn optional_application_result_hashes_explicit_absence() {
+        let mut actual = Hasher::new();
+        hash_optional_application_result(&mut actual, None);
+        let mut expected = Hasher::new();
+        expected.update(&[0]);
+
+        assert_eq!(actual.finalize(), expected.finalize());
     }
 
     #[test]

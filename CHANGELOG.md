@@ -76,12 +76,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 258,744 bytes /
-  `3e0f3a8e635feecb748bb42b0b9332b442c2c5dae4e0595dc229f83570c8aab8`
-  and 277,793 bytes /
-  `97c43c1138a1b8cc58bc2333b540d89179b00047e5348c9a724cdf26d2850728`,
+  containers and promoted at 258,519 bytes /
+  `fc85a0c33a78116946835e3d502c06be3c9527b5aeb1e2ad8a8c7f6576c628cc`
+  and 277,568 bytes /
+  `574073ef2281e5cbec27951d7e53d061cac27d0c84a7db1f1a252e8639ce4b6b`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:ed877f2d18e7948993d8173dd50834f11ca7eefb2fc3e8215a80f33ffcbaa85c`.
+  `sha256:4267239e07cc3791cd4cfe6338248be2fa7d1410c12dc6eca4236233541081c0`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.

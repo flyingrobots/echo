@@ -20,6 +20,7 @@ bytes = "1.0"
 thiserror = "1.0"
 hex = "0.4"
 rustc-hash = "2.1.1"
+sha2 = "0.10"
 echo-wasm-abi = { workspace = true }
 echo-runtime-schema = { workspace = true }
 echo-registry-api = { workspace = true }

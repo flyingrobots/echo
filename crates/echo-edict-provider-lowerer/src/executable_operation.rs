@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
+use std::collections::BTreeSet;
+
 use blake3::Hasher;
 use echo_edict_canonical::{
     digest_canonical_value_bytes_v1, encode_canonical_cbor_v1, CanonicalValueV1,
@@ -26,6 +28,8 @@ const CONFIGURATION_ABI: &str = "echo.operation-lowering-configuration/v1";
 const TARGET_IR_DOMAIN: &str = "edict.target-ir.artifact/v1";
 const TARGET_IR_COORDINATE: &str = "echo.span-ir/v1";
 const TARGET_IR_PAYLOAD_DOMAIN: &str = "echo.span-ir/v1";
+const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
+const RESULT_PROJECTION_ABI: &str = "edict.result-projection/v1";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
 
@@ -50,6 +54,10 @@ const EVALUATION_BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
 const FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-create-if-absent-exact/v1";
 const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-create-if-absent/v1";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
+const MAX_RESULT_PROJECTION_NODES: usize = 256;
+const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
+const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
+const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
 
 #[derive(Clone, Copy)]
 struct ProgramConfiguration<'a> {
@@ -60,6 +68,8 @@ struct ProgramConfiguration<'a> {
     steps: u64,
     read_bytes: u64,
     write_bytes: u64,
+    node_key_field: &'a str,
+    replacement_field: &'a str,
 }
 
 struct ApplicationIntent<'a> {
@@ -76,7 +86,14 @@ struct ClosureInputs<'a> {
     lawpack: &'a SemanticInput,
     source: &'a SemanticInput,
     configuration: &'a SemanticInput,
+    result_projection: &'a SemanticInput,
     target_ir: &'a SemanticInput,
+}
+
+struct ResultProjectionPlan {
+    runtime_expression: CanonicalValueV1,
+    node_key_path: Vec<String>,
+    replacement_path: Vec<String>,
 }
 
 pub(super) fn is_requested(request: &LoweringRequestV1) -> bool {
@@ -97,6 +114,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     let lawpack = validate_bound(&closure.lawpack.artifact, LAWPACK_DOMAIN)?;
     let source = validate_bound(&closure.source.artifact, SOURCE_DOMAIN)?;
     let configuration = validate_bound(&closure.configuration.artifact, CONFIGURATION_DOMAIN)?;
+    let result_projection = validate_bound(
+        &closure.result_projection.artifact,
+        RESULT_PROJECTION_DOMAIN,
+    )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
 
     let source = validate_source(&source, closure.source, &request.core)?;
@@ -123,6 +144,13 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         &intent,
     )?;
     let configuration = validate_configuration(&configuration)?;
+    let result_projection = validate_result_projection(
+        &result_projection,
+        closure.result_projection,
+        &target_ir,
+        &intent,
+        configuration,
+    )?;
 
     let package = encode_package(
         request,
@@ -130,6 +158,7 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         &intent,
         &semantic_obstruction,
         configuration,
+        &result_projection,
     )?;
     let _ = request.limits;
     Ok(LoweringSuccessV1 {
@@ -169,7 +198,7 @@ fn unsupported_output(subject: &str) -> ProviderRefusalV1 {
 }
 
 fn select_closure(inputs: &[SemanticInput]) -> Result<ClosureInputs<'_>, ProviderRefusalV1> {
-    if inputs.len() != 6 {
+    if inputs.len() != 7 {
         return Err(super::unsupported_semantics(
             "semantic-inputs.echo-operation",
         ));
@@ -191,6 +220,10 @@ fn select_closure(inputs: &[SemanticInput]) -> Result<ClosureInputs<'_>, Provide
         configuration: unique_input(
             inputs,
             &SemanticInputKind::Auxiliary("target-configuration".to_owned()),
+        )?,
+        result_projection: unique_input(
+            inputs,
+            &SemanticInputKind::Auxiliary("result-projection".to_owned()),
         )?,
         target_ir: unique_input(
             inputs,
@@ -551,6 +584,16 @@ fn validate_configuration(
         steps: required_u64(budget, "steps", "target-configuration.echo-operation")?,
         read_bytes: required_u64(budget, "readBytes", "target-configuration.echo-operation")?,
         write_bytes: required_u64(budget, "writeBytes", "target-configuration.echo-operation")?,
+        node_key_field: required_nonempty_text(
+            invocation,
+            "nodeKeyField",
+            "target-configuration.echo-operation",
+        )?,
+        replacement_field: required_nonempty_text(
+            invocation,
+            "replacementField",
+            "target-configuration.echo-operation",
+        )?,
     };
     if configuration.max_replacement_bytes == 0
         || configuration.steps < 3
@@ -564,12 +607,249 @@ fn validate_configuration(
     Ok(configuration)
 }
 
+fn validate_result_projection(
+    value: &CanonicalValueV1,
+    input: &SemanticInput,
+    target_ir: &CanonicalValueV1,
+    intent: &ApplicationIntent<'_>,
+    configuration: ProgramConfiguration<'_>,
+) -> Result<ResultProjectionPlan, ProviderRefusalV1> {
+    if input.artifact.artifact.bytes.len() > MAX_RESULT_PROJECTION_ARTIFACT_BYTES {
+        return Err(invalid_artifact(
+            &input.role,
+            "result projection exceeds the canonical byte bound",
+        ));
+    }
+    require_exact_fields(
+        value,
+        &[
+            "expression",
+            "maxOutputBytes",
+            "operationCoordinate",
+            "outputType",
+            "schema",
+        ],
+        &input.role,
+    )?;
+    if text_field(value, "schema") != Some(RESULT_PROJECTION_ABI)
+        || text_field(value, "operationCoordinate") != Some(intent.operation_coordinate.as_str())
+        || input.artifact.reference.coordinate != intent.operation_coordinate
+    {
+        return Err(invalid_artifact(
+            &input.role,
+            "result projection is rebound from the application operation",
+        ));
+    }
+    validate_projection_text(
+        required_nonempty_text(value, "outputType", &input.role)?,
+        &input.role,
+    )?;
+    if required_u64(value, "maxOutputBytes", &input.role)? == 0 {
+        return Err(invalid_artifact(
+            &input.role,
+            "result projection output bound must be positive",
+        ));
+    }
+    let target_intents = required_map(target_ir, "intents", &input.role)?;
+    let target_intent = required_map_field(
+        target_intents,
+        intent.name,
+        "result-projection.target-intent",
+    )?;
+    let [target_step] = required_array(target_intent, "steps", &input.role)?.as_slice() else {
+        return Err(super::unsupported_semantics(
+            "result-projection.target-steps",
+        ));
+    };
+    let target_step_id = required_nonempty_text(target_step, "id", &input.role)?;
+    let mut nodes = 0;
+    let runtime_expression = lower_projection_expression(
+        required_map(value, "expression", &input.role)?,
+        target_step_id,
+        configuration.node_key_field,
+        &mut nodes,
+        &input.role,
+    )?;
+    Ok(ResultProjectionPlan {
+        runtime_expression,
+        node_key_path: vec![configuration.node_key_field.to_owned()],
+        replacement_path: vec![configuration.replacement_field.to_owned()],
+    })
+}
+
+fn lower_projection_expression(
+    value: &CanonicalValueV1,
+    target_step_id: &str,
+    node_key_field: &str,
+    nodes: &mut usize,
+    subject: &str,
+) -> Result<CanonicalValueV1, ProviderRefusalV1> {
+    *nodes = nodes
+        .checked_add(1)
+        .ok_or_else(|| invalid_artifact(subject, "result projection node count overflowed"))?;
+    if *nodes > MAX_RESULT_PROJECTION_NODES {
+        return Err(invalid_artifact(
+            subject,
+            "result projection exceeds the expression-node bound",
+        ));
+    }
+    let kind = required_text(value, "kind", subject)?;
+    match kind {
+        "record" => {
+            require_exact_fields(value, &["fields", "kind"], subject)?;
+            let fields = required_map(value, "fields", subject)?;
+            let entries = as_map(fields)
+                .ok_or_else(|| invalid_artifact(subject, "projection fields must be a map"))?;
+            let mut lowered = Vec::with_capacity(entries.len());
+            for (name, expression) in entries {
+                let Some(name) = as_text(name) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "projection field names must be text",
+                    ));
+                };
+                validate_projection_text(name, subject)?;
+                lowered.push((
+                    name.to_owned(),
+                    lower_projection_expression(
+                        expression,
+                        target_step_id,
+                        node_key_field,
+                        nodes,
+                        subject,
+                    )?,
+                ));
+            }
+            Ok(canonical_map([
+                ("kind", canonical_text("record")),
+                (
+                    "fields",
+                    CanonicalValueV1::Map(
+                        lowered
+                            .into_iter()
+                            .map(|(name, value)| (canonical_text(&name), value))
+                            .collect(),
+                    ),
+                ),
+            ]))
+        }
+        "source" => {
+            require_exact_fields(value, &["kind", "path", "source"], subject)?;
+            let source = required_map(value, "source", subject)?;
+            let source_kind = required_text(source, "kind", subject)?;
+            let path = required_array(value, "path", subject)?;
+            if path.len() > MAX_RESULT_PROJECTION_PATH_SEGMENTS {
+                return Err(invalid_artifact(
+                    subject,
+                    "result projection path exceeds the segment bound",
+                ));
+            }
+            let mut lowered_path = Vec::with_capacity(path.len());
+            for segment in path {
+                let Some(segment) = as_text(segment) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "result projection path segment must be text",
+                    ));
+                };
+                validate_projection_text(segment, subject)?;
+                lowered_path.push(segment.to_owned());
+            }
+            match source_kind {
+                "applicationInput" => {
+                    require_exact_fields(source, &["kind"], subject)?;
+                }
+                "capabilityResult" => {
+                    require_exact_fields(source, &["kind", "stepId"], subject)?;
+                    if required_text(source, "stepId", subject)? != target_step_id
+                        || lowered_path != [node_key_field]
+                    {
+                        return Err(super::unsupported_semantics(
+                            "result-projection.capability-result",
+                        ));
+                    }
+                    lowered_path = vec![node_key_field.to_owned()];
+                }
+                _ => {
+                    return Err(invalid_artifact(
+                        subject,
+                        "result projection names an unsupported source kind",
+                    ));
+                }
+            }
+            Ok(canonical_map([
+                ("kind", canonical_text("source")),
+                (
+                    "path",
+                    CanonicalValueV1::Array(
+                        lowered_path
+                            .into_iter()
+                            .map(|segment| canonical_text(&segment))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "source",
+                    canonical_map([("kind", canonical_text("applicationInput"))]),
+                ),
+            ]))
+        }
+        _ => Err(invalid_artifact(
+            subject,
+            "result projection names an unsupported expression kind",
+        )),
+    }
+}
+
+fn require_exact_fields(
+    value: &CanonicalValueV1,
+    expected: &[&str],
+    subject: &str,
+) -> Result<(), ProviderRefusalV1> {
+    let entries = as_map(value)
+        .ok_or_else(|| invalid_artifact(subject, "result projection node must be a map"))?;
+    let mut actual = BTreeSet::new();
+    for (key, _) in entries {
+        let Some(key) = as_text(key) else {
+            return Err(invalid_artifact(
+                subject,
+                "result projection map key must be text",
+            ));
+        };
+        if !actual.insert(key) {
+            return Err(invalid_artifact(
+                subject,
+                "result projection repeats a map field",
+            ));
+        }
+    }
+    let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+    if actual != expected {
+        return Err(invalid_artifact(
+            subject,
+            "result projection has an unexpected field set",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_projection_text(value: &str, subject: &str) -> Result<(), ProviderRefusalV1> {
+    if value.is_empty() || value.len() > MAX_RESULT_PROJECTION_TEXT_BYTES {
+        return Err(invalid_artifact(
+            subject,
+            "result projection text is empty or exceeds its byte bound",
+        ));
+    }
+    Ok(())
+}
+
 fn encode_package(
     request: &LoweringRequestV1,
     closure: &ClosureInputs<'_>,
     intent: &ApplicationIntent<'_>,
     obstruction_coordinate: &str,
     configuration: ProgramConfiguration<'_>,
+    result_projection: &ResultProjectionPlan,
 ) -> Result<Vec<u8>, ProviderRefusalV1> {
     let program = canonical_map([
         (
@@ -633,6 +913,45 @@ fn encode_package(
         ),
     ]);
     let package = canonical_map([
+        (
+            "application_result_projection",
+            canonical_map([
+                (
+                    "application_input_node_key_path",
+                    CanonicalValueV1::Array(
+                        result_projection
+                            .node_key_path
+                            .iter()
+                            .map(|segment| canonical_text(segment))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "application_input_replacement_path",
+                    CanonicalValueV1::Array(
+                        result_projection
+                            .replacement_path
+                            .iter()
+                            .map(|segment| canonical_text(segment))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "artifact_bytes",
+                    CanonicalValueV1::Bytes(
+                        closure.result_projection.artifact.artifact.bytes.clone(),
+                    ),
+                ),
+                (
+                    "artifact_identity",
+                    hash_value(hash_from_bound(&closure.result_projection.artifact)?),
+                ),
+                (
+                    "runtime_expression",
+                    result_projection.runtime_expression.clone(),
+                ),
+            ]),
+        ),
         (
             "application_basis_schema_identity",
             hash_value(profile_digest(APPLICATION_BASIS_SCHEMA)),

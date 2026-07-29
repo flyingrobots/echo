@@ -670,6 +670,25 @@ fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
     ])
 }
 
+fn runtime_result_expression() -> CanonicalValueV1 {
+    owned_map([
+        ("kind", text("record")),
+        (
+            "fields",
+            dynamic_map([
+                (
+                    "first",
+                    projection_source(owned_map([("kind", text("applicationInput"))]), ["key"]),
+                ),
+                (
+                    "second",
+                    projection_source(owned_map([("kind", text("applicationInput"))]), ["value"]),
+                ),
+            ]),
+        ),
+    ])
+}
+
 fn result_projection_with_fields(names: FixtureNames<'_>, field_count: usize) -> CanonicalValueV1 {
     let fields = (0..field_count)
         .map(|index| {
@@ -781,6 +800,9 @@ fn expected_package(
     let exports = input(&SemanticInputKind::Auxiliary("lawpack-exports".to_owned()));
     let lawpack = input(&SemanticInputKind::Lawpack);
     let target_ir = input(&SemanticInputKind::Auxiliary("target-ir".to_owned()));
+    let result_projection = input(&SemanticInputKind::Auxiliary(
+        "result-projection".to_owned(),
+    ));
     let core_identity = hash(&request.core.reference.digest);
     ExecutableOperationPackageV1::new(
         format!("{}.{}", names.application, names.intent),
@@ -804,6 +826,14 @@ fn expected_package(
             256,
         ),
     )
+    .with_application_result_projection(
+        result_projection.artifact.bytes.clone(),
+        hash(&result_projection.reference.digest),
+        vec!["key".to_owned()],
+        vec!["value".to_owned()],
+        &canonical_bytes(&runtime_result_expression()),
+    )
+    .expect("the independent package model accepts the fixture projection")
 }
 
 fn semantic_input(role: &str, kind: SemanticInputKind, artifact: BoundArtifact) -> SemanticInput {

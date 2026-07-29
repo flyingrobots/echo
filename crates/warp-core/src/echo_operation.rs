@@ -7367,6 +7367,59 @@ mod tests {
     }
 
     #[test]
+    fn projected_package_rejects_an_unbounded_result_declaration() {
+        let operation_coordinate = "echo.fixture.UnboundedProjectedCreate.v1";
+        let projection = map_value([
+            (
+                "expression",
+                result_source("applicationInput", None, &["message"]),
+            ),
+            ("maxOutputBytes", uint_value(65_537)),
+            ("operationCoordinate", text_value(operation_coordinate)),
+            (
+                "outputType",
+                text_value("echo.fixture.UnboundedProjectedCreated/v1"),
+            ),
+            ("schema", text_value(RESULT_PROJECTION_SCHEMA)),
+        ]);
+        let projection_bytes = encode_canonical_cbor_v1(&projection).expect("projection encodes");
+        let projection_identity =
+            digest_canonical_value_bytes_v1(RESULT_PROJECTION_DOMAIN, &projection)
+                .expect("projection identity computes");
+
+        let error = validate_edict_result_projection(&projection_bytes, projection_identity)
+            .expect_err("runtime admission must cap the compiler-declared result size");
+
+        assert!(
+            error
+                .to_string()
+                .contains("result projection output bound exceeds"),
+            "unexpected refusal: {error}"
+        );
+    }
+
+    #[test]
+    fn projected_invocation_rejects_oversized_canonical_application_input() {
+        let (_, _, _, _, mut invocation, _) = projected_create_fixture(1_024);
+        invocation.application_input_bytes = Some(
+            encode_canonical_cbor_v1(&map_value([
+                ("key", text_value("fixture-key")),
+                ("message", text_value(&"x".repeat(65_537))),
+            ]))
+            .expect("oversized application input remains canonical"),
+        );
+
+        let error = invocation
+            .to_canonical_bytes()
+            .expect_err("projected invocation input must have a fixed byte ceiling");
+
+        assert!(
+            error.to_string().contains("application input exceeds"),
+            "unexpected refusal: {error}"
+        );
+    }
+
+    #[test]
     fn scheduler_evaluation_commits_and_recovers_exact_projected_result() {
         let (installed, mut state, basis, policy, invocation, _) = projected_create_fixture(1_024);
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");

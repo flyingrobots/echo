@@ -216,6 +216,33 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
         report["duplicate"]["obstruction"],
         "causal.cell@1.AlreadyExists"
     );
+    for field in [
+        "applicationStateRootBefore",
+        "applicationStateRootAfter",
+        "targetValueDigestBefore",
+        "targetValueDigestAfter",
+    ] {
+        let digest = report["duplicate"][field]
+            .as_str()
+            .unwrap_or_else(|| panic!("duplicate witness is missing {field}"));
+        assert_eq!(digest.len(), 64, "{field} must be one 32-byte digest");
+        assert!(
+            digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "{field} must be canonical lowercase hexadecimal"
+        );
+    }
+    assert_eq!(
+        report["duplicate"]["applicationStateRootBefore"],
+        report["duplicate"]["applicationStateRootAfter"],
+        "the duplicate obstruction must leave authoritative application state unchanged"
+    );
+    assert_eq!(
+        report["duplicate"]["targetValueDigestBefore"],
+        report["duplicate"]["targetValueDigestAfter"],
+        "the duplicate obstruction must leave the target value unchanged"
+    );
     assert_eq!(
         report["recovery"]["mutatedInitialStateRefusal"],
         "echo-operation-execution-mismatch/action-basis"

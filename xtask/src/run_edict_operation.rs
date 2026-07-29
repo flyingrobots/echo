@@ -378,8 +378,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let state_recovered;
     let outcome_recovered;
     let receipt_recovered;
-    let hidden_mutation;
-    let duplicate_obstruction;
+    let duplicate;
 
     {
         let mut recovered = build_host(&input.basis, &input.key, false)?;
@@ -460,7 +459,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         if duplicate_steps.len() != 1 || duplicate_steps[0].admitted_count != 1 {
             bail!("duplicate proof produced an unexpected scheduler selection");
         }
-        duplicate_obstruction = match recovered
+        let duplicate_obstruction = match recovered
             .host
             .echo_operation_action_outcome_v1(&duplicate_submission_id)
         {
@@ -471,12 +470,17 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             }
             outcome => bail!("duplicate Action produced unexpected outcome: {outcome:?}"),
         };
-        hidden_mutation = current_state(&recovered)?.state_root() != state_before_duplicate
-            || node_value(
+        duplicate = duplicate_report(
+            duplicate_obstruction,
+            state_before_duplicate,
+            current_state(&recovered)?.state_root(),
+            &value_before_duplicate,
+            &node_value(
                 &recovered,
                 package.required_node_type,
                 package.required_attachment_type,
-            )? != value_before_duplicate;
+            )?,
+        )?;
     }
     if !action_recovered
         || !tick_recovered
@@ -486,10 +490,6 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     {
         bail!("fresh host did not recover the complete Action/Tick/state/outcome/Receipt witness");
     }
-    if hidden_mutation {
-        bail!("obstructed duplicate Action changed committed state");
-    }
-
     let mutated_initial_state_refusal = {
         let mut mutated = build_host(&input.basis, &input.key, true)?;
         match mutated
@@ -548,10 +548,23 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             receipt_recovered,
             mutated_initial_state_refusal,
         },
-        duplicate: DuplicateReport {
-            obstruction: duplicate_obstruction,
-        },
+        duplicate,
     })
+}
+
+fn duplicate_report(
+    obstruction: String,
+    application_state_root_before: [u8; 32],
+    application_state_root_after: [u8; 32],
+    target_value_before: &[u8],
+    target_value_after: &[u8],
+) -> Result<DuplicateReport> {
+    if application_state_root_before != application_state_root_after
+        || target_value_before != target_value_after
+    {
+        bail!("obstructed duplicate Action changed committed state");
+    }
+    Ok(DuplicateReport { obstruction })
 }
 
 fn artifact_identity(digest_hex: String) -> ArtifactIdentity {
@@ -1202,4 +1215,38 @@ fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     hasher.update(&(bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duplicate_report;
+
+    #[test]
+    fn duplicate_mutation_cannot_produce_a_passing_witness() {
+        let root = [0x11; 32];
+
+        let root_mutation = duplicate_report(
+            "test.obstruction".to_owned(),
+            root,
+            [0x22; 32],
+            b"value",
+            b"value",
+        );
+        assert!(
+            root_mutation.is_err(),
+            "a changed application-state root must fail closed"
+        );
+
+        let value_mutation = duplicate_report(
+            "test.obstruction".to_owned(),
+            root,
+            root,
+            b"value",
+            b"changed",
+        );
+        assert!(
+            value_mutation.is_err(),
+            "a changed target value must fail closed"
+        );
+    }
 }

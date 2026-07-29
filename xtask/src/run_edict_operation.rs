@@ -19,6 +19,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use warp_core::{
     echo_operation_action_envelope_v1, echo_operation_anchored_node_creation_application_basis_v1,
+    echo_operation_atom_value_digest_v1,
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicyV1,
@@ -133,6 +134,10 @@ pub struct RecoveryReport {
 #[serde(rename_all = "camelCase")]
 pub struct DuplicateReport {
     pub obstruction: String,
+    pub application_state_root_before: String,
+    pub application_state_root_after: String,
+    pub target_value_digest_before: String,
+    pub target_value_digest_after: String,
 }
 
 struct PackageMetadata {
@@ -378,8 +383,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let state_recovered;
     let outcome_recovered;
     let receipt_recovered;
-    let hidden_mutation;
-    let duplicate_obstruction;
+    let duplicate;
 
     {
         let mut recovered = build_host(&input.basis, &input.key, false)?;
@@ -460,7 +464,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         if duplicate_steps.len() != 1 || duplicate_steps[0].admitted_count != 1 {
             bail!("duplicate proof produced an unexpected scheduler selection");
         }
-        duplicate_obstruction = match recovered
+        let duplicate_obstruction = match recovered
             .host
             .echo_operation_action_outcome_v1(&duplicate_submission_id)
         {
@@ -471,12 +475,18 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             }
             outcome => bail!("duplicate Action produced unexpected outcome: {outcome:?}"),
         };
-        hidden_mutation = current_state(&recovered)?.state_root() != state_before_duplicate
-            || node_value(
+        duplicate = duplicate_report(
+            duplicate_obstruction,
+            state_before_duplicate,
+            current_state(&recovered)?.state_root(),
+            package.required_attachment_type,
+            &value_before_duplicate,
+            &node_value(
                 &recovered,
                 package.required_node_type,
                 package.required_attachment_type,
-            )? != value_before_duplicate;
+            )?,
+        )?;
     }
     if !action_recovered
         || !tick_recovered
@@ -486,10 +496,6 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     {
         bail!("fresh host did not recover the complete Action/Tick/state/outcome/Receipt witness");
     }
-    if hidden_mutation {
-        bail!("obstructed duplicate Action changed committed state");
-    }
-
     let mutated_initial_state_refusal = {
         let mut mutated = build_host(&input.basis, &input.key, true)?;
         match mutated
@@ -548,9 +554,35 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             receipt_recovered,
             mutated_initial_state_refusal,
         },
-        duplicate: DuplicateReport {
-            obstruction: duplicate_obstruction,
-        },
+        duplicate,
+    })
+}
+
+fn duplicate_report(
+    obstruction: String,
+    application_state_root_before: [u8; 32],
+    application_state_root_after: [u8; 32],
+    target_value_type: TypeId,
+    target_value_before: &[u8],
+    target_value_after: &[u8],
+) -> Result<DuplicateReport> {
+    if application_state_root_before != application_state_root_after
+        || target_value_before != target_value_after
+    {
+        bail!("obstructed duplicate Action changed committed state");
+    }
+    Ok(DuplicateReport {
+        obstruction,
+        application_state_root_before: hex::encode(application_state_root_before),
+        application_state_root_after: hex::encode(application_state_root_after),
+        target_value_digest_before: hex::encode(echo_operation_atom_value_digest_v1(
+            target_value_type,
+            target_value_before,
+        )),
+        target_value_digest_after: hex::encode(echo_operation_atom_value_digest_v1(
+            target_value_type,
+            target_value_after,
+        )),
     })
 }
 
@@ -1202,4 +1234,42 @@ fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     hasher.update(&(bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duplicate_report;
+    use warp_core::make_type_id;
+
+    #[test]
+    fn duplicate_mutation_cannot_produce_a_passing_witness() {
+        let root = [0x11; 32];
+        let target_value_type = make_type_id("test.target-value/v1");
+
+        let root_mutation = duplicate_report(
+            "test.obstruction".to_owned(),
+            root,
+            [0x22; 32],
+            target_value_type,
+            b"value",
+            b"value",
+        );
+        assert!(
+            root_mutation.is_err(),
+            "a changed application-state root must fail closed"
+        );
+
+        let value_mutation = duplicate_report(
+            "test.obstruction".to_owned(),
+            root,
+            root,
+            target_value_type,
+            b"value",
+            b"changed",
+        );
+        assert!(
+            value_mutation.is_err(),
+            "a changed target value must fail closed"
+        );
+    }
 }

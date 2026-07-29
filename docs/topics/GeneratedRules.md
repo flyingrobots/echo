@@ -200,6 +200,14 @@ package meaning, and verification report all influence the canonical
 invocation; no application matcher, executor, footprint callback, or
 handwritten package participates.
 
+The duplicate witness reports the graph-only application-state root and typed
+target-value digest immediately before and after the obstructed Action. The
+state root commits the entire reachable graph, including attachment values,
+while excluding WAL frames, Tick history, Receipts, and commit metadata. The
+target digest separately binds the declared attachment type and exact value
+bytes. Echo refuses to emit a passing report if either before/after pair
+differs.
+
 This is singleton scheduler integration, not a claim that the external
 application can compose multiple Actions into one Tick. The kernel's synthetic
 multi-Action tests remain separate generic runtime evidence. Product-facing

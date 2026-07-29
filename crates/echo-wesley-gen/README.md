@@ -41,7 +41,8 @@ Apache-2.0 contract pack checked under
 [`schemas/edict-provider/contracts/v1/`](../../schemas/edict-provider/contracts/v1/README.md)
 is admitted through
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
-requires the pinned Edict PR #162 CDDL and manifest publication, verifies every
+requires the pinned Edict contract-pack publication from PR #162 as extended
+with the result-projection contract in PR #174, verifies every
 embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.
@@ -117,8 +118,8 @@ identity, not an executable-build or supply-chain attestation.
 provider components into one 24-member, non-self-referential package closure,
 then derives the separate `edict.provider-manifest/v1` JSON file. The Echo-owned
 package root is a domain-framed canonical-CBOR value over the exact manifest
-routes, 30 schema bindings (nine compatibility invocation domains, the
-generated artifact profile, 14 generated-resource domains, and six generic
+routes, 31 schema bindings (nine compatibility invocation domains, the
+generated artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains), and raw SHA-256 of every non-manifest
 member.
 Canonical-CBOR artifact routes retain their Edict domain-framed identities;

@@ -114,6 +114,29 @@ informal statement that composed preparations share identical complete basis
 bytes: they share the runtime parent fields, while the separately typed
 application proposition remains candidate-specific.
 
+### Compiler-owned typed results are evaluation evidence
+
+An executable-operation package may bind one exact compiler-emitted
+application-result projection. The projected invocation retains the exact
+canonical application input required by that projection. Echo validates both
+bindings during admission, but it does not author the result schema or
+reconstruct application meaning in native code.
+
+During private Tick construction, the scheduler evaluates the installed
+projection over that admitted input. A successful applied Action retains:
+
+- the projection artifact identity;
+- the compiler-declared output type coordinate;
+- the exact canonical result bytes; and
+- a domain-separated result identity over those propositions.
+
+The same evidence is carried by the typed Action outcome, committed Receipt,
+and scheduler WAL transaction. Recovery revalidates the retained result against
+the installed package projection before publishing the recovered outcome or
+Receipt. An obstruction carries no application result and no state mutation.
+Replay consumes the retained bytes; no native callback or application-specific
+result reconstruction participates.
+
 ### Tick construction is atomic
 
 Prepared candidates are considered in canonical Action order. The scheduler
@@ -171,6 +194,8 @@ and receipt correlation.
   methods until issue #689 removes that exception.
 - Two independent executable-operation Actions can contribute to one
   scheduler-owned Tick.
+- A successful projected Action exposes the compiler-declared result as exact
+  canonical bytes in its outcome, Receipt, WAL, and recovery evidence.
 - A typed obstruction is durable evidence and cannot hide a state mutation.
 - Filesystem durability no longer depends on several scheduler transactions
   being atomically appended as an external batch.
@@ -192,14 +217,19 @@ The implementation is accepted only with executable witnesses that prove:
 7. Typed obstruction contributes no operations.
 8. The decided Tick is durable before frontier and receipt publication.
 9. Fresh-host recovery reconstructs Action outcomes, Tick, state, and receipts.
-10. Direct prepare/commit is marked transitional and absent from the
+10. A compiler-owned result projection produces exact typed canonical bytes
+    during scheduler evaluation, and fresh-host recovery reproduces those
+    bytes and their identity.
+11. Rebound projection artifacts, application inputs, result bytes, or result
+    identities fail closed before publication.
+12. Direct prepare/commit is marked transitional and absent from the
     application-facing surface.
-11. Removal of the remaining public host-owner compatibility seams is tracked
+13. Removal of the remaining public host-owner compatibility seams is tracked
     separately rather than claimed complete by this decision.
 
 ## Non-Goals
 
-- Real Edict compiler emission or a production Graft lawpack.
+- A production Graft lawpack.
 - Provider-v1 or native callback generalization.
 - Arbitrary multi-record program semantics.
 - Cross-head or cross-worldline atomic Ticks.

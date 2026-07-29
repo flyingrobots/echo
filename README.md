@@ -255,14 +255,17 @@ external compiler-produced ExecutableOperationPackageV1 bytes
 -> exact manifest, target-adapter, and target-configuration closure
 -> Echo-owned package and invocation admission
 -> installed data-only EchoOperationProgramV1
+-> exact compiler-owned application-result projection
+-> exact canonical application input retained in the invocation
 -> canonical Action submission retained before acknowledgement
 -> fresh-host package and pending-Action recovery
 -> runtime-owned admission into the ordinary head inbox
 -> scheduler selection at one exact basis
 -> bounded private Echo evaluation during Tick construction
+-> exact typed application-result bytes and identity
 -> one composite Tick consequence with typed per-Action outcomes
 -> decided Tick WAL retention before state, frontier, and Receipt publication
--> callback-free pending-Action and decided-Tick recovery
+-> callback-free pending-Action, result, and decided-Tick recovery
 ```
 
 The first two paths are callback-shaped compatibility infrastructure. The
@@ -278,7 +281,12 @@ Tick. Its duplicate report exposes equal before/after application-state roots
 and typed target-value digests; the roots commit the reachable graph state, not
 WAL, history, Receipt, or commit metadata. It does not claim external
 multi-Action Tick composition, a product-ready application runner, a Jedit
-operation, or a Graft operation.
+operation, or a Graft operation. The same schema-neutral report exposes the
+compiler-owned projection identity, output type coordinate, exact canonical
+result bytes, and domain-separated result identity. A second fresh host must
+recover byte-identical result evidence from the decided-Tick WAL; Echo does not
+invoke a native application callback or reconstruct the result from target
+state.
 
 ## Contracts And Boundaries
 

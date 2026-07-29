@@ -169,14 +169,16 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-230,285 bytes with SHA-256
-`9575ca8c843f3dfe4e5550ecdc40a8a8584c1aa7012b5b6f6a76e3f05f1b68f3`; the
-promoted verifier is 247,754 bytes with SHA-256
-`d87f3df6cdeca0b14032a23b614e9b9ba1f53ea3955a5a0aebda6c61450c3e51`.
+258,744 bytes with SHA-256
+`58b42234ced1c70885197fceea47e12b5dd4da2fd0ece0cc69087b15270add20`; the
+promoted verifier is 277,793 bytes with SHA-256
+`97c43c1138a1b8cc58bc2333b540d89179b00047e5348c9a724cdf26d2850728`.
 
 External Edict contract inputs come from the checked
-[`contracts/v1/`](contracts/v1/README.md) publication merged in
-[Edict PR #162](https://github.com/flyingrobots/edict/pull/162). Echo passes the
+[`contracts/v1/`](contracts/v1/README.md) publication introduced in
+[Edict PR #162](https://github.com/flyingrobots/edict/pull/162) and extended
+with the result-projection contract in
+[Edict PR #174](https://github.com/flyingrobots/edict/pull/174). Echo passes the
 CDDL and manifest bytes explicitly to
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
 the pinned publication identity, exact inventories, resource bytes, digests,
@@ -285,8 +287,8 @@ independent host-side CDDL admission before that output is admitted.
 
 The package closure contains the 22 generated files plus the exact lowerer and
 verifier components. Its Echo-owned provider digest binds the typed manifest
-routes, 30 domain-to-root bindings (nine compatibility invocation domains, the
-generated artifact profile, 14 generated-resource domains, and six generic
+routes, 31 domain-to-root bindings (nine compatibility invocation domains, the
+generated artifact profile, 14 generated-resource domains, and seven generic
 executable-operation closure domains), and raw SHA-256 of all 24 physical
 members without hashing the derived manifest into itself. The five routed
 canonical-CBOR artifacts use their Edict domain-framed identities in the

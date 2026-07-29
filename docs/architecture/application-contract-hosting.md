@@ -238,9 +238,10 @@ profiles and resolved effect write classes. Their canonical byte contract is
 Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
-contract pack merged in Edict PR #162. Echo admits its exact CDDL, manifest,
-contract/domain inventories, resource bytes, digests, and provenance before
-generation without searching a filesystem, registry, or network. Schema
+contract pack introduced in Edict PR #162 and extended with the
+result-projection contract in Edict PR #174. Echo admits its exact CDDL,
+manifest, contract/domain inventories, resource bytes, digests, and provenance
+before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact
 `edict.canonical-cbor/v1` decoding is followed by validation against the named
 owning root in that authenticated CDDL. Passing both checks attests provider
@@ -250,8 +251,9 @@ install a package, admit an operation, or authorize a runtime consequence.
 The #655 package identity is an Echo-owned, versioned canonical-CBOR closure,
 not a hash of the completed JSON manifest. It binds the manifest role and
 coordinate, exact API and provider ABI, ten sorted semantic/component routes,
-24 sorted schema bindings—nine invocation domains, the generated artifact
-profile, and 14 generated-resource domains—and raw exact-byte hashes for all 24
+31 sorted schema bindings—nine compatibility invocation domains, the generated
+artifact profile, 14 generated-resource domains, and seven generic
+executable-operation closure domains—and raw exact-byte hashes for all 24
 non-manifest members. The derived manifest carries that root and has its own
 independent raw content identity. Canonical-CBOR routes preserve their Edict domain-framed
 artifact digests while the package member table preserves raw occurrences, so

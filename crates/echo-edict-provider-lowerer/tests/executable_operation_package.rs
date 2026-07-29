@@ -247,6 +247,40 @@ fn invocation_binding_fields_must_be_distinct() {
 }
 
 #[test]
+fn invocation_binding_field_length_accepts_the_boundary_and_rejects_the_next_byte() {
+    let boundary = "x".repeat(1_024);
+    for (node_key_field, replacement_field) in
+        [(boundary.as_str(), "value"), ("key", boundary.as_str())]
+    {
+        let mut request = fixture_request_with_configuration(
+            ALPHA,
+            configuration_with_fields(ALPHA, node_key_field, replacement_field),
+        );
+        replace_projection(
+            &mut request,
+            result_projection_with_binding_fields(ALPHA, node_key_field, replacement_field),
+        );
+        lower(request).expect("the exact invocation-binding field boundary is accepted");
+    }
+
+    let over_limit = "x".repeat(1_025);
+    for (node_key_field, replacement_field) in
+        [(over_limit.as_str(), "value"), ("key", over_limit.as_str())]
+    {
+        let request = fixture_request_with_configuration(
+            ALPHA,
+            configuration_with_fields(ALPHA, node_key_field, replacement_field),
+        );
+        let refusal =
+            lower(request).expect_err("an oversized invocation-binding field must fail closed");
+        assert_eq!(
+            refusal.kind,
+            echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+        );
+    }
+}
+
+#[test]
 fn projection_node_limit_accepts_the_boundary_and_rejects_the_next_node() {
     let mut boundary = fixture_request(ALPHA);
     replace_projection(&mut boundary, result_projection_with_fields(ALPHA, 255));
@@ -689,6 +723,28 @@ fn result_projection_with_max_output(
     names: FixtureNames<'_>,
     max_output_bytes: u64,
 ) -> CanonicalValueV1 {
+    result_projection_with_binding_fields_and_max_output(names, "key", "value", max_output_bytes)
+}
+
+fn result_projection_with_binding_fields(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+) -> CanonicalValueV1 {
+    result_projection_with_binding_fields_and_max_output(
+        names,
+        node_key_field,
+        replacement_field,
+        512,
+    )
+}
+
+fn result_projection_with_binding_fields_and_max_output(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
     owned_map([
         ("schema", text("edict.result-projection/v1")),
         (
@@ -711,14 +767,14 @@ fn result_projection_with_max_output(
                                     ("kind", text("capabilityResult")),
                                     ("stepId", text("step.0")),
                                 ]),
-                                ["key"],
+                                [node_key_field],
                             ),
                         ),
                         (
                             "second",
                             projection_source(
                                 owned_map([("kind", text("applicationInput"))]),
-                                ["value"],
+                                [replacement_field],
                             ),
                         ),
                     ]),

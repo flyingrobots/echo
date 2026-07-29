@@ -255,6 +255,43 @@ fn verifier_refuses_equal_invocation_binding_fields() {
     );
 }
 
+#[test]
+fn verifier_bounds_invocation_binding_field_lengths() {
+    let names = FIXTURES[0];
+    let boundary = "x".repeat(1_024);
+    for (node_key_field, replacement_field) in
+        [(boundary.as_str(), "value"), ("key", boundary.as_str())]
+    {
+        let fixture = raw_fixture_with_values(
+            names,
+            configuration_with_fields(names, node_key_field, replacement_field),
+            result_projection_with_node_key(names, node_key_field),
+        );
+        let package = lower_package(names, &fixture);
+        verifier::verify(verification_request(names, &fixture, package))
+            .expect("the exact invocation-binding field boundary is accepted");
+    }
+
+    let package_fixture = raw_fixture(names);
+    let package = lower_package(names, &package_fixture);
+    let over_limit = "x".repeat(1_025);
+    for (node_key_field, replacement_field) in
+        [(over_limit.as_str(), "value"), ("key", over_limit.as_str())]
+    {
+        let fixture = raw_fixture_with_values(
+            names,
+            configuration_with_fields(names, node_key_field, replacement_field),
+            result_projection(names),
+        );
+        let refusal = verifier::verify(verification_request(names, &fixture, package.clone()))
+            .expect_err("an oversized invocation-binding field must fail closed");
+        assert_eq!(
+            refusal.kind,
+            verifier::ProviderRefusalKind::InvalidSemanticArtifact
+        );
+    }
+}
+
 fn lower_package(names: FixtureNames<'_>, fixture: &RawFixture) -> Vec<u8> {
     let success =
         lowerer::lower(lowering_request(names, fixture)).expect("the generic lowerer completes");
@@ -730,6 +767,27 @@ fn result_projection_with_fields_and_max_output(
     field_count: usize,
     max_output_bytes: u64,
 ) -> CanonicalValueV1 {
+    result_projection_with_fields_max_output_and_node_key(
+        names,
+        field_count,
+        max_output_bytes,
+        "key",
+    )
+}
+
+fn result_projection_with_node_key(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+) -> CanonicalValueV1 {
+    result_projection_with_fields_max_output_and_node_key(names, 1, 512, node_key_field)
+}
+
+fn result_projection_with_fields_max_output_and_node_key(
+    names: FixtureNames<'_>,
+    field_count: usize,
+    max_output_bytes: u64,
+    node_key_field: &str,
+) -> CanonicalValueV1 {
     let fields = (0..field_count)
         .map(|index| {
             let source = if index == 0 {
@@ -740,7 +798,7 @@ fn result_projection_with_fields_and_max_output(
             } else {
                 map([("kind", text("applicationInput"))])
             };
-            let path = if index == 0 { "key" } else { "value" };
+            let path = if index == 0 { node_key_field } else { "value" };
             (
                 format!("field-{index}"),
                 map([

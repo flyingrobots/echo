@@ -7295,7 +7295,7 @@ mod tests {
             let runtime_expression_bytes =
                 encode_canonical_cbor_v1(&runtime_expression).expect("runtime expression encodes");
 
-            projection_test_package(operation_coordinate)
+            let error = projection_test_package(operation_coordinate)
                 .with_application_result_projection(
                     projection_bytes,
                     projection_identity,
@@ -7304,6 +7304,10 @@ mod tests {
                     &runtime_expression_bytes,
                 )
                 .expect_err("runtime projection cannot rebind an authored source");
+            assert_eq!(
+                error.detail(),
+                "runtime result plan does not preserve the authored projection shape",
+            );
         }
     }
 

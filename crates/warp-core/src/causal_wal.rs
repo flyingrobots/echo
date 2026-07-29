@@ -308,6 +308,8 @@ pub enum WalAppendAuthority {
     AdmissionKernel,
     /// Echo executable-operation interpreter and commit authority.
     ExecutionKernel,
+    /// Echo external-action request and settlement coordinator authority.
+    ExternalActionCoordinator,
     /// Recovery authority.
     Recovery,
 }
@@ -333,6 +335,12 @@ pub enum WalTransactionKind {
     ExecutableOperationInstallation,
     /// Execution-kernel-owned commit of one executable operation consequence.
     ExecutableOperationTick,
+    /// Echo-owned admission of one external-action request before execution.
+    ExternalActionRequest,
+    /// Echo-owned claim of one admitted external-action request.
+    ExternalActionClaim,
+    /// Echo-owned admission of one external-action settlement.
+    ExternalActionSettlement,
 }
 
 impl WalTransactionKind {
@@ -349,6 +357,9 @@ impl WalTransactionKind {
             Self::CausalAnchorAdmission => 7,
             Self::ExecutableOperationInstallation => 8,
             Self::ExecutableOperationTick => 9,
+            Self::ExternalActionRequest => 10,
+            Self::ExternalActionClaim => 11,
+            Self::ExternalActionSettlement => 12,
         }
     }
 
@@ -367,6 +378,9 @@ impl WalTransactionKind {
             }
             Self::CausalAnchorAdmission => WalAppendAuthority::AdmissionKernel,
             Self::ExecutableOperationTick => WalAppendAuthority::ExecutionKernel,
+            Self::ExternalActionRequest
+            | Self::ExternalActionClaim
+            | Self::ExternalActionSettlement => WalAppendAuthority::ExternalActionCoordinator,
             Self::Checkpoint => WalAppendAuthority::Recovery,
         }
     }
@@ -382,6 +396,9 @@ impl WalTransactionKind {
             7 => Ok(Self::CausalAnchorAdmission),
             8 => Ok(Self::ExecutableOperationInstallation),
             9 => Ok(Self::ExecutableOperationTick),
+            10 => Ok(Self::ExternalActionRequest),
+            11 => Ok(Self::ExternalActionClaim),
+            12 => Ok(Self::ExternalActionSettlement),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTransactionKind",
                 code,
@@ -450,6 +467,12 @@ pub enum WalRecordKind {
     /// Trusted scheduler retained one typed executable-operation Action
     /// outcome inside a scheduler-owned Tick.
     ExecutableOperationActionOutcomeRecorded,
+    /// Echo recorded a canonical external-action request before execution.
+    ExternalActionRequestRecorded,
+    /// Echo recorded one bounded external-action claim.
+    ExternalActionClaimRecorded,
+    /// Echo admitted one schema-bound external-action settlement.
+    ExternalActionSettlementRecorded,
 }
 
 impl WalRecordKind {
@@ -486,6 +509,9 @@ impl WalRecordKind {
             Self::ExecutableOperationActionOutcomeRecorded => {
                 "ExecutableOperationActionOutcomeRecorded"
             }
+            Self::ExternalActionRequestRecorded => "ExternalActionRequestRecorded",
+            Self::ExternalActionClaimRecorded => "ExternalActionClaimRecorded",
+            Self::ExternalActionSettlementRecorded => "ExternalActionSettlementRecorded",
         }
     }
 
@@ -519,6 +545,11 @@ impl WalRecordKind {
             | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
                 WalAppendAuthority::AdmissionKernel
+            }
+            Self::ExternalActionRequestRecorded
+            | Self::ExternalActionClaimRecorded
+            | Self::ExternalActionSettlementRecorded => {
+                WalAppendAuthority::ExternalActionCoordinator
             }
             Self::CheckpointPublicationRecorded | Self::RecoveryPostureRecorded => {
                 WalAppendAuthority::Recovery
@@ -567,6 +598,9 @@ impl WalRecordKind {
             Self::ExecutableOperationExecutionRecorded => 26,
             Self::ExecutableOperationStateDeltaRecorded => 27,
             Self::ExecutableOperationActionOutcomeRecorded => 28,
+            Self::ExternalActionRequestRecorded => 29,
+            Self::ExternalActionClaimRecorded => 30,
+            Self::ExternalActionSettlementRecorded => 31,
         }
     }
 
@@ -600,6 +634,9 @@ impl WalRecordKind {
             26 => Ok(Self::ExecutableOperationExecutionRecorded),
             27 => Ok(Self::ExecutableOperationStateDeltaRecorded),
             28 => Ok(Self::ExecutableOperationActionOutcomeRecorded),
+            29 => Ok(Self::ExternalActionRequestRecorded),
+            30 => Ok(Self::ExternalActionClaimRecorded),
+            31 => Ok(Self::ExternalActionSettlementRecorded),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -731,6 +768,8 @@ pub enum AffectedFrontierKind {
     ExecutableOperationCatalog,
     /// Typed executable-operation receipt frontier.
     ExecutableOperationReceiptIndex,
+    /// Durable external-action lifecycle frontier.
+    ExternalActionIndex,
 }
 
 impl AffectedFrontierKind {
@@ -748,6 +787,7 @@ impl AffectedFrontierKind {
             Self::CausalAnchorIndex => 8,
             Self::ExecutableOperationCatalog => 9,
             Self::ExecutableOperationReceiptIndex => 10,
+            Self::ExternalActionIndex => 11,
         }
     }
 
@@ -9063,12 +9103,18 @@ pub enum WalValidationError {
     /// Executable-operation commit does not contain one receipt followed by one state delta.
     #[error("WAL executable-operation tick frame shape is invalid")]
     ExecutableOperationTickFrameShapeMismatch,
+    /// External-action transitions do not contain their one canonical record.
+    #[error("WAL external-action frame shape is invalid")]
+    ExternalActionFrameShapeMismatch,
     /// Executable-operation installation does not advance exactly its catalog frontier.
     #[error("WAL executable-operation installation frontier shape is invalid")]
     ExecutableOperationInstallationFrontierShapeMismatch,
     /// Executable-operation commit does not advance its receipt and runtime frontiers in order.
     #[error("WAL executable-operation tick frontier shape is invalid")]
     ExecutableOperationTickFrontierShapeMismatch,
+    /// External-action transitions do not advance exactly their lifecycle frontier.
+    #[error("WAL external-action frontier shape is invalid")]
+    ExternalActionFrontierShapeMismatch,
     /// Transaction contains no frames.
     #[error("WAL transaction contains no frames")]
     EmptyTransaction,
@@ -9577,6 +9623,21 @@ fn validate_transaction_semantics(
     {
         return Err(WalValidationError::ExecutableOperationTickFrameShapeMismatch);
     }
+    let external_action_shape = match transaction_kind {
+        WalTransactionKind::ExternalActionRequest => {
+            Some(WalRecordKind::ExternalActionRequestRecorded)
+        }
+        WalTransactionKind::ExternalActionClaim => Some(WalRecordKind::ExternalActionClaimRecorded),
+        WalTransactionKind::ExternalActionSettlement => {
+            Some(WalRecordKind::ExternalActionSettlementRecorded)
+        }
+        _ => None,
+    };
+    if external_action_shape
+        .is_some_and(|record_kind| frames.len() != 1 || frames[0].header.record_kind != record_kind)
+    {
+        return Err(WalValidationError::ExternalActionFrameShapeMismatch);
+    }
     Ok(())
 }
 
@@ -9596,6 +9657,15 @@ fn validate_transaction_frontiers(
             || frontiers[1].kind != AffectedFrontierKind::RuntimeState)
     {
         return Err(WalValidationError::ExecutableOperationTickFrontierShapeMismatch);
+    }
+    if matches!(
+        transaction_kind,
+        WalTransactionKind::ExternalActionRequest
+            | WalTransactionKind::ExternalActionClaim
+            | WalTransactionKind::ExternalActionSettlement
+    ) && (frontiers.len() != 1 || frontiers[0].kind != AffectedFrontierKind::ExternalActionIndex)
+    {
+        return Err(WalValidationError::ExternalActionFrontierShapeMismatch);
     }
     for frontier in frontiers {
         if !frontier_kind_allowed_for_transaction(transaction_kind, frontier.kind) {
@@ -9643,6 +9713,11 @@ fn frontier_kind_allowed_for_transaction(
             AffectedFrontierKind::RuntimeState
                 | AffectedFrontierKind::ExecutableOperationReceiptIndex
         ),
+        WalTransactionKind::ExternalActionRequest
+        | WalTransactionKind::ExternalActionClaim
+        | WalTransactionKind::ExternalActionSettlement => {
+            matches!(frontier_kind, AffectedFrontierKind::ExternalActionIndex)
+        }
     }
 }
 

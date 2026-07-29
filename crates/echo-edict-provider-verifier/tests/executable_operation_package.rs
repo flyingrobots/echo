@@ -13,6 +13,7 @@ use echo_edict_provider_verifier as verifier;
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
+const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
 const REPORT_ROLE: &str = "verifier-report.echo-operation";
 const REPORT_DOMAIN: &str = "echo.operation-package-verifier-report/v1";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
@@ -86,6 +87,7 @@ struct RawFixture {
     source: Vec<u8>,
     configuration: Vec<u8>,
     target_ir: Vec<u8>,
+    result_projection: Vec<u8>,
 }
 
 #[test]
@@ -116,6 +118,12 @@ fn verifier_accepts_generic_lowerer_output_for_two_application_vocabularies() {
         let report = decode_canonical_cbor_v1(&report.artifact.bytes)
             .expect("the relation report is canonical");
         assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+        let projection = map_field(&report, "applicationResultProjection");
+        let expected_projection_coordinate = format!("{}.{}", names.application, names.intent);
+        assert_eq!(
+            text_field(projection, "id"),
+            Some(expected_projection_coordinate.as_str())
+        );
     }
 }
 
@@ -165,6 +173,46 @@ fn verifier_rejects_a_canonical_package_with_a_rebound_obstruction_coordinate() 
     let report = decode_canonical_cbor_v1(&verified.outputs[0].artifact.bytes)
         .expect("the rejection report is canonical");
     assert_eq!(text_field(&report, "outcome"), Some("rejected"));
+}
+
+#[test]
+fn verifier_rejects_a_package_with_substituted_projection_bytes() {
+    let names = FIXTURES[0];
+    let fixture = raw_fixture(names);
+    let package = lower_package(names, &fixture);
+    let mut package_value =
+        decode_canonical_cbor_v1(&package).expect("the lowered package is canonical");
+    let projection = map_field_mut(&mut package_value, "application_result_projection");
+    *map_field_mut(projection, "artifact_bytes") =
+        CanonicalValueV1::Bytes(canonical_bytes(&result_projection_with_fields(names, 2)));
+    let package = encode_canonical_cbor_v1(&package_value).expect("the mutation remains canonical");
+
+    let verified = verifier::verify(verification_request(names, &fixture, package))
+        .expect("semantic mismatch is a completed verification");
+
+    assert_eq!(verified.diagnostics.len(), 1);
+    assert_eq!(
+        verified.diagnostics[0].code,
+        "echo.verifier.executable-operation-package-mismatch"
+    );
+}
+
+#[test]
+fn verifier_requires_the_compiler_projection_input() {
+    let names = FIXTURES[0];
+    let fixture = raw_fixture(names);
+    let package = lower_package(names, &fixture);
+    let mut request = verification_request(names, &fixture, package);
+    request.semantic_inputs.retain(|input| {
+        input.kind != verifier::SemanticInputKind::Auxiliary("result-projection".to_owned())
+    });
+
+    let refusal = verifier::verify(request).expect_err("a projection-free closure must refuse");
+
+    assert_eq!(
+        refusal.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
 }
 
 fn lower_package(names: FixtureNames<'_>, fixture: &RawFixture) -> Vec<u8> {
@@ -220,6 +268,14 @@ fn lowering_request(names: FixtureNames<'_>, fixture: &RawFixture) -> lowerer::L
                     "echo.span-ir/v1",
                     "edict.target-ir.artifact/v1",
                     &fixture.target_ir,
+                ),
+            ),
+            lowerer_input(
+                lowerer::SemanticInputKind::Auxiliary("result-projection".to_owned()),
+                lowerer_bound(
+                    &format!("{}.{}", names.application, names.intent),
+                    RESULT_PROJECTION_DOMAIN,
+                    &fixture.result_projection,
                 ),
             ),
         ],
@@ -287,6 +343,14 @@ fn verification_request(
                     &fixture.configuration,
                 ),
             ),
+            verifier_input(
+                verifier::SemanticInputKind::Auxiliary("result-projection".to_owned()),
+                verifier_bound(
+                    &format!("{}.{}", names.application, names.intent),
+                    RESULT_PROJECTION_DOMAIN,
+                    &fixture.result_projection,
+                ),
+            ),
         ],
         requested_outputs: vec![verifier::VerificationOutputRequest {
             role: REPORT_ROLE.to_owned(),
@@ -342,6 +406,7 @@ fn raw_fixture(names: FixtureNames<'_>) -> RawFixture {
         &lawpack_ref,
         &target_profile_ref,
     ));
+    let result_projection = canonical_bytes(&result_projection(names));
     RawFixture {
         core,
         target_profile,
@@ -351,6 +416,7 @@ fn raw_fixture(names: FixtureNames<'_>) -> RawFixture {
         source,
         configuration,
         target_ir,
+        result_projection,
     }
 }
 
@@ -574,6 +640,7 @@ fn target_ir(
                     (
                         "steps",
                         CanonicalValueV1::Array(vec![map([
+                            ("id", text("step.0")),
                             ("targetIntrinsic", text(TARGET_INTRINSIC)),
                             (
                                 "obstructionFailures",
@@ -583,6 +650,57 @@ fn target_ir(
                     ),
                 ]),
             )]),
+        ),
+    ])
+}
+
+fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    result_projection_with_fields(names, 1)
+}
+
+fn result_projection_with_fields(names: FixtureNames<'_>, field_count: usize) -> CanonicalValueV1 {
+    let fields = (0..field_count)
+        .map(|index| {
+            let source = if index == 0 {
+                map([
+                    ("kind", text("capabilityResult")),
+                    ("stepId", text("step.0")),
+                ])
+            } else {
+                map([("kind", text("applicationInput"))])
+            };
+            let path = if index == 0 { "key" } else { "value" };
+            (
+                format!("field-{index}"),
+                map([
+                    ("kind", text("source")),
+                    ("source", source),
+                    ("path", CanonicalValueV1::Array(vec![text(path)])),
+                ]),
+            )
+        })
+        .collect::<Vec<_>>();
+    map([
+        ("schema", text("edict.result-projection/v1")),
+        (
+            "operationCoordinate",
+            text(format!("{}.{}", names.application, names.intent)),
+        ),
+        ("outputType", text(format!("{}.Output", names.application))),
+        ("maxOutputBytes", integer(512)),
+        (
+            "expression",
+            map([
+                ("kind", text("record")),
+                (
+                    "fields",
+                    dynamic_map(
+                        fields
+                            .iter()
+                            .map(|(name, value)| (name.as_str(), value.clone())),
+                    ),
+                ),
+            ]),
         ),
     ])
 }
@@ -689,6 +807,16 @@ fn map_field_mut<'a>(value: &'a mut CanonicalValueV1, field: &str) -> &'a mut Ca
     };
     entries
         .iter_mut()
+        .find_map(|(key, value)| (key == &text(field)).then_some(value))
+        .unwrap_or_else(|| panic!("missing field {field}"))
+}
+
+fn map_field<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a CanonicalValueV1 {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("expected map");
+    };
+    entries
+        .iter()
         .find_map(|(key, value)| (key == &text(field)).then_some(value))
         .unwrap_or_else(|| panic!("missing field {field}"))
 }

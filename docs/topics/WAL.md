@@ -334,6 +334,16 @@ metadata are excluded from the application-state root because the obstruction
 legitimately extends causal history. It uses the strict filesystem adapter and
 no native application callback.
 
+For a successful projected Action, the decided-Tick transaction also retains
+the compiler-owned projection identity, output type coordinate, exact canonical
+application-result bytes, and their domain-separated result identity. Recovery
+deterministically re-evaluates the installed pure-data projection over the
+exact application input retained by the original invocation and requires
+byte-for-byte equality with that evidence before publishing the Action outcome
+or Receipt. This verification performs no native callback and reads no current
+application state. Rebound projection artifacts and substituted result bytes
+therefore fail closed. An obstructed Action carries no application result.
+
 The Action/Tick witnesses to read first are:
 
 - `accepted_executable_action_recovers_pending_before_scheduler_evaluation`

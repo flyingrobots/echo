@@ -13,7 +13,8 @@ use anyhow::{bail, Context, Result};
 use blake3::Hasher;
 use bytes::Bytes;
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, CanonicalValueV1,
+    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, encode_canonical_cbor_v1,
+    CanonicalValueV1,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -23,7 +24,7 @@ use warp_core::{
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
     make_head_id, make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentValue,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionPolicyV1,
-    EchoOperationAnchoredNodeOccupancyV1, EchoOperationBudgetV1,
+    EchoOperationAnchoredNodeOccupancyV1, EchoOperationApplicationResultV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationV1,
     EchoOperationObstructionKindV1, EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId,
     NodeKey, NodeRecord, PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
@@ -66,6 +67,7 @@ pub struct RunEdictOperationReport {
     pub submission: SubmissionReport,
     pub scheduler: SchedulerReport,
     pub state: StateReport,
+    pub application_result: ApplicationResultReport,
     pub recovery: RecoveryReport,
     pub duplicate: DuplicateReport,
 }
@@ -118,6 +120,15 @@ pub struct StateReport {
     pub value_utf8: String,
 }
 
+#[derive(Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplicationResultReport {
+    pub projection_identity: String,
+    pub output_type: String,
+    pub canonical_bytes_hex: String,
+    pub result_identity: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoveryReport {
@@ -127,6 +138,7 @@ pub struct RecoveryReport {
     pub state_recovered: bool,
     pub outcome_recovered: bool,
     pub receipt_recovered: bool,
+    pub application_result_recovered: bool,
     pub mutated_initial_state_refusal: &'static str,
 }
 
@@ -148,6 +160,7 @@ struct PackageMetadata {
     authority_profile_identity: [u8; 32],
     target_profile_identity: [u8; 32],
     target_ir_identity: [u8; 32],
+    result_projection_identity: [u8; 32],
     target_intrinsic: &'static str,
     budget: EchoOperationBudgetV1,
     required_node_type: TypeId,
@@ -169,6 +182,7 @@ struct OperationInput {
     basis: String,
     key: String,
     replacement: Vec<u8>,
+    canonical_bytes: Vec<u8>,
 }
 
 struct HostFixture {
@@ -208,7 +222,13 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let package_value =
         decode_canonical_cbor_v1(&package_bytes).context("package is not canonical Edict CBOR")?;
     let package = parse_package(&package_value)?;
-    validate_verification_report(&report_bytes, &package_value, package.target_ir_identity)?;
+    validate_verification_report(
+        &report_bytes,
+        &package_value,
+        &package.operation_coordinate,
+        package.target_ir_identity,
+        package.result_projection_identity,
+    )?;
     let target_configuration = validate_closure(
         &manifest_bytes,
         &adapter_bytes,
@@ -258,6 +278,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let receipt_digest;
     let commit_global_tick;
     let worldline_tick_after;
+    let application_result;
 
     {
         let mut fixture = build_host(&input.basis, &input.key, false)?;
@@ -275,7 +296,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             &package,
             package_id,
             authority_grant_identity,
-            &input.replacement,
+            &input,
             EchoOperationAnchoredNodeOccupancyV1::Absent,
         )?;
         let envelope = echo_operation_action_envelope_v1(
@@ -367,6 +388,11 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .context("committed Action receipt has no global Tick coordinate")?
             .as_u64();
         worldline_tick_after = committed_receipt.worldline_tick_after().as_u64();
+        application_result = application_result_report(
+            committed_receipt
+                .committed_application_result()
+                .context("committed Action receipt has no typed application result")?,
+        );
         let value = node_value(
             &pending,
             package.required_node_type,
@@ -383,6 +409,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let state_recovered;
     let outcome_recovered;
     let receipt_recovered;
+    let application_result_recovered;
     let duplicate;
 
     {
@@ -411,21 +438,42 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
                 package.required_node_type,
                 package.required_attachment_type,
             )? == input.replacement;
-        outcome_recovered = matches!(
-            recovered
-                .host
-                .echo_operation_action_outcome_v1(&first_submission_id),
-            Some(EchoOperationActionOutcomeV1::Committed(_))
-        );
-        receipt_recovered = recovered_wal.echo_operation_action_outcomes.iter().any(
-            |(submission_id, _, outcome)| {
-                *submission_id == first_submission_id
-                    && matches!(outcome, EchoOperationActionOutcomeV1::Committed(_))
-            },
-        ) && recovered_wal
-            .receipt_correlations
+        let recovered_result = match recovered
+            .host
+            .echo_operation_action_outcome_v1(&first_submission_id)
+        {
+            Some(EchoOperationActionOutcomeV1::Committed(receipt)) => {
+                Some(application_result_report(
+                    receipt
+                        .committed_application_result()
+                        .context("recovered Action outcome has no typed application result")?,
+                ))
+            }
+            _ => None,
+        };
+        outcome_recovered = recovered_result.is_some();
+        let wal_result = recovered_wal
+            .echo_operation_action_outcomes
             .iter()
-            .any(|record| record.submission_id == first_submission_id);
+            .find_map(|(submission_id, _, outcome)| {
+                (*submission_id == first_submission_id)
+                    .then_some(outcome)
+                    .and_then(|outcome| match outcome {
+                        EchoOperationActionOutcomeV1::Committed(receipt) => {
+                            receipt.committed_application_result()
+                        }
+                        EchoOperationActionOutcomeV1::Obstructed(_)
+                        | EchoOperationActionOutcomeV1::RejectedFootprintConflict(_) => None,
+                    })
+                    .map(application_result_report)
+            });
+        receipt_recovered = wal_result.is_some()
+            && recovered_wal
+                .receipt_correlations
+                .iter()
+                .any(|record| record.submission_id == first_submission_id);
+        application_result_recovered = recovered_result.as_ref() == Some(&application_result)
+            && wal_result.as_ref() == Some(&application_result);
 
         recovered
             .host
@@ -441,7 +489,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             &package,
             package_id,
             authority_grant_identity,
-            &input.replacement,
+            &input,
             EchoOperationAnchoredNodeOccupancyV1::NodeAndAttachment,
         )?;
         let duplicate_envelope = echo_operation_action_envelope_v1(
@@ -493,6 +541,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
         || !state_recovered
         || !outcome_recovered
         || !receipt_recovered
+        || !application_result_recovered
     {
         bail!("fresh host did not recover the complete Action/Tick/state/outcome/Receipt witness");
     }
@@ -545,6 +594,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             value_utf8: String::from_utf8(input.replacement)
                 .context("replacement value is not UTF-8")?,
         },
+        application_result,
         recovery: RecoveryReport {
             pending_action_recovered,
             action_recovered,
@@ -552,6 +602,7 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             state_recovered,
             outcome_recovered,
             receipt_recovered,
+            application_result_recovered,
             mutated_initial_state_refusal,
         },
         duplicate,
@@ -593,6 +644,15 @@ fn artifact_identity(digest_hex: String) -> ArtifactIdentity {
     }
 }
 
+fn application_result_report(result: &EchoOperationApplicationResultV1) -> ApplicationResultReport {
+    ApplicationResultReport {
+        projection_identity: hex::encode(result.projection_identity()),
+        output_type: result.output_type().to_owned(),
+        canonical_bytes_hex: hex::encode(result.canonical_bytes()),
+        result_identity: hex::encode(result.identity()),
+    }
+}
+
 fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>> {
     let file =
         File::open(path).with_context(|| format!("failed to open {label} {}", path.display()))?;
@@ -617,6 +677,7 @@ fn read_bounded(path: &Path, maximum: u64, label: &str) -> Result<Vec<u8>> {
 
 fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
     require_text(value, "schema", "package", "echo.operation-package/v1")?;
+    let result_projection = map_field(value, "application_result_projection", "package")?;
     let program_bytes = bytes_field(value, "program", "package")?;
     let program =
         decode_canonical_cbor_v1(program_bytes).context("package program is not canonical")?;
@@ -648,6 +709,11 @@ fn parse_package(value: &CanonicalValueV1) -> Result<PackageMetadata> {
         authority_profile_identity: hash_field(value, "authority_profile_identity", "package")?,
         target_profile_identity: hash_field(value, "target_profile_identity", "package")?,
         target_ir_identity: hash_field(semantic_closure, "target_ir_identity", "semantic closure")?,
+        result_projection_identity: hash_field(
+            result_projection,
+            "artifact_identity",
+            "application result projection",
+        )?,
         target_intrinsic,
         budget: budget_value(
             budget,
@@ -680,7 +746,9 @@ fn target_intrinsic_for_program_kind(program_kind: &str) -> Result<&'static str>
 fn validate_verification_report(
     bytes: &[u8],
     package: &CanonicalValueV1,
+    operation_coordinate: &str,
     expected_target_ir_identity: [u8; 32],
+    expected_result_projection_identity: [u8; 32],
 ) -> Result<()> {
     let report = decode_canonical_cbor_v1(bytes)
         .context("verification report is not canonical Edict CBOR")?;
@@ -696,6 +764,15 @@ fn validate_verification_report(
     }
     let package_ref = map_field(&report, "package", "verification report")?;
     validate_resource_ref(package_ref, PACKAGE_ROLE, PACKAGE_DOMAIN, package)?;
+    let result_projection = map_field(
+        &report,
+        "applicationResultProjection",
+        "verification report",
+    )?;
+    require_resource_identity(result_projection, operation_coordinate)?;
+    if resource_digest(result_projection)? != expected_result_projection_identity {
+        bail!("verification report does not bind the package application-result projection");
+    }
     let target_ir = map_field(&report, "targetIr", "verification report")?;
     require_resource_identity(target_ir, TARGET_IR_COORDINATE)?;
     if resource_digest(target_ir)? != expected_target_ir_identity {
@@ -865,6 +942,13 @@ fn parse_input(bytes: &[u8], configuration: &TargetConfiguration) -> Result<Oper
     }
     let value: serde_json::Value =
         serde_json::from_slice(bytes).context("operation input is not valid JSON")?;
+    let mut nodes = 0_u64;
+    let canonical_value = canonical_application_input(&value, &mut nodes)?;
+    let canonical_bytes = encode_canonical_cbor_v1(&canonical_value)
+        .context("operation input cannot be represented as canonical Edict CBOR")?;
+    if u64::try_from(canonical_bytes.len())? > MAX_INPUT_BYTES {
+        bail!("canonical operation input exceeds the host byte bound");
+    }
     let object = value
         .as_object()
         .context("operation input must be one JSON object")?;
@@ -900,7 +984,49 @@ fn parse_input(bytes: &[u8], configuration: &TargetConfiguration) -> Result<Oper
         basis: basis.to_owned(),
         key: key.to_owned(),
         replacement,
+        canonical_bytes,
     })
+}
+
+fn canonical_application_input(
+    value: &serde_json::Value,
+    nodes: &mut u64,
+) -> Result<CanonicalValueV1> {
+    *nodes = nodes
+        .checked_add(1)
+        .context("operation input node count overflowed")?;
+    if *nodes > 4_096 {
+        bail!("operation input exceeds the canonical value-node bound");
+    }
+    match value {
+        serde_json::Value::Null => Ok(CanonicalValueV1::Null),
+        serde_json::Value::Bool(value) => Ok(CanonicalValueV1::Bool(*value)),
+        serde_json::Value::Number(value) => value
+            .as_u64()
+            .map(|value| CanonicalValueV1::Integer(i128::from(value)))
+            .or_else(|| {
+                value
+                    .as_i64()
+                    .map(|value| CanonicalValueV1::Integer(i128::from(value)))
+            })
+            .context("operation input numbers must be integers"),
+        serde_json::Value::String(value) => Ok(CanonicalValueV1::Text(value.clone())),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .map(|value| canonical_application_input(value, nodes))
+            .collect::<Result<Vec<_>>>()
+            .map(CanonicalValueV1::Array),
+        serde_json::Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| {
+                Ok((
+                    CanonicalValueV1::Text(key.clone()),
+                    canonical_application_input(value, nodes)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()
+            .map(CanonicalValueV1::Map),
+    }
 }
 
 fn install_package(
@@ -996,7 +1122,7 @@ fn invocation(
     package: &PackageMetadata,
     package_id: warp_core::EchoOperationPackageIdV1,
     authority_grant_identity: [u8; 32],
-    replacement: &[u8],
+    input: &OperationInput,
     occupancy: EchoOperationAnchoredNodeOccupancyV1,
 ) -> Result<Vec<u8>> {
     let application_basis =
@@ -1004,14 +1130,15 @@ fn invocation(
     let evaluation_basis = fixture
         .host
         .echo_operation_evaluation_basis_v1(fixture.head, application_basis)?;
-    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
         package_id,
         &package.operation_coordinate,
         evaluation_basis,
         authority_grant_identity,
         package.budget,
         fixture.node,
-        replacement.to_vec(),
+        input.replacement.clone(),
+        input.canonical_bytes.clone(),
     )
     .to_canonical_bytes()
     .context("failed to encode canonical executable-operation invocation")

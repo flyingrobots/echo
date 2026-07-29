@@ -21,6 +21,7 @@ use warp_core::{
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
+const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
 
@@ -149,7 +150,227 @@ fn semantic_roles_do_not_encode_application_names() {
     assert_eq!(success.outputs.len(), 1);
 }
 
+#[test]
+fn compiler_result_projection_is_bound_into_the_package_exactly() {
+    let request = fixture_request(ALPHA);
+    let projection = request
+        .semantic_inputs
+        .iter()
+        .find(|input| input.kind == SemanticInputKind::Auxiliary("result-projection".to_owned()))
+        .expect("fixture carries the compiler result projection")
+        .clone();
+    let expected_identity = hash(&projection.artifact.reference.digest);
+    let expected_bytes = projection.artifact.artifact.bytes;
+
+    let success = lower(request).expect("the projection-bearing closure lowers");
+    let package = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+        .expect("the emitted package is canonical");
+    let bound_projection = map_value(&package, "application_result_projection");
+
+    assert_eq!(
+        bytes_slice(bound_projection, "artifact_bytes"),
+        expected_bytes.as_slice()
+    );
+    assert_eq!(
+        bytes_value::<32>(bound_projection, "artifact_identity"),
+        expected_identity
+    );
+}
+
+#[test]
+fn result_projection_is_a_mandatory_semantic_input() {
+    let mut request = fixture_request(ALPHA);
+    request
+        .semantic_inputs
+        .retain(|input| input.kind != SemanticInputKind::Auxiliary("result-projection".to_owned()));
+
+    let refusal = lower(request).expect_err("a six-input closure must fail closed");
+
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
+#[test]
+fn rebound_result_projection_coordinate_is_an_invalid_artifact() {
+    let mut request = fixture_request(ALPHA);
+    let projection = request
+        .semantic_inputs
+        .iter_mut()
+        .find(|input| input.kind == SemanticInputKind::Auxiliary("result-projection".to_owned()))
+        .expect("fixture carries the compiler result projection");
+    projection.artifact.reference.coordinate = "forged.application@9.otherResult".to_owned();
+
+    let refusal = lower(request).expect_err("a rebound projection must fail closed");
+
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+    );
+}
+
+#[test]
+fn projection_output_ceiling_accepts_the_boundary_and_rejects_the_next_byte() {
+    let mut boundary = fixture_request(ALPHA);
+    replace_projection(
+        &mut boundary,
+        result_projection_with_max_output(ALPHA, 65_536),
+    );
+    lower(boundary).expect("the Echo runtime output ceiling is accepted");
+
+    let mut over_limit = fixture_request(ALPHA);
+    replace_projection(
+        &mut over_limit,
+        result_projection_with_max_output(ALPHA, 65_537),
+    );
+    let refusal =
+        lower(over_limit).expect_err("a package above Echo's output ceiling must fail closed");
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+    );
+}
+
+#[test]
+fn invocation_binding_fields_must_be_distinct() {
+    let request =
+        fixture_request_with_configuration(ALPHA, configuration_with_fields(ALPHA, "key", "key"));
+
+    let refusal =
+        lower(request).expect_err("one input field cannot bind two distinct runtime values");
+
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
+#[test]
+fn invocation_binding_field_length_accepts_the_boundary_and_rejects_the_next_byte() {
+    let boundary = "x".repeat(1_024);
+    for (node_key_field, replacement_field) in
+        [(boundary.as_str(), "value"), ("key", boundary.as_str())]
+    {
+        let mut request = fixture_request_with_configuration(
+            ALPHA,
+            configuration_with_fields(ALPHA, node_key_field, replacement_field),
+        );
+        replace_projection(
+            &mut request,
+            result_projection_with_binding_fields(ALPHA, node_key_field, replacement_field),
+        );
+        lower(request).expect("the exact invocation-binding field boundary is accepted");
+    }
+
+    let over_limit = "x".repeat(1_025);
+    for (node_key_field, replacement_field) in
+        [(over_limit.as_str(), "value"), ("key", over_limit.as_str())]
+    {
+        let request = fixture_request_with_configuration(
+            ALPHA,
+            configuration_with_fields(ALPHA, node_key_field, replacement_field),
+        );
+        let refusal =
+            lower(request).expect_err("an oversized invocation-binding field must fail closed");
+        assert_eq!(
+            refusal.kind,
+            echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+        );
+    }
+}
+
+#[test]
+fn projection_node_limit_accepts_the_boundary_and_rejects_the_next_node() {
+    let mut boundary = fixture_request(ALPHA);
+    replace_projection(&mut boundary, result_projection_with_fields(ALPHA, 255));
+    lower(boundary).expect("one root plus 255 source leaves is the exact boundary");
+
+    let mut over_limit = fixture_request(ALPHA);
+    replace_projection(&mut over_limit, result_projection_with_fields(ALPHA, 256));
+    let refusal = lower(over_limit).expect_err("the 257th projection node must fail closed");
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+    );
+}
+
+#[test]
+fn repeated_projection_lowering_is_stable_under_bounded_stress() {
+    let expected = lower(fixture_request(ALPHA))
+        .expect("the first projection-bearing closure lowers")
+        .outputs[0]
+        .artifact
+        .bytes
+        .clone();
+
+    for iteration in 0..128 {
+        let actual = lower(fixture_request(ALPHA))
+            .unwrap_or_else(|error| panic!("iteration {iteration} refused: {error:?}"))
+            .outputs[0]
+            .artifact
+            .bytes
+            .clone();
+        assert_eq!(
+            actual, expected,
+            "iteration {iteration} changed package bytes"
+        );
+    }
+}
+
+#[test]
+fn projection_field_order_is_canonical_for_fixed_seed_permutations() {
+    const SEED: u64 = 0x0698_5eed_cafe_babe;
+    let field_names = ["alpha", "beta", "delta", "gamma"];
+    let mut expected_request = fixture_request(ALPHA);
+    replace_projection(
+        &mut expected_request,
+        result_projection_with_field_order(ALPHA, &field_names),
+    );
+    let expected = lower(expected_request)
+        .expect("the canonical field order lowers")
+        .outputs[0]
+        .artifact
+        .bytes
+        .clone();
+    let mut state = SEED;
+
+    for case in 0..64 {
+        let mut permutation = field_names;
+        for index in (1..permutation.len()).rev() {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let swap = usize::try_from(state % u64::try_from(index + 1).expect("small bound"))
+                .expect("small index");
+            permutation.swap(index, swap);
+        }
+        let mut request = fixture_request(ALPHA);
+        replace_projection(
+            &mut request,
+            result_projection_with_field_order(ALPHA, &permutation),
+        );
+        let actual = lower(request)
+            .unwrap_or_else(|error| panic!("seed {SEED:#x}, case {case} refused: {error:?}"))
+            .outputs[0]
+            .artifact
+            .bytes
+            .clone();
+        assert_eq!(
+            actual, expected,
+            "seed {SEED:#x}, case {case} changed package bytes"
+        );
+    }
+}
+
 fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
+    fixture_request_with_configuration(names, configuration(names))
+}
+
+fn fixture_request_with_configuration(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+) -> LoweringRequestV1 {
     let target_profile = bound(
         "echo.dpo@1",
         "edict.target-profile/v1",
@@ -163,7 +384,7 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
     let configuration = bound(
         names.configuration,
         "echo.operation-lowering-configuration/v1",
-        canonical_bytes(&configuration(names)),
+        canonical_bytes(&configuration_value),
     );
     let adapter = bound(
         names.adapter,
@@ -201,6 +422,11 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
         "edict.target-ir.artifact/v1",
         canonical_bytes(&target_ir(names, &core, &lawpack, &target_profile)),
     );
+    let result_projection = bound(
+        &format!("{}.{}", names.application, names.intent),
+        RESULT_PROJECTION_DOMAIN,
+        canonical_bytes(&result_projection(names)),
+    );
 
     LoweringRequestV1 {
         protocol_version: ProtocolVersionV1 {
@@ -236,6 +462,11 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
                 "target-ir",
                 SemanticInputKind::Auxiliary("target-ir".to_owned()),
                 target_ir,
+            ),
+            semantic_input(
+                "result-projection",
+                SemanticInputKind::Auxiliary("result-projection".to_owned()),
+                result_projection,
             ),
         ],
         requested_outputs: vec![LoweringOutputRequest {
@@ -333,6 +564,14 @@ fn exports(names: FixtureNames<'_>) -> CanonicalValueV1 {
 }
 
 fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    configuration_with_fields(names, "key", "value")
+}
+
+fn configuration_with_fields(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+) -> CanonicalValueV1 {
     owned_map([
         (
             "apiVersion",
@@ -357,8 +596,8 @@ fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
         (
             "invocationBinding",
             owned_map([
-                ("nodeKeyField", text("key")),
-                ("replacementField", text("value")),
+                ("nodeKeyField", text(node_key_field)),
+                ("replacementField", text(replacement_field)),
                 ("nodeIdDerivation", text("sha256-utf8/v1")),
                 ("warpIdSource", text("action-lane/v1")),
             ]),
@@ -462,6 +701,7 @@ fn target_ir(
                     (
                         "steps",
                         CanonicalValueV1::Array(vec![owned_map([
+                            ("id", text("step.0")),
                             ("targetIntrinsic", text(TARGET_INTRINSIC)),
                             (
                                 "obstructionFailures",
@@ -473,6 +713,189 @@ fn target_ir(
             )]),
         ),
     ])
+}
+
+fn result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    result_projection_with_max_output(names, 512)
+}
+
+fn result_projection_with_max_output(
+    names: FixtureNames<'_>,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
+    result_projection_with_binding_fields_and_max_output(names, "key", "value", max_output_bytes)
+}
+
+fn result_projection_with_binding_fields(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+) -> CanonicalValueV1 {
+    result_projection_with_binding_fields_and_max_output(
+        names,
+        node_key_field,
+        replacement_field,
+        512,
+    )
+}
+
+fn result_projection_with_binding_fields_and_max_output(
+    names: FixtureNames<'_>,
+    node_key_field: &str,
+    replacement_field: &str,
+    max_output_bytes: u64,
+) -> CanonicalValueV1 {
+    owned_map([
+        ("schema", text("edict.result-projection/v1")),
+        (
+            "operationCoordinate",
+            text(format!("{}.{}", names.application, names.intent)),
+        ),
+        ("outputType", text(format!("{}.Output", names.application))),
+        ("maxOutputBytes", integer(max_output_bytes)),
+        (
+            "expression",
+            owned_map([
+                ("kind", text("record")),
+                (
+                    "fields",
+                    dynamic_map([
+                        (
+                            "first",
+                            projection_source(
+                                owned_map([
+                                    ("kind", text("capabilityResult")),
+                                    ("stepId", text("step.0")),
+                                ]),
+                                [node_key_field],
+                            ),
+                        ),
+                        (
+                            "second",
+                            projection_source(
+                                owned_map([("kind", text("applicationInput"))]),
+                                [replacement_field],
+                            ),
+                        ),
+                    ]),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn runtime_result_expression() -> CanonicalValueV1 {
+    owned_map([
+        ("kind", text("record")),
+        (
+            "fields",
+            dynamic_map([
+                (
+                    "first",
+                    projection_source(owned_map([("kind", text("applicationInput"))]), ["key"]),
+                ),
+                (
+                    "second",
+                    projection_source(owned_map([("kind", text("applicationInput"))]), ["value"]),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn result_projection_with_fields(names: FixtureNames<'_>, field_count: usize) -> CanonicalValueV1 {
+    let fields = (0..field_count)
+        .map(|index| {
+            (
+                format!("field-{index:03}"),
+                projection_source(owned_map([("kind", text("applicationInput"))]), ["value"]),
+            )
+        })
+        .collect::<Vec<_>>();
+    owned_map([
+        ("schema", text("edict.result-projection/v1")),
+        (
+            "operationCoordinate",
+            text(format!("{}.{}", names.application, names.intent)),
+        ),
+        ("outputType", text(format!("{}.Output", names.application))),
+        ("maxOutputBytes", integer(65_536)),
+        (
+            "expression",
+            owned_map([
+                ("kind", text("record")),
+                (
+                    "fields",
+                    dynamic_map(
+                        fields
+                            .iter()
+                            .map(|(name, expression)| (name.as_str(), expression.clone())),
+                    ),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn result_projection_with_field_order(
+    names: FixtureNames<'_>,
+    field_names: &[&str],
+) -> CanonicalValueV1 {
+    owned_map([
+        ("schema", text("edict.result-projection/v1")),
+        (
+            "operationCoordinate",
+            text(format!("{}.{}", names.application, names.intent)),
+        ),
+        ("outputType", text(format!("{}.Output", names.application))),
+        ("maxOutputBytes", integer(512)),
+        (
+            "expression",
+            owned_map([
+                ("kind", text("record")),
+                (
+                    "fields",
+                    dynamic_map(field_names.iter().map(|name| {
+                        (
+                            *name,
+                            projection_source(
+                                owned_map([("kind", text("applicationInput"))]),
+                                ["value"],
+                            ),
+                        )
+                    })),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn projection_source<const N: usize>(
+    source: CanonicalValueV1,
+    path: [&str; N],
+) -> CanonicalValueV1 {
+    owned_map([
+        ("kind", text("source")),
+        ("source", source),
+        (
+            "path",
+            CanonicalValueV1::Array(path.into_iter().map(text).collect()),
+        ),
+    ])
+}
+
+fn replace_projection(request: &mut LoweringRequestV1, value: CanonicalValueV1) {
+    let input = request
+        .semantic_inputs
+        .iter_mut()
+        .find(|input| input.kind == SemanticInputKind::Auxiliary("result-projection".to_owned()))
+        .expect("fixture carries the compiler result projection");
+    let coordinate = input.artifact.reference.coordinate.clone();
+    input.artifact = bound(
+        &coordinate,
+        RESULT_PROJECTION_DOMAIN,
+        canonical_bytes(&value),
+    );
 }
 
 fn expected_package(
@@ -491,6 +914,9 @@ fn expected_package(
     let exports = input(&SemanticInputKind::Auxiliary("lawpack-exports".to_owned()));
     let lawpack = input(&SemanticInputKind::Lawpack);
     let target_ir = input(&SemanticInputKind::Auxiliary("target-ir".to_owned()));
+    let result_projection = input(&SemanticInputKind::Auxiliary(
+        "result-projection".to_owned(),
+    ));
     let core_identity = hash(&request.core.reference.digest);
     ExecutableOperationPackageV1::new(
         format!("{}.{}", names.application, names.intent),
@@ -514,6 +940,14 @@ fn expected_package(
             256,
         ),
     )
+    .with_application_result_projection(
+        result_projection.artifact.bytes.clone(),
+        hash(&result_projection.reference.digest),
+        vec!["key".to_owned()],
+        vec!["value".to_owned()],
+        &canonical_bytes(&runtime_result_expression()),
+    )
+    .expect("the independent package model accepts the fixture projection")
 }
 
 fn semantic_input(role: &str, kind: SemanticInputKind, artifact: BoundArtifact) -> SemanticInput {
@@ -613,4 +1047,27 @@ fn text_field<'a>(value: &'a CanonicalValueV1, field: &str) -> Option<&'a str> {
             None
         }
     })
+}
+
+fn map_value<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a CanonicalValueV1 {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("expected canonical map");
+    };
+    entries
+        .iter()
+        .find_map(|(key, value)| (key == &text(field)).then_some(value))
+        .unwrap_or_else(|| panic!("missing map field {field}"))
+}
+
+fn bytes_value<const N: usize>(value: &CanonicalValueV1, field: &str) -> [u8; N] {
+    bytes_slice(value, field)
+        .try_into()
+        .unwrap_or_else(|_| panic!("field {field} has the wrong byte length"))
+}
+
+fn bytes_slice<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a [u8] {
+    let CanonicalValueV1::Bytes(bytes) = map_value(value, field) else {
+        panic!("field {field} is not bytes");
+    };
+    bytes
 }

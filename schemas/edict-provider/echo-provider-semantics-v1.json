@@ -540,6 +540,12 @@
       "schemaRole": "schema.echo-provider-artifacts"
     },
     {
+      "role": "result-projection.echo-operation",
+      "kind": "auxiliary",
+      "domain": "edict.result-projection.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts"
+    },
+    {
       "role": "source.echo-operation",
       "kind": "auxiliary",
       "domain": "edict.source/v1",
@@ -770,6 +776,12 @@
       "schemaRole": "schema.echo-provider-artifacts",
       "format": "selfContainedCddlV1",
       "rootRule": "lowering-requirements"
+    },
+    {
+      "domain": "edict.result-projection.artifact/v1",
+      "schemaRole": "schema.echo-provider-artifacts",
+      "format": "selfContainedCddlV1",
+      "rootRule": "result-projection"
     },
     {
       "domain": "edict.source/v1",

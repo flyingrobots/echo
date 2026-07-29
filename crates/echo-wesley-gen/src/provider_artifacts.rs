@@ -233,6 +233,7 @@ echo-nonempty-tstr = tstr .regexp "(?s).+"
 edict-source-bytes = bstr
 
 echo-operation-package = {
+  "application_result_projection": echo-operation-application-result-projection,
   "application_basis_schema_identity": bstr .size 32,
   "authority_profile_identity": bstr .size 32,
   "budget_ceiling": echo-operation-budget,
@@ -251,6 +252,28 @@ echo-operation-package = {
   schema: "echo.operation-package/v1",
   "semantic_closure": echo-operation-semantic-closure,
   "target_profile_identity": bstr .size 32,
+}
+
+echo-operation-application-result-projection = {
+  "application_input_node_key_path": [* echo-nonempty-tstr],
+  "application_input_replacement_path": [* echo-nonempty-tstr],
+  "artifact_bytes": bstr,
+  "artifact_identity": bstr .size 32,
+  "runtime_expression": echo-operation-result-expression,
+}
+
+echo-operation-result-expression =
+  echo-operation-result-record / echo-operation-result-source
+
+echo-operation-result-record = {
+  kind: "record",
+  fields: { * echo-nonempty-tstr => echo-operation-result-expression },
+}
+
+echo-operation-result-source = {
+  kind: "source",
+  path: [* echo-nonempty-tstr],
+  source: { kind: "applicationInput" },
 }
 
 echo-operation-budget = {
@@ -292,6 +315,7 @@ echo-operation-lowering-configuration = {
 
 echo-operation-package-verifier-report = {
   apiVersion: "echo.operation-package-verifier-report/v1",
+  applicationResultProjection: resource-ref,
   package: resource-ref,
   targetIr: resource-ref,
   outcome: "accepted" / "rejected",

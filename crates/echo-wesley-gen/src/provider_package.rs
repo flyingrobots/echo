@@ -49,7 +49,7 @@ const PROVIDER_MANIFEST_COORDINATE_V1: &str = "echo.edict-provider-manifest@1";
 const SEMANTIC_SOURCE_COORDINATE_V1: &str = "echo.semantic-schema@1";
 const GENERATOR_COORDINATE_V1: &str = "echo-wesley-gen.provider-artifact-generator@1";
 const EXPECTED_ARTIFACT_COUNT: usize = 10;
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 30;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 31;
 const EXPECTED_MEMBER_COUNT: usize = 24;
 const EXPECTED_FILE_COUNT: usize = 25;
 const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
@@ -368,7 +368,7 @@ pub struct ProviderManifestV1 {
     pub provider: ProviderManifestResourceRefV1,
     /// Ten exact generated/component artifact routes.
     pub artifacts: Vec<ProviderManifestArtifactV1>,
-    /// Twenty-four exact immutable schema-domain bindings.
+    /// Exact immutable schema-domain bindings.
     pub schema_bindings: Vec<ProviderManifestSchemaBindingV1>,
 }
 
@@ -2006,6 +2006,7 @@ fn schema_binding_specs() -> [(&'static str, &'static str); EXPECTED_SCHEMA_BIND
         ("edict.lawpack-exports/v1", "lawpack-exports"),
         ("edict.lawpack/v1", "lawpack-manifest"),
         ("edict.lowering-requirements/v1", "lowering-requirements"),
+        ("edict.result-projection.artifact/v1", "result-projection"),
         ("edict.source/v1", "edict-source-bytes"),
         ("edict.target-ir.artifact/v1", "target-ir-artifact"),
         ("edict.target-profile/v1", "target-profile-manifest"),

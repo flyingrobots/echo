@@ -139,14 +139,16 @@ The currently implemented generic runtime slice is:
 exact canonical ExecutableOperationPackageV1 bytes
 -> Echo-owned package admission under a separate policy
 -> installed data-only EchoOperationProgramV1
--> exact basis-bearing canonical invocation
+-> installed compiler-owned application-result projection
+-> exact basis-bearing projected invocation with canonical application input
 -> canonical Action submission retained before acknowledgement
 -> Echo-owned invocation admission under authority and delegated budget
 -> ordinary head-inbox staging and scheduler selection at one exact basis
 -> bounded private evaluation with recorded actual footprint during Tick construction
+-> exact typed application-result bytes and domain-separated identity
 -> deterministic composition of independent Actions into one Tick consequence
 -> typed committed, obstructed, or footprint-conflict outcome for every Action
--> decided Tick WAL retention before publication and callback-free recovery
+-> decided Tick WAL retention before publication and callback-free result recovery
 ```
 
 The first two programs are an anchored typed-node alpha-attachment
@@ -171,13 +173,15 @@ standalone application-owned Edict source
 -> exact Core, lawpack, exports, target adapter, target configuration, and Target IR
 -> compiler-produced ExecutableOperationPackageV1
 -> structurally separate accepted verification report
--> generic typed-input binding into one canonical Action
+-> exact result-projection binding and generic typed-input binding
+-> projected invocation retaining exact canonical application input
 -> accepted-submission WAL commit before acknowledgement
 -> fresh-host recovery of the exact installed package and pending Action
 -> scheduler-owned private evaluation of the recovered Action and one singleton Tick
+-> exact compiler-declared result bytes in the committed outcome and Receipt
 -> decided-Tick WAL commit before publication
--> second fresh-host package, Action, Tick, state, outcome, and Receipt recovery
--> typed duplicate-create obstruction with no hidden mutation
+-> second fresh-host package, Action, Tick, state, result, outcome, and Receipt recovery
+-> typed duplicate-create obstruction with no hidden mutation or application result
 -> refusal to recover against a mutated initial state
 ```
 
@@ -189,16 +193,25 @@ configuration chain before Echo independently admits the package. Target
 configuration names the key and replacement input fields, node-id derivation,
 Action-lane WARP source, authority profile, type profiles, and budget. The
 accepted report's Target IR identity must equal the package semantic closure's
-Target IR identity. Target configuration is selected from the adapter
-implementation whose target intrinsic matches the package-supported program;
-an unrelated effect cannot substitute a configuration with compatible profile
-and budget values. State validation checks both the declared node type and the
-attachment type. The retained report binds its reading to the input basis and
-node key, derived worldline and node, accepted submission, committed Tick, and
-typed Receipt identities. The runtime-owned basis selector, configured fields,
-package meaning, and verification report all influence the canonical
-invocation; no application matcher, executor, footprint callback, or
-handwritten package participates.
+Target IR identity, and its result-projection reference must equal the
+compiler-owned projection bound into the package. Target configuration is
+selected from the adapter implementation whose target intrinsic matches the
+package-supported program; an unrelated effect cannot substitute a
+configuration with compatible profile and budget values. State validation
+checks both the declared node type and the attachment type. The retained report
+binds its reading to the input basis and node key, derived worldline and node,
+accepted submission, committed Tick, and typed Receipt identities. The
+runtime-owned basis selector, configured fields, package meaning, and
+verification report all influence the canonical invocation; no application
+matcher, executor, footprint callback, or handwritten package participates.
+
+The generic report retains the projection identity, compiler-declared output
+type coordinate, exact canonical result bytes, and domain-separated result
+identity. The committed Receipt, recovered Action outcome, and recovered WAL
+outcome must agree on all four propositions. Corrupting or coherently rebinding
+the projection artifact fails independent Echo admission; substituting retained
+result bytes fails recovery validation. The runner never decodes
+application-specific fields in production.
 
 The duplicate witness reports the graph-only application-state root and typed
 target-value digest immediately before and after the obstructed Action. The

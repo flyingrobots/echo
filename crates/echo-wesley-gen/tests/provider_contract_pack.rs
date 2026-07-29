@@ -12,11 +12,12 @@ const CONTRACT_CDDL: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/edict-provider-contracts.cddl");
 const CONTRACT_MANIFEST: &[u8] =
     include_bytes!("../assets/v1/edict-provider/contracts/v1/manifest.json");
-const DOMAIN_ROOTS: [(&str, &str); 6] = [
+const DOMAIN_ROOTS: [(&str, &str); 7] = [
     ("edict.authority-facts/v1", "authority-facts"),
     ("edict.core.module/v1", "core-module"),
     ("edict.lawpack/v1", "lawpack-manifest"),
     ("edict.lowering-requirements/v1", "lowering-requirements"),
+    ("edict.result-projection.artifact/v1", "result-projection"),
     ("edict.target-ir.artifact/v1", "target-ir-artifact"),
     ("edict.target-profile/v1", "target-profile-manifest"),
 ];
@@ -47,10 +48,10 @@ fn checked_edict_provider_contract_pack_is_admitted() {
     assert_eq!(pack.license(), "Apache-2.0");
     assert_eq!(
         pack.schema_sha256(),
-        "a5d5ea82a9e64aa78c4a44204d3e8919c1c590febb967f1d31639fdc2a20a96c"
+        "ff5405708185e0bcf33dac263000fcb772c79e21145ad69da7cad0692e1a9552"
     );
-    assert_eq!(pack.contract_count(), 10);
-    assert_eq!(pack.domain_count(), 6);
+    assert_eq!(pack.contract_count(), 11);
+    assert_eq!(pack.domain_count(), 7);
     assert_eq!(pack.resource_count(), 5);
     assert_eq!(pack.schema_bytes(), CONTRACT_CDDL);
     assert_eq!(pack.manifest_bytes(), CONTRACT_MANIFEST);
@@ -85,7 +86,7 @@ fn tampered_contract_cddl_has_stable_failure_kind() {
         error.to_string(),
         concat!(
             "provider contract pack schema-bytes-mismatch: schema.bytesHex -> ",
-            "a5d5ea82a9e64aa78c4a44204d3e8919c1c590febb967f1d31639fdc2a20a96c"
+            "ff5405708185e0bcf33dac263000fcb772c79e21145ad69da7cad0692e1a9552"
         )
     );
 }

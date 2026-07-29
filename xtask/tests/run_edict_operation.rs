@@ -160,7 +160,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["artifacts"]["package"]["algorithm"], "sha256");
     assert_eq!(
         report["artifacts"]["package"]["digestHex"],
-        "67dc6d23e223e78b6aa774a2f57c86db2eff4981ea793975d39c66f731f02fd1"
+        "3665d692cdd120f116f18067f2fd583e841448d057b5e35515f57264f853d0f6"
     );
     assert_eq!(
         report["artifacts"]["verificationReport"]["algorithm"],
@@ -168,7 +168,7 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     );
     assert_eq!(
         report["artifacts"]["verificationReport"]["digestHex"],
-        "8a5153b4ec25ebe979f0ceab373d03969e30a64d7973b3a83e3c84877c5aa564"
+        "2541c8263d95fdad52f4f5a3bbfed48fdefd9f20969156c3c3fd56be912b66dd"
     );
     assert_eq!(
         report["artifacts"]["lawpackManifest"]["algorithm"],
@@ -206,12 +206,29 @@ fn compiler_emitted_operation_runs_durably_without_native_callbacks() {
     assert_eq!(report["submission"]["walCommittedBeforeAck"], true);
     assert_eq!(report["scheduler"]["actionCount"], 1);
     assert_eq!(report["state"]["valueUtf8"], "Hello Echo");
+    assert_eq!(
+        report["applicationResult"]["projectionIdentity"],
+        "791fb36bb4d42273eb558ce4d03d68d90a678d15891fb9cbe4ad8a20bb56fa82"
+    );
+    assert_eq!(
+        report["applicationResult"]["outputType"],
+        "examples.hello_echo@1.GreetingCreated"
+    );
+    assert_eq!(
+        report["applicationResult"]["canonicalBytesHex"],
+        "a2636b6579686772656574696e67676d6573736167656a48656c6c6f204563686f"
+    );
+    assert_eq!(
+        report["applicationResult"]["resultIdentity"],
+        "bfc50f30e68ac57742ef0fb0ccc41506c1af4a9ecdeca32c0b934a1adccb9860"
+    );
     assert_eq!(report["recovery"]["pendingActionRecovered"], true);
     assert_eq!(report["recovery"]["actionRecovered"], true);
     assert_eq!(report["recovery"]["tickRecovered"], true);
     assert_eq!(report["recovery"]["stateRecovered"], true);
     assert_eq!(report["recovery"]["outcomeRecovered"], true);
     assert_eq!(report["recovery"]["receiptRecovered"], true);
+    assert_eq!(report["recovery"]["applicationResultRecovered"], true);
     assert_eq!(
         report["duplicate"]["obstruction"],
         "causal.cell@1.AlreadyExists"
@@ -376,6 +393,74 @@ fn verification_report_target_ir_must_match_the_package_semantic_closure() {
 }
 
 #[test]
+fn verification_report_must_bind_the_compiler_result_projection() {
+    let run_dir = TempRunDir::new();
+    let report_path = run_dir.path().join("result-projection-substitution.cbor");
+    let mut report = decode_fixture("verification-report.cbor");
+    let result_projection = map_field_mut(&mut report, "applicationResultProjection");
+    resource_digest_mut(result_projection)[0] ^= 0xff;
+    fs::write(
+        &report_path,
+        encode_canonical_cbor_v1(&report).expect("the substituted report re-encodes"),
+    )
+    .expect("the substituted report is writable");
+
+    let output = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &report_path,
+        &fixture_path("input.json"),
+        &run_dir.path().join("result-projection-substitution-wal"),
+    )
+    .output()
+    .expect("the result-projection substitution case starts");
+    assert_rejected(
+        &output,
+        "verification report does not bind the package application-result projection",
+    );
+}
+
+#[test]
+fn corrupted_result_projection_bytes_fail_echo_package_admission() {
+    let run_dir = TempRunDir::new();
+    let package_path = run_dir
+        .path()
+        .join("corrupt-result-projection-package.cbor");
+    let report_path = run_dir.path().join("corrupt-result-projection-report.cbor");
+
+    let mut package = decode_fixture("executable-operation-package.cbor");
+    let projection = map_field_mut(&mut package, "application_result_projection");
+    bytes_field_mut(projection, "artifact_bytes")[0] ^= 0xff;
+    fs::write(
+        &package_path,
+        encode_canonical_cbor_v1(&package).expect("the corrupted package re-encodes"),
+    )
+    .expect("the corrupted package is writable");
+
+    let package_digest = digest_canonical_value_bytes_v1("echo.operation-package/v1", &package)
+        .expect("the rebound package identity is computable");
+    let mut report = decode_fixture("verification-report.cbor");
+    resource_digest_mut(map_field_mut(&mut report, "package")).copy_from_slice(&package_digest);
+    fs::write(
+        &report_path,
+        encode_canonical_cbor_v1(&report).expect("the rebound report re-encodes"),
+    )
+    .expect("the rebound report is writable");
+
+    let output = runner_command(
+        &package_path,
+        &report_path,
+        &fixture_path("input.json"),
+        &run_dir.path().join("corrupt-result-projection-wal"),
+    )
+    .output()
+    .expect("the corrupted projection case starts");
+    assert_rejected(
+        &output,
+        "Echo independently refused the compiler-produced package",
+    );
+}
+
+#[test]
 fn target_configuration_must_belong_to_the_selected_effect() {
     let run_dir = TempRunDir::new();
     let adapter_path = run_dir.path().join("cross-effect-adapter.cbor");
@@ -506,6 +591,22 @@ fn fixed_seed_keys_preserve_the_generic_durable_witness_under_bounded_stress() {
         assert_eq!(report["state"]["valueUtf8"], replacement);
         assert_eq!(report["causalSite"]["basis"], format!("basis-{index}"));
         assert_eq!(report["causalSite"]["nodeKey"], format!("key-{state:016x}"));
+        assert_eq!(
+            report["applicationResult"]["outputType"],
+            "examples.hello_echo@1.GreetingCreated"
+        );
+        assert_eq!(report["recovery"]["applicationResultRecovered"], true);
+        let result = decode_canonical_cbor_v1(
+            &hex::decode(
+                report["applicationResult"]["canonicalBytesHex"]
+                    .as_str()
+                    .expect("application result bytes are hexadecimal"),
+            )
+            .expect("application result bytes use valid hexadecimal"),
+        )
+        .expect("application result bytes remain canonical");
+        assert_eq!(text_field(&result, "key"), format!("key-{state:016x}"));
+        assert_eq!(text_field(&result, "message"), replacement);
         assert!(
             retained_receipts.insert(
                 report["causalSite"]["receiptDigest"]
@@ -534,6 +635,21 @@ fn map_field_mut<'a>(value: &'a mut CanonicalValueV1, name: &str) -> &'a mut Can
             _ => None,
         })
         .unwrap_or_else(|| panic!("fixture map is missing {name}"))
+}
+
+fn text_field<'a>(value: &'a CanonicalValueV1, name: &str) -> &'a str {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("fixture value must be a canonical map");
+    };
+    entries
+        .iter()
+        .find_map(|(key, value)| match (key, value) {
+            (CanonicalValueV1::Text(key), CanonicalValueV1::Text(value)) if key == name => {
+                Some(value.as_str())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("fixture map is missing text field {name}"))
 }
 
 fn array_field_mut<'a>(

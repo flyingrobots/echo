@@ -68,7 +68,7 @@ const VERIFIER_ROLE: &str = "verifier.echo-dpo";
 const VERIFIER_REPORT_DOMAIN: &str = "echo.verifier-report/v1";
 const VERIFIER_REPORT_ROLE: &str = "verifier-report.echo-dpo";
 const PACKAGE_OBSERVATION_MARKER: &str = "ECHO_EDICT_PACKAGE_OBSERVATION=";
-const EXPECTED_SCHEMA_BINDING_COUNT: usize = 30;
+const EXPECTED_SCHEMA_BINDING_COUNT: usize = 31;
 
 const MANIFEST_BYTES: &[u8] =
     include_bytes!("../../../schemas/edict-provider/package/v1/provider-manifest.echo.json");
@@ -1763,6 +1763,11 @@ fn checked_package_is_ready_for_edict_before_guest_execution() {
         EXPECTED_SCHEMA_BINDING_COUNT
     );
     assert_eq!(registry.bindings().len(), EXPECTED_SCHEMA_BINDING_COUNT);
+    assert_schema_binding(
+        &manifest,
+        "edict.result-projection.artifact/v1",
+        "result-projection",
+    );
     assert_routed_canonical_artifacts(&manifest, &registry);
     assert_generated_resources(&manifest, &registry);
     let lawpack = decode_canonical_cbor(LAWPACK_BYTES).expect("lawpack is canonical");

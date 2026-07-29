@@ -76,6 +76,16 @@ evaluation yields either a complete prepared candidate or a typed no-mutation
 obstruction. The scheduler reserves successful candidate footprints, constructs
 one composite consequence, and emits one Tick receipt entry per Action.
 
+When the installed package carries a compiler-owned application-result
+projection, the canonical invocation retains its exact application input and
+private evaluation produces exact typed result bytes. The applied Action
+outcome, Receipt, and WAL retain the projection identity, output type, canonical
+bytes, and result identity. Recovery revalidates that evidence against the
+installed projection. Obstructions carry no result, and neither evaluation nor
+recovery invokes a native application callback. Admission rejects canonical
+application input or a compiler-declared result ceiling above 65,536 bytes
+before either value reaches private scheduler evaluation.
+
 The successor state remains private until the complete Tick transaction is
 durable. Construction failure discards it. WAL failure restores the
 accepted-pending posture. The direct executable-operation prepare/commit methods

@@ -388,7 +388,7 @@ Echo owns:
 - causal history, frontiers, and runtime coordinates;
 - admission, scheduling, ticks, and settlement;
 - receipts, witnesses, reading envelopes, and retained artifacts;
-- bounded observation machinery;
+- bounded observation and basis-bound external-action coordination;
 - generic contract hosting and suffix import/export surfaces.
 
 You own:

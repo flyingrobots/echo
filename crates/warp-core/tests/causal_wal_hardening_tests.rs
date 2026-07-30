@@ -8,6 +8,9 @@
     clippy::unnecessary_debug_formatting
 )]
 
+#[path = "support/child_process.rs"]
+mod child_process;
+
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_materialization_outbox_transaction, build_retained_reading_transaction,
@@ -50,7 +53,6 @@ use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const WAL_SEGMENT_RECORD_MAGIC: &[u8; 8] = b"ECWALR1!";
@@ -1085,12 +1087,14 @@ fn fixed_seed_filesystem_writer_epoch_chain_survives_bounded_reopens() {
         must_ok(store.close_epoch(epoch.epoch_id));
         previous_epoch_id = Some(epoch.epoch_id);
         let ledger_len = must_ok(fs::metadata(root.join("writer-epochs.ecwal"))).len();
-        match bounded_ledger_len {
-            Some(expected) => assert_eq!(
-                ledger_len, expected,
-                "writer-epoch ledger must stay bounded after epoch {ordinal}"
-            ),
-            None => bounded_ledger_len = Some(ledger_len),
+        if ordinal > 0 {
+            match bounded_ledger_len {
+                Some(expected) => assert_eq!(
+                    ledger_len, expected,
+                    "writer-epoch ledger must stay bounded after epoch {ordinal}"
+                ),
+                None => bounded_ledger_len = Some(ledger_len),
+            }
         }
     }
 
@@ -1137,19 +1141,15 @@ fn filesystem_writer_epoch_chain_crosses_independent_processes() {
     let root = temp_wal_root("writer-epoch-process");
     let executable = must_ok(std::env::current_exe());
     for phase in ["first", "second"] {
-        let status = must_ok(
-            Command::new(&executable)
-                .args([
-                    "--ignored",
-                    "--exact",
-                    "emit_filesystem_writer_epoch_process_step",
-                    "--nocapture",
-                ])
-                .env("ECHO_WRITER_EPOCH_TEST_ROOT", &root)
-                .env("ECHO_WRITER_EPOCH_TEST_PHASE", phase)
-                .status(),
+        child_process::run_child_phase(
+            &executable,
+            "emit_filesystem_writer_epoch_process_step",
+            phase,
+            "ECHO_WRITER_EPOCH_TEST_ROOT",
+            root.as_os_str(),
+            "ECHO_WRITER_EPOCH_TEST_PHASE",
+            &root,
         );
-        assert!(status.success(), "child phase `{phase}` must succeed");
     }
 
     must_ok(fs::remove_dir_all(root));

@@ -4,9 +4,11 @@
 
 #![allow(clippy::panic)]
 
+#[path = "support/child_process.rs"]
+mod child_process;
+
 use std::cell::Cell;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use warp_core::causal_wal::{
@@ -989,17 +991,15 @@ fn filesystem_external_action_lifecycle_crosses_independent_processes() {
     let wal_dir = TempWalDir::new("independent-processes");
     let executable = must_ok(std::env::current_exe());
     for phase in ["request", "claim", "settlement", "replay"] {
-        let status = must_ok(
-            Command::new(&executable)
-                .arg("--ignored")
-                .arg("--exact")
-                .arg("emit_filesystem_external_action_process_step")
-                .arg("--nocapture")
-                .env("ECHO_EXTERNAL_ACTION_PROCESS_ROOT", &wal_dir.0)
-                .env("ECHO_EXTERNAL_ACTION_PROCESS_PHASE", phase)
-                .status(),
+        child_process::run_child_phase(
+            &executable,
+            "emit_filesystem_external_action_process_step",
+            phase,
+            "ECHO_EXTERNAL_ACTION_PROCESS_ROOT",
+            wal_dir.0.as_os_str(),
+            "ECHO_EXTERNAL_ACTION_PROCESS_PHASE",
+            &wal_dir.0,
         );
-        assert!(status.success(), "child phase {phase} failed: {status}");
     }
 
     let report = must_ok(recover_filesystem_store(

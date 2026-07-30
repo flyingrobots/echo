@@ -2132,14 +2132,21 @@ impl TrustedRuntimeHost {
                     if runtime_wal.recover_filesystem_tick_commit_after_error(first_correlation) {
                         continue;
                     }
-                    if !runtime_wal.uses_filesystem_store() {
-                        *runtime_wal = runtime_wal_before
-                            .ok_or(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)?;
-                    }
+                    let rollback_error = if runtime_wal.uses_filesystem_store() {
+                        None
+                    } else if let Some(snapshot) = runtime_wal_before {
+                        *runtime_wal = snapshot;
+                        None
+                    } else {
+                        Some(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
+                    };
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
                     self.echo_operation_action_outcomes = action_outcomes_before;
                     self.admitted_echo_operation_actions = admitted_actions_before;
+                    if let Some(rollback_error) = rollback_error {
+                        return Err(rollback_error.into());
+                    }
                     return Err(error.into());
                 }
             }

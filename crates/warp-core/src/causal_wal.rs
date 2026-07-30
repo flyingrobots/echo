@@ -75,6 +75,7 @@ const WAL_PAYLOAD_DOMAIN: &[u8] = b"echo:causal_wal:payload:v1\0";
 const WAL_WRITER_EPOCH_LEDGER_DOMAIN: &[u8] = b"echo:causal_wal:writer_epoch_ledger:v1\0";
 const WAL_WRITER_EPOCH_LEDGER_MAGIC: &[u8; 8] = b"EWEP0001";
 const WAL_WRITER_EPOCH_LEDGER_VERSION: u16 = 1;
+const WAL_WRITER_EPOCH_RETAINED_CLOSED_LIMIT: usize = 1;
 const WAL_TICK_RECEIPT_MAGIC_V2: &[u8; 8] = b"ETICK002";
 const WAL_TICK_RECEIPT_BATCH_MAGIC_V3: &[u8; 8] = b"ETICK003";
 const WAL_RECEIPT_CORRELATION_MAGIC_V2: &[u8; 8] = b"ERCOR002";
@@ -5688,7 +5689,29 @@ impl FilesystemWalStore {
     }
 
     fn persist_writer_epoch_ledger(&self) -> Result<(), WalStoreError> {
-        write_writer_epoch_ledger_atomic(&self.root, &self.writer_epoch_ledger())
+        write_writer_epoch_ledger_atomic(
+            &self.root,
+            self.active_epoch.as_ref(),
+            &self.closed_epochs,
+            &self.epoch_closures,
+        )
+    }
+
+    fn retain_latest_closed_writer_epoch(&mut self) {
+        if self.closed_epochs.len() <= WAL_WRITER_EPOCH_RETAINED_CLOSED_LIMIT {
+            return;
+        }
+        let Some(latest) = self.closed_epochs.pop() else {
+            return;
+        };
+        let latest_closure = self
+            .epoch_closures
+            .remove(&latest.epoch_id)
+            .unwrap_or_default();
+        self.closed_epochs.clear();
+        self.epoch_closures.clear();
+        self.epoch_closures.insert(latest.epoch_id, latest_closure);
+        self.closed_epochs.push(latest);
     }
 
     fn ensure_writer_lock(&self) -> Result<(), WalStoreError> {
@@ -5725,6 +5748,7 @@ impl FilesystemWalStore {
                 .entry(recovered_active_epoch.epoch_id)
                 .or_default();
             self.closed_epochs.push(recovered_active_epoch);
+            self.retain_latest_closed_writer_epoch();
             if let Err(error) = self.persist_writer_epoch_ledger() {
                 self.install_writer_epoch_ledger(previous_ledger);
                 return Err(error);
@@ -6109,6 +6133,7 @@ impl WalStorePort for FilesystemWalStore {
         }
         self.epoch_closures.entry(epoch_id).or_default();
         self.closed_epochs.push(epoch);
+        self.retain_latest_closed_writer_epoch();
         if let Err(error) = self.persist_writer_epoch_ledger() {
             self.install_writer_epoch_ledger(previous_ledger);
             return Err(error);
@@ -8192,29 +8217,31 @@ fn validate_writer_epoch_closure(closure: WriterEpochClosure) -> Result<(), WalS
     Ok(())
 }
 
-fn encode_writer_epoch_ledger(ledger: &WriterEpochLedger) -> Vec<u8> {
+fn encode_writer_epoch_ledger(
+    active_epoch: Option<&WriterEpoch>,
+    closed_epochs: &[WriterEpoch],
+    epoch_closures: &BTreeMap<WriterEpochId, WriterEpochClosure>,
+) -> Vec<u8> {
     let mut payload = Vec::new();
     payload.extend_from_slice(&WAL_WRITER_EPOCH_LEDGER_VERSION.to_le_bytes());
-    payload.extend_from_slice(&len_u64(ledger.closed_epochs.len()).to_le_bytes());
-    for epoch in &ledger.closed_epochs {
+    payload.extend_from_slice(&len_u64(closed_epochs.len()).to_le_bytes());
+    for epoch in closed_epochs {
         push_writer_epoch(&mut payload, epoch);
         push_writer_epoch_closure(
             &mut payload,
-            ledger
-                .epoch_closures
+            epoch_closures
                 .get(&epoch.epoch_id)
                 .copied()
                 .unwrap_or_default(),
         );
     }
-    match &ledger.active_epoch {
+    match active_epoch {
         Some(epoch) => {
             payload.push(1);
             push_writer_epoch(&mut payload, epoch);
             push_writer_epoch_closure(
                 &mut payload,
-                ledger
-                    .epoch_closures
+                epoch_closures
                     .get(&epoch.epoch_id)
                     .copied()
                     .unwrap_or_default(),
@@ -8235,19 +8262,24 @@ fn decode_writer_epoch_ledger(payload: &[u8]) -> Result<WriterEpochLedger, WalSt
     }
     let closed_len =
         usize::try_from(cursor.read_u64()?).map_err(|_| WalDecodeError::UnexpectedEof)?;
+    if closed_len > WAL_WRITER_EPOCH_RETAINED_CLOSED_LIMIT {
+        return Err(WalStoreError::WriterEpochChainGap);
+    }
     let mut ledger = WriterEpochLedger::default();
-    for _ in 0..closed_len {
+    for retained_index in 0..closed_len {
         let epoch = read_writer_epoch(&mut cursor)?;
         let closure = read_writer_epoch_closure(&mut cursor)?;
         validate_writer_epoch_closure(closure)?;
-        let validated = validate_writer_epoch_request(
-            None,
-            &ledger.closed_epochs,
-            &ledger.epoch_closures,
-            writer_epoch_request_from_epoch(&epoch),
-        )?;
-        if validated != epoch {
-            return Err(WalStoreError::WriterEpochChainGap);
+        if retained_index > 0 {
+            let validated = validate_writer_epoch_request(
+                None,
+                &ledger.closed_epochs,
+                &ledger.epoch_closures,
+                writer_epoch_request_from_epoch(&epoch),
+            )?;
+            if validated != epoch {
+                return Err(WalStoreError::WriterEpochChainGap);
+            }
         }
         ledger.epoch_closures.insert(epoch.epoch_id, closure);
         ledger.closed_epochs.push(epoch);
@@ -8322,8 +8354,12 @@ fn derive_filesystem_writer_epoch_evidence(
     hasher.finalize().into()
 }
 
-fn writer_epoch_ledger_file_bytes(ledger: &WriterEpochLedger) -> Vec<u8> {
-    let payload = encode_writer_epoch_ledger(ledger);
+fn writer_epoch_ledger_file_bytes(
+    active_epoch: Option<&WriterEpoch>,
+    closed_epochs: &[WriterEpoch],
+    epoch_closures: &BTreeMap<WriterEpochId, WriterEpochClosure>,
+) -> Vec<u8> {
+    let payload = encode_writer_epoch_ledger(active_epoch, closed_epochs, epoch_closures);
     let mut bytes = Vec::new();
     bytes.extend_from_slice(WAL_WRITER_EPOCH_LEDGER_MAGIC);
     bytes.extend_from_slice(&len_u64(payload.len()).to_le_bytes());
@@ -8358,11 +8394,13 @@ fn read_writer_epoch_ledger(root: &Path) -> Result<WriterEpochLedger, WalStoreEr
 
 fn write_writer_epoch_ledger_atomic(
     root: &Path,
-    ledger: &WriterEpochLedger,
+    active_epoch: Option<&WriterEpoch>,
+    closed_epochs: &[WriterEpoch],
+    epoch_closures: &BTreeMap<WriterEpochId, WriterEpochClosure>,
 ) -> Result<(), WalStoreError> {
     let path = root.join("writer-epochs.ecwal");
     let temp = root.join(".writer-epochs.ecwal.tmp");
-    let bytes = writer_epoch_ledger_file_bytes(ledger);
+    let bytes = writer_epoch_ledger_file_bytes(active_epoch, closed_epochs, epoch_closures);
     {
         let mut file = File::create(&temp)?;
         file.write_all(&bytes)?;
@@ -8379,6 +8417,16 @@ fn reconcile_writer_epoch_closures(
     if ledger.active_epoch.is_none() && ledger.closed_epochs.is_empty() && !commits.is_empty() {
         return Err(WalStoreError::MissingWriterEpochLedger);
     }
+    let retained_start_lsn = ledger
+        .closed_epochs
+        .first()
+        .map(|epoch| epoch.started_at_lsn)
+        .or_else(|| {
+            ledger
+                .active_epoch
+                .as_ref()
+                .map(|epoch| epoch.started_at_lsn)
+        });
     for commit in commits {
         let known_epoch = ledger
             .active_epoch
@@ -8389,6 +8437,9 @@ fn reconcile_writer_epoch_closures(
                 .iter()
                 .any(|epoch| epoch.epoch_id == commit.writer_epoch);
         if !known_epoch {
+            if retained_start_lsn.is_some_and(|start_lsn| commit.last_lsn < start_lsn) {
+                continue;
+            }
             return Err(WalStoreError::UnknownPreviousWriterEpoch);
         }
         let closure = ledger

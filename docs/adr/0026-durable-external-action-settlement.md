@@ -103,8 +103,12 @@ and unknown outcome codes.
 
 The schema-admission evidence is a protocol binding, not a general schema
 engine. Each operation profile must define which validator produces that
-evidence. The bounded workspace-observation profile will supply the first
-concrete validator.
+evidence. The bounded workspace-observation profile supplies the first concrete
+validator. It independently accepts exact compiler-owned Core and Target IR,
+binds the request to the exact target profile and capability closure, and
+validates strictly ordered retained path/content bytes, aggregate bounds,
+nonzero evidence, and complete basis evidence before generic settlement
+admission.
 
 ### WAL ownership
 
@@ -188,8 +192,15 @@ invoking adapter execution.
 - Crash ambiguity has an explicit causal representation.
 - Operation-specific idempotency and reconciliation laws remain mandatory;
   Echo does not claim general exactly-once external execution.
-- The current protocol proves the durable lifecycle without implementing a
-  filesystem, process, network, Git, GitHub, timer, or model adapter.
+- The first capability-rooted read-only workspace adapter is implemented.
+  Compiler admission independently reconstructs the request projection from
+  Core, enforces both declared and host-owned evaluation budgets, and requires
+  enough settlement capacity for every terminal posture. Successful
+  settlements must cover exactly the admitted path aperture. Settlement
+  admission revalidates the live registry grant, while nonblocking no-follow
+  opens refuse special-file substitution without stalling.
+  Process, network, Git, GitHub, timer, model, and mutation adapters remain
+  absent.
 
 ## Rejected Alternatives
 
@@ -216,8 +227,11 @@ deterministic validation and a separately authorized adapter govern mutation.
 ## Evidence
 
 - `crates/warp-core/src/external_action.rs`
+- `crates/warp-core/src/external_action_adapter.rs`
 - `crates/warp-core/src/causal_wal.rs`
 - `crates/warp-core/tests/external_action_protocol_tests.rs`
+- `crates/warp-core/tests/bounded_workspace_observation_tests.rs`
+- [External Actions](../topics/ExternalActions.md)
 - [WAL](../topics/WAL.md)
 - [Runtime Authority](../topics/RuntimeAuthority.md)
 - [Security And Authority Boundaries](../topics/security/AuthorityBoundaries.md)

@@ -58,6 +58,11 @@ evidence posture.
 - Replay consumes the admitted settlement bytes and never invokes the adapter.
 - `OutcomeUnknown` is a first-class terminal observation, not an alias for
   failure.
+- The bounded workspace-observation profile independently admits exact Edict
+  Core and Echo-profile Target IR, binds target profile plus portable operation
+  into the runtime operation identity, then exposes only an explicit
+  relative-path set through one capability-rooted, no-follow adapter. Compiler
+  admission and request recording perform no filesystem read.
 
 ## Host Boundary
 
@@ -71,6 +76,7 @@ adapters.
 
 - [Registry/provider/host boundary](../adr/0015-registry-provider-host-boundary.md)
 - [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
+- [External actions](ExternalActions.md)
 - `docs/architecture/application-contract-hosting.md`
 - `crates/warp-core/src/trusted_runtime_host.rs`
 - `crates/warp-core/src/engine_impl.rs`

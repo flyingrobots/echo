@@ -15,6 +15,9 @@ std-fs crates/warp-core/tests/causal_wal_hardening_tests.rs WAL filesystem fixtu
 std-env crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture temp directory selection only.
 std-fs crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture I/O only.
 std-process crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture temp directory disambiguation only.
+std-env crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture temp directory selection only.
+std-fs crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture I/O only.
+std-process crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture temp directory disambiguation only.
 std-fs crates/warp-core/tests/external_consumer_contract_fixture_tests.rs installed-contract restart WAL fixture I/O only.
 std-fs crates/warp-core/tests/executable_operation_pipeline_tests.rs executable-operation restart WAL fixture I/O only.
 std-fs crates/warp-core/tests/provider_contract_admission_tests.rs provider invocation restart WAL fixture I/O only.

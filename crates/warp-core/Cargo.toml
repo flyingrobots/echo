@@ -27,6 +27,10 @@ echo-registry-api = { workspace = true }
 echo-edict-canonical = { workspace = true }
 warp-math = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cap-fs-ext = "=4.0.2"
+cap-std = "=4.0.2"
+
 [dev-dependencies]
 proptest = { version = "1.5" }
 echo-dry-tests = { workspace = true }

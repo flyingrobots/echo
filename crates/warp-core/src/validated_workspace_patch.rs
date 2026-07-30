@@ -6,6 +6,11 @@
 //! authority. Echo durably records and claims the request before this adapter
 //! can validate or mutate one exact regular file. Ambiguous attempts are
 //! reconciled by observation and are never blindly reapplied.
+//!
+//! The adapter refuses a basis already observed stale. It does not provide
+//! serializability against an external writer racing the final check and
+//! rename. `beforeContentDigest` records the earlier observation; it does not
+//! prove that no intermediate write occurred.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -269,6 +274,7 @@ impl ValidatedWorkspacePatchAdapterV1 {
             &grant,
             admitted,
             &candidate,
+            true,
         )?;
         Ok(admit_external_action_settlement(
             store,
@@ -322,7 +328,7 @@ impl ValidatedWorkspacePatchAdapterV1 {
     ) -> Result<ExternalActionSettlementCandidateV1, ValidatedWorkspacePatchErrorV1> {
         let (evidence, before_content_digest) = observed.map_or_else(
             || (external_evidence(code, path.unwrap_or("")), None),
-            |(basis, digest)| (basis, Some(digest)),
+            |(basis, digest)| (observed_external_evidence(code, basis), Some(digest)),
         );
         self.candidate(
             grant,
@@ -349,7 +355,7 @@ impl ValidatedWorkspacePatchAdapterV1 {
     ) -> Result<ExternalActionSettlementCandidateV1, ValidatedWorkspacePatchErrorV1> {
         let (evidence, before_content_digest) = observed.map_or_else(
             || (external_evidence(code, path.unwrap_or("")), None),
-            |(basis, digest)| (basis, Some(digest)),
+            |(basis, digest)| (observed_external_evidence(code, basis), Some(digest)),
         );
         self.candidate(
             grant,
@@ -458,7 +464,7 @@ impl ValidatedWorkspacePatchReconcilerV1 {
                     path: Some(input.path),
                     request_basis: grant.request().basis_digest,
                     evidence: observed_basis,
-                    before_content_digest: Some(input.expected_content_digest),
+                    before_content_digest: None,
                     after_content_digest: Some(observed_digest),
                     resulting_basis: Some(observed_basis),
                     obstruction: None,
@@ -473,7 +479,7 @@ impl ValidatedWorkspacePatchReconcilerV1 {
                 posture: "outcomeUnknown",
                 path: Some(input.path),
                 request_basis: grant.request().basis_digest,
-                evidence: observed_basis,
+                evidence: observed_external_evidence("postcondition-not-observed", observed_basis),
                 before_content_digest: Some(observed_digest),
                 after_content_digest: None,
                 resulting_basis: None,
@@ -499,6 +505,7 @@ impl ValidatedWorkspacePatchReconcilerV1 {
             &grant,
             admitted,
             &candidate,
+            false,
         )?;
         Ok(admit_external_action_settlement(
             store,
@@ -679,6 +686,7 @@ fn validate_candidate(
     grant: &ExternalActionClaimGrantV1,
     admitted: &AdmittedEdictExternalActionRequestV1,
     candidate: &ExternalActionSettlementCandidateV1,
+    requires_observed_before: bool,
 ) -> Result<(), ValidatedWorkspacePatchErrorV1> {
     if candidate.request_id != grant.request().request_id()
         || candidate.attempt_id != grant.claim().attempt_id
@@ -710,9 +718,11 @@ fn validate_candidate(
         };
         let expected_resulting_basis =
             validated_workspace_patch_basis_v1(&input.path, &input.replacement);
+        let expected_before_content_digest =
+            requires_observed_before.then_some(input.expected_content_digest);
         if evidence.path.as_deref() != Some(input.path.as_str())
             || !permitted_paths.contains(&input.path)
-            || evidence.before_content_digest != Some(input.expected_content_digest)
+            || evidence.before_content_digest != expected_before_content_digest
             || evidence.after_content_digest != Some(input.replacement_digest)
             || evidence.resulting_basis != Some(expected_resulting_basis)
             || evidence.evidence != expected_resulting_basis
@@ -720,7 +730,10 @@ fn validate_candidate(
         {
             return Err(ValidatedWorkspacePatchErrorV1::SchemaAdmissionFailed);
         }
-    } else if evidence.obstruction.as_deref().is_none_or(str::is_empty)
+    } else if evidence
+        .obstruction
+        .as_deref()
+        .is_none_or(|code| !is_known_obstruction(code))
         || evidence.resulting_basis.is_some()
         || evidence.after_content_digest.is_some()
     {
@@ -778,7 +791,7 @@ fn build_outcome_unknown_candidate(
 ) -> Result<ExternalActionSettlementCandidateV1, ValidatedWorkspacePatchErrorV1> {
     let (evidence, before_content_digest) = observed.map_or_else(
         || (external_evidence(code, path.unwrap_or("")), None),
-        |(basis, digest)| (basis, Some(digest)),
+        |(basis, digest)| (observed_external_evidence(code, basis), Some(digest)),
     );
     build_candidate(
         profile,
@@ -1151,6 +1164,36 @@ fn external_evidence(code: &str, detail: &str) -> Hash {
     hash_len_prefixed(&mut hasher, code.as_bytes());
     hash_len_prefixed(&mut hasher, detail.as_bytes());
     hasher.finalize().into()
+}
+
+fn observed_external_evidence(code: &str, observed_basis: Hash) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(PATCH_EXTERNAL_EVIDENCE_DOMAIN);
+    hash_len_prefixed(&mut hasher, code.as_bytes());
+    hash_len_prefixed(&mut hasher, &observed_basis);
+    hasher.finalize().into()
+}
+
+fn is_known_obstruction(code: &str) -> bool {
+    matches!(
+        code,
+        "malformed-input"
+            | "replacement-budget-exceeded"
+            | "invalid-path"
+            | "ci-workflow-refused"
+            | "unauthorized-path"
+            | "symlink-refused"
+            | "not-regular-file"
+            | "file-budget-exceeded"
+            | "io-failure"
+            | "stale-basis"
+            | "settlement-budget-exceeded"
+            | "rename-outcome-unknown"
+            | "directory-sync-outcome-unknown"
+            | "postcondition-unreadable"
+            | "postcondition-mismatch"
+            | "postcondition-not-observed"
+    )
 }
 
 fn posture_for(kind: ExternalActionSettlementKindV1) -> &'static str {

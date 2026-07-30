@@ -49,6 +49,8 @@ const OBSERVATION_REFUSAL_EVIDENCE_DOMAIN: &[u8] = b"echo.bounded-observation.re
 const MAX_CORE_EVALUATION_STEPS_V1: u64 = 4_096;
 const MAX_CORE_EVALUATION_ALLOCATED_BYTES_V1: u64 = 4 * 1_024 * 1_024;
 const MAX_CORE_EVALUATION_OUTPUT_BYTES_V1: u64 = 1_024 * 1_024;
+// Must continue to fit the pathless terminal obstruction asserted by the
+// workspace-patch settlement-budget boundary test.
 const MIN_REQUEST_ONLY_SETTLEMENT_BYTES_V1: u64 = 1_024;
 
 /// One canonical Edict request admitted from exact Core and Target IR bytes.
@@ -1083,6 +1085,8 @@ fn verify_target_derivation(
         || require_field(core_intent, "coreEvaluationBudget")?
             != require_field(target_intent, "coreEvaluationBudget")?
         || require_field(core_intent, "basis")? != require_field(target_intent, "basis")?
+        || require_field(core_intent, "requiredOperationProfile")?
+            != require_field(target_intent, "operationProfile")?
     {
         return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
     }

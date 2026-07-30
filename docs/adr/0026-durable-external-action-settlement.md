@@ -225,8 +225,9 @@ invoking adapter execution.
   opens refuse special-file substitution without stalling.
 - The first capability-rooted mutation adapter applies one validated,
   basis-bound regular-file replacement. Its authority commits the exact path
-  aperture and immutable no-follow, single-file, regular-file-only, and
-  CI-workflow-exclusion policy. It consumes the bounded-observation basis,
+  aperture, attempt-scoped sibling staging path, and immutable no-follow,
+  single-file, regular-file-only, and case-insensitive CI-workflow-exclusion
+  policy. It consumes the bounded-observation basis,
   records the request and claim before mutation, synchronizes a same-directory
   atomic replacement, and records the resulting basis and content identities
   before resumption. Ambiguous attempts are reconciled by bounded

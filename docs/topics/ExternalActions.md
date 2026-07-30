@@ -78,9 +78,13 @@ The v1 adapter deliberately supports one file replacement. It rejects escaped,
 unauthorized, symlinked, special-file, oversized, stale, and
 `.github/workflows/` targets before mutation. The authority digest commits the
 exact path set plus the single-file, no-follow, regular-file-only, and
-CI-workflow-exclusion policies. A same-directory temporary file is created
-without following links, written and synchronized, assigned the original
-permissions, atomically renamed, and followed by directory synchronization.
+CI-workflow-exclusion policies. It also commits the derived,
+attempt-identity-scoped sibling staging rule; the adapter cannot select an
+arbitrary second path. A same-directory temporary file is created without
+following links, written and synchronized, assigned the original permissions,
+atomically renamed, and followed by directory synchronization. CI-workflow
+matching is ASCII-case-insensitive so a case-insensitive host cannot alias a
+forbidden path through spelling alone.
 The exact success settlement is encoded and checked against the retained-byte
 budget before the temporary file is staged.
 The runtime owner must serialize the granted workspace mutation aperture; this

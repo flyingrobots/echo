@@ -45,6 +45,13 @@ fn must_ok<T, E: core::fmt::Debug>(result: Result<T, E>) -> T {
     }
 }
 
+fn must_some<T>(value: Option<T>) -> T {
+    match value {
+        Some(value) => value,
+        None => panic!("expected Some(..), got None"),
+    }
+}
+
 fn text(value: &str) -> CanonicalValueV1 {
     CanonicalValueV1::Text(value.to_owned())
 }
@@ -322,7 +329,7 @@ fn absolute_parent_escaped_and_unauthorized_paths_settle_as_rejected() {
         let root = TempRoot::new(&format!("path-{index}"));
         root.write("allowed.txt", b"allowed");
         let admitted = admitted_request(
-            u8::try_from(index + 10).expect("small index"),
+            must_ok(u8::try_from(index + 10)),
             [path.to_owned()],
             digest(&format!("scope:path-{index}")),
             digest(&format!("basis:path-{index}")),
@@ -400,8 +407,7 @@ fn exact_settlement_boundary_succeeds_and_one_byte_less_rejects() {
         "budget:measure",
     );
     let measured = must_ok(generous_adapter.observe(&generous_grant, &generous));
-    let exact_budget =
-        u64::try_from(measured.canonical_result_bytes.len()).expect("result fits u64");
+    let exact_budget = must_ok(u64::try_from(measured.canonical_result_bytes.len()));
 
     let exact = admitted_request(
         31,
@@ -530,11 +536,12 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
     ));
     let recovered_requested = must_ok(ExternalActionCoordinatorV1::recover(&store));
     assert_eq!(
-        recovered_requested
-            .observed_index()
-            .get(request.request_id())
-            .expect("request recovers")
-            .posture,
+        must_some(
+            recovered_requested
+                .observed_index()
+                .get(request.request_id())
+        )
+        .posture,
         RecoveredExternalActionPostureV1::Requested
     );
 
@@ -554,11 +561,7 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
     ));
     let recovered_claimed = must_ok(ExternalActionCoordinatorV1::recover(&store));
     assert_eq!(
-        recovered_claimed
-            .observed_index()
-            .get(request.request_id())
-            .expect("claim recovers")
-            .posture,
+        must_some(recovered_claimed.observed_index().get(request.request_id())).posture,
         RecoveredExternalActionPostureV1::Claimed
     );
 
@@ -573,11 +576,7 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
     ));
     let recovered_settled = must_ok(ExternalActionCoordinatorV1::recover(&store));
     assert_eq!(
-        recovered_settled
-            .observed_index()
-            .get(request.request_id())
-            .expect("settlement recovers")
-            .posture,
+        must_some(recovered_settled.observed_index().get(request.request_id())).posture,
         RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::OutcomeUnknown)
     );
 }
@@ -622,7 +621,7 @@ fn fixed_seed_property_corpus_is_deterministic() {
         state ^= state << 13;
         state ^= state >> 7;
         state ^= state << 17;
-        let length = usize::try_from((state % 257) + 1).expect("bounded length");
+        let length = must_ok(usize::try_from((state % 257) + 1));
         let bytes = vec![case; length];
         let path = format!("property/{case:02}.bin");
         let root = TempRoot::new(&format!("property-{case}"));

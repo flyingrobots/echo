@@ -198,9 +198,12 @@ Twelfth, strict filesystem WAL writer authority survives process loss as a
 durable, checksummed epoch ledger rather than process memory. Epoch acquisition
 is persisted before the store returns authority. Every committed transaction
 then advances that epoch's final LSN and commit-digest evidence, and explicit
-closure persists the complete predecessor link. Reopen restores closed and
-active epochs and reconciles a commit that reached its segment sync boundary
-before the ledger snapshot.
+closure persists the exact predecessor link. The ledger retains the active
+epoch and only its latest closed predecessor; the trusted successor identity
+recursively commits the preceding epoch identity and final commit while older
+transactions remain in the WAL. Reopen cost and ledger size therefore remain
+bounded, and reconciliation still admits a commit that reached its segment
+sync boundary before the ledger snapshot.
 
 The filesystem store holds an operating-system writer lease for the complete
 active epoch. A second live process cannot append, close, or replace that
@@ -210,8 +213,14 @@ successor with a monotonic start LSN, new epoch identity, fencing token, and
 lease evidence bound to the exact latest predecessor and its final commit.
 Duplicate identities, stale or missing predecessor links, reused fencing
 evidence, LSN regression, corrupted ledgers, and commits without their epoch
-ledger fail closed before append. This fencing is generic WAL authority; it
-contains no application vocabulary or callback.
+ledger fail closed before append.
+
+The operating-system lease is the filesystem adapter's exclusion authority.
+The persisted fencing, process, host, and lease fields are deterministic
+chain-position markers, not ambient PID or machine measurements and not a
+second lock. Their distinct values make epoch transitions attributable and
+replayable without sampling time, randomness, or global process state. This
+generic WAL authority contains no application vocabulary or callback.
 
 ## Boundaries
 

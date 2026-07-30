@@ -37,9 +37,12 @@ basis commitments, a retained-settlement bound, and exactly one attempt. A
 call expression or callable Target IR step is outside this admission profile.
 Admission also requires enough retained-settlement capacity to encode every
 terminal posture; a request cannot select a budget that makes rejection,
-failure, or ambiguity unrecordable.
+failure, or ambiguity unrecordable. Legacy bounded-observation requests retain
+their exact operation-specific boundary. The generic request-only profile
+requires at least 1,024 retained bytes so a new adapter can always record a
+compact terminal obstruction.
 
-## First Adapter Profile
+## Adapter Profiles
 
 `BoundedWorkspaceObservationAdapterV1` is the first operation-specific
 adapter. Runtime configuration supplies:
@@ -63,6 +66,34 @@ boundary needs an unforgeable directory capability plus component-wise
 no-follow opens. Both packages were already pinned in the workspace lockfile;
 the adapter does not introduce an ambient path or shell interface.
 
+`ValidatedWorkspacePatchAdapterV1` is the first mutation profile. It consumes
+the exact Edict-emitted `workspace.patch.applyValidated@1` request and one
+runtime-owned writable aperture. The canonical patch input names one relative
+regular file, its expected content identity, and replacement bytes. The
+request basis is the exact singleton basis produced by
+`bounded_workspace_observation_basis_v1`, so the observation settlement can
+feed the write precondition without translation.
+
+The v1 adapter deliberately supports one file replacement. It rejects escaped,
+unauthorized, symlinked, special-file, oversized, stale, and
+`.github/workflows/` targets before mutation. The authority digest commits the
+exact path set plus the single-file, no-follow, regular-file-only, and
+CI-workflow-exclusion policies. It also commits the derived,
+attempt-identity-scoped sibling staging rule; the adapter cannot select an
+arbitrary second path. A same-directory temporary file is created without
+following links, written and synchronized, assigned the original permissions,
+atomically renamed, and followed by directory synchronization. CI-workflow
+matching is ASCII-case-insensitive so a case-insensitive host cannot alias a
+forbidden path through spelling alone.
+The exact success settlement is encoded and checked against the retained-byte
+budget before the temporary file is staged.
+The runtime owner must serialize the granted workspace mutation aperture; this
+profile is not a general multi-file filesystem transaction. The adapter refuses
+a basis already observed stale, but the final check and rename do not establish
+serializability against an external writer. The direct success settlement's
+before-content identity is the earlier observation, not proof that no
+intermediate write occurred.
+
 ## Ordering
 
 The adapter accepts only `ExternalActionClaimGrantV1`. That grant exists only
@@ -71,7 +102,7 @@ after Echo commits:
 ```text
 REQUESTED
   -> CLAIMED
-  -> adapter observation
+  -> adapter execution
   -> validated settlement candidate
   -> SETTLED
 ```
@@ -115,6 +146,16 @@ Before generic WAL admission, the operation profile independently validates:
 
 Malformed or substituted candidates fail before the settlement transaction.
 
+Direct patch success retains the request's observation basis, exact resulting
+basis, path, observed before and after content identities, adapter evidence, and
+postcondition evidence. A reconciled success retains only the postcondition
+identity it actually observed; its `beforeContentDigest` is absent. Stale basis,
+path policy, special-file, and byte-budget violations settle as typed rejections
+without mutation. The adapter can return
+`OutcomeUnknown` after an ambiguous rename, directory synchronization, or
+postcondition read. A terminal settlement is durable before its result becomes
+resumable program input.
+
 If an adapter loses the acknowledgement after settlement commit, it may submit
 the retained candidate to
 `reconcile_external_action_settlement_retry`. That function has no store,
@@ -135,6 +176,14 @@ bounded-observation reconciler may admit explicit uncertainty. It cannot
 produce a successful observation. Substituted profiles, grants, or requests
 fail before another WAL commit, as does omitted zero-valued evidence.
 
+Patch reconciliation is different because the operation law admits bounded
+postcondition observation. `ValidatedWorkspacePatchReconcilerV1` exposes no
+write method. It reopens only the exact capability root and path aperture,
+observes whether the intended replacement and resulting basis already hold,
+and settles success when they do. Any other readable state or unreadable
+postcondition becomes `OutcomeUnknown`; reconciliation never stages or renames
+a file.
+
 Settled replay returns the canonical bytes retained in the WAL. It does not
 open the capability directory again. Removing or mutating source files after
 settlement therefore cannot change replay.
@@ -147,6 +196,8 @@ history.
 
 - `crates/warp-core/src/external_action_adapter.rs`
 - `crates/warp-core/tests/bounded_workspace_observation_tests.rs`
+- `crates/warp-core/src/validated_workspace_patch.rs`
+- `crates/warp-core/tests/bounded_workspace_patch_tests.rs`
 - `crates/warp-core/src/external_action.rs`
 - `crates/warp-core/tests/external_action_protocol_tests.rs`
 - [ADR 0026](../adr/0026-durable-external-action-settlement.md)

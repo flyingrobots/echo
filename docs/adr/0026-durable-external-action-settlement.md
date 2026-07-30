@@ -223,8 +223,16 @@ invoking adapter execution.
   settlements must cover exactly the admitted path aperture. Settlement
   admission revalidates the live registry grant, while nonblocking no-follow
   opens refuse special-file substitution without stalling.
-  Process, network, Git, GitHub, timer, model, and mutation adapters remain
-  absent.
+- The first capability-rooted mutation adapter applies one validated,
+  basis-bound regular-file replacement. Its authority commits the exact path
+  aperture, attempt-scoped sibling staging path, and immutable no-follow,
+  single-file, regular-file-only, and case-insensitive CI-workflow-exclusion
+  policy. It consumes the bounded-observation basis,
+  records the request and claim before mutation, synchronizes a same-directory
+  atomic replacement, and records the resulting basis and content identities
+  before resumption. Ambiguous attempts are reconciled by bounded
+  postcondition observation and never by reapplying the write.
+- Process, network, Git, GitHub, timer, and model adapters remain absent.
 
 ## Rejected Alternatives
 
@@ -252,9 +260,11 @@ deterministic validation and a separately authorized adapter govern mutation.
 
 - `crates/warp-core/src/external_action.rs`
 - `crates/warp-core/src/external_action_adapter.rs`
+- `crates/warp-core/src/validated_workspace_patch.rs`
 - `crates/warp-core/src/causal_wal.rs`
 - `crates/warp-core/tests/external_action_protocol_tests.rs`
 - `crates/warp-core/tests/bounded_workspace_observation_tests.rs`
+- `crates/warp-core/tests/bounded_workspace_patch_tests.rs`
 - [External Actions](../topics/ExternalActions.md)
 - [WAL](../topics/WAL.md)
 - [Runtime Authority](../topics/RuntimeAuthority.md)

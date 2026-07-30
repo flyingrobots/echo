@@ -179,6 +179,8 @@ mod tick_patch;
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 mod trusted_runtime_host;
 mod tx;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod validated_workspace_patch;
 mod warp_state;
 mod witness;
 mod witnessed_suffix;

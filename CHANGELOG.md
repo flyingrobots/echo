@@ -7,6 +7,12 @@
 
 ### Added
 
+- Bounded workspace claims can now settle as `OutcomeUnknown` after directory
+  authority disappears. A rootless reconciliation handle retains only the
+  exact runtime-owned profile, revalidates the durable grant and
+  compiler-admitted request, and constructs the schema-bound settlement inside
+  Echo. It cannot observe files or construct success, while zero evidence and
+  substituted profiles, grants, or requests fail before another WAL commit.
 - Settled external-action candidates can now be reconciled idempotently after
   acknowledgement loss without a WAL store, transition context, or claim
   grant. An exact retained candidate returns the original admitted settlement

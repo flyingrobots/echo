@@ -7,6 +7,17 @@
 
 ### Added
 
+- Echo now consumes the exact independently verified Edict
+  `workspace.patch.applyValidated@1` request through a capability-rooted
+  single-file patch adapter. The request binds the prior bounded-observation
+  basis, replacement identity, exact writable aperture, immutable no-follow
+  and CI-workflow-exclusion policy, and byte budgets before mutation. The
+  adapter rejects stale bases, escaped or substituted paths, symlinks, special
+  files, and oversized writes without mutation; synchronizes a same-directory
+  atomic replacement; and settles the resulting basis and before/after content
+  identities before resumption. Claimed attempts reconcile by observing the
+  exact postcondition or settling `OutcomeUnknown`, never by reapplying the
+  patch. Identical settlement retry and replay remain effect-free.
 - Bounded workspace claims can now settle as `OutcomeUnknown` after directory
   authority disappears. A rootless reconciliation handle retains only the
   exact runtime-owned profile, revalidates the durable grant's exact claim

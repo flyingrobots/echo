@@ -26,7 +26,8 @@ use warp_core::external_action_adapter::{
     admit_edict_external_action_request_v1, bounded_workspace_observation_basis_v1,
     encode_bounded_workspace_observation_input_v1, AdmittedEdictExternalActionRequestV1,
     BoundedWorkspaceObservationAdapterV1, BoundedWorkspaceObservationErrorV1,
-    BoundedWorkspaceObservationProfileV1, EdictExternalActionAdmissionErrorV1,
+    BoundedWorkspaceObservationProfileV1, BoundedWorkspaceObservationReconcilerV1,
+    EdictExternalActionAdmissionErrorV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -1325,6 +1326,188 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
         must_some(recovered_settled.observed_index().get(request.request_id())).posture,
         RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::OutcomeUnknown)
     );
+}
+
+#[test]
+fn outcome_unknown_settles_after_workspace_authority_disappears() {
+    let root = TempRoot::new("rootless-unknown");
+    let root_path = root.path().to_owned();
+    let bytes = b"possibly observed";
+    root.write("uncertain.txt", bytes);
+    let admitted = admitted_request(
+        61,
+        ["uncertain.txt".to_owned()],
+        digest("scope:rootless-unknown"),
+        bounded_workspace_observation_basis_v1([("uncertain.txt", bytes.as_slice())]),
+        65_536,
+    );
+    let runtime_profile = profile(&admitted, "bounded-observation:rootless-unknown");
+    let adapter = must_ok(BoundedWorkspaceObservationAdapterV1::open(
+        root.path(),
+        ["uncertain.txt".to_owned()],
+        runtime_profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let _grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "rootless-unknown",
+    );
+
+    drop(adapter);
+    drop(root);
+    assert!(!root_path.exists());
+
+    let reconciler = must_ok(BoundedWorkspaceObservationReconcilerV1::new(
+        runtime_profile,
+    ));
+    let zero_evidence_grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        reconciler.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:zero-evidence"),
+            &admitted,
+            zero_evidence_grant,
+            [0; 32],
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)
+    );
+
+    let mut substituted_profile = runtime_profile;
+    substituted_profile.adapter_id =
+        ExternalActionAdapterIdV1::from_hash(digest("rootless-unknown:substituted-adapter"));
+    let substituted = must_ok(BoundedWorkspaceObservationReconcilerV1::new(
+        substituted_profile,
+    ));
+    let substituted_grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        substituted.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:substituted-profile"),
+            &admitted,
+            substituted_grant,
+            digest("rootless-unknown:ambiguous"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::GrantMismatch)
+    );
+
+    let substituted_request = admitted_request(
+        62,
+        ["uncertain.txt".to_owned()],
+        digest("scope:rootless-unknown:substituted-request"),
+        bounded_workspace_observation_basis_v1([("uncertain.txt", bytes.as_slice())]),
+        65_536,
+    );
+    let substituted_request_grant =
+        must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        reconciler.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:substituted-request"),
+            &substituted_request,
+            substituted_request_grant,
+            digest("rootless-unknown:ambiguous"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::GrantMismatch)
+    );
+    assert_eq!(store.read_commits().len(), 2);
+
+    let grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    let settled = must_ok(reconciler.admit_outcome_unknown(
+        &mut store,
+        &mut coordinator,
+        context("rootless-unknown:settlement"),
+        &admitted,
+        grant,
+        digest("rootless-unknown:ambiguous"),
+    ));
+    assert_eq!(
+        settled.settlement().kind,
+        ExternalActionSettlementKindV1::OutcomeUnknown
+    );
+    assert_eq!(store.read_commits().len(), 3);
+}
+
+#[test]
+fn settlement_refuses_a_grant_from_a_distinct_claim_commit() {
+    let admitted = admitted_request(
+        62,
+        ["uncertain.txt".to_owned()],
+        digest("scope:claim-commit-binding"),
+        digest("basis:claim-commit-binding"),
+        65_536,
+    );
+    let runtime_profile = profile(&admitted, "bounded-observation:claim-commit-binding");
+    let reconciler = must_ok(BoundedWorkspaceObservationReconcilerV1::new(
+        runtime_profile,
+    ));
+    let request = admitted.request();
+
+    let mut initial_store = store();
+    let mut initial_coordinator = must_ok(ExternalActionCoordinatorV1::recover(&initial_store));
+    must_ok(record_external_action_request(
+        &mut initial_store,
+        &mut initial_coordinator,
+        context("claim-commit-binding:request"),
+        request,
+    ));
+
+    let mut left_store = initial_store.clone();
+    let mut right_store = initial_store;
+    let mut left_coordinator = must_ok(ExternalActionCoordinatorV1::recover(&left_store));
+    let mut right_coordinator = must_ok(ExternalActionCoordinatorV1::recover(&right_store));
+    let registry = ExternalActionAdapterRegistryV1::new([reconciler.adapter_binding()]);
+    let authorization =
+        must_ok(registry.authorize(&request, reconciler.adapter_binding().adapter_id));
+    let left_recorded = must_ok(left_coordinator.recorded_request(request.request_id()));
+    let left_grant = must_ok(claim_external_action(
+        &mut left_store,
+        &mut left_coordinator,
+        context("claim-commit-binding:left"),
+        left_recorded,
+        authorization,
+        request.basis_digest,
+        0,
+        digest("claim-commit-binding:lease"),
+    ));
+    let right_recorded = must_ok(right_coordinator.recorded_request(request.request_id()));
+    let right_grant = must_ok(claim_external_action(
+        &mut right_store,
+        &mut right_coordinator,
+        context("claim-commit-binding:right"),
+        right_recorded,
+        authorization,
+        request.basis_digest,
+        0,
+        digest("claim-commit-binding:lease"),
+    ));
+    assert_eq!(left_grant.request(), right_grant.request());
+    assert_eq!(left_grant.claim(), right_grant.claim());
+    assert_ne!(
+        left_grant.claim_commit_digest(),
+        right_grant.claim_commit_digest()
+    );
+
+    assert_eq!(
+        reconciler.admit_outcome_unknown(
+            &mut right_store,
+            &mut right_coordinator,
+            context("claim-commit-binding:settlement"),
+            &admitted,
+            left_grant,
+            digest("claim-commit-binding:ambiguous"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::Protocol(
+            ExternalActionProtocolErrorV1::SettlementClaimMismatch
+        ))
+    );
+    assert_eq!(right_store.read_commits().len(), 2);
 }
 
 #[test]

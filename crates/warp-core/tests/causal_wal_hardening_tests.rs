@@ -968,6 +968,55 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
 }
 
 #[test]
+fn filesystem_writer_epoch_ledger_digest_mismatch_fails_closed() {
+    let root = temp_wal_root("writer-epoch-ledger-digest");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.close_epoch(epoch_id()));
+    }
+    let ledger_path = root.join("writer-epochs.ecwal");
+    let mut bytes = must_ok(fs::read(&ledger_path));
+    let last = bytes
+        .last_mut()
+        .unwrap_or_else(|| panic!("writer-epoch ledger must not be empty"));
+    *last ^= 0x01;
+    must_ok(fs::write(&ledger_path, bytes));
+
+    let error = must_err(
+        FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)),
+        "corrupt writer-epoch ledger must fail closed",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::WriterEpochLedgerDigestMismatch
+    ));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_commits_without_writer_epoch_ledger_fail_closed() {
+    let root = temp_wal_root("writer-epoch-ledger-missing");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(submission_transaction(
+            "writer-epoch-ledger-missing",
+            Lsn::from_raw(0),
+        )));
+        must_ok(store.close_epoch(epoch_id()));
+    }
+    must_ok(fs::remove_file(root.join("writer-epochs.ecwal")));
+
+    let error = must_err(
+        FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)),
+        "committed WAL without its writer-epoch ledger must fail closed",
+    );
+    assert!(matches!(error, WalStoreError::MissingWriterEpochLedger));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
 fn duplicate_writer_epoch_id_is_a_chain_gap() {
     let mut store = InMemoryWalStore::new();
     must_ok(store.acquire_writer_epoch(writer_epoch_request()));

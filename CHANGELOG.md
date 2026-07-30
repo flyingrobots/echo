@@ -7,6 +7,13 @@
 
 ### Added
 
+- Settled external-action candidates can now be reconciled idempotently after
+  acknowledgement loss without a WAL store, transition context, or claim
+  grant. An exact retained candidate returns the original admitted settlement
+  and commit digest without appending history or making adapter execution
+  reachable. A different valid candidate conflicts, malformed candidates fail
+  ordinary settlement validation, and duplicated settlement records remain a
+  recovery obstruction.
 - Echo now independently admits compiler-produced Edict Core and Target IR for
   one non-callable external request, verifies its exact source, target profile,
   result, basis, and capability closure, independently corroborates the complete

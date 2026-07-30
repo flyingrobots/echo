@@ -1075,6 +1075,7 @@ fn fixed_seed_filesystem_writer_epoch_chain_survives_bounded_reopens() {
 
     let root = temp_wal_root("writer-epoch-fixed-seed");
     let mut previous_epoch_id = None;
+    let mut bounded_ledger_len = None;
     for ordinal in 0..EPOCH_COUNT {
         let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
         let label = format!("fixed-seed-{ordinal:02}");
@@ -1083,6 +1084,14 @@ fn fixed_seed_filesystem_writer_epoch_chain_survives_bounded_reopens() {
         let epoch = must_ok(store.acquire_writer_epoch(request));
         must_ok(store.close_epoch(epoch.epoch_id));
         previous_epoch_id = Some(epoch.epoch_id);
+        let ledger_len = must_ok(fs::metadata(root.join("writer-epochs.ecwal"))).len();
+        match bounded_ledger_len {
+            Some(expected) => assert_eq!(
+                ledger_len, expected,
+                "writer-epoch ledger must stay bounded after epoch {ordinal}"
+            ),
+            None => bounded_ledger_len = Some(ledger_len),
+        }
     }
 
     assert_eq!(previous_epoch_id, Some(epoch_id_for("fixed-seed-15")));

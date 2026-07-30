@@ -16,10 +16,10 @@ use warp_core::causal_wal::{
 use warp_core::external_action::{
     claim_external_action, reconcile_external_action_settlement_retry,
     record_external_action_request, ExternalActionAdapterBindingV1, ExternalActionAdapterIdV1,
-    ExternalActionAdapterRegistryV1, ExternalActionClaimGrantV1, ExternalActionCoordinatorV1,
-    ExternalActionProtocolErrorV1, ExternalActionSettlementCandidateV1,
-    ExternalActionSettlementKindV1, ExternalActionTransactionContextV1,
-    RecoveredExternalActionPostureV1,
+    ExternalActionAdapterRegistryV1, ExternalActionAttemptIdV1, ExternalActionClaimGrantV1,
+    ExternalActionCoordinatorV1, ExternalActionProtocolErrorV1,
+    ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
+    ExternalActionTransactionContextV1, RecoveredExternalActionPostureV1,
 };
 use warp_core::external_action_adapter::{
     admit_edict_external_action_request_v1, bounded_workspace_observation_basis_v1,
@@ -71,6 +71,48 @@ fn map(entries: impl IntoIterator<Item = (&'static str, CanonicalValueV1)>) -> C
             .map(|(key, value)| (text(key), value))
             .collect(),
     )
+}
+
+fn map_field_mut<'a>(value: &'a mut CanonicalValueV1, field: &str) -> &'a mut CanonicalValueV1 {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("expected canonical map");
+    };
+    let value = entries.iter_mut().find_map(|(key, value)| match key {
+        CanonicalValueV1::Text(key) if key == field => Some(value),
+        _ => None,
+    });
+    match value {
+        Some(value) => value,
+        None => panic!("missing canonical field {field}"),
+    }
+}
+
+fn encoded(value: &CanonicalValueV1) -> Vec<u8> {
+    must_ok(encode_canonical_cbor_v1(value))
+}
+
+fn patch_schema_admission_evidence(schema: Hash, bytes: &[u8]) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.validated-workspace-patch.schema-evidence/v1");
+    hasher.update(&schema);
+    hasher.update(&u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
+    hasher.update(bytes);
+    hasher.finalize().into()
+}
+
+fn replace_candidate_field(
+    candidate: &mut ExternalActionSettlementCandidateV1,
+    field: &str,
+    value: CanonicalValueV1,
+) {
+    let mut settlement = must_ok(decode_canonical_cbor_v1(&candidate.canonical_result_bytes));
+    *map_field_mut(&mut settlement, field) = value;
+    candidate.canonical_result_bytes = encoded(&settlement);
+    candidate.declared_result_digest = Hash::from(blake3::hash(&candidate.canonical_result_bytes));
+    candidate.schema_admission_evidence_digest = patch_schema_admission_evidence(
+        candidate.settlement_schema_digest,
+        &candidate.canonical_result_bytes,
+    );
 }
 
 fn application_input(
@@ -305,6 +347,27 @@ fn exact_compiler_artifacts_admit_one_noncallable_patch_request() {
     assert_eq!(
         validated_workspace_patch_basis_v1("src/lib.rs", b"before"),
         bounded_workspace_observation_basis_v1([("src/lib.rs", b"before".as_slice())])
+    );
+}
+
+#[test]
+fn target_operation_profile_cannot_downgrade_the_core_requirement() {
+    let authority = digest("authority:profile-derivation");
+    let basis = digest("basis:profile-derivation");
+    let patch = raw_patch_input("src/value.txt", b"before", b"after");
+    let mut target = must_ok(decode_canonical_cbor_v1(TARGET_IR_BYTES));
+    let intent = map_field_mut(map_field_mut(&mut target, "intents"), "applyValidated");
+    *map_field_mut(intent, "operationProfile") = text("continuum.profile.read-only/v1");
+
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([26; 32]),
+            CORE_BYTES,
+            &encoded(&target),
+            "applyValidated",
+            &application_input(patch, authority, basis, 65_536),
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch)
     );
 }
 
@@ -551,6 +614,12 @@ fn stale_basis_and_path_policy_refuse_before_mutation() {
         let candidate = must_ok(adapter.apply(&grant, &admitted));
         assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Rejected);
         assert_eq!(obstruction(&candidate), code);
+        if code == "stale-basis" {
+            assert_ne!(
+                candidate.external_evidence_digest,
+                validated_workspace_patch_basis_v1(requested_path, &before_bytes)
+            );
+        }
         assert_eq!(root.read(requested_path), before_bytes);
     }
 }
@@ -637,6 +706,129 @@ fn file_budget_and_grant_substitution_fail_closed() {
 }
 
 #[test]
+fn settlement_admission_rejects_tampered_candidates() {
+    let root = TempRoot::new("candidate-admission");
+    let path = "src/candidate.txt";
+    let before = b"before";
+    let replacement = b"after";
+    root.write(path, before);
+    let authority = validated_workspace_patch_authority_v1([path]);
+    let admitted = admitted_request(63, path, before, replacement, authority, 65_536);
+    let profile = profile(&admitted, "bounded-patch:candidate-admission", 65_536);
+    let adapter = must_ok(ValidatedWorkspacePatchAdapterV1::open(
+        root.path(),
+        [path.to_owned()],
+        profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        adapter.adapter_binding(),
+        "candidate-admission",
+    );
+    let request_id = grant.request().request_id();
+    let candidate = must_ok(adapter.apply(&grant, &admitted));
+    assert_eq!(root.read(path), replacement);
+
+    let mut wrong_attempt = candidate.clone();
+    wrong_attempt.attempt_id =
+        ExternalActionAttemptIdV1::from_hash(digest("candidate:wrong-attempt"));
+
+    let mut outside_path = candidate.clone();
+    replace_candidate_field(
+        &mut outside_path,
+        "path",
+        CanonicalValueV1::Text("src/outside.txt".to_owned()),
+    );
+
+    let mut zero_external_evidence = candidate.clone();
+    zero_external_evidence.external_evidence_digest = [0; 32];
+
+    let mut substituted_schema_evidence = candidate;
+    substituted_schema_evidence.schema_admission_evidence_digest =
+        digest("candidate:substituted-schema-evidence");
+
+    for (ordinal, tampered) in [
+        (0_u8, wrong_attempt),
+        (1, outside_path),
+        (2, zero_external_evidence),
+        (3, substituted_schema_evidence),
+    ] {
+        let grant = must_ok(coordinator.claim_grant(request_id));
+        assert!(matches!(
+            adapter.admit_settlement(
+                &mut store,
+                &mut coordinator,
+                context(&format!("candidate-admission:{ordinal}")),
+                &admitted,
+                grant,
+                tampered,
+            ),
+            Err(ValidatedWorkspacePatchErrorV1::SchemaAdmissionFailed)
+        ));
+        assert_eq!(root.read(path), replacement);
+        assert_eq!(
+            must_some(coordinator.observed_index().get(request_id)).posture,
+            RecoveredExternalActionPostureV1::Claimed
+        );
+    }
+}
+
+#[test]
+fn settlement_admission_rejects_unknown_obstruction_codes() {
+    let root = TempRoot::new("obstruction-vocabulary");
+    let permitted = "src/permitted.txt";
+    let denied = "src/denied.txt";
+    root.write(permitted, b"preserved");
+    let authority = validated_workspace_patch_authority_v1([permitted]);
+    let admitted = admitted_request(64, denied, b"absent", b"after", authority, 65_536);
+    let profile = profile(&admitted, "bounded-patch:obstruction-vocabulary", 65_536);
+    let adapter = must_ok(ValidatedWorkspacePatchAdapterV1::open(
+        root.path(),
+        [permitted.to_owned()],
+        profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        adapter.adapter_binding(),
+        "obstruction-vocabulary",
+    );
+    let request_id = grant.request().request_id();
+    let mut candidate = must_ok(adapter.apply(&grant, &admitted));
+    assert_eq!(obstruction(&candidate), "unauthorized-path");
+    replace_candidate_field(
+        &mut candidate,
+        "obstruction",
+        CanonicalValueV1::Text("unknown-obstruction".to_owned()),
+    );
+
+    assert!(matches!(
+        adapter.admit_settlement(
+            &mut store,
+            &mut coordinator,
+            context("obstruction-vocabulary:settlement"),
+            &admitted,
+            grant,
+            candidate,
+        ),
+        Err(ValidatedWorkspacePatchErrorV1::SchemaAdmissionFailed)
+    ));
+    assert_eq!(root.read(permitted), b"preserved");
+    assert!(!root.path().join(denied).exists());
+    assert_eq!(
+        must_some(coordinator.observed_index().get(request_id)).posture,
+        RecoveredExternalActionPostureV1::Claimed
+    );
+}
+
+#[test]
 fn settlement_budget_is_preflighted_before_mutation() {
     let root = TempRoot::new("settlement-budget");
     let segment = "a".repeat(80);
@@ -666,6 +858,7 @@ fn settlement_budget_is_preflighted_before_mutation() {
     let candidate = must_ok(adapter.apply(&grant, &admitted));
     assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Rejected);
     assert_eq!(obstruction(&candidate), "settlement-budget-exceeded");
+    assert!(candidate.canonical_result_bytes.len() <= 1_024);
     assert_eq!(root.read(&path), before);
 }
 
@@ -714,6 +907,10 @@ fn reconciliation_observes_postcondition_without_reapplying() {
     ));
     let candidate = must_ok(reconciler.reconcile(&grant, &admitted));
     assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Succeeded);
+    assert_eq!(
+        field(&candidate, "beforeContentDigest"),
+        CanonicalValueV1::Null
+    );
     assert_eq!(root.read(path), replacement);
     must_ok(reconciler.admit_settlement(
         &mut store,

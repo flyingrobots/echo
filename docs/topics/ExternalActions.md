@@ -15,13 +15,16 @@ IR, application input, intent name, and worldline identity. Admission:
 1. independently decodes canonical Edict bytes;
 2. recomputes the reviewed Core and Target IR digests;
 3. requires the Echo Target IR domain and digest-locked target profile;
-4. requires the Target IR source-Core binding to match the supplied Core;
+4. requires the Target IR source-Core binding to match the supplied Core and
+   independently proves that the complete Target IR request is the exact
+   projection of the supplied Core request;
 5. requires exactly one request, its exact result and basis bindings, and zero
    callable target steps;
 6. requires the request operation to occur exactly in the digest-locked
    capability closure;
 7. evaluates only argument-rooted local, field, record, and constant request
-   expressions;
+   expressions under the compiler-declared Core budget and Echo ceilings of
+   4,096 steps, 4 MiB retained allocation, and 1 MiB output;
 8. validates runtime scope, basis, byte, and attempt bounds; and
 9. derives the generic `ExternalActionRequestV1`, with the target profile and
    operation identities both committed by its operation identity.
@@ -32,6 +35,9 @@ seam remains deterministic and capability-denied.
 The v1 request profile expects operation input bytes, 32-byte authority and
 basis commitments, a retained-settlement bound, and exactly one attempt. A
 call expression or callable Target IR step is outside this admission profile.
+Admission also requires enough retained-settlement capacity to encode every
+terminal posture; a request cannot select a budget that makes rejection,
+failure, or ambiguity unrecordable.
 
 ## First Adapter Profile
 
@@ -46,9 +52,11 @@ adapter. Runtime configuration supplies:
 Opening the adapter retains directory-relative authority. Observation rejects
 empty, absolute, parent-traversing, non-normalized, backslash, escaped,
 duplicate, unauthorized, and symlinked paths. Directory components and the
-final file are opened without following symlinks. Only regular files are
-readable. The request's retained-settlement bound limits aggregate file bytes
-during reads as well as the final canonical settlement.
+final file are opened without following symlinks. Pre-open and post-open
+metadata must both identify a regular file, and the final no-follow open is
+nonblocking so a substituted FIFO cannot stall adapter execution. The
+request's retained-settlement bound limits aggregate file bytes during reads as
+well as the final canonical settlement.
 
 `cap-std` and `cap-fs-ext` are direct `warp-core` dependencies because this
 boundary needs an unforgeable directory capability plus component-wise
@@ -86,8 +94,11 @@ rejections. Definite host I/O failure is `Failed`. Reconciliation may admit
 Before generic WAL admission, the operation profile independently validates:
 
 - candidate request, attempt, adapter, schema, basis, and result digest;
+- the current registry profile and authority grant against the admitted
+  request;
 - exact canonical settlement shape;
 - outcome/posture agreement;
+- exact equality between requested and returned path apertures on success;
 - nonempty, strictly sorted, unique, valid relative paths on success;
 - per-file content digests and nonzero external evidence;
 - complete snapshot-basis equality on success;

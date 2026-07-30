@@ -193,6 +193,12 @@ invoking adapter execution.
 - Operation-specific idempotency and reconciliation laws remain mandatory;
   Echo does not claim general exactly-once external execution.
 - The first capability-rooted read-only workspace adapter is implemented.
+  Compiler admission independently reconstructs the request projection from
+  Core, enforces both declared and host-owned evaluation budgets, and requires
+  enough settlement capacity for every terminal posture. Successful
+  settlements must cover exactly the admitted path aperture. Settlement
+  admission revalidates the live registry grant, while nonblocking no-follow
+  opens refuse special-file substitution without stalling.
   Process, network, Git, GitHub, timer, model, and mutation adapters remain
   absent.
 

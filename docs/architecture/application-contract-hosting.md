@@ -1145,10 +1145,13 @@ restoring those authorities.
 
 The first concrete adapter profile is bounded workspace observation. Echo
 independently accepts exact compiler-owned Core and Target IR, requires one
-non-callable request in its digest-locked capability closure, and derives the
-generic durable request. The adapter then holds one capability-rooted directory
-and an explicit relative-path set. It can read only after a claim commit,
-refuses traversal and symlinks, validates basis and settlement schemas, and
-retains replay bytes before deterministic resumption. This profile adds no
-application noun, native application callback, provider import, shell, or
-ambient filesystem capability.
+non-callable request in its digest-locked capability closure, independently
+corroborates the complete Target IR request against Core, enforces declared
+evaluation budgets below Echo-owned ceilings, and derives the generic durable
+request. The adapter then holds one capability-rooted directory and an explicit
+relative-path set. It can read only after a claim commit, refuses traversal,
+symlinks, and special files through nonblocking no-follow opens, requires the
+successful settlement aperture to equal the admitted request, revalidates the
+registry grant before settlement, and retains replay bytes before deterministic
+resumption. This profile adds no application noun, native application callback,
+provider import, shell, or ambient filesystem capability.

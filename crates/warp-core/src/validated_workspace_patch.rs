@@ -172,6 +172,29 @@ impl ValidatedWorkspacePatchAdapterV1 {
                 Some((observed_basis, before_digest)),
             );
         }
+        let expected_after_digest = input.replacement_digest;
+        let expected_resulting_basis =
+            validated_workspace_patch_basis_v1(&input.path, &input.replacement);
+        let success_candidate = match self.candidate(
+            grant,
+            ExternalActionSettlementKindV1::Succeeded,
+            SettlementEvidenceV1 {
+                posture: "succeeded",
+                path: Some(input.path.clone()),
+                request_basis: grant.request().basis_digest,
+                evidence: expected_resulting_basis,
+                before_content_digest: Some(before_digest),
+                after_content_digest: Some(expected_after_digest),
+                resulting_basis: Some(expected_resulting_basis),
+                obstruction: None,
+            },
+        ) {
+            Ok(candidate) => candidate,
+            Err(ValidatedWorkspacePatchErrorV1::FileBudgetExceeded) => {
+                return self.obstruction(grant, None, "settlement-budget-exceeded", None);
+            }
+            Err(error) => return Err(error),
+        };
 
         let temp_name = temporary_name(&file_name, grant);
         if let Err(error) = stage_replacement(&parent, &temp_name, &input.replacement, &metadata) {
@@ -226,20 +249,7 @@ impl ValidatedWorkspacePatchAdapterV1 {
                 Some((resulting_basis, after_digest)),
             );
         }
-        self.candidate(
-            grant,
-            ExternalActionSettlementKindV1::Succeeded,
-            SettlementEvidenceV1 {
-                posture: "succeeded",
-                path: Some(input.path),
-                request_basis: grant.request().basis_digest,
-                evidence: resulting_basis,
-                before_content_digest: Some(before_digest),
-                after_content_digest: Some(after_digest),
-                resulting_basis: Some(resulting_basis),
-                obstruction: None,
-            },
-        )
+        Ok(success_candidate)
     }
 
     /// Validates the operation schema and durably admits the settlement.
@@ -715,7 +725,10 @@ fn validate_candidate(
     {
         return Err(ValidatedWorkspacePatchErrorV1::SchemaAdmissionFailed);
     } else if let Some(input) = input {
-        if evidence.path.as_deref() != Some(input.path.as_str()) {
+        let path_may_be_omitted = evidence.obstruction.as_deref()
+            == Some("settlement-budget-exceeded")
+            && evidence.path.is_none();
+        if !path_may_be_omitted && evidence.path.as_deref() != Some(input.path.as_str()) {
             return Err(ValidatedWorkspacePatchErrorV1::SchemaAdmissionFailed);
         }
     } else if evidence.path.is_some() || evidence.obstruction.as_deref() != Some("malformed-input")

@@ -49,6 +49,7 @@ const OBSERVATION_REFUSAL_EVIDENCE_DOMAIN: &[u8] = b"echo.bounded-observation.re
 const MAX_CORE_EVALUATION_STEPS_V1: u64 = 4_096;
 const MAX_CORE_EVALUATION_ALLOCATED_BYTES_V1: u64 = 4 * 1_024 * 1_024;
 const MAX_CORE_EVALUATION_OUTPUT_BYTES_V1: u64 = 1_024 * 1_024;
+const MIN_REQUEST_ONLY_SETTLEMENT_BYTES_V1: u64 = 1_024;
 
 /// One canonical Edict request admitted from exact Core and Target IR bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,7 +277,12 @@ pub fn admit_edict_external_action_request_v1(
     if max_settlement_bytes > u64::try_from(bytes_type_max(settlement_type)?).unwrap_or(u64::MAX) {
         return Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue);
     }
-    if max_settlement_bytes < minimum_terminal_settlement_bytes_v1(basis_digest)? {
+    let minimum_settlement_bytes = if operation_profile == EXTERNAL_REQUEST_OPERATION_PROFILE {
+        MIN_REQUEST_ONLY_SETTLEMENT_BYTES_V1
+    } else {
+        minimum_terminal_settlement_bytes_v1(basis_digest)?
+    };
+    if max_settlement_bytes < minimum_settlement_bytes {
         return Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue);
     }
 

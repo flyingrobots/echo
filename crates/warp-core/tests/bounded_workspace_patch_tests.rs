@@ -23,7 +23,7 @@ use warp_core::external_action::{
 };
 use warp_core::external_action_adapter::{
     admit_edict_external_action_request_v1, bounded_workspace_observation_basis_v1,
-    AdmittedEdictExternalActionRequestV1,
+    AdmittedEdictExternalActionRequestV1, EdictExternalActionAdmissionErrorV1,
 };
 use warp_core::validated_workspace_patch::{
     encode_validated_workspace_patch_input_v1, validated_workspace_patch_authority_v1,
@@ -305,6 +305,32 @@ fn exact_compiler_artifacts_admit_one_noncallable_patch_request() {
     assert_eq!(
         validated_workspace_patch_basis_v1("src/lib.rs", b"before"),
         bounded_workspace_observation_basis_v1([("src/lib.rs", b"before".as_slice())])
+    );
+}
+
+#[test]
+fn request_only_settlement_budget_has_an_exact_admission_floor() {
+    let authority = digest("authority:budget-floor");
+    let basis = digest("basis:budget-floor");
+    let patch = raw_patch_input("src/value.txt", b"before", b"after");
+
+    let exact = must_ok(admit_edict_external_action_request_v1(
+        WorldlineId::from_bytes([24; 32]),
+        CORE_BYTES,
+        TARGET_IR_BYTES,
+        "applyValidated",
+        &application_input(patch.clone(), authority, basis, 1_024),
+    ));
+    assert_eq!(exact.request().budget.max_settlement_bytes, 1_024);
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([25; 32]),
+            CORE_BYTES,
+            TARGET_IR_BYTES,
+            "applyValidated",
+            &application_input(patch, authority, basis, 1_023),
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue)
     );
 }
 
@@ -591,6 +617,39 @@ fn file_budget_and_grant_substitution_fail_closed() {
         Err(ValidatedWorkspacePatchErrorV1::GrantMismatch)
     );
     assert_eq!(root.read(path), b"1234");
+}
+
+#[test]
+fn settlement_budget_is_preflighted_before_mutation() {
+    let root = TempRoot::new("settlement-budget");
+    let segment = "a".repeat(80);
+    let path = format!(
+        "{segment}/{segment}/{segment}/{segment}/{segment}/{segment}/{segment}/{segment}/{segment}/{segment}/value.txt"
+    );
+    let before = b"before";
+    root.write(&path, before);
+    let authority = validated_workspace_patch_authority_v1([path.as_str()]);
+    let admitted = admitted_request(62, &path, before, b"after", authority, 1_024);
+    let profile = profile(&admitted, "bounded-patch:settlement-budget", 65_536);
+    let adapter = must_ok(ValidatedWorkspacePatchAdapterV1::open(
+        root.path(),
+        [path.clone()],
+        profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        adapter.adapter_binding(),
+        "settlement-budget",
+    );
+
+    let candidate = must_ok(adapter.apply(&grant, &admitted));
+    assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Rejected);
+    assert_eq!(obstruction(&candidate), "settlement-budget-exceeded");
+    assert_eq!(root.read(&path), before);
 }
 
 #[test]

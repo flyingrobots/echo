@@ -936,6 +936,38 @@ fn filesystem_active_writer_epoch_and_final_commit_survive_reopen() {
 }
 
 #[test]
+fn filesystem_writer_lease_refuses_overlap_before_takeover() {
+    let root = temp_wal_root("writer-epoch-overlap");
+    let mut active = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(active.acquire_writer_epoch(writer_epoch_request()));
+    let mut contender = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+
+    let error = must_err(
+        contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)),
+        "a live filesystem writer lease must refuse overlap",
+    );
+    assert!(matches!(error, WalStoreError::WriterEpochLeaseUnavailable));
+    let append_error = must_err(
+        contender.append_transaction(submission_transaction(
+            "writer-epoch-overlap",
+            Lsn::from_raw(0),
+        )),
+        "a store without the filesystem writer lease must not append",
+    );
+    assert!(matches!(
+        append_error,
+        WalStoreError::WriterEpochLeaseUnavailable
+    ));
+
+    drop(active);
+    let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
+    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    drop(contender);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
 fn duplicate_writer_epoch_id_is_a_chain_gap() {
     let mut store = InMemoryWalStore::new();
     must_ok(store.acquire_writer_epoch(writer_epoch_request()));

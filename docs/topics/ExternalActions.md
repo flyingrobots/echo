@@ -132,8 +132,8 @@ reconciliation obligation, not permission to reread the workspace.
 
 If workspace authority is unavailable after claim recovery, the rootless
 bounded-observation reconciler may admit explicit uncertainty. It cannot
-produce a successful observation, and substituted profiles, grants, requests,
-or evidence fail before another WAL commit.
+produce a successful observation. Substituted profiles, grants, or requests
+fail before another WAL commit, as does omitted zero-valued evidence.
 
 Settled replay returns the canonical bytes retained in the WAL. It does not
 open the capability directory again. Removing or mutating source files after

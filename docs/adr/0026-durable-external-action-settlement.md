@@ -94,6 +94,14 @@ The four terminal settlement kinds are:
 cannot establish whether the effect occurred. The named reconciliation law and
 request-stable idempotency key remain available for a later explicit decision.
 
+An operation profile may retain a reconciliation handle that carries its exact
+schema and adapter identity but no external-world capability. The bounded
+workspace profile uses such a handle to admit `OutcomeUnknown` after directory
+authority disappears. It revalidates the recovered grant and compiler-admitted
+request, constructs the canonical operation-specific settlement inside Echo,
+and admits it through the ordinary settlement transaction. It cannot observe a
+path or construct a successful result.
+
 A settlement binds the exact request, attempt, adapter, basis, settlement
 schema, canonical result bytes, result digest, schema-admission evidence, and
 external evidence. Echo rejects mismatched claims, stale bases, wrong schemas,
@@ -203,6 +211,9 @@ invoking adapter execution.
 - Arbitrary recovered reports remain observation-only; trusted local recovery
   owns transition and replay authority.
 - Crash ambiguity has an explicit causal representation.
+- Workspace loss after a bounded-observation claim cannot strand the action:
+  rootless reconciliation may durably record explicit uncertainty without
+  reacquiring read authority.
 - Operation-specific idempotency and reconciliation laws remain mandatory;
   Echo does not claim general exactly-once external execution.
 - The first capability-rooted read-only workspace adapter is implemented.

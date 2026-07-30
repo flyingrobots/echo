@@ -91,6 +91,14 @@ Path policy, stale basis, and settlement-budget failures are typed
 rejections. Definite host I/O failure is `Failed`. Reconciliation may admit
 `OutcomeUnknown` with explicit nonzero evidence.
 
+`BoundedWorkspaceObservationReconcilerV1` retains only the exact runtime-owned
+profile. It has no directory capability and cannot observe a path. After claim
+recovery, it may construct, independently validate, and durably admit only the
+profile's `OutcomeUnknown` settlement. The recovered grant, admitted compiler
+request, adapter identity, schema, scope, basis, budget, and nonzero external
+evidence must still match. Workspace loss therefore cannot strand a claim or
+grant renewed read authority.
+
 Before generic WAL admission, the operation profile independently validates:
 
 - candidate request, attempt, adapter, schema, basis, and result digest;
@@ -121,6 +129,11 @@ adapter execution reachable.
 Recovery reconstructs `Requested`, `Claimed`, or the exact settled outcome
 through the generic external-action coordinator. A recovered claim is a
 reconciliation obligation, not permission to reread the workspace.
+
+If workspace authority is unavailable after claim recovery, the rootless
+bounded-observation reconciler may admit explicit uncertainty. It cannot
+produce a successful observation, and substituted profiles, grants, requests,
+or evidence fail before another WAL commit.
 
 Settled replay returns the canonical bytes retained in the WAL. It does not
 open the capability directory again. Removing or mutating source files after

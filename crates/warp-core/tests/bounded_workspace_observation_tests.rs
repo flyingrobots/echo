@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use echo_edict_canonical::{encode_canonical_cbor_v1, CanonicalValueV1};
+use echo_edict_canonical::{decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1};
 use warp_core::causal_wal::{
     InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, WalDurabilityMode, WalSegmentId,
     WalStorePort, WalTransactionId, WriterEpochId, WriterEpochRequest,
@@ -63,6 +63,90 @@ fn map(entries: impl IntoIterator<Item = (&'static str, CanonicalValueV1)>) -> C
             .map(|(key, value)| (text(key), value))
             .collect(),
     )
+}
+
+fn map_field_mut<'a>(value: &'a mut CanonicalValueV1, field: &str) -> &'a mut CanonicalValueV1 {
+    let CanonicalValueV1::Map(entries) = value else {
+        panic!("expected map containing {field}");
+    };
+    must_some(entries.iter_mut().find_map(|(key, value)| match key {
+        CanonicalValueV1::Text(key) if key == field => Some(value),
+        _ => None,
+    }))
+}
+
+fn target_ir_value() -> CanonicalValueV1 {
+    must_ok(decode_canonical_cbor_v1(TARGET_IR_BYTES))
+}
+
+fn encoded(value: &CanonicalValueV1) -> Vec<u8> {
+    must_ok(encode_canonical_cbor_v1(value))
+}
+
+fn rewrite_first_local_id(value: &mut CanonicalValueV1, replacement: &str) -> bool {
+    match value {
+        CanonicalValueV1::Map(entries) => {
+            let is_local = entries.iter().any(|(key, value)| {
+                matches!(
+                    (key, value),
+                    (CanonicalValueV1::Text(key), CanonicalValueV1::Text(value))
+                        if key == "kind" && value == "local"
+                )
+            });
+            if is_local {
+                let Some(CanonicalValueV1::Map(reference)) =
+                    entries.iter_mut().find_map(|(key, value)| {
+                        matches!(key, CanonicalValueV1::Text(key) if key == "ref").then_some(value)
+                    })
+                else {
+                    panic!("local expression must contain a reference");
+                };
+                let Some(CanonicalValueV1::Text(id)) =
+                    reference.iter_mut().find_map(|(key, value)| {
+                        matches!(key, CanonicalValueV1::Text(key) if key == "id").then_some(value)
+                    })
+                else {
+                    panic!("local reference must contain an id");
+                };
+                replacement.clone_into(id);
+                true
+            } else {
+                entries
+                    .iter_mut()
+                    .any(|(_, value)| rewrite_first_local_id(value, replacement))
+            }
+        }
+        CanonicalValueV1::Array(values) => values
+            .iter_mut()
+            .any(|value| rewrite_first_local_id(value, replacement)),
+        _ => false,
+    }
+}
+
+fn mutate_resource_digest(resources: &mut CanonicalValueV1, coordinate: &str, byte: u8) {
+    let CanonicalValueV1::Array(resources) = resources else {
+        panic!("expected resource array");
+    };
+    let resource = must_some(resources.iter_mut().find(|resource| {
+        let CanonicalValueV1::Map(entries) = resource else {
+            return false;
+        };
+        entries.iter().any(|(key, value)| {
+            matches!(
+                (key, value),
+                (CanonicalValueV1::Text(key), CanonicalValueV1::Text(value))
+                    if key == "id" && value == coordinate
+            )
+        })
+    }));
+    let digest = map_field_mut(resource, "digest");
+    let CanonicalValueV1::Array(digest) = digest else {
+        panic!("expected reviewed digest");
+    };
+    let Some(CanonicalValueV1::Bytes(bytes)) = digest.get_mut(1) else {
+        panic!("expected digest bytes");
+    };
+    *bytes = vec![byte; 32];
 }
 
 fn application_input(
@@ -279,6 +363,174 @@ fn malformed_or_substituted_compiler_artifacts_fail_closed() {
         ),
         Err(EdictExternalActionAdmissionErrorV1::MissingIntent)
     );
+
+    let mut wrong_domain = target_ir_value();
+    *map_field_mut(&mut wrong_domain, "domain") = text("other.span-ir/v1");
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&wrong_domain),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::ArtifactShape)
+    );
+
+    let mut wrong_source_coordinate = target_ir_value();
+    *map_field_mut(&mut wrong_source_coordinate, "sourceCoreCoordinate") = text("other.source@1");
+    let closure = map_field_mut(&mut wrong_source_coordinate, "semanticClosure");
+    *map_field_mut(map_field_mut(closure, "sourceCore"), "id") = text("other.source@1");
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&wrong_source_coordinate),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::CoreDigestMismatch)
+    );
+
+    let mut wrong_operation_profile = target_ir_value();
+    let intent = map_field_mut(
+        map_field_mut(&mut wrong_operation_profile, "intents"),
+        "observe",
+    );
+    *map_field_mut(intent, "operationProfile") = text("other.profile/v1");
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&wrong_operation_profile),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::ArtifactShape)
+    );
+
+    let mut substituted_capability = target_ir_value();
+    let semantic_closure = map_field_mut(&mut substituted_capability, "semanticClosure");
+    mutate_resource_digest(
+        map_field_mut(semantic_closure, "capabilities"),
+        "workspace.snapshot.observe@1",
+        0x77,
+    );
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&substituted_capability),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::CapabilityClosureMismatch)
+    );
+
+    let mut callable = target_ir_value();
+    let steps = map_field_mut(
+        map_field_mut(map_field_mut(&mut callable, "intents"), "observe"),
+        "steps",
+    );
+    *steps = CanonicalValueV1::Array(vec![CanonicalValueV1::Null]);
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&callable),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::CallableStepsPresent)
+    );
+
+    let mut hidden_local = target_ir_value();
+    let requests = map_field_mut(
+        map_field_mut(map_field_mut(&mut hidden_local, "intents"), "observe"),
+        "externalActionRequests",
+    );
+    let CanonicalValueV1::Array(requests) = requests else {
+        panic!("expected external request array");
+    };
+    assert!(rewrite_first_local_id(
+        map_field_mut(&mut requests[0], "input"),
+        "local.0"
+    ));
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&hidden_local),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression)
+    );
+
+    let mut wrong_result = target_ir_value();
+    let result = map_field_mut(
+        map_field_mut(map_field_mut(&mut wrong_result, "intents"), "observe"),
+        "result",
+    );
+    let result_reference = map_field_mut(result, "ref");
+    *map_field_mut(result_reference, "id") = text("other.result");
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&wrong_result),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::ArtifactShape)
+    );
+
+    let mut wrong_basis = target_ir_value();
+    let intent = map_field_mut(map_field_mut(&mut wrong_basis, "intents"), "observe");
+    *map_field_mut(intent, "basis") = CanonicalValueV1::Null;
+    assert_eq!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([1; 32]),
+            CORE_BYTES,
+            &encoded(&wrong_basis),
+            "observe",
+            &input,
+        ),
+        Err(EdictExternalActionAdmissionErrorV1::ArtifactShape)
+    );
+}
+
+#[test]
+fn target_profile_digest_is_part_of_the_runtime_operation_identity() {
+    let input = application_input(vec![], digest("scope"), digest("basis"), 1024);
+    let baseline = must_ok(admit_edict_external_action_request_v1(
+        WorldlineId::from_bytes([2; 32]),
+        CORE_BYTES,
+        TARGET_IR_BYTES,
+        "observe",
+        &input,
+    ));
+    let mut substituted_profile = target_ir_value();
+    let profile = map_field_mut(&mut substituted_profile, "targetProfile");
+    let digest = map_field_mut(profile, "digest");
+    let CanonicalValueV1::Array(digest) = digest else {
+        panic!("expected reviewed target profile digest");
+    };
+    let Some(CanonicalValueV1::Bytes(bytes)) = digest.get_mut(1) else {
+        panic!("expected target profile digest bytes");
+    };
+    *bytes = vec![0x55; 32];
+    let substituted = must_ok(admit_edict_external_action_request_v1(
+        WorldlineId::from_bytes([2; 32]),
+        CORE_BYTES,
+        &encoded(&substituted_profile),
+        "observe",
+        &input,
+    ));
+    assert_ne!(
+        baseline.request().operation_id,
+        substituted.request().operation_id
+    );
 }
 
 #[test]
@@ -355,6 +607,33 @@ fn absolute_parent_escaped_and_unauthorized_paths_settle_as_rejected() {
             candidate,
         ));
     }
+}
+
+#[test]
+fn duplicate_paths_settle_as_rejected() {
+    let root = TempRoot::new("duplicate-path");
+    root.write("allowed.txt", b"allowed");
+    let admitted = admitted_request(
+        19,
+        ["allowed.txt".to_owned(), "allowed.txt".to_owned()],
+        digest("scope:duplicate-path"),
+        digest("basis:duplicate-path"),
+        65_536,
+    );
+    let adapter = adapter(&root, &admitted, ["allowed.txt".to_owned()]);
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "duplicate-path",
+    );
+    assert_eq!(
+        must_ok(adapter.observe(&grant, &admitted)).kind,
+        ExternalActionSettlementKindV1::Rejected
+    );
 }
 
 #[cfg(unix)]
@@ -455,6 +734,44 @@ fn exact_settlement_boundary_succeeds_and_one_byte_less_rejects() {
 }
 
 #[test]
+fn aggregate_file_bytes_cannot_exceed_the_request_budget() {
+    let root = TempRoot::new("aggregate-budget");
+    let left = vec![0x4c; 3_000];
+    let right = vec![0x52; 3_000];
+    root.write("left.bin", &left);
+    root.write("right.bin", &right);
+    let basis = bounded_workspace_observation_basis_v1([
+        ("left.bin", left.as_slice()),
+        ("right.bin", right.as_slice()),
+    ]);
+    let admitted = admitted_request(
+        33,
+        ["left.bin".to_owned(), "right.bin".to_owned()],
+        digest("scope:aggregate-budget"),
+        basis,
+        5_000,
+    );
+    let adapter = adapter(
+        &root,
+        &admitted,
+        ["left.bin".to_owned(), "right.bin".to_owned()],
+    );
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "aggregate-budget",
+    );
+    assert_eq!(
+        must_ok(adapter.observe(&grant, &admitted)).kind,
+        ExternalActionSettlementKindV1::Rejected
+    );
+}
+
+#[test]
 fn stale_basis_settles_as_rejected() {
     let root = TempRoot::new("stale");
     root.write("state.txt", b"current");
@@ -472,6 +789,41 @@ fn stale_basis_settles_as_rejected() {
     assert_eq!(
         must_ok(adapter.observe(&grant, &admitted)).kind,
         ExternalActionSettlementKindV1::Rejected
+    );
+}
+
+#[test]
+fn definite_io_failure_settles_and_recovers_as_failed() {
+    let root = TempRoot::new("failed");
+    let admitted = admitted_request(
+        41,
+        ["missing.txt".to_owned()],
+        digest("scope:failed"),
+        digest("basis:failed"),
+        65_536,
+    );
+    let adapter = adapter(&root, &admitted, ["missing.txt".to_owned()]);
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(&mut store, &mut coordinator, &admitted, &adapter, "failed");
+    let candidate = must_ok(adapter.observe(&grant, &admitted));
+    assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Failed);
+    must_ok(adapter.admit_settlement(
+        &mut store,
+        &mut coordinator,
+        context("failed:settlement"),
+        grant,
+        candidate,
+    ));
+    let recovered = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    assert_eq!(
+        must_some(
+            recovered
+                .observed_index()
+                .get(admitted.request().request_id())
+        )
+        .posture,
+        RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::Failed)
     );
 }
 
@@ -505,6 +857,52 @@ fn malformed_settlement_cannot_bypass_the_profile_validator() {
             &mut store,
             &mut coordinator,
             context("malformed:settlement"),
+            grant,
+            candidate,
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)
+    );
+}
+
+#[test]
+fn noncanonical_success_file_order_cannot_bypass_the_profile_validator() {
+    let root = TempRoot::new("settlement-order");
+    root.write("a.txt", b"a");
+    root.write("b.txt", b"b");
+    let basis = bounded_workspace_observation_basis_v1([
+        ("a.txt", b"a".as_slice()),
+        ("b.txt", b"b".as_slice()),
+    ]);
+    let admitted = admitted_request(
+        51,
+        ["a.txt".to_owned(), "b.txt".to_owned()],
+        digest("scope:settlement-order"),
+        basis,
+        65_536,
+    );
+    let adapter = adapter(&root, &admitted, ["a.txt".to_owned(), "b.txt".to_owned()]);
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "settlement-order",
+    );
+    let mut candidate = must_ok(adapter.observe(&grant, &admitted));
+    let mut settlement = must_ok(decode_canonical_cbor_v1(&candidate.canonical_result_bytes));
+    let CanonicalValueV1::Array(files) = map_field_mut(&mut settlement, "files") else {
+        panic!("expected settlement files");
+    };
+    files.reverse();
+    candidate.canonical_result_bytes = encoded(&settlement);
+    candidate.declared_result_digest = blake3::hash(&candidate.canonical_result_bytes).into();
+    assert_eq!(
+        adapter.admit_settlement(
+            &mut store,
+            &mut coordinator,
+            context("settlement-order:settlement"),
             grant,
             candidate,
         ),
@@ -565,6 +963,10 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
         RecoveredExternalActionPostureV1::Claimed
     );
 
+    assert_eq!(
+        adapter.outcome_unknown(&grant, &admitted, [0; 32]),
+        Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)
+    );
     let candidate =
         must_ok(adapter.outcome_unknown(&grant, &admitted, digest("recovery:ambiguous")));
     must_ok(adapter.admit_settlement(

@@ -105,8 +105,10 @@ The schema-admission evidence is a protocol binding, not a general schema
 engine. Each operation profile must define which validator produces that
 evidence. The bounded workspace-observation profile supplies the first concrete
 validator. It independently accepts exact compiler-owned Core and Target IR,
-binds the request to the exact capability closure, and validates retained
-path/content bytes and basis evidence before generic settlement admission.
+binds the request to the exact target profile and capability closure, and
+validates strictly ordered retained path/content bytes, aggregate bounds,
+nonzero evidence, and complete basis evidence before generic settlement
+admission.
 
 ### WAL ownership
 

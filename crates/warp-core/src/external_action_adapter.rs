@@ -34,7 +34,11 @@ use crate::{Hash, WorldlineId};
 
 const CORE_DIGEST_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
+const ECHO_TARGET_IR_DOMAIN: &str = "echo.span-ir/v1";
+const ECHO_TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
+const EXTERNAL_REQUEST_OPERATION_PROFILE: &str = "continuum.profile.read-only/v1";
 const RESOURCE_ID_DOMAIN: &[u8] = b"echo.external-action.resource-id/v1";
+const TARGET_OPERATION_ID_DOMAIN: &[u8] = b"echo.external-action.target-operation-id/v1";
 const INPUT_DIGEST_DOMAIN: &[u8] = b"echo.external-action.input/v1";
 const OBSERVATION_INPUT_KIND: &str = "boundedWorkspaceObservationInput";
 const OBSERVATION_SETTLEMENT_KIND: &str = "boundedWorkspaceObservationSettlement";
@@ -146,18 +150,26 @@ pub fn admit_edict_external_action_request_v1(
     let target_ir_digest = digest_canonical_value_v1(TARGET_IR_DIGEST_DOMAIN, &target_ir)
         .map_err(|error| EdictExternalActionAdmissionErrorV1::Canonical(error.kind()))?;
 
+    let core_map = expect_map(&core)?;
+    require_text_field(core_map, "apiVersion", "edict.core/v1")?;
+    let core_coordinate = require_nonempty_text(core_map, "coordinate")?;
+
     let target_map = expect_map(&target_ir)?;
     require_text_field(target_map, "kind", "targetIrArtifact")?;
-    require_nonempty_text(target_map, "domain")?;
+    require_text_field(target_map, "domain", ECHO_TARGET_IR_DOMAIN)?;
     let source_core_coordinate = require_nonempty_text(target_map, "sourceCoreCoordinate")?;
-    parse_resource(require_field(target_map, "targetProfile")?)?;
+    let target_profile = parse_resource(require_field(target_map, "targetProfile")?)?;
+    if target_profile.coordinate != ECHO_TARGET_PROFILE_COORDINATE {
+        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+    }
 
     let closure_map = expect_map(
         require_field(target_map, "semanticClosure")
             .map_err(|_| EdictExternalActionAdmissionErrorV1::MissingSemanticClosure)?,
     )?;
     let closure_source = parse_resource(require_field(closure_map, "sourceCore")?)?;
-    if closure_source.coordinate != source_core_coordinate
+    if source_core_coordinate != core_coordinate
+        || closure_source.coordinate != core_coordinate
         || closure_source.review_digest() != source_core_digest
     {
         return Err(EdictExternalActionAdmissionErrorV1::CoreDigestMismatch);
@@ -174,6 +186,16 @@ pub fn admit_edict_external_action_request_v1(
     let intent = map_field(intents, intent_name)
         .ok_or(EdictExternalActionAdmissionErrorV1::MissingIntent)?;
     let intent_map = expect_map(intent)?;
+    require_text_field(
+        intent_map,
+        "operationProfile",
+        EXTERNAL_REQUEST_OPERATION_PROFILE,
+    )?;
+    if !expect_array(require_field(intent_map, "inputConstraints")?)?.is_empty()
+        || !expect_array(require_field(intent_map, "requirements")?)?.is_empty()
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+    }
     if !expect_array(require_field(intent_map, "steps")?)?.is_empty() {
         return Err(EdictExternalActionAdmissionErrorV1::CallableStepsPresent);
     }
@@ -185,7 +207,16 @@ pub fn admit_edict_external_action_request_v1(
     require_nonempty_text(request_map, "id")?;
     require_text_field(request_map, "state", "awaitingSettlement")?;
     require_text_field(request_map, "settlementAdmission", "schemaRequired")?;
-    parse_local_ref(require_field(request_map, "binding")?)?;
+    let binding = parse_local_ref(require_field(request_map, "binding")?)?;
+    let result = expect_map(require_field(intent_map, "result")?)?;
+    require_text_field(result, "kind", "local")?;
+    let result_reference = parse_local_ref(require_field(result, "ref")?)?;
+    if result_reference != binding {
+        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+    }
+    if require_field(intent_map, "basis")? != require_field(request_map, "basis")? {
+        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+    }
 
     let operation = parse_resource(require_field(request_map, "operation")?)?;
     if !capabilities
@@ -231,7 +262,10 @@ pub fn admit_edict_external_action_request_v1(
 
     let request = ExternalActionRequestV1::new(
         worldline_id,
-        ExternalActionOperationIdV1::from_hash(resource_identity(&operation)),
+        ExternalActionOperationIdV1::from_hash(target_operation_identity(
+            &target_profile,
+            &operation,
+        )),
         input_schema.digest,
         settlement_schema.digest,
         authority_scope_digest,
@@ -326,9 +360,13 @@ impl BoundedWorkspaceObservationAdapterV1 {
         if paths.is_empty() {
             return self.refused_candidate(grant, "empty-path-set", "");
         }
+        let mut unique_paths = BTreeSet::new();
         for path in &paths {
             if validate_relative_path(path).is_err() {
                 return self.refused_candidate(grant, "invalid-path", path);
+            }
+            if !unique_paths.insert(path.as_str()) {
+                return self.refused_candidate(grant, "duplicate-path", path);
             }
             if !self.permitted_paths.contains(path) {
                 return self.refused_candidate(grant, "unauthorized-path", path);
@@ -336,9 +374,22 @@ impl BoundedWorkspaceObservationAdapterV1 {
         }
 
         let mut observed = Vec::with_capacity(paths.len());
+        let mut retained_input_bytes = 0_u64;
         for path in paths {
-            match self.read_regular_file(&path) {
-                Ok(bytes) => observed.push(ObservedFileV1 { path, bytes }),
+            let remaining = grant
+                .request()
+                .budget
+                .max_settlement_bytes
+                .saturating_sub(retained_input_bytes);
+            match self.read_regular_file(&path, remaining) {
+                Ok(bytes) => {
+                    let byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                    if byte_count > remaining {
+                        return self.refused_candidate(grant, "settlement-budget-exceeded", &path);
+                    }
+                    retained_input_bytes = retained_input_bytes.saturating_add(byte_count);
+                    observed.push(ObservedFileV1 { path, bytes });
+                }
                 Err(BoundedWorkspaceObservationErrorV1::SymlinkRefused) => {
                     return self.refused_candidate(grant, "symlink-refused", &path);
                 }
@@ -448,7 +499,11 @@ impl BoundedWorkspaceObservationAdapterV1 {
         Ok(())
     }
 
-    fn read_regular_file(&self, path: &str) -> Result<Vec<u8>, BoundedWorkspaceObservationErrorV1> {
+    fn read_regular_file(
+        &self,
+        path: &str,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, BoundedWorkspaceObservationErrorV1> {
         let components = Path::new(path).components().collect::<Vec<_>>();
         let Some((file_name, directory_components)) = components.split_last() else {
             return Err(BoundedWorkspaceObservationErrorV1::InvalidPath);
@@ -493,7 +548,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
         }
         let mut bytes = Vec::new();
         file.by_ref()
-            .take(crate::external_action::MAX_EXTERNAL_ACTION_SETTLEMENT_BYTES_V1.saturating_add(1))
+            .take(max_bytes.saturating_add(1))
             .read_to_end(&mut bytes)
             .map_err(|_| BoundedWorkspaceObservationErrorV1::Io)?;
         Ok(bytes)
@@ -702,6 +757,13 @@ struct ResourceRefV1 {
     digest: Hash,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LocalRefV1 {
+    id: String,
+    alpha_name: String,
+    ty: String,
+}
+
 impl ResourceRefV1 {
     fn review_digest(&self) -> String {
         format!("sha256:{}", hex::encode(self.digest))
@@ -816,12 +878,15 @@ fn parse_resource(
     Ok(ResourceRefV1 { coordinate, digest })
 }
 
-fn parse_local_ref(value: &CanonicalValueV1) -> Result<(), EdictExternalActionAdmissionErrorV1> {
+fn parse_local_ref(
+    value: &CanonicalValueV1,
+) -> Result<LocalRefV1, EdictExternalActionAdmissionErrorV1> {
     let reference = expect_map(value)?;
-    require_nonempty_text(reference, "id")?;
-    require_nonempty_text(reference, "alphaName")?;
-    require_nonempty_text(reference, "type")?;
-    Ok(())
+    Ok(LocalRefV1 {
+        id: require_nonempty_text(reference, "id")?.to_owned(),
+        alpha_name: require_nonempty_text(reference, "alphaName")?.to_owned(),
+        ty: require_nonempty_text(reference, "type")?.to_owned(),
+    })
 }
 
 fn evaluate_expression(
@@ -831,7 +896,10 @@ fn evaluate_expression(
     let expression = expect_map(expression)?;
     match require_nonempty_text(expression, "kind")? {
         "local" => {
-            parse_local_ref(require_field(expression, "ref")?)?;
+            let reference = parse_local_ref(require_field(expression, "ref")?)?;
+            if reference.id != "arg.0" {
+                return Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression);
+            }
             Ok(application_input.clone())
         }
         "field" => {
@@ -902,6 +970,14 @@ fn resource_identity(resource: &ResourceRefV1) -> Hash {
     hasher.update(RESOURCE_ID_DOMAIN);
     hash_len_prefixed(&mut hasher, resource.coordinate.as_bytes());
     hasher.update(&resource.digest);
+    hasher.finalize().into()
+}
+
+fn target_operation_identity(target_profile: &ResourceRefV1, operation: &ResourceRefV1) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TARGET_OPERATION_ID_DOMAIN);
+    hasher.update(&resource_identity(target_profile));
+    hasher.update(&resource_identity(operation));
     hasher.finalize().into()
 }
 
@@ -1045,14 +1121,20 @@ fn validate_observation_settlement(
     let Some(CanonicalValueV1::Array(files)) = map_field(entries, "files") else {
         return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
     };
+    if evidence == [0; 32] {
+        return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+    }
     if kind == ExternalActionSettlementKindV1::Succeeded {
-        if !matches!(
-            map_field(entries, "obstruction"),
-            Some(CanonicalValueV1::Null)
-        ) {
+        if files.is_empty()
+            || !matches!(
+                map_field(entries, "obstruction"),
+                Some(CanonicalValueV1::Null)
+            )
+        {
             return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
         }
         let mut observed = Vec::with_capacity(files.len());
+        let mut previous_path: Option<&str> = None;
         for file in files {
             let CanonicalValueV1::Map(file) = file else {
                 return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
@@ -1072,9 +1154,13 @@ fn validate_observation_settlement(
             else {
                 return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
             };
-            if digest.as_slice() != blake3::hash(bytes).as_bytes() {
+            if validate_relative_path(path).is_err()
+                || previous_path.is_some_and(|previous| previous >= path.as_str())
+                || digest.as_slice() != blake3::hash(bytes).as_bytes()
+            {
                 return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
             }
+            previous_path = Some(path);
             observed.push((path.as_str(), bytes.as_slice()));
         }
         if bounded_workspace_observation_basis_v1(observed) != basis || evidence != basis {

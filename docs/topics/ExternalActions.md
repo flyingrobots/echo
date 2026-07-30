@@ -14,13 +14,17 @@ IR, application input, intent name, and worldline identity. Admission:
 
 1. independently decodes canonical Edict bytes;
 2. recomputes the reviewed Core and Target IR digests;
-3. requires the Target IR source-Core binding to match the supplied Core;
-4. requires exactly one request and zero callable target steps;
-5. requires the request operation to occur exactly in the digest-locked
+3. requires the Echo Target IR domain and digest-locked target profile;
+4. requires the Target IR source-Core binding to match the supplied Core;
+5. requires exactly one request, its exact result and basis bindings, and zero
+   callable target steps;
+6. requires the request operation to occur exactly in the digest-locked
    capability closure;
-6. evaluates only local, field, record, and constant request expressions;
-7. validates runtime scope, basis, byte, and attempt bounds; and
-8. derives the generic `ExternalActionRequestV1`.
+7. evaluates only argument-rooted local, field, record, and constant request
+   expressions;
+8. validates runtime scope, basis, byte, and attempt bounds; and
+9. derives the generic `ExternalActionRequestV1`, with the target profile and
+   operation identities both committed by its operation identity.
 
 No provider component executes on this route. The provider/lowerer/verifier
 seam remains deterministic and capability-denied.
@@ -41,8 +45,10 @@ adapter. Runtime configuration supplies:
 
 Opening the adapter retains directory-relative authority. Observation rejects
 empty, absolute, parent-traversing, non-normalized, backslash, escaped,
-unauthorized, and symlinked paths. Directory components and the final file are
-opened without following symlinks. Only regular files are readable.
+duplicate, unauthorized, and symlinked paths. Directory components and the
+final file are opened without following symlinks. Only regular files are
+readable. The request's retained-settlement bound limits aggregate file bytes
+during reads as well as the final canonical settlement.
 
 `cap-std` and `cap-fs-ext` are direct `warp-core` dependencies because this
 boundary needs an unforgeable directory capability plus component-wise
@@ -82,7 +88,8 @@ Before generic WAL admission, the operation profile independently validates:
 - candidate request, attempt, adapter, schema, basis, and result digest;
 - exact canonical settlement shape;
 - outcome/posture agreement;
-- per-file content digests;
+- nonempty, strictly sorted, unique, valid relative paths on success;
+- per-file content digests and nonzero external evidence;
 - complete snapshot-basis equality on success;
 - external evidence binding; and
 - operation-specific schema-admission evidence.

@@ -59,9 +59,10 @@ evidence posture.
 - `OutcomeUnknown` is a first-class terminal observation, not an alias for
   failure.
 - The bounded workspace-observation profile independently admits exact Edict
-  Core and Target IR, then exposes only an explicit relative-path set through
-  one capability-rooted, no-follow adapter. Compiler admission and request
-  recording perform no filesystem read.
+  Core and Echo-profile Target IR, binds target profile plus portable operation
+  into the runtime operation identity, then exposes only an explicit
+  relative-path set through one capability-rooted, no-follow adapter. Compiler
+  admission and request recording perform no filesystem read.
 
 ## Host Boundary
 

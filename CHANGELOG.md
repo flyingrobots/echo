@@ -7,6 +7,16 @@
 
 ### Added
 
+- Echo now independently admits compiler-produced Edict Core and Target IR for
+  one non-callable external request, verifies its exact source and capability
+  closure, evaluates bounded runtime request fields, and derives the generic
+  durable external-action request without invoking a provider. The first
+  operation-specific adapter observes an explicit relative-path set through a
+  capability-rooted directory after request and claim commits. It refuses
+  traversal, unauthorized paths, symlinks, stale bases, malformed settlements,
+  and byte-budget overruns; retains canonical path/content bytes plus complete
+  basis evidence; admits `OutcomeUnknown` explicitly; and replays settled bytes
+  without reopening the workspace.
 - Echo now admits domain-neutral external actions through separate
   request-before-effect, bounded claim, and settlement-before-resumption WAL
   transactions (ADR 0026). Canonical requests bind worldline, operation,

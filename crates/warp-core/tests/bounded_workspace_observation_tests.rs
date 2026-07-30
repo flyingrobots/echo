@@ -26,7 +26,8 @@ use warp_core::external_action_adapter::{
     admit_edict_external_action_request_v1, bounded_workspace_observation_basis_v1,
     encode_bounded_workspace_observation_input_v1, AdmittedEdictExternalActionRequestV1,
     BoundedWorkspaceObservationAdapterV1, BoundedWorkspaceObservationErrorV1,
-    BoundedWorkspaceObservationProfileV1, EdictExternalActionAdmissionErrorV1,
+    BoundedWorkspaceObservationProfileV1, BoundedWorkspaceObservationReconcilerV1,
+    EdictExternalActionAdmissionErrorV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -1325,6 +1326,91 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
         must_some(recovered_settled.observed_index().get(request.request_id())).posture,
         RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::OutcomeUnknown)
     );
+}
+
+#[test]
+fn outcome_unknown_settles_after_workspace_authority_disappears() {
+    let root = TempRoot::new("rootless-unknown");
+    let root_path = root.path().to_owned();
+    let bytes = b"possibly observed";
+    root.write("uncertain.txt", bytes);
+    let admitted = admitted_request(
+        61,
+        ["uncertain.txt".to_owned()],
+        digest("scope:rootless-unknown"),
+        bounded_workspace_observation_basis_v1([("uncertain.txt", bytes.as_slice())]),
+        65_536,
+    );
+    let runtime_profile = profile(&admitted, "bounded-observation:rootless-unknown");
+    let adapter = must_ok(BoundedWorkspaceObservationAdapterV1::open(
+        root.path(),
+        ["uncertain.txt".to_owned()],
+        runtime_profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let _grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "rootless-unknown",
+    );
+
+    drop(adapter);
+    drop(root);
+    assert!(!root_path.exists());
+
+    let reconciler = must_ok(BoundedWorkspaceObservationReconcilerV1::new(
+        runtime_profile,
+    ));
+    let zero_evidence_grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        reconciler.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:zero-evidence"),
+            &admitted,
+            zero_evidence_grant,
+            [0; 32],
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)
+    );
+
+    let mut substituted_profile = runtime_profile;
+    substituted_profile.adapter_id =
+        ExternalActionAdapterIdV1::from_hash(digest("rootless-unknown:substituted-adapter"));
+    let substituted = must_ok(BoundedWorkspaceObservationReconcilerV1::new(
+        substituted_profile,
+    ));
+    let substituted_grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        substituted.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:substituted-profile"),
+            &admitted,
+            substituted_grant,
+            digest("rootless-unknown:ambiguous"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::GrantMismatch)
+    );
+    assert_eq!(store.read_commits().len(), 2);
+
+    let grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    let settled = must_ok(reconciler.admit_outcome_unknown(
+        &mut store,
+        &mut coordinator,
+        context("rootless-unknown:settlement"),
+        &admitted,
+        grant,
+        digest("rootless-unknown:ambiguous"),
+    ));
+    assert_eq!(
+        settled.settlement().kind,
+        ExternalActionSettlementKindV1::OutcomeUnknown
+    );
+    assert_eq!(store.read_commits().len(), 3);
 }
 
 #[test]

@@ -1347,6 +1347,42 @@ pub fn admit_external_action_settlement(
     })
 }
 
+/// Reconciles one retained adapter settlement after acknowledgement loss.
+///
+/// This path exposes no WAL store, transition context, or claim grant. It can
+/// therefore return only the exact settlement that is already durable. A
+/// different valid candidate is a conflict; a malformed candidate fails the
+/// ordinary request-and-claim validation before comparison.
+pub fn reconcile_external_action_settlement_retry(
+    coordinator: &ExternalActionCoordinatorV1,
+    candidate: ExternalActionSettlementCandidateV1,
+) -> Result<AdmittedExternalActionSettlementV1, ExternalActionProtocolErrorV1> {
+    coordinator.ensure_ready()?;
+    let recovered = coordinator
+        .index
+        .get(candidate.request_id)
+        .ok_or(ExternalActionProtocolErrorV1::MissingRequest)?;
+    let claim = recovered
+        .claim
+        .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
+    validate_settlement_candidate(&recovered.request, &claim, &candidate)?;
+    let candidate = ExternalActionSettlementV1::from_candidate(candidate);
+    let settlement = recovered
+        .settlement
+        .as_ref()
+        .ok_or(ExternalActionProtocolErrorV1::MissingSettlement)?;
+    let settlement_commit_digest = recovered
+        .settlement_commit_digest
+        .ok_or(ExternalActionProtocolErrorV1::MissingSettlement)?;
+    if settlement != &candidate {
+        return Err(ExternalActionProtocolErrorV1::ConflictingSettlement);
+    }
+    Ok(AdmittedExternalActionSettlementV1 {
+        settlement: settlement.clone(),
+        settlement_commit_digest,
+    })
+}
+
 /// Observes request, claim, and settlement posture in an arbitrary recovery report.
 ///
 /// This projection carries no transition or replay authority. Use
@@ -1438,7 +1474,10 @@ fn apply_recovered_settlement(
         .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
     validate_settlement(&entry.request, &claim, &settlement)?;
     if let Some(existing) = &entry.settlement {
-        return if existing == &settlement {
+        let existing_commit = entry
+            .settlement_commit_digest
+            .ok_or(ExternalActionProtocolErrorV1::MissingSettlement)?;
+        return if existing == &settlement && existing_commit == commit_digest {
             Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
         } else {
             Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
@@ -1782,8 +1821,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn conflicting_recovered_settlement_is_obstructed() {
+    fn claimed_index() -> (
+        ExternalActionRequestV1,
+        ExternalActionClaimV1,
+        RecoveredExternalActionIndexV1,
+    ) {
         let request = request();
         let claim = ExternalActionClaimV1::for_request(
             &request,
@@ -1802,37 +1844,105 @@ mod tests {
             settlement_commit_digest: None,
             posture: RecoveredExternalActionPostureV1::Claimed,
         }));
-        let first =
-            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
-                request.request_id,
-                claim.attempt_id,
-                claim.adapter_id,
-                ExternalActionSettlementKindV1::Succeeded,
-                request.settlement_schema_digest,
-                request.basis_digest,
-                b"first".to_vec(),
-                digest("test.schema-evidence"),
-                digest("test.external-evidence"),
-            ));
+        (request, claim, index)
+    }
+
+    fn settlement(
+        request: &ExternalActionRequestV1,
+        claim: &ExternalActionClaimV1,
+        bytes: &[u8],
+    ) -> ExternalActionSettlementV1 {
+        ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
+            request.request_id,
+            claim.attempt_id,
+            claim.adapter_id,
+            ExternalActionSettlementKindV1::Succeeded,
+            request.settlement_schema_digest,
+            request.basis_digest,
+            bytes.to_vec(),
+            digest("test.schema-evidence"),
+            digest("test.external-evidence"),
+        ))
+    }
+
+    #[test]
+    fn identical_recovered_settlement_is_a_duplicate() {
+        let (request, claim, mut index) = claimed_index();
+        let settlement = settlement(&request, &claim, b"same");
+        let commit = digest("settlement.commit");
+
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement.clone(), commit),
+            Ok(())
+        );
+        let root = index.root_digest();
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement, commit),
+            Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+        );
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.root_digest(), root);
+    }
+
+    #[test]
+    fn conflicting_recovered_settlement_is_obstructed() {
+        let (request, claim, mut index) = claimed_index();
+        let first = settlement(&request, &claim, b"first");
         assert_eq!(
             apply_recovered_settlement(&mut index, first, digest("settlement.commit")),
             Ok(())
         );
-        let conflicting =
-            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
-                request.request_id,
-                claim.attempt_id,
-                claim.adapter_id,
-                ExternalActionSettlementKindV1::Succeeded,
-                request.settlement_schema_digest,
-                request.basis_digest,
-                b"second".to_vec(),
-                digest("test.schema-evidence"),
-                digest("test.external-evidence"),
-            ));
+        let conflicting = settlement(&request, &claim, b"second");
         assert_eq!(
             apply_recovered_settlement(&mut index, conflicting, digest("conflict.commit")),
             Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
         );
+    }
+
+    #[test]
+    fn identical_settlement_under_another_commit_is_conflicting() {
+        let (request, claim, mut index) = claimed_index();
+        let settlement = settlement(&request, &claim, b"same");
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement.clone(), digest("settlement.commit")),
+            Ok(())
+        );
+        assert_eq!(
+            apply_recovered_settlement(
+                &mut index,
+                settlement,
+                digest("different-settlement.commit")
+            ),
+            Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+        );
+    }
+
+    #[test]
+    fn fixed_seed_settlement_mutations_are_conflicting() {
+        const SEED: u64 = 0x5e77_1e5e_77e5_0001;
+        let (request, claim, mut index) = claimed_index();
+        let first = settlement(&request, &claim, &SEED.to_le_bytes());
+        assert_eq!(
+            apply_recovered_settlement(&mut index, first, digest("property-settlement.commit")),
+            Ok(())
+        );
+
+        let mut state = SEED;
+        for ordinal in 0_u8..32 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let mut bytes = state.to_le_bytes().to_vec();
+            bytes.push(ordinal);
+            let conflicting = settlement(&request, &claim, &bytes);
+            assert_eq!(
+                apply_recovered_settlement(
+                    &mut index,
+                    conflicting,
+                    digest("property-conflict.commit")
+                ),
+                Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+            );
+        }
     }
 }

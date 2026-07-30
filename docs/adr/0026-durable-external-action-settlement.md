@@ -98,8 +98,17 @@ A settlement binds the exact request, attempt, adapter, basis, settlement
 schema, canonical result bytes, result digest, schema-admission evidence, and
 external evidence. Echo rejects mismatched claims, stale bases, wrong schemas,
 missing schema-admission or external evidence, digest substitution, oversize
-results, duplicate settlements, conflicting settlements, malformed payloads,
-and unknown outcome codes.
+results, duplicate settlement records, conflicting settlements, malformed
+payloads, and unknown outcome codes.
+
+An adapter that retained its candidate across an acknowledgement loss may
+reconcile it against already-settled history. The reconciliation surface
+receives no WAL store, transaction context, or claim grant. It validates the
+candidate against the recorded request and claim, returns the original
+settlement and original commit digest when every field is exact, and appends no
+history. A different valid candidate is `ConflictingSettlement`; a malformed
+candidate fails ordinary settlement validation before comparison. This is
+idempotent result delivery, not permission to execute the adapter again.
 
 The schema-admission evidence is a protocol binding, not a general schema
 engine. Each operation profile must define which validator produces that
@@ -165,6 +174,10 @@ settlements obstruct recovery. Settled canonical result bytes are replay input.
 Replay does not invoke an adapter. Consulting the current external world again
 requires a new program transition and a new request; changing worldline or
 basis changes request identity.
+
+The idempotent retry path does not make duplicate WAL history admissible. An
+identical candidate is reconciled before any second transaction exists; an
+already duplicated settlement record remains a recovery obstruction.
 
 An arbitrary `RecoveryScanReport` produces observation-only lifecycle values.
 It cannot mint request-transition tokens, adapter work grants, or resumable

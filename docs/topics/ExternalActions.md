@@ -107,6 +107,15 @@ Before generic WAL admission, the operation profile independently validates:
 
 Malformed or substituted candidates fail before the settlement transaction.
 
+If an adapter loses the acknowledgement after settlement commit, it may submit
+the retained candidate to
+`reconcile_external_action_settlement_retry`. That function has no store,
+transaction context, or claim grant. It returns the exact already-admitted
+settlement and its original commit digest without appending history. A
+different valid candidate conflicts, while a malformed candidate fails the
+same generic validation used for first admission. Reconciliation never makes
+adapter execution reachable.
+
 ## Recovery And Replay
 
 Recovery reconstructs `Requested`, `Claimed`, or the exact settled outcome
@@ -116,6 +125,10 @@ reconciliation obligation, not permission to reread the workspace.
 Settled replay returns the canonical bytes retained in the WAL. It does not
 open the capability directory again. Removing or mutating source files after
 settlement therefore cannot change replay.
+
+Duplicate settlement records still obstruct recovery. Idempotency applies to a
+retained candidate reconciled before another WAL transaction, not to duplicated
+history.
 
 ## Evidence
 

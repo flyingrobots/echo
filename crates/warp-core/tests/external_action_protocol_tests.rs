@@ -19,12 +19,13 @@ use warp_core::causal_wal::{
 };
 use warp_core::external_action::{
     admit_external_action_settlement, claim_external_action, observe_external_actions,
-    record_external_action_request, ExternalActionAdapterAuthorizationV1,
-    ExternalActionAdapterBindingV1, ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1,
-    ExternalActionBudgetV1, ExternalActionClaimGrantV1, ExternalActionCoordinatorV1,
-    ExternalActionOperationIdV1, ExternalActionProtocolErrorV1, ExternalActionRequestV1,
-    ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
-    ExternalActionTransactionContextV1, RecoveredExternalActionPostureV1,
+    reconcile_external_action_settlement_retry, record_external_action_request,
+    ExternalActionAdapterAuthorizationV1, ExternalActionAdapterBindingV1,
+    ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1, ExternalActionBudgetV1,
+    ExternalActionClaimGrantV1, ExternalActionCoordinatorV1, ExternalActionOperationIdV1,
+    ExternalActionProtocolErrorV1, ExternalActionRequestV1, ExternalActionSettlementCandidateV1,
+    ExternalActionSettlementKindV1, ExternalActionTransactionContextV1,
+    RecoveredExternalActionPostureV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -796,7 +797,7 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
     let wal_dir = TempWalDir::new("reopen");
     let request = request_with("filesystem-reopen", 21, 128);
     let result_bytes = b"durable observed bytes".to_vec();
-    {
+    let (retry, admitted) = {
         let mut store = must_ok(FilesystemWalStore::open(
             &wal_dir.0,
             WalSegmentId::from_raw(1),
@@ -839,7 +840,7 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
             ExternalActionSettlementKindV1::Succeeded,
             result_bytes.clone(),
         );
-        must_ok(admit_external_action_settlement(
+        let admitted = must_ok(admit_external_action_settlement(
             &mut store,
             &mut coordinator,
             context_with_durability(
@@ -847,9 +848,10 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
                 WalDurabilityMode::StrictFilesystem,
             ),
             grant,
-            candidate,
+            candidate.clone(),
         ));
-    }
+        (candidate, admitted)
+    };
 
     let report = must_ok(recover_filesystem_store(
         &wal_dir.0,
@@ -872,6 +874,21 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
             .map(|settlement| settlement.canonical_result_bytes.as_slice()),
         Some(result_bytes.as_slice())
     );
+
+    let reopened = must_ok(FilesystemWalStore::open(
+        &wal_dir.0,
+        WalSegmentId::from_raw(1),
+    ));
+    let commits_before = reopened.read_commits().len();
+    let recovered_coordinator = must_ok(ExternalActionCoordinatorV1::recover(&reopened));
+    assert_eq!(
+        must_ok(reconcile_external_action_settlement_retry(
+            &recovered_coordinator,
+            retry
+        )),
+        admitted
+    );
+    assert_eq!(reopened.read_commits().len(), commits_before);
 }
 
 #[test]
@@ -1040,6 +1057,215 @@ fn duplicate_settlement_is_a_recovery_obstruction() {
     assert_eq!(
         observe_external_actions(&report),
         Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+    );
+}
+
+#[test]
+fn identical_settlement_retry_returns_the_original_fact_without_wal_growth() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-identical", 66, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-identical",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-identical",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"retained".to_vec(),
+    );
+    let admitted = must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-identical"),
+        grant,
+        retry.clone(),
+    ));
+    let frames_before = store.read_frames().len();
+    let commits_before = store.read_commits().len();
+    let root_before = coordinator.observed_index().root_digest();
+
+    for _ in 0..64 {
+        let retried = must_ok(reconcile_external_action_settlement_retry(
+            &coordinator,
+            retry.clone(),
+        ));
+        assert_eq!(retried, admitted);
+    }
+    assert_eq!(store.read_frames().len(), frames_before);
+    assert_eq!(store.read_commits().len(), commits_before);
+    assert_eq!(coordinator.observed_index().root_digest(), root_before);
+}
+
+#[test]
+fn conflicting_settlement_retry_obstructs_without_wal_growth() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-conflict", 67, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-conflict",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-conflict",
+    );
+    let first = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"first".to_vec(),
+    );
+    let conflicting = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"conflicting".to_vec(),
+    );
+    let kind_conflicting = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Failed,
+        b"first".to_vec(),
+    );
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-conflict"),
+        grant,
+        first,
+    ));
+    let frames_before = store.read_frames().len();
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, conflicting),
+        Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+    );
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, kind_conflicting),
+        Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+    );
+    assert_eq!(store.read_frames().len(), frames_before);
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn malformed_settlement_retry_fails_validation_before_comparison() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-malformed", 68, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-malformed",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-malformed",
+    );
+    let first = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"first".to_vec(),
+    );
+    let mut malformed = first.clone();
+    malformed.declared_result_digest = digest("malformed-result-digest");
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-malformed"),
+        grant,
+        first,
+    ));
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, malformed),
+        Err(ExternalActionProtocolErrorV1::SettlementResultDigestMismatch)
+    );
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn settlement_retry_cannot_create_the_initial_settlement() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-before-settlement", 70, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-before-settlement",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-before-settlement",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"not-yet-admitted".to_vec(),
+    );
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, retry),
+        Err(ExternalActionProtocolErrorV1::MissingSettlement)
+    );
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn recovered_settlement_retry_remains_idempotent() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-recovered", 69, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-recovered",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-recovered",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"recovered".to_vec(),
+    );
+    let admitted = must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-recovered"),
+        grant,
+        retry.clone(),
+    ));
+    let recovered = must_ok(ExternalActionCoordinatorV1::recover(&store));
+
+    assert_eq!(
+        must_ok(reconcile_external_action_settlement_retry(
+            &recovered, retry
+        )),
+        admitted
     );
 }
 

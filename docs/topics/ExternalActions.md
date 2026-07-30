@@ -88,7 +88,11 @@ forbidden path through spelling alone.
 The exact success settlement is encoded and checked against the retained-byte
 budget before the temporary file is staged.
 The runtime owner must serialize the granted workspace mutation aperture; this
-profile is not a general multi-file filesystem transaction.
+profile is not a general multi-file filesystem transaction. The adapter refuses
+a basis already observed stale, but the final check and rename do not establish
+serializability against an external writer. The direct success settlement's
+before-content identity is the earlier observation, not proof that no
+intermediate write occurred.
 
 ## Ordering
 
@@ -142,10 +146,12 @@ Before generic WAL admission, the operation profile independently validates:
 
 Malformed or substituted candidates fail before the settlement transaction.
 
-Patch success retains the request's observation basis, exact resulting basis,
-path, before and after content identities, adapter evidence, and postcondition
-evidence. Stale basis, path policy, special-file, and byte-budget violations
-settle as typed rejections without mutation. The adapter can return
+Direct patch success retains the request's observation basis, exact resulting
+basis, path, observed before and after content identities, adapter evidence, and
+postcondition evidence. A reconciled success retains only the postcondition
+identity it actually observed; its `beforeContentDigest` is absent. Stale basis,
+path policy, special-file, and byte-budget violations settle as typed rejections
+without mutation. The adapter can return
 `OutcomeUnknown` after an ambiguous rename, directory synchronization, or
 postcondition read. A terminal settlement is durable before its result becomes
 resumable program input.

@@ -14,10 +14,11 @@
   and CI-workflow-exclusion policy, and byte budgets before mutation. The
   adapter rejects stale bases, escaped or substituted paths, symlinks, special
   files, and oversized writes without mutation; synchronizes a same-directory
-  atomic replacement; and settles the resulting basis and before/after content
-  identities before resumption. Claimed attempts reconcile by observing the
-  exact postcondition or settling `OutcomeUnknown`, never by reapplying the
-  patch. Identical settlement retry and replay remain effect-free.
+  atomic replacement; and settles the resulting basis and observed before/after
+  content identities before resumption. Claimed attempts reconcile by observing
+  only the exact postcondition or settling `OutcomeUnknown`, never by claiming
+  an unobserved pre-state or reapplying the patch. Identical settlement retry
+  and replay remain effect-free.
 - Bounded workspace claims can now settle as `OutcomeUnknown` after directory
   authority disappears. A rootless reconciliation handle retains only the
   exact runtime-owned profile, revalidates the durable grant's exact claim

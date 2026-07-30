@@ -36,7 +36,8 @@ const CORE_DIGEST_DOMAIN: &str = "edict.core.module/v1";
 const TARGET_IR_DIGEST_DOMAIN: &str = "edict.target-ir.artifact/v1";
 const ECHO_TARGET_IR_DOMAIN: &str = "echo.span-ir/v1";
 const ECHO_TARGET_PROFILE_COORDINATE: &str = "echo.dpo@1";
-const EXTERNAL_REQUEST_OPERATION_PROFILE: &str = "continuum.profile.read-only/v1";
+const COMPATIBILITY_READ_ONLY_REQUEST_PROFILE: &str = "continuum.profile.read-only/v1";
+const EXTERNAL_REQUEST_OPERATION_PROFILE: &str = "continuum.profile.request-only/v1";
 const RESOURCE_ID_DOMAIN: &[u8] = b"echo.external-action.resource-id/v1";
 const TARGET_OPERATION_ID_DOMAIN: &[u8] = b"echo.external-action.target-operation-id/v1";
 const INPUT_DIGEST_DOMAIN: &[u8] = b"echo.external-action.input/v1";
@@ -202,11 +203,12 @@ pub fn admit_edict_external_action_request_v1(
     let intent = map_field(intents, intent_name)
         .ok_or(EdictExternalActionAdmissionErrorV1::MissingIntent)?;
     let intent_map = expect_map(intent)?;
-    require_text_field(
-        intent_map,
-        "operationProfile",
-        EXTERNAL_REQUEST_OPERATION_PROFILE,
-    )?;
+    let operation_profile = require_nonempty_text(intent_map, "operationProfile")?;
+    if operation_profile != EXTERNAL_REQUEST_OPERATION_PROFILE
+        && operation_profile != COMPATIBILITY_READ_ONLY_REQUEST_PROFILE
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+    }
     if !expect_array(require_field(intent_map, "inputConstraints")?)?.is_empty()
         || !expect_array(require_field(intent_map, "requirements")?)?.is_empty()
     {

@@ -2580,6 +2580,13 @@ impl TrustedRuntimeWal {
         })
     }
 
+    /// Returns an in-memory-only copy for host rollback tests.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn cloned_in_memory_for_test(&self) -> Option<Self> {
+        self.in_memory_rollback_snapshot()
+    }
+
     /// Re-runs state-delta recovery after repeating the last scheduler
     /// transaction, for adversarial transaction-atomicity tests.
     #[cfg(any(test, feature = "host_test"))]

@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Component, Path};
 
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt, OpenOptionsSyncExt};
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -45,6 +45,9 @@ const OBSERVATION_SETTLEMENT_KIND: &str = "boundedWorkspaceObservationSettlement
 const OBSERVATION_BASIS_DOMAIN: &[u8] = b"echo.bounded-observation.basis/v1";
 const OBSERVATION_SCHEMA_EVIDENCE_DOMAIN: &[u8] = b"echo.bounded-observation.schema-evidence/v1";
 const OBSERVATION_REFUSAL_EVIDENCE_DOMAIN: &[u8] = b"echo.bounded-observation.refusal-evidence/v1";
+const MAX_CORE_EVALUATION_STEPS_V1: u64 = 4_096;
+const MAX_CORE_EVALUATION_ALLOCATED_BYTES_V1: u64 = 4 * 1_024 * 1_024;
+const MAX_CORE_EVALUATION_OUTPUT_BYTES_V1: u64 = 1_024 * 1_024;
 
 /// One canonical Edict request admitted from exact Core and Target IR bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,6 +115,9 @@ pub enum EdictExternalActionAdmissionErrorV1 {
     /// The supplied Core bytes do not match the Target IR source-Core binding.
     #[error("Edict source Core digest does not match Target IR")]
     CoreDigestMismatch,
+    /// The supplied Target IR request is not the independent projection of Core.
+    #[error("Edict Target IR request is not derived from the supplied Core")]
+    TargetDerivationMismatch,
     /// The request operation is absent or substituted in the capability closure.
     #[error("Edict external request is outside the exact capability closure")]
     CapabilityClosureMismatch,
@@ -121,6 +127,9 @@ pub enum EdictExternalActionAdmissionErrorV1 {
     /// A runtime value has the wrong type or bounds.
     #[error("Edict external request runtime value is invalid")]
     InvalidRuntimeValue,
+    /// Runtime expression evaluation exceeded the declared or host-owned budget.
+    #[error("Edict external request expression evaluation exceeded its budget")]
+    EvaluationBudgetExceeded,
     /// A reviewed digest does not use the required lowercase SHA-256 rendering.
     #[error("Edict external request contains an invalid reviewed digest")]
     InvalidDigest,
@@ -174,6 +183,13 @@ pub fn admit_edict_external_action_request_v1(
     {
         return Err(EdictExternalActionAdmissionErrorV1::CoreDigestMismatch);
     }
+    let lawpacks = expect_array(
+        require_field(closure_map, "lawpacks")
+            .map_err(|_| EdictExternalActionAdmissionErrorV1::MissingSemanticClosure)?,
+    )?
+    .iter()
+    .map(parse_resource)
+    .collect::<Result<Vec<_>, _>>()?;
     let capabilities = expect_array(
         require_field(closure_map, "capabilities")
             .map_err(|_| EdictExternalActionAdmissionErrorV1::CapabilityClosureMismatch)?,
@@ -217,7 +233,6 @@ pub fn admit_edict_external_action_request_v1(
     if require_field(intent_map, "basis")? != require_field(request_map, "basis")? {
         return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
     }
-
     let operation = parse_resource(require_field(request_map, "operation")?)?;
     if !capabilities
         .iter()
@@ -225,38 +240,41 @@ pub fn admit_edict_external_action_request_v1(
     {
         return Err(EdictExternalActionAdmissionErrorV1::CapabilityClosureMismatch);
     }
+    verify_target_derivation(
+        core_map,
+        intent_name,
+        intent_map,
+        request_map,
+        &lawpacks,
+        &capabilities,
+    )?;
     let input_schema = parse_resource(require_field(request_map, "inputSchema")?)?;
     let settlement_schema = parse_resource(require_field(request_map, "settlementSchema")?)?;
     let reconciliation_law = parse_resource(require_field(request_map, "reconciliationLaw")?)?;
     let input_type = require_nonempty_text(request_map, "inputType")?;
     let settlement_type = require_nonempty_text(request_map, "settlementType")?;
 
-    let operation_input = expect_bytes(&evaluate_expression(
-        require_field(request_map, "input")?,
-        &application_input,
-    )?)?
-    .to_vec();
+    let evaluation_budget =
+        parse_evaluation_budget(require_field(intent_map, "coreEvaluationBudget")?)?;
+    let mut evaluator = BoundedExpressionEvaluatorV1::new(&application_input, evaluation_budget)?;
+    let operation_input_value = evaluator.evaluate_root(require_field(request_map, "input")?)?;
+    let operation_input = expect_bytes(&operation_input_value)?.to_vec();
     if operation_input.len() > bytes_type_max(input_type)? {
         return Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue);
     }
-    let authority_scope_digest = expect_hash(&evaluate_expression(
-        require_field(request_map, "authorityScope")?,
-        &application_input,
-    )?)?;
-    let basis_digest = expect_hash(&evaluate_expression(
-        require_field(request_map, "basis")?,
-        &application_input,
-    )?)?;
+    let authority_scope_digest =
+        expect_hash(&evaluator.evaluate_root(require_field(request_map, "authorityScope")?)?)?;
+    let basis_digest =
+        expect_hash(&evaluator.evaluate_root(require_field(request_map, "basis")?)?)?;
     let budget_map = expect_map(require_field(request_map, "budget")?)?;
-    let max_settlement_bytes = expect_u64(&evaluate_expression(
-        require_field(budget_map, "maxSettlementBytes")?,
-        &application_input,
-    )?)?;
-    let max_attempts = expect_u32(&evaluate_expression(
-        require_field(budget_map, "maxAttempts")?,
-        &application_input,
-    )?)?;
+    let max_settlement_bytes =
+        expect_u64(&evaluator.evaluate_root(require_field(budget_map, "maxSettlementBytes")?)?)?;
+    let max_attempts =
+        expect_u32(&evaluator.evaluate_root(require_field(budget_map, "maxAttempts")?)?)?;
     if max_settlement_bytes > u64::try_from(bytes_type_max(settlement_type)?).unwrap_or(u64::MAX) {
+        return Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue);
+    }
+    if max_settlement_bytes < minimum_terminal_settlement_bytes_v1(basis_digest)? {
         return Err(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue);
     }
 
@@ -356,7 +374,13 @@ impl BoundedWorkspaceObservationAdapterV1 {
         admitted: &AdmittedEdictExternalActionRequestV1,
     ) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
         self.validate_grant(grant, admitted)?;
-        let paths = decode_observation_input(admitted.canonical_operation_input())?;
+        let paths = match decode_observation_input(admitted.canonical_operation_input()) {
+            Ok(paths) => paths,
+            Err(BoundedWorkspaceObservationErrorV1::Canonical) => {
+                return self.refused_candidate(grant, "malformed-input", "");
+            }
+            Err(error) => return Err(error),
+        };
         if paths.is_empty() {
             return self.refused_candidate(grant, "empty-path-set", "");
         }
@@ -463,10 +487,12 @@ impl BoundedWorkspaceObservationAdapterV1 {
         store: &mut impl WalStorePort,
         coordinator: &mut ExternalActionCoordinatorV1,
         context: ExternalActionTransactionContextV1,
+        admitted: &AdmittedEdictExternalActionRequestV1,
         grant: ExternalActionClaimGrantV1,
         candidate: ExternalActionSettlementCandidateV1,
     ) -> Result<AdmittedExternalActionSettlementV1, BoundedWorkspaceObservationErrorV1> {
-        self.validate_candidate(&grant, &candidate)?;
+        self.validate_grant(&grant, admitted)?;
+        self.validate_candidate(&grant, admitted, &candidate)?;
         Ok(admit_external_action_settlement(
             store,
             coordinator,
@@ -535,8 +561,11 @@ impl BoundedWorkspaceObservationAdapterV1 {
         if metadata.file_type().is_symlink() {
             return Err(BoundedWorkspaceObservationErrorV1::SymlinkRefused);
         }
+        if !metadata.is_file() {
+            return Err(BoundedWorkspaceObservationErrorV1::NotRegularFile);
+        }
         let mut options = OpenOptions::new();
-        options.read(true).follow(FollowSymlinks::No);
+        options.read(true).follow(FollowSymlinks::No).nonblock(true);
         let mut file = directory
             .open_with(file_name, &options)
             .map_err(|_| BoundedWorkspaceObservationErrorV1::Io)?;
@@ -641,6 +670,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
     fn validate_candidate(
         &self,
         grant: &ExternalActionClaimGrantV1,
+        admitted: &AdmittedEdictExternalActionRequestV1,
         candidate: &ExternalActionSettlementCandidateV1,
     ) -> Result<(), BoundedWorkspaceObservationErrorV1> {
         if candidate.request_id != grant.request().request_id()
@@ -655,11 +685,28 @@ impl BoundedWorkspaceObservationAdapterV1 {
         }
         let value = decode_canonical_cbor_v1(&candidate.canonical_result_bytes)
             .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
+        let expected_paths = if candidate.kind == ExternalActionSettlementKindV1::Succeeded {
+            let paths = decode_observation_input(admitted.canonical_operation_input())
+                .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
+            let expected = paths.iter().cloned().collect::<BTreeSet<_>>();
+            if expected.is_empty()
+                || expected.len() != paths.len()
+                || expected.iter().any(|path| {
+                    validate_relative_path(path).is_err() || !self.permitted_paths.contains(path)
+                })
+            {
+                return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+            }
+            Some(expected)
+        } else {
+            None
+        };
         validate_observation_settlement(
             &value,
             candidate.kind,
             candidate.basis_digest,
             candidate.external_evidence_digest,
+            expected_paths.as_ref(),
         )?;
         let expected_evidence = schema_admission_evidence(
             candidate.settlement_schema_digest,
@@ -751,7 +798,7 @@ pub enum BoundedWorkspaceObservationErrorV1 {
     Protocol(#[from] ExternalActionProtocolErrorV1),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct ResourceRefV1 {
     coordinate: String,
     digest: Hash,
@@ -762,6 +809,20 @@ struct LocalRefV1 {
     id: String,
     alpha_name: String,
     ty: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CoreEvaluationBudgetV1 {
+    steps: u64,
+    allocated_bytes: u64,
+    output_bytes: u64,
+}
+
+struct BoundedExpressionEvaluatorV1<'a> {
+    application_input: &'a CanonicalValueV1,
+    budget: CoreEvaluationBudgetV1,
+    steps: u64,
+    allocated_bytes: u64,
 }
 
 impl ResourceRefV1 {
@@ -889,44 +950,250 @@ fn parse_local_ref(
     })
 }
 
-fn evaluate_expression(
-    expression: &CanonicalValueV1,
-    application_input: &CanonicalValueV1,
-) -> Result<CanonicalValueV1, EdictExternalActionAdmissionErrorV1> {
-    let expression = expect_map(expression)?;
-    match require_nonempty_text(expression, "kind")? {
-        "local" => {
-            let reference = parse_local_ref(require_field(expression, "ref")?)?;
-            if reference.id != "arg.0" {
-                return Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression);
-            }
-            Ok(application_input.clone())
-        }
-        "field" => {
-            let base = evaluate_expression(require_field(expression, "base")?, application_input)?;
-            let base = expect_map(&base)?;
-            let field = require_nonempty_text(expression, "field")?;
-            map_field(base, field)
-                .cloned()
-                .ok_or(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue)
-        }
-        "const" => evaluate_core_value(require_field(expression, "value")?),
-        "record" => {
-            let fields = expect_map(require_field(expression, "fields")?)?;
-            let mut evaluated = Vec::with_capacity(fields.len());
-            for (name, value) in fields {
-                let CanonicalValueV1::Text(name) = name else {
-                    return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
-                };
-                evaluated.push((
-                    CanonicalValueV1::Text(name.clone()),
-                    evaluate_expression(value, application_input)?,
-                ));
-            }
-            Ok(CanonicalValueV1::Map(evaluated))
-        }
-        _ => Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression),
+fn verify_target_derivation(
+    core: &[(CanonicalValueV1, CanonicalValueV1)],
+    intent_name: &str,
+    target_intent: &[(CanonicalValueV1, CanonicalValueV1)],
+    target_request: &[(CanonicalValueV1, CanonicalValueV1)],
+    target_lawpacks: &[ResourceRefV1],
+    target_capabilities: &[ResourceRefV1],
+) -> Result<(), EdictExternalActionAdmissionErrorV1> {
+    let core_intents = expect_map(require_field(core, "intents")?)?;
+    let core_intent = expect_map(
+        map_field(core_intents, intent_name)
+            .ok_or(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch)?,
+    )?;
+    if require_field(core_intent, "inputConstraints")?
+        != require_field(target_intent, "inputConstraints")?
+        || require_field(core_intent, "coreEvaluationBudget")?
+            != require_field(target_intent, "coreEvaluationBudget")?
+        || require_field(core_intent, "basis")? != require_field(target_intent, "basis")?
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
     }
+
+    let core_body = expect_map(require_field(core_intent, "body")?)?;
+    let core_nodes = expect_array(require_field(core_body, "nodes")?)?;
+    let [core_request_value] = core_nodes else {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+    };
+    let core_request = expect_map(core_request_value)?;
+    require_text_field(core_request, "kind", "externalActionRequest")
+        .map_err(|_| EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch)?;
+    let core_locals = expect_array(require_field(core_body, "locals")?)?;
+    let [core_argument, core_binding] = core_locals else {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+    };
+    if parse_local_ref(core_argument)?.id != "arg.0"
+        || core_binding != require_field(target_request, "binding")?
+        || require_field(core_body, "result")? != require_field(target_intent, "result")?
+        || require_nonempty_text(target_request, "id")? != format!("{intent_name}.request.0")
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+    }
+    for field in [
+        "binding",
+        "operation",
+        "inputType",
+        "settlementType",
+        "inputSchema",
+        "settlementSchema",
+        "input",
+        "authorityScope",
+        "basis",
+        "budget",
+        "reconciliationLaw",
+        "state",
+        "settlementAdmission",
+    ] {
+        if require_field(core_request, field)? != require_field(target_request, field)? {
+            return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+        }
+    }
+
+    let core_lawpacks = core_import_resources(core, "lawpack")?;
+    let core_capabilities = core_import_resources(core, "capability")?;
+    if canonical_resource_set(core_lawpacks)? != canonical_resource_set(target_lawpacks.to_vec())?
+        || canonical_resource_set(core_capabilities)?
+            != canonical_resource_set(target_capabilities.to_vec())?
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+    }
+    Ok(())
+}
+
+fn core_import_resources(
+    core: &[(CanonicalValueV1, CanonicalValueV1)],
+    expected_kind: &str,
+) -> Result<Vec<ResourceRefV1>, EdictExternalActionAdmissionErrorV1> {
+    let imports = expect_array(require_field(core, "imports")?)?;
+    let mut resources = Vec::new();
+    for import in imports {
+        let import = expect_map(import)?;
+        let kind = require_nonempty_text(import, "kind")?;
+        if kind == expected_kind {
+            resources.push(parse_resource(require_field(import, "ref")?)?);
+        }
+    }
+    Ok(resources)
+}
+
+fn canonical_resource_set(
+    mut resources: Vec<ResourceRefV1>,
+) -> Result<Vec<ResourceRefV1>, EdictExternalActionAdmissionErrorV1> {
+    resources.sort();
+    if resources.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch);
+    }
+    Ok(resources)
+}
+
+fn parse_evaluation_budget(
+    value: &CanonicalValueV1,
+) -> Result<CoreEvaluationBudgetV1, EdictExternalActionAdmissionErrorV1> {
+    let budget = expect_map(value)?;
+    let parsed = CoreEvaluationBudgetV1 {
+        steps: expect_u64(require_field(budget, "maxSteps")?)?,
+        allocated_bytes: expect_u64(require_field(budget, "maxAllocatedBytes")?)?,
+        output_bytes: expect_u64(require_field(budget, "maxOutputBytes")?)?,
+    };
+    if parsed.steps == 0
+        || parsed.allocated_bytes == 0
+        || parsed.output_bytes == 0
+        || parsed.steps > MAX_CORE_EVALUATION_STEPS_V1
+        || parsed.allocated_bytes > MAX_CORE_EVALUATION_ALLOCATED_BYTES_V1
+        || parsed.output_bytes > MAX_CORE_EVALUATION_OUTPUT_BYTES_V1
+    {
+        return Err(EdictExternalActionAdmissionErrorV1::EvaluationBudgetExceeded);
+    }
+    Ok(parsed)
+}
+
+impl<'a> BoundedExpressionEvaluatorV1<'a> {
+    fn new(
+        application_input: &'a CanonicalValueV1,
+        budget: CoreEvaluationBudgetV1,
+    ) -> Result<Self, EdictExternalActionAdmissionErrorV1> {
+        let input_bytes = retained_value_bytes(application_input);
+        if input_bytes > budget.allocated_bytes {
+            return Err(EdictExternalActionAdmissionErrorV1::EvaluationBudgetExceeded);
+        }
+        Ok(Self {
+            application_input,
+            budget,
+            steps: 0,
+            allocated_bytes: 0,
+        })
+    }
+
+    fn evaluate_root(
+        &mut self,
+        expression: &CanonicalValueV1,
+    ) -> Result<CanonicalValueV1, EdictExternalActionAdmissionErrorV1> {
+        let value = self.evaluate(expression)?;
+        if retained_value_bytes(&value) > self.budget.output_bytes {
+            return Err(EdictExternalActionAdmissionErrorV1::EvaluationBudgetExceeded);
+        }
+        Ok(value)
+    }
+
+    fn evaluate(
+        &mut self,
+        expression: &CanonicalValueV1,
+    ) -> Result<CanonicalValueV1, EdictExternalActionAdmissionErrorV1> {
+        self.steps = self.steps.saturating_add(1);
+        if self.steps > self.budget.steps {
+            return Err(EdictExternalActionAdmissionErrorV1::EvaluationBudgetExceeded);
+        }
+        let expression = expect_map(expression)?;
+        match require_nonempty_text(expression, "kind")? {
+            "local" => {
+                let reference = parse_local_ref(require_field(expression, "ref")?)?;
+                if reference.id != "arg.0" {
+                    return Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression);
+                }
+                self.allocate_value(self.application_input)?;
+                Ok(self.application_input.clone())
+            }
+            "field" => {
+                let base = self.evaluate(require_field(expression, "base")?)?;
+                let base = expect_map(&base)?;
+                let field = require_nonempty_text(expression, "field")?;
+                let value = map_field(base, field)
+                    .ok_or(EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue)?;
+                self.allocate_value(value)?;
+                Ok(value.clone())
+            }
+            "const" => {
+                let value = evaluate_core_value(require_field(expression, "value")?)?;
+                self.allocate_value(&value)?;
+                Ok(value)
+            }
+            "record" => {
+                let fields = expect_map(require_field(expression, "fields")?)?;
+                let mut evaluated = Vec::with_capacity(fields.len());
+                for (name, value) in fields {
+                    let CanonicalValueV1::Text(name) = name else {
+                        return Err(EdictExternalActionAdmissionErrorV1::ArtifactShape);
+                    };
+                    self.allocate_bytes(
+                        u64::try_from(name.len())
+                            .unwrap_or(u64::MAX)
+                            .saturating_add(16),
+                    )?;
+                    evaluated.push((CanonicalValueV1::Text(name.clone()), self.evaluate(value)?));
+                }
+                Ok(CanonicalValueV1::Map(evaluated))
+            }
+            _ => Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression),
+        }
+    }
+
+    fn allocate_value(
+        &mut self,
+        value: &CanonicalValueV1,
+    ) -> Result<(), EdictExternalActionAdmissionErrorV1> {
+        self.allocate_bytes(retained_value_bytes(value))
+    }
+
+    fn allocate_bytes(&mut self, bytes: u64) -> Result<(), EdictExternalActionAdmissionErrorV1> {
+        self.allocated_bytes = self.allocated_bytes.saturating_add(bytes);
+        if self.allocated_bytes > self.budget.allocated_bytes {
+            return Err(EdictExternalActionAdmissionErrorV1::EvaluationBudgetExceeded);
+        }
+        Ok(())
+    }
+}
+
+fn retained_value_bytes(value: &CanonicalValueV1) -> u64 {
+    let payload = match value {
+        CanonicalValueV1::Null | CanonicalValueV1::Bool(_) | CanonicalValueV1::Integer(_) => 16,
+        CanonicalValueV1::Bytes(bytes) => u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        CanonicalValueV1::Text(text) => u64::try_from(text.len()).unwrap_or(u64::MAX),
+        CanonicalValueV1::Array(values) => values
+            .iter()
+            .fold(0_u64, |total, value| {
+                total.saturating_add(retained_value_bytes(value))
+            })
+            .saturating_add(
+                u64::try_from(values.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(8),
+            ),
+        CanonicalValueV1::Map(entries) => entries
+            .iter()
+            .fold(0_u64, |total, (key, value)| {
+                total
+                    .saturating_add(retained_value_bytes(key))
+                    .saturating_add(retained_value_bytes(value))
+            })
+            .saturating_add(
+                u64::try_from(entries.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(16),
+            ),
+    };
+    payload.saturating_add(16)
 }
 
 fn evaluate_core_value(
@@ -1023,6 +1290,9 @@ fn validate_relative_path(path: &str) -> Result<(), BoundedWorkspaceObservationE
         || path.ends_with('/')
         || path.contains("//")
         || path.contains('\\')
+        || path
+            .split('/')
+            .any(|component| component.is_empty() || matches!(component, "." | ".."))
     {
         return Err(BoundedWorkspaceObservationErrorV1::InvalidPath);
     }
@@ -1081,11 +1351,32 @@ fn encode_observation_settlement(
     .map_err(|_| BoundedWorkspaceObservationErrorV1::Canonical)
 }
 
+fn minimum_terminal_settlement_bytes_v1(
+    basis: Hash,
+) -> Result<u64, EdictExternalActionAdmissionErrorV1> {
+    [
+        ("rejected", "settlement-budget-exceeded"),
+        ("rejected", "malformed-input"),
+        ("failed", "io-failure"),
+        ("outcomeUnknown", "outcome-unknown"),
+    ]
+    .into_iter()
+    .map(|(posture, obstruction)| {
+        encode_observation_settlement(posture, basis, [0xff; 32], &[], Some(obstruction))
+            .map(|bytes| u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+            .map_err(|_| EdictExternalActionAdmissionErrorV1::InvalidRuntimeValue)
+    })
+    .try_fold(0_u64, |maximum, length| {
+        length.map(|length| maximum.max(length))
+    })
+}
+
 fn validate_observation_settlement(
     value: &CanonicalValueV1,
     kind: ExternalActionSettlementKindV1,
     basis: Hash,
     evidence: Hash,
+    expected_paths: Option<&BTreeSet<String>>,
 ) -> Result<(), BoundedWorkspaceObservationErrorV1> {
     let CanonicalValueV1::Map(entries) = value else {
         return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
@@ -1166,11 +1457,29 @@ fn validate_observation_settlement(
         if bounded_workspace_observation_basis_v1(observed) != basis || evidence != basis {
             return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
         }
+        let Some(expected_paths) = expected_paths else {
+            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+        };
+        if files.len() != expected_paths.len()
+            || files.iter().zip(expected_paths).any(|(file, expected)| {
+                !matches!(
+                    file,
+                    CanonicalValueV1::Map(entries)
+                        if matches!(
+                            map_field(entries, "path"),
+                            Some(CanonicalValueV1::Text(path)) if path == expected
+                        )
+                )
+            })
+        {
+            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+        }
     } else if !files.is_empty()
         || !matches!(
             map_field(entries, "obstruction"),
             Some(CanonicalValueV1::Text(value)) if !value.is_empty()
         )
+        || expected_paths.is_some()
     {
         return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
     }

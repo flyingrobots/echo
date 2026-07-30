@@ -8,7 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use echo_edict_canonical::{decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1};
+use echo_edict_canonical::{
+    decode_canonical_cbor_v1, digest_canonical_value_v1, encode_canonical_cbor_v1, CanonicalValueV1,
+};
 use warp_core::causal_wal::{
     InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, WalDurabilityMode, WalSegmentId,
     WalStorePort, WalTransactionId, WriterEpochId, WriterEpochRequest,
@@ -16,8 +18,9 @@ use warp_core::causal_wal::{
 use warp_core::external_action::{
     claim_external_action, record_external_action_request, ExternalActionAdapterIdV1,
     ExternalActionAdapterRegistryV1, ExternalActionClaimGrantV1, ExternalActionCoordinatorV1,
-    ExternalActionProtocolErrorV1, ExternalActionSettlementKindV1,
-    ExternalActionTransactionContextV1, RecoveredExternalActionPostureV1,
+    ExternalActionProtocolErrorV1, ExternalActionSettlementCandidateV1,
+    ExternalActionSettlementKindV1, ExternalActionTransactionContextV1,
+    RecoveredExternalActionPostureV1,
 };
 use warp_core::external_action_adapter::{
     admit_edict_external_action_request_v1, bounded_workspace_observation_basis_v1,
@@ -79,8 +82,48 @@ fn target_ir_value() -> CanonicalValueV1 {
     must_ok(decode_canonical_cbor_v1(TARGET_IR_BYTES))
 }
 
+fn core_value() -> CanonicalValueV1 {
+    must_ok(decode_canonical_cbor_v1(CORE_BYTES))
+}
+
 fn encoded(value: &CanonicalValueV1) -> Vec<u8> {
     must_ok(encode_canonical_cbor_v1(value))
+}
+
+fn intent_mut<'a>(artifact: &'a mut CanonicalValueV1, name: &str) -> &'a mut CanonicalValueV1 {
+    map_field_mut(map_field_mut(artifact, "intents"), name)
+}
+
+fn target_request_mut(artifact: &mut CanonicalValueV1) -> &mut CanonicalValueV1 {
+    let requests = map_field_mut(intent_mut(artifact, "observe"), "externalActionRequests");
+    let CanonicalValueV1::Array(requests) = requests else {
+        panic!("expected external request array");
+    };
+    must_some(requests.first_mut())
+}
+
+fn bind_target_to_core(target: &mut CanonicalValueV1, core: &CanonicalValueV1) {
+    let reviewed = must_ok(digest_canonical_value_v1("edict.core.module/v1", core));
+    let reviewed = must_some(reviewed.strip_prefix("sha256:"));
+    let reviewed = must_ok(hex::decode(reviewed));
+    let source = map_field_mut(map_field_mut(target, "semanticClosure"), "sourceCore");
+    let digest = map_field_mut(source, "digest");
+    let CanonicalValueV1::Array(digest) = digest else {
+        panic!("expected reviewed digest");
+    };
+    let Some(CanonicalValueV1::Bytes(bytes)) = digest.get_mut(1) else {
+        panic!("expected reviewed digest bytes");
+    };
+    *bytes = reviewed;
+}
+
+fn schema_admission_evidence(schema: Hash, bytes: &[u8]) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo.bounded-observation.schema-evidence/v1");
+    hasher.update(&schema);
+    hasher.update(&u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
+    hasher.update(bytes);
+    hasher.finalize().into()
 }
 
 fn rewrite_first_local_id(value: &mut CanonicalValueV1, replacement: &str) -> bool {
@@ -464,7 +507,7 @@ fn malformed_or_substituted_compiler_artifacts_fail_closed() {
             "observe",
             &input,
         ),
-        Err(EdictExternalActionAdmissionErrorV1::UnsupportedExpression)
+        Err(EdictExternalActionAdmissionErrorV1::TargetDerivationMismatch)
     );
 
     let mut wrong_result = target_ir_value();
@@ -534,6 +577,301 @@ fn target_profile_digest_is_part_of_the_runtime_operation_identity() {
 }
 
 #[test]
+fn target_request_must_be_derived_from_the_supplied_core() {
+    let mut target = target_ir_value();
+    *map_field_mut(target_request_mut(&mut target), "input") = map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([
+                ("kind", text("bytes")),
+                ("value", CanonicalValueV1::Bytes(vec![0x44])),
+            ]),
+        ),
+    ]);
+    let input = application_input(
+        vec![0x44],
+        digest("scope:target-derivation"),
+        digest("basis:target-derivation"),
+        65_536,
+    );
+    assert!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([5; 32]),
+            CORE_BYTES,
+            &encoded(&target),
+            "observe",
+            &input,
+        )
+        .is_err(),
+        "Target IR request fields must be corroborated against Core"
+    );
+}
+
+#[test]
+fn expression_evaluation_obeys_declared_and_host_budgets() {
+    for (index, (field, limit)) in [
+        ("maxSteps", 1_i128),
+        ("maxAllocatedBytes", 1_i128),
+        ("maxOutputBytes", 1_i128),
+        ("maxSteps", i128::from(u64::MAX)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut core = core_value();
+        *map_field_mut(
+            map_field_mut(intent_mut(&mut core, "observe"), "coreEvaluationBudget"),
+            field,
+        ) = CanonicalValueV1::Integer(limit);
+        let mut target = target_ir_value();
+        *map_field_mut(
+            map_field_mut(intent_mut(&mut target, "observe"), "coreEvaluationBudget"),
+            field,
+        ) = CanonicalValueV1::Integer(limit);
+        bind_target_to_core(&mut target, &core);
+        let operation_input = must_ok(encode_bounded_workspace_observation_input_v1([
+            "metered.txt".to_owned(),
+        ]));
+        assert!(
+            admit_edict_external_action_request_v1(
+                WorldlineId::from_bytes([u8::try_from(index + 10).unwrap_or(u8::MAX); 32]),
+                &encoded(&core),
+                &encoded(&target),
+                "observe",
+                &application_input(
+                    operation_input,
+                    digest("scope:metered"),
+                    digest("basis:metered"),
+                    65_536,
+                ),
+            )
+            .is_err(),
+            "{field}={limit} must fail closed"
+        );
+    }
+}
+
+#[test]
+fn request_budget_must_fit_a_terminal_settlement() {
+    let operation_input = must_ok(encode_bounded_workspace_observation_input_v1([
+        "terminal.txt".to_owned(),
+    ]));
+    assert!(
+        admit_edict_external_action_request_v1(
+            WorldlineId::from_bytes([20; 32]),
+            CORE_BYTES,
+            TARGET_IR_BYTES,
+            "observe",
+            &application_input(
+                operation_input,
+                digest("scope:terminal"),
+                digest("basis:terminal"),
+                1,
+            ),
+        )
+        .is_err(),
+        "a request must not be admitted when no terminal envelope can fit"
+    );
+}
+
+#[test]
+fn malformed_operation_input_settles_as_rejected() {
+    let root = TempRoot::new("malformed-input");
+    let admitted = must_ok(admit_edict_external_action_request_v1(
+        WorldlineId::from_bytes([21; 32]),
+        CORE_BYTES,
+        TARGET_IR_BYTES,
+        "observe",
+        &application_input(
+            vec![0xff],
+            digest("scope:malformed-input"),
+            digest("basis:malformed-input"),
+            65_536,
+        ),
+    ));
+    let adapter = adapter(&root, &admitted, ["unused.txt".to_owned()]);
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "malformed-input",
+    );
+    assert_eq!(
+        must_ok(adapter.observe(&grant, &admitted)).kind,
+        ExternalActionSettlementKindV1::Rejected
+    );
+}
+
+#[test]
+fn settlement_admission_revalidates_the_adapter_profile() {
+    let root = TempRoot::new("settlement-profile");
+    root.write("profile.txt", b"profile");
+    let basis = bounded_workspace_observation_basis_v1([("profile.txt", b"profile".as_slice())]);
+    let admitted = admitted_request(
+        22,
+        ["profile.txt".to_owned()],
+        digest("scope:settlement-profile"),
+        basis,
+        65_536,
+    );
+    let adapter = adapter(&root, &admitted, ["profile.txt".to_owned()]);
+    let mut mismatched_profile = profile(&admitted, "bounded-observation:adapter");
+    mismatched_profile.operation_id =
+        warp_core::external_action::ExternalActionOperationIdV1::from_hash(digest(
+            "other-operation",
+        ));
+    let mismatched = must_ok(BoundedWorkspaceObservationAdapterV1::open(
+        root.path(),
+        ["profile.txt".to_owned()],
+        mismatched_profile,
+    ));
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "settlement-profile",
+    );
+    let candidate = must_ok(adapter.observe(&grant, &admitted));
+    assert_eq!(
+        mismatched.admit_settlement(
+            &mut store,
+            &mut coordinator,
+            context("settlement-profile:settlement"),
+            &admitted,
+            grant,
+            candidate,
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::ProfileMismatch)
+    );
+}
+
+#[test]
+fn successful_settlement_paths_must_equal_the_requested_aperture() {
+    let root = TempRoot::new("settlement-aperture");
+    let secret = b"secret";
+    let basis = bounded_workspace_observation_basis_v1([("secret.txt", secret.as_slice())]);
+    let admitted = admitted_request(
+        23,
+        ["allowed.txt".to_owned()],
+        digest("scope:settlement-aperture"),
+        basis,
+        65_536,
+    );
+    let adapter = adapter(
+        &root,
+        &admitted,
+        ["allowed.txt".to_owned(), "secret.txt".to_owned()],
+    );
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "settlement-aperture",
+    );
+    let settlement = encoded(&map([
+        ("kind", text("boundedWorkspaceObservationSettlement")),
+        ("posture", text("succeeded")),
+        ("basis", CanonicalValueV1::Bytes(basis.to_vec())),
+        ("evidence", CanonicalValueV1::Bytes(basis.to_vec())),
+        (
+            "files",
+            CanonicalValueV1::Array(vec![map([
+                ("path", text("secret.txt")),
+                ("bytes", CanonicalValueV1::Bytes(secret.to_vec())),
+                (
+                    "digest",
+                    CanonicalValueV1::Bytes(blake3::hash(secret).as_bytes().to_vec()),
+                ),
+            ])]),
+        ),
+        ("obstruction", CanonicalValueV1::Null),
+    ]));
+    let request = admitted.request();
+    let candidate = ExternalActionSettlementCandidateV1::new(
+        request.request_id(),
+        grant.claim().attempt_id,
+        adapter.adapter_binding().adapter_id,
+        ExternalActionSettlementKindV1::Succeeded,
+        request.settlement_schema_digest,
+        basis,
+        settlement.clone(),
+        schema_admission_evidence(request.settlement_schema_digest, &settlement),
+        basis,
+    );
+    assert_eq!(
+        adapter.admit_settlement(
+            &mut store,
+            &mut coordinator,
+            context("settlement-aperture:settlement"),
+            &admitted,
+            grant,
+            candidate,
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)
+    );
+}
+
+#[test]
+fn interior_current_directory_segments_are_not_canonical_paths() {
+    let root = TempRoot::new("dot-segment");
+    let admitted = admitted_request(
+        24,
+        ["dir/file.txt".to_owned()],
+        digest("scope:dot-segment"),
+        digest("basis:dot-segment"),
+        65_536,
+    );
+    assert!(matches!(
+        BoundedWorkspaceObservationAdapterV1::open(
+            root.path(),
+            ["dir/./file.txt".to_owned()],
+            profile(&admitted, "bounded-observation:dot-segment"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::InvalidPath)
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn special_files_are_rejected_before_a_read_attempt() {
+    use std::os::unix::net::UnixListener;
+
+    let root = TempRoot::new("special-file");
+    let _listener = must_ok(UnixListener::bind(root.path().join("socket")));
+    let admitted = admitted_request(
+        25,
+        ["socket".to_owned()],
+        digest("scope:special-file"),
+        digest("basis:special-file"),
+        65_536,
+    );
+    let adapter = adapter(&root, &admitted, ["socket".to_owned()]);
+    let mut store = store();
+    let mut coordinator = must_ok(ExternalActionCoordinatorV1::recover(&store));
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        &admitted,
+        &adapter,
+        "special-file",
+    );
+    assert_eq!(
+        must_ok(adapter.observe(&grant, &admitted)).kind,
+        ExternalActionSettlementKindV1::Rejected
+    );
+}
+
+#[test]
 fn request_and_claim_are_durable_before_the_adapter_can_read() {
     let root = TempRoot::new("ordered");
     let bytes = b"durable before effect";
@@ -557,6 +895,7 @@ fn request_and_claim_are_durable_before_the_adapter_can_read() {
         &mut store,
         &mut coordinator,
         context("ordered:settlement"),
+        &admitted,
         grant,
         candidate,
     ));
@@ -603,6 +942,7 @@ fn absolute_parent_escaped_and_unauthorized_paths_settle_as_rejected() {
             &mut store,
             &mut coordinator,
             context(&format!("path-{index}:settlement")),
+            &admitted,
             grant,
             candidate,
         ));
@@ -812,6 +1152,7 @@ fn definite_io_failure_settles_and_recovers_as_failed() {
         &mut store,
         &mut coordinator,
         context("failed:settlement"),
+        &admitted,
         grant,
         candidate,
     ));
@@ -857,6 +1198,7 @@ fn malformed_settlement_cannot_bypass_the_profile_validator() {
             &mut store,
             &mut coordinator,
             context("malformed:settlement"),
+            &admitted,
             grant,
             candidate,
         ),
@@ -903,6 +1245,7 @@ fn noncanonical_success_file_order_cannot_bypass_the_profile_validator() {
             &mut store,
             &mut coordinator,
             context("settlement-order:settlement"),
+            &admitted,
             grant,
             candidate,
         ),
@@ -973,6 +1316,7 @@ fn requested_claimed_unknown_and_settled_postures_recover() {
         &mut store,
         &mut coordinator,
         context("recovery:settlement"),
+        &admitted,
         grant,
         candidate,
     ));
@@ -1005,6 +1349,7 @@ fn settled_replay_uses_wal_bytes_after_the_source_disappears() {
         &mut store,
         &mut coordinator,
         context("replay:settlement"),
+        &admitted,
         grant,
         candidate,
     ));
@@ -1082,6 +1427,7 @@ fn bounded_stress_settles_many_requests_without_identity_collision() {
             &mut store,
             &mut coordinator,
             context(&format!("stress-{index}:settlement")),
+            &admitted,
             grant,
             candidate,
         ));

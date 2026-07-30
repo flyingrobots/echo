@@ -1132,6 +1132,11 @@ fn conflicting_settlement_retry_obstructs_without_wal_growth() {
         ExternalActionSettlementKindV1::Succeeded,
         b"conflicting".to_vec(),
     );
+    let kind_conflicting = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Failed,
+        b"first".to_vec(),
+    );
     must_ok(admit_external_action_settlement(
         &mut store,
         &mut coordinator,
@@ -1144,6 +1149,10 @@ fn conflicting_settlement_retry_obstructs_without_wal_growth() {
 
     assert_eq!(
         reconcile_external_action_settlement_retry(&coordinator, conflicting),
+        Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+    );
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, kind_conflicting),
         Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
     );
     assert_eq!(store.read_frames().len(), frames_before);

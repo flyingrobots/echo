@@ -555,6 +555,7 @@ pub fn validated_workspace_patch_authority_v1<'a>(
     let mut hasher = blake3::Hasher::new();
     hasher.update(PATCH_AUTHORITY_DOMAIN);
     hash_len_prefixed(&mut hasher, b"single-file-replace");
+    hash_len_prefixed(&mut hasher, b"attempt-scoped-sibling-staging");
     hash_len_prefixed(&mut hasher, b"no-follow");
     hash_len_prefixed(&mut hasher, b"regular-file-only");
     hash_len_prefixed(&mut hasher, b"ci-workflow-forbidden");
@@ -998,7 +999,13 @@ fn validate_relative_path(path: &str) -> Result<(), ValidatedWorkspacePatchError
 }
 
 fn is_ci_workflow_path(path: &str) -> bool {
-    path == ".github/workflows" || path.starts_with(".github/workflows/")
+    let mut components = path.split('/');
+    matches!(
+        (components.next(), components.next()),
+        (Some(github), Some(workflows))
+            if github.eq_ignore_ascii_case(".github")
+                && workflows.eq_ignore_ascii_case("workflows")
+    )
 }
 
 fn open_parent_nofollow(

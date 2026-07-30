@@ -370,6 +370,11 @@ fn durable_claim_precedes_mutation_and_settlement_precedes_replay() {
     let candidate = must_ok(adapter.apply(&grant, &admitted));
     assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Succeeded);
     assert_eq!(root.read(path), replacement);
+    let staged_name = format!(
+        "src/.message.txt.echo-patch-{}",
+        hex::encode(grant.claim().attempt_id.as_hash())
+    );
+    assert!(!root.path().join(staged_name).exists());
     assert!(matches!(
         must_ok(coordinator.claim_grant(request_id)).claim(),
         claim if claim == grant.claim()
@@ -486,6 +491,7 @@ fn stale_basis_and_path_policy_refuse_before_mutation() {
     root.write(permitted, b"current");
     root.write("src/other.txt", b"other");
     root.write(".github/workflows/ci.yml", b"name: ci");
+    root.write(".GITHUB/Workflows/upper.yml", b"name: upper");
     let authority = validated_workspace_patch_authority_v1([permitted]);
 
     for (ordinal, requested_path, expected_before, code) in [
@@ -500,6 +506,12 @@ fn stale_basis_and_path_policy_refuse_before_mutation() {
             42,
             ".github/workflows/ci.yml",
             b"name: ci".as_slice(),
+            "ci-workflow-refused",
+        ),
+        (
+            43,
+            ".GITHUB/Workflows/upper.yml",
+            b"name: upper".as_slice(),
             "ci-workflow-refused",
         ),
     ] {

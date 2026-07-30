@@ -1010,7 +1010,7 @@ fn bounded_stress_recovers_all_requests_without_adapter_execution() {
 }
 
 #[test]
-fn duplicate_settlement_is_a_recovery_obstruction() {
+fn duplicate_identical_settlement_is_idempotent_during_recovery() {
     let mut store = store();
     let mut coordinator = coordinator(&store);
     let request = request_with("duplicate", 16, 64);
@@ -1037,9 +1037,15 @@ fn duplicate_settlement_is_a_recovery_obstruction() {
         None => panic!("settlement transaction was not recovered"),
     };
     report.transactions.push(duplicate);
+    let recovered = must_ok(observe_external_actions(&report));
+    assert_eq!(recovered.len(), 1);
     assert_eq!(
-        observe_external_actions(&report),
-        Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+        recovered
+            .get(request.request_id())
+            .map(|entry| entry.posture),
+        Some(RecoveredExternalActionPostureV1::Settled(
+            ExternalActionSettlementKindV1::Succeeded
+        ))
     );
 }
 

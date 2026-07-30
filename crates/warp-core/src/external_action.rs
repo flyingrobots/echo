@@ -1782,8 +1782,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn conflicting_recovered_settlement_is_obstructed() {
+    fn claimed_index() -> (
+        ExternalActionRequestV1,
+        ExternalActionClaimV1,
+        RecoveredExternalActionIndexV1,
+    ) {
         let request = request();
         let claim = ExternalActionClaimV1::for_request(
             &request,
@@ -1802,37 +1805,126 @@ mod tests {
             settlement_commit_digest: None,
             posture: RecoveredExternalActionPostureV1::Claimed,
         }));
-        let first =
-            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
-                request.request_id,
-                claim.attempt_id,
-                claim.adapter_id,
-                ExternalActionSettlementKindV1::Succeeded,
-                request.settlement_schema_digest,
-                request.basis_digest,
-                b"first".to_vec(),
-                digest("test.schema-evidence"),
-                digest("test.external-evidence"),
-            ));
+        (request, claim, index)
+    }
+
+    fn settlement(
+        request: ExternalActionRequestV1,
+        claim: ExternalActionClaimV1,
+        bytes: &[u8],
+    ) -> ExternalActionSettlementV1 {
+        ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
+            request.request_id,
+            claim.attempt_id,
+            claim.adapter_id,
+            ExternalActionSettlementKindV1::Succeeded,
+            request.settlement_schema_digest,
+            request.basis_digest,
+            bytes.to_vec(),
+            digest("test.schema-evidence"),
+            digest("test.external-evidence"),
+        ))
+    }
+
+    #[test]
+    fn identical_recovered_settlement_is_idempotent() {
+        let (request, claim, mut index) = claimed_index();
+        let settlement = settlement(request, claim, b"same");
+        let commit = digest("settlement.commit");
+
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement.clone(), commit),
+            Ok(())
+        );
+        let root = index.root_digest();
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement, commit),
+            Ok(())
+        );
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.root_digest(), root);
+    }
+
+    #[test]
+    fn conflicting_recovered_settlement_is_obstructed() {
+        let (request, claim, mut index) = claimed_index();
+        let first = settlement(request, claim, b"first");
         assert_eq!(
             apply_recovered_settlement(&mut index, first, digest("settlement.commit")),
             Ok(())
         );
-        let conflicting =
-            ExternalActionSettlementV1::from_candidate(ExternalActionSettlementCandidateV1::new(
-                request.request_id,
-                claim.attempt_id,
-                claim.adapter_id,
-                ExternalActionSettlementKindV1::Succeeded,
-                request.settlement_schema_digest,
-                request.basis_digest,
-                b"second".to_vec(),
-                digest("test.schema-evidence"),
-                digest("test.external-evidence"),
-            ));
+        let conflicting = settlement(request, claim, b"second");
         assert_eq!(
             apply_recovered_settlement(&mut index, conflicting, digest("conflict.commit")),
             Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
         );
+    }
+
+    #[test]
+    fn identical_settlement_under_another_commit_is_conflicting() {
+        let (request, claim, mut index) = claimed_index();
+        let settlement = settlement(request, claim, b"same");
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement.clone(), digest("settlement.commit")),
+            Ok(())
+        );
+        assert_eq!(
+            apply_recovered_settlement(
+                &mut index,
+                settlement,
+                digest("different-settlement.commit")
+            ),
+            Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+        );
+    }
+
+    #[test]
+    fn fixed_seed_settlement_mutations_are_conflicting() {
+        const SEED: u64 = 0x5e77_1e5e_77e5_0001;
+        let (request, claim, mut index) = claimed_index();
+        let first = settlement(request, claim, &SEED.to_le_bytes());
+        assert_eq!(
+            apply_recovered_settlement(&mut index, first, digest("property-settlement.commit")),
+            Ok(())
+        );
+
+        let mut state = SEED;
+        for ordinal in 0_u8..32 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let mut bytes = state.to_le_bytes().to_vec();
+            bytes.push(ordinal);
+            let conflicting = settlement(request, claim, &bytes);
+            assert_eq!(
+                apply_recovered_settlement(
+                    &mut index,
+                    conflicting,
+                    digest("property-conflict.commit")
+                ),
+                Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_identical_retry_stress_preserves_one_settlement() {
+        let (request, claim, mut index) = claimed_index();
+        let settlement = settlement(request, claim, b"stress");
+        let commit = digest("stress-settlement.commit");
+        assert_eq!(
+            apply_recovered_settlement(&mut index, settlement.clone(), commit),
+            Ok(())
+        );
+        let root = index.root_digest();
+
+        for _ in 0..64 {
+            assert_eq!(
+                apply_recovered_settlement(&mut index, settlement.clone(), commit),
+                Ok(())
+            );
+        }
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.root_digest(), root);
     }
 }

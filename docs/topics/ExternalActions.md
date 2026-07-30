@@ -37,7 +37,10 @@ basis commitments, a retained-settlement bound, and exactly one attempt. A
 call expression or callable Target IR step is outside this admission profile.
 Admission also requires enough retained-settlement capacity to encode every
 terminal posture; a request cannot select a budget that makes rejection,
-failure, or ambiguity unrecordable.
+failure, or ambiguity unrecordable. Legacy bounded-observation requests retain
+their exact operation-specific boundary. The generic request-only profile
+requires at least 1,024 retained bytes so a new adapter can always record a
+compact terminal obstruction.
 
 ## Adapter Profiles
 
@@ -78,6 +81,8 @@ exact path set plus the single-file, no-follow, regular-file-only, and
 CI-workflow-exclusion policies. A same-directory temporary file is created
 without following links, written and synchronized, assigned the original
 permissions, atomically renamed, and followed by directory synchronization.
+The exact success settlement is encoded and checked against the retained-byte
+budget before the temporary file is staged.
 The runtime owner must serialize the granted workspace mutation aperture; this
 profile is not a general multi-file filesystem transaction.
 

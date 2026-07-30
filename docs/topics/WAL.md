@@ -186,6 +186,14 @@ facts. Raw WAL builders and commit flushes lack its opaque capability, and the
 coordinator derives LSN and predecessor coordinates from the validated local
 continuation.
 
+The first operation profile independently admits exact compiler-produced Edict
+Core and Target IR before deriving the generic request. Its capability-rooted
+workspace observer receives only a post-claim work grant and an explicit
+relative-path set. Successful settlement retains complete path/content bytes
+and a basis commitment; operation-specific schema validation runs before the
+generic settlement transaction. Replay consumes those retained bytes without
+opening the workspace again.
+
 ## Boundaries
 
 The WAL belongs to the trusted runtime host. Application-facing code can submit

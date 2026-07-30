@@ -12,6 +12,7 @@ ADR.
 
 - [Causal anchors](CausalAnchors.md)
 - [Contract inverse admission](ContractInverseAdmission.md)
+- [External actions](ExternalActions.md)
 - [Generated rule authorship](GeneratedRules.md)
 - [Obstructions](Obstructions.md)
 - [Runtime authority](RuntimeAuthority.md)

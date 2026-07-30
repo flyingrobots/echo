@@ -328,6 +328,16 @@ pub struct BoundedWorkspaceObservationAdapterV1 {
     profile: BoundedWorkspaceObservationProfileV1,
 }
 
+/// Rootless settlement authority retained for post-claim reconciliation.
+///
+/// This handle carries no directory capability and cannot perform an
+/// observation. It can only admit the bounded profile's schema-valid
+/// `OutcomeUnknown` settlement for an exact durable claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoundedWorkspaceObservationReconcilerV1 {
+    profile: BoundedWorkspaceObservationProfileV1,
+}
+
 impl BoundedWorkspaceObservationAdapterV1 {
     /// Opens the configured root once and retains only directory-relative authority.
     pub fn open(
@@ -335,15 +345,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
         permitted_paths: impl IntoIterator<Item = String>,
         profile: BoundedWorkspaceObservationProfileV1,
     ) -> Result<Self, BoundedWorkspaceObservationErrorV1> {
-        if profile.operation_id.as_hash() == [0; 32]
-            || profile.input_schema_digest == [0; 32]
-            || profile.settlement_schema_digest == [0; 32]
-            || profile.reconciliation_law_digest == [0; 32]
-            || profile.authority_scope_digest == [0; 32]
-            || profile.adapter_id.as_hash() == [0; 32]
-        {
-            return Err(BoundedWorkspaceObservationErrorV1::ProfileMismatch);
-        }
+        validate_observation_profile(profile)?;
         let permitted_paths = permitted_paths.into_iter().collect::<BTreeSet<_>>();
         for path in &permitted_paths {
             validate_relative_path(path)?;
@@ -507,22 +509,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
         grant: &ExternalActionClaimGrantV1,
         admitted: &AdmittedEdictExternalActionRequestV1,
     ) -> Result<(), BoundedWorkspaceObservationErrorV1> {
-        let request = grant.request();
-        if request != admitted.request()
-            || request.input_digest != input_identity(admitted.canonical_operation_input())
-            || grant.claim().adapter_id != self.profile.adapter_id
-        {
-            return Err(BoundedWorkspaceObservationErrorV1::GrantMismatch);
-        }
-        if request.operation_id != self.profile.operation_id
-            || request.input_schema_digest != self.profile.input_schema_digest
-            || request.settlement_schema_digest != self.profile.settlement_schema_digest
-            || request.reconciliation_law_digest != self.profile.reconciliation_law_digest
-            || request.authority_scope_digest != self.profile.authority_scope_digest
-        {
-            return Err(BoundedWorkspaceObservationErrorV1::ProfileMismatch);
-        }
-        Ok(())
+        validate_observation_grant(self.profile, grant, admitted)
     }
 
     fn read_regular_file(
@@ -673,50 +660,176 @@ impl BoundedWorkspaceObservationAdapterV1 {
         admitted: &AdmittedEdictExternalActionRequestV1,
         candidate: &ExternalActionSettlementCandidateV1,
     ) -> Result<(), BoundedWorkspaceObservationErrorV1> {
-        if candidate.request_id != grant.request().request_id()
-            || candidate.attempt_id != grant.claim().attempt_id
-            || candidate.adapter_id != self.profile.adapter_id
-            || candidate.settlement_schema_digest != self.profile.settlement_schema_digest
-            || candidate.basis_digest != grant.request().basis_digest
-            || candidate.declared_result_digest
-                != Hash::from(blake3::hash(&candidate.canonical_result_bytes))
+        validate_observation_candidate(
+            self.profile,
+            Some(&self.permitted_paths),
+            grant,
+            admitted,
+            candidate,
+        )
+    }
+}
+
+impl BoundedWorkspaceObservationReconcilerV1 {
+    /// Constructs a reconciliation handle without acquiring filesystem authority.
+    pub fn new(
+        profile: BoundedWorkspaceObservationProfileV1,
+    ) -> Result<Self, BoundedWorkspaceObservationErrorV1> {
+        validate_observation_profile(profile)?;
+        Ok(Self { profile })
+    }
+
+    /// Returns the registry binding for the exact retained adapter identity.
+    #[must_use]
+    pub const fn adapter_binding(&self) -> ExternalActionAdapterBindingV1 {
+        ExternalActionAdapterBindingV1 {
+            adapter_id: self.profile.adapter_id,
+            operation_id: self.profile.operation_id,
+            authority_scope_digest: self.profile.authority_scope_digest,
+        }
+    }
+
+    /// Durably admits explicit uncertainty without reopening the external world.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_outcome_unknown(
+        &self,
+        store: &mut impl WalStorePort,
+        coordinator: &mut ExternalActionCoordinatorV1,
+        context: ExternalActionTransactionContextV1,
+        admitted: &AdmittedEdictExternalActionRequestV1,
+        grant: ExternalActionClaimGrantV1,
+        external_evidence_digest: Hash,
+    ) -> Result<AdmittedExternalActionSettlementV1, BoundedWorkspaceObservationErrorV1> {
+        validate_observation_grant(self.profile, &grant, admitted)?;
+        if external_evidence_digest == [0; 32] {
+            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+        }
+        let result = encode_observation_settlement(
+            "outcomeUnknown",
+            grant.request().basis_digest,
+            external_evidence_digest,
+            &[],
+            Some("outcome-unknown"),
+        )?;
+        if u64::try_from(result.len()).unwrap_or(u64::MAX)
+            > grant.request().budget.max_settlement_bytes
+        {
+            return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
+        }
+        let schema_admission_evidence_digest =
+            schema_admission_evidence(self.profile.settlement_schema_digest, &result);
+        let candidate = ExternalActionSettlementCandidateV1::new(
+            grant.request().request_id(),
+            grant.claim().attempt_id,
+            self.profile.adapter_id,
+            ExternalActionSettlementKindV1::OutcomeUnknown,
+            self.profile.settlement_schema_digest,
+            grant.request().basis_digest,
+            result,
+            schema_admission_evidence_digest,
+            external_evidence_digest,
+        );
+        validate_observation_candidate(self.profile, None, &grant, admitted, &candidate)?;
+        Ok(admit_external_action_settlement(
+            store,
+            coordinator,
+            context,
+            grant,
+            candidate,
+        )?)
+    }
+}
+
+fn validate_observation_profile(
+    profile: BoundedWorkspaceObservationProfileV1,
+) -> Result<(), BoundedWorkspaceObservationErrorV1> {
+    if profile.operation_id.as_hash() == [0; 32]
+        || profile.input_schema_digest == [0; 32]
+        || profile.settlement_schema_digest == [0; 32]
+        || profile.reconciliation_law_digest == [0; 32]
+        || profile.authority_scope_digest == [0; 32]
+        || profile.adapter_id.as_hash() == [0; 32]
+    {
+        return Err(BoundedWorkspaceObservationErrorV1::ProfileMismatch);
+    }
+    Ok(())
+}
+
+fn validate_observation_grant(
+    profile: BoundedWorkspaceObservationProfileV1,
+    grant: &ExternalActionClaimGrantV1,
+    admitted: &AdmittedEdictExternalActionRequestV1,
+) -> Result<(), BoundedWorkspaceObservationErrorV1> {
+    let request = grant.request();
+    if request != admitted.request()
+        || request.input_digest != input_identity(admitted.canonical_operation_input())
+        || grant.claim().adapter_id != profile.adapter_id
+    {
+        return Err(BoundedWorkspaceObservationErrorV1::GrantMismatch);
+    }
+    if request.operation_id != profile.operation_id
+        || request.input_schema_digest != profile.input_schema_digest
+        || request.settlement_schema_digest != profile.settlement_schema_digest
+        || request.reconciliation_law_digest != profile.reconciliation_law_digest
+        || request.authority_scope_digest != profile.authority_scope_digest
+    {
+        return Err(BoundedWorkspaceObservationErrorV1::ProfileMismatch);
+    }
+    Ok(())
+}
+
+fn validate_observation_candidate(
+    profile: BoundedWorkspaceObservationProfileV1,
+    permitted_paths: Option<&BTreeSet<String>>,
+    grant: &ExternalActionClaimGrantV1,
+    admitted: &AdmittedEdictExternalActionRequestV1,
+    candidate: &ExternalActionSettlementCandidateV1,
+) -> Result<(), BoundedWorkspaceObservationErrorV1> {
+    if candidate.request_id != grant.request().request_id()
+        || candidate.attempt_id != grant.claim().attempt_id
+        || candidate.adapter_id != profile.adapter_id
+        || candidate.settlement_schema_digest != profile.settlement_schema_digest
+        || candidate.basis_digest != grant.request().basis_digest
+        || candidate.declared_result_digest
+            != Hash::from(blake3::hash(&candidate.canonical_result_bytes))
+    {
+        return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+    }
+    let value = decode_canonical_cbor_v1(&candidate.canonical_result_bytes)
+        .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
+    let expected_paths = if candidate.kind == ExternalActionSettlementKindV1::Succeeded {
+        let permitted_paths =
+            permitted_paths.ok_or(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
+        let paths = decode_observation_input(admitted.canonical_operation_input())
+            .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
+        let expected = paths.iter().cloned().collect::<BTreeSet<_>>();
+        if expected.is_empty()
+            || expected.len() != paths.len()
+            || expected.iter().any(|path| {
+                validate_relative_path(path).is_err() || !permitted_paths.contains(path)
+            })
         {
             return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
         }
-        let value = decode_canonical_cbor_v1(&candidate.canonical_result_bytes)
-            .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
-        let expected_paths = if candidate.kind == ExternalActionSettlementKindV1::Succeeded {
-            let paths = decode_observation_input(admitted.canonical_operation_input())
-                .map_err(|_| BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed)?;
-            let expected = paths.iter().cloned().collect::<BTreeSet<_>>();
-            if expected.is_empty()
-                || expected.len() != paths.len()
-                || expected.iter().any(|path| {
-                    validate_relative_path(path).is_err() || !self.permitted_paths.contains(path)
-                })
-            {
-                return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
-            }
-            Some(expected)
-        } else {
-            None
-        };
-        validate_observation_settlement(
-            &value,
-            candidate.kind,
-            candidate.basis_digest,
-            candidate.external_evidence_digest,
-            expected_paths.as_ref(),
-        )?;
-        let expected_evidence = schema_admission_evidence(
-            candidate.settlement_schema_digest,
-            &candidate.canonical_result_bytes,
-        );
-        if candidate.schema_admission_evidence_digest != expected_evidence {
-            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
-        }
-        Ok(())
+        Some(expected)
+    } else {
+        None
+    };
+    validate_observation_settlement(
+        &value,
+        candidate.kind,
+        candidate.basis_digest,
+        candidate.external_evidence_digest,
+        expected_paths.as_ref(),
+    )?;
+    let expected_evidence = schema_admission_evidence(
+        candidate.settlement_schema_digest,
+        &candidate.canonical_result_bytes,
+    );
+    if candidate.schema_admission_evidence_digest != expected_evidence {
+        return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
     }
+    Ok(())
 }
 
 /// Encodes the operation-specific path request as canonical CBOR.

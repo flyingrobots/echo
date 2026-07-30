@@ -1395,6 +1395,27 @@ fn outcome_unknown_settles_after_workspace_authority_disappears() {
         ),
         Err(BoundedWorkspaceObservationErrorV1::GrantMismatch)
     );
+
+    let substituted_request = admitted_request(
+        62,
+        ["uncertain.txt".to_owned()],
+        digest("scope:rootless-unknown:substituted-request"),
+        bounded_workspace_observation_basis_v1([("uncertain.txt", bytes.as_slice())]),
+        65_536,
+    );
+    let substituted_request_grant =
+        must_ok(coordinator.claim_grant(admitted.request().request_id()));
+    assert_eq!(
+        reconciler.admit_outcome_unknown(
+            &mut store,
+            &mut coordinator,
+            context("rootless-unknown:substituted-request"),
+            &substituted_request,
+            substituted_request_grant,
+            digest("rootless-unknown:ambiguous"),
+        ),
+        Err(BoundedWorkspaceObservationErrorV1::GrantMismatch)
+    );
     assert_eq!(store.read_commits().len(), 2);
 
     let grant = must_ok(coordinator.claim_grant(admitted.request().request_id()));

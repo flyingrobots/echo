@@ -19,12 +19,13 @@ use warp_core::causal_wal::{
 };
 use warp_core::external_action::{
     admit_external_action_settlement, claim_external_action, observe_external_actions,
-    record_external_action_request, ExternalActionAdapterAuthorizationV1,
-    ExternalActionAdapterBindingV1, ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1,
-    ExternalActionBudgetV1, ExternalActionClaimGrantV1, ExternalActionCoordinatorV1,
-    ExternalActionOperationIdV1, ExternalActionProtocolErrorV1, ExternalActionRequestV1,
-    ExternalActionSettlementCandidateV1, ExternalActionSettlementKindV1,
-    ExternalActionTransactionContextV1, RecoveredExternalActionPostureV1,
+    reconcile_external_action_settlement_retry, record_external_action_request,
+    ExternalActionAdapterAuthorizationV1, ExternalActionAdapterBindingV1,
+    ExternalActionAdapterIdV1, ExternalActionAdapterRegistryV1, ExternalActionBudgetV1,
+    ExternalActionClaimGrantV1, ExternalActionCoordinatorV1, ExternalActionOperationIdV1,
+    ExternalActionProtocolErrorV1, ExternalActionRequestV1, ExternalActionSettlementCandidateV1,
+    ExternalActionSettlementKindV1, ExternalActionTransactionContextV1,
+    RecoveredExternalActionPostureV1,
 };
 use warp_core::{Hash, WorldlineId};
 
@@ -1010,7 +1011,7 @@ fn bounded_stress_recovers_all_requests_without_adapter_execution() {
 }
 
 #[test]
-fn duplicate_identical_settlement_is_idempotent_during_recovery() {
+fn duplicate_settlement_is_a_recovery_obstruction() {
     let mut store = store();
     let mut coordinator = coordinator(&store);
     let request = request_with("duplicate", 16, 64);
@@ -1037,15 +1038,178 @@ fn duplicate_identical_settlement_is_idempotent_during_recovery() {
         None => panic!("settlement transaction was not recovered"),
     };
     report.transactions.push(duplicate);
-    let recovered = must_ok(observe_external_actions(&report));
-    assert_eq!(recovered.len(), 1);
     assert_eq!(
-        recovered
-            .get(request.request_id())
-            .map(|entry| entry.posture),
-        Some(RecoveredExternalActionPostureV1::Settled(
-            ExternalActionSettlementKindV1::Succeeded
-        ))
+        observe_external_actions(&report),
+        Err(ExternalActionProtocolErrorV1::DuplicateSettlement)
+    );
+}
+
+#[test]
+fn identical_settlement_retry_returns_the_original_fact_without_wal_growth() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-identical", 66, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-identical",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-identical",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"retained".to_vec(),
+    );
+    let admitted = must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-identical"),
+        grant,
+        retry.clone(),
+    ));
+    let frames_before = store.read_frames().len();
+    let commits_before = store.read_commits().len();
+    let root_before = coordinator.observed_index().root_digest();
+
+    for _ in 0..64 {
+        let retried = must_ok(reconcile_external_action_settlement_retry(
+            &coordinator,
+            retry.clone(),
+        ));
+        assert_eq!(retried, admitted);
+    }
+    assert_eq!(store.read_frames().len(), frames_before);
+    assert_eq!(store.read_commits().len(), commits_before);
+    assert_eq!(coordinator.observed_index().root_digest(), root_before);
+}
+
+#[test]
+fn conflicting_settlement_retry_obstructs_without_wal_growth() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-conflict", 67, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-conflict",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-conflict",
+    );
+    let first = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"first".to_vec(),
+    );
+    let conflicting = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"conflicting".to_vec(),
+    );
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-conflict"),
+        grant,
+        first,
+    ));
+    let frames_before = store.read_frames().len();
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, conflicting),
+        Err(ExternalActionProtocolErrorV1::ConflictingSettlement)
+    );
+    assert_eq!(store.read_frames().len(), frames_before);
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn malformed_settlement_retry_fails_validation_before_comparison() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-malformed", 68, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-malformed",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-malformed",
+    );
+    let first = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"first".to_vec(),
+    );
+    let mut malformed = first.clone();
+    malformed.declared_result_digest = digest("malformed-result-digest");
+    must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-malformed"),
+        grant,
+        first,
+    ));
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, malformed),
+        Err(ExternalActionProtocolErrorV1::SettlementResultDigestMismatch)
+    );
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
+fn recovered_settlement_retry_remains_idempotent() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-recovered", 69, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-recovered",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-recovered",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"recovered".to_vec(),
+    );
+    let admitted = must_ok(admit_external_action_settlement(
+        &mut store,
+        &mut coordinator,
+        context("settlement:retry-recovered"),
+        grant,
+        retry.clone(),
+    ));
+    let recovered = must_ok(ExternalActionCoordinatorV1::recover(&store));
+
+    assert_eq!(
+        must_ok(reconcile_external_action_settlement_retry(
+            &recovered, retry
+        )),
+        admitted
     );
 }
 

@@ -362,11 +362,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
     /// Returns the runtime registry binding for this attenuated adapter.
     #[must_use]
     pub const fn adapter_binding(&self) -> ExternalActionAdapterBindingV1 {
-        ExternalActionAdapterBindingV1 {
-            adapter_id: self.profile.adapter_id,
-            operation_id: self.profile.operation_id,
-            authority_scope_digest: self.profile.authority_scope_digest,
-        }
+        adapter_binding_for(self.profile)
     }
 
     /// Performs one bounded observation after request and claim durability.
@@ -465,22 +461,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
         external_evidence_digest: Hash,
     ) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
         self.validate_grant(grant, admitted)?;
-        if external_evidence_digest == [0; 32] {
-            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
-        }
-        let result = encode_observation_settlement(
-            "outcomeUnknown",
-            grant.request().basis_digest,
-            external_evidence_digest,
-            &[],
-            Some("outcome-unknown"),
-        )?;
-        self.candidate(
-            grant,
-            ExternalActionSettlementKindV1::OutcomeUnknown,
-            result,
-            external_evidence_digest,
-        )
+        build_outcome_unknown_candidate(self.profile, grant, external_evidence_digest)
     }
 
     /// Validates the operation-specific schema and durably admits the settlement.
@@ -634,24 +615,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
         result: Vec<u8>,
         external_evidence_digest: Hash,
     ) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
-        if u64::try_from(result.len()).unwrap_or(u64::MAX)
-            > grant.request().budget.max_settlement_bytes
-        {
-            return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
-        }
-        let schema_admission_evidence_digest =
-            schema_admission_evidence(self.profile.settlement_schema_digest, &result);
-        Ok(ExternalActionSettlementCandidateV1::new(
-            grant.request().request_id(),
-            grant.claim().attempt_id,
-            self.profile.adapter_id,
-            kind,
-            self.profile.settlement_schema_digest,
-            grant.request().basis_digest,
-            result,
-            schema_admission_evidence_digest,
-            external_evidence_digest,
-        ))
+        build_observation_candidate(self.profile, grant, kind, result, external_evidence_digest)
     }
 
     fn validate_candidate(
@@ -682,11 +646,7 @@ impl BoundedWorkspaceObservationReconcilerV1 {
     /// Returns the registry binding for the exact retained adapter identity.
     #[must_use]
     pub const fn adapter_binding(&self) -> ExternalActionAdapterBindingV1 {
-        ExternalActionAdapterBindingV1 {
-            adapter_id: self.profile.adapter_id,
-            operation_id: self.profile.operation_id,
-            authority_scope_digest: self.profile.authority_scope_digest,
-        }
+        adapter_binding_for(self.profile)
     }
 
     /// Durably admits explicit uncertainty without reopening the external world.
@@ -701,34 +661,8 @@ impl BoundedWorkspaceObservationReconcilerV1 {
         external_evidence_digest: Hash,
     ) -> Result<AdmittedExternalActionSettlementV1, BoundedWorkspaceObservationErrorV1> {
         validate_observation_grant(self.profile, &grant, admitted)?;
-        if external_evidence_digest == [0; 32] {
-            return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
-        }
-        let result = encode_observation_settlement(
-            "outcomeUnknown",
-            grant.request().basis_digest,
-            external_evidence_digest,
-            &[],
-            Some("outcome-unknown"),
-        )?;
-        if u64::try_from(result.len()).unwrap_or(u64::MAX)
-            > grant.request().budget.max_settlement_bytes
-        {
-            return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
-        }
-        let schema_admission_evidence_digest =
-            schema_admission_evidence(self.profile.settlement_schema_digest, &result);
-        let candidate = ExternalActionSettlementCandidateV1::new(
-            grant.request().request_id(),
-            grant.claim().attempt_id,
-            self.profile.adapter_id,
-            ExternalActionSettlementKindV1::OutcomeUnknown,
-            self.profile.settlement_schema_digest,
-            grant.request().basis_digest,
-            result,
-            schema_admission_evidence_digest,
-            external_evidence_digest,
-        );
+        let candidate =
+            build_outcome_unknown_candidate(self.profile, &grant, external_evidence_digest)?;
         validate_observation_candidate(self.profile, None, &grant, admitted, &candidate)?;
         Ok(admit_external_action_settlement(
             store,
@@ -738,6 +672,66 @@ impl BoundedWorkspaceObservationReconcilerV1 {
             candidate,
         )?)
     }
+}
+
+const fn adapter_binding_for(
+    profile: BoundedWorkspaceObservationProfileV1,
+) -> ExternalActionAdapterBindingV1 {
+    ExternalActionAdapterBindingV1 {
+        adapter_id: profile.adapter_id,
+        operation_id: profile.operation_id,
+        authority_scope_digest: profile.authority_scope_digest,
+    }
+}
+
+fn build_outcome_unknown_candidate(
+    profile: BoundedWorkspaceObservationProfileV1,
+    grant: &ExternalActionClaimGrantV1,
+    external_evidence_digest: Hash,
+) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
+    if external_evidence_digest == [0; 32] {
+        return Err(BoundedWorkspaceObservationErrorV1::SchemaAdmissionFailed);
+    }
+    let result = encode_observation_settlement(
+        "outcomeUnknown",
+        grant.request().basis_digest,
+        external_evidence_digest,
+        &[],
+        Some("outcome-unknown"),
+    )?;
+    build_observation_candidate(
+        profile,
+        grant,
+        ExternalActionSettlementKindV1::OutcomeUnknown,
+        result,
+        external_evidence_digest,
+    )
+}
+
+fn build_observation_candidate(
+    profile: BoundedWorkspaceObservationProfileV1,
+    grant: &ExternalActionClaimGrantV1,
+    kind: ExternalActionSettlementKindV1,
+    result: Vec<u8>,
+    external_evidence_digest: Hash,
+) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
+    if u64::try_from(result.len()).unwrap_or(u64::MAX) > grant.request().budget.max_settlement_bytes
+    {
+        return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
+    }
+    let schema_admission_evidence_digest =
+        schema_admission_evidence(profile.settlement_schema_digest, &result);
+    Ok(ExternalActionSettlementCandidateV1::new(
+        grant.request().request_id(),
+        grant.claim().attempt_id,
+        profile.adapter_id,
+        kind,
+        profile.settlement_schema_digest,
+        grant.request().basis_digest,
+        result,
+        schema_admission_evidence_digest,
+        external_evidence_digest,
+    ))
 }
 
 fn validate_observation_profile(

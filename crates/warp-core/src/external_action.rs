@@ -1318,7 +1318,10 @@ pub fn admit_external_action_settlement(
     let recovered_claim = recovered
         .claim
         .ok_or(ExternalActionProtocolErrorV1::MissingClaim)?;
-    if recovered.request != claim_grant.request || recovered_claim != claim_grant.claim {
+    if recovered.request != claim_grant.request
+        || recovered_claim != claim_grant.claim
+        || recovered.claim_commit_digest != Some(claim_grant.claim_commit_digest)
+    {
         return Err(ExternalActionProtocolErrorV1::SettlementClaimMismatch);
     }
     if recovered.settlement.is_some() {

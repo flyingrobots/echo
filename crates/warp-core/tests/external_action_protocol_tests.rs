@@ -1191,6 +1191,37 @@ fn malformed_settlement_retry_fails_validation_before_comparison() {
 }
 
 #[test]
+fn settlement_retry_cannot_create_the_initial_settlement() {
+    let mut store = store();
+    let mut coordinator = coordinator(&store);
+    let request = request_with("retry-before-settlement", 70, 128);
+    let recorded = record(
+        &mut store,
+        &mut coordinator,
+        request,
+        "request:retry-before-settlement",
+    );
+    let grant = claim(
+        &mut store,
+        &mut coordinator,
+        recorded,
+        "claim:retry-before-settlement",
+    );
+    let retry = candidate(
+        &grant,
+        ExternalActionSettlementKindV1::Succeeded,
+        b"not-yet-admitted".to_vec(),
+    );
+    let commits_before = store.read_commits().len();
+
+    assert_eq!(
+        reconcile_external_action_settlement_retry(&coordinator, retry),
+        Err(ExternalActionProtocolErrorV1::MissingSettlement)
+    );
+    assert_eq!(store.read_commits().len(), commits_before);
+}
+
+#[test]
 fn recovered_settlement_retry_remains_idempotent() {
     let mut store = store();
     let mut coordinator = coordinator(&store);

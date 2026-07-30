@@ -797,7 +797,7 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
     let wal_dir = TempWalDir::new("reopen");
     let request = request_with("filesystem-reopen", 21, 128);
     let result_bytes = b"durable observed bytes".to_vec();
-    {
+    let (retry, admitted) = {
         let mut store = must_ok(FilesystemWalStore::open(
             &wal_dir.0,
             WalSegmentId::from_raw(1),
@@ -840,7 +840,7 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
             ExternalActionSettlementKindV1::Succeeded,
             result_bytes.clone(),
         );
-        must_ok(admit_external_action_settlement(
+        let admitted = must_ok(admit_external_action_settlement(
             &mut store,
             &mut coordinator,
             context_with_durability(
@@ -848,9 +848,10 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
                 WalDurabilityMode::StrictFilesystem,
             ),
             grant,
-            candidate,
+            candidate.clone(),
         ));
-    }
+        (candidate, admitted)
+    };
 
     let report = must_ok(recover_filesystem_store(
         &wal_dir.0,
@@ -873,6 +874,21 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
             .map(|settlement| settlement.canonical_result_bytes.as_slice()),
         Some(result_bytes.as_slice())
     );
+
+    let reopened = must_ok(FilesystemWalStore::open(
+        &wal_dir.0,
+        WalSegmentId::from_raw(1),
+    ));
+    let commits_before = reopened.read_commits().len();
+    let recovered_coordinator = must_ok(ExternalActionCoordinatorV1::recover(&reopened));
+    assert_eq!(
+        must_ok(reconcile_external_action_settlement_retry(
+            &recovered_coordinator,
+            retry
+        )),
+        admitted
+    );
+    assert_eq!(reopened.read_commits().len(), commits_before);
 }
 
 #[test]

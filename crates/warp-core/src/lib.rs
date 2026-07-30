@@ -70,6 +70,7 @@ mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
 pub mod external_action;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod external_action_adapter;
 mod footprint;
 /// Footprint enforcement guard for parallel execution.

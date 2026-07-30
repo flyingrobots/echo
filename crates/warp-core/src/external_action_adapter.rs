@@ -409,7 +409,7 @@ impl BoundedWorkspaceObservationAdapterV1 {
                 .map(|file| (file.path.as_str(), file.bytes.as_slice())),
         );
         if observed_basis != grant.request().basis_digest {
-            return self.refused_candidate_with_evidence(grant, "stale-basis", "", observed_basis);
+            return self.refused_candidate_with_evidence(grant, "stale-basis", observed_basis);
         }
         let success = encode_observation_settlement(
             "succeeded",
@@ -560,14 +560,13 @@ impl BoundedWorkspaceObservationAdapterV1 {
         code: &str,
         detail: &str,
     ) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
-        self.refused_candidate_with_evidence(grant, code, detail, refusal_evidence(code, detail))
+        self.refused_candidate_with_evidence(grant, code, refusal_evidence(code, detail))
     }
 
     fn refused_candidate_with_evidence(
         &self,
         grant: &ExternalActionClaimGrantV1,
         code: &str,
-        detail: &str,
         evidence: Hash,
     ) -> Result<ExternalActionSettlementCandidateV1, BoundedWorkspaceObservationErrorV1> {
         let result = encode_observation_settlement(
@@ -582,7 +581,6 @@ impl BoundedWorkspaceObservationAdapterV1 {
         {
             return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
         }
-        let _ = detail;
         self.candidate(
             grant,
             ExternalActionSettlementKindV1::Rejected,
@@ -625,6 +623,8 @@ impl BoundedWorkspaceObservationAdapterV1 {
         {
             return Err(BoundedWorkspaceObservationErrorV1::SettlementBudgetExceeded);
         }
+        let schema_admission_evidence_digest =
+            schema_admission_evidence(self.profile.settlement_schema_digest, &result);
         Ok(ExternalActionSettlementCandidateV1::new(
             grant.request().request_id(),
             grant.claim().attempt_id,
@@ -632,8 +632,8 @@ impl BoundedWorkspaceObservationAdapterV1 {
             kind,
             self.profile.settlement_schema_digest,
             grant.request().basis_digest,
-            result.clone(),
-            schema_admission_evidence(self.profile.settlement_schema_digest, &result),
+            result,
+            schema_admission_evidence_digest,
             external_evidence_digest,
         ))
     }

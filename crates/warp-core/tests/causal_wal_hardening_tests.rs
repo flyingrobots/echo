@@ -8,6 +8,9 @@
     clippy::unnecessary_debug_formatting
 )]
 
+#[path = "support/child_process.rs"]
+mod child_process;
+
 use warp_core::causal_wal::{
     apply_committed_transaction, audit_wal_release_readiness,
     build_materialization_outbox_transaction, build_retained_reading_transaction,
@@ -879,6 +882,277 @@ fn writer_epoch_chain_gap_rejected() {
     );
 
     assert!(matches!(error, WalStoreError::WriterEpochChainGap));
+}
+
+#[test]
+fn filesystem_closed_writer_epoch_chain_survives_reopen() {
+    let root = temp_wal_root("writer-epoch-closed-reopen");
+    let transaction = submission_transaction("epoch-closed-reopen", Lsn::from_raw(0));
+    let previous_commit_digest = transaction.commit.commit_digest;
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(transaction));
+        must_ok(store.close_epoch(epoch_id()));
+    }
+
+    let mut reopened = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let epoch = must_ok(reopened.acquire_writer_epoch(writer_epoch_request_for(
+        "2",
+        Lsn::from_raw(2),
+        Some(epoch_id()),
+        Some(previous_commit_digest),
+    )));
+
+    assert_eq!(epoch.epoch_id, epoch_id_for("2"));
+    assert_eq!(epoch.previous_epoch_id, Some(epoch_id()));
+    assert_eq!(
+        epoch.previous_epoch_final_commit_digest,
+        Some(previous_commit_digest)
+    );
+    drop(reopened);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_active_writer_epoch_and_final_commit_survive_reopen() {
+    let root = temp_wal_root("writer-epoch-active-reopen");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(submission_transaction(
+            "epoch-active-reopen",
+            Lsn::from_raw(0),
+        )));
+    }
+
+    let mut reopened = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let error = must_err(
+        reopened.acquire_writer_epoch(writer_epoch_request()),
+        "recovered active writer epoch must refuse overlap",
+    );
+
+    assert!(matches!(error, WalStoreError::WriterEpochAlreadyActive));
+    drop(reopened);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_writer_lease_refuses_overlap_before_takeover() {
+    let root = temp_wal_root("writer-epoch-overlap");
+    let mut active = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(active.acquire_writer_epoch(writer_epoch_request()));
+    let mut contender = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+
+    let error = must_err(
+        contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)),
+        "a live filesystem writer lease must refuse overlap",
+    );
+    assert!(matches!(error, WalStoreError::WriterEpochLeaseUnavailable));
+    let append_error = must_err(
+        contender.append_transaction(submission_transaction(
+            "writer-epoch-overlap",
+            Lsn::from_raw(0),
+        )),
+        "a store without the filesystem writer lease must not append",
+    );
+    assert!(matches!(
+        append_error,
+        WalStoreError::WriterEpochLeaseUnavailable
+    ));
+
+    drop(active);
+    let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
+    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    drop(contender);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_writer_epoch_ledger_digest_mismatch_fails_closed() {
+    let root = temp_wal_root("writer-epoch-ledger-digest");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.close_epoch(epoch_id()));
+    }
+    let ledger_path = root.join("writer-epochs.ecwal");
+    let mut bytes = must_ok(fs::read(&ledger_path));
+    let last = bytes
+        .last_mut()
+        .unwrap_or_else(|| panic!("writer-epoch ledger must not be empty"));
+    *last ^= 0x01;
+    must_ok(fs::write(&ledger_path, bytes));
+
+    let error = must_err(
+        FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)),
+        "corrupt writer-epoch ledger must fail closed",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::WriterEpochLedgerDigestMismatch
+    ));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_commits_without_writer_epoch_ledger_fail_closed() {
+    let root = temp_wal_root("writer-epoch-ledger-missing");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(submission_transaction(
+            "writer-epoch-ledger-missing",
+            Lsn::from_raw(0),
+        )));
+        must_ok(store.close_epoch(epoch_id()));
+    }
+    must_ok(fs::remove_file(root.join("writer-epochs.ecwal")));
+
+    let error = must_err(
+        FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)),
+        "committed WAL without its writer-epoch ledger must fail closed",
+    );
+    assert!(matches!(error, WalStoreError::MissingWriterEpochLedger));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn duplicate_writer_epoch_id_is_a_chain_gap() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let transaction = submission_transaction("epoch-duplicate", Lsn::from_raw(0));
+    let previous_commit_digest = transaction.commit.commit_digest;
+    must_ok(store.append_transaction(transaction));
+    must_ok(store.close_epoch(epoch_id()));
+    let mut duplicate = writer_epoch_request_for(
+        "2",
+        Lsn::from_raw(2),
+        Some(epoch_id()),
+        Some(previous_commit_digest),
+    );
+    duplicate.epoch_id = epoch_id();
+
+    let error = must_err(
+        store.acquire_writer_epoch(duplicate),
+        "duplicate writer epoch id must reject",
+    );
+
+    assert!(matches!(error, WalStoreError::WriterEpochChainGap));
+}
+
+#[test]
+fn stale_writer_epoch_link_is_a_chain_gap() {
+    let mut store = InMemoryWalStore::new();
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let first = submission_transaction("epoch-stale-first", Lsn::from_raw(0));
+    let first_commit_digest = first.commit.commit_digest;
+    must_ok(store.append_transaction(first));
+    must_ok(store.close_epoch(epoch_id()));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request_for(
+        "2",
+        Lsn::from_raw(2),
+        Some(epoch_id()),
+        Some(first_commit_digest),
+    )));
+    must_ok(store.close_epoch(epoch_id_for("2")));
+
+    let error = must_err(
+        store.acquire_writer_epoch(writer_epoch_request_for(
+            "3",
+            Lsn::from_raw(3),
+            Some(epoch_id()),
+            Some(first_commit_digest),
+        )),
+        "a successor must cite the latest closed writer epoch",
+    );
+
+    assert!(matches!(error, WalStoreError::WriterEpochChainGap));
+}
+
+#[test]
+fn fixed_seed_filesystem_writer_epoch_chain_survives_bounded_reopens() {
+    const EPOCH_COUNT: u64 = 16;
+
+    let root = temp_wal_root("writer-epoch-fixed-seed");
+    let mut previous_epoch_id = None;
+    let mut bounded_ledger_len = None;
+    for ordinal in 0..EPOCH_COUNT {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        let label = format!("fixed-seed-{ordinal:02}");
+        let request =
+            writer_epoch_request_for(&label, Lsn::from_raw(ordinal), previous_epoch_id, None);
+        let epoch = must_ok(store.acquire_writer_epoch(request));
+        must_ok(store.close_epoch(epoch.epoch_id));
+        previous_epoch_id = Some(epoch.epoch_id);
+        let ledger_len = must_ok(fs::metadata(root.join("writer-epochs.ecwal"))).len();
+        if ordinal > 0 {
+            match bounded_ledger_len {
+                Some(expected) => assert_eq!(
+                    ledger_len, expected,
+                    "writer-epoch ledger must stay bounded after epoch {ordinal}"
+                ),
+                None => bounded_ledger_len = Some(ledger_len),
+            }
+        }
+    }
+
+    assert_eq!(previous_epoch_id, Some(epoch_id_for("fixed-seed-15")));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the independent-process writer-epoch test"]
+fn emit_filesystem_writer_epoch_process_step() {
+    let root = PathBuf::from(
+        std::env::var_os("ECHO_WRITER_EPOCH_TEST_ROOT")
+            .unwrap_or_else(|| panic!("child writer-epoch root is required")),
+    );
+    let phase = std::env::var("ECHO_WRITER_EPOCH_TEST_PHASE")
+        .unwrap_or_else(|error| panic!("child writer-epoch phase is required: {error}"));
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    match phase.as_str() {
+        "first" => {
+            must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+            must_ok(
+                store.append_transaction(submission_transaction("epoch-process", Lsn::from_raw(0))),
+            );
+            must_ok(store.close_epoch(epoch_id()));
+        }
+        "second" => {
+            let previous_commit_digest = submission_transaction("epoch-process", Lsn::from_raw(0))
+                .commit
+                .commit_digest;
+            must_ok(store.acquire_writer_epoch(writer_epoch_request_for(
+                "2",
+                Lsn::from_raw(2),
+                Some(epoch_id()),
+                Some(previous_commit_digest),
+            )));
+            must_ok(store.close_epoch(epoch_id_for("2")));
+        }
+        other => panic!("unknown child writer-epoch phase `{other}`"),
+    }
+}
+
+#[test]
+fn filesystem_writer_epoch_chain_crosses_independent_processes() {
+    let root = temp_wal_root("writer-epoch-process");
+    let executable = must_ok(std::env::current_exe());
+    for phase in ["first", "second"] {
+        child_process::run_child_phase(
+            &executable,
+            "emit_filesystem_writer_epoch_process_step",
+            phase,
+            "ECHO_WRITER_EPOCH_TEST_ROOT",
+            root.as_os_str(),
+            "ECHO_WRITER_EPOCH_TEST_PHASE",
+            &root,
+        );
+    }
+
+    must_ok(fs::remove_dir_all(root));
 }
 
 #[test]

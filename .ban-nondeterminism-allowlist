@@ -11,10 +11,15 @@ std-fs crates/warp-core/src/causal_wal.rs native WAL filesystem adapter pending 
 std-fs crates/warp-core/src/wsc/store.rs native WSC filesystem store adapter pending extraction to a boundary crate.
 std-fs crates/warp-core/src/wsc/view.rs native WSC file-open helper pending extraction to a boundary adapter.
 std-fs crates/warp-core/src/causal_wal_tests.rs WAL filesystem fixture I/O only.
+std-env crates/warp-core/tests/causal_wal_hardening_tests.rs WAL independent-process fixture environment handoff only.
 std-fs crates/warp-core/tests/causal_wal_hardening_tests.rs WAL filesystem fixture I/O only.
 std-env crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture temp directory selection only.
 std-fs crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture I/O only.
 std-process crates/warp-core/tests/external_action_protocol_tests.rs external-action filesystem WAL fixture temp directory disambiguation only.
+time-instant crates/warp-core/tests/support/child_process.rs bounded independent-process fixture deadline only.
+thread-sleep crates/warp-core/tests/support/child_process.rs bounded independent-process fixture polling only.
+std-fs crates/warp-core/tests/support/child_process.rs timed-out fixture cleanup only.
+std-process crates/warp-core/tests/support/child_process.rs bounded independent-process fixture execution only.
 std-env crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture temp directory selection only.
 std-fs crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture I/O only.
 std-process crates/warp-core/tests/bounded_workspace_observation_tests.rs bounded-observation filesystem fixture temp directory disambiguation only.

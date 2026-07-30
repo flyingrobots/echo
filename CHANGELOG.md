@@ -7,6 +7,17 @@
 
 ### Added
 
+- Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
+  containing the active epoch, its exact latest closed predecessor, and final
+  LSN and commit-digest evidence. Bounded retention keeps ledger writes and
+  reopen validation independent of lifetime restart count. An OS-backed writer
+  lease—not the deterministic chain markers stored in the generic fencing,
+  process, host, and lease fields—refuses overlapping processes before append.
+  A recovered trusted host closes only an abandoned epoch under that lease and
+  derives a fresh, monotonically linked successor. Duplicate, stale, skipped,
+  regressed, or unfenced epoch chains fail closed. Independent-process
+  witnesses carry an external-action request, claim, settlement, and
+  effect-free replay across successive host processes.
 - Echo now consumes the exact independently verified Edict
   `workspace.patch.applyValidated@1` request through a capability-rooted
   single-file patch adapter. The request binds the prior bounded-observation

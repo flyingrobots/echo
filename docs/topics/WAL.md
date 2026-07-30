@@ -17,7 +17,7 @@ Echo may only claim what its WAL can recover.
 
 ## What We Found
 
-The current runtime WAL evidence says eleven concrete things.
+The current runtime WAL evidence says twelve concrete things.
 
 First, accepted-submission evidence is not just an in-memory editor event. The
 WAL-backed ACK path, `submit_intent_with_runtime_wal_ack(...)`, returns only
@@ -193,6 +193,34 @@ relative-path set. Successful settlement retains complete path/content bytes
 and a basis commitment; operation-specific schema validation runs before the
 generic settlement transaction. Replay consumes those retained bytes without
 opening the workspace again.
+
+Twelfth, strict filesystem WAL writer authority survives process loss as a
+durable, checksummed epoch ledger rather than process memory. Epoch acquisition
+is persisted before the store returns authority. Every committed transaction
+then advances that epoch's final LSN and commit-digest evidence, and explicit
+closure persists the exact predecessor link. The ledger retains the active
+epoch and only its latest closed predecessor; the trusted successor identity
+recursively commits the preceding epoch identity and final commit while older
+transactions remain in the WAL. Reopen cost and ledger size therefore remain
+bounded, and reconciliation still admits a commit that reached its segment
+sync boundary before the ledger snapshot.
+
+The filesystem store holds an operating-system writer lease for the complete
+active epoch. A second live process cannot append, close, or replace that
+epoch. After process loss releases the lease, the trusted runtime closes the
+recovered active epoch under the newly acquired lease and derives a fresh
+successor with a monotonic start LSN, new epoch identity, fencing token, and
+lease evidence bound to the exact latest predecessor and its final commit.
+Duplicate identities, stale or missing predecessor links, reused fencing
+evidence, LSN regression, corrupted ledgers, and commits without their epoch
+ledger fail closed before append.
+
+The operating-system lease is the filesystem adapter's exclusion authority.
+The persisted fencing, process, host, and lease fields are deterministic
+chain-position markers, not ambient PID or machine measurements and not a
+second lock. Their distinct values make epoch transitions attributable and
+replayable without sampling time, randomness, or global process state. This
+generic WAL authority contains no application vocabulary or callback.
 
 ## Boundaries
 
@@ -390,6 +418,21 @@ and after the obstructed Action. WAL frames, Tick history, Receipts, and commit
 metadata are excluded from the application-state root because the obstruction
 legitimately extends causal history. It uses the strict filesystem adapter and
 no native application callback.
+
+Filesystem writer-epoch and external-action process-loss witnesses live in
+`crates/warp-core/tests/causal_wal_hardening_tests.rs` and
+`crates/warp-core/tests/external_action_protocol_tests.rs`. Read these first:
+
+- `filesystem_writer_lease_refuses_overlap_before_takeover`
+- `filesystem_writer_epoch_chain_crosses_independent_processes`
+- `fixed_seed_filesystem_writer_epoch_chain_survives_bounded_reopens`
+- `filesystem_external_action_lifecycle_crosses_independent_processes`
+
+The last witness uses four independent processes. Three processes durably
+record the request, claim, and settlement under successively fenced writer
+epochs. The fourth reconstructs and consumes the settled result without
+acquiring writer authority, appending a transaction, or reissuing an adapter
+effect.
 
 For a successful projected Action, the decided-Tick transaction also retains
 the compiler-owned projection identity, output type coordinate, exact canonical

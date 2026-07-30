@@ -4,6 +4,9 @@
 
 #![allow(clippy::panic)]
 
+#[path = "support/child_process.rs"]
+mod child_process;
+
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,6 +98,23 @@ fn context_with_durability(
         segment_id: WalSegmentId::from_raw(1),
         transaction_id: WalTransactionId::from_hash(digest(label)),
         durability_mode,
+        payload_codec_id: PayloadCodecId::from_hash(digest("external-action:codec")),
+        payload_schema_id: PayloadSchemaId::from_hash(digest("external-action:schema")),
+        payload_schema_version: 1,
+        canonical_encoding_version: 1,
+        digest_domain: digest("external-action:domain"),
+    }
+}
+
+fn filesystem_context(
+    label: &str,
+    writer_epoch: WriterEpochId,
+) -> ExternalActionTransactionContextV1 {
+    ExternalActionTransactionContextV1 {
+        writer_epoch,
+        segment_id: WalSegmentId::from_raw(1),
+        transaction_id: WalTransactionId::from_hash(digest(label)),
+        durability_mode: WalDurabilityMode::StrictFilesystem,
         payload_codec_id: PayloadCodecId::from_hash(digest("external-action:codec")),
         payload_schema_id: PayloadSchemaId::from_hash(digest("external-action:schema")),
         payload_schema_version: 1,
@@ -889,6 +909,112 @@ fn filesystem_reopen_recovers_settlement_without_adapter_reexecution() {
         admitted
     );
     assert_eq!(reopened.read_commits().len(), commits_before);
+}
+
+#[test]
+#[ignore = "child entrypoint exercised by the independent-process external-action test"]
+fn emit_filesystem_external_action_process_step() {
+    let root = PathBuf::from(
+        std::env::var_os("ECHO_EXTERNAL_ACTION_PROCESS_ROOT")
+            .unwrap_or_else(|| panic!("missing child WAL root")),
+    );
+    let phase = std::env::var("ECHO_EXTERNAL_ACTION_PROCESS_PHASE")
+        .unwrap_or_else(|_| panic!("missing child phase"));
+    let request = request_with("filesystem-process", 31, 128);
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+
+    match phase.as_str() {
+        "request" => {
+            let epoch = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+            let mut coordinator = coordinator(&store);
+            let recorded = must_ok(record_external_action_request(
+                &mut store,
+                &mut coordinator,
+                filesystem_context("request:filesystem-process", epoch.epoch_id),
+                request,
+            ));
+            assert_eq!(recorded.request(), request);
+        }
+        "claim" => {
+            let epoch = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+            let mut coordinator = coordinator(&store);
+            let recorded = must_ok(coordinator.recorded_request(request.request_id()));
+            let grant = must_ok(claim_external_action(
+                &mut store,
+                &mut coordinator,
+                filesystem_context("claim:filesystem-process", epoch.epoch_id),
+                recorded,
+                authorization(&request),
+                request.basis_digest,
+                0,
+                digest("claim:filesystem-process:lease"),
+            ));
+            assert_eq!(grant.request(), request);
+        }
+        "settlement" => {
+            let epoch = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+            let mut coordinator = coordinator(&store);
+            let grant = must_ok(coordinator.claim_grant(request.request_id()));
+            let settlement_candidate = candidate(
+                &grant,
+                ExternalActionSettlementKindV1::Succeeded,
+                b"independent-process-result".to_vec(),
+            );
+            let admitted = must_ok(admit_external_action_settlement(
+                &mut store,
+                &mut coordinator,
+                filesystem_context("settlement:filesystem-process", epoch.epoch_id),
+                grant,
+                settlement_candidate,
+            ));
+            assert_eq!(
+                admitted.settlement().canonical_result_bytes.as_slice(),
+                b"independent-process-result"
+            );
+        }
+        "replay" => {
+            let commits_before = store.read_commits().len();
+            let coordinator = coordinator(&store);
+            let admitted = must_ok(coordinator.admitted_settlement(request.request_id()));
+            assert_eq!(
+                admitted.settlement().canonical_result_bytes.as_slice(),
+                b"independent-process-result"
+            );
+            assert_eq!(store.read_commits().len(), commits_before);
+        }
+        other => panic!("unknown child phase {other}"),
+    }
+}
+
+#[test]
+fn filesystem_external_action_lifecycle_crosses_independent_processes() {
+    let wal_dir = TempWalDir::new("independent-processes");
+    let executable = must_ok(std::env::current_exe());
+    for phase in ["request", "claim", "settlement", "replay"] {
+        child_process::run_child_phase(
+            &executable,
+            "emit_filesystem_external_action_process_step",
+            phase,
+            "ECHO_EXTERNAL_ACTION_PROCESS_ROOT",
+            wal_dir.0.as_os_str(),
+            "ECHO_EXTERNAL_ACTION_PROCESS_PHASE",
+            &wal_dir.0,
+        );
+    }
+
+    let report = must_ok(recover_filesystem_store(
+        &wal_dir.0,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    let request = request_with("filesystem-process", 31, 128);
+    let recovered = must_ok(observe_external_actions(&report));
+    let entry = recovered
+        .get(request.request_id())
+        .unwrap_or_else(|| panic!("missing recovered independent-process request"));
+    assert_eq!(
+        entry.posture,
+        RecoveredExternalActionPostureV1::Settled(ExternalActionSettlementKindV1::Succeeded)
+    );
 }
 
 #[test]

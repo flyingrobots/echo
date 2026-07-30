@@ -2046,7 +2046,8 @@ fn runtime_wal_live_evidence_catalog_failure_marks_needs_rebuild_without_failing
     let mut faulting_wal = host
         .runtime_wal()
         .expect("runtime WAL should exist")
-        .clone();
+        .cloned_in_memory_for_test()
+        .expect("test WAL should be in-memory");
     faulting_wal.fail_next_evidence_catalog_update_for_test();
     host.replace_runtime_wal_for_test(faulting_wal);
 

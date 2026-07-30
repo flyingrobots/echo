@@ -346,6 +346,9 @@ pub enum TrustedRuntimeWalError {
         /// Number of transactions in the attempted durable batch.
         transaction_count: usize,
     },
+    /// The in-memory WAL rollback snapshot was unexpectedly unavailable.
+    #[error("trusted runtime in-memory WAL rollback snapshot is unavailable")]
+    InMemoryRollbackSnapshotUnavailable,
     /// Per-Action receipt records do not describe one exact scheduler Tick.
     #[error("trusted runtime WAL scheduler Tick batch is internally inconsistent")]
     SchedulerTickBatchMismatch,
@@ -2097,7 +2100,7 @@ impl TrustedRuntimeHost {
                 }
                 .into());
             }
-            let runtime_wal_before = runtime_wal.clone();
+            let runtime_wal_before = runtime_wal.in_memory_rollback_snapshot();
             for group in tick_wal_groups.values() {
                 let Some((first_correlation, _, state_delta, state_delta_digest)) = group.first()
                 else {
@@ -2129,13 +2132,21 @@ impl TrustedRuntimeHost {
                     if runtime_wal.recover_filesystem_tick_commit_after_error(first_correlation) {
                         continue;
                     }
-                    if !runtime_wal.uses_filesystem_store() {
-                        *runtime_wal = runtime_wal_before;
-                    }
+                    let rollback_error = if runtime_wal.uses_filesystem_store() {
+                        None
+                    } else if let Some(snapshot) = runtime_wal_before {
+                        *runtime_wal = snapshot;
+                        None
+                    } else {
+                        Some(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
+                    };
                     self.runtime = runtime_before;
                     self.provenance = provenance_before;
                     self.echo_operation_action_outcomes = action_outcomes_before;
                     self.admitted_echo_operation_actions = admitted_actions_before;
+                    if let Some(rollback_error) = rollback_error {
+                        return Err(rollback_error.into());
+                    }
                     return Err(error.into());
                 }
             }
@@ -2417,7 +2428,7 @@ impl CausalAnchorClaimProjection {
 }
 
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TrustedRuntimeWal {
     store: TrustedRuntimeWalStore,
     evidence_catalog: Option<crate::evidence::CausalSegmentCatalog>,
@@ -2477,17 +2488,9 @@ impl TrustedRuntimeWal {
         } else {
             next_lsn
         };
-        let writer_epoch = WriterEpochId::from_hash(trusted_runtime_wal_digest("writer-epoch"));
-        store.acquire_writer_epoch(WriterEpochRequest {
-            epoch_id: writer_epoch,
-            storage_fencing_token: trusted_runtime_wal_digest("fencing-token"),
-            process_identity: trusted_runtime_wal_digest("process"),
-            host_identity: trusted_runtime_wal_digest("host"),
-            started_at_lsn: next_lsn,
-            previous_epoch_id: None,
-            previous_epoch_final_commit_digest: None,
-            lease_or_lock_evidence: trusted_runtime_wal_digest("lease"),
-        })?;
+        let writer_epoch = store.acquire_runtime_writer_epoch(next_lsn)?;
+        let next_lsn = writer_epoch.started_at_lsn;
+        let writer_epoch = writer_epoch.epoch_id;
         let durability_mode = store.durability_mode();
         Ok(Self {
             store,
@@ -2548,6 +2551,47 @@ impl TrustedRuntimeWal {
     #[must_use]
     pub fn cloned_store(&self) -> Option<InMemoryWalStore> {
         self.store.cloned_in_memory_store()
+    }
+
+    fn in_memory_rollback_snapshot(&self) -> Option<Self> {
+        Some(Self {
+            store: TrustedRuntimeWalStore::InMemory(self.store.cloned_in_memory_store()?),
+            evidence_catalog: self.evidence_catalog.clone(),
+            evidence_catalog_posture: self.evidence_catalog_posture.clone(),
+            #[cfg(any(test, feature = "host_test"))]
+            fail_next_evidence_catalog_update: self.fail_next_evidence_catalog_update,
+            #[cfg(any(test, feature = "host_test"))]
+            recover_read_only_call_count: std::cell::Cell::new(
+                self.recover_read_only_call_count.get(),
+            ),
+            writer_epoch: self.writer_epoch,
+            segment_id: self.segment_id,
+            next_lsn: self.next_lsn,
+            previous_frame_digest: self.previous_frame_digest,
+            previous_committed_transaction_digest: self.previous_committed_transaction_digest,
+            durability_mode: self.durability_mode,
+            payload_codec_id: self.payload_codec_id,
+            payload_schema_id: self.payload_schema_id,
+            digest_domain: self.digest_domain,
+            submission_frontier_digest: self.submission_frontier_digest,
+            receipt_frontier_digest: self.receipt_frontier_digest,
+            runtime_state_frontier_digest: self.runtime_state_frontier_digest,
+            executable_operation_catalog_frontier_digest: self
+                .executable_operation_catalog_frontier_digest,
+            executable_operation_receipt_frontier_digest: self
+                .executable_operation_receipt_frontier_digest,
+            causal_anchor_frontier_digest: self.causal_anchor_frontier_digest,
+            causal_history_frontier_digest: self.causal_history_frontier_digest,
+            causal_anchor_claim_projection: self.causal_anchor_claim_projection.clone(),
+            durable_submission_acceptances: self.durable_submission_acceptances.clone(),
+        })
+    }
+
+    /// Returns an in-memory-only copy for host rollback tests.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn cloned_in_memory_for_test(&self) -> Option<Self> {
+        self.in_memory_rollback_snapshot()
     }
 
     /// Re-runs state-delta recovery after repeating the last scheduler
@@ -3305,7 +3349,7 @@ impl TrustedRuntimeWal {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum TrustedRuntimeWalStore {
     InMemory(InMemoryWalStore),
     Filesystem(FilesystemWalStore),
@@ -3350,6 +3394,25 @@ impl TrustedRuntimeWalStore {
         match self {
             Self::InMemory(_) => WalDurabilityMode::Buffered,
             Self::Filesystem(_) => WalDurabilityMode::StrictFilesystem,
+        }
+    }
+
+    fn acquire_runtime_writer_epoch(
+        &mut self,
+        next_lsn: Lsn,
+    ) -> Result<crate::causal_wal::WriterEpoch, WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.acquire_writer_epoch(WriterEpochRequest {
+                epoch_id: WriterEpochId::from_hash(trusted_runtime_wal_digest("writer-epoch")),
+                storage_fencing_token: trusted_runtime_wal_digest("fencing-token"),
+                process_identity: trusted_runtime_wal_digest("process"),
+                host_identity: trusted_runtime_wal_digest("host"),
+                started_at_lsn: next_lsn,
+                previous_epoch_id: None,
+                previous_epoch_final_commit_digest: None,
+                lease_or_lock_evidence: trusted_runtime_wal_digest("lease"),
+            }),
+            Self::Filesystem(store) => store.acquire_fresh_writer_epoch(next_lsn),
         }
     }
 

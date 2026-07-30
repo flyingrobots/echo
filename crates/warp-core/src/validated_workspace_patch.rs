@@ -1121,10 +1121,11 @@ fn temporary_name(file_name: &OsString, grant: &ExternalActionClaimGrantV1) -> O
 }
 
 fn sync_directory(parent: &Dir) -> Result<(), ValidatedWorkspacePatchErrorV1> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
     parent
-        .try_clone()
+        .open_with(".", &options)
         .map_err(|_| ValidatedWorkspacePatchErrorV1::Io)?
-        .into_std_file()
         .sync_all()
         .map_err(|_| ValidatedWorkspacePatchErrorV1::Io)
 }

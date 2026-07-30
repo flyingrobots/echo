@@ -368,7 +368,12 @@ fn durable_claim_precedes_mutation_and_settlement_precedes_replay() {
     assert_eq!(root.read(path), before);
 
     let candidate = must_ok(adapter.apply(&grant, &admitted));
-    assert_eq!(candidate.kind, ExternalActionSettlementKindV1::Succeeded);
+    assert_eq!(
+        candidate.kind,
+        ExternalActionSettlementKindV1::Succeeded,
+        "unexpected settlement obstruction: {}",
+        obstruction(&candidate)
+    );
     assert_eq!(root.read(path), replacement);
     let staged_name = format!(
         "src/.message.txt.echo-patch-{}",

@@ -1333,21 +1333,56 @@ an emitted op sequence using `op_write_targets` — the same extraction
 enforcement uses, so a recorded write set and an enforced write check cannot
 disagree.
 
-**Blocked:** the **read** axis. Reads reach the guard through `GraphView`, and
+**Open:** the **read** axis. Reads reach the guard through `GraphView`, and
 guards live in `WorkUnit.guards`
-(`crates/warp-core/src/parallel/exec.rs#L831@c354d5316`), which worker threads
-share by reference (`crates/warp-core/src/parallel/exec.rs#L1021@c354d5316`).
-Putting a `RefCell` accumulator inside `FootprintGuard` would make `WorkUnit`
-`!Sync` and break parallel execution. Three ways out, none free:
+(`crates/warp-core/src/parallel/exec.rs#L831@c354d5316`), which workers borrow
+from a shared slice (`crates/warp-core/src/parallel/exec.rs#L1021@c354d5316`).
 
-| Option                                                | Cost                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Mutex` inside the guard                              | Keeps `Sync` and needs no signature changes, but takes a lock on every guarded read in every debug build.                                                                                                                                                |
-| Sink threaded through `GraphView` alongside the guard | No locks and the guard stays a pure immutable checker, but `GraphView` carries an explicit `DO NOT add interior mutability` prohibition (`crates/warp-core/src/graph_view.rs#L65@c354d5316`) that this brushes against, and `check_*` signatures change. |
-| Thread-local accumulator                              | Rejected. Global mutable state on a deterministic path, forbidden by ADR 0004 and enforced by CI.                                                                                                                                                        |
+**No synchronization is required.** The scheduler already provides exclusivity:
+`execute_work_queue` hands out unit indices with
+`next_unit.fetch_add(1, Ordering::Relaxed)`
+(`crates/warp-core/src/parallel/exec.rs#L925@c354d5316`), so each unit is
+claimed by exactly one worker, and items inside a unit run serially
+(`crates/warp-core/src/parallel/exec.rs#L951@c354d5316`). A guard is never
+touched concurrently. Adding a lock would re-implement a guarantee the scheduler
+already makes.
 
-This is an architecture decision on a hot path, not an implementation detail. It
-is recorded here for review rather than settled unilaterally.
+What the shared slice does impose is a _type-level_ obligation: `s.spawn` over
+`&[WorkUnit]` requires `WorkUnit: Sync`, because the borrow checker cannot see
+the atomic-claim protocol. A `RefCell` placed inside `FootprintGuard` therefore
+fails to compile — not because concurrent access is possible, but because the
+compiler cannot prove it is not.
+
+The resolution is to keep mutable state out of the shared structure entirely. An
+accumulator owned by the worker's own frame in `execute_item_enforced` is
+already exclusive, never crosses a thread, never enters `WorkUnit`, and leaves
+`WorkUnit: Sync` untouched. `GraphView` borrows it for the duration of one item.
+The guard stays an immutable pure checker.
+
+That leaves one question, which is a judgment call rather than a constraint:
+`GraphView` carries an explicit `DO NOT add interior mutability` prohibition
+(`crates/warp-core/src/graph_view.rs#L65@c354d5316`). Every item on its list
+concerns obtaining mutable access to _graph state_, and its stated rationale is
+that "executors observe through `GraphView`, mutate through `TickDelta`." A
+footprint accumulator mutates no graph state; it records metadata about access.
+Whether that is inside the rule's intent or outside its letter is a call for the
+boundary's owner.
+
+### Serial execution is unguarded
+
+`execute_serial` (`crates/warp-core/src/parallel/exec.rs#L424@c354d5316`) takes
+a bare `GraphView` and constructs no guard. Enforcement exists only on the
+work-queue path: `execute_item_enforced` has exactly one call site
+(`crates/warp-core/src/parallel/exec.rs#L953@c354d5316`).
+
+A verification host that replays serially therefore runs with enforcement inert
+and would record an empty actual footprint for an execution that touched
+everything. Under [acceptance criterion 21](#acceptance-criteria) such a replay
+cannot admit a witness. Stage 2 must either route verification replay through
+the guarded path or make the enforcement posture of the replay lane explicit in
+the replay certificate. This is not optional bookkeeping: an unguarded lane that
+silently reports "no violations" is precisely the false-negative the vertical
+exists to prevent.
 
 Granularity comes free. The guard is already constructed once per rule
 execution and pre-filtered to a single warp

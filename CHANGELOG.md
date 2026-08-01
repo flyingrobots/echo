@@ -7,6 +7,18 @@
 
 ### Added
 
+- `ActualFootprint` records the graph resources an execution actually touched
+  and compares them against a declared `Footprint`, returning the existing
+  `ViolationKind` vocabulary in a deterministic axis order. Footprint
+  enforcement previously answered "was this access declared?" and forgot, so
+  the soundness relation `Actual ⊆ Declared` could only be observed as a panic
+  and never evaluated as a value. `ActualFootprint::from_ops` derives the write
+  axis from an emitted op sequence using the same extraction as enforcement, so
+  a recorded write set and an enforced write check cannot disagree. Cross-warp
+  and instance-level concerns are deliberately excluded: they are scope and
+  authority questions the guard already reports, not footprint-subset
+  questions. This is stage 2 of the falsification roadmap; the read axis still
+  requires observing accesses as they happen and is not derivable from ops.
 - ADR 0027 proposes first-class falsification witnesses, and
   `docs/topics/FalsificationWitnesses.md` carries the design and delivery
   roadmap. Anyone may propose a counterexample; only Echo may admit that it

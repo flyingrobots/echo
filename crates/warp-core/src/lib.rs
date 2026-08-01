@@ -39,6 +39,7 @@ pub mod math {
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 
+mod actual_footprint;
 mod admission;
 mod attachment;
 mod braid;
@@ -198,6 +199,7 @@ mod worldline_registry;
 mod worldline_state;
 
 // Re-exports for stable public API
+pub use actual_footprint::ActualFootprint;
 pub use admission::{
     AdmissionOutcome, AdmissionOutcomeKind, AdmissionPolicyRef, AffectedRegion, BoundedSite,
     PluralArtifact, ReintegrationBoundary,

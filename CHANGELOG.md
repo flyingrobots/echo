@@ -7,6 +7,20 @@
 
 ### Added
 
+- ADR 0027 proposes first-class falsification witnesses, and
+  `docs/topics/FalsificationWitnesses.md` carries the design and delivery
+  roadmap. Anyone may propose a counterexample; only Echo may admit that it
+  falsifies an exact property instance. Discovery stays outside the admission
+  trust boundary, property evaluation returns a closed outcome sum, admission
+  requires fresh-host exact replay, reduction must preserve a typed violation
+  class under a declared equivalence policy, minimality is always qualified,
+  semantic counterexample identity is separate from the evidence-envelope
+  identity, and the target worldline is never rewritten—witnesses append to a
+  separate evidence worldline under the existing admission-kernel append
+  authority. The first vertical is footprint honesty, whose blocking gap is now
+  documented: the footprint guard compares each access against the declared set
+  and panics, accumulating nothing, so no actual per-Action footprint exists for
+  a property to compare against.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and

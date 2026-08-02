@@ -421,6 +421,24 @@ impl std::fmt::Debug for WorkerResult {
 }
 
 /// Serial execution baseline.
+///
+/// # Footprint evidence posture
+///
+/// This lane is **unobserved and unenforced**. It takes a bare [`GraphView`],
+/// builds no [`FootprintGuard`], and records nothing: enforcement exists only
+/// on the work-queue path, whose single call site is
+/// [`execute_item_enforced`]. Its posture is therefore
+/// [`ActualFootprintPosture::UnavailableLegacyExecutor`]
+/// (or `UnavailableBuildProfile`, whichever is weaker), never
+/// `RecordedAndEnforced`.
+///
+/// That distinction is load-bearing rather than bookkeeping. A verification
+/// host that replayed through this lane would observe an empty
+/// [`ActualFootprint`] for an execution that touched everything, and reading
+/// that emptiness as `Actual ⊆ Declared` would report soundness for a rule that
+/// lied. Evidence from this lane must carry its posture so a property evaluator
+/// treats the read axis as *unknown*, not as *empty*. See
+/// `serial_execution_is_an_unobserved_lane` for the pin.
 pub fn execute_serial(view: GraphView<'_>, items: &[ExecItem]) -> TickDelta {
     let mut delta = TickDelta::new();
     for item in items {
@@ -1092,6 +1110,69 @@ mod tests {
         GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
     };
     use std::num::NonZeroUsize;
+
+    /// Pins the enforcement posture of the serial lane.
+    ///
+    /// `execute_serial` builds no [`FootprintGuard`] and takes a bare
+    /// [`GraphView`], so a rule that reads a node it never declared runs here
+    /// without complaint *and* leaves no trace. A verification host replaying
+    /// through this lane would therefore observe an empty read axis for an
+    /// execution that plainly read something, and reading that emptiness as
+    /// `Actual ⊆ Declared` would report soundness for a rule that lied.
+    ///
+    /// The same read through [`ExecutionGraphView`] is recorded. The contrast
+    /// is what makes posture necessary: the two lanes produce different
+    /// evidence for identical behaviour, so the evidence must say which lane
+    /// produced it.
+    #[test]
+    fn serial_execution_is_an_unobserved_lane() {
+        use crate::{ActualFootprint, ActualFootprintPosture, ExecutionGraphView, Footprint};
+
+        fn reads_an_undeclared_node(view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
+            let _ = view.node(&NodeId([2u8; 32]));
+        }
+
+        let mut store = GraphStore::default();
+        let node_ty = make_type_id("parallel/unobserved-node");
+        let scope = NodeId([1u8; 32]);
+        let undeclared = NodeId([2u8; 32]);
+        store.insert_node(scope, NodeRecord { ty: node_ty });
+        store.insert_node(undeclared, NodeRecord { ty: node_ty });
+
+        let items = vec![ExecItem::new(
+            reads_an_undeclared_node,
+            scope,
+            OpOrigin {
+                intent_id: 0,
+                rule_id: 1,
+                match_ix: 0,
+                op_ix: 0,
+            },
+        )];
+
+        // Unobserved lane: the undeclared read neither panics nor is recorded.
+        let delta = execute_serial(GraphView::new(&store), &items);
+        assert_eq!(delta.len(), 0);
+
+        // Observed capability: the identical read is recorded, and comparing
+        // it against an empty declaration reports the violation the serial
+        // lane could not have seen.
+        let mut actual = ActualFootprint::new();
+        let mut observed = ExecutionGraphView::new(&store, &mut actual);
+        let _ = observed.node(&undeclared);
+        assert_eq!(
+            actual.soundness_violations(&Footprint::default(), store.warp_id()),
+            vec![crate::footprint_guard::ViolationKind::NodeReadNotDeclared(
+                undeclared
+            )]
+        );
+
+        // So evidence from the serial lane must never be read as a complete
+        // read axis, and must never ground an admitted witness.
+        let serial_posture = ActualFootprintPosture::UnavailableLegacyExecutor;
+        assert!(!serial_posture.read_axis_is_complete());
+        assert!(!serial_posture.is_authoritative());
+    }
 
     fn test_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         let payload = AtomPayload::new(

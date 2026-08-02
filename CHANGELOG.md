@@ -19,6 +19,35 @@
   authority questions the guard already reports, not footprint-subset
   questions. This is stage 2 of the falsification roadmap; the read axis still
   requires observing accesses as they happen and is not derivable from ops.
+- `ExecutionGraphView` is the executor-only capability that records what an
+  execution actually read. `GraphView` could not grow a recorder: its accessors
+  take `&self`, so mutating a borrowed accumulator would need interior
+  mutability, which its contract forbids and which would cost it `Sync` — and
+  `WorkUnit: Sync` is required for workers to borrow the shared unit slice.
+  Moving the mutable execution frame rather than the declared guard into
+  exclusive worker ownership makes `&mut self` sufficient, so no lock, no
+  `UnsafeCell`, and no manual `Sync` are involved, and `GraphView` and
+  `WorkUnit` are untouched. Accessors record before consulting the guard, so
+  the access that trips enforcement is already in the transcript when the panic
+  unwinds; recording afterwards would retain an actual footprint missing its own
+  counterexample. The recorded axis mirrors enforcement exactly — `edges_from`
+  records a node read, because declaring a node grants its outbound adjacency —
+  and an absent resource is still a recorded coordinate, so a rule cannot probe
+  undeclared coordinates for free by picking empty ones.
+- `ActualFootprintPosture` states what a footprint record is entitled to claim.
+  An empty violation set means "the declaration covered the execution" only when
+  the lane both recorded and enforced; from an unobserved lane it means only
+  that nothing was compared. `read_axis_is_complete` keeps that difference
+  legible, so an empty read axis from an unobserved lane reads as _unknown_
+  rather than as _this execution read nothing_, and only `RecordedAndEnforced`
+  may ground an admitted falsification witness. `build_footprint_posture` caps
+  every lane by the enforcement the binary actually compiled.
+- Differential tests run the recorded write set and the enforced write check
+  against the same ops and the same declaration, closing an assumption the
+  design had only asserted. They also pin the two deliberate disagreements:
+  cross-warp emission and unauthorized instance ops are scope and authority
+  failures that the recorder declines to report as footprint-subset failures,
+  so a reducer cannot hop between bug classes by conflating them.
 - ADR 0027 proposes first-class falsification witnesses, and
   `docs/topics/FalsificationWitnesses.md` carries the design and delivery
   roadmap. Anyone may propose a counterexample; only Echo may admit that it

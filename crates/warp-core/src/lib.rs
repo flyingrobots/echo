@@ -70,6 +70,7 @@ mod echo_operation;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
+mod execution_graph_view;
 pub mod external_action;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod external_action_adapter;
@@ -199,7 +200,7 @@ mod worldline_registry;
 mod worldline_state;
 
 // Re-exports for stable public API
-pub use actual_footprint::ActualFootprint;
+pub use actual_footprint::{build_footprint_posture, ActualFootprint, ActualFootprintPosture};
 pub use admission::{
     AdmissionOutcome, AdmissionOutcomeKind, AdmissionPolicyRef, AffectedRegion, BoundedSite,
     PluralArtifact, ReintegrationBoundary,
@@ -280,6 +281,7 @@ pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
     EngineError, ExistingState, FreshStore, IngestDisposition,
 };
+pub use execution_graph_view::ExecutionGraphView;
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };

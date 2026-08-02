@@ -1353,20 +1353,53 @@ the atomic-claim protocol. A `RefCell` placed inside `FootprintGuard` therefore
 fails to compile — not because concurrent access is possible, but because the
 compiler cannot prove it is not.
 
-The resolution is to keep mutable state out of the shared structure entirely. An
-accumulator owned by the worker's own frame in `execute_item_enforced` is
-already exclusive, never crosses a thread, never enters `WorkUnit`, and leaves
-`WorkUnit: Sync` untouched. `GraphView` borrows it for the duration of one item.
-The guard stays an immutable pure checker.
+The resolution is to keep mutable state out of the shared structure entirely: an
+accumulator owned by the worker's own frame is already exclusive, never crosses
+a thread, never enters `WorkUnit`, and leaves `WorkUnit: Sync` untouched.
 
-That leaves one question, which is a judgment call rather than a constraint:
-`GraphView` carries an explicit `DO NOT add interior mutability` prohibition
-(`crates/warp-core/src/graph_view.rs#L65@c354d5316`). Every item on its list
-concerns obtaining mutable access to _graph state_, and its stated rationale is
-that "executors observe through `GraphView`, mutate through `TickDelta`." A
-footprint accumulator mutates no graph state; it records metadata about access.
-Whether that is inside the rule's intent or outside its letter is a call for the
-boundary's owner.
+**Resolved (James):** neither of the two candidate shapes as written. Not an
+accumulator reference inside the existing `GraphView` — a `RefCell` violates its
+documented contract and costs it `Sync`, while a `&mut ActualFootprint` forces
+every accessor to `&mut self`, removes `Copy`/`Clone`, and contaminates the
+matcher, footprint-computation, serial, and legacy parallel APIs that share the
+type. Not reconstructing `FootprintGuard` inside the worker either — the guard
+is already built once per item by `attach_footprint_guards`, so that move buys
+nothing and still cannot mutate through a `&self` accessor.
+
+The adopted shape is a distinct executor-only capability:
+
+```text
+Shared prepared work        WorkUnit { items, guards }
+Worker-local frame          ActualFootprint, TickDelta
+Executor capability         ExecutionGraphView { store, declared, actual }
+```
+
+`GraphView` keeps its contract, its `Copy`, and its `Sync`; the mutable
+execution frame — not the declared guard — moves into exclusive worker
+ownership. The `DO NOT add interior mutability` prohibition
+(`crates/warp-core/src/graph_view.rs#L65@c354d5316`) is honoured rather than
+lawyered around: the accumulator is not graph state, but it is still mutable
+execution state, and giving it a separate capability makes that visible in the
+type system instead of hiding it behind "technically this mutation is only
+telemetry."
+
+**Landed:** `ExecutionGraphView`
+(`crates/warp-core/src/execution_graph_view.rs`) is that capability. It is
+deliberately not `Copy` and not `Clone`, its accessors take `&mut self`, it
+records **before** consulting the guard so the access that trips enforcement is
+in the transcript before the unwind, and its axis mapping mirrors the guard
+exactly — `edges_from` records a _node_ read, because a node in `n_read` grants
+its outbound adjacency and a finer record would manufacture violations against
+a sound declaration. An absent resource is still a recorded coordinate.
+
+**Open:** the executor ABI. `ExecuteFn`
+(`crates/warp-core/src/rule.rs#L38@c354d5316`) still passes `GraphView` by
+value, so no production executor reaches the new capability yet. Migrating it is
+the next unit of work, and it must keep `ProviderMutationExecuteFnV1`
+(`crates/warp-core/src/provider_contract.rs#L39@c354d5316`) on the legacy shape:
+provider-v1 is frozen compatibility infrastructure, so provider replay is
+`UnavailableLegacyExecutor` by construction, exactly matching the lesser
+evidence grade the compatibility fixture already claims.
 
 ### Serial execution is unguarded
 
@@ -1378,11 +1411,34 @@ work-queue path: `execute_item_enforced` has exactly one call site
 A verification host that replays serially therefore runs with enforcement inert
 and would record an empty actual footprint for an execution that touched
 everything. Under [acceptance criterion 21](#acceptance-criteria) such a replay
-cannot admit a witness. Stage 2 must either route verification replay through
-the guarded path or make the enforcement posture of the replay lane explicit in
-the replay certificate. This is not optional bookkeeping: an unguarded lane that
+cannot admit a witness. This is not optional bookkeeping: an unguarded lane that
 silently reports "no violations" is precisely the false-negative the vertical
 exists to prevent.
+
+**Landed:** `ActualFootprintPosture`
+(`crates/warp-core/src/actual_footprint.rs`) makes the distinction a value
+rather than an assumption:
+
+| Posture                      | Read axis | May ground a witness |
+| ---------------------------- | --------- | -------------------- |
+| `RecordedAndEnforced`        | complete  | yes                  |
+| `RecordedWithoutEnforcement` | complete  | no                   |
+| `UnavailableLegacyExecutor`  | unknown   | no                   |
+| `UnavailableBuildProfile`    | unknown   | no                   |
+
+The load-bearing distinction is `read_axis_is_complete`. An empty read axis from
+an unobserved lane must read as _unknown_, never as _this execution read
+nothing_ — that inference is the false negative itself. `build_footprint_posture`
+caps every lane by what the binary actually compiled, so a build without
+enforcement cannot claim evidence it is incapable of producing.
+
+`serial_execution_is_an_unobserved_lane`
+(`crates/warp-core/src/parallel/exec.rs`) pins the lane by contrast rather than
+by assertion of intent: one executor reading one undeclared node runs through
+`execute_serial` without panicking and without leaving a trace, and the
+identical read through `ExecutionGraphView` is recorded and reported as
+`NodeReadNotDeclared`. Two lanes, identical behaviour, different evidence —
+which is exactly why the evidence must name its lane.
 
 Granularity comes free. The guard is already constructed once per rule
 execution and pre-filtered to a single warp
@@ -1518,7 +1574,7 @@ The vertical is complete only when all of the following hold.
 | #   | Stage                       | Status  | Deliverable                                                                                                 | Exit condition                                                                                                                                                                              |
 | --- | --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | ADR                         | Done    | `docs/adr/0027-first-class-falsification-witnesses.md`                                                      | Trust boundary, outcome taxonomy, identity law, minimality language, evidence-worldline rule, and non-goals accepted. Coupled edit to `tests/docs/test_adr_namespace.sh` landed.            |
-| 2   | Footprint accumulation      | Partial | `ActualFootprint` (landed, write axis); read-axis recording (blocked, see below)                            | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard's crate-private boundary is widened deliberately or not at all. |
+| 2   | Footprint accumulation      | Partial | `ActualFootprint`, `ExecutionGraphView`, `ActualFootprintPosture` (landed); executor-ABI migration (open)   | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard's crate-private boundary is widened deliberately or not at all. |
 | 3   | Execution-evidence delivery | Open    | Actual footprints reach the property evaluator on the `execution_evidence` channel bound to Action outcomes | A read-only evaluator can compute `Actual ⊆ Declared` without a new observation projection and without widening the bound aperture.                                                         |
 | 4   | Schemas                     | Open    | Core and ABI DTOs for four artifacts plus violation, replay, minimization, and causal-slice support types   | Canonical codecs, bounds, golden vectors, mutation tests.                                                                                                                                   |
 | 5   | Property admission          | Open    | Exact package admission and installation                                                                    | Naked predicate programs cannot install or evaluate.                                                                                                                                        |

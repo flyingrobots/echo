@@ -46,6 +46,92 @@ use crate::footprint_guard::op_write_targets;
 #[cfg(not(feature = "unsafe_graph"))]
 use crate::tick_patch::WarpOp;
 
+/// What an [`ActualFootprint`] is entitled to claim about the execution it came
+/// from.
+///
+/// An empty violation set means two very different things depending on how the
+/// record was produced. If every access passed through a recording, enforcing
+/// capability, it means the declaration covered the execution. If the lane
+/// recorded nothing — because the executor read through an unobserved
+/// [`GraphView`](crate::GraphView), or the build compiled enforcement out — it
+/// means only that nothing was compared. Reporting the second as the first is
+/// the false negative that footprint honesty exists to prevent, so posture
+/// travels with the evidence instead of being inferred from it.
+///
+/// Only [`RecordedAndEnforced`](Self::RecordedAndEnforced) may support an
+/// admitted falsification witness against a footprint property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ActualFootprintPosture {
+    /// Every access was recorded and checked against the declared footprint.
+    ///
+    /// The record is a complete transcript and the declared/actual comparison
+    /// is authoritative.
+    RecordedAndEnforced,
+    /// Every access was recorded, but nothing was checked.
+    ///
+    /// The transcript is complete and `Actual ⊆ Declared` is still evaluable
+    /// from it, but no guard was active, so the run cannot corroborate that
+    /// enforcement would have caught the violation at the point of access.
+    RecordedWithoutEnforcement,
+    /// The executor read through an unobserved capability.
+    ///
+    /// Reads bypassed recording entirely. The write axis may still be derived
+    /// from emitted ops, but the read axis is unknown — not empty.
+    UnavailableLegacyExecutor,
+    /// The build compiled footprint enforcement out.
+    ///
+    /// Either `unsafe_graph` is enabled, or this is a release build without
+    /// `footprint_enforce_release`. No lane in this binary can produce
+    /// enforced evidence.
+    UnavailableBuildProfile,
+}
+
+impl ActualFootprintPosture {
+    /// Returns `true` when evidence under this posture may ground an admitted
+    /// falsification witness against a footprint property.
+    #[must_use]
+    pub fn is_authoritative(self) -> bool {
+        matches!(self, Self::RecordedAndEnforced)
+    }
+
+    /// Returns `true` when the read axis of the record is a complete
+    /// transcript rather than an unknown.
+    ///
+    /// A record whose read axis is unknown must never be read as "this
+    /// execution read nothing."
+    #[must_use]
+    pub fn read_axis_is_complete(self) -> bool {
+        matches!(
+            self,
+            Self::RecordedAndEnforced | Self::RecordedWithoutEnforcement
+        )
+    }
+}
+
+/// The strongest posture this build can produce, regardless of lane.
+///
+/// Enforcement is compiled out unless `debug_assertions` or
+/// `footprint_enforce_release` is active, and it is additionally excluded by
+/// `unsafe_graph`. A lane cannot claim enforcement the binary does not contain,
+/// so every posture is capped by this value.
+#[must_use]
+pub const fn build_footprint_posture() -> ActualFootprintPosture {
+    #[cfg(all(
+        any(debug_assertions, feature = "footprint_enforce_release"),
+        not(feature = "unsafe_graph")
+    ))]
+    {
+        ActualFootprintPosture::RecordedAndEnforced
+    }
+    #[cfg(not(all(
+        any(debug_assertions, feature = "footprint_enforce_release"),
+        not(feature = "unsafe_graph")
+    )))]
+    {
+        ActualFootprintPosture::UnavailableBuildProfile
+    }
+}
+
 /// Graph resources an execution actually touched, as local ids within one warp.
 ///
 /// Construct with [`ActualFootprint::new`], accumulate with the `record_*`
@@ -294,6 +380,7 @@ fn attachment_warp_id(key: AttachmentKey) -> WarpId {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::ident::{make_edge_id, make_node_id, make_warp_id, NodeKey};
@@ -311,6 +398,52 @@ mod tests {
             warp_id: warp(),
             local_id: node,
         })
+    }
+
+    mod posture {
+        use super::*;
+
+        #[test]
+        fn only_recorded_and_enforced_is_authoritative() {
+            assert!(ActualFootprintPosture::RecordedAndEnforced.is_authoritative());
+            for posture in [
+                ActualFootprintPosture::RecordedWithoutEnforcement,
+                ActualFootprintPosture::UnavailableLegacyExecutor,
+                ActualFootprintPosture::UnavailableBuildProfile,
+            ] {
+                assert!(
+                    !posture.is_authoritative(),
+                    "{posture:?} must not ground an admitted witness"
+                );
+            }
+        }
+
+        #[test]
+        fn an_unavailable_posture_does_not_claim_a_complete_read_axis() {
+            // This is the false negative the vertical exists to prevent: an
+            // empty read axis from an unobserved lane must read as "unknown",
+            // never as "this execution read nothing".
+            assert!(ActualFootprintPosture::RecordedAndEnforced.read_axis_is_complete());
+            assert!(ActualFootprintPosture::RecordedWithoutEnforcement.read_axis_is_complete());
+            assert!(!ActualFootprintPosture::UnavailableLegacyExecutor.read_axis_is_complete());
+            assert!(!ActualFootprintPosture::UnavailableBuildProfile.read_axis_is_complete());
+        }
+
+        #[test]
+        fn the_build_posture_matches_the_compiled_enforcement_gate() {
+            // `build_footprint_posture` must track the same cfg the guard is
+            // gated on, or a binary without enforcement could claim evidence
+            // it cannot produce.
+            let expected = if cfg!(all(
+                any(debug_assertions, feature = "footprint_enforce_release"),
+                not(feature = "unsafe_graph")
+            )) {
+                ActualFootprintPosture::RecordedAndEnforced
+            } else {
+                ActualFootprintPosture::UnavailableBuildProfile
+            };
+            assert_eq!(build_footprint_posture(), expected);
+        }
     }
 
     #[test]
@@ -580,6 +713,201 @@ mod tests {
                 actual.nodes_write().copied().collect::<Vec<_>>(),
                 vec![from]
             );
+        }
+
+        /// The recorded write set and the enforced write check must agree.
+        ///
+        /// `from_ops` and `check_op` both derive their targets from
+        /// `op_write_targets`, so they *should* be two readings of one
+        /// extraction. "Should" is not evidence. These tests run both against
+        /// the same ops and the same declaration and compare the verdicts,
+        /// because a silent divergence would let a witness claim a violation
+        /// enforcement never saw — or, worse, report soundness for an
+        /// execution enforcement would have stopped.
+        mod differential {
+            use super::*;
+            use crate::footprint_guard::FootprintGuard;
+
+            /// Runs the enforced check over `ops`, returning the first typed
+            /// violation, exactly as post-hoc write enforcement does.
+            fn enforced_verdict(
+                declared: &Footprint,
+                ops: &[WarpOp],
+                is_system: bool,
+            ) -> Option<ViolationKind> {
+                let guard = FootprintGuard::new(declared, warp(), "differential", is_system);
+                for op in ops {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        guard.check_op(op);
+                    }));
+                    if let Err(panic) = outcome {
+                        let violation = panic
+                            .downcast_ref::<crate::footprint_guard::FootprintViolation>()
+                            .expect("the guard panics with a typed payload");
+                        return Some(violation.kind.clone());
+                    }
+                }
+                None
+            }
+
+            fn recorded_verdicts(declared: &Footprint, ops: &[WarpOp]) -> Vec<ViolationKind> {
+                ActualFootprint::from_ops(ops, warp()).soundness_violations(declared, warp())
+            }
+
+            fn declaring(nodes: &[NodeId]) -> Footprint {
+                let mut declared = Footprint::default();
+                for node in nodes {
+                    declared.n_write.insert(NodeKey {
+                        warp_id: warp(),
+                        local_id: *node,
+                    });
+                }
+                declared
+            }
+
+            #[test]
+            fn an_undeclared_write_is_reported_identically_by_both_readings() {
+                let declared_node = make_node_id("declared");
+                let undeclared_node = make_node_id("undeclared");
+                let declared = declaring(&[declared_node]);
+                let ops = [upsert(declared_node), upsert(undeclared_node)];
+
+                let enforced = enforced_verdict(&declared, &ops, false);
+                let recorded = recorded_verdicts(&declared, &ops);
+
+                assert_eq!(
+                    enforced,
+                    Some(ViolationKind::NodeWriteNotDeclared(undeclared_node))
+                );
+                assert_eq!(
+                    recorded,
+                    vec![ViolationKind::NodeWriteNotDeclared(undeclared_node)]
+                );
+                assert_eq!(recorded.first().cloned(), enforced);
+            }
+
+            #[test]
+            fn a_sound_declaration_produces_no_verdict_from_either_reading() {
+                let node = make_node_id("declared");
+                let declared = declaring(&[node]);
+                let ops = [upsert(node)];
+
+                assert_eq!(enforced_verdict(&declared, &ops, false), None);
+                assert_eq!(recorded_verdicts(&declared, &ops), Vec::new());
+            }
+
+            #[test]
+            fn a_superset_declaration_produces_no_verdict_from_either_reading() {
+                let touched = make_node_id("touched");
+                let untouched = make_node_id("untouched");
+                let declared = declaring(&[touched, untouched]);
+                let ops = [upsert(touched)];
+
+                assert_eq!(enforced_verdict(&declared, &ops, false), None);
+                assert_eq!(recorded_verdicts(&declared, &ops), Vec::new());
+            }
+
+            #[test]
+            fn an_edge_write_agrees_on_the_implied_from_node() {
+                // `op_write_targets` treats an edge mutation as writing the
+                // edge and its `from` node. If the recorder and the guard
+                // disagreed about that implication, a rule declaring both
+                // would look unsound to one of them.
+                let from = make_node_id("from");
+                let to = make_node_id("to");
+                let edge = make_edge_id("e");
+                let op = WarpOp::UpsertEdge {
+                    warp_id: warp(),
+                    record: crate::record::EdgeRecord {
+                        id: edge,
+                        from,
+                        to,
+                        ty: crate::ident::make_type_id("differential-edge"),
+                    },
+                };
+
+                // Declaring only the edge is unsound: the `from` node is
+                // written too, and both readings must say so.
+                let mut edge_only = Footprint::default();
+                edge_only.e_write.insert(crate::ident::EdgeKey {
+                    warp_id: warp(),
+                    local_id: edge,
+                });
+                assert_eq!(
+                    enforced_verdict(&edge_only, std::slice::from_ref(&op), false),
+                    Some(ViolationKind::NodeWriteNotDeclared(from))
+                );
+                assert_eq!(
+                    recorded_verdicts(&edge_only, std::slice::from_ref(&op)),
+                    vec![ViolationKind::NodeWriteNotDeclared(from)]
+                );
+
+                // Declaring both is sound to both readings.
+                let mut both = edge_only;
+                both.n_write.insert(NodeKey {
+                    warp_id: warp(),
+                    local_id: from,
+                });
+                assert_eq!(
+                    enforced_verdict(&both, std::slice::from_ref(&op), false),
+                    None
+                );
+                assert_eq!(
+                    recorded_verdicts(&both, std::slice::from_ref(&op)),
+                    Vec::new()
+                );
+            }
+
+            #[test]
+            fn a_cross_warp_emission_is_a_scope_verdict_the_recorder_declines() {
+                // The two readings deliberately disagree here, and the
+                // disagreement is the contract. `CrossWarpEmission` is a scope
+                // failure, not a footprint-subset failure; recording the
+                // foreign target as a local write would misreport it as one
+                // and let a reducer hop between two different bug classes.
+                let node = make_node_id("elsewhere");
+                let op = WarpOp::UpsertNode {
+                    node: NodeKey {
+                        warp_id: other_warp(),
+                        local_id: node,
+                    },
+                    record: NodeRecord {
+                        ty: crate::ident::make_type_id("differential-cross-warp"),
+                    },
+                };
+
+                assert_eq!(
+                    enforced_verdict(&Footprint::default(), std::slice::from_ref(&op), false),
+                    Some(ViolationKind::CrossWarpEmission {
+                        op_warp: other_warp()
+                    })
+                );
+                assert_eq!(
+                    recorded_verdicts(&Footprint::default(), std::slice::from_ref(&op)),
+                    Vec::new()
+                );
+            }
+
+            #[test]
+            fn an_unauthorized_instance_op_is_an_authority_verdict_the_recorder_declines() {
+                // Same contract as cross-warp: authority is a distinct class.
+                // A system rule emitting the same op is lawful, and neither
+                // reading reports a footprint violation for it.
+                let op = WarpOp::DeleteWarpInstance { warp_id: warp() };
+
+                assert_eq!(
+                    enforced_verdict(&Footprint::default(), std::slice::from_ref(&op), false),
+                    Some(ViolationKind::UnauthorizedInstanceOp)
+                );
+                assert_eq!(
+                    enforced_verdict(&Footprint::default(), std::slice::from_ref(&op), true),
+                    None
+                );
+                assert_eq!(
+                    recorded_verdicts(&Footprint::default(), std::slice::from_ref(&op)),
+                    Vec::new()
+                );
+            }
         }
     }
 }

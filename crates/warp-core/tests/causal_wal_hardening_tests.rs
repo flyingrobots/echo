@@ -163,8 +163,26 @@ fn builder_on_segment(
     transaction_kind: WalTransactionKind,
     segment_id: WalSegmentId,
 ) -> WalTransactionBuilder {
-    WalTransactionBuilder::new(
+    builder_in_epoch(
         epoch_id(),
+        label,
+        first_lsn,
+        authority,
+        transaction_kind,
+        segment_id,
+    )
+}
+
+fn builder_in_epoch(
+    writer_epoch: WriterEpochId,
+    label: &str,
+    first_lsn: Lsn,
+    authority: WalAppendAuthority,
+    transaction_kind: WalTransactionKind,
+    segment_id: WalSegmentId,
+) -> WalTransactionBuilder {
+    WalTransactionBuilder::new(
+        writer_epoch,
         segment_id,
         transaction_id(&format!("hardening:tx:{label}")),
         transaction_kind,
@@ -214,6 +232,25 @@ fn submission_transaction_on_segment(
             WalAppendAuthority::SubmissionIntake,
             WalTransactionKind::SubmissionIntake,
             segment_id,
+        ),
+        submission_acceptance(label),
+        vec![frontier(label, AffectedFrontierKind::SubmissionQueue)],
+    ))
+}
+
+fn submission_transaction_in_epoch(
+    writer_epoch: WriterEpochId,
+    label: &str,
+    first_lsn: Lsn,
+) -> WalCommittedTransaction {
+    must_ok(build_submission_acceptance_transaction(
+        builder_in_epoch(
+            writer_epoch,
+            label,
+            first_lsn,
+            WalAppendAuthority::SubmissionIntake,
+            WalTransactionKind::SubmissionIntake,
+            WalSegmentId::from_raw(1),
         ),
         submission_acceptance(label),
         vec![frontier(label, AffectedFrontierKind::SubmissionQueue)],
@@ -964,8 +1001,120 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
     drop(active);
     let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
     assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
-    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    // Start-LSN semantics after an empty predecessor belong to
+    // `filesystem_successor_reuses_next_unallocated_lsn_after_empty_epoch`.
+    // This test witnesses lease overlap and takeover linkage only.
     drop(contender);
+    must_ok(fs::remove_dir_all(root));
+}
+
+/// An epoch's start LSN is the next unallocated *frame* coordinate.
+///
+/// An LSN is assigned to a WAL frame. Acquiring a writer epoch persists ledger
+/// evidence but emits no frame, so an epoch that committed nothing spent
+/// nothing and its successor resumes at the same coordinate. Advancing past it
+/// invents a phantom coordinate that `validate_recovery_frame_order` reports as
+/// [`WalValidationError::LsnContinuityMismatch`] to every later reader — one
+/// hole per barren restart, which is what an inspect-then-close host produces
+/// on every open.
+///
+/// Epoch-chain advancement is still strict; it is carried by epoch identity,
+/// fencing evidence, and predecessor linkage, not by the start LSN.
+#[test]
+fn filesystem_successor_reuses_next_unallocated_lsn_after_empty_epoch() {
+    let root = temp_wal_root("writer-epoch-empty");
+
+    // Epoch 1 opens at 0 and writes nothing.
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    }
+
+    // Epoch 2 links to the empty epoch 1 and resumes at the same coordinate.
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let successor = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(0));
+
+    // Reusing the coordinate must be more than pleasing metadata: the frame
+    // written there is the WAL's first, and recovery must find it contiguous.
+    must_ok(store.append_transaction(submission_transaction_in_epoch(
+        successor.epoch_id,
+        "empty-epoch-successor",
+        Lsn::from_raw(0),
+    )));
+    drop(store);
+
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(report.last_committed_lsn(), Some(Lsn::from_raw(1)));
+    must_ok(fs::remove_dir_all(root));
+}
+
+/// An uncommitted tail is not an empty epoch.
+///
+/// A predecessor that wrote frames but committed none of them looks closure-
+/// empty, but its coordinates are occupied on disk. Recovery must resolve or
+/// truncate that tail before a successor may write, and the successor still
+/// resumes after the predecessor's *committed* frames rather than reusing them.
+#[test]
+fn filesystem_successor_resumes_after_a_truncated_uncommitted_tail() {
+    let mut fixture = WalHardeningFixture::new("writer-epoch-tail");
+    fixture.append_submission("tail-committed", Lsn::from_raw(0));
+    fixture.append_uncommitted_tick_frame("tail-extra", Lsn::from_raw(2));
+    let root = fixture.root.clone();
+    drop(fixture);
+
+    // Writable recovery resolves the tail before any successor may write.
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::Writable,
+    ));
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::TruncatedAfter(Lsn::from_raw(1))
+    );
+
+    // The predecessor committed through LSN 1, so it is not empty: the
+    // successor advances past those frames instead of reusing their
+    // coordinates.
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let successor = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(2)));
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(2));
+    drop(store);
+
+    must_ok(fs::remove_dir_all(root));
+}
+
+/// A predecessor with committed frames does advance its successor.
+///
+/// The empty-epoch rule must not leak into the ordinary case: after a
+/// predecessor that committed through `final_lsn`, the successor starts at
+/// `final_lsn + 1` and reusing `final_lsn` is a regression.
+#[test]
+fn filesystem_successor_advances_past_committed_frames() {
+    let root = temp_wal_root("writer-epoch-committed");
+
+    // Epoch 1 commits one two-frame transaction at LSNs 0..=1.
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(submission_transaction(
+            "committed-predecessor",
+            Lsn::from_raw(0),
+        )));
+    }
+
+    // Even asked for a lower minimum, the successor may not reuse a spent
+    // coordinate.
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let successor = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(2));
+    drop(store);
+
     must_ok(fs::remove_dir_all(root));
 }
 

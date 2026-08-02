@@ -1654,6 +1654,25 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- A writer epoch that commits nothing no longer consumes an LSN. An LSN names a
+  WAL frame; acquiring an epoch persists ledger evidence and emits no frame, so
+  an epoch's start LSN is the next unallocated frame coordinate and is
+  non-regressing rather than universally strictly increasing. After a
+  predecessor with committed frames the successor still starts at
+  `final_lsn + 1`, but after an empty predecessor it resumes at the
+  predecessor's own start. Previously every barren open-and-close minted a
+  phantom coordinate, so a host that reopened a filesystem WAL only to inspect
+  it left a permanent hole; the next writer's frames landed past the gap and
+  every later recovery failed closed with `LsnContinuityMismatch`. Epoch-chain
+  advancement remains strict and is carried by epoch identity, ordinal, fencing
+  token, and lease evidence, none of which changed.
+- `cargo test -p warp-core` no longer reports a green result for eight test
+  files it never ran. Each sits behind an inner `#![cfg(feature = ...)]`, so
+  without the feature cargo compiled an empty crate and printed
+  "running 0 tests ... test result: ok". They now declare `required-features`,
+  matching the convention the manifest already used for five other targets, so
+  cargo skips the target with an explicit message instead of manufacturing
+  coverage. Under `--workspace`, feature unification runs them as before.
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.

@@ -6264,7 +6264,372 @@ fn wal_tick_decision_from_observation(
     })
 }
 
+fn tick_transaction_digest(
+    correlation: &ReceiptCorrelationRecord,
+    decision: WalTickDecision,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"tick-transaction");
+    hasher.update(&correlation.ticketed_ingress_id);
+    hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
+    hasher.update(&correlation.ingress_id);
+    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
+    hasher.update(&[wal_tick_decision_code(decision)]);
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+fn tick_batch_transaction_digest(
+    correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"tick-batch-transaction:v1\0");
+    hasher.update(&(correlations.len() as u64).to_le_bytes());
+    for (correlation, decision) in correlations {
+        hasher.update(&correlation.ticketed_ingress_id);
+        hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
+        hasher.update(&correlation.ingress_id);
+        hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
+        hasher.update(&[wal_tick_decision_code(*decision)]);
+    }
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+fn receipt_frontier_digest(
+    previous: Hash,
+    receipt: TickReceiptRecord,
+    correlation: &WalReceiptCorrelationRecord,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"receipt-frontier");
+    hasher.update(&previous);
+    hasher.update(&receipt.receipt_ref.to_canonical_bytes());
+    hasher.update(&[wal_tick_decision_code(receipt.decision)]);
+    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
+    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
+    hasher.finalize().into()
+}
+
+fn hash_causal_parent_receipts(
+    hasher: &mut blake3::Hasher,
+    parents: &[crate::CausalTickReceiptRef],
+) {
+    if parents.is_empty() {
+        return;
+    }
+    hasher.update(b"causal-parent-tick-receipts:v2\0");
+    hasher.update(&(parents.len() as u64).to_le_bytes());
+    for parent in parents {
+        hasher.update(&parent.to_canonical_bytes());
+    }
+}
+
+fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
+    match decision {
+        WalTickDecision::Applied => 1,
+        WalTickDecision::RejectedFootprintConflict => 2,
+        WalTickDecision::Obstructed => 3,
+    }
+}
+
+fn executable_operation_catalog_frontier_digest(
+    previous: Hash,
+    package_id: crate::EchoOperationPackageIdV1,
+    retained_installation_bytes: &[u8],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"executable-operation-catalog-frontier");
+    hasher.update(&previous);
+    hasher.update(&package_id.as_hash());
+    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
+    hasher.update(retained_installation_bytes);
+    hasher.finalize().into()
+}
+
+fn executable_operation_receipt_frontier_digest(previous: Hash, receipt_digest: Hash) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"executable-operation-receipt-frontier");
+    hasher.update(&previous);
+    hasher.update(&receipt_digest);
+    hasher.finalize().into()
+}
+
+fn executable_operation_installation_transaction_digest(
+    catalog_frontier: Hash,
+    package_id: crate::EchoOperationPackageIdV1,
+    retained_installation_bytes: &[u8],
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:executable-operation-installation-transaction:v1\0");
+    hasher.update(&catalog_frontier);
+    hasher.update(&package_id.as_hash());
+    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
+    hasher.update(retained_installation_bytes);
+    hasher.finalize().into()
+}
+
+fn executable_operation_tick_transaction_digest(
+    receipt_frontier: Hash,
+    runtime_state_frontier: Hash,
+    receipt_digest: Hash,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime:executable-operation-tick-transaction:v1\0");
+    hasher.update(&receipt_frontier);
+    hasher.update(&runtime_state_frontier);
+    hasher.update(&receipt_digest);
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+fn runtime_state_frontier_digest(
+    previous: Hash,
+    correlation: &ReceiptCorrelationRecord,
+    state_delta_digest: Hash,
+) -> Hash {
+    runtime_state_frontier_digest_from_fields(
+        previous,
+        correlation.commit_hash,
+        state_delta_digest,
+        correlation.commit_global_tick,
+        correlation.worldline_tick_after,
+    )
+}
+
+fn runtime_state_frontier_digest_from_fields(
+    previous: Hash,
+    commit_hash: Hash,
+    state_delta_digest: Hash,
+    commit_global_tick: crate::GlobalTick,
+    worldline_tick_after: crate::WorldlineTick,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"runtime-state-frontier");
+    hasher.update(&previous);
+    hasher.update(&commit_hash);
+    hasher.update(&state_delta_digest);
+    hasher.update(&commit_global_tick.as_u64().to_le_bytes());
+    hasher.update(&worldline_tick_after.as_u64().to_le_bytes());
+    hasher.finalize().into()
+}
+
+fn recovered_legacy_runtime_state_frontier_digest(
+    previous: Hash,
+    correlation: WalReceiptCorrelationRecord,
+    state_delta_digest: Hash,
+) -> Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
+    hasher.update(b"runtime-state-frontier:recovered");
+    hasher.update(&previous);
+    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
+    hasher.update(&state_delta_digest);
+    hasher.finalize().into()
+}
+
+struct RecoveredRuntimeWalIndexEvidence<'a> {
+    submissions: &'a RecoveredSubmissionIndex,
+    receipts: &'a RecoveredReceiptIndex,
+    witnessed_submissions: &'a WitnessedSubmissionPersistenceSnapshot,
+    missing_submission_envelopes: &'a [Hash],
+    provenance_entries: &'a [ProvenanceEntry],
+    missing_runtime_state_deltas: &'a [Hash],
+    causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
+    installed_echo_operations: &'a [InstalledEchoOperationV1],
+    echo_operation_receipts: &'a [EchoOperationReceiptV1],
+    echo_operation_action_outcomes: &'a [(Hash, Hash, EchoOperationActionOutcomeV1)],
+}
+
+fn runtime_wal_recovery_certificate(
+    report: &RecoveryScanReport,
+    indexes: &RecoveredRuntimeWalIndexEvidence<'_>,
+) -> Result<RecoveryCertificate, TrustedRuntimeWalError> {
+    let recovered_frontier_root = report
+        .last_commit_digest()
+        .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
+    let recovered_indexes_root = recovered_runtime_wal_indexes_root(indexes)?;
+    Ok(build_recovery_certificate(
+        report,
+        None,
+        (indexes.missing_submission_envelopes.len() + indexes.missing_runtime_state_deltas.len())
+            as u64,
+        recovered_frontier_root,
+        recovered_indexes_root,
+    ))
+}
+
+fn recovered_runtime_wal_indexes_root(
+    indexes: &RecoveredRuntimeWalIndexEvidence<'_>,
+) -> Result<Hash, TrustedRuntimeWalError> {
+    let recovered_indexes_root = recovered_submission_material_index_root(
+        recovered_submission_receipt_index_root(indexes.submissions, indexes.receipts),
+        indexes.witnessed_submissions,
+        indexes.missing_submission_envelopes,
+    );
+    let runtime_root = recovered_runtime_state_delta_index_root(
+        recovered_indexes_root,
+        indexes.provenance_entries,
+        indexes.missing_runtime_state_deltas,
+    )?;
+    let causal_anchor_root =
+        recovered_causal_anchor_index_root(runtime_root, indexes.causal_anchor_history);
+    recovered_echo_operation_index_root(
+        causal_anchor_root,
+        indexes.installed_echo_operations,
+        indexes.echo_operation_receipts,
+        indexes.echo_operation_action_outcomes,
+    )
+}
+
+fn recovered_echo_operation_index_root(
+    base_root: Hash,
+    installations: &[InstalledEchoOperationV1],
+    receipts: &[EchoOperationReceiptV1],
+    action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    let legacy_root =
+        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
+    if action_outcomes.is_empty() {
+        return Ok(legacy_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
+    hasher.update(&legacy_root);
+    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
+    for (submission_id, ingress_id, outcome) in action_outcomes {
+        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn recovered_echo_operation_legacy_index_root(
+    base_root: Hash,
+    installations: &[InstalledEchoOperationV1],
+    receipts: &[EchoOperationReceiptV1],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    if installations.is_empty() && receipts.is_empty() {
+        return Ok(base_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(installations.len() as u64).to_le_bytes());
+    for installed in installations {
+        let bytes = retain_installation_v1(installed)?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    hasher.update(&(receipts.len() as u64).to_le_bytes());
+    for receipt in receipts {
+        let bytes = receipt.to_canonical_bytes()?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn recovered_causal_anchor_index_root(
+    base_root: Hash,
+    causal_anchor_history: &[WitnessedCausalAnchorAdmission],
+) -> Hash {
+    if causal_anchor_history.is_empty() {
+        return base_root;
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:causal-anchor-history-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(causal_anchor_history.len() as u64).to_le_bytes());
+    for entry in causal_anchor_history {
+        let admission = entry.admission();
+        hasher.update(admission.fact().anchor_id().as_bytes());
+        hasher.update(&entry.basis_before().frontier_digest);
+        hasher.update(&entry.basis_after().frontier_digest);
+        let fact_bytes = admission.fact().to_payload_bytes();
+        hasher.update(&(fact_bytes.len() as u64).to_le_bytes());
+        hasher.update(&fact_bytes);
+        let receipt_bytes = admission.receipt().to_payload_bytes();
+        hasher.update(&(receipt_bytes.len() as u64).to_le_bytes());
+        hasher.update(&receipt_bytes);
+        hasher.update(&admission.transaction_id().as_hash());
+        hasher.update(&admission.committed_lsn().as_u64().to_le_bytes());
+        hasher.update(admission.commit_digest());
+    }
+    hasher.finalize().into()
+}
+
+fn recovered_submission_material_index_root(
+    base_root: Hash,
+    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
+    missing_submission_envelopes: &[Hash],
+) -> Hash {
+    if witnessed_submissions.is_empty() && missing_submission_envelopes.is_empty() {
+        return base_root;
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:submission-material-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(witnessed_submissions.len() as u64).to_le_bytes());
+    for record in witnessed_submissions.records() {
+        hasher.update(&record.submission.submission_id);
+        hasher.update(&record.submission.ingress_id);
+        hasher.update(record.submission.head_key.worldline_id.as_bytes());
+        hasher.update(record.submission.head_key.head_id.as_bytes());
+        hasher.update(
+            &record
+                .submission
+                .submission_generation
+                .as_u64()
+                .to_le_bytes(),
+        );
+        let retained_bytes = record.envelope.to_retained_bytes_v2();
+        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
+        hasher.update(&retained_bytes);
+    }
+    hasher.update(&(missing_submission_envelopes.len() as u64).to_le_bytes());
+    for submission_id in missing_submission_envelopes {
+        hasher.update(submission_id);
+    }
+    hasher.finalize().into()
+}
+
+fn recovered_runtime_state_delta_index_root(
+    base_root: Hash,
+    provenance_entries: &[ProvenanceEntry],
+    missing_runtime_state_deltas: &[Hash],
+) -> Result<Hash, TrustedRuntimeWalError> {
+    if provenance_entries.is_empty() && missing_runtime_state_deltas.is_empty() {
+        return Ok(base_root);
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"echo:trusted-runtime-wal:runtime-state-delta-index:v1\0");
+    hasher.update(&base_root);
+    hasher.update(&(provenance_entries.len() as u64).to_le_bytes());
+    for entry in provenance_entries {
+        let retained_bytes = crate::provenance_codec::encode_local_commit_v1(entry)?;
+        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
+        hasher.update(&retained_bytes);
+    }
+    hasher.update(&(missing_runtime_state_deltas.len() as u64).to_le_bytes());
+    for receipt_digest in missing_runtime_state_deltas {
+        hasher.update(receipt_digest);
+    }
+    Ok(hasher.finalize().into())
+}
+
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::{
@@ -7623,368 +7988,4 @@ mod tests {
             )
         );
     }
-}
-
-fn tick_transaction_digest(
-    correlation: &ReceiptCorrelationRecord,
-    decision: WalTickDecision,
-    state_delta_digest: Hash,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"tick-transaction");
-    hasher.update(&correlation.ticketed_ingress_id);
-    hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
-    hasher.update(&correlation.ingress_id);
-    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
-    hasher.update(&[wal_tick_decision_code(decision)]);
-    hasher.update(&state_delta_digest);
-    hasher.finalize().into()
-}
-
-fn tick_batch_transaction_digest(
-    correlations: &[(ReceiptCorrelationRecord, WalTickDecision)],
-    state_delta_digest: Hash,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"tick-batch-transaction:v1\0");
-    hasher.update(&(correlations.len() as u64).to_le_bytes());
-    for (correlation, decision) in correlations {
-        hasher.update(&correlation.ticketed_ingress_id);
-        hasher.update(&correlation.causal_receipt_ref.to_canonical_bytes());
-        hasher.update(&correlation.ingress_id);
-        hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
-        hasher.update(&[wal_tick_decision_code(*decision)]);
-    }
-    hasher.update(&state_delta_digest);
-    hasher.finalize().into()
-}
-
-fn receipt_frontier_digest(
-    previous: Hash,
-    receipt: TickReceiptRecord,
-    correlation: &WalReceiptCorrelationRecord,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"receipt-frontier");
-    hasher.update(&previous);
-    hasher.update(&receipt.receipt_ref.to_canonical_bytes());
-    hasher.update(&[wal_tick_decision_code(receipt.decision)]);
-    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
-    hash_causal_parent_receipts(&mut hasher, &correlation.causal_parent_receipts);
-    hasher.finalize().into()
-}
-
-fn hash_causal_parent_receipts(
-    hasher: &mut blake3::Hasher,
-    parents: &[crate::CausalTickReceiptRef],
-) {
-    if parents.is_empty() {
-        return;
-    }
-    hasher.update(b"causal-parent-tick-receipts:v2\0");
-    hasher.update(&(parents.len() as u64).to_le_bytes());
-    for parent in parents {
-        hasher.update(&parent.to_canonical_bytes());
-    }
-}
-
-fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
-    match decision {
-        WalTickDecision::Applied => 1,
-        WalTickDecision::RejectedFootprintConflict => 2,
-        WalTickDecision::Obstructed => 3,
-    }
-}
-
-fn executable_operation_catalog_frontier_digest(
-    previous: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
-    retained_installation_bytes: &[u8],
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"executable-operation-catalog-frontier");
-    hasher.update(&previous);
-    hasher.update(&package_id.as_hash());
-    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
-    hasher.update(retained_installation_bytes);
-    hasher.finalize().into()
-}
-
-fn executable_operation_receipt_frontier_digest(previous: Hash, receipt_digest: Hash) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"executable-operation-receipt-frontier");
-    hasher.update(&previous);
-    hasher.update(&receipt_digest);
-    hasher.finalize().into()
-}
-
-fn executable_operation_installation_transaction_digest(
-    catalog_frontier: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
-    retained_installation_bytes: &[u8],
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime:executable-operation-installation-transaction:v1\0");
-    hasher.update(&catalog_frontier);
-    hasher.update(&package_id.as_hash());
-    hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
-    hasher.update(retained_installation_bytes);
-    hasher.finalize().into()
-}
-
-fn executable_operation_tick_transaction_digest(
-    receipt_frontier: Hash,
-    runtime_state_frontier: Hash,
-    receipt_digest: Hash,
-    state_delta_digest: Hash,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime:executable-operation-tick-transaction:v1\0");
-    hasher.update(&receipt_frontier);
-    hasher.update(&runtime_state_frontier);
-    hasher.update(&receipt_digest);
-    hasher.update(&state_delta_digest);
-    hasher.finalize().into()
-}
-
-fn runtime_state_frontier_digest(
-    previous: Hash,
-    correlation: &ReceiptCorrelationRecord,
-    state_delta_digest: Hash,
-) -> Hash {
-    runtime_state_frontier_digest_from_fields(
-        previous,
-        correlation.commit_hash,
-        state_delta_digest,
-        correlation.commit_global_tick,
-        correlation.worldline_tick_after,
-    )
-}
-
-fn runtime_state_frontier_digest_from_fields(
-    previous: Hash,
-    commit_hash: Hash,
-    state_delta_digest: Hash,
-    commit_global_tick: crate::GlobalTick,
-    worldline_tick_after: crate::WorldlineTick,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"runtime-state-frontier");
-    hasher.update(&previous);
-    hasher.update(&commit_hash);
-    hasher.update(&state_delta_digest);
-    hasher.update(&commit_global_tick.as_u64().to_le_bytes());
-    hasher.update(&worldline_tick_after.as_u64().to_le_bytes());
-    hasher.finalize().into()
-}
-
-fn recovered_legacy_runtime_state_frontier_digest(
-    previous: Hash,
-    correlation: WalReceiptCorrelationRecord,
-    state_delta_digest: Hash,
-) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
-    hasher.update(b"runtime-state-frontier:recovered");
-    hasher.update(&previous);
-    hasher.update(&correlation.receipt_ref.to_canonical_bytes());
-    hasher.update(&state_delta_digest);
-    hasher.finalize().into()
-}
-
-struct RecoveredRuntimeWalIndexEvidence<'a> {
-    submissions: &'a RecoveredSubmissionIndex,
-    receipts: &'a RecoveredReceiptIndex,
-    witnessed_submissions: &'a WitnessedSubmissionPersistenceSnapshot,
-    missing_submission_envelopes: &'a [Hash],
-    provenance_entries: &'a [ProvenanceEntry],
-    missing_runtime_state_deltas: &'a [Hash],
-    causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
-    installed_echo_operations: &'a [InstalledEchoOperationV1],
-    echo_operation_receipts: &'a [EchoOperationReceiptV1],
-    echo_operation_action_outcomes: &'a [(Hash, Hash, EchoOperationActionOutcomeV1)],
-}
-
-fn runtime_wal_recovery_certificate(
-    report: &RecoveryScanReport,
-    indexes: &RecoveredRuntimeWalIndexEvidence<'_>,
-) -> Result<RecoveryCertificate, TrustedRuntimeWalError> {
-    let recovered_frontier_root = report
-        .last_commit_digest()
-        .unwrap_or_else(|| trusted_runtime_wal_digest("recovery-frontier:empty"));
-    let recovered_indexes_root = recovered_runtime_wal_indexes_root(indexes)?;
-    Ok(build_recovery_certificate(
-        report,
-        None,
-        (indexes.missing_submission_envelopes.len() + indexes.missing_runtime_state_deltas.len())
-            as u64,
-        recovered_frontier_root,
-        recovered_indexes_root,
-    ))
-}
-
-fn recovered_runtime_wal_indexes_root(
-    indexes: &RecoveredRuntimeWalIndexEvidence<'_>,
-) -> Result<Hash, TrustedRuntimeWalError> {
-    let recovered_indexes_root = recovered_submission_material_index_root(
-        recovered_submission_receipt_index_root(indexes.submissions, indexes.receipts),
-        indexes.witnessed_submissions,
-        indexes.missing_submission_envelopes,
-    );
-    let runtime_root = recovered_runtime_state_delta_index_root(
-        recovered_indexes_root,
-        indexes.provenance_entries,
-        indexes.missing_runtime_state_deltas,
-    )?;
-    let causal_anchor_root =
-        recovered_causal_anchor_index_root(runtime_root, indexes.causal_anchor_history);
-    recovered_echo_operation_index_root(
-        causal_anchor_root,
-        indexes.installed_echo_operations,
-        indexes.echo_operation_receipts,
-        indexes.echo_operation_action_outcomes,
-    )
-}
-
-fn recovered_echo_operation_index_root(
-    base_root: Hash,
-    installations: &[InstalledEchoOperationV1],
-    receipts: &[EchoOperationReceiptV1],
-    action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
-) -> Result<Hash, TrustedRuntimeWalError> {
-    let legacy_root =
-        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
-    if action_outcomes.is_empty() {
-        return Ok(legacy_root);
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
-    hasher.update(&legacy_root);
-    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
-    for (submission_id, ingress_id, outcome) in action_outcomes {
-        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-    }
-    Ok(hasher.finalize().into())
-}
-
-fn recovered_echo_operation_legacy_index_root(
-    base_root: Hash,
-    installations: &[InstalledEchoOperationV1],
-    receipts: &[EchoOperationReceiptV1],
-) -> Result<Hash, TrustedRuntimeWalError> {
-    if installations.is_empty() && receipts.is_empty() {
-        return Ok(base_root);
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
-    hasher.update(&base_root);
-    hasher.update(&(installations.len() as u64).to_le_bytes());
-    for installed in installations {
-        let bytes = retain_installation_v1(installed)?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-    }
-    hasher.update(&(receipts.len() as u64).to_le_bytes());
-    for receipt in receipts {
-        let bytes = receipt.to_canonical_bytes()?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
-    }
-    Ok(hasher.finalize().into())
-}
-
-fn recovered_causal_anchor_index_root(
-    base_root: Hash,
-    causal_anchor_history: &[WitnessedCausalAnchorAdmission],
-) -> Hash {
-    if causal_anchor_history.is_empty() {
-        return base_root;
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:causal-anchor-history-index:v1\0");
-    hasher.update(&base_root);
-    hasher.update(&(causal_anchor_history.len() as u64).to_le_bytes());
-    for entry in causal_anchor_history {
-        let admission = entry.admission();
-        hasher.update(admission.fact().anchor_id().as_bytes());
-        hasher.update(&entry.basis_before().frontier_digest);
-        hasher.update(&entry.basis_after().frontier_digest);
-        let fact_bytes = admission.fact().to_payload_bytes();
-        hasher.update(&(fact_bytes.len() as u64).to_le_bytes());
-        hasher.update(&fact_bytes);
-        let receipt_bytes = admission.receipt().to_payload_bytes();
-        hasher.update(&(receipt_bytes.len() as u64).to_le_bytes());
-        hasher.update(&receipt_bytes);
-        hasher.update(&admission.transaction_id().as_hash());
-        hasher.update(&admission.committed_lsn().as_u64().to_le_bytes());
-        hasher.update(admission.commit_digest());
-    }
-    hasher.finalize().into()
-}
-
-fn recovered_submission_material_index_root(
-    base_root: Hash,
-    witnessed_submissions: &WitnessedSubmissionPersistenceSnapshot,
-    missing_submission_envelopes: &[Hash],
-) -> Hash {
-    if witnessed_submissions.is_empty() && missing_submission_envelopes.is_empty() {
-        return base_root;
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:submission-material-index:v1\0");
-    hasher.update(&base_root);
-    hasher.update(&(witnessed_submissions.len() as u64).to_le_bytes());
-    for record in witnessed_submissions.records() {
-        hasher.update(&record.submission.submission_id);
-        hasher.update(&record.submission.ingress_id);
-        hasher.update(record.submission.head_key.worldline_id.as_bytes());
-        hasher.update(record.submission.head_key.head_id.as_bytes());
-        hasher.update(
-            &record
-                .submission
-                .submission_generation
-                .as_u64()
-                .to_le_bytes(),
-        );
-        let retained_bytes = record.envelope.to_retained_bytes_v2();
-        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
-        hasher.update(&retained_bytes);
-    }
-    hasher.update(&(missing_submission_envelopes.len() as u64).to_le_bytes());
-    for submission_id in missing_submission_envelopes {
-        hasher.update(submission_id);
-    }
-    hasher.finalize().into()
-}
-
-fn recovered_runtime_state_delta_index_root(
-    base_root: Hash,
-    provenance_entries: &[ProvenanceEntry],
-    missing_runtime_state_deltas: &[Hash],
-) -> Result<Hash, TrustedRuntimeWalError> {
-    if provenance_entries.is_empty() && missing_runtime_state_deltas.is_empty() {
-        return Ok(base_root);
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:runtime-state-delta-index:v1\0");
-    hasher.update(&base_root);
-    hasher.update(&(provenance_entries.len() as u64).to_le_bytes());
-    for entry in provenance_entries {
-        let retained_bytes = crate::provenance_codec::encode_local_commit_v1(entry)?;
-        hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
-        hasher.update(&retained_bytes);
-    }
-    hasher.update(&(missing_runtime_state_deltas.len() as u64).to_le_bytes());
-    for receipt_digest in missing_runtime_state_deltas {
-        hasher.update(receipt_digest);
-    }
-    Ok(hasher.finalize().into())
 }

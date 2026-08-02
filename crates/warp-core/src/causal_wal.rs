@@ -1586,7 +1586,14 @@ fn validate_writer_epoch_request(
                 if request.started_at_lsn <= final_lsn {
                     return Err(WalStoreError::WriterEpochLsnRegression);
                 }
-            } else if request.started_at_lsn <= previous_epoch.started_at_lsn {
+            } else if request.started_at_lsn < previous_epoch.started_at_lsn {
+                // The predecessor committed nothing, so it consumed no LSN. The
+                // successor may resume at the same coordinate; only moving
+                // backwards is a regression. Requiring a strict advance here
+                // would mint a hole in the frame sequence for every barren
+                // epoch, which recovery rejects as `LsnContinuityMismatch`.
+                // Epoch distinctness is carried by the epoch id, ordinal,
+                // fencing token, and lease evidence — not by the start LSN.
                 return Err(WalStoreError::WriterEpochLsnRegression);
             }
             if request.storage_fencing_token == previous_epoch.storage_fencing_token
@@ -5761,11 +5768,20 @@ impl FilesystemWalStore {
             .and_then(|epoch| self.epoch_closures.get(&epoch.epoch_id))
             .copied()
             .unwrap_or_default();
-        let required_started_at_lsn = previous_closure
-            .final_lsn
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
-            .and_then(Lsn::checked_next)
-            .unwrap_or(minimum_started_at_lsn);
+        // An epoch's start LSN is the next unallocated *frame* coordinate. An
+        // LSN is assigned to a WAL frame; acquiring an epoch persists ledger
+        // evidence but emits no frame, so an epoch that committed nothing spent
+        // nothing and its successor resumes at the same coordinate. Advancing
+        // past it would invent a phantom coordinate that
+        // `validate_recovery_frame_order` reports as a gap to every later
+        // reader. Epoch-chain advancement is carried by epoch identity, fencing
+        // evidence, and predecessor linkage — not by the start LSN.
+        let required_started_at_lsn = match previous_closure.final_lsn {
+            Some(final_lsn) => final_lsn
+                .checked_next()
+                .ok_or(WalStoreError::WriterEpochChainGap)?,
+            None => previous_epoch.map_or(minimum_started_at_lsn, |epoch| epoch.started_at_lsn),
+        };
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())
             .map_err(|_| WalStoreError::WriterEpochChainGap)?

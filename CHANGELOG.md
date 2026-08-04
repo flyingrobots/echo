@@ -17,8 +17,8 @@
   a recorded write set and an enforced write check cannot disagree. Cross-warp
   and instance-level concerns are deliberately excluded: they are scope and
   authority questions the guard already reports, not footprint-subset
-  questions. This is stage 2 of the falsification roadmap; the read axis still
-  requires observing accesses as they happen and is not derivable from ops.
+  questions. The read axis is recorded as accesses happen through
+  `ExecutionGraphView`; it cannot be reconstructed from emitted ops.
 - `ExecutionGraphView` is the executor-only capability that records what an
   execution actually read. `GraphView` could not grow a recorder: its accessors
   take `&self`, so mutating a borrowed accumulator would need interior
@@ -42,6 +42,17 @@
   rather than as _this execution read nothing_, and only `RecordedAndEnforced`
   may ground an admitted falsification witness. `build_footprint_posture` caps
   every lane by the enforcement the binary actually compiled.
+- `ObservedExecuteFn` and `RuleExecutor` route native scheduler execution through
+  one worker-local evidence core. Native and generated contract-host executors
+  receive `ExecutionGraphView`; the frozen provider-v1 callback remains an
+  explicit legacy `GraphView` ABI and can never manufacture a complete read
+  axis. `ExecutionFootprintEvidence` retains one canonical record per executed
+  Action on `Engine` and `WorldlineState`, including the emitted write set when
+  the executor or read guard unwinds. Records are keyed before worker dispatch
+  and sorted independently of worker claim or completion order. Successful,
+  panicking, legacy, generated-consumer, provider-v1, and worker-count-invariant
+  witnesses complete stage 2 of the falsification roadmap without exporting
+  `FootprintGuard` or weakening its ordinary panic path.
 - Differential tests run the recorded write set and the enforced write check
   against the same ops and the same declaration, closing an assumption the
   design had only asserted. They also pin the two deliberate disagreements:

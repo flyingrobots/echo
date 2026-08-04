@@ -4,14 +4,14 @@
 use blake3::Hasher;
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
-    make_node_id, make_type_id, ConflictPolicy, Engine, GraphStore, GraphView, NodeRecord,
-    PatternGraph, RewriteRule, TickDelta,
+    make_node_id, make_type_id, ConflictPolicy, Engine, ExecutionGraphView, GraphStore, GraphView,
+    NodeRecord, PatternGraph, RewriteRule, RuleExecutor, TickDelta,
 };
 
 fn noop_match(_: GraphView<'_>, _: &warp_core::NodeId) -> bool {
     true
 }
-fn noop_exec(_: GraphView<'_>, _: &warp_core::NodeId, _delta: &mut TickDelta) {}
+fn noop_exec(_: &mut ExecutionGraphView<'_, '_>, _: &warp_core::NodeId, _delta: &mut TickDelta) {}
 fn noop_fp(_: GraphView<'_>, _: &warp_core::NodeId) -> warp_core::Footprint {
     warp_core::Footprint::default()
 }
@@ -53,7 +53,7 @@ fn registering_duplicate_rule_id_is_rejected() {
         name: "motion/duplicate",
         left: PatternGraph { nodes: vec![] },
         matcher: noop_match,
-        executor: noop_exec,
+        executor: RuleExecutor::observed(noop_exec),
         compute_footprint: noop_fp,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,

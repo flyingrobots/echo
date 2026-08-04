@@ -9,13 +9,21 @@ use std::any::Any;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(all(
+    any(debug_assertions, feature = "footprint_enforce_release"),
+    not(feature = "unsafe_graph")
+))]
+use crate::actual_footprint::ActualFootprintPosture;
+use crate::actual_footprint::{build_footprint_posture, ActualFootprint};
+use crate::execution_evidence::{ExecutionEvidenceKey, ExecutionFootprintEvidence};
+use crate::execution_graph_view::ExecutionGraphView;
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
 use crate::footprint_guard::FootprintGuard;
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::WarpId;
-use crate::rule::ExecuteFn;
+use crate::rule::{ExecuteFn, ObservedExecuteFn, RuleExecutor};
 use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
 
@@ -322,11 +330,13 @@ pub(crate) enum ExecItemKind {
 #[derive(Clone, Copy, Debug)]
 pub struct ExecItem {
     /// The execution function to run.
-    pub exec: ExecuteFn,
+    pub exec: RuleExecutor,
     /// The scope node for this execution.
     pub scope: NodeId,
     /// Origin metadata for tracking.
     pub origin: OpOrigin,
+    /// Canonical position assigned before worker dispatch.
+    pub(crate) evidence_sequence: u32,
     /// Classification for enforcement (user vs system).
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
@@ -339,14 +349,32 @@ impl ExecItem {
     /// This is the default constructor for all externally-registered rules.
     /// The cfg-gated `kind` field is set to `User` automatically.
     pub fn new(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+        Self::from_rule_executor(RuleExecutor::legacy(exec), scope, origin)
+    }
+
+    /// Creates an observed user-level `ExecItem`.
+    ///
+    /// Reads performed by `exec` pass through [`ExecutionGraphView`] and are
+    /// eligible for complete per-Action evidence when enforcement is active.
+    pub fn new_observed(exec: ObservedExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+        Self::from_rule_executor(RuleExecutor::observed(exec), scope, origin)
+    }
+
+    pub(crate) fn from_rule_executor(exec: RuleExecutor, scope: NodeId, origin: OpOrigin) -> Self {
         Self {
             exec,
             scope,
             origin,
+            evidence_sequence: origin.match_ix,
             #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
             #[cfg(not(feature = "unsafe_graph"))]
             kind: ExecItemKind::User,
         }
+    }
+
+    pub(crate) const fn with_evidence_sequence(mut self, sequence: u32) -> Self {
+        self.evidence_sequence = sequence;
+        self
     }
 
     /// Creates a new system-level `ExecItem`.
@@ -355,11 +383,12 @@ impl ExecItem {
     /// are allowed to emit instance-level ops under enforcement.
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
-    pub(crate) fn new_system(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+    pub(crate) fn new_system(exec: RuleExecutor, scope: NodeId, origin: OpOrigin) -> Self {
         Self {
             exec,
             scope,
             origin,
+            evidence_sequence: origin.match_ix,
             kind: ExecItemKind::System,
         }
     }
@@ -371,6 +400,7 @@ impl ExecItem {
 /// triggered poisoning.
 pub struct PoisonedDelta {
     _delta: TickDelta,
+    evidence: Vec<ExecutionFootprintEvidence>,
     panic: Box<dyn Any + Send + 'static>,
 }
 
@@ -383,17 +413,54 @@ impl std::fmt::Debug for PoisonedDelta {
 }
 
 impl PoisonedDelta {
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    #[cfg(not(feature = "unsafe_graph"))]
-    pub(crate) fn new(delta: TickDelta, panic: Box<dyn Any + Send + 'static>) -> Self {
+    pub(crate) fn new(
+        delta: TickDelta,
+        evidence: ExecutionFootprintEvidence,
+        panic: Box<dyn Any + Send + 'static>,
+    ) -> Self {
         Self {
             _delta: delta,
+            evidence: vec![evidence],
             panic,
         }
     }
 
+    fn prepend_evidence(&mut self, mut prior: Vec<ExecutionFootprintEvidence>) {
+        prior.append(&mut self.evidence);
+        self.evidence = prior;
+    }
+
+    pub(crate) fn evidence(&self) -> &[ExecutionFootprintEvidence] {
+        &self.evidence
+    }
+
     pub(crate) fn into_panic(self) -> Box<dyn Any + Send + 'static> {
         self.panic
+    }
+}
+
+/// One worker's successful delta and the per-Action evidence produced with it.
+pub struct WorkerExecution {
+    delta: TickDelta,
+    evidence: Vec<ExecutionFootprintEvidence>,
+}
+
+impl WorkerExecution {
+    fn new(delta: TickDelta, evidence: Vec<ExecutionFootprintEvidence>) -> Self {
+        Self { delta, evidence }
+    }
+
+    pub(crate) fn into_parts(self) -> (TickDelta, Vec<ExecutionFootprintEvidence>) {
+        (self.delta, self.evidence)
+    }
+}
+
+impl std::fmt::Debug for WorkerExecution {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerExecution")
+            .field("delta", &"TickDelta")
+            .field("evidence_count", &self.evidence.len())
+            .finish()
     }
 }
 
@@ -403,7 +470,7 @@ impl PoisonedDelta {
 /// a single enum for clearer pattern matching.
 pub enum WorkerResult {
     /// Worker completed successfully with a delta to merge.
-    Success(TickDelta),
+    Success(WorkerExecution),
     /// Worker encountered a footprint violation or executor panic.
     Poisoned(PoisonedDelta),
     /// Worker failed to resolve a store for the given warp.
@@ -424,28 +491,40 @@ impl std::fmt::Debug for WorkerResult {
 ///
 /// # Footprint evidence posture
 ///
-/// This lane is **unobserved and unenforced**. It takes a bare [`GraphView`],
-/// builds no [`FootprintGuard`], and records nothing: enforcement exists only
-/// on the work-queue path, whose single call site is
-/// [`execute_item_enforced`]. Its posture is therefore
-/// [`ActualFootprintPosture::UnavailableLegacyExecutor`]
-/// (or `UnavailableBuildProfile`, whichever is weaker), never
-/// `RecordedAndEnforced`.
+/// This lane is **unretained and unenforced**. It builds no [`FootprintGuard`]
+/// and publishes no footprint record. Legacy callbacks receive the bare
+/// [`GraphView`]; observed callbacks record into a throwaway frame solely to
+/// satisfy their capability contract. Authoritative evidence exists only on the
+/// work-queue path, whose per-item call site is [`execute_item_enforced`].
 ///
 /// That distinction is load-bearing rather than bookkeeping. A verification
-/// host that replayed through this lane would observe an empty
-/// [`ActualFootprint`] for an execution that touched everything, and reading
-/// that emptiness as `Actual ⊆ Declared` would report soundness for a rule that
-/// lied. Evidence from this lane must carry its posture so a property evaluator
-/// treats the read axis as *unknown*, not as *empty*. See
+/// host that replayed through this lane would have no retained
+/// [`ActualFootprint`] at all. Inventing an empty one and reading it as
+/// `Actual ⊆ Declared` would report soundness for a rule that lied. See
 /// `serial_execution_is_an_unobserved_lane` for the pin.
 pub fn execute_serial(view: GraphView<'_>, items: &[ExecItem]) -> TickDelta {
     let mut delta = TickDelta::new();
     for item in items {
         let mut scoped = delta.scoped(item.origin);
-        (item.exec)(view, &item.scope, scoped.inner_mut());
+        execute_unretained(item.exec, view, &item.scope, scoped.inner_mut());
     }
     delta
+}
+
+fn execute_unretained(
+    executor: RuleExecutor,
+    view: GraphView<'_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
+    match executor {
+        RuleExecutor::Observed(execute) => {
+            let mut discarded = ActualFootprint::new();
+            let mut observed = ExecutionGraphView::new(view.store(), &mut discarded);
+            execute(&mut observed, scope, delta);
+        }
+        RuleExecutor::Legacy(execute) => execute(view, scope, delta),
+    }
 }
 
 /// Parallel execution entry point.
@@ -626,7 +705,7 @@ const fn capped_workers(workers: NonZeroUsize) -> NonZeroUsize {
 fn execute_shard_into_delta(view: GraphView<'_>, items: &[ExecItem], delta: &mut TickDelta) {
     for item in items {
         let mut scoped = delta.scoped(item.origin);
-        (item.exec)(view, &item.scope, scoped.inner_mut());
+        execute_unretained(item.exec, view, &item.scope, scoped.inner_mut());
     }
 }
 
@@ -896,17 +975,19 @@ pub fn build_work_units(
 /// # Footprint Enforcement (cfg-gated)
 ///
 /// When enforcement is active, the worker loop:
-/// 1. Creates a guarded `GraphView` per item (read enforcement)
-/// 2. Wraps execution in `catch_unwind` to ensure write validation runs
-/// 3. Validates all emitted ops against the item's guard (write enforcement)
-/// 4. Returns a poisoned delta carrying the panic payload
+/// 1. Creates one worker-local actual-footprint record per item
+/// 2. Gives observed callbacks a guarded [`ExecutionGraphView`]
+/// 3. Wraps execution in `catch_unwind` so emitted writes are still recorded
+/// 4. Validates all emitted ops against the item's guard
+/// 5. Returns evidence before propagating a poisoned delta and panic payload
 ///
 /// # Constraints (Non-Negotiable)
 ///
 /// 1. **No nested threading**: Items within a unit are executed serially.
 /// 2. **No long-lived borrows**: `GraphView` is resolved per-unit and dropped
 ///    before claiming the next unit.
-/// 3. **`ExecItem` unchanged**: Work units carry items, items don't know their warp.
+/// 3. **No graph authority in `ExecItem`**: Work units carry items; stores are
+///    still resolved per unit and never embedded in an item.
 ///
 /// # Arguments
 ///
@@ -936,7 +1017,7 @@ where
 
     if units.is_empty() {
         return (0..workers)
-            .map(|_| WorkerResult::Success(TickDelta::new()))
+            .map(|_| WorkerResult::Success(WorkerExecution::new(TickDelta::new(), Vec::new())))
             .collect();
     }
 
@@ -951,6 +1032,7 @@ where
 
                 s.spawn(move || -> WorkerResult {
                     let mut delta = TickDelta::new();
+                    let mut evidence = Vec::new();
 
                     // Work-stealing loop: claim units until none remain
                     loop {
@@ -969,10 +1051,12 @@ where
                         // Execute items SERIALLY (no nested threading!)
                         for (idx, item) in unit.items.iter().enumerate() {
                             match execute_item_enforced(store, item, idx, unit, delta) {
-                                Ok(next_delta) => {
+                                Ok((next_delta, record)) => {
                                     delta = next_delta;
+                                    evidence.push(record);
                                 }
-                                Err(poisoned) => {
+                                Err(mut poisoned) => {
+                                    poisoned.prepend_evidence(evidence);
                                     return WorkerResult::Poisoned(poisoned);
                                 }
                             }
@@ -981,7 +1065,7 @@ where
                         // View dropped here - no long-lived borrows across warps
                     }
 
-                    WorkerResult::Success(delta)
+                    WorkerResult::Success(WorkerExecution::new(delta, evidence))
                 })
             })
             .collect();
@@ -996,33 +1080,32 @@ where
     })
 }
 
-/// Executes a single item with footprint enforcement (cfg-gated).
+struct ItemExecutionOutcome {
+    delta: TickDelta,
+    evidence: ExecutionFootprintEvidence,
+    panic: Option<Box<dyn Any + Send + 'static>>,
+}
+
+/// Executes one item through the shared evidence-producing core.
 ///
-/// When enforcement is active:
-/// 1. Creates a guarded `GraphView` (read enforcement via `new_guarded`)
-/// 2. Wraps execution in `catch_unwind` to ensure write validation runs
-/// 3. Validates all emitted ops via `check_op()` (write enforcement)
-/// 4. Returns `Err(PoisonedDelta)` on executor panic or footprint violation
-///
-/// When enforcement is inactive (`unsafe_graph` feature or release without
-/// `footprint_enforce_release`), executes directly without validation.
-// Result is always Ok when enforcement is compiled out (unsafe_graph), but the
-// signature must stay Result for the enforcement path.
-#[allow(clippy::unnecessary_wraps)]
+/// Observed callbacks receive [`ExecutionGraphView`]; legacy callbacks retain
+/// [`GraphView`] and an explicitly non-authoritative posture. Writes are
+/// derived for the complete emitted-op suffix before the first `check_op` may
+/// unwind, mirroring the read-side record-before-check law.
 #[inline]
-fn execute_item_enforced(
+fn execute_item_observed(
     store: &GraphStore,
     item: &ExecItem,
     idx: usize,
     unit: &WorkUnit,
     mut delta: TickDelta,
-) -> Result<TickDelta, PoisonedDelta> {
+) -> ItemExecutionOutcome {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
     // Enforcement path: guarded view + catch_unwind + post-hoc write validation
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     {
-        use std::panic::{catch_unwind, AssertUnwindSafe};
-
         // Hard invariant: guards must be populated and aligned with items.
         // This check runs in all builds (debug and release) when enforcement is active.
         // If guards are misaligned, it's a bug in the engine's guard construction.
@@ -1037,63 +1120,140 @@ fn execute_item_enforced(
         );
 
         let guard = &unit.guards[idx];
-        let view = GraphView::new_guarded(store, guard);
-
-        // Track delta growth for write validation
         let ops_before = delta.len();
+        let mut actual = ActualFootprint::new();
 
-        // Execute under catch_unwind to enforce writes even on panic
         let exec_result = catch_unwind(AssertUnwindSafe(|| {
             let mut scoped = delta.scoped(item.origin);
-            (item.exec)(view, &item.scope, scoped.inner_mut());
+            match item.exec {
+                RuleExecutor::Observed(execute) => {
+                    let mut view = ExecutionGraphView::new_guarded(store, guard, &mut actual);
+                    execute(&mut view, &item.scope, scoped.inner_mut());
+                }
+                RuleExecutor::Legacy(execute) => {
+                    let view = GraphView::new_guarded(store, guard);
+                    execute(view, &item.scope, scoped.inner_mut());
+                }
+            }
         }));
 
         let exec_panic = exec_result.err();
 
-        // Post-hoc write enforcement (runs whether exec succeeded or panicked)
+        // Derive the complete write record before validation can unwind on its
+        // first violation. Check-first would leave later emitted targets absent
+        // from the purported actual footprint.
+        for op in &delta.ops_ref()[ops_before..] {
+            actual.record_op(op, store.warp_id());
+        }
+
         let check_result = catch_unwind(AssertUnwindSafe(|| {
             for op in &delta.ops_ref()[ops_before..] {
                 guard.check_op(op);
             }
         }));
 
-        match (exec_panic, check_result) {
-            (None, Ok(())) => {
-                return Ok(delta);
-            }
-            (Some(panic), Ok(())) | (None, Err(panic)) => {
-                return Err(PoisonedDelta::new(delta, panic));
-            }
-            (Some(exec_panic), Err(guard_panic)) => {
-                let payload = match guard_panic
-                    .downcast::<crate::footprint_guard::FootprintViolation>()
-                {
-                    Ok(violation) => Box::new(crate::footprint_guard::FootprintViolationWithPanic {
-                        violation: *violation,
-                        exec_panic,
-                    }) as Box<dyn Any + Send + 'static>,
-                    Err(guard_panic) => {
-                        Box::new((exec_panic, guard_panic)) as Box<dyn Any + Send + 'static>
-                    }
-                };
-                return Err(PoisonedDelta::new(delta, payload));
-            }
-        }
+        let posture = if item.exec.is_observed() {
+            build_footprint_posture()
+        } else {
+            ActualFootprintPosture::UnavailableLegacyExecutor
+        };
+        let evidence = ExecutionFootprintEvidence::new(
+            ExecutionEvidenceKey::new(
+                item.evidence_sequence,
+                store.warp_id(),
+                item.scope,
+                item.origin,
+            ),
+            actual,
+            posture,
+        );
+        return ItemExecutionOutcome {
+            delta,
+            evidence,
+            panic: combine_execution_panics(exec_panic, check_result.err()),
+        };
     }
 
-    // Non-enforced path: direct execution (unreachable when enforcement is active,
-    // since all match arms in the cfg block above return).
+    // Non-enforced path: the observed ABI still records, but the build posture
+    // prevents that record from claiming enforcement was active.
     #[allow(unreachable_code)]
     {
-        // Suppress unused variable warnings in non-enforced builds
         let _ = idx;
         let _ = unit;
+        let ops_before = delta.len();
+        let mut actual = ActualFootprint::new();
+        let exec_result = catch_unwind(AssertUnwindSafe(|| {
+            let mut scoped = delta.scoped(item.origin);
+            match item.exec {
+                RuleExecutor::Observed(execute) => {
+                    let mut view = ExecutionGraphView::new(store, &mut actual);
+                    execute(&mut view, &item.scope, scoped.inner_mut());
+                }
+                RuleExecutor::Legacy(execute) => {
+                    execute(GraphView::new(store), &item.scope, scoped.inner_mut());
+                }
+            }
+        }));
+        for op in &delta.ops_ref()[ops_before..] {
+            actual.record_op(op, store.warp_id());
+        }
 
-        let view = GraphView::new(store);
-        let mut scoped = delta.scoped(item.origin);
-        (item.exec)(view, &item.scope, scoped.inner_mut());
+        ItemExecutionOutcome {
+            delta,
+            evidence: ExecutionFootprintEvidence::new(
+                ExecutionEvidenceKey::new(
+                    item.evidence_sequence,
+                    store.warp_id(),
+                    item.scope,
+                    item.origin,
+                ),
+                actual,
+                build_footprint_posture(),
+            ),
+            panic: exec_result.err(),
+        }
+    }
+}
 
-        Ok(delta)
+#[cfg(all(
+    any(debug_assertions, feature = "footprint_enforce_release"),
+    not(feature = "unsafe_graph")
+))]
+fn combine_execution_panics(
+    exec_panic: Option<Box<dyn Any + Send + 'static>>,
+    guard_panic: Option<Box<dyn Any + Send + 'static>>,
+) -> Option<Box<dyn Any + Send + 'static>> {
+    match (exec_panic, guard_panic) {
+        (None, None) => None,
+        (Some(panic), None) | (None, Some(panic)) => Some(panic),
+        (Some(exec_panic), Some(guard_panic)) => Some(
+            match guard_panic.downcast::<crate::footprint_guard::FootprintViolation>() {
+                Ok(violation) => Box::new(crate::footprint_guard::FootprintViolationWithPanic {
+                    violation: *violation,
+                    exec_panic,
+                }) as Box<dyn Any + Send + 'static>,
+                Err(guard_panic) => {
+                    Box::new((exec_panic, guard_panic)) as Box<dyn Any + Send + 'static>
+                }
+            },
+        ),
+    }
+}
+
+/// Preserves the established delta/poison boundary while delegating all
+/// execution and evidence production to [`execute_item_observed`].
+#[inline]
+fn execute_item_enforced(
+    store: &GraphStore,
+    item: &ExecItem,
+    idx: usize,
+    unit: &WorkUnit,
+    delta: TickDelta,
+) -> Result<(TickDelta, ExecutionFootprintEvidence), PoisonedDelta> {
+    let outcome = execute_item_observed(store, item, idx, unit, delta);
+    match outcome.panic {
+        None => Ok((outcome.delta, outcome.evidence)),
+        Some(panic) => Err(PoisonedDelta::new(outcome.delta, outcome.evidence, panic)),
     }
 }
 
@@ -1113,12 +1273,13 @@ mod tests {
 
     /// Pins the enforcement posture of the serial lane.
     ///
-    /// `execute_serial` builds no [`FootprintGuard`] and takes a bare
-    /// [`GraphView`], so a rule that reads a node it never declared runs here
-    /// without complaint *and* leaves no trace. A verification host replaying
-    /// through this lane would therefore observe an empty read axis for an
-    /// execution that plainly read something, and reading that emptiness as
-    /// `Actual ⊆ Declared` would report soundness for a rule that lied.
+    /// `execute_serial` builds no [`FootprintGuard`] and publishes no evidence,
+    /// so a legacy rule that reads a node it never declared runs here without
+    /// complaint *and* leaves no trace. An observed callback receives its
+    /// capability, but that transcript is deliberately discarded. A
+    /// verification host must therefore treat this lane as unavailable rather
+    /// than inventing an empty read axis and reporting soundness for a rule that
+    /// lied.
     ///
     /// The same read through [`ExecutionGraphView`] is recorded. The contrast
     /// is what makes posture necessary: the two lanes produce different

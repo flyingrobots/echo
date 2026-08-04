@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use thiserror::Error;
 
 use crate::clock::WorldlineTick;
+use crate::execution_evidence::ExecutionFootprintEvidence;
 use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeId, NodeKey};
@@ -89,6 +90,8 @@ pub struct WorldlineState {
     pub(crate) last_snapshot: Option<Snapshot>,
     /// Sequential history of committed ticks for this worldline.
     pub(crate) tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    /// Canonically ordered per-Action footprints from the latest execution.
+    pub(crate) last_execution_footprints: Vec<ExecutionFootprintEvidence>,
     /// Last finalized materialization channels for this worldline.
     pub(crate) last_materialization: Vec<FinalizedChannel>,
     /// Last materialization errors for this worldline.
@@ -131,6 +134,7 @@ impl WorldlineState {
             root,
             last_snapshot: None,
             tick_history: Vec::new(),
+            last_execution_footprints: Vec::new(),
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
@@ -283,6 +287,13 @@ impl WorldlineState {
         &self.tick_history
     }
 
+    /// Returns canonically ordered per-Action footprints from the latest
+    /// execution attempt against this worldline.
+    #[must_use]
+    pub fn last_execution_footprints(&self) -> &[ExecutionFootprintEvidence] {
+        &self.last_execution_footprints
+    }
+
     /// Returns the most recent finalized materialization channels.
     #[must_use]
     pub fn last_materialization(&self) -> &[FinalizedChannel] {
@@ -335,6 +346,7 @@ impl WorldlineState {
             initial_state: self.initial_state.clone(),
             last_snapshot: self.last_snapshot.clone(),
             tick_history: self.tick_history.clone(),
+            last_execution_footprints: self.last_execution_footprints.clone(),
             last_materialization: self.last_materialization.clone(),
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
@@ -354,6 +366,7 @@ impl WorldlineState {
             initial_state,
             last_snapshot: None,
             tick_history: Vec::new(),
+            last_execution_footprints: Vec::new(),
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
             tx_counter: 0,

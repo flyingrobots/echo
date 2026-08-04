@@ -3,9 +3,10 @@
 
 # Falsification witnesses
 
-**Status:** proposed. No code in this topic is implemented yet. This document is
-both the design for first-class falsification artifacts and the roadmap that
-sequences their delivery.
+**Status:** proposed. Roadmap stages 1 and 2 are implemented; stages 3 through
+14 remain open. ADR 0027 remains Proposed. This document is both the design for
+first-class falsification artifacts and the roadmap that sequences their
+delivery.
 
 **Governing rule:**
 
@@ -112,9 +113,10 @@ corrected here, and the corrections are load-bearing.
    projections are `Head`, `Snapshot`, `TruthChannels { channels }`, and
    `Query { query_id, vars_bytes }`, and `RecordedTruth` is valid only with
    `TruthChannels` (`crates/warp-core/src/observation.rs#L2344@c354d5316`).
-   Actual per-Action footprints are **unbuilt**. They will be delivered on the
-   execution-evidence channel rather than through a new projection, so that the
-   bound observation aperture is not widened.
+   Actual per-Action footprints now exist in scheduler-owned execution evidence.
+   Stage 3 will deliver them to the property evaluator on the execution-evidence
+   channel rather than through a new projection, so that the bound observation
+   aperture is not widened.
 3. **`WalAppendAuthority::AdmissionKernel` already exists** and does not need to
    be added; only a new transaction kind and record kinds are new.
 4. **The guard reports `NodeReadNotDeclared`-style variants, not a generic
@@ -1317,13 +1319,12 @@ declared?" and immediately forgets. Four consequences:
    build where the guard was inert proves nothing, so the enforcement posture
    belongs in the replay certificate and must be checked at admission.
 
-Required shape: an opt-in `FootprintObservationSink` that **accumulates** every
-checked access — not only violating ones — into an ordered, canonical
-per-Action record, which the verification host retains as evidence. The
+Required behavior: accumulate every attempted access — not only violating ones —
+into an ordered, canonical per-Action record retained as execution evidence. The
 accumulator must be additive to the existing checker: the ordinary panic still
 fires afterwards, unchanged. That panic is the correct response in ordinary
 execution, where an undeclared access is a programmer error and not a
-recoverable application condition, and removing it is out of scope. **(unbuilt)**
+recoverable application condition, and removing it is out of scope.
 
 **Landed:** `ActualFootprint`
 (`crates/warp-core/src/actual_footprint.rs@95a55f49f`) is the accumulator and
@@ -1333,8 +1334,8 @@ an emitted op sequence using `op_write_targets` — the same extraction
 enforcement uses, so a recorded write set and an enforced write check cannot
 disagree.
 
-**Open:** the **read** axis. Reads reach the guard through `GraphView`, and
-guards live in `WorkUnit.guards`
+The **read** axis was the remaining implementation problem. Reads reached the
+guard through `GraphView`, and guards live in `WorkUnit.guards`
 (`crates/warp-core/src/parallel/exec.rs#L831@c354d5316`), which workers borrow
 from a shared slice (`crates/warp-core/src/parallel/exec.rs#L1021@c354d5316`).
 
@@ -1392,21 +1393,36 @@ exactly — `edges_from` records a _node_ read, because a node in `n_read` grant
 its outbound adjacency and a finer record would manufacture violations against
 a sound declaration. An absent resource is still a recorded coordinate.
 
-**Open:** the executor ABI. `ExecuteFn`
-(`crates/warp-core/src/rule.rs#L38@c354d5316`) still passes `GraphView` by
-value, so no production executor reaches the new capability yet. Migrating it is
-the next unit of work, and it must keep `ProviderMutationExecuteFnV1`
-(`crates/warp-core/src/provider_contract.rs#L39@c354d5316`) on the legacy shape:
-provider-v1 is frozen compatibility infrastructure, so provider replay is
-`UnavailableLegacyExecutor` by construction, exactly matching the lesser
-evidence grade the compatibility fixture already claims.
+**Landed:** the executor ABI now distinguishes `ObservedExecuteFn` from legacy
+`ExecuteFn` through `RuleExecutor`. Native production rules and generated
+contract-host rules receive `&mut ExecutionGraphView`; provider-v1 remains on
+the frozen `ProviderMutationExecuteFnV1`/`GraphView` shape and is materialized as
+`RuleExecutor::Legacy`. A legacy callback is never wrapped in an ordinary
+`GraphView` and relabelled observed: its write axis is still derived from emitted
+ops, but its read axis remains unknown and its posture is
+`UnavailableLegacyExecutor`.
+
+`execute_item_observed` is the single scheduler-owned per-item core. It owns the
+`ActualFootprint` on the worker frame, catches the executor unwind, derives every
+emitted write before checking any op, retains `ExecutionFootprintEvidence`, and
+only then resumes the ordinary panic. `ExecutionEvidenceKey` is assigned from
+canonical pre-dispatch identity, so evidence is sorted independently of worker
+claim and completion order. `Engine::last_execution_footprints` and
+`WorldlineState::last_execution_footprints` retain the canonical per-Action
+records for the next stage's evaluator delivery.
+
+The executable witnesses cover successful observed execution, an observed read
+violation after a prior emitted write, a legacy execution with known writes and
+unknown reads, provider-v1 materializing only as legacy, generated consumer code
+using the observed ABI, and identical evidence across worker counts.
 
 ### Serial execution is unguarded
 
-`execute_serial` (`crates/warp-core/src/parallel/exec.rs#L424@c354d5316`) takes
-a bare `GraphView` and constructs no guard. Enforcement exists only on the
-work-queue path: `execute_item_enforced` has exactly one call site
-(`crates/warp-core/src/parallel/exec.rs#L953@c354d5316`).
+`execute_serial` (`crates/warp-core/src/parallel/exec.rs#L424@c354d5316`)
+constructs no guard and retains no footprint evidence. Legacy callbacks receive
+the bare `GraphView`; observed callbacks can record only into a throwaway frame.
+Authoritative enforcement and retention exist only on the scheduler work-queue
+path.
 
 A verification host that replays serially therefore runs with enforcement inert
 and would record an empty actual footprint for an execution that touched
@@ -1440,12 +1456,12 @@ identical read through `ExecutionGraphView` is recorded and reported as
 `NodeReadNotDeclared`. Two lanes, identical behaviour, different evidence —
 which is exactly why the evidence must name its lane.
 
-Granularity comes free. The guard is already constructed once per rule
-execution and pre-filtered to a single warp
-(`crates/warp-core/src/footprint_guard.rs#L358@c354d5316`), so an accumulator
-hung off that instance is per-Action and per-warp by construction. No separate
-projection-design stage is needed to reach Action granularity; the earlier
-concern about a per-Tick union does not arise.
+Granularity comes from the scheduler item boundary. The guard is constructed
+once per rule execution and pre-filtered to a single warp
+(`crates/warp-core/src/footprint_guard.rs#L358@c354d5316`), while the accumulator
+is constructed once on the worker frame for that same item. Each retained record
+is therefore per-Action and per-warp by construction. No separate projection is
+needed to avoid a per-Tick union.
 
 ### Two fixtures, not one compromised runtime
 
@@ -1571,27 +1587,27 @@ The vertical is complete only when all of the following hold.
 
 ### Stages
 
-| #   | Stage                       | Status  | Deliverable                                                                                                 | Exit condition                                                                                                                                                                              |
-| --- | --------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ADR                         | Done    | `docs/adr/0027-first-class-falsification-witnesses.md`                                                      | Trust boundary, outcome taxonomy, identity law, minimality language, evidence-worldline rule, and non-goals accepted. Coupled edit to `tests/docs/test_adr_namespace.sh` landed.            |
-| 2   | Footprint accumulation      | Partial | `ActualFootprint`, `ExecutionGraphView`, `ActualFootprintPosture` (landed); executor-ABI migration (open)   | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard's crate-private boundary is widened deliberately or not at all. |
-| 3   | Execution-evidence delivery | Open    | Actual footprints reach the property evaluator on the `execution_evidence` channel bound to Action outcomes | A read-only evaluator can compute `Actual ⊆ Declared` without a new observation projection and without widening the bound aperture.                                                         |
-| 4   | Schemas                     | Open    | Core and ABI DTOs for four artifacts plus violation, replay, minimization, and causal-slice support types   | Canonical codecs, bounds, golden vectors, mutation tests.                                                                                                                                   |
-| 5   | Property admission          | Open    | Exact package admission and installation                                                                    | Naked predicate programs cannot install or evaluate.                                                                                                                                        |
-| 6   | Discovery adapter           | Open    | `cargo xtask falsify` consuming explicit proposals and optionally `proptest` output                         | Seed is provenance; explicit case is replayable.                                                                                                                                            |
-| 7   | Verifier                    | Open    | One bounded exact-basis replay through ordinary scheduler and observation surfaces                          | Returns closed property outcome without target mutation.                                                                                                                                    |
-| 8   | Slicer                      | Open    | Conservative backward dependency closure                                                                    | Every retained fixture slice replays; removal candidates delegated to the reducer.                                                                                                          |
-| 9   | Reducer                     | Open    | Deterministic phase order, lexicographic metric, violation equivalence, budgets, cache                      | Stable output across repeated runs and fresh hosts.                                                                                                                                         |
-| 10  | Fresh-host certificate      | Open    | Complete reconstruction and comparison                                                                      | Same violation class and closure reproduced from retained material.                                                                                                                         |
-| 11  | WAL admission               | Open    | Transaction code 13, record codes from 32, evidence-worldline frontier, recovery indexes                    | Crashpoint suite passes.                                                                                                                                                                    |
-| 12  | Footprint vertical          | Open    | Hook-free false property plus generated-pack compatibility fixture                                          | One locally irreducible admitted witness and one honest non-witness.                                                                                                                        |
-| 13  | Regression reuse            | Open    | Reapply admitted cases to successor properties                                                              | `StillFalsifies`, `NoLongerFalsifies`, `Inapplicable`, and `Obstructed` are durable typed outcomes.                                                                                         |
-| 14  | Release qualification       | Open    | CI lane with false-footprint oracle under release enforcement                                               | Generated footprint claims cannot silently ship without negative-oracle coverage.                                                                                                           |
+| #   | Stage                       | Status | Deliverable                                                                                                     | Exit condition                                                                                                                                                                   |
+| --- | --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ADR                         | Done   | `docs/adr/0027-first-class-falsification-witnesses.md`                                                          | Trust boundary, outcome taxonomy, identity law, minimality language, evidence-worldline rule, and non-goals accepted. Coupled edit to `tests/docs/test_adr_namespace.sh` landed. |
+| 2   | Footprint accumulation      | Done   | `ActualFootprint`, `ExecutionGraphView`, `ActualFootprintPosture`, `RuleExecutor`, `ExecutionFootprintEvidence` | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard remains crate-private.                               |
+| 3   | Execution-evidence delivery | Open   | Actual footprints reach the property evaluator on the `execution_evidence` channel bound to Action outcomes     | A read-only evaluator can compute `Actual ⊆ Declared` without a new observation projection and without widening the bound aperture.                                              |
+| 4   | Schemas                     | Open   | Core and ABI DTOs for four artifacts plus violation, replay, minimization, and causal-slice support types       | Canonical codecs, bounds, golden vectors, mutation tests.                                                                                                                        |
+| 5   | Property admission          | Open   | Exact package admission and installation                                                                        | Naked predicate programs cannot install or evaluate.                                                                                                                             |
+| 6   | Discovery adapter           | Open   | `cargo xtask falsify` consuming explicit proposals and optionally `proptest` output                             | Seed is provenance; explicit case is replayable.                                                                                                                                 |
+| 7   | Verifier                    | Open   | One bounded exact-basis replay through ordinary scheduler and observation surfaces                              | Returns closed property outcome without target mutation.                                                                                                                         |
+| 8   | Slicer                      | Open   | Conservative backward dependency closure                                                                        | Every retained fixture slice replays; removal candidates delegated to the reducer.                                                                                               |
+| 9   | Reducer                     | Open   | Deterministic phase order, lexicographic metric, violation equivalence, budgets, cache                          | Stable output across repeated runs and fresh hosts.                                                                                                                              |
+| 10  | Fresh-host certificate      | Open   | Complete reconstruction and comparison                                                                          | Same violation class and closure reproduced from retained material.                                                                                                              |
+| 11  | WAL admission               | Open   | Transaction code 13, record codes from 32, evidence-worldline frontier, recovery indexes                        | Crashpoint suite passes.                                                                                                                                                         |
+| 12  | Footprint vertical          | Open   | Hook-free false property plus generated-pack compatibility fixture                                              | One locally irreducible admitted witness and one honest non-witness.                                                                                                             |
+| 13  | Regression reuse            | Open   | Reapply admitted cases to successor properties                                                                  | `StillFalsifies`, `NoLongerFalsifies`, `Inapplicable`, and `Obstructed` are durable typed outcomes.                                                                              |
+| 14  | Release qualification       | Open   | CI lane with false-footprint oracle under release enforcement                                                   | Generated footprint claims cannot silently ship without negative-oracle coverage.                                                                                                |
 
 Stages 2 and 3 did not appear in the originating draft. Both are consequences of
-verification, and they split along a clean seam: stage 2 is guard-side
-(**produce** the actual footprint, which nothing does today), stage 3 is
-evaluator-side (**deliver** it to a read-only property).
+verification, and they split along a clean seam: stage 2 is scheduler-side
+(**produce and retain** the actual footprint), stage 3 is evaluator-side
+(**deliver** it to a read-only property).
 
 Stage 3 deliberately does not add an observation projection. The property
 evaluator already receives execution evidence on a channel separate from the
@@ -1749,21 +1765,20 @@ envelope.
    prohibitive for large campaigns. The snapshot-plus-suffix optimization is
    listed as acceptable "after proving equivalence to fresh reconstruction" —
    what does that proof look like concretely?
-4. **Guard visibility seam.** `FootprintGuard` is `pub(crate)`. Does the
-   verification host live inside `warp-core`, or does the guard export a narrow
-   accumulator-only interface? Exporting the checker wholesale would leak an
-   enforcement detail into the public surface.
-5. **Accumulator cost under enforcement.** The guard is on in every debug build.
-   An always-on accumulator would charge every developer test run for evidence
-   only the verification host consumes, so the sink must be opt-in — but an
-   opt-in sink means the accumulation path is less exercised than the checking
-   path it shadows.
+4. **Closed — guard visibility seam.** `FootprintGuard` remains `pub(crate)`.
+   `ExecutionGraphView::new_guarded` is the narrow crate-private construction
+   seam; only the resulting evidence DTOs cross the public boundary.
+5. **Closed — accumulator cost under enforcement.** Scheduler-owned execution
+   records one bounded set-based transcript per executed Action. Unretained
+   serial and legacy compatibility lanes cannot claim authoritative evidence;
+   no optional sink can silently turn missing reads into an empty read set.
 
-**Closed:** _Footprint observation granularity_ — resolved at `c354d5316`.
-`FootprintGuard` is constructed once per rule execution and pre-filtered to a
-single warp (`crates/warp-core/src/footprint_guard.rs#L358@c354d5316`), so an
-accumulator hung off that instance is per-Action by construction. The per-Tick
-union that would have broken the single-Action reduction target cannot arise.
+**Closed:** _Footprint observation granularity_. `FootprintGuard` is constructed
+once per rule execution and pre-filtered to a single warp
+(`crates/warp-core/src/footprint_guard.rs#L358@c354d5316`), and
+`execute_item_observed` constructs one worker-local accumulator for that exact
+item. The per-Tick union that would have broken the single-Action reduction
+target cannot arise.
 
 ## The proposition
 

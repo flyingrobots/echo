@@ -67,10 +67,13 @@ surface.
 
 ### R2 — Native rewrite functions are bootstrap-only
 
-`RewriteRule`, `MatchFn`, and `ExecuteFn` are bootstrap-only trusted-code
-surfaces. They MAY exist for engine internals, internal system rules,
-transitional bootstrap code, and tests, but they MUST NOT be treated as the
-long-term public authoring boundary for application rewrite logic.
+`RewriteRule`, `MatchFn`, `ObservedExecuteFn`, legacy `ExecuteFn`, and
+`RuleExecutor` are bootstrap-only trusted-code surfaces. They MAY exist for
+engine internals, internal system rules, transitional bootstrap code, and tests,
+but they MUST NOT be treated as the long-term public authoring boundary for
+application rewrite logic. Native bootstrap rules use the observed executor ABI
+so Echo can retain their actual reads; compatibility callbacks that cannot be
+observed carry an explicitly non-authoritative evidence posture.
 
 Echo's default public Rust API MUST NOT expose native rewrite authoring as a
 supported extension surface. If a temporary bootstrap seam remains, it must be

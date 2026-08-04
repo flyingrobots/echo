@@ -70,8 +70,6 @@ use crate::attachment::AttachmentOwner;
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
 use crate::footprint::Footprint;
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
 use crate::tick_patch::WarpOp;
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
@@ -167,16 +165,15 @@ impl std::fmt::Debug for FootprintViolationWithPanic {
 // Internal enforcement machinery (only compiled when enforcement is active)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Everything below is pub(crate) and only used when enforcement cfg gates are
-// active. When `unsafe_graph` disables enforcement, these items are dead code.
+// Operation target extraction remains available in every build so actual write
+// footprints can be retained even when enforcement is unavailable. The checker
+// itself remains cfg-gated below.
 
 /// Targets that a [`WarpOp`] writes to, as local ids within a specific warp.
 ///
 /// This is the output of [`op_write_targets`] — the single source of truth for
 /// what a `WarpOp` mutates. Used by enforcement. Available as a shared primitive
 /// for future scheduling linting (but the scheduler does NOT currently use it).
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
 pub(crate) struct OpTargets {
     /// Node ids that the op writes/mutates.
     pub nodes: Vec<NodeId>,
@@ -187,6 +184,13 @@ pub(crate) struct OpTargets {
     /// Whether this is an instance-level op (e.g., `OpenPortal`, `UpsertWarpInstance`,
     /// `DeleteWarpInstance`). Instance-level ops modify multiverse topology and require
     /// `is_system` permission.
+    #[cfg_attr(
+        not(all(
+            any(debug_assertions, feature = "footprint_enforce_release"),
+            not(feature = "unsafe_graph")
+        )),
+        allow(dead_code)
+    )]
     pub is_instance_op: bool,
     /// The warp the op targets (for cross-warp check). Used to verify ops don't emit
     /// to warps outside the declared footprint. Most ops set this to `Some(warp_id)`;
@@ -194,11 +198,16 @@ pub(crate) struct OpTargets {
     /// (though currently all instance-level ops do provide a target warp).
     pub op_warp: Option<WarpId>,
     /// Static string naming the op variant (e.g. `"UpsertNode"`).
+    #[cfg_attr(
+        not(all(
+            any(debug_assertions, feature = "footprint_enforce_release"),
+            not(feature = "unsafe_graph")
+        )),
+        allow(dead_code)
+    )]
     pub kind_str: &'static str,
 }
 
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
 /// Returns a static string naming the [`WarpOp`] variant.
 ///
 /// Single source of truth — never manually type these strings elsewhere.
@@ -215,8 +224,6 @@ pub(crate) fn op_kind_str(op: &WarpOp) -> &'static str {
     }
 }
 
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
 /// Canonical extraction of write targets from a [`WarpOp`].
 ///
 /// This is the SINGLE SOURCE OF TRUTH for what a `WarpOp` mutates.

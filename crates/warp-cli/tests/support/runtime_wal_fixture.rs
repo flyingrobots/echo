@@ -215,7 +215,7 @@ fn contract_rule() -> warp_core::RewriteRule {
         name: RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: contract_matches,
-        executor: contract_execute,
+        executor: warp_core::RuleExecutor::legacy(contract_execute),
         compute_footprint: contract_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

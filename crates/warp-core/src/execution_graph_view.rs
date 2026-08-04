@@ -2,10 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Observed read capability for one item's execution frame.
 //!
-//! [`GraphView`](crate::GraphView) is the universal read capability: matchers,
-//! footprint computation, and executors all hold one, it is `Copy`, and its
-//! accessors take `&self`. That shape is why it cannot record. Recording an
-//! access mutates the execution transcript, and a `&self` accessor cannot
+//! [`GraphView`](crate::GraphView) is the immutable read capability used by
+//! matchers, footprint computation, and frozen legacy executors. It is `Copy`,
+//! and its accessors take `&self`. That shape is why it cannot record. Recording
+//! an access mutates the execution transcript, and a `&self` accessor cannot
 //! mutate anything it does not own without interior mutability — which
 //! `GraphView` explicitly forbids and which would cost it `Sync`.
 //!
@@ -121,11 +121,8 @@ impl<'store, 'frame> ExecutionGraphView<'store, 'frame> {
     /// the caller's frame, not inside this view.
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
-    // Exercised by this module's tests; its production call site arrives with
-    // the observed-executor path, which is the executor-ABI migration rather
-    // than this seam. Kept `pub(crate)` because `FootprintGuard` is crate
-    // private and exporting the checker would leak an enforcement detail.
-    #[allow(dead_code)]
+    // Kept `pub(crate)` because `FootprintGuard` is crate private and exporting
+    // the checker would leak an enforcement detail.
     pub(crate) fn new_guarded(
         store: &'store GraphStore,
         declared: &'frame FootprintGuard,
@@ -224,7 +221,11 @@ impl<'store, 'frame> ExecutionGraphView<'store, 'frame> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(debug_assertions, feature = "footprint_enforce_release"),
+    not(feature = "unsafe_graph")
+))]
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;

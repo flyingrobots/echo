@@ -36,14 +36,8 @@ use std::collections::BTreeSet;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner};
 use crate::footprint::Footprint;
-use crate::footprint_guard::ViolationKind;
+use crate::footprint_guard::{op_write_targets, ViolationKind};
 use crate::ident::{EdgeId, NodeId, WarpId};
-
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
-use crate::footprint_guard::op_write_targets;
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[cfg(not(feature = "unsafe_graph"))]
 use crate::tick_patch::WarpOp;
 
 /// What an [`ActualFootprint`] is entitled to claim about the execution it came
@@ -240,8 +234,6 @@ impl ActualFootprint {
     ///
     /// Targets belonging to another warp are skipped, matching the guard's
     /// pre-filtering.
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    #[cfg(not(feature = "unsafe_graph"))]
     pub fn record_op(&mut self, op: &WarpOp, warp_id: WarpId) {
         let targets = op_write_targets(op);
 
@@ -265,8 +257,6 @@ impl ActualFootprint {
     /// This is the write axis of footprint soundness, computable entirely from
     /// material the executor already produced. The read axis requires observing
     /// accesses as they happen and is not derivable from ops.
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    #[cfg(not(feature = "unsafe_graph"))]
     #[must_use]
     pub fn from_ops<'a>(ops: impl IntoIterator<Item = &'a WarpOp>, warp_id: WarpId) -> Self {
         let mut actual = Self::new();

@@ -17,6 +17,7 @@ use crate::echo_operation::{
     install_recovered_v1, EchoOperationInstallationErrorV1, EchoOperationPackageIdV1,
     InstalledEchoOperationV1,
 };
+use crate::execution_evidence::ExecutionFootprintEvidence;
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::head_inbox::{IngressEnvelope, IngressPayload, IntentKind};
@@ -37,7 +38,7 @@ use crate::provider_contract::{
 };
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
-use crate::rule::{ConflictPolicy, RewriteRule};
+use crate::rule::{ConflictPolicy, RewriteRule, RuleExecutor};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::telemetry::{NullTelemetrySink, TelemetrySink};
@@ -481,6 +482,8 @@ pub struct Engine {
     last_snapshot: Option<Snapshot>,
     /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    /// Canonically ordered per-Action footprints from the latest execution.
+    last_execution_footprints: Vec<ExecutionFootprintEvidence>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
     initial_state: WarpState,
@@ -542,6 +545,7 @@ struct RuntimeCommitStateGuard<'a> {
     saved_initial_state: SavedField<WarpState>,
     saved_last_snapshot: SavedField<Option<Snapshot>>,
     saved_tick_history: SavedField<Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>>,
+    saved_last_execution_footprints: SavedField<Vec<ExecutionFootprintEvidence>>,
     saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
     saved_last_materialization_errors: SavedField<Vec<ChannelConflict>>,
     committed_ingress: SavedField<BTreeSet<(crate::head::WriterHeadKey, Hash)>>,
@@ -570,6 +574,10 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             &mut engine.tick_history,
             std::mem::take(&mut state.tick_history),
         );
+        let saved_last_execution_footprints = std::mem::replace(
+            &mut engine.last_execution_footprints,
+            std::mem::take(&mut state.last_execution_footprints),
+        );
         let saved_last_materialization = std::mem::replace(
             &mut engine.last_materialization,
             std::mem::take(&mut state.last_materialization),
@@ -597,6 +605,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             saved_initial_state: SavedField::new(saved_initial_state),
             saved_last_snapshot: SavedField::new(saved_last_snapshot),
             saved_tick_history: SavedField::new(saved_tick_history),
+            saved_last_execution_footprints: SavedField::new(saved_last_execution_footprints),
             saved_last_materialization: SavedField::new(saved_last_materialization),
             saved_last_materialization_errors: SavedField::new(saved_last_materialization_errors),
             committed_ingress: SavedField::new(committed_ingress),
@@ -635,6 +644,11 @@ impl<'a> RuntimeCommitStateGuard<'a> {
                 &mut self.engine.tick_history,
                 self.saved_tick_history
                     .take("runtime commit guard missing saved tick history"),
+            ),
+            last_execution_footprints: std::mem::replace(
+                &mut self.engine.last_execution_footprints,
+                self.saved_last_execution_footprints
+                    .take("runtime commit guard missing saved execution footprints"),
             ),
             last_materialization: std::mem::replace(
                 &mut self.engine.last_materialization,
@@ -687,6 +701,11 @@ impl<'a> RuntimeCommitStateGuard<'a> {
                 &mut self.engine.tick_history,
                 self.saved_tick_history
                     .take("runtime commit guard missing saved tick history"),
+            ),
+            last_execution_footprints: std::mem::replace(
+                &mut self.engine.last_execution_footprints,
+                self.saved_last_execution_footprints
+                    .take("runtime commit guard missing saved execution footprints"),
             ),
             last_materialization: std::mem::replace(
                 &mut self.engine.last_materialization,
@@ -913,6 +932,7 @@ impl Engine {
             },
             last_snapshot: None,
             tick_history: Vec::new(),
+            last_execution_footprints: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1112,6 +1132,7 @@ impl Engine {
             current_root: root,
             last_snapshot: None,
             tick_history: Vec::new(),
+            last_execution_footprints: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1878,6 +1899,7 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        self.last_execution_footprints.clear();
         let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
@@ -2001,6 +2023,7 @@ impl Engine {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
         self.bus.clear();
+        self.last_execution_footprints.clear();
         self.last_materialization.clear();
         self.last_materialization_errors.clear();
     }
@@ -2093,11 +2116,12 @@ impl Engine {
         // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
 
         // 1. Pre-validate all rewrites and group by warp_id
-        let mut by_warp: BTreeMap<
-            WarpId,
-            Vec<(PendingRewrite, crate::rule::ExecuteFn, &'static str)>,
-        > = BTreeMap::new();
-        for rewrite in rewrites {
+        let mut by_warp: BTreeMap<WarpId, Vec<(PendingRewrite, RuleExecutor, &'static str, u32)>> =
+            BTreeMap::new();
+        for (evidence_sequence, rewrite) in rewrites.into_iter().enumerate() {
+            let evidence_sequence = u32::try_from(evidence_sequence).map_err(|_| {
+                EngineError::InternalCorruption("too many execution records to index")
+            })?;
             let id = rewrite.compact_rule;
             let (executor, rule_name) = {
                 let Some(rule) = self.rule_by_compact(id) else {
@@ -2117,10 +2141,12 @@ impl Engine {
                 );
                 return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
             }
-            by_warp
-                .entry(rewrite.scope.warp_id)
-                .or_default()
-                .push((rewrite, executor, rule_name));
+            by_warp.entry(rewrite.scope.warp_id).or_default().push((
+                rewrite,
+                executor,
+                rule_name,
+                evidence_sequence,
+            ));
         }
 
         // Collect per-item guard metadata (cfg-gated) for post-shard guard construction
@@ -2132,7 +2158,7 @@ impl Engine {
         let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
-                .map(|(rw, exec, name)| {
+                .map(|(rw, exec, name, evidence_sequence)| {
                     #[cfg(all(
                         any(debug_assertions, feature = "footprint_enforce_release"),
                         not(feature = "unsafe_graph")
@@ -2145,8 +2171,10 @@ impl Engine {
                         );
                         if is_system {
                             ExecItem::new_system(exec, rw.scope.local_id, rw.origin)
+                                .with_evidence_sequence(evidence_sequence)
                         } else {
-                            ExecItem::new(exec, rw.scope.local_id, rw.origin)
+                            ExecItem::from_rule_executor(exec, rw.scope.local_id, rw.origin)
+                                .with_evidence_sequence(evidence_sequence)
                         }
                     }
                     #[cfg(any(
@@ -2155,7 +2183,8 @@ impl Engine {
                     ))]
                     {
                         let _ = name;
-                        ExecItem::new(exec, rw.scope.local_id, rw.origin)
+                        ExecItem::from_rule_executor(exec, rw.scope.local_id, rw.origin)
+                            .with_evidence_sequence(evidence_sequence)
                     }
                 })
                 .collect();
@@ -2181,7 +2210,7 @@ impl Engine {
             execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id));
 
         // 3. Merge deltas into canonical op sequence
-        let ops = merge_parallel_deltas(worker_results)?;
+        let ops = merge_parallel_deltas(worker_results, &mut self.last_execution_footprints)?;
 
         // 4. Apply the merged ops to the state
         let patch = WarpTickPatchV1::new(
@@ -2522,6 +2551,18 @@ impl Engine {
         &self.tick_history
     }
 
+    /// Returns canonically ordered per-Action footprints from the latest
+    /// scheduler execution attempt.
+    ///
+    /// This record is populated before a retained executor or enforcement
+    /// panic is resumed, so callers that deliberately catch the ordinary panic
+    /// can inspect the exact access that caused it. Posture remains part of
+    /// every record and decides whether it may ground a falsification witness.
+    #[must_use]
+    pub fn last_execution_footprints(&self) -> &[ExecutionFootprintEvidence] {
+        &self.last_execution_footprints
+    }
+
     /// Resets the engine state to the beginning of time (U0) and re-applies all patches
     /// up to and including the specified tick index.
     ///
@@ -2567,6 +2608,7 @@ impl Engine {
     pub fn is_fresh_runtime_state(&self) -> bool {
         self.last_snapshot.is_none()
             && self.tick_history.is_empty()
+            && self.last_execution_footprints.is_empty()
             && self.last_materialization.is_empty()
             && self.last_materialization_errors.is_empty()
             && self.live_txs.is_empty()
@@ -2851,18 +2893,35 @@ impl Engine {
 /// # Panics
 ///
 /// Panics (via `resume_unwind`) if any delta was poisoned by an executor or enforcement panic.
-fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp>, EngineError> {
+fn merge_parallel_deltas(
+    worker_results: Vec<WorkerResult>,
+    retained_evidence: &mut Vec<ExecutionFootprintEvidence>,
+) -> Result<Vec<WarpOp>, EngineError> {
     // Convert WorkerResult to the format expected by merge paths
-    let all_deltas: Result<Vec<Result<crate::TickDelta, crate::parallel::PoisonedDelta>>, _> =
-        worker_results
-            .into_iter()
-            .map(|result| match result {
-                WorkerResult::Success(delta) => Ok(Ok(delta)),
-                WorkerResult::Poisoned(poisoned) => Ok(Err(poisoned)),
-                WorkerResult::MissingStore(warp_id) => Err(EngineError::UnknownWarp(warp_id)),
-            })
-            .collect();
-    let all_deltas = all_deltas?;
+    let mut all_deltas = Vec::with_capacity(worker_results.len());
+    let mut evidence = Vec::new();
+    let mut missing_store = None;
+    for result in worker_results {
+        match result {
+            WorkerResult::Success(execution) => {
+                let (delta, mut worker_evidence) = execution.into_parts();
+                evidence.append(&mut worker_evidence);
+                all_deltas.push(Ok(delta));
+            }
+            WorkerResult::Poisoned(poisoned) => {
+                evidence.extend(poisoned.evidence().iter().cloned());
+                all_deltas.push(Err(poisoned));
+            }
+            WorkerResult::MissingStore(warp_id) => {
+                missing_store.get_or_insert(warp_id);
+            }
+        }
+    }
+    evidence.sort_by_key(ExecutionFootprintEvidence::key);
+    *retained_evidence = evidence;
+    if let Some(warp_id) = missing_store {
+        return Err(EngineError::UnknownWarp(warp_id));
+    }
 
     #[cfg(any(test, feature = "delta_validate"))]
     {
@@ -2919,7 +2978,7 @@ fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp
 /// Result of validating and grouping rewrites by warp.
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
-type RewritesByWarp = BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn, &'static str)>>;
+type RewritesByWarp = BTreeMap<WarpId, Vec<(PendingRewrite, RuleExecutor, &'static str, u32)>>;
 
 /// Collects guard metadata from grouped rewrites for footprint enforcement.
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
@@ -2930,7 +2989,7 @@ fn collect_guard_metadata(
     by_warp
         .values()
         .flatten()
-        .map(|(rw, _exec, name)| {
+        .map(|(rw, _exec, name, _evidence_sequence)| {
             (
                 (
                     rw.origin,
@@ -3197,44 +3256,47 @@ mod tests {
                     Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
                 )
             },
-            executor: |view: GraphView<'_>, scope, delta| {
-                // Phase 5: read from view, emit ops to delta (no direct mutation).
-                let warp_id = view.warp_id();
+            executor: RuleExecutor::observed(
+                |view: &mut crate::ExecutionGraphView<'_, '_>, scope, delta| {
+                    // Phase 5: read from view, emit ops to delta (no direct mutation).
+                    let warp_id = view.warp_id();
 
-                let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {
-                    return;
-                };
-                let Some((pos_raw, vel_raw)) =
-                    crate::payload::decode_motion_atom_payload_q32_32(payload)
-                else {
-                    return;
-                };
+                    let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {
+                        return;
+                    };
+                    let Some((pos_raw, vel_raw)) =
+                        crate::payload::decode_motion_atom_payload_q32_32(payload)
+                    else {
+                        return;
+                    };
 
-                // Compute the new position
-                let new_pos_raw = [
-                    pos_raw[0].saturating_add(vel_raw[0]),
-                    pos_raw[1].saturating_add(vel_raw[1]),
-                    pos_raw[2].saturating_add(vel_raw[2]),
-                ];
+                    // Compute the new position
+                    let new_pos_raw = [
+                        pos_raw[0].saturating_add(vel_raw[0]),
+                        pos_raw[1].saturating_add(vel_raw[1]),
+                        pos_raw[2].saturating_add(vel_raw[2]),
+                    ];
 
-                // Build new bytes
-                let new_bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+                    // Build new bytes
+                    let new_bytes =
+                        crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
 
-                // Only emit if bytes actually changed
-                if payload.bytes != new_bytes {
-                    let key = AttachmentKey::node_alpha(NodeKey {
-                        warp_id,
-                        local_id: *scope,
-                    });
-                    delta.push(WarpOp::SetAttachment {
-                        key,
-                        value: Some(AttachmentValue::Atom(AtomPayload {
-                            type_id: crate::payload::motion_payload_type_id(),
-                            bytes: new_bytes,
-                        })),
-                    });
-                }
-            },
+                    // Only emit if bytes actually changed
+                    if payload.bytes != new_bytes {
+                        let key = AttachmentKey::node_alpha(NodeKey {
+                            warp_id,
+                            local_id: *scope,
+                        });
+                        delta.push(WarpOp::SetAttachment {
+                            key,
+                            value: Some(AttachmentValue::Atom(AtomPayload {
+                                type_id: crate::payload::motion_payload_type_id(),
+                                bytes: new_bytes,
+                            })),
+                        });
+                    }
+                },
+            ),
             compute_footprint: |view: GraphView<'_>, scope| {
                 let mut a_read = crate::AttachmentSet::default();
                 let mut a_write = crate::AttachmentSet::default();
@@ -3307,7 +3369,7 @@ mod tests {
             name: rule_name,
             left: crate::rule::PatternGraph { nodes: vec![] },
             matcher: runtime_event_matches,
-            executor: |view, scope, delta| {
+            executor: RuleExecutor::observed(|view, scope, delta| {
                 let key = AttachmentKey::node_alpha(NodeKey {
                     warp_id: view.warp_id(),
                     local_id: *scope,
@@ -3319,7 +3381,7 @@ mod tests {
                         bytes::Bytes::from_static(b"marker"),
                     ))),
                 });
-            },
+            }),
             compute_footprint: runtime_event_attachment_footprint,
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Abort,
@@ -3334,7 +3396,9 @@ mod tests {
             name: rule_name,
             left: crate::rule::PatternGraph { nodes: vec![] },
             matcher: runtime_event_matches,
-            executor: |_view, _scope, _delta| std::panic::panic_any("runtime-commit-panic"),
+            executor: RuleExecutor::observed(|_view, _scope, _delta| {
+                std::panic::panic_any("runtime-commit-panic")
+            }),
             compute_footprint: runtime_event_attachment_footprint,
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Abort,
@@ -3357,7 +3421,7 @@ mod tests {
             name: rule_name,
             left: crate::rule::PatternGraph { nodes: vec![] },
             matcher: |_view, _scope| true,
-            executor: |view, scope, delta| {
+            executor: RuleExecutor::observed(|view, scope, delta| {
                 let _ = view.node(scope);
                 let key = AttachmentKey::node_alpha(NodeKey {
                     warp_id: view.warp_id(),
@@ -3370,7 +3434,7 @@ mod tests {
                         bytes::Bytes::from_static(b"guard-meta"),
                     ))),
                 });
-            },
+            }),
             compute_footprint: |view, scope| {
                 let warp_id = view.warp_id();
                 let mut n_read = crate::NodeSet::default();
@@ -3468,7 +3532,7 @@ mod tests {
             name: "bad/join",
             left: crate::rule::PatternGraph { nodes: vec![] },
             matcher: |_s: GraphView<'_>, _n| true,
-            executor: |_s: GraphView<'_>, _n, _delta| {},
+            executor: RuleExecutor::observed(|_view, _scope, _delta| {}),
             compute_footprint: |_s: GraphView<'_>, _n| crate::footprint::Footprint::default(),
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Join,
@@ -3490,7 +3554,7 @@ mod tests {
                 name,
                 left: crate::rule::PatternGraph { nodes: vec![] },
                 matcher: |_s: GraphView<'_>, _n| true,
-                executor: |_s: GraphView<'_>, _n, _delta| {},
+                executor: RuleExecutor::observed(|_view, _scope, _delta| {}),
                 compute_footprint: |_s: GraphView<'_>, _n| crate::footprint::Footprint::default(),
                 factor_mask: 0,
                 conflict_policy: crate::rule::ConflictPolicy::Abort,

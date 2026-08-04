@@ -39,6 +39,7 @@ pub mod math {
 /// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
 pub mod wsc;
 
+mod actual_footprint;
 mod admission;
 mod attachment;
 mod braid;
@@ -69,6 +70,8 @@ mod echo_operation;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
+mod execution_evidence;
+mod execution_graph_view;
 pub mod external_action;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod external_action_adapter;
@@ -198,6 +201,7 @@ mod worldline_registry;
 mod worldline_state;
 
 // Re-exports for stable public API
+pub use actual_footprint::{build_footprint_posture, ActualFootprint, ActualFootprintPosture};
 pub use admission::{
     AdmissionOutcome, AdmissionOutcomeKind, AdmissionPolicyRef, AffectedRegion, BoundedSite,
     PluralArtifact, ReintegrationBoundary,
@@ -220,7 +224,8 @@ pub use cmd::{
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use contract_host::{
-    eint_op_id, eint_vars_for_op, matches_eint_op, runtime_ingress_eint_read_footprint,
+    eint_op_id, eint_vars_for_op, matches_eint_op, observed_eint_vars_for_op,
+    runtime_ingress_eint_read_footprint,
 };
 pub use contract_inverse::{
     ContractInverseAdmissionRequest, ContractInverseContext, ContractInverseDerivation,
@@ -278,6 +283,8 @@ pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
     EngineError, ExistingState, FreshStore, IngestDisposition,
 };
+pub use execution_evidence::{ExecutionEvidenceKey, ExecutionFootprintEvidence};
+pub use execution_graph_view::ExecutionGraphView;
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };
@@ -457,7 +464,9 @@ pub use revelation::{
     SourceDisclosurePolicy, WitnessDigest,
 };
 #[cfg(feature = "native_rule_bootstrap")]
-pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
+pub use rule::{
+    ConflictPolicy, ExecuteFn, MatchFn, ObservedExecuteFn, PatternGraph, RewriteRule, RuleExecutor,
+};
 pub use sandbox::DeterminismError;
 #[cfg(feature = "native_rule_bootstrap")]
 pub use sandbox::{build_engine, run_pair_determinism, EchoConfig};

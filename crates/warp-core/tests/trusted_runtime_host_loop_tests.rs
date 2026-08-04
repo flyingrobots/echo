@@ -193,8 +193,12 @@ fn empty_engine() -> warp_core::Engine {
         .build()
 }
 
-fn contract_execute(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
-    if warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) != Some(MUTATION_VARS) {
+fn contract_execute(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
+    if warp_core::observed_eint_vars_for_op(view, scope, MUTATION_OP_ID) != Some(MUTATION_VARS) {
         return;
     }
     let warp_id = view.warp_id();
@@ -246,7 +250,7 @@ fn contract_rule() -> warp_core::RewriteRule {
         name: MUTATION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: contract_matches,
-        executor: contract_execute,
+        executor: warp_core::RuleExecutor::observed(contract_execute),
         compute_footprint: contract_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

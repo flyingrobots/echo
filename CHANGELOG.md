@@ -7,6 +7,72 @@
 
 ### Added
 
+- `ActualFootprint` records the graph resources an execution actually touched
+  and compares them against a declared `Footprint`, returning the existing
+  `ViolationKind` vocabulary in a deterministic axis order. Footprint
+  enforcement previously answered "was this access declared?" and forgot, so
+  the soundness relation `Actual ⊆ Declared` could only be observed as a panic
+  and never evaluated as a value. `ActualFootprint::from_ops` derives the write
+  axis from an emitted op sequence using the same extraction as enforcement, so
+  a recorded write set and an enforced write check cannot disagree. Cross-warp
+  and instance-level concerns are deliberately excluded: they are scope and
+  authority questions the guard already reports, not footprint-subset
+  questions. The read axis is recorded as accesses happen through
+  `ExecutionGraphView`; it cannot be reconstructed from emitted ops.
+- `ExecutionGraphView` is the executor-only capability that records what an
+  execution actually read. `GraphView` could not grow a recorder: its accessors
+  take `&self`, so mutating a borrowed accumulator would need interior
+  mutability, which its contract forbids and which would cost it `Sync` — and
+  `WorkUnit: Sync` is required for workers to borrow the shared unit slice.
+  Moving the mutable execution frame rather than the declared guard into
+  exclusive worker ownership makes `&mut self` sufficient, so no lock, no
+  `UnsafeCell`, and no manual `Sync` are involved, and `GraphView` and
+  `WorkUnit` are untouched. Accessors record before consulting the guard, so
+  the access that trips enforcement is already in the transcript when the panic
+  unwinds; recording afterwards would retain an actual footprint missing its own
+  counterexample. The recorded axis mirrors enforcement exactly — `edges_from`
+  records a node read, because declaring a node grants its outbound adjacency —
+  and an absent resource is still a recorded coordinate, so a rule cannot probe
+  undeclared coordinates for free by picking empty ones.
+- `ActualFootprintPosture` states what a footprint record is entitled to claim.
+  An empty violation set means "the declaration covered the execution" only when
+  the lane both recorded and enforced; from an unobserved lane it means only
+  that nothing was compared. `read_axis_is_complete` keeps that difference
+  legible, so an empty read axis from an unobserved lane reads as _unknown_
+  rather than as _this execution read nothing_, and only `RecordedAndEnforced`
+  may ground an admitted falsification witness. `build_footprint_posture` caps
+  every lane by the enforcement the binary actually compiled.
+- `ObservedExecuteFn` and `RuleExecutor` route native scheduler execution through
+  one worker-local evidence core. Native and generated contract-host executors
+  receive `ExecutionGraphView`; the frozen provider-v1 callback remains an
+  explicit legacy `GraphView` ABI and can never manufacture a complete read
+  axis. `ExecutionFootprintEvidence` retains one canonical record per executed
+  Action on `Engine` and `WorldlineState`, including the emitted write set when
+  the executor or read guard unwinds. Records are keyed before worker dispatch
+  and sorted independently of worker claim or completion order. Successful,
+  panicking, legacy, generated-consumer, provider-v1, and worker-count-invariant
+  witnesses complete stage 2 of the falsification roadmap without exporting
+  `FootprintGuard` or weakening its ordinary panic path.
+- Differential tests run the recorded write set and the enforced write check
+  against the same ops and the same declaration, closing an assumption the
+  design had only asserted. They also pin the two deliberate disagreements:
+  cross-warp emission and unauthorized instance ops are scope and authority
+  failures that the recorder declines to report as footprint-subset failures,
+  so a reducer cannot hop between bug classes by conflating them.
+- ADR 0027 proposes first-class falsification witnesses, and
+  `docs/topics/FalsificationWitnesses.md` carries the design and delivery
+  roadmap. Anyone may propose a counterexample; only Echo may admit that it
+  falsifies an exact property instance. Discovery stays outside the admission
+  trust boundary, property evaluation returns a closed outcome sum, admission
+  requires fresh-host exact replay, reduction must preserve a typed violation
+  class under a declared equivalence policy, minimality is always qualified,
+  semantic counterexample identity is separate from the evidence-envelope
+  identity, and the target worldline is never rewritten—witnesses append to a
+  separate evidence worldline under the existing admission-kernel append
+  authority. The first vertical is footprint honesty, whose blocking gap is now
+  documented: the footprint guard compares each access against the declared set
+  and panics, accumulating nothing, so no actual per-Action footprint exists for
+  a property to compare against.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and
@@ -1628,6 +1694,25 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- A writer epoch that commits nothing no longer consumes an LSN. An LSN names a
+  WAL frame; acquiring an epoch persists ledger evidence and emits no frame, so
+  an epoch's start LSN is the next unallocated frame coordinate and is
+  non-regressing rather than universally strictly increasing. After a
+  predecessor with committed frames the successor still starts at
+  `final_lsn + 1`, but after an empty predecessor it resumes at the
+  predecessor's own start. Previously every barren open-and-close minted a
+  phantom coordinate, so a host that reopened a filesystem WAL only to inspect
+  it left a permanent hole; the next writer's frames landed past the gap and
+  every later recovery failed closed with `LsnContinuityMismatch`. Epoch-chain
+  advancement remains strict and is carried by epoch identity, ordinal, fencing
+  token, and lease evidence, none of which changed.
+- `cargo test -p warp-core` no longer reports a green result for eight test
+  files it never ran. Each sits behind an inner `#![cfg(feature = ...)]`, so
+  without the feature cargo compiled an empty crate and printed
+  "running 0 tests ... test result: ok". They now declare `required-features`,
+  matching the convention the manifest already used for five other targets, so
+  cargo skips the target with an explicit message instead of manufacturing
+  coverage. Under `--workspace`, feature unification runs them as before.
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.

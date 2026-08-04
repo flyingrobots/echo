@@ -102,6 +102,46 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 name = "executable_operation_pipeline_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
+# A test file whose contents sit behind an inner `#![cfg(feature = ...)]` MUST
+# also declare `required-features` here. Without it, `cargo test -p warp-core`
+# compiles the target with the feature off, finds an empty crate, and reports
+# "running 0 tests ... test result: ok" — a green that means nothing was run.
+# With it, cargo skips the target outright, so a per-crate run cannot be
+# mistaken for coverage. Under `--workspace`, feature unification turns these
+# on and the tests actually execute.
+
+[[test]]
+name = "causal_anchor_external_consumer_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "external_consumer_contract_fixture_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "trusted_runtime_host_loop_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "parallel_engine_integration_multiwarp"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_tripwire"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_warpopkey"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_openportal_rules"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_stress_multiwarp"
+required-features = ["delta_validate"]
+
 [build-dependencies]
 blake3 = "1.0"
 

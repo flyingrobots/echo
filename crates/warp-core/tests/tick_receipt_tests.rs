@@ -11,9 +11,10 @@
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
-    ConflictPolicy, Engine, Footprint, GraphStore, GraphView, Hash, NodeId, NodeKey, NodeRecord,
-    PatternGraph, RewriteRule, TickDelta, TickReceipt, TickReceiptDisposition, TickReceiptEntry,
-    TickReceiptPartsError, TickReceiptRejection, TxId, WarpId,
+    ConflictPolicy, Engine, ExecutionGraphView, Footprint, GraphStore, GraphView, Hash, NodeId,
+    NodeKey, NodeRecord, PatternGraph, RewriteRule, RuleExecutor, TickDelta, TickReceipt,
+    TickReceiptDisposition, TickReceiptEntry, TickReceiptPartsError, TickReceiptRejection, TxId,
+    WarpId,
 };
 
 fn rule_id(name: &str) -> Hash {
@@ -55,7 +56,7 @@ fn always_match(_: GraphView<'_>, _: &NodeId) -> bool {
     true
 }
 
-fn exec_noop(_: GraphView<'_>, _: &NodeId, _delta: &mut TickDelta) {}
+fn exec_noop(_: &mut ExecutionGraphView<'_, '_>, _: &NodeId, _delta: &mut TickDelta) {}
 
 fn other_of(scope: &NodeId) -> NodeId {
     NodeId(blake3::hash(&scope.0).into())
@@ -341,7 +342,7 @@ fn commit_with_receipt_records_multi_blocker_causality() {
             name: RULE_A,
             left: PatternGraph { nodes: vec![] },
             matcher: always_match,
-            executor: exec_noop,
+            executor: RuleExecutor::observed(exec_noop),
             compute_footprint: fp_write_scope,
             factor_mask: 1,
             conflict_policy: ConflictPolicy::Abort,
@@ -354,7 +355,7 @@ fn commit_with_receipt_records_multi_blocker_causality() {
             name: RULE_B,
             left: PatternGraph { nodes: vec![] },
             matcher: always_match,
-            executor: exec_noop,
+            executor: RuleExecutor::observed(exec_noop),
             compute_footprint: fp_write_scope,
             factor_mask: 1,
             conflict_policy: ConflictPolicy::Abort,
@@ -367,7 +368,7 @@ fn commit_with_receipt_records_multi_blocker_causality() {
             name: RULE_C,
             left: PatternGraph { nodes: vec![] },
             matcher: always_match,
-            executor: exec_noop,
+            executor: RuleExecutor::observed(exec_noop),
             compute_footprint: fp_write_scope_and_other,
             factor_mask: 1,
             conflict_policy: ConflictPolicy::Abort,

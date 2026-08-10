@@ -36,9 +36,9 @@ Keep must not depend on Echo, expose Echo concepts, or adopt the current weak
 inside the adapter and a physical-evidence envelope; they do not cross ordinary
 Echo semantic APIs.
 
-The [integration and migration plan](../plans/echo-keep-physical-cas-interop-plan.md)
-owns change-local sequencing and evidence gates. This page owns the boundary
-regardless of which implementation phase is active.
+[Echo issue #722](https://github.com/flyingrobots/echo/issues/722) owns
+change-local integration sequencing and evidence gates. This page owns the
+boundary regardless of which implementation phase is active.
 
 ## Division of responsibility
 
@@ -287,7 +287,20 @@ The governing invariant is:
 > Orphaned physical content is acceptable. A committed Echo reference to
 > unavailable content is not.
 
-The migration plan owns the crash matrix. The read port must not conceal the
+Echo must commit the authorized physical-publication request and claim before
+Keep performs the publication effect. Keep then publishes under a durable
+reconciliation anchor keyed by that operation identity, and Echo records the
+result as a settlement or observation before any execution resumes on it. This
+is the request-before-effect and settlement-before-resumption law from
+[ADR 0026](../adr/0026-durable-external-action-settlement.md).
+
+The reconciliation anchor is not a time-expiring lease. Keep must retain it
+until an explicit recovery transition proves that long-term retention is
+durable or that Echo durably settled abandonment before publication. Echo
+unavailability cannot make the anchor expire. Finalization makes long-term
+retention durable before releasing the provisional anchor.
+
+Issue #722 owns the executable crash matrix. The read port must not conceal the
 cross-store state machine or convert “write Keep, then write Echo” into an
 implicit protocol.
 

@@ -8,6 +8,9 @@
 - **Decision date:** 2026-08-09
 - **Implementation posture:** No Echo physical-content port or Keep adapter is
   implemented on this branch.
+- **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
+- **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
+- **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)
 
 ## Decision
 
@@ -334,8 +337,10 @@ changing WSC wire identity.
 ## Production adoption gate
 
 A production Keep backend, persisted binding format, changed WSC identity, or
-permanent `echo-cas` replacement requires a separate accepted ADR after the
-conformance and crash evidence exists. That decision must govern:
+permanent `echo-cas` replacement requires a separately reviewable accepted
+change to Echo's named physical-content documentation after the conformance and
+crash evidence exists. That change must refine or supersede this experimental
+boundary explicitly and govern:
 
 - exact Echo and Keep identity preimages;
 - binding carrier, encoding, versioning, and recovery;

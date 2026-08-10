@@ -3,9 +3,10 @@
 
 # ADR 0012: Repository Knowledge Model After Method
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-13
 - **Decision owner:** James Ross
+- **Superseded by:** [Documentation Standards](../DOCUMENTATION_STANDARDS.md)
 
 ## Context
 
@@ -19,6 +20,12 @@ needs durable architectural memory, a clear source-of-truth hierarchy, and an
 evidence-first engineering discipline.
 
 ## Decision
+
+This section preserves the repository knowledge model accepted in July 2026.
+The current policy is the semantically named
+[Documentation Standards](../DOCUMENTATION_STANDARDS.md), which retains the
+separation of current truth, motion, evidence, and history while replacing the
+numbered ADR queue with concept-owned decisions and explicit relationships.
 
 Repository knowledge has five non-overlapping homes:
 

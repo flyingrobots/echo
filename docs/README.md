@@ -8,6 +8,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 
 ## Start Here
 
+- [Documentation standards](DOCUMENTATION_STANDARDS.md)
 - [Architecture outline](architecture/outline.md)
 - [Application contract hosting](architecture/application-contract-hosting.md)
 - [Local contract host quickstart](quickstart-local-contract-host.md)
@@ -41,10 +42,15 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Runtime constellation](topics/RuntimeConstellation.md)
 - [Security posture and threat models](topics/security/README.md)
 
-## Durable Decisions
+## Decision History
 
-- [ADR map](adr/README.md)
-- [Repository knowledge model](adr/0012-repository-knowledge-model.md)
+Current decisions are reached through the semantic architecture, topic, and
+contract sections above and below. This section routes to the retained numbered
+archive; it is not an allocation queue or a substitute for explicit
+relationships.
+
+- [Legacy numbered decision archive](adr/README.md)
+- [Superseded repository knowledge model](adr/0012-repository-knowledge-model.md)
 - [Echo/Continuum authority boundary](adr/0013-echo-continuum-authority-boundary.md)
 - [Generated rule authorship and footprints](adr/0014-generated-rule-authorship-and-footprints.md)
 - [Registry, provider, and host boundary](adr/0015-registry-provider-host-boundary.md)
@@ -80,7 +86,11 @@ causal history. Git history is the archive; GitHub owns live work and status.
 ## Knowledge Ownership
 
 Current architecture belongs in architecture documents, specifications,
-invariants, and living topics. Accepted durable decisions belong in ADRs.
-Externally meaningful shipped behavior belongs in `CHANGELOG.md`. Live design,
-priority, dependencies, review state, and follow-up work belong in GitHub
-Issues, Projects, pull requests, and review threads.
+invariants, and living topics. Durable decisions update the named document that
+owns their concept and state relationships explicitly. Numbered ADRs are a
+closed historical archive, not the current decision queue. Externally
+meaningful shipped behavior belongs in `CHANGELOG.md`. Live design, priority,
+dependencies, review state, and follow-up work belong in GitHub Issues,
+Projects, pull requests, and review threads. The
+[documentation standards](DOCUMENTATION_STANDARDS.md) define the complete
+contract.

@@ -20,6 +20,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [There Is No Graph](architecture/there-is-no-graph.md)
 - [Continuum transport](architecture/continuum-transport.md)
 - [Echo optics adapter notes](architecture/echo-optics-adapter-notes.md)
+- [Echo × Keep physical content boundary](architecture/echo-keep-physical-content-boundary.md)
 
 ## Case Studies
 

@@ -74,7 +74,7 @@ fn reconstruct(
     &self,
     view: &PhysicalContentView,
     target: EchoContentId,
-    output: &mut dyn std::io::Write,
+    destination: &mut dyn TransactionalContentDestination,
 ) -> Result<ReconstructionDecision, ReconstructionOperationError>;
 ```
 
@@ -82,6 +82,12 @@ fn reconstruct(
 it to one pinned Keep generation or immutable view. An `echo-cas` adapter may
 support a weaker posture initially, but it must report unsupported evidence
 rather than manufacture generation or absence claims.
+
+`TransactionalContentDestination` is likewise an Echo-owned semantic
+capability, not an ordinary `Write` alias or a frozen ABI. It supplies private
+staging plus an atomic commit operation. A destination that cannot guarantee
+all-or-nothing visibility reports `CapabilityUnavailable` before
+reconstruction.
 
 The initial port includes:
 
@@ -108,15 +114,30 @@ limit.
 
 ## Output visibility
 
-An ordinary `Write` sink can fail after accepting a prefix. A failed Keep call
-therefore does not prove that the sink is untouched.
+An ordinary `Write` sink can fail after accepting a prefix. Keep may therefore
+leave an untrusted prefix in the writer supplied by its adapter. That writer is
+always the private staging writer of the transactional destination, never an
+application-visible sink.
 
 The Echo adapter enforces:
 
 > No complete receipt, no application-visible bytes.
 
-It reconstructs into quarantine and reveals or promotes the result only after
-the complete receipt and Echo identity both verify:
+The adapter follows one visibility protocol:
+
+1. Begin a destination transaction and obtain its private staging writer.
+2. Reconstruct through the backend into that writer.
+3. On any failure, abort; a staged prefix may remain but is never visible.
+4. Seal the staging artifact and verify the complete receipt, Echo identity,
+   and exact length.
+5. Atomically commit the sealed artifact or return an operational failure.
+6. Emit an Echo content observation only after commit succeeds.
+
+Commit changes the destination from its prior state directly to the complete
+sealed artifact. A failed commit leaves the prior state visible and the new
+artifact unpublished. Implementations may use an atomic same-filesystem rename
+or return a sealed immutable handle; copying into an arbitrary live writer is
+not a conforming commit.
 
 ```text
 backend reconstruction
@@ -131,7 +152,8 @@ unpublished temporary artifact
 
 Quarantine may be a bounded memory buffer for small content or a temporary
 artifact for larger content. The rule must not imply unbounded whole-object
-memory allocation.
+memory allocation. Crash cleanup may collect unpublished staging artifacts,
+but recovery must never infer publication from their existence.
 
 ## Decisions and failures
 
@@ -154,10 +176,26 @@ enum ReconstructionOperationError {
 These names are conceptual and not a frozen ABI.
 
 An authenticated refusal must bind enough evidence to support its proposition.
-Absence is evidenced only when the pinned view is complete enough to prove
-non-membership. A timeout, unreadable catalog, exhausted resource limit,
-cancellation, or unavailable capability teaches Echo nothing about content
-truth.
+Absence is evidenced only for a known Keep `BlobId` binding and one pinned view
+whose named membership-index contract certifies that it covers every published
+logical `BlobId` admitted by that view. No Echo-to-Keep binding means
+`CapabilityUnavailable`, not physical absence.
+
+A complete-view absence receipt binds:
+
+- the Echo identity, Keep `BlobId`, and exact pinned-view identifier;
+- the versioned completeness predicate and authenticated view-root commitment;
+- a target-bound non-membership witness under that root; and
+- the retention guard or anchor that kept the root and witness closure valid
+  through verification.
+
+The backend may realize the witness with an authenticated ordered index, a
+Merkle non-membership proof, or a complete canonical scan. The adapter must
+verify the format-specific witness, completeness predicate, target, and view
+root before constructing the backend-neutral refusal. Missing or unreadable
+root records, index pages, retention evidence, or witness material are
+operational failures. A timeout, exhausted resource limit, cancellation, or
+unavailable capability likewise teaches Echo nothing about content truth.
 
 Echo may admit an evidenced refusal as an observation only under an Echo law
 that explicitly accepts that refusal class and its physical aperture. A Rust

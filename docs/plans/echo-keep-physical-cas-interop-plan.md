@@ -9,8 +9,9 @@
   Git commit `fa943a6c0`.
 - **Boundary owner:**
   [Echo × Keep physical content boundary](../architecture/echo-keep-physical-content-boundary.md)
-- **Keep contract:** `flyingrobots/keep` document
-  `docs/invariants/authenticated-reconstruction/README.md`
+- **Keep contract:** External `flyingrobots/keep` document
+  [`docs/invariants/authenticated-reconstruction/README.md` at revision
+  `2b87899853b61d2f616f98a33b3d45657af3f621`](https://github.com/flyingrobots/keep/blob/2b87899853b61d2f616f98a33b3d45657af3f621/docs/invariants/authenticated-reconstruction/README.md)
 
 This plan owns sequencing, conformance evidence, and cutover gates. It does not
 own the durable architecture boundary, live priority, or release status. The
@@ -142,8 +143,16 @@ Inject a sink failure after a deterministic prefix and prove:
 
 - no application-visible content is promoted;
 - no Echo content observation is emitted;
-- quarantined bytes are discarded or remain explicitly unpublished;
+- the prefix exists only in the destination's private staging artifact;
+- abort leaves the prior destination state visible and the staged artifact
+  explicitly unpublished;
 - operational failure does not become a refusal receipt.
+
+Inject commit failure after successful reconstruction and identity
+corroboration. Prove that the sealed artifact remains unpublished, the prior
+destination state remains visible, and no Echo observation is emitted. A
+destination without atomic commit support must fail with
+`CapabilityUnavailable` before reconstruction begins.
 
 ## Milestone 3 — backend-neutral conformance
 
@@ -164,6 +173,19 @@ Mandatory laws:
 | Re-layout between independent reads         | Logical observation stable; physical evidence may change |
 | Exact `LayoutId` requested but unavailable  | Refusal; no alternate-layout fallback                    |
 | Operational timeout or resource refusal     | No authenticated absence claim                           |
+
+The complete-view absence cases must use the boundary's single witness rule.
+The fixture supplies a known Echo-to-Keep binding, pinned view identifier,
+versioned completeness predicate, authenticated view-root commitment,
+target-bound non-membership witness, and retention guard for the witness
+closure. It must prove:
+
+- a valid witness under the matching complete view yields evidenced absence;
+- an incomplete view yields no content claim;
+- a witness for another target, root, or generation is rejected;
+- a missing root, index page, witness node, or retention guard is an
+  operational failure; and
+- a present target can never be admitted through a forged absence witness.
 
 The Keep adapter lives in Echo or an interop crate above both projects. Keep
 must never index by Echo hash or import Echo semantics.
@@ -192,10 +214,16 @@ The durable operation must:
 - pin one immutable generation or catalog view;
 - retain all required evidence for the read lifetime;
 - verify retained closure required by the proof scope;
-- stream exact logical bytes without one adapter-owned whole-blob allocation;
+- stream exact logical bytes into the adapter-owned private staging writer
+  without one adapter-owned whole-blob memory allocation;
 - name the generation in its receipt;
 - distinguish evidenced refusal from operation failure;
-- state that unsuccessful ordinary output may contain an untrusted prefix.
+- state that unsuccessful ordinary output may contain an untrusted prefix that
+  remains quarantined and cannot become application-visible.
+
+Echo, not Keep, owns sealing, Echo identity verification, and the atomic
+destination commit. A durable Keep receipt does not publish the staged artifact
+or authorize an Echo observation.
 
 Keep owns this API in Keep vocabulary. Echo does not supply WSC, causal,
 semantic, or outbox concepts to Keep core.

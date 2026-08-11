@@ -601,9 +601,10 @@ the external Hello Echo application. Compiler-produced application packages use
 the generic `run-edict-operation` witness command.
 
 Live work, priorities, and status are maintained in GitHub Issues, Projects,
-pull requests, and review threads. Architectural decisions live in
-[`docs/adr/`](docs/adr/), while current doctrine lives in
-[`docs/topics/`](docs/topics/).
+pull requests, and review threads. Durable decisions live in the semantically
+named current document that owns their concept, under the
+[`Documentation Standards`](docs/DOCUMENTATION_STANDARDS.md). The numbered
+[`docs/adr/`](docs/adr/) directory is a closed historical archive.
 
 ## Benchmarks And Gates
 

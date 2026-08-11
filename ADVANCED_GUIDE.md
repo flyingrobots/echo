@@ -15,7 +15,8 @@ Use [GUIDE.md](GUIDE.md) for operator orientation and the
 - [Strictly Deterministic Math](docs/determinism/SPEC_DETERMINISTIC_MATH.md)
   owns the normative numeric policy;
 - [specifications](docs/spec/), [invariants](docs/invariants/), and
-  [ADRs](docs/adr/) own executable contracts and durable decisions.
+  [topics](docs/topics/) own executable contracts and concept-owned durable
+  decisions under the [Documentation Standards](docs/DOCUMENTATION_STANDARDS.md).
 
 Do not recover the former graph-substrate, stale spec-path, generated-client,
 or fabricated trig-oracle guidance from this page. Git history is the archive,

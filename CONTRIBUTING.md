@@ -48,8 +48,9 @@ prioritize:
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
 - Before starting work, ensure `git status` is clean. If not, resolve or coordinate with the human operator.
 - Keep change-local design, test plans, review state, and follow-up work in the
-  GitHub issue or pull request. Record only durable architectural decisions as
-  ADRs in `docs/adr/`.
+  GitHub issue or pull request. Record durable architectural decisions in the
+  semantically named current document that owns the concept, following
+  `docs/DOCUMENTATION_STANDARDS.md`.
 
 ## Testing Expectations
 
@@ -73,8 +74,9 @@ prioritize:
 ## Documentation & Telemetry
 
 - Update relevant docs in `docs/` whenever behavior or architecture changes.
-- Record durable architectural decisions in ADRs (`docs/adr/`). Keep
-  change-local rationale in the issue or pull request.
+- Record durable architectural decisions with their owning concept under
+  `docs/DOCUMENTATION_STANDARDS.md`. Keep change-local rationale in the issue or
+  pull request; treat `docs/adr/` as a closed historical archive.
 
 ## Submitting Changes
 

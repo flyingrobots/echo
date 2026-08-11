@@ -60,9 +60,28 @@ if ! grep -Fq -- 'Do not allocate a new numbered ADR.' AGENTS.md; then
   fail "agent policy still permits numbered ADR allocation"
 fi
 
+readonly root_guidance=(
+  README.md
+  GUIDE.md
+  CONTRIBUTING.md
+  ARCHITECTURE.md
+  ADVANCED_GUIDE.md
+)
+
+if grep -Eiq \
+  'Architectural decisions live in|decisions live in \[ADRs|Record (only )?durable architectural decisions (as|in) ADRs|\[ADRs\].*durable decisions' \
+  "${root_guidance[@]}"; then
+  fail "root guidance still treats the numbered ADR archive as current ownership"
+fi
+
+readonly current_guidance=(
+  "${root_guidance[@]}"
+  docs
+)
+
 if grep -ERiq --exclude-dir=adr \
   '(requires?|create|write|add|allocate) (a |an )?(new |separate )?ADR' \
-  docs; then
+  "${current_guidance[@]}"; then
   fail "current documentation still routes a durable decision into a new ADR"
 fi
 

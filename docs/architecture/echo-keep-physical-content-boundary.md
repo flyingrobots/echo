@@ -131,8 +131,9 @@ The adapter follows one visibility protocol:
 1. Begin a destination transaction and obtain its private staging writer.
 2. Reconstruct through the backend into that writer.
 3. On any failure, abort; a staged prefix may remain but is never visible.
-4. Seal the staging artifact and verify the complete receipt, Echo identity,
-   and exact length.
+4. Seal the staging artifact and verify that the complete receipt binds the
+   requested target, pinned view, Keep identity, Echo identity, and exact
+   logical length.
 5. Atomically commit the sealed artifact or return an operational failure.
 6. Emit an Echo content observation only after commit succeeds.
 
@@ -150,7 +151,7 @@ unpublished temporary artifact
     │
     ├── failure ──▶ discard; reveal nothing
     │
-    └── receipt ──▶ verify Echo identity; promote
+    └── receipt ──▶ verify target, view, identities, and length; promote
 ```
 
 Quarantine may be a bounded memory buffer for small content or a temporary
@@ -290,12 +291,15 @@ The governing invariant is:
 > Orphaned physical content is acceptable. A committed Echo reference to
 > unavailable content is not.
 
-Echo must commit the authorized physical-publication request and claim before
-Keep performs the publication effect. Keep then publishes under a durable
-reconciliation anchor keyed by that operation identity, and Echo records the
-result as a settlement or observation before any execution resumes on it. This
-is the request-before-effect and settlement-before-resumption law from
-[ADR 0026](../adr/0026-durable-external-action-settlement.md).
+Echo must commit a non-authoritative physical-publication intent and operation
+claim before Keep performs the publication effect. That intent and claim are
+WAL coordination records: they cannot be read as an Echo content reference or
+content observation. Keep then publishes under a durable reconciliation anchor
+keyed by that operation identity. After durable reconciliation, Echo creates
+the authoritative content reference and records the result as a settlement or
+observation before any execution resumes on it. This is the
+request-before-effect and settlement-before-resumption law from [ADR
+0026](../adr/0026-durable-external-action-settlement.md).
 
 The reconciliation anchor is not a time-expiring lease. Keep must retain it
 until an explicit recovery transition proves that long-term retention is

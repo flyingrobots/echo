@@ -27,6 +27,9 @@ The current policy is the semantically named
 separation of current truth, motion, evidence, and history while replacing the
 numbered ADR queue with concept-owned decisions and explicit relationships.
 
+The five-home model below is retained historical text from July 2026. It does
+not govern current ownership; the Documentation Standards policy does.
+
 Repository knowledge has five non-overlapping homes:
 
 1. **GitHub issues, pull requests, and projects own motion.** Priority, current

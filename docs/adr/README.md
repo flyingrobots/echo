@@ -1,22 +1,31 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# Architecture Decision Records
+# Legacy Architecture Decision Archive
 
-Architecture Decision Records preserve decisions whose consequences outlive a
-single issue or pull request. They explain why a boundary exists; they do not
-track work, progress, priority, or release readiness.
+These numbered records preserve Echo decisions accepted before the repository
+adopted concept-owned documentation. They remain useful historical evidence,
+but their numbers are locators only: sequence does not express dependency,
+supersession, refinement, importance, or current authority.
 
-## Contract
+The archive closed after record 0026 on 2026-08-09. New durable decisions update
+the semantically named topic, architecture document, specification, invariant,
+or colocated rationale that owns the concept. The
+[documentation standards](../DOCUMENTATION_STANDARDS.md) define that current
+contract.
 
-- Use a four-digit sequence and a short noun phrase:
-  `0002-example-boundary.md`.
-- Give every new record a status: `Proposed`, `Accepted`,
-  `Partially superseded`, `Superseded`, or `Rejected`.
-- Do not rewrite an accepted decision to conceal history. Add a new record and
-  mark the old record superseded.
-- Record alternatives and consequences, not an implementation diary.
+## Archive contract
+
+- Do not allocate another numbered record.
+- Preserve accepted historical text; add a clear status or relationship note
+  when current documentation supersedes or refines it.
+- Record supersession in both the historical record and its new semantic owner.
+- Follow explicit descriptive links; never infer a relationship from numbers.
 - Keep work state in GitHub issues and pull requests.
+
+Some older records predate the relationship contract and name only a status.
+When one is materially revisited, add descriptive forward and reverse links
+without rewriting its original reasoning.
 
 ## Index
 
@@ -33,7 +42,7 @@ track work, progress, priority, or release readiness.
 | [0009](ADR-0009-Inter-Worldline-Communication.md)                | Superseded           | Historical frontier-relative state-patch transport             |
 | [0010](ADR-0010-observational-seek-and-administrative-rewind.md) | Accepted             | Observational seek and administrative rewind                   |
 | [0011](ADR-0011-explicit-observation-contract.md)                | Partially superseded | Explicit observation mechanics; ADR 0021 governs public optics |
-| [0012](0012-repository-knowledge-model.md)                       | Accepted             | Repository knowledge model after Method                        |
+| [0012](0012-repository-knowledge-model.md)                       | Superseded           | Historical repository knowledge model after Method             |
 | [0013](0013-echo-continuum-authority-boundary.md)                | Accepted             | Echo and Continuum authority boundary                          |
 | [0014](0014-generated-rule-authorship-and-footprints.md)         | Accepted             | Generated rule authorship and footprint honesty                |
 | [0015](0015-registry-provider-host-boundary.md)                  | Partially superseded | Compiler, registry, provider, and host responsibilities        |

@@ -68,7 +68,9 @@ Repository knowledge has one owner for each kind of truth:
 
 - **Current architectural truth**: `docs/architecture/`, `docs/spec/`,
   `docs/invariants/`, and `docs/topics/`.
-- **Durable architectural decisions**: accepted ADRs in `docs/adr/`.
+- **Documentation policy and decision relationships**:
+  `docs/DOCUMENTATION_STANDARDS.md`.
+- **Historical numbered decisions**: the closed archive in `docs/adr/`.
 - **Live work, priority, dependencies, and status**: GitHub Issues, Projects,
   pull requests, and review threads.
 - **Shipped externally meaningful behavior**: `CHANGELOG.md`.
@@ -77,18 +79,20 @@ Repository knowledge has one owner for each kind of truth:
 Use `README.md`, `GUIDE.md`, and `docs/README.md` as entrances. Do not recreate
 cycles, retrospectives, a checked-in backlog, a checked-in status ledger, or a
 post-hoc design document. Change-local design and test plans may live in the
-issue or pull request. Write an ADR only when a decision changes a durable
-architectural boundary or invariant.
+issue or pull request. Record a durable decision in the named current document
+that owns its concept, and state supersession, refinement, dependency, and
+related-decision edges explicitly. Do not allocate a new numbered ADR.
 
 When recovering context, read the relevant canonical topic/spec/invariant and
-ADR, then inspect the current GitHub issue or pull request, `git log -n 5`, and
-`git status`.
+architecture document, follow any explicit links into the historical ADR
+archive, then inspect the current GitHub issue or pull request, `git log -n 5`,
+and `git status`.
 
 ## Work Loop
 
 ```text
 scope claim
--> decide whether an ADR is required
+-> identify the canonical documentation owner
 -> name the test plan and executable witness
 -> RED
 -> GREEN
@@ -139,7 +143,7 @@ changes, compare the branch's actual behavior and artifacts with the current
 documentation. Revisit the relevant entrances and canonical owners:
 `README.md`, `GUIDE.md`, `docs/README.md`, `docs/architecture/`, `docs/spec/`,
 `docs/invariants/`, `docs/topics/`, and the evidence anchors of any applicable
-accepted ADRs.
+historical ADRs.
 
 Search specifically for stale current-state claims such as “not implemented,”
 “fixture-only,” old ownership or authority boundaries, obsolete version or

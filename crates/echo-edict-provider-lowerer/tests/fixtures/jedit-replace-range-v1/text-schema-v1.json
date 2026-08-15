@@ -1,0 +1,490 @@
+{
+  "coordinate": "jedit.text.schema@1",
+  "excludedPropositions": [
+    "jedit.text.RopeStructuralMaintenance",
+    "jedit.text.RopeCheckpoint",
+    "jedit.text.RopeCheckpointAnchored",
+    "receipt-attribution-fields",
+    "structural-echo-edges",
+    "typed-diff-spans"
+  ],
+  "factCodec": {
+    "byteOrderMark": "forbidden",
+    "byteString": "array-u8",
+    "encoding": "utf-8",
+    "forbiddenValues": [
+      "map-valued-fields",
+      "floats",
+      "signed-integers",
+      "duplicate-members",
+      "unknown-members"
+    ],
+    "identifier": "array-32-u8",
+    "insignificantWhitespace": "forbidden",
+    "objectMemberOrder": "declared-field-order",
+    "optionalIdentifier": "null-or-array-32-u8",
+    "profile": "jedit.compact-serde-json.v1",
+    "stringEscaping": {
+      "goldenVector": {
+        "jsonStringUtf8Hex": "225c75303030305c75303030315c75303030325c75303030335c75303030345c75303030355c75303030365c75303030375c625c745c6e5c75303030625c665c725c75303030655c75303030665c75303031305c75303031315c75303031325c75303031335c75303031345c75303031355c75303031365c75303031375c75303031385c75303031395c75303031615c75303031625c75303031635c75303031645c75303031655c75303031665c225c5c2fe78cabe280a8e280a9f48fbfbf22",
+        "sourceUtf8Hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f225c2fe78cabe280a8e280a9f48fbfbf"
+      },
+      "otherU0000ThroughU001f": "backslash-u00xx-lowercase-hex",
+      "otherU0020ThroughU10ffff": "literal-utf8-unicode-scalars",
+      "quotationMark": "backslash-quotation-mark",
+      "reverseSolidus": "backslash-reverse-solidus",
+      "shortEscapes": {
+        "u0008": "backslash-b",
+        "u0009": "backslash-t",
+        "u000a": "backslash-n",
+        "u000c": "backslash-f",
+        "u000d": "backslash-r"
+      },
+      "solidus": "literal",
+      "surrogateEscapes": "forbidden"
+    },
+    "unsignedInteger": "decimal-no-leading-zeroes"
+  },
+  "facts": [
+    {
+      "fields": [
+        {
+          "name": "buffer_key",
+          "type": "utf8-string"
+        },
+        {
+          "name": "projection_path",
+          "type": "optional-utf8-string"
+        },
+        {
+          "name": "canonical_head_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "version",
+          "type": "u64"
+        }
+      ],
+      "identity": {
+        "domainHex": "6a656469742e746578742e6275666665722d6b65792e763100",
+        "kind": "keyed",
+        "material": "buffer_key utf8"
+      },
+      "name": "Buffer",
+      "typeLabel": "jedit.text.BufferWorldline.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "content_hash",
+          "type": "digest-32"
+        },
+        {
+          "name": "bytes",
+          "type": "bytes"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e626c6f622e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Blob",
+      "typeLabel": "jedit.text.TextBlob.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "blob_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "byte_start",
+          "type": "u64"
+        },
+        {
+          "name": "byte_length",
+          "type": "u64"
+        },
+        {
+          "name": "utf16_length",
+          "type": "u64"
+        },
+        {
+          "name": "line_breaks",
+          "type": "u64"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e6c6561662e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Leaf",
+      "typeLabel": "jedit.text.RopeLeaf.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "left",
+          "type": "node-id-32"
+        },
+        {
+          "name": "right",
+          "type": "node-id-32"
+        },
+        {
+          "name": "byte_length",
+          "type": "u64"
+        },
+        {
+          "name": "utf16_length",
+          "type": "u64"
+        },
+        {
+          "name": "line_breaks",
+          "type": "u64"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e6272616e63682e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Branch",
+      "typeLabel": "jedit.text.RopeBranch.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "buffer_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "basis_head_id",
+          "type": "optional-node-id-32"
+        },
+        {
+          "name": "root_node_id",
+          "type": "optional-node-id-32"
+        },
+        {
+          "name": "byte_length",
+          "type": "u64"
+        },
+        {
+          "name": "utf16_length",
+          "type": "u64"
+        },
+        {
+          "name": "line_count",
+          "type": "u64"
+        },
+        {
+          "name": "root_digest",
+          "type": "digest-32"
+        },
+        {
+          "name": "sequence",
+          "type": "u64"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e686561642e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Head",
+      "typeLabel": "jedit.text.RopeHead.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "buffer_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "basis_head_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "next_head_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "start_byte",
+          "type": "u64"
+        },
+        {
+          "name": "end_byte",
+          "type": "u64"
+        },
+        {
+          "name": "inserted_byte_length",
+          "type": "u64"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e726577726974652e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Rewrite",
+      "typeLabel": "jedit.text.RopeRewrite.v1"
+    },
+    {
+      "fields": [
+        {
+          "name": "rewrite_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "basis_head_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "next_head_id",
+          "type": "node-id-32"
+        },
+        {
+          "name": "start_byte",
+          "type": "u64"
+        },
+        {
+          "name": "end_byte",
+          "type": "u64"
+        },
+        {
+          "name": "inserted_byte_length",
+          "type": "u64"
+        },
+        {
+          "name": "deleted_byte_length",
+          "type": "u64"
+        }
+      ],
+      "identity": {
+        "algorithm": "blake3-256",
+        "domainHex": "6a656469742e746578742e646966662e763100",
+        "kind": "content-addressed",
+        "material": "domain || canonical-fact-bytes"
+      },
+      "name": "Diff",
+      "typeLabel": "jedit.text.RopeDiff.v1"
+    }
+  ],
+  "graphEncoding": {
+    "attachment": {
+      "atomType": "node-type",
+      "key": "node-alpha",
+      "payload": "canonical-fact-bytes",
+      "value": "atom"
+    },
+    "edges": "none",
+    "node": "typed-node"
+  },
+  "identityLaws": {
+    "blobContent": {
+      "algorithm": "blake3-256",
+      "domainHex": "6a656469742e746578742e626c6f622d636f6e74656e742e763100",
+      "material": "blob-bytes"
+    },
+    "bufferNode": {
+      "algorithm": "blake3-256",
+      "domainHex": "6a656469742e746578742e6275666665722d6b65792e763100",
+      "material": "buffer-key-utf8"
+    },
+    "contentFact": {
+      "algorithm": "blake3-256",
+      "material": "fact-domain || canonical-fact-bytes"
+    },
+    "emptyRootDigest": {
+      "algorithm": "blake3-256",
+      "domainHex": "6a656469742e746578742e656d7074792d726f6f742e763100",
+      "material": "empty-bytes"
+    },
+    "typeId": {
+      "algorithm": "blake3-256",
+      "domainHex": "747970653a",
+      "material": "type-label-utf8"
+    }
+  },
+  "migrationPosture": {
+    "codecOrStructuralChange": "new-schema-coordinate-and-admitted-migration",
+    "nativeJsonV1": "authoritative",
+    "typescriptGraphRope": "not-an-alternate-encoding"
+  },
+  "oracleCorpus": {
+    "basisFactMemberOrder": [
+      "nodeId",
+      "typeId",
+      "attachmentBytesHex"
+    ],
+    "caseMemberOrder": [
+      "id",
+      "purpose",
+      "basisFacts",
+      "invocation",
+      "invocationBytesHex",
+      "terminal"
+    ],
+    "coordinate": "jedit.text.ReplaceRange.oracle@1",
+    "encoding": "pretty-utf8-json-final-newline",
+    "footprintMemberOrder": [
+      "nodeReads",
+      "nodeWrites",
+      "attachmentReads",
+      "attachmentWrites",
+      "edgeReads",
+      "edgeWrites"
+    ],
+    "historicalPlannerCheckpointRole": "provenance-only",
+    "localIdentifierQualification": "every footprint and patch identifier is qualified by top-level warpId",
+    "objectMemberOrder": [
+      "schemaVersion",
+      "coordinate",
+      "applicationSchemaCoordinate",
+      "invocationSchemaCoordinate",
+      "historicalPlannerCheckpointCommit",
+      "sourceSet",
+      "evidenceGrade",
+      "independenceLimit",
+      "warpId",
+      "cases"
+    ],
+    "patchVariants": [
+      {
+        "kind": "upsert-node",
+        "memberOrder": [
+          "kind",
+          "nodeId",
+          "typeId"
+        ]
+      },
+      {
+        "kind": "set-node-alpha",
+        "memberOrder": [
+          "kind",
+          "nodeId",
+          "typeId",
+          "attachmentBytesHex"
+        ]
+      }
+    ],
+    "resultMemberOrder": [
+      "bufferId",
+      "headId",
+      "rootNodeId",
+      "rootDigest",
+      "rewriteId",
+      "diffId",
+      "byteLength",
+      "utf16Length",
+      "lineCount",
+      "sequence",
+      "version",
+      "materializedTextUtf8Hex"
+    ],
+    "sourceSetMemberOrder": [
+      "algorithm",
+      "domainHex",
+      "framing",
+      "paths",
+      "digestHex"
+    ],
+    "terminal": {
+      "committableMemberOrder": [
+        "posture",
+        "footprint",
+        "patch",
+        "createdNodeIds",
+        "updatedNodeIds",
+        "untouchedBasisNodeIds",
+        "result"
+      ],
+      "discriminant": "posture",
+      "obstructedMemberOrder": [
+        "posture",
+        "semanticCode",
+        "legacyErrorClass",
+        "legacyMessage",
+        "parentGraphUnchanged",
+        "patchPosture"
+      ],
+      "obstructedPatchPosture": "no-mutation-plan",
+      "semanticCodes": [
+        "range-order-invalid",
+        "range-out-of-bounds",
+        "utf8-boundary-invalid",
+        "no-op",
+        "basis-not-canonical",
+        "arithmetic-overflow",
+        "fact-missing",
+        "fact-malformed",
+        "content-identity-mismatch",
+        "malformed-rope"
+      ]
+    },
+    "unknownMembers": "forbidden"
+  },
+  "oracleInvocation": {
+    "canonicalBytesField": "invocationBytesHex",
+    "coordinate": "jedit.text.ReplaceRange.oracle-invocation@1",
+    "encoding": "compact-utf8-json",
+    "fields": [
+      {
+        "name": "bufferId",
+        "type": "lowercase-hex-node-id-32"
+      },
+      {
+        "name": "basisHeadId",
+        "type": "lowercase-hex-node-id-32"
+      },
+      {
+        "name": "startByte",
+        "type": "u64-json-decimal"
+      },
+      {
+        "name": "endByte",
+        "type": "u64-json-decimal"
+      },
+      {
+        "name": "replacementUtf8Hex",
+        "type": "lowercase-hex-utf8-bytes"
+      }
+    ],
+    "objectMemberOrder": [
+      "bufferId",
+      "basisHeadId",
+      "startByte",
+      "endByte",
+      "replacementUtf8Hex"
+    ],
+    "posture": "finite-corpus-input-not-runtime-abi"
+  },
+  "ropeLaw": {
+    "coordinateType": "u64",
+    "emittedOperations": [
+      "upsert-node",
+      "set-node-alpha"
+    ],
+    "leafChunkBoundary": "largest-utf8-boundary-at-or-before-limit",
+    "leafSlices": "may-share-blob-with-nonzero-byte-start",
+    "lineCount": "line-breaks-plus-one-including-empty",
+    "maxLeafBytes": 4096,
+    "nonemptyRootDigest": "root-node-id",
+    "persistence": "path-copy-no-delete",
+    "range": "half-open-utf8-byte",
+    "replacement": "utf8-bytes"
+  },
+  "schemaVersion": 1
+}

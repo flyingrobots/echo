@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+repository = "https://github.com/flyingrobots/jedit"
+commit = "f1a66dc1f2d8621f8752bf2b66358cbda067c556"
+pull_request = "https://github.com/flyingrobots/jedit/pull/293"
+
+[[resource]]
+coordinate = "jedit.text.schema@1"
+path = "contracts/jedit/lawpacks/replace-range-v1/text-schema-v1.json"
+sha256 = "eb1b81335a5dc270965df0fcd0098534184712ac05c1c126f159b624c81fc5aa"
+
+[[resource]]
+coordinate = "jedit.text.ReplaceRange.oracle@1"
+path = "contracts/jedit/lawpacks/replace-range-v1/replace-range-v1.oracle.json"
+sha256 = "b9b4707dd5e07897cbe7af36d88928401887e6af5d167d1a88a8d6181b4dbb0e"

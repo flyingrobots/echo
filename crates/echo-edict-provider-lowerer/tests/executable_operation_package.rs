@@ -13,6 +13,7 @@ use echo_edict_provider_lowerer::{
     LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1, ResourceRef, ResponseLimitsV1,
     SemanticInput, SemanticInputKind,
 };
+use sha2::{Digest as ShaDigest, Sha256};
 use warp_core::{
     echo_operation_create_if_absent_target_profile_identity_v1, EchoOperationBudgetV1,
     EchoOperationProgramV1, EchoOperationSemanticClosureV1, ExecutableOperationPackageV1, TypeId,
@@ -24,6 +25,13 @@ const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
+const JEDIT_SCHEMA: &[u8] = include_bytes!("fixtures/jedit-replace-range-v1/text-schema-v1.json");
+const JEDIT_SCHEMA_SHA256: &str =
+    include_str!("fixtures/jedit-replace-range-v1/text-schema-v1.sha256");
+const JEDIT_ORACLE: &[u8] =
+    include_bytes!("fixtures/jedit-replace-range-v1/replace-range-v1.oracle.json");
+const JEDIT_ORACLE_SHA256: &str =
+    include_str!("fixtures/jedit-replace-range-v1/replace-range-v1.oracle.sha256");
 
 #[derive(Clone, Copy)]
 struct FixtureNames<'a> {
@@ -82,6 +90,49 @@ const BETA: FixtureNames<'static> = FixtureNames {
     attachment_type: "notes.beta.attachment.body/v7",
     authority: "notes.beta.authority.local/v7",
 };
+
+const JEDIT: FixtureNames<'static> = FixtureNames {
+    application: "jedit.text@1",
+    intent: "replaceRange",
+    alias: "text",
+    effect_member: "replaceRange",
+    lawpack: "jedit.text.ReplaceRange.oracle@1",
+    lawpack_id: "jedit.text.ReplaceRange.oracle",
+    lawpack_version: "1",
+    exports: "jedit.text.schema@1",
+    adapter: "jedit.text.echo-adapter/v1",
+    configuration: "jedit.text.echo-bounded-graph-configuration/v1",
+    effect: "jedit.text.ReplaceRange.oracle@1.replaceRange",
+    failure: "obstructed",
+    obstruction: "jedit.text.ReplaceRange.Obstructed@1",
+    node_type: "jedit.text.fact/v1",
+    attachment_type: "jedit.text.compact-serde-json/v1",
+    authority: "jedit.text.authority.local/v1",
+};
+
+#[test]
+fn pinned_jedit_resources_lower_to_a_bounded_graph_program() {
+    assert_sha256(JEDIT_SCHEMA, JEDIT_SCHEMA_SHA256);
+    assert_sha256(JEDIT_ORACLE, JEDIT_ORACLE_SHA256);
+    assert!(JEDIT_SCHEMA
+        .windows(b"jedit.text.schema@1".len())
+        .any(|window| window == b"jedit.text.schema@1"));
+    assert!(JEDIT_ORACLE
+        .windows(b"jedit.text.ReplaceRange.oracle@1".len())
+        .any(|window| window == b"jedit.text.ReplaceRange.oracle@1"));
+
+    let lowered = lower(jedit_fixture_request())
+        .expect("the checked provider must lower the pinned Jedit operation resources");
+    let package = decode_canonical_cbor_v1(&lowered.outputs[0].artifact.bytes)
+        .expect("the provider output is canonical");
+    let program = decode_canonical_cbor_v1(bytes_slice(&package, "program"))
+        .expect("the subordinate program is canonical");
+
+    assert_eq!(
+        text_field(&program, "kind"),
+        Some("bounded-declarative-graph-operation/v1")
+    );
+}
 
 #[test]
 fn one_provider_binary_lowers_two_unrelated_application_vocabularies() {
@@ -367,6 +418,39 @@ fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
     fixture_request_with_configuration(names, configuration(names))
 }
 
+fn jedit_fixture_request() -> LoweringRequestV1 {
+    let mut request = fixture_request(JEDIT);
+    request.core = bound(
+        JEDIT.application,
+        "edict.core.module/v1",
+        canonical_bytes(&core_with_profile(
+            JEDIT,
+            "continuum.profile.bounded-graph/v1",
+        )),
+    );
+    request.semantic_inputs.extend([
+        semantic_input(
+            "application-schema",
+            SemanticInputKind::Auxiliary("application-schema".to_owned()),
+            bound(
+                "jedit.text.schema@1",
+                "edict.application-schema-resource/v1",
+                canonical_bytes(&CanonicalValueV1::Bytes(JEDIT_SCHEMA.to_vec())),
+            ),
+        ),
+        semantic_input(
+            "operation-oracle",
+            SemanticInputKind::Auxiliary("operation-oracle".to_owned()),
+            bound(
+                "jedit.text.ReplaceRange.oracle@1",
+                "edict.operation-oracle-resource/v1",
+                canonical_bytes(&CanonicalValueV1::Bytes(JEDIT_ORACLE.to_vec())),
+            ),
+        ),
+    ]);
+    request
+}
+
 fn fixture_request_with_configuration(
     names: FixtureNames<'_>,
     configuration_value: CanonicalValueV1,
@@ -483,6 +567,13 @@ fn fixture_request_with_configuration(
 }
 
 fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    core_with_profile(names, "continuum.profile.create/v1")
+}
+
+fn core_with_profile(
+    names: FixtureNames<'_>,
+    required_operation_profile: &str,
+) -> CanonicalValueV1 {
     owned_map([
         ("apiVersion", text("edict.core/v1")),
         ("coordinate", text(names.application)),
@@ -493,10 +584,7 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                 owned_map([
                     ("input", text(format!("{}.Input", names.application))),
                     ("output", text(format!("{}.Output", names.application))),
-                    (
-                        "requiredOperationProfile",
-                        text("continuum.profile.create/v1"),
-                    ),
+                    ("requiredOperationProfile", text(required_operation_profile)),
                     (
                         "body",
                         owned_map([(
@@ -535,6 +623,11 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
             )]),
         ),
     ])
+}
+
+fn assert_sha256(bytes: &[u8], expected: &str) {
+    let actual = Sha256::digest(bytes);
+    assert_eq!(hex::encode(actual), expected.trim());
 }
 
 fn digest_review(bytes: &[u8]) -> String {

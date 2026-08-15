@@ -10,7 +10,7 @@
   implemented on this branch.
 - **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
-- **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)
+- **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/invariants/authenticated-reconstruction/README.md)
 
 ## Decision
 
@@ -205,11 +205,36 @@ Echo may admit an evidenced refusal as an observation only under an Echo law
 that explicitly accepts that refusal class and its physical aperture. A Rust
 error alone is not a witnessed refusal.
 
-## Identity bridge
+## Identity bridge decision
 
-Echo `BlobHash` and Keep `BlobId` are distinct typed identities. They must not
-be cast, substituted, or equated because both currently use 32-byte BLAKE3
-digests.
+Echo `BlobHash` and Keep `BlobId` are distinct typed identities. The
+experimental bridge retains both; it defines no digest cast or implicit
+conversion.
+
+| Question                                                      | Accepted experimental decision                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is Echo's current content identity?                      | [`BlobHash`](../../crates/echo-cas/src/lib.rs) contains the 32-byte output of raw `BLAKE3(P)` for exact content bytes `P`. Its version and algorithm are implicit in the current API.                                                                                                                    |
+| Does Echo identity include logical length?                    | No. [`RetainedBlobDescriptor`](../../crates/echo-cas/src/retention.rs) and CAS-addressed [WSC references](../../crates/warp-core/src/wsc/store.rs) carry byte length beside the hash, not inside `BlobHash`.                                                                                             |
+| What is Keep's current logical identity?                      | Keep `BlobId` v1 contains identity version 1, algorithm 1, logical length, and the differently framed digest specified below under the [pinned Keep identity contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/adr/0001-exact-logical-byte-identity.md). |
+| Can Echo identity become Keep identity without bytes?         | No. Even an Echo hash plus an asserted length cannot calculate Keep's differently framed digest. The adapter needs the exact bytes or a previously admitted binding witnessed from those bytes.                                                                                                          |
+| Is the conversion one-to-one?                                 | No structural conversion is admitted. One exact stream deterministically produces one Echo-and-Keep pair under the stated hash laws, subject to the collision-resistance assumption, but neither digest output proves a unique preimage.                                                                 |
+| Which identity remains in Echo WAL and WSC?                   | Echo's existing raw content hash remains unchanged. Keep identity accompanies it only in the adapter's physical-evidence and binding posture.                                                                                                                                                            |
+| What happens when a version or algorithm differs?             | The adapter reports a typed identity-contract incompatibility before publication. It never reinterprets or truncates either coordinate.                                                                                                                                                                  |
+| Are both identities retained during experiment and migration? | Yes, together with exact logical length and the identity-contract versions used to establish their relation.                                                                                                                                                                                             |
+
+The two exact preimages are therefore:
+
+```text
+Echo: BLAKE3(P)
+
+Keep: BLAKE3(
+    "KEEP:BLOB:DATA\0\0"
+    || 0x0001
+    || 0x01
+    || P
+    || len(P) as u64 big-endian
+)
+```
 
 The adapter establishes their relation by applying both identity laws to one
 exact source stream and then verifying reconstruction:
@@ -227,6 +252,13 @@ The persisted carrier, canonical bytes, and digest domain remain undecided.
 Keep's `stage_expected` can verify an expected Keep `BlobId`; it cannot by
 itself prove an Echo-to-Keep identity relation. The adapter owns the second
 identity calculation and the binding witness.
+
+The initial [same-source identity witness](../../crates/echo-cas/tests/keep_identity_bridge.rs)
+checks externally generated Echo hashes and the pinned Keep v1 golden vectors
+for the same bytes. It does not execute Keep, reconstruct retained content, or
+prove the route-independent half of the bridge. Issue #722 retains that gate:
+reconstruction through the experimental Keep adapter must reproduce the Echo
+hash and exact length before the bridge is conforming.
 
 ## Semantic observation and physical evidence
 

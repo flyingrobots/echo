@@ -117,8 +117,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 258,787-byte checked lowerer component has SHA-256
-`7902ae7fbe95ab58ac2ebe9bbf4ec9dfcc5262e4f61c69d9aeeac66a51b91c56` and has
+The refreshed 277,694-byte checked lowerer component has SHA-256
+`20fe92ce8d7bec67f772715cb1f0f3d9ac4f65fe382eff3952f3c368849419dd` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -135,9 +135,11 @@ provider envelope's schema-domain digests.
 The provider schema also admits the exact zero-choice
 `compiler-produced-bounded-pure/v1` target configuration. That admission only
 allows a compiler-produced pure-program request to reach this component. The
-current lowerer still returns the typed `UnsupportedSemantics` refusal because
-the executable package model remains the bounded anchored create-if-absent
-profile. Schema admission is not an execution claim.
+lowerer validates the effect-free compiler relation and emits a separate
+generic package variant that retains the exact Core, lawpack exports, Target
+IR, and result-projection bytes under bounded budget, empty-footprint, and
+no-effect authority identities. It does not evaluate those bytes, install the
+package, mutate a graph, or settle an Echo Tick.
 
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)

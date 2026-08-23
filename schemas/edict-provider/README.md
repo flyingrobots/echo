@@ -169,17 +169,18 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-258,787 bytes with SHA-256
-`7902ae7fbe95ab58ac2ebe9bbf4ec9dfcc5262e4f61c69d9aeeac66a51b91c56`; the
-promoted verifier is 277,836 bytes with SHA-256
-`279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
+277,694 bytes with SHA-256
+`20fe92ce8d7bec67f772715cb1f0f3d9ac4f65fe382eff3952f3c368849419dd`; the
+promoted verifier is 297,035 bytes with SHA-256
+`58f9451831338fa39a73d53790fe839037f1a8a1fb5345ffefc334af3ec90413`.
 
 The generated provider schema admits both the existing anchored
 create-if-absent configuration and the exact two-field
 `compiler-produced-bounded-pure/v1` configuration. The latter contains no
-application coordinate or policy choice. It is input-shape admission only: the
-checked lowerer continues to refuse that program kind as unsupported until a
-generic executable package profile is implemented.
+application coordinate or policy choice. The checked lowerer now emits the
+distinct generic pure package and the checked independent verifier reconstructs
+that exact compiler relation. The package remains uninstalled and unevaluated;
+it confers no Echo runtime authority or consequence.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication introduced in

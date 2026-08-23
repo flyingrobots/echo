@@ -33,6 +33,13 @@ const RESULT_PROJECTION_ABI: &str = "edict.result-projection/v1";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
 
+const PURE_PROGRAM_KIND: &str = "compiler-produced-bounded-pure/v1";
+const PURE_PROGRAM_SCHEMA: &str = "echo.compiler-produced-pure-program/v1";
+const PURE_INTERPRETER_PROFILE: &str =
+    "echo.operation-interpreter.compiler-produced-bounded-pure/v1";
+const PURE_AUTHORITY_PROFILE: &str = "echo.operation.authority.no-effects/v1";
+const PURE_FOOTPRINT_CONTRACT: &str = "echo.operation.footprint.empty/v1";
+
 const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
 const OPERATION_PROFILE: &str = "continuum.profile.create/v1";
 const PROGRAM_KIND: &str = "anchored-node-attachment-create-if-absent/v1";
@@ -107,7 +114,6 @@ pub(super) fn is_requested(request: &LoweringRequestV1) -> bool {
 pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, ProviderRefusalV1> {
     validate_requested_output(request)?;
     let core = validate_bound(&request.core, CORE_DOMAIN)?;
-    let intent = validate_core(&core, &request.core)?;
     let closure = select_closure(&request.semantic_inputs)?;
 
     let adapter = validate_bound(&closure.adapter.artifact, ADAPTER_DOMAIN)?;
@@ -120,6 +126,22 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         RESULT_PROJECTION_DOMAIN,
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
+
+    if is_pure_configuration(&configuration) {
+        return lower_compiler_produced_pure(
+            request,
+            &core,
+            &closure,
+            &exports,
+            &lawpack,
+            &adapter,
+            &configuration,
+            &result_projection,
+            &target_ir,
+        );
+    }
+
+    let intent = validate_core(&core, &request.core)?;
 
     let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
@@ -174,6 +196,436 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         }],
         diagnostics: Vec::new(),
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_compiler_produced_pure(
+    request: &LoweringRequestV1,
+    core: &CanonicalValueV1,
+    closure: &ClosureInputs<'_>,
+    exports: &CanonicalValueV1,
+    lawpack: &CanonicalValueV1,
+    adapter: &CanonicalValueV1,
+    configuration: &CanonicalValueV1,
+    result_projection: &CanonicalValueV1,
+    target_ir: &CanonicalValueV1,
+) -> Result<LoweringSuccessV1, ProviderRefusalV1> {
+    validate_pure_configuration(configuration)?;
+    let (intent_name, intent, operation_coordinate) = validate_pure_core(core, &request.core)?;
+    validate_pure_lawpack(
+        lawpack,
+        exports,
+        adapter,
+        closure,
+        &request.target_profile,
+        intent,
+    )?;
+    validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
+    validate_pure_result_projection(
+        result_projection,
+        closure.result_projection,
+        target_ir,
+        intent_name,
+        &operation_coordinate,
+    )?;
+    let package =
+        encode_pure_package(request, closure, intent_name, intent, &operation_coordinate)?;
+    Ok(LoweringSuccessV1 {
+        outputs: vec![LoweringOutputArtifact {
+            role: PACKAGE_ROLE.to_owned(),
+            kind: LoweringOutputKind::GeneratedArtifact,
+            artifact: Artifact {
+                domain: PACKAGE_DOMAIN.to_owned(),
+                bytes: package,
+            },
+            logical_path: None,
+        }],
+        diagnostics: Vec::new(),
+    })
+}
+
+fn is_pure_configuration(value: &CanonicalValueV1) -> bool {
+    text_field(value, "apiVersion") == Some(CONFIGURATION_ABI)
+        && text_field(value, "programKind") == Some(PURE_PROGRAM_KIND)
+}
+
+fn validate_pure_configuration(value: &CanonicalValueV1) -> Result<(), ProviderRefusalV1> {
+    require_exact_fields(
+        value,
+        &["apiVersion", "programKind"],
+        "target-configuration.echo-operation",
+    )?;
+    if is_pure_configuration(value) {
+        Ok(())
+    } else {
+        Err(super::unsupported_semantics(
+            "target-configuration.echo-operation",
+        ))
+    }
+}
+
+fn validate_pure_core<'a>(
+    value: &'a CanonicalValueV1,
+    core: &BoundArtifact,
+) -> Result<(&'a str, &'a CanonicalValueV1, String), ProviderRefusalV1> {
+    let coordinate = required_nonempty_text(value, "coordinate", "core.echo-pure-operation")?;
+    if text_field(value, "apiVersion") != Some(CORE_ABI) || coordinate != core.reference.coordinate
+    {
+        return Err(super::unsupported_semantics("core.echo-pure-operation"));
+    }
+    let (intent_name, intent) =
+        single_text_map_entry(required_map(value, "intents", "core.echo-pure-operation")?)
+            .ok_or_else(|| super::unsupported_semantics("core.echo-pure-operation"))?;
+    required_nonempty_text(
+        intent,
+        "requiredOperationProfile",
+        "core.echo-pure-operation",
+    )?;
+    required_map(intent, "coreEvaluationBudget", "core.echo-pure-operation")?;
+    let body = required_map(intent, "body", "core.echo-pure-operation")?;
+    if required_array(body, "nodes", "core.echo-pure-operation")?
+        .iter()
+        .any(|node| text_field(node, "kind") != Some("let"))
+    {
+        return Err(super::unsupported_semantics("core.echo-pure-operation"));
+    }
+    Ok((intent_name, intent, format!("{coordinate}.{intent_name}")))
+}
+
+fn validate_pure_lawpack(
+    value: &CanonicalValueV1,
+    exports_value: &CanonicalValueV1,
+    adapter_value: &CanonicalValueV1,
+    closure: &ClosureInputs<'_>,
+    target_profile: &BoundArtifact,
+    intent: &CanonicalValueV1,
+) -> Result<(), ProviderRefusalV1> {
+    let id = required_text(value, "id", "lawpack.echo-pure-operation")?;
+    let version = required_text(value, "version", "lawpack.echo-pure-operation")?;
+    if text_field(value, "apiVersion") != Some(LAWPACK_DOMAIN)
+        || format!("{id}@{version}") != closure.lawpack.artifact.reference.coordinate
+    {
+        return Err(super::unsupported_semantics("lawpack.echo-pure-operation"));
+    }
+    require_owner_resource_ref(
+        required_map(value, "exports", "lawpack.echo-pure-operation")?,
+        &closure.exports.artifact,
+        exports_value,
+        "lawpack.echo-pure-operation",
+    )?;
+    let adapters = required_array(value, "targetAdapters", "lawpack.echo-pure-operation")?;
+    let selected = adapters
+        .iter()
+        .find(|candidate| {
+            required_map(
+                candidate,
+                "acceptedTargetProfile",
+                "lawpack.echo-pure-operation",
+            )
+            .is_ok_and(|reference| resource_ref_matches(reference, target_profile))
+        })
+        .ok_or_else(|| super::unsupported_semantics("lawpack.echo-pure-operation"))?;
+    require_owner_resource_ref(
+        required_map(selected, "adapter", "lawpack.echo-pure-operation")?,
+        &closure.adapter.artifact,
+        adapter_value,
+        "lawpack.echo-pure-operation",
+    )?;
+    if text_field(adapter_value, "apiVersion") != Some(ADAPTER_ABI)
+        || text_field(adapter_value, "class") != Some("declarative")
+    {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    let profiles = required_map(
+        adapter_value,
+        "operationProfiles",
+        "adapter.echo-pure-operation",
+    )?;
+    let (_, profile) = single_text_map_entry(profiles)
+        .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
+    if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    require_resource_ref(
+        required_map(
+            profile,
+            "targetConfiguration",
+            "adapter.echo-pure-operation",
+        )?,
+        &closure.configuration.artifact,
+        "adapter.echo-pure-operation",
+    )
+}
+
+fn validate_pure_target_ir(
+    value: &CanonicalValueV1,
+    request: &LoweringRequestV1,
+    lawpack: &SemanticInput,
+    intent_name: &str,
+    core_intent: &CanonicalValueV1,
+) -> Result<(), ProviderRefusalV1> {
+    if lawpack.artifact.reference.coordinate.is_empty()
+        || text_field(value, "domain") != Some(TARGET_IR_PAYLOAD_DOMAIN)
+        || text_field(value, "sourceCoreCoordinate")
+            != Some(request.core.reference.coordinate.as_str())
+    {
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-pure-operation",
+        ));
+    }
+    require_resource_ref(
+        required_map(value, "targetProfile", "target-ir.echo-pure-operation")?,
+        &request.target_profile,
+        "target-ir.echo-pure-operation",
+    )?;
+    let semantic_closure = required_map(value, "semanticClosure", "target-ir.echo-pure-operation")?;
+    require_resource_ref(
+        required_map(
+            semantic_closure,
+            "sourceCore",
+            "target-ir.echo-pure-operation",
+        )?,
+        &request.core,
+        "target-ir.echo-pure-operation",
+    )?;
+    let [lawpack_reference] = required_array(
+        semantic_closure,
+        "lawpacks",
+        "target-ir.echo-pure-operation",
+    )?
+    .as_slice() else {
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-pure-operation",
+        ));
+    };
+    require_resource_ref(
+        lawpack_reference,
+        &lawpack.artifact,
+        "target-ir.echo-pure-operation",
+    )?;
+    let target_intent = required_map_field(
+        required_map(value, "intents", "target-ir.echo-pure-operation")?,
+        intent_name,
+        "target-ir.echo-pure-operation",
+    )?;
+    if !required_array(target_intent, "steps", "target-ir.echo-pure-operation")?.is_empty()
+        || map_field(target_intent, "externalActionRequests").is_some_and(
+            |requests| !matches!(requests, CanonicalValueV1::Array(values) if values.is_empty()),
+        )
+        || map_field(target_intent, "coreEvaluationBudget")
+            != map_field(core_intent, "coreEvaluationBudget")
+        || text_field(target_intent, "operationProfile")
+            != text_field(core_intent, "requiredOperationProfile")
+    {
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-pure-operation",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_pure_result_projection(
+    value: &CanonicalValueV1,
+    input: &SemanticInput,
+    target_ir: &CanonicalValueV1,
+    intent_name: &str,
+    operation_coordinate: &str,
+) -> Result<(), ProviderRefusalV1> {
+    require_exact_fields(
+        value,
+        &[
+            "expression",
+            "maxOutputBytes",
+            "operationCoordinate",
+            "outputType",
+            "schema",
+        ],
+        &input.role,
+    )?;
+    if text_field(value, "schema") != Some(RESULT_PROJECTION_ABI)
+        || text_field(value, "operationCoordinate") != Some(operation_coordinate)
+        || input.artifact.reference.coordinate != operation_coordinate
+        || required_u64(value, "maxOutputBytes", &input.role)? == 0
+    {
+        return Err(invalid_artifact(
+            &input.role,
+            "pure result projection is rebound or unbounded",
+        ));
+    }
+    let target_intent = required_map_field(
+        required_map(target_ir, "intents", &input.role)?,
+        intent_name,
+        &input.role,
+    )?;
+    let binding_ids = map_field(target_intent, "pureBindings")
+        .and_then(|value| match value {
+            CanonicalValueV1::Array(values) => Some(values),
+            _ => None,
+        })
+        .map(|bindings| {
+            bindings
+                .iter()
+                .filter_map(|binding| text_field(binding, "id"))
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    validate_pure_projection_expression(
+        required_map(value, "expression", &input.role)?,
+        &binding_ids,
+        &input.role,
+    )
+}
+
+fn validate_pure_projection_expression(
+    value: &CanonicalValueV1,
+    binding_ids: &BTreeSet<&str>,
+    subject: &str,
+) -> Result<(), ProviderRefusalV1> {
+    match required_text(value, "kind", subject)? {
+        "record" => {
+            for (_, expression) in as_map(required_map(value, "fields", subject)?)
+                .ok_or_else(|| invalid_artifact(subject, "projection fields must be a map"))?
+            {
+                validate_pure_projection_expression(expression, binding_ids, subject)?;
+            }
+            Ok(())
+        }
+        "source" => {
+            let source = required_map(value, "source", subject)?;
+            match required_text(source, "kind", subject)? {
+                "applicationInput" => Ok(()),
+                "pureBinding" => {
+                    let id = required_nonempty_text(source, "bindingId", subject)?;
+                    if binding_ids.contains(id) {
+                        Ok(())
+                    } else {
+                        Err(invalid_artifact(
+                            subject,
+                            "projection references an undeclared pure binding",
+                        ))
+                    }
+                }
+                _ => Err(invalid_artifact(
+                    subject,
+                    "pure projection names an effect result",
+                )),
+            }
+        }
+        _ => Err(invalid_artifact(
+            subject,
+            "pure projection has an unsupported expression",
+        )),
+    }
+}
+
+fn encode_pure_package(
+    request: &LoweringRequestV1,
+    closure: &ClosureInputs<'_>,
+    intent_name: &str,
+    intent: &CanonicalValueV1,
+    operation_coordinate: &str,
+) -> Result<Vec<u8>, ProviderRefusalV1> {
+    let program = canonical_map([
+        (
+            "core_artifact",
+            CanonicalValueV1::Bytes(request.core.artifact.bytes.clone()),
+        ),
+        (
+            "lawpack_exports_artifact",
+            CanonicalValueV1::Bytes(closure.exports.artifact.artifact.bytes.clone()),
+        ),
+        ("intent", canonical_text(intent_name)),
+        ("kind", canonical_text(PURE_PROGRAM_KIND)),
+        (
+            "result_projection_artifact",
+            CanonicalValueV1::Bytes(closure.result_projection.artifact.artifact.bytes.clone()),
+        ),
+        ("schema", canonical_text(PURE_PROGRAM_SCHEMA)),
+        (
+            "target_ir_artifact",
+            CanonicalValueV1::Bytes(closure.target_ir.artifact.artifact.bytes.clone()),
+        ),
+    ]);
+    let program = encode_canonical_cbor_v1(&program)
+        .map_err(|_| invalid_artifact(PACKAGE_ROLE, "pure program could not be encoded"))?;
+    let core_identity = hash_from_bound(&request.core)?;
+    let budget = required_map(intent, "coreEvaluationBudget", operation_coordinate)?;
+    let semantic_closure = canonical_map([
+        (
+            "application_schema_coordinate",
+            canonical_text(&closure.exports.artifact.reference.coordinate),
+        ),
+        (
+            "application_schema_identity",
+            hash_value(hash_from_bound(&closure.exports.artifact)?),
+        ),
+        ("canonical_meaning_identity", hash_value(core_identity)),
+        ("core_identity", hash_value(core_identity)),
+        (
+            "edict_source_identity",
+            hash_value(hash_from_bound(&closure.source.artifact)?),
+        ),
+        (
+            "lawpack_coordinate",
+            canonical_text(&closure.lawpack.artifact.reference.coordinate),
+        ),
+        (
+            "lawpack_identity",
+            hash_value(hash_from_bound(&closure.lawpack.artifact)?),
+        ),
+        (
+            "target_ir_identity",
+            hash_value(hash_from_bound(&closure.target_ir.artifact)?),
+        ),
+    ]);
+    let package = canonical_map([
+        (
+            "authority_profile_identity",
+            hash_value(profile_digest(PURE_AUTHORITY_PROFILE)),
+        ),
+        (
+            "budget_ceiling",
+            canonical_map([
+                (
+                    "max_allocated_bytes",
+                    map_field(budget, "maxAllocatedBytes")
+                        .cloned()
+                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                ),
+                (
+                    "max_output_bytes",
+                    map_field(budget, "maxOutputBytes")
+                        .cloned()
+                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                ),
+                (
+                    "max_steps",
+                    map_field(budget, "maxSteps")
+                        .cloned()
+                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                ),
+            ]),
+        ),
+        (
+            "footprint_contract_identity",
+            hash_value(profile_digest(PURE_FOOTPRINT_CONTRACT)),
+        ),
+        (
+            "interpreter_profile_identity",
+            hash_value(profile_digest(PURE_INTERPRETER_PROFILE)),
+        ),
+        ("operation_coordinate", canonical_text(operation_coordinate)),
+        ("package_kind", canonical_text(PURE_PROGRAM_KIND)),
+        ("program", CanonicalValueV1::Bytes(program)),
+        ("schema", canonical_text(PACKAGE_SCHEMA)),
+        ("semantic_closure", semantic_closure),
+        (
+            "target_profile_identity",
+            hash_value(hash_from_bound(&request.target_profile)?),
+        ),
+    ]);
+    encode_canonical_cbor_v1(&package)
+        .map_err(|_| invalid_artifact(PACKAGE_ROLE, "pure package could not be encoded"))
 }
 
 fn validate_requested_output(request: &LoweringRequestV1) -> Result<(), ProviderRefusalV1> {

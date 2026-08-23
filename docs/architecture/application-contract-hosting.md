@@ -166,9 +166,11 @@ tests, but it is not the application lifecycle.
 The external-provider schema additionally admits one exact zero-choice
 `compiler-produced-bounded-pure/v1` target configuration. It contains no
 application operation, target-specific budget override, or mutation authority.
-This only lets a schema-valid generic pure program reach the checked lowerer;
-until the generic executable package profile is implemented, the lowerer
-returns `UnsupportedSemantics` and emits no package.
+The checked lowerer emits a distinct generic package retaining the exact
+compiler-produced pure program closure, and the structurally separate verifier
+independently reconstructs that relation. No runtime evaluator, installation,
+graph mutation, Tick settlement, or application-specific Echo branch follows
+from package acceptance.
 
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,

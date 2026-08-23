@@ -16,9 +16,11 @@
 - The provider schema now admits the exact two-field
   `compiler-produced-bounded-pure/v1` target configuration. The configuration
   contains no operation coordinate, application vocabulary, budget override,
-  or runtime authority. It advances a schema-valid request to the lowerer,
-  which still refuses the unsupported program semantics without emitting a
-  package.
+  or runtime authority. The checked lowerer now emits a distinct generic pure
+  package containing the exact compiler Core, lawpack exports, Target IR, and
+  result projection; the structurally separate verifier independently
+  reconstructs and accepts that relation. This is executable package
+  construction evidence, not Echo runtime evaluation or settlement evidence.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and
@@ -171,12 +173,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 258,787 bytes /
-  `dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`
-  and 277,836 bytes /
-  `279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`,
+  containers and promoted at 277,694 bytes /
+  `20fe92ce8d7bec67f772715cb1f0f3d9ac4f65fe382eff3952f3c368849419dd`
+  and 297,035 bytes /
+  `58f9451831338fa39a73d53790fe839037f1a8a1fb5345ffefc334af3ec90413`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:6685b7c629ae6955515d69158feb1d7db06af2193de7e5d13e1095101670b977`.
+  `sha256:b888f0c64a53c68d18c2bd3212589cf2ed9da3fbd551a64a9006184db3dde71f`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.

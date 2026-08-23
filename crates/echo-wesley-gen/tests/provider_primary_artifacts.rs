@@ -1393,3 +1393,102 @@ fn generic_pure_target_configuration_is_an_exact_zero_choice_profile() {
         )
         .expect_err("application vocabulary cannot enter the generic configuration");
 }
+
+#[test]
+fn compiler_produced_pure_package_is_a_distinct_generic_package_variant() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let hash = || CanonicalValueV1::Bytes(vec![0x42; 32]);
+    let package = CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("authority_profile_identity".to_owned()),
+            hash(),
+        ),
+        (
+            CanonicalValueV1::Text("budget_ceiling".to_owned()),
+            CanonicalValueV1::Map(vec![
+                (
+                    CanonicalValueV1::Text("max_allocated_bytes".to_owned()),
+                    CanonicalValueV1::Integer(1024),
+                ),
+                (
+                    CanonicalValueV1::Text("max_output_bytes".to_owned()),
+                    CanonicalValueV1::Integer(1024),
+                ),
+                (
+                    CanonicalValueV1::Text("max_steps".to_owned()),
+                    CanonicalValueV1::Integer(64),
+                ),
+            ]),
+        ),
+        (
+            CanonicalValueV1::Text("footprint_contract_identity".to_owned()),
+            hash(),
+        ),
+        (
+            CanonicalValueV1::Text("interpreter_profile_identity".to_owned()),
+            hash(),
+        ),
+        (
+            CanonicalValueV1::Text("operation_coordinate".to_owned()),
+            CanonicalValueV1::Text("consumer.operation@1.run".to_owned()),
+        ),
+        (
+            CanonicalValueV1::Text("package_kind".to_owned()),
+            CanonicalValueV1::Text("compiler-produced-bounded-pure/v1".to_owned()),
+        ),
+        (
+            CanonicalValueV1::Text("program".to_owned()),
+            CanonicalValueV1::Bytes(vec![0xa0]),
+        ),
+        (
+            CanonicalValueV1::Text("schema".to_owned()),
+            CanonicalValueV1::Text("echo.operation-package/v1".to_owned()),
+        ),
+        (
+            CanonicalValueV1::Text("semantic_closure".to_owned()),
+            CanonicalValueV1::Map(vec![
+                (
+                    CanonicalValueV1::Text("application_schema_coordinate".to_owned()),
+                    CanonicalValueV1::Text("consumer.schema@1".to_owned()),
+                ),
+                (
+                    CanonicalValueV1::Text("application_schema_identity".to_owned()),
+                    hash(),
+                ),
+                (
+                    CanonicalValueV1::Text("canonical_meaning_identity".to_owned()),
+                    hash(),
+                ),
+                (CanonicalValueV1::Text("core_identity".to_owned()), hash()),
+                (
+                    CanonicalValueV1::Text("edict_source_identity".to_owned()),
+                    hash(),
+                ),
+                (
+                    CanonicalValueV1::Text("lawpack_coordinate".to_owned()),
+                    CanonicalValueV1::Text("consumer.law@1".to_owned()),
+                ),
+                (
+                    CanonicalValueV1::Text("lawpack_identity".to_owned()),
+                    hash(),
+                ),
+                (
+                    CanonicalValueV1::Text("target_ir_identity".to_owned()),
+                    hash(),
+                ),
+            ]),
+        ),
+        (
+            CanonicalValueV1::Text("target_profile_identity".to_owned()),
+            hash(),
+        ),
+    ]);
+    let package_bytes = encode_canonical_cbor_v1(&package)
+        .expect("compiler-produced pure package is canonical CBOR");
+
+    generated
+        .schema()
+        .validate_root_bytes("echo-operation-package", &package_bytes)
+        .expect("the generic pure executable package variant is admitted");
+}

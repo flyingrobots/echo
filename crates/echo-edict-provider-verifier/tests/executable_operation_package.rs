@@ -16,6 +16,7 @@ const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
 const REPORT_ROLE: &str = "verifier-report.echo-operation";
 const REPORT_DOMAIN: &str = "echo.operation-package-verifier-report/v1";
+const EXECUTABLE_SUBJECT_DOMAIN: &str = "echo.executable-subject/v1";
 const TARGET_INTRINSIC: &str = "echo.dpo@1.anchored-node-attachment-create-if-absent";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
 
@@ -118,6 +119,7 @@ fn verifier_accepts_generic_lowerer_output_for_two_application_vocabularies() {
         let report = decode_canonical_cbor_v1(&report.artifact.bytes)
             .expect("the relation report is canonical");
         assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+        assert_executable_subject_binding(&report);
         let projection = map_field(&report, "applicationResultProjection");
         let expected_projection_coordinate = format!("{}.{}", names.application, names.intent);
         assert_eq!(
@@ -125,6 +127,33 @@ fn verifier_accepts_generic_lowerer_output_for_two_application_vocabularies() {
             Some(expected_projection_coordinate.as_str())
         );
     }
+}
+
+fn assert_executable_subject_binding(report: &CanonicalValueV1) {
+    let binding = map_field(report, "executableSubject");
+    let reference = map_field(binding, "reference");
+    assert_eq!(text_field(reference, "id"), Some(EXECUTABLE_SUBJECT_DOMAIN));
+    let subject_bytes = match map_field(binding, "bytes") {
+        CanonicalValueV1::Bytes(bytes) => bytes,
+        _ => panic!("executable subject bytes must be retained"),
+    };
+    let subject =
+        decode_canonical_cbor_v1(subject_bytes).expect("the executable subject is canonical");
+    assert_eq!(
+        text_field(&subject, "apiVersion"),
+        Some(EXECUTABLE_SUBJECT_DOMAIN)
+    );
+    for field in ["applicationResultProjection", "package", "targetIr"] {
+        assert_eq!(map_field(&subject, field), map_field(report, field));
+    }
+    let expected = digest_canonical_value_bytes_v1(EXECUTABLE_SUBJECT_DOMAIN, &subject)
+        .expect("the executable subject identity is computable");
+    let digest = match map_field(reference, "digest") {
+        CanonicalValueV1::Array(digest) => digest,
+        _ => panic!("executable subject digest must be typed"),
+    };
+    assert_eq!(digest[0], CanonicalValueV1::Text("sha256".to_owned()));
+    assert_eq!(digest[1], CanonicalValueV1::Bytes(expected.to_vec()));
 }
 
 #[test]

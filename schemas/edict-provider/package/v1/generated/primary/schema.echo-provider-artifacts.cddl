@@ -1276,11 +1276,24 @@ echo-attachment-create-if-absent-lowering-configuration = {
 echo-operation-package-verifier-report = {
   apiVersion: "echo.operation-package-verifier-report/v1",
   applicationResultProjection: resource-ref,
+  executableSubject: echo-bound-executable-subject,
   package: resource-ref,
   targetIr: resource-ref,
   outcome: "accepted" / "rejected",
   diagnosticAbi: resource-ref,
   diagnosticBytes: bstr,
+}
+
+echo-bound-executable-subject = {
+  reference: resource-ref,
+  bytes: bstr,
+}
+
+echo-executable-subject = {
+  apiVersion: "echo.executable-subject/v1",
+  applicationResultProjection: resource-ref,
+  package: resource-ref,
+  targetIr: resource-ref,
 }
 
 generated-artifact = {

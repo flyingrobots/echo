@@ -39,14 +39,16 @@ the zero-choice configuration, effect-free Core and Target IR shapes, exact
 budget and closure bindings, pure-binding result projection, and embedded
 compiler artifact bytes. It reconstructs the distinct generic pure package
 without calling the lowerer and rejects canonical package substitution. An
-accepted report proves this package relation only; it does not prove runtime
-evaluation or an Echo consequence.
+accepted report retains a canonical `echo.executable-subject/v1` manifest and
+names its domain-framed identity. That subject binds the exact package, Target
+IR, and application result projection; it does not prove runtime evaluation,
+admission, or an Echo consequence.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 297,035-byte checked
+transport-to-model conversion. Its reproducibly built 308,859-byte checked
 component has SHA-256
-`58f9451831338fa39a73d53790fe839037f1a8a1fb5345ffefc334af3ec90413`.
+`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

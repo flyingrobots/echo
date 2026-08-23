@@ -33,6 +33,8 @@ const RESULT_PROJECTION_DOMAIN: &str = "edict.result-projection.artifact/v1";
 const RESULT_PROJECTION_ABI: &str = "edict.result-projection/v1";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
 const PACKAGE_COORDINATE: &str = "executable-operation-package.echo";
+const EXECUTABLE_SUBJECT_DOMAIN: &str = "echo.executable-subject/v1";
+const EXECUTABLE_SUBJECT_COORDINATE: &str = "echo.executable-subject/v1";
 const REPORT_DOMAIN: &str = "echo.operation-package-verifier-report/v1";
 const REPORT_ROLE: &str = "verifier-report.echo-operation";
 const REPORT_ABI: &str = "echo.operation-package-verifier-report/v1";
@@ -1549,6 +1551,78 @@ fn build_report(
     outcome: &str,
     diagnostic_bytes: Vec<u8>,
 ) -> Result<Vec<u8>, ProviderRefusalV1> {
+    let executable_subject = canonical_sorted_map([
+        ("apiVersion", canonical_text(EXECUTABLE_SUBJECT_DOMAIN)),
+        (
+            "applicationResultProjection",
+            resource_ref_value(result_projection).map_err(|()| {
+                invalid_artifact(
+                    REPORT_ROLE,
+                    "executable subject result projection reference could not be encoded",
+                )
+            })?,
+        ),
+        (
+            "package",
+            resource_ref_value(package).map_err(|()| {
+                invalid_artifact(
+                    REPORT_ROLE,
+                    "executable subject package reference could not be encoded",
+                )
+            })?,
+        ),
+        (
+            "targetIr",
+            resource_ref_value(target_ir).map_err(|()| {
+                invalid_artifact(
+                    REPORT_ROLE,
+                    "executable subject Target IR reference could not be encoded",
+                )
+            })?,
+        ),
+    ])
+    .map_err(|()| {
+        invalid_artifact(
+            REPORT_ROLE,
+            "executable subject map could not be constructed",
+        )
+    })?;
+    let executable_subject_bytes = encode_canonical_cbor_v1(&executable_subject)
+        .map_err(|_| invalid_artifact(REPORT_ROLE, "executable subject could not be encoded"))?;
+    let executable_subject_digest =
+        digest_canonical_value_bytes_v1(EXECUTABLE_SUBJECT_DOMAIN, &executable_subject).map_err(
+            |_| {
+                invalid_artifact(
+                    REPORT_ROLE,
+                    "executable subject digest could not be computed",
+                )
+            },
+        )?;
+    let executable_subject_binding = canonical_sorted_map([
+        (
+            "reference",
+            resource_ref_value(&super::ResourceRef {
+                coordinate: EXECUTABLE_SUBJECT_COORDINATE.to_owned(),
+                digest: super::Digest {
+                    algorithm: DigestAlgorithm::Sha256,
+                    bytes: executable_subject_digest.to_vec(),
+                },
+            })
+            .map_err(|()| {
+                invalid_artifact(
+                    REPORT_ROLE,
+                    "executable subject reference could not be encoded",
+                )
+            })?,
+        ),
+        ("bytes", CanonicalValueV1::Bytes(executable_subject_bytes)),
+    ])
+    .map_err(|()| {
+        invalid_artifact(
+            REPORT_ROLE,
+            "executable subject binding could not be constructed",
+        )
+    })?;
     let report = canonical_sorted_map([
         ("apiVersion", canonical_text(REPORT_ABI)),
         (
@@ -1560,6 +1634,7 @@ fn build_report(
                 )
             })?,
         ),
+        ("executableSubject", executable_subject_binding),
         (
             "package",
             resource_ref_value(package).map_err(|()| {

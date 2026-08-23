@@ -128,6 +128,7 @@ core-string-type = {
 }
 core-bytes-type = {
   kind: "Bytes",
+  ? min: uint,
   max: uint,
 }
 core-record-type = {

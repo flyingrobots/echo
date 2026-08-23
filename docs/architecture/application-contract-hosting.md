@@ -163,6 +163,13 @@ state, frontier, or Receipt publication. The transitional direct
 prepare/commit seam can still return noncommitted evidence to trusted host
 tests, but it is not the application lifecycle.
 
+The external-provider schema additionally admits one exact zero-choice
+`compiler-produced-bounded-pure/v1` target configuration. It contains no
+application operation, target-specific budget override, or mutation authority.
+This only lets a schema-valid generic pure program reach the checked lowerer;
+until the generic executable package profile is implemented, the lowerer
+returns `UnsupportedSemantics` and emits no package.
+
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a

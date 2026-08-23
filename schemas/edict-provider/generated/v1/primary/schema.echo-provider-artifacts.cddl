@@ -1220,7 +1220,16 @@ echo-operation-semantic-closure = {
   "target_ir_identity": bstr .size 32,
 }
 
-echo-operation-lowering-configuration = {
+echo-operation-lowering-configuration =
+  echo-attachment-create-if-absent-lowering-configuration /
+  echo-compiler-produced-bounded-pure-lowering-configuration
+
+echo-compiler-produced-bounded-pure-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "compiler-produced-bounded-pure/v1",
+}
+
+echo-attachment-create-if-absent-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
   authorityProfile: echo-nonempty-tstr,
   budgetCeiling: {

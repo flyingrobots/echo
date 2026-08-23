@@ -1349,3 +1349,47 @@ fn generated_schema_distinguishes_canonical_wire_from_root_admission() {
         )
     );
 }
+
+#[test]
+fn generic_pure_target_configuration_is_an_exact_zero_choice_profile() {
+    let pack = admitted_pack();
+    let (_, generated) = generate(SOURCE, &pack);
+    let configuration = CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("apiVersion".to_owned()),
+            CanonicalValueV1::Text("echo.operation-lowering-configuration/v1".to_owned()),
+        ),
+        (
+            CanonicalValueV1::Text("programKind".to_owned()),
+            CanonicalValueV1::Text("compiler-produced-bounded-pure/v1".to_owned()),
+        ),
+    ]);
+    let configuration_bytes = encode_canonical_cbor_v1(&configuration)
+        .expect("generic pure configuration is canonical CBOR");
+
+    generated
+        .schema()
+        .validate_root_bytes(
+            "echo-operation-lowering-configuration",
+            &configuration_bytes,
+        )
+        .expect("the Echo-owned generic pure profile is admitted");
+
+    let mut application_specialized = configuration;
+    let CanonicalValueV1::Map(fields) = &mut application_specialized else {
+        panic!("configuration is a map");
+    };
+    fields.push((
+        CanonicalValueV1::Text("operation".to_owned()),
+        CanonicalValueV1::Text("consumer.operation@1".to_owned()),
+    ));
+    let application_specialized_bytes = encode_canonical_cbor_v1(&application_specialized)
+        .expect("application-specialized configuration is canonical CBOR");
+    generated
+        .schema()
+        .validate_root_bytes(
+            "echo-operation-lowering-configuration",
+            &application_specialized_bytes,
+        )
+        .expect_err("application vocabulary cannot enter the generic configuration");
+}

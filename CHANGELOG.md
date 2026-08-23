@@ -13,6 +13,12 @@
   manifest identities, preserves the bounded contract-pack admission boundary,
   and regenerates every affected provider schema, provenance record, package
   manifest, and package-local carrier without adding application vocabulary.
+- The provider schema now admits the exact two-field
+  `compiler-produced-bounded-pure/v1` target configuration. The configuration
+  contains no operation coordinate, application vocabulary, budget override,
+  or runtime authority. It advances a schema-valid request to the lowerer,
+  which still refuses the unsupported program semantics without emitting a
+  package.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and

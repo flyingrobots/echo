@@ -170,15 +170,15 @@ reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
 258,787 bytes with SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`; the
+`8eb7891b1eed94c9396b0a3bd188aa35918d5833d24b15c0285eebd829687389`; the
 promoted verifier is 277,836 bytes with SHA-256
 `279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication introduced in
 [Edict PR #162](https://github.com/flyingrobots/edict/pull/162) and extended
-with the result-projection contract in
-[Edict PR #174](https://github.com/flyingrobots/edict/pull/174). Echo passes the
+with generic pure binding contracts in
+[Edict PR #201](https://github.com/flyingrobots/edict/pull/201). Echo passes the
 CDDL and manifest bytes explicitly to
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
 the pinned publication identity, exact inventories, resource bytes, digests,

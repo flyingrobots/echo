@@ -4,10 +4,12 @@
 # Edict Provider Contract Pack v1
 
 This directory vendors the exact Edict provider contract pack introduced in
-[Edict PR #162](https://github.com/flyingrobots/edict/pull/162) and extended
-with `edict.result-projection.artifact/v1` in
-[Edict PR #174](https://github.com/flyingrobots/edict/pull/174) at commit
-[`21c4400faadf107e68906463d67c95532563c2ed`](https://github.com/flyingrobots/edict/commit/21c4400faadf107e68906463d67c95532563c2ed):
+[Edict PR #162](https://github.com/flyingrobots/edict/pull/162), extended with
+`edict.result-projection.artifact/v1` in
+[Edict PR #174](https://github.com/flyingrobots/edict/pull/174), and extended
+with generic pure bindings in
+[Edict PR #201](https://github.com/flyingrobots/edict/pull/201) at commit
+[`603d94f7520d897f77398b359a832ce363c2be0d`](https://github.com/flyingrobots/edict/commit/603d94f7520d897f77398b359a832ce363c2be0d):
 
 - `edict-provider-contracts.cddl` is the assembled Edict-owned CDDL contract.
 - `manifest.json` binds that CDDL and its contract resources to their published

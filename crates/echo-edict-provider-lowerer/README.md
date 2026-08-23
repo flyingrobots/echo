@@ -118,7 +118,7 @@ remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
 The refreshed 258,787-byte checked lowerer component has SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd` and has
+`8eb7891b1eed94c9396b0a3bd188aa35918d5833d24b15c0285eebd829687389` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

@@ -7,6 +7,12 @@
 
 ### Added
 
+- The checked Edict provider package now admits the exact contract pack from
+  Edict #201, including source-ordered generic pure Target IR bindings and
+  compiler-owned pure-binding result projections. Echo pins the new source and
+  manifest identities, preserves the bounded contract-pack admission boundary,
+  and regenerates every affected provider schema, provenance record, package
+  manifest, and package-local carrier without adding application vocabulary.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and

@@ -239,7 +239,7 @@ Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
 contract pack introduced in Edict PR #162 and extended with the
-result-projection contract in Edict PR #174. Echo admits its exact CDDL,
+generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

@@ -111,7 +111,8 @@ core-import = {
 
 core-type = core-scalar-type / core-record-type / core-variant-type /
             core-option-type / core-list-type / core-map-type /
-            core-capability-ref-type / core-external-action-request-type
+            core-capability-ref-type / core-external-action-request-type /
+            core-nominal-type
 
 core-scalar-type = core-bool-type / core-int-type / core-string-type /
                    core-bytes-type / core-unit-type
@@ -130,6 +131,11 @@ core-bytes-type = {
   kind: "Bytes",
   ? min: uint,
   max: uint,
+}
+core-nominal-type = {
+  kind: "Nominal",
+  contract: tstr,
+  representation: core-type-ref,
 }
 core-record-type = {
   kind: "Record",

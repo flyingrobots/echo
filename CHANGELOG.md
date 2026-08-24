@@ -7,6 +7,10 @@
 
 ### Added
 
+- The checked Edict provider contract now admits generic nominal Core types as
+  exact contract coordinates over bounded storage representations. The
+  regenerated provider package remains application-neutral and adds no Jim,
+  buffer, head, rope, or range vocabulary to Echo.
 - The checked Edict provider package now admits the exact contract pack from
   Edict #201, including source-ordered generic pure Target IR bindings and
   compiler-owned pure-binding result projections. Echo pins the new source and

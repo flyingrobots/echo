@@ -11,6 +11,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 - [Documentation standards](DOCUMENTATION_STANDARDS.md)
 - [Architecture outline](architecture/outline.md)
 - [Application contract hosting](architecture/application-contract-hosting.md)
+- [Public Rust release boundary](architecture/public-rust-release-boundary.md)
 - [Local contract host quickstart](quickstart-local-contract-host.md)
 - [Echo 1.0 release contract](releases/echo-1.0-contract.md)
 - [WARP core runtime](spec/warp-core.md)
@@ -75,6 +76,7 @@ relationships.
 - [Strand contract](invariants/STRAND-CONTRACT.md)
 - [Fixed timestep](invariants/FIXED-TIMESTEP.md)
 - [Declarative rule authorship](invariants/DECLARATIVE-RULE-AUTHORSHIP.md)
+- [Public runtime authority](invariants/PUBLIC-RUNTIME-AUTHORITY.md)
 
 ## Determinism Evidence
 

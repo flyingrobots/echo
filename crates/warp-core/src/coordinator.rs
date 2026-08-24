@@ -11,7 +11,7 @@ use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use thiserror::Error;
 
 use crate::clock::{GlobalTick, WorldlineTick};
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 use crate::echo_operation::{
     AdmittedEchoOperationInvocationV1, EchoOperationActionOutcomeV1,
     EchoOperationApplicationBasisV1, EchoOperationCommitErrorV1,
@@ -22,7 +22,7 @@ use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{
     HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use crate::head_inbox::IngressPayload;
 use crate::head_inbox::{
     InboxAddress, InboxIngestResult, IngressCausalParent, IngressEnvelope, IngressTarget,
@@ -45,18 +45,18 @@ use crate::worldline_registry::WorldlineRegistry;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 use crate::CausalTickReceiptRef;
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 const INSTALLED_CONTRACT_EINT_INTENT_KIND_LABEL: &str = "echo.intent/eint-v1";
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 type SchedulerOperationOutcomeV1 = (Hash, EchoOperationActionOutcomeV1);
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 type SchedulerOperationOutcomesV1 = Vec<SchedulerOperationOutcomeV1>;
-#[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+#[cfg(not(feature = "trusted_runtime"))]
 type SchedulerOperationOutcomeV1 = ();
-#[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+#[cfg(not(feature = "trusted_runtime"))]
 type SchedulerOperationOutcomesV1 = Vec<SchedulerOperationOutcomeV1>;
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
@@ -140,7 +140,7 @@ pub enum RuntimeError {
     ContractInverseTargetRequiresContractAdmission,
     /// A WAL-enabled host received an executable-operation Action through the
     /// non-durable app submission method.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[error(
         "executable-operation Actions on a WAL-enabled host require submit_intent_with_runtime_wal_ack"
     )]
@@ -150,12 +150,12 @@ pub enum RuntimeError {
     Engine(#[from] EngineError),
     /// A scheduler-owned executable-operation Action batch could not be
     /// constructed.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[error(transparent)]
     EchoOperationCommit(#[from] EchoOperationCommitErrorV1),
     /// The scheduler selected a reserved executable Action without the
     /// runtime-owned admission token that authorizes evaluation.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[error("executable-operation Action admission is unavailable for ingress {0:?}")]
     EchoOperationActionAdmissionMissing(Hash),
     /// Provenance append or lookup failed during a runtime step.
@@ -1402,7 +1402,7 @@ impl WorldlineRuntime {
     }
 
     /// Iterates only undecided witnessed submissions in deterministic id order.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn pending_witnessed_submissions(
         &self,
     ) -> impl Iterator<Item = &IntentSubmissionRecord> {
@@ -1411,7 +1411,7 @@ impl WorldlineRuntime {
             .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn witnessed_submission_id_for_target(
         &self,
         head_key: WriterHeadKey,
@@ -1625,7 +1625,7 @@ impl WorldlineRuntime {
         self.submit_intent(envelope).map(Into::into)
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn submit_contract_inverse_intent(
         &mut self,
         envelope: IngressEnvelope,
@@ -1812,14 +1812,14 @@ impl WorldlineRuntime {
             })?;
             receipt.entries().get(index).map(|entry| (index, entry))
         };
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         let is_echo_operation_action = self
             .witnessed_submission_envelopes
             .get(&correlation.submission_id)
             .is_some_and(|envelope| {
                 crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope).is_some()
             });
-        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+        #[cfg(not(feature = "trusted_runtime"))]
         let is_echo_operation_action = false;
         let candidate = if let Some(provider) = correlation
             .contract
@@ -2650,7 +2650,7 @@ impl WorldlineRuntime {
     /// The opaque admission digest is derived by the trusted runtime owner from
     /// exact installed meaning and invocation-admission evidence. No contract
     /// callback evidence is attached to this ingress category.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn ingest_echo_operation_action_v1(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -2736,7 +2736,7 @@ impl WorldlineRuntime {
     /// Returns an error when the envelope is not a canonical EINT local intent,
     /// no installed contract package supports its mutation operation id, or the
     /// underlying ticketed ingress boundary rejects the submission.
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub fn ingest_installed_contract_invocation(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -2767,7 +2767,7 @@ impl WorldlineRuntime {
     ///
     /// Returns an error for malformed EINT, unsupported provider mutations, or
     /// rejection by the shared ticketed-ingress boundary.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub fn ingest_provider_contract_invocation_v1(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -2795,7 +2795,7 @@ impl WorldlineRuntime {
     /// This crate-private seam prevents application adapters from manufacturing
     /// Echo admission authority while preserving the installed-package evidence
     /// checks performed by the normal generated-contract path.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn ingest_host_admitted_installed_contract_invocation(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -2818,7 +2818,7 @@ impl WorldlineRuntime {
     }
 
     /// Stages provider-native work using trusted-host-derived admission evidence.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn ingest_host_admitted_provider_contract_invocation_v1(
         &mut self,
         _authority: &TicketedRuntimeIngressAuthority,
@@ -3210,7 +3210,7 @@ fn derive_ticketed_runtime_ingress_id(
     hasher.finalize().into()
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn installed_contract_mutation_op_id(
     envelope: &IngressEnvelope,
 ) -> Result<u32, RuntimeError> {
@@ -3274,7 +3274,7 @@ fn scheduler_fault_scope_for_error(
         RuntimeError::Engine(_) | RuntimeError::FrontierTickOverflow(_) => {
             SchedulerFaultScope::Head(head_key)
         }
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         RuntimeError::EchoOperationCommit(_) => SchedulerFaultScope::Head(head_key),
         RuntimeError::Provenance(_)
         | RuntimeError::UnknownHead(_)
@@ -3308,7 +3308,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
             SchedulerFaultScope::Runtime
         }
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         RuntimeError::EchoOperationActionAdmissionMissing(_)
         | RuntimeError::EchoOperationActionRequiresRuntimeWalAck => SchedulerFaultScope::Runtime,
     }
@@ -3951,17 +3951,17 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                 }
             }
         }
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         RuntimeError::EchoOperationCommit(error) => {
             hasher.update(b"echo-operation-commit");
             hasher.update(error.to_string().as_bytes());
         }
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         RuntimeError::EchoOperationActionAdmissionMissing(ingress_id) => {
             hasher.update(b"echo-operation-action-admission-missing");
             hasher.update(ingress_id);
         }
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         RuntimeError::EchoOperationActionRequiresRuntimeWalAck => {
             hasher.update(b"echo-operation-action-requires-runtime-wal-ack");
         }
@@ -4174,7 +4174,7 @@ impl SchedulerCoordinator {
 
     /// Executes one scheduler pass with runtime-admitted executable-operation
     /// Actions available to Tick construction.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn super_tick_with_echo_operation_actions_v1(
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
@@ -4201,13 +4201,11 @@ impl SchedulerCoordinator {
         runtime: &mut WorldlineRuntime,
         provenance: &mut ProvenanceService,
         engine: &mut Engine,
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-        operation_actions: Option<(
+        #[cfg(feature = "trusted_runtime")] operation_actions: Option<(
             &BTreeMap<Hash, AdmittedEchoOperationInvocationV1>,
             &EchoOperationEvaluationAuthorityV1,
         )>,
-        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
-        _operation_actions: Option<()>,
+        #[cfg(not(feature = "trusted_runtime"))] _operation_actions: Option<()>,
     ) -> Result<
         (
             Vec<StepRecord>,
@@ -4222,9 +4220,9 @@ impl SchedulerCoordinator {
         runtime.refresh_runnable();
 
         let mut records = Vec::new();
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         let mut operation_outcomes = Vec::new();
-        #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+        #[cfg(not(feature = "trusted_runtime"))]
         let operation_outcomes = Vec::new();
         let mut committed_correlations = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
@@ -4265,13 +4263,13 @@ impl SchedulerCoordinator {
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
         for key in &keys {
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             let partition_parent_global_tick = runtime.global_tick;
             let inbox = runtime
                 .heads
                 .inbox_mut(key)
                 .ok_or(RuntimeError::UnknownHead(*key))?;
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             let admitted = if operation_actions.is_some() {
                 inbox.admit_partitioned(
                     crate::echo_operation::echo_operation_action_intent_kind_v1(),
@@ -4281,7 +4279,7 @@ impl SchedulerCoordinator {
             } else {
                 inbox.admit()
             };
-            #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+            #[cfg(not(feature = "trusted_runtime"))]
             let admitted = inbox.admit();
 
             if admitted.is_empty() {
@@ -4296,7 +4294,7 @@ impl SchedulerCoordinator {
                     .frontier_tick();
                 let parents = provenance.tip_ref(key.worldline_id)?.into_iter().collect();
 
-                #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+                #[cfg(feature = "trusted_runtime")]
                 // `HeadInbox::admit_partitioned` guarantees that one admitted
                 // batch contains either executable-operation Actions or
                 // non-Action work, never both. Inspecting the first member is
@@ -4305,7 +4303,7 @@ impl SchedulerCoordinator {
                     crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope)
                         .is_some()
                 });
-                #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+                #[cfg(feature = "trusted_runtime")]
                 let (snapshot, patch, receipt) = if executable_action_batch {
                     #[cfg(any(test, feature = "host_test"))]
                     if runtime.take_echo_operation_action_tick_construction_failure_for_test() {
@@ -4388,7 +4386,7 @@ impl SchedulerCoordinator {
                     };
                     (snapshot, patch, receipt)
                 };
-                #[cfg(not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")))]
+                #[cfg(not(feature = "trusted_runtime"))]
                 let CommitOutcome {
                     snapshot,
                     patch,

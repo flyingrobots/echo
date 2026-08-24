@@ -61,10 +61,7 @@ mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod dynamic_binding;
-#[cfg_attr(
-    not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
 mod echo_operation;
 mod edict_target_ir;
 mod engine_impl;
@@ -176,7 +173,7 @@ mod snapshot_accum;
 mod telemetry;
 mod tick_delta;
 mod tick_patch;
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 mod trusted_runtime_host;
 mod tx;
 #[cfg(not(target_arch = "wasm32"))]
@@ -482,7 +479,7 @@ pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpOpKey, WarpTickPatchV1,
 };
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub use trusted_runtime_host::{
     EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
     TrustedRuntimeHostError, TrustedRuntimeHostParts, TrustedRuntimeHostRunReport,

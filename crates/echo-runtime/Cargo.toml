@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+[package]
+name = "flyingrobots-echo-runtime"
+version = "0.1.0-alpha.1"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Sealed host facade for the Echo causal runtime"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+publish = false
+include = ["src/**", "tests/**", "README.md"]
+
+[lib]
+name = "echo_runtime"
+
+[dependencies]
+blake3 = "1.0"
+thiserror = "1.0"
+warp-core = { workspace = true, default-features = false, features = ["trusted_runtime"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

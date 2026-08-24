@@ -42,7 +42,7 @@ Apache-2.0 contract pack checked under
 is admitted through
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
 requires the pinned Edict contract-pack publication from PR #162 as extended
-with the result-projection contract in PR #174, verifies every
+through the generic pure-binding extension in PR #201, verifies every
 embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.

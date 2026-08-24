@@ -7,6 +7,24 @@
 
 ### Added
 
+- The checked Edict provider contract now admits generic nominal Core types as
+  exact contract coordinates over bounded storage representations. The
+  regenerated provider package remains application-neutral and adds no Jim,
+  buffer, head, rope, or range vocabulary to Echo.
+- The checked Edict provider package now admits the exact contract pack from
+  Edict #201, including source-ordered generic pure Target IR bindings and
+  compiler-owned pure-binding result projections. Echo pins the new source and
+  manifest identities, preserves the bounded contract-pack admission boundary,
+  and regenerates every affected provider schema, provenance record, package
+  manifest, and package-local carrier without adding application vocabulary.
+- The provider schema now admits the exact two-field
+  `compiler-produced-bounded-pure/v1` target configuration. The configuration
+  contains no operation coordinate, application vocabulary, budget override,
+  or runtime authority. The checked lowerer now emits a distinct generic pure
+  package containing the exact compiler Core, lawpack exports, Target IR, and
+  result projection; the structurally separate verifier independently
+  reconstructs and accepts that relation. This is executable package
+  construction evidence, not Echo runtime evaluation or settlement evidence.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and
@@ -159,12 +177,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 258,787 bytes /
-  `dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`
-  and 277,836 bytes /
-  `279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`,
+  containers and promoted at 277,694 bytes /
+  `a4758f060122fba8c073841ccaa22bf0b8a742b495b76eb33c914eff3250dcf5`
+  and 308,859 bytes /
+  `174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:6685b7c629ae6955515d69158feb1d7db06af2193de7e5d13e1095101670b977`.
+  `sha256:a4e0d9e31ada5c8c14adfce05fdecb228e5b79545f3574a5e21e7db71ab3f307`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.

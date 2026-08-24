@@ -119,6 +119,31 @@ fn one_provider_binary_lowers_two_unrelated_application_vocabularies() {
 }
 
 #[test]
+fn one_provider_binary_packages_two_unrelated_compiler_produced_pure_programs() {
+    for names in [ALPHA, BETA] {
+        let success = lower(pure_fixture_request(names))
+            .expect("the compiler-produced pure program lowers generically");
+        let package = decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes)
+            .expect("the pure package is canonical");
+        assert_eq!(
+            text_field(&package, "package_kind"),
+            Some("compiler-produced-bounded-pure/v1")
+        );
+        assert_eq!(
+            text_field(&package, "operation_coordinate"),
+            Some(format!("{}.{}", names.application, names.intent).as_str())
+        );
+        let program = decode_canonical_cbor_v1(bytes_slice(&package, "program"))
+            .expect("the embedded pure program is canonical");
+        assert_eq!(
+            text_field(&program, "schema"),
+            Some("echo.compiler-produced-pure-program/v1")
+        );
+        assert_eq!(text_field(&program, "intent"), Some(names.intent));
+    }
+}
+
+#[test]
 fn generic_lowering_matches_the_independent_warp_core_package_model() {
     for names in [ALPHA, BETA] {
         let request = fixture_request(names);
@@ -365,6 +390,235 @@ fn projection_field_order_is_canonical_for_fixed_seed_permutations() {
 
 fn fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
     fixture_request_with_configuration(names, configuration(names))
+}
+
+fn pure_fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
+    let target_profile = bound(
+        "echo.dpo@1",
+        "edict.target-profile/v1",
+        TARGET_PROFILE.to_vec(),
+    );
+    let exports = bound(
+        names.exports,
+        "edict.lawpack-exports/v1",
+        canonical_bytes(&owned_map([(
+            "effects",
+            CanonicalValueV1::Array(Vec::new()),
+        )])),
+    );
+    let configuration = bound(
+        names.configuration,
+        "echo.operation-lowering-configuration/v1",
+        canonical_bytes(&owned_map([
+            (
+                "apiVersion",
+                text("echo.operation-lowering-configuration/v1"),
+            ),
+            ("programKind", text("compiler-produced-bounded-pure/v1")),
+        ])),
+    );
+    let adapter = bound(
+        names.adapter,
+        "edict.lawpack-adapter/v1",
+        canonical_bytes(&owned_map([
+            ("apiVersion", text("edict.lawpack-adapter/v1")),
+            ("class", text("declarative")),
+            (
+                "operationProfiles",
+                dynamic_map([(
+                    names.effect,
+                    owned_map([
+                        ("core", text("continuum.profile.read-only/v1")),
+                        (
+                            "targetConfiguration",
+                            resource_ref(&configuration.reference),
+                        ),
+                    ]),
+                )]),
+            ),
+        ])),
+    );
+    let lawpack = bound(
+        names.lawpack,
+        "edict.lawpack/v1",
+        canonical_bytes(&lawpack(names, &exports, &adapter, &target_profile)),
+    );
+    let core = bound(
+        names.application,
+        "edict.core.module/v1",
+        canonical_bytes(&pure_core(names)),
+    );
+    let source = bound(
+        names.application,
+        "edict.source/v1",
+        canonical_bytes(&CanonicalValueV1::Bytes(
+            format!("package {}; intent {};", names.application, names.intent).into_bytes(),
+        )),
+    );
+    let target_ir = bound(
+        "echo.span-ir/v1",
+        "edict.target-ir.artifact/v1",
+        canonical_bytes(&pure_target_ir(names, &core, &lawpack, &target_profile)),
+    );
+    let result_projection = bound(
+        &format!("{}.{}", names.application, names.intent),
+        RESULT_PROJECTION_DOMAIN,
+        canonical_bytes(&pure_result_projection(names)),
+    );
+    LoweringRequestV1 {
+        protocol_version: ProtocolVersionV1 {
+            major: 1,
+            minor: 0,
+            patch: 0,
+        },
+        core,
+        target_profile,
+        semantic_inputs: vec![
+            semantic_input(
+                "adapter",
+                SemanticInputKind::Auxiliary("lawpack-adapter".to_owned()),
+                adapter,
+            ),
+            semantic_input(
+                "exports",
+                SemanticInputKind::Auxiliary("lawpack-exports".to_owned()),
+                exports,
+            ),
+            semantic_input("lawpack", SemanticInputKind::Lawpack, lawpack),
+            semantic_input(
+                "source",
+                SemanticInputKind::Auxiliary("edict-source".to_owned()),
+                source,
+            ),
+            semantic_input(
+                "configuration",
+                SemanticInputKind::Auxiliary("target-configuration".to_owned()),
+                configuration,
+            ),
+            semantic_input(
+                "target-ir",
+                SemanticInputKind::Auxiliary("target-ir".to_owned()),
+                target_ir,
+            ),
+            semantic_input(
+                "result-projection",
+                SemanticInputKind::Auxiliary("result-projection".to_owned()),
+                result_projection,
+            ),
+        ],
+        requested_outputs: vec![LoweringOutputRequest {
+            role: PACKAGE_ROLE.to_owned(),
+            kind: LoweringOutputKind::GeneratedArtifact,
+            domain: PACKAGE_DOMAIN.to_owned(),
+        }],
+        limits: ResponseLimitsV1 {
+            max_output_count: 1,
+            max_diagnostic_count: 0,
+            max_total_response_bytes: 64 * 1024,
+        },
+    }
+}
+
+fn pure_budget() -> CanonicalValueV1 {
+    owned_map([
+        ("maxSteps", integer(64)),
+        ("maxAllocatedBytes", integer(4096)),
+        ("maxOutputBytes", integer(1024)),
+    ])
+}
+
+fn pure_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    owned_map([
+        ("apiVersion", text("edict.core/v1")),
+        ("coordinate", text(names.application)),
+        (
+            "intents",
+            dynamic_map([(
+                names.intent,
+                owned_map([
+                    ("input", text(format!("{}.Input", names.application))),
+                    ("output", text(format!("{}.Output", names.application))),
+                    (
+                        "requiredOperationProfile",
+                        text("continuum.profile.read-only/v1"),
+                    ),
+                    ("coreEvaluationBudget", pure_budget()),
+                    (
+                        "body",
+                        owned_map([(
+                            "nodes",
+                            CanonicalValueV1::Array(vec![owned_map([("kind", text("let"))])]),
+                        )]),
+                    ),
+                ]),
+            )]),
+        ),
+    ])
+}
+
+fn pure_target_ir(
+    names: FixtureNames<'_>,
+    core: &BoundArtifact,
+    lawpack: &BoundArtifact,
+    target_profile: &BoundArtifact,
+) -> CanonicalValueV1 {
+    owned_map([
+        ("kind", text("targetIrArtifact")),
+        ("domain", text("echo.span-ir/v1")),
+        ("targetProfile", resource_ref(&target_profile.reference)),
+        ("sourceCoreCoordinate", text(names.application)),
+        (
+            "semanticClosure",
+            owned_map([
+                ("sourceCore", resource_ref(&core.reference)),
+                (
+                    "lawpacks",
+                    CanonicalValueV1::Array(vec![resource_ref(&lawpack.reference)]),
+                ),
+            ]),
+        ),
+        (
+            "intents",
+            dynamic_map([(
+                names.intent,
+                owned_map([
+                    ("operationProfile", text("continuum.profile.read-only/v1")),
+                    ("coreEvaluationBudget", pure_budget()),
+                    ("steps", CanonicalValueV1::Array(Vec::new())),
+                    (
+                        "pureBindings",
+                        CanonicalValueV1::Array(vec![owned_map([("id", text("binding.0"))])]),
+                    ),
+                ]),
+            )]),
+        ),
+    ])
+}
+
+fn pure_result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    owned_map([
+        ("schema", text("edict.result-projection/v1")),
+        (
+            "operationCoordinate",
+            text(format!("{}.{}", names.application, names.intent)),
+        ),
+        ("outputType", text(format!("{}.Output", names.application))),
+        ("maxOutputBytes", integer(1024)),
+        (
+            "expression",
+            owned_map([
+                ("kind", text("source")),
+                (
+                    "source",
+                    owned_map([
+                        ("kind", text("pureBinding")),
+                        ("bindingId", text("binding.0")),
+                    ]),
+                ),
+                ("path", CanonicalValueV1::Array(Vec::new())),
+            ]),
+        ),
+    ])
 }
 
 fn fixture_request_with_configuration(

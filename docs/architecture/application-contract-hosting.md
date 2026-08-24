@@ -163,6 +163,15 @@ state, frontier, or Receipt publication. The transitional direct
 prepare/commit seam can still return noncommitted evidence to trusted host
 tests, but it is not the application lifecycle.
 
+The external-provider schema additionally admits one exact zero-choice
+`compiler-produced-bounded-pure/v1` target configuration. It contains no
+application operation, target-specific budget override, or mutation authority.
+The checked lowerer emits a distinct generic package retaining the exact
+compiler-produced pure program closure, and the structurally separate verifier
+independently reconstructs that relation. No runtime evaluator, installation,
+graph mutation, Tick settlement, or application-specific Echo branch follows
+from package acceptance.
+
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a
@@ -239,7 +248,7 @@ Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
 contract pack introduced in Edict PR #162 and extended with the
-result-projection contract in Edict PR #174. Echo admits its exact CDDL,
+generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact

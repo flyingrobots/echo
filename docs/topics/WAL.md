@@ -15,6 +15,21 @@ The short rule is:
 Echo may only claim what its WAL can recover.
 ```
 
+The WAL mechanism retains and reports storage facts; it does not independently
+admit them as causal truth. Public WAL types should therefore use passive names
+such as candidate, encoded, stored, observed, or scanned. Authoritative,
+admitted, committed, settled, and receipt-bearing concepts are runtime results
+produced only after validation of realm, epoch, continuity, semantic records,
+and release closure.
+
+For the first public alpha, Echo supports only retained WAL implementations
+whose durability and fencing behavior is part of the release evidence. An
+arbitrary in-process `WalBackend` can lie about `fsync`, crash atomicity,
+ordering, or fencing in ways the runtime cannot independently observe. A public
+third-party durable-backend trait is therefore deferred until a typed provider
+guarantee and admission protocol exists. See
+[Public Rust release boundary](../architecture/public-rust-release-boundary.md).
+
 ## What We Found
 
 The current runtime WAL evidence says twelve concrete things.

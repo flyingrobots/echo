@@ -88,6 +88,34 @@ architecture document, follow any explicit links into the historical ADR
 archive, then inspect the current GitHub issue or pull request, `git log -n 5`,
 and `git status`.
 
+## Durable Decision Discipline
+
+Important decisions are incomplete until their durable owner is current.
+Architecture, authority, identity, canonical-format, recovery, compatibility,
+ownership, public-API, and release-boundary decisions MUST be recorded in the
+same change in the current document that owns the concept. Chat transcripts,
+Think memories, pull-request prose, and review threads may explain or motivate
+a decision, but they are not its canonical repository home.
+
+For every such decision:
+
+1. Name one canonical owner under `docs/architecture/`, `docs/spec/`,
+   `docs/invariants/`, or `docs/topics/` before completing the change.
+2. Record the accepted rule, its current-versus-target posture, and explicit
+   refinement, supersession, dependency, and related-document edges.
+3. Update `docs/README.md` or another relevant entrance when a durable page is
+   added, moved, or renamed.
+4. Link to the canonical owner from reader-specific pages instead of copying
+   the same rule into several places.
+5. Keep implementation checklists, review state, dates, and delivery status in
+   GitHub. Current docs define durable truth, not a second project tracker.
+6. Revisit the same canonical owner whenever later work refines the decision.
+   A refinement is not complete while code, schemas, packages, or release
+   behavior disagree with the documented rule.
+
+Do not allocate a new numbered ADR. Treat missing or stale canonical decision
+documentation as incomplete engineering work, not optional polish.
+
 ## Work Loop
 
 ```text

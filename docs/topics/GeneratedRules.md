@@ -92,6 +92,12 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
+It is also excluded from Echo's public Rust alpha closure. No feature declared
+by a published runtime package may activate native bootstrap directly or
+transitively. The compatibility lane must remain in a `publish = false` package
+and outside every packaged runtime feature combination. This boundary is owned
+by [Public Rust release boundary](../architecture/public-rust-release-boundary.md).
+
 ## Execution Corridors
 
 ### Provider-v1 compatibility corridor

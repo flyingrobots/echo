@@ -81,12 +81,36 @@ those remain required before an external host can prove the complete release
 lifecycle. The crate remains `publish = false`, so this boundary is executable
 release-engineering evidence rather than a published API promise.
 
+The accepted alpha boundary keeps admission, epoch authority, Tick
+construction, settlement, receipt construction, commit publication, and
+recovery acceptance in private modules of the same package as the sealed
+facade. A separate published implementation crate would require `pub`
+inter-package APIs that every downstream caller could invoke. Opaque admitted
+types must also refuse indirect construction through deserialization, defaults,
+raw conversions, public variants, unchecked builders, or feature-gated test
+seams.
+
+Verification and admission remain distinct. A verifier makes evidence about an
+executable subject; the runtime correlates that evidence and decides whether to
+admit and install the subject. Public API names must not claim that the runtime
+performed verification unless it actually invoked the verifier.
+
+Every feature declared by a published runtime package must remain
+authority-safe in every selectable combination. Release metadata may describe
+tested configurations, but it is not an access-control boundary. The complete
+accepted target and current implementation posture are defined by
+[Public Rust release boundary](../architecture/public-rust-release-boundary.md)
+and the
+[public runtime authority invariant](../invariants/PUBLIC-RUNTIME-AUTHORITY.md).
+
 ## Evidence Anchors
 
 - [Registry/provider/host boundary](../adr/0015-registry-provider-host-boundary.md)
 - [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
 - [External actions](ExternalActions.md)
 - `docs/architecture/application-contract-hosting.md`
+- `docs/architecture/public-rust-release-boundary.md`
+- `docs/invariants/PUBLIC-RUNTIME-AUTHORITY.md`
 - `crates/warp-core/src/trusted_runtime_host.rs`
 - `crates/warp-core/src/engine_impl.rs`
 - `crates/echo-runtime/src/lib.rs`

@@ -835,10 +835,7 @@ impl CausalAnchorAdmissionReceipt {
     }
 }
 
-#[cfg(any(
-    test,
-    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-))]
+#[cfg(any(test, feature = "trusted_runtime"))]
 pub(crate) fn prepare_causal_anchor_admission(
     claim: CausalAnchorClaim,
     support_policy_digest: Hash,

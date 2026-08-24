@@ -17,7 +17,7 @@ use echo_registry_api::{
     ProviderSemanticIdentityV1, ProviderValueContractV1,
 };
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 use blake3::Hasher;
 
 use crate::contract_host::runtime_ingress_eint_read_footprint;
@@ -28,7 +28,7 @@ use crate::ident::{make_type_id, NodeId};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 use crate::TickDelta;
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 const INSTALLED_PROVIDER_CONTRACT_PACKAGE_ID_DOMAIN: &[u8] =
     b"echo:installed-provider-contract-package-id:v1\0";
 
@@ -303,7 +303,7 @@ pub struct ProviderContractAdmissionError {
 }
 
 impl ProviderContractAdmissionError {
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn new(
         kind: ProviderContractAdmissionErrorKind,
         subject: &'static str,
@@ -316,7 +316,7 @@ impl ProviderContractAdmissionError {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn without_reference(kind: ProviderContractAdmissionErrorKind, subject: &'static str) -> Self {
         Self {
             kind,
@@ -486,7 +486,7 @@ pub struct InstalledProviderContractPackageOccurrenceV1 {
 }
 
 impl InstalledProviderContractPackageOccurrenceV1 {
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn from_borrowed(value: ContractPackageIdentity<'_>) -> Self {
         Self {
             package_name: value.package_name.to_owned(),
@@ -1010,7 +1010,7 @@ pub struct InstalledProviderMutationRuleIdentityV1 {
 }
 
 impl InstalledProviderMutationRuleIdentityV1 {
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn from_handler(handler: &ContractMutationHandler) -> Self {
         Self {
             operation_id: handler.op_id,
@@ -1090,7 +1090,7 @@ impl InstalledProviderContractPackageRecordV1 {
         self.mutation_operation_ids.iter().copied()
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn mutation_evidence_v1(
         &self,
         operation_id: u32,
@@ -1314,7 +1314,7 @@ pub struct ProviderContractInstallationError {
 }
 
 impl ProviderContractInstallationError {
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn new(
         kind: ProviderContractInstallationErrorKind,
         subject: impl Into<String>,
@@ -1327,7 +1327,7 @@ impl ProviderContractInstallationError {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn without_reference(
         kind: ProviderContractInstallationErrorKind,
         subject: impl Into<String>,
@@ -1406,7 +1406,7 @@ pub trait ProviderContractPackageInstallerV1: SealedProviderContractPackageInsta
 }
 
 /// Provider-native installation material validated before Engine mutation.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) struct PreparedInstalledProviderContractPackageV1 {
     pub(crate) record: InstalledProviderContractPackageRecordV1,
     pub(crate) mutation_handler: ContractMutationHandler,
@@ -1419,7 +1419,7 @@ pub(crate) struct PreparedInstalledProviderContractPackageV1 {
 /// full admitted provider proposition, and derives a deterministic installed
 /// id. It does not authenticate bytes, invoke provider callbacks, or mutate
 /// Engine state.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn prepare_installed_provider_contract_package_v1(
     package_reference: ProviderPackageReferenceV1,
     admitted: AdmittedProviderContractPackageV1<'_>,
@@ -1557,7 +1557,7 @@ fn strict_prefixed_sha256(value: &str) -> Option<&str> {
     (is_raw_sha256(raw)).then_some(raw)
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 const fn provider_op_kind_label(kind: OpKind) -> &'static str {
     match kind {
         OpKind::Mutation => "mutation",
@@ -1565,7 +1565,7 @@ const fn provider_op_kind_label(kind: OpKind) -> &'static str {
     }
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn installed_provider_contract_package_id_v1(
     package_reference: &ProviderPackageReferenceV1,
     occurrence: &InstalledProviderContractPackageOccurrenceV1,
@@ -1594,7 +1594,7 @@ fn installed_provider_contract_package_id_v1(
     InstalledProviderContractPackageIdV1::from_bytes(hasher.finalize().into())
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_operation(hasher: &mut Hasher, value: &InstalledProviderOperationV1) {
     hash_text(hasher, value.coordinate());
     hash_text(hasher, value.semantic_domain());
@@ -1614,33 +1614,33 @@ fn hash_provider_operation(hasher: &mut Hasher, value: &InstalledProviderOperati
     hash_provider_footprint(hasher, value.footprint());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_digest(hasher: &mut Hasher, value: &InstalledProviderDigestIdentityV1) {
     hash_text(hasher, value.coordinate());
     hash_text(hasher, value.digest_domain());
     hash_text(hasher, value.digest());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_schema(hasher: &mut Hasher, value: &InstalledProviderSchemaIdentityV1) {
     hash_text(hasher, value.coordinate());
     hash_text(hasher, value.raw_sha256_hex());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_semantic(hasher: &mut Hasher, value: &InstalledProviderSemanticIdentityV1) {
     hash_text(hasher, value.coordinate());
     hash_text(hasher, value.semantic_domain());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_value_contract(hasher: &mut Hasher, value: &InstalledProviderValueContractV1) {
     hash_text(hasher, value.schema_coordinate());
     hash_text(hasher, value.schema_domain());
     hash_text(hasher, value.codec_id());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_bundle(hasher: &mut Hasher, value: &InstalledProviderBundleIdentityV1) {
     hash_text(hasher, value.semantic_digest_domain());
     hash_text(hasher, value.semantic_digest());
@@ -1648,7 +1648,7 @@ fn hash_provider_bundle(hasher: &mut Hasher, value: &InstalledProviderBundleIden
     hash_text(hasher, value.release_digest());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_provider_footprint(hasher: &mut Hasher, value: &InstalledProviderFootprintIdentityV1) {
     hash_text(hasher, value.obligation());
     hash_text(hasher, value.algebra_coordinate());
@@ -1656,28 +1656,28 @@ fn hash_provider_footprint(hasher: &mut Hasher, value: &InstalledProviderFootpri
     hash_text(hasher, value.algebra_digest());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_text(hasher: &mut Hasher, value: &str) {
     hash_bytes(hasher, value.as_bytes());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_u32(hasher: &mut Hasher, value: u32) {
     hash_bytes(hasher, &value.to_le_bytes());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_u64(hasher: &mut Hasher, value: u64) {
     hash_bytes(hasher, &value.to_le_bytes());
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn hash_bytes(hasher: &mut Hasher, value: &[u8]) {
     hasher.update(&(value.len() as u64).to_le_bytes());
     hasher.update(value);
 }
 
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 fn provider_operation_set_reference(operations: &[ProviderOperationV1<'_>]) -> String {
     if operations.is_empty() {
         return "<empty>".to_owned();
@@ -1695,7 +1695,7 @@ fn provider_operation_set_reference(operations: &[ProviderOperationV1<'_>]) -> S
 /// proposition before retaining the opaque proposal. It performs no registry,
 /// scheduler, filesystem, environment, process, clock, randomness, or network
 /// operation.
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 pub(crate) fn admit_provider_contract_package_v1<'a>(
     policy: &ProviderContractAdmissionPolicyV1<'_>,
     proposal: ProviderContractPackageProposalV1<'a>,

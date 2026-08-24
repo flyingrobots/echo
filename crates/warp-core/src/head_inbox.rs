@@ -807,7 +807,7 @@ impl HeadInbox {
     /// heads advance one shared worldline. Recovery does not depend on
     /// process-local state. When only one category is pending, it proceeds
     /// immediately. Existing per-Tick limits still bound the selected category.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn admit_partitioned(
         &mut self,
         partition_kind: IntentKind,
@@ -987,7 +987,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[test]
     fn partitioned_admission_never_mixes_execution_categories() {
         let mut inbox = HeadInbox::new(
@@ -1045,7 +1045,7 @@ mod tests {
         assert!(inbox.is_empty());
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[test]
     fn homogeneous_unbounded_partitioned_admission_moves_the_whole_inbox() {
         let mut inbox = HeadInbox::new(
@@ -1073,7 +1073,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[test]
     fn scheduler_round_alternates_each_head_despite_even_worldline_progress() {
         let partition_kind = test_kind();
@@ -1122,7 +1122,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[test]
     fn partitioned_admission_applies_both_limit_directions_and_preserves_other_partition() {
         for (policy_limit, partition_limit, expected_partition_count) in
@@ -1194,7 +1194,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[test]
     fn partitioned_admission_cannot_starve_other_category_by_ingress_hash() {
         let mut inbox = HeadInbox::new(

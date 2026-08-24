@@ -72,6 +72,15 @@ Applications receive submission and observation capabilities without those
 controls. Product nouns and product policy remain in application contracts and
 adapters.
 
+The unreleased `echo_runtime::RuntimeHost` is the first sealed Rust facade over
+that role. It can construct and recover a local host and WAL shell without
+exposing the underlying engine, `TrustedRuntimeHost`, native rule registration,
+or constructors for receipts, authority epochs, and committed outcomes. It does
+not yet expose installation, submission, scheduling, result, or receipt APIs;
+those remain required before an external host can prove the complete release
+lifecycle. The crate remains `publish = false`, so this boundary is executable
+release-engineering evidence rather than a published API promise.
+
 ## Evidence Anchors
 
 - [Registry/provider/host boundary](../adr/0015-registry-provider-host-boundary.md)
@@ -80,3 +89,4 @@ adapters.
 - `docs/architecture/application-contract-hosting.md`
 - `crates/warp-core/src/trusted_runtime_host.rs`
 - `crates/warp-core/src/engine_impl.rs`
+- `crates/echo-runtime/src/lib.rs`

@@ -1138,6 +1138,9 @@ pre_push_feature_string_for_file() {
   local file="$2"
 
   case "${crate}:${file}" in
+    warp-core:crates/warp-core/src/edict_pure.rs|warp-core:crates/warp-core/src/edict_pure/*.rs)
+      printf '%s\n' "trusted_runtime"
+      ;;
     warp-core:crates/warp-core/src/trusted_runtime_host.rs)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
@@ -1175,7 +1178,7 @@ pre_push_feature_string_for_test_target() {
     warp-core:parallel_parallel_exec)
       printf '%s\n' "delta_validate"
       ;;
-    warp-core:scheduler_fault_recovery_authority)
+    warp-core:scheduler_fault_recovery_authority|warp-core:edict_pure_evaluation_tests)
       printf '%s\n' "trusted_runtime"
       ;;
     warp-math:determinism_policy_tests)
@@ -1380,6 +1383,10 @@ prepare_warp_core_scope() {
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
+      crates/warp-core/src/edict_pure.rs|crates/warp-core/src/edict_pure/*.rs|crates/warp-core/tests/fixtures/edict-pure-jedit/*)
+        append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        ;;
       crates/warp-core/tests/*.rs)
         local test_name
         test_name="$(basename "$file" .rs)"

@@ -191,3 +191,95 @@ fn host_limits_bound_decode_execution_allocation_and_output() {
         assert_eq!(evaluate(&package(), pin(), &input, bound), Err(expected));
     }
 }
+
+#[test]
+fn public_compiler_source_mutation_changes_runtime_behavior() {
+    // This is newly compiled source, not a patched executable artifact.
+    let mutated = hex::decode(
+        include_str!("fixtures/edict-pure-jedit/mutated-executable-operation-package.cbor.hex")
+            .trim(),
+    )
+    .unwrap();
+    let mutated_pin: [u8; 32] =
+        hex::decode("1af8c0d9a872b46855138b36b49d10bf70e3b576d403c76b09953af079495f62")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    assert_ne!(mutated_pin, pin());
+    let report = decode(
+        &hex::decode(
+            include_str!("fixtures/edict-pure-jedit/mutated-verification-report.cbor.hex").trim(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(field(&report, "outcome"), &Value::Text("accepted".into()));
+    assert_eq!(
+        field(field(&report, "package"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".into()),
+            Value::Bytes(mutated_pin.to_vec())
+        ])
+    );
+    for (end, wanted) in [(7, 2), (11, 0)] {
+        let output = evaluate(
+            &mutated,
+            mutated_pin,
+            &encode(&input(7, end)).unwrap(),
+            limits(),
+        )
+        .unwrap();
+        assert_eq!(
+            field(&decode(&output.output).unwrap(), "rangeIsEmpty"),
+            &Value::Integer(wanted)
+        );
+    }
+    assert_eq!(
+        evaluate(&mutated, pin(), &encode(&input(7, 7)).unwrap(), limits()),
+        Err(EvaluationError::PackageIdentityMismatch)
+    );
+}
+
+#[test]
+fn exact_budget_boundaries_and_noncanonical_input_are_enforced() {
+    let input = encode(&input(7, 11)).unwrap();
+    let result = evaluate(&package(), pin(), &input, limits()).unwrap();
+    let exact = EvaluationLimits {
+        max_steps: result.steps,
+        max_allocated_bytes: result.allocated_bytes,
+        max_output_bytes: result.output.len() as u64,
+        ..limits()
+    };
+    assert_eq!(evaluate(&package(), pin(), &input, exact).unwrap(), result);
+    for (bound, error) in [
+        (
+            EvaluationLimits {
+                max_steps: exact.max_steps - 1,
+                ..exact
+            },
+            EvaluationError::StepBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_allocated_bytes: exact.max_allocated_bytes - 1,
+                ..exact
+            },
+            EvaluationError::AllocationBudgetExceeded,
+        ),
+        (
+            EvaluationLimits {
+                max_output_bytes: exact.max_output_bytes - 1,
+                ..exact
+            },
+            EvaluationError::OutputBudgetExceeded,
+        ),
+    ] {
+        assert_eq!(evaluate(&package(), pin(), &input, bound), Err(error));
+    }
+    let mut trailing = input;
+    trailing.push(0);
+    assert_eq!(
+        evaluate(&package(), pin(), &trailing, limits()),
+        Err(EvaluationError::InvalidInput)
+    );
+}

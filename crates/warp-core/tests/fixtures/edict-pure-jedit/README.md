@@ -36,3 +36,38 @@ expected output in the Rust test are independently written literal values.
 This source returns a boundary record with a pure conditional and an imported
 authored helper. It does not yet implement the rope algorithm. Evaluating it is
 not graph mutation, installed invocation, a Tick, a Receipt, or WAL evidence.
+
+## Authored mutation control
+
+The `mutated-*.hex` carriers came from a separate copy of the same application.
+The only authored change was `then 1u32` to `then 2u32` in
+`src/ReplaceRange.edict`. Edict's public JSONL application build generated the
+new executable package and accepted independent verification report. No emitted
+Core, Target IR, package, or report bytes were edited.
+
+The deliberate source change makes the original expected value of 1 false at
+runtime. Equal endpoints now produce 2, while unequal endpoints still produce 0. This catches an evaluator that returns fixture-specific values without
+interpreting the retained program.
+
+- Mutated package raw SHA-256:
+  `9f8f87c461f8e4dea17f7d9c6ad1d7f1f012ef2102ac6ad96fd7632cabc4d716`
+- Mutated report raw SHA-256:
+  `be8b97052fe25090b2e20300e7c00b1aa7def527d95f32e5b1f4ec436b5a8095`
+- Mutated domain-framed package identity:
+  `sha256:1af8c0d9a872b46855138b36b49d10bf70e3b576d403c76b09953af079495f62`
+
+After changing the source in a disposable copy with the checked provider at
+`.build/echo-provider`, submit this line to the same pinned Edict binary:
+
+```json
+{
+    "schema": "edict.compiler.settings/v1",
+    "type": "compilerSettings",
+    "operation": "build",
+    "application": "edict.application.json"
+}
+```
+
+The original Jedit package-chain lock must reject this changed source. The
+mutation control uses the public compiler directly and retains its new
+identities; it does not update or bypass the original application's locks.

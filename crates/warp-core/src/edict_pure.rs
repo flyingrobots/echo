@@ -6,6 +6,14 @@
 //! scheduler settlement, or causal evidence. Its caller must obtain the expected
 //! package identity from an independently verified, authorized release.
 
+mod decode;
+mod evaluate;
+mod model;
+mod syntax;
+mod values;
+
+use echo_edict_canonical::decode_canonical_cbor_v1;
+
 /// Host ceilings, intersected with the compiler's declared evaluation budget.
 #[derive(Clone, Copy, Debug)]
 pub struct EvaluationLimits {
@@ -63,10 +71,20 @@ pub enum EvaluationError {
 /// application. A matching digest alone does not establish verifier approval.
 /// No graph, runtime host, callbacks, clock, filesystem, or WAL is accessible.
 pub fn evaluate(
-    _package_bytes: &[u8],
-    _verified_package_digest: [u8; 32],
-    _input_bytes: &[u8],
-    _limits: EvaluationLimits,
+    package_bytes: &[u8],
+    verified_package_digest: [u8; 32],
+    input_bytes: &[u8],
+    limits: EvaluationLimits,
 ) -> Result<EvaluationResult, EvaluationError> {
-    Err(EvaluationError::UnsupportedProgram)
+    if package_bytes.len() > limits.max_package_bytes.min(model::MAX_ARTIFACT_BYTES) {
+        return Err(EvaluationError::PackageTooLarge);
+    }
+    if input_bytes.len() > limits.max_input_bytes.min(model::MAX_ARTIFACT_BYTES) {
+        return Err(EvaluationError::InputTooLarge);
+    }
+    let package =
+        decode_canonical_cbor_v1(package_bytes).map_err(|_| EvaluationError::InvalidArtifact)?;
+    let program = decode::package(&package, verified_package_digest, limits)?;
+    let input = decode_canonical_cbor_v1(input_bytes).map_err(|_| EvaluationError::InvalidInput)?;
+    evaluate::run(&program, input)
 }

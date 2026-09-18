@@ -102,6 +102,10 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 name = "executable_operation_pipeline_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
+[[test]]
+name = "edict_pure_evaluation_tests"
+required-features = ["trusted_runtime"]
+
 [build-dependencies]
 blake3 = "1.0"
 

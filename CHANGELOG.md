@@ -7,6 +7,13 @@
 
 ### Added
 
+- Trusted Echo hosts can evaluate the first compiler-produced bounded pure
+  Edict subset through a package-pinned interpreter. Runtime type checks,
+  authored constraints, separate helper scope, deterministic cost accounting,
+  and host/package budget intersections guard the result. The external compiler
+  witness includes a separately compiled source mutation. This is ordinary pure
+  evaluation, with no installation, graph effects, Tick, Receipt, or WAL claim.
+
 - The checked Edict provider contract now admits generic nominal Core types as
   exact contract coordinates over bounded storage representations. The
   regenerated provider package remains application-neutral and adds no Jim,

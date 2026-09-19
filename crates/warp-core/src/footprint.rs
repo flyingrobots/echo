@@ -596,4 +596,46 @@ mod tests {
             "footprints writing same node in same warp should conflict"
         );
     }
+
+    #[test]
+    fn unpopulated_factor_masks_do_not_short_circuit_independence() {
+        let warp = make_warp_id("warp-a");
+        let node_id = NodeId(blake3::hash(b"contended-node").into());
+
+        // `factor_mask: 0` is the placeholder for "mask not populated". It
+        // carries no partition evidence, so it must not grant independence.
+        let mut fp_a = Footprint::default();
+        fp_a.n_write.insert_with_warp(warp, node_id);
+        let mut fp_b = Footprint::default();
+        fp_b.n_write.insert_with_warp(warp, node_id);
+        assert_eq!(fp_a.factor_mask, 0);
+        assert_eq!(fp_b.factor_mask, 0);
+
+        assert!(
+            !fp_a.independent(&fp_b),
+            "two zero-mask footprints writing the same node must conflict"
+        );
+
+        // One populated mask is not evidence about the other footprint either.
+        let mut fp_masked = Footprint {
+            factor_mask: 0b0100,
+            ..Default::default()
+        };
+        fp_masked.n_write.insert_with_warp(warp, node_id);
+        assert!(
+            !fp_a.independent(&fp_masked),
+            "a zero mask against a populated mask must fall through to set checks"
+        );
+        assert!(
+            !fp_masked.independent(&fp_a),
+            "the check must stay symmetric"
+        );
+
+        // Zero masks with disjoint claims remain independent.
+        let mut fp_other = Footprint::default();
+        fp_other
+            .n_write
+            .insert_with_warp(warp, NodeId(blake3::hash(b"other-node").into()));
+        assert!(fp_a.independent(&fp_other));
+    }
 }

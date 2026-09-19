@@ -844,6 +844,54 @@ mod tests {
         assert!(!gen.contains(node_b), "node_b is independent");
     }
 
+    #[test]
+    fn legacy_reserve_rejects_conflicting_writes_with_unpopulated_factor_masks() {
+        let tx = TxId::from_raw(1);
+        let mut sched = LegacyScheduler::default();
+        let shared_node = make_node_id("shared");
+        let warp_id = test_warp_id();
+
+        // Both footprints leave `factor_mask` at its zero placeholder.
+        let mut rewrite1 = PendingRewrite {
+            rule_id: h(1),
+            compact_rule: CompactRuleId(1),
+            scope_hash: h(1),
+            scope: scope_key("scope1"),
+            footprint: Footprint::default(),
+            phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
+        };
+        insert_node_scoped(&mut rewrite1.footprint, warp_id, &shared_node, true);
+
+        let mut rewrite2 = PendingRewrite {
+            rule_id: h(2),
+            compact_rule: CompactRuleId(2),
+            scope_hash: h(2),
+            scope: scope_key("scope2"),
+            footprint: Footprint::default(),
+            phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
+        };
+        insert_node_scoped(&mut rewrite2.footprint, warp_id, &shared_node, true);
+
+        assert!(
+            sched.reserve(tx, &mut rewrite1),
+            "first reserve should succeed"
+        );
+        assert!(
+            !sched.reserve(tx, &mut rewrite2),
+            "second reserve should fail: node write-write conflict"
+        );
+        assert_eq!(rewrite2.phase, RewritePhase::Aborted);
+
+        // The legacy and radix schedulers must agree on the same pair.
+        let mut radix = RadixScheduler::default();
+        rewrite1.phase = RewritePhase::Matched;
+        rewrite2.phase = RewritePhase::Matched;
+        assert!(radix.reserve(tx, &mut rewrite1));
+        assert!(!radix.reserve(tx, &mut rewrite2));
+    }
+
     // ========================================================================
     // P0: Independence checking tests - verifying reserve() correctness
     // ========================================================================

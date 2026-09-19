@@ -3000,9 +3000,10 @@ pub(crate) fn footprints_conflict(
     // differently than the scheduler rejects candidates.
     //
     // `Footprint::independent` includes a `factor_mask` fast-path that assumes
-    // masks are correctly populated as a conservative superset. Many current
-    // footprints in the engine spike use `factor_mask = 0` as a placeholder,
-    // which would incorrectly classify conflicting rewrites as independent.
+    // populated masks are a conservative superset. It ignores the zero
+    // placeholder that many engine-spike footprints still carry, but a wrongly
+    // populated mask would still classify conflicting rewrites as independent,
+    // and the radix scheduler never consults the mask at all.
     //
     // The scheduler’s conflict logic is defined by explicit overlap checks on
     // nodes/edges/ports; this mirrors that behavior exactly and stays correct

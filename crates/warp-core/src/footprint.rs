@@ -270,6 +270,9 @@ pub struct Footprint {
     /// Boundary output ports touched (warp-scoped).
     pub b_out: PortSet,
     /// Coarse partition mask; used as an O(1) prefilter.
+    ///
+    /// Zero means "not populated" and never short-circuits
+    /// [`Footprint::independent`].
     pub factor_mask: u64,
 }
 
@@ -304,13 +307,20 @@ impl Footprint {
     ///
     /// Fast path checks the factor mask; then boundary ports; then edges and
     /// nodes. The check is symmetric but implemented with early exits.
-    /// Disjoint `factor_mask` values guarantee independence by construction
-    /// (the mask is a coarse superset of touched partitions).
+    /// Disjoint populated `factor_mask` values guarantee independence by
+    /// construction (the mask is a coarse superset of touched partitions).
+    ///
+    /// A zero `factor_mask` is the unpopulated placeholder. It carries no
+    /// partition evidence, so the fast path applies only when both masks are
+    /// non-zero; otherwise the full set checks decide.
     ///
     /// All comparisons are warp-scoped, so resources in different warps
     /// never conflict (even if they share the same local identifier).
     pub fn independent(&self, other: &Self) -> bool {
-        if (self.factor_mask & other.factor_mask) == 0 {
+        if self.factor_mask != 0
+            && other.factor_mask != 0
+            && (self.factor_mask & other.factor_mask) == 0
+        {
             return true;
         }
         if self.b_in.intersects(&other.b_in)

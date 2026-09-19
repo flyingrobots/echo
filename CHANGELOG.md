@@ -1628,6 +1628,13 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `Footprint::independent` no longer treats an unpopulated `factor_mask` as
+  partition evidence. The mask fast path now applies only when both masks are
+  non-zero; a zero placeholder on either side falls through to the node, edge,
+  attachment, and port set checks. Previously two zero-mask footprints with
+  conflicting writes compared as independent, so the opt-in
+  `SchedulerKind::Legacy` could admit both into one tick. The default
+  `SchedulerKind::Radix` never consulted the mask and is unchanged.
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.

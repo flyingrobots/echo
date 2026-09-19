@@ -153,6 +153,13 @@
 
 ### Fixed
 
+- `Footprint::independent` no longer treats an unpopulated `factor_mask` as
+  partition evidence. The mask fast path now applies only when both masks are
+  non-zero; a zero placeholder on either side falls through to the node, edge,
+  attachment, and port set checks. Previously two zero-mask footprints with
+  conflicting writes compared as independent, so the opt-in
+  `SchedulerKind::Legacy` could admit both into one tick. The default
+  `SchedulerKind::Radix` never consulted the mask and is unchanged.
 - A tick with the in-memory WAL no longer costs time in proportion to the
   whole log. The host copied the in-memory log, its catalog and its indexes
   before every tick so it could undo a failed one; at 8,000 updates a tick
@@ -2085,6 +2092,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   LSN gap and made subsequent recovery fail.
 
 - Generic executable-operation lowering and verification now
+
+- Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.
   Runtime duplicate outcomes therefore retain the capability-owned obstruction

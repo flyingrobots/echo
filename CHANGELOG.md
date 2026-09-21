@@ -7,6 +7,11 @@
 
 ### Added
 
+- The trusted executable-operation host can retain two native alternative strands,
+  continue a losing strand under new observations, and recover its fork ancestry
+  and operation outcomes from the WAL. Application selection records do not
+  imply merge or promotion.
+
 - Bounded executable-operation host sessions retain immutable observations and
   logical-request bindings in the native WAL. Echo evaluates supplied node/atom
   preconditions inside operation preparation, includes their reads in scheduler

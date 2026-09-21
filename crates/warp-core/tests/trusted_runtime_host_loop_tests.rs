@@ -2450,3 +2450,63 @@ fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
     drop(host);
     fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
 }
+
+#[test]
+fn retained_native_fork_recovers_prefix_and_refuses_missing_source() {
+    let root = temp_runtime_wal_dir("retained-native-fork");
+    let (rt, lane) = runtime();
+    let head = rt.heads().iter().next().expect("head").0.to_owned();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("wal");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .is_err());
+    host.register_contract_package(package()).expect("package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+        .expect("stage");
+    host.run_until_idle(4).expect("commit");
+    let child = host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .expect("native fork");
+    let fork = host
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("strand")
+        .fork_basis_ref();
+    let before = host.runtime_wal().expect("wal").commits().len();
+    assert_eq!(
+        host.fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry"),
+        child
+    );
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before);
+    assert!(host.fork_local_operation_strand_v1(head, "").is_err());
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("native topology replay");
+    let recovered = restored
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("retained strand");
+    assert_eq!(recovered.fork_basis_ref(), fork);
+    assert_eq!(recovered.writer_heads(), &[child]);
+    assert_eq!(
+        restored
+            .provenance()
+            .entry(child.worldline_id, fork.fork_tick)
+            .expect("prefix")
+            .expected
+            .commit_hash,
+        fork.commit_hash
+    );
+}

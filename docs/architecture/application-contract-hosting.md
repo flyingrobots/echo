@@ -1201,3 +1201,35 @@ successful settlement aperture to equal the admitted request, revalidates the
 registry grant before settlement, and retains replay bytes before deterministic
 resumption. This profile adds no application noun, native application callback,
 provider import, shell, or ambient filesystem capability.
+
+### Retained alternatives in the trusted local host
+
+`run-edict-operation --serve --retained-alternatives` starts the parent with one
+retained Edict bootstrap operation and forks two native AuthorOnly strands, `a`
+and `b`, from that committed basis. `use` changes the selected lane for bounded
+observations and operation submission; `ancestry` returns up to 4,096 native
+commit identities for that lane. It does not change canonicality or settle work.
+
+`TrustedRuntimeHost::fork_local_operation_strand_v1` persists Echo's existing
+`TopologyStrandForkRecorded` record before exposing the fork. The fixed local
+profile derives an advisory, locally unbound AuthorOnly authority and retention
+identity from the strand identity. It allows one writer head per strand, labels
+of 1–64 bytes and at most 64 retained forks. This is an explicit trusted-host
+profile, not caller authentication or a generic authority-policy authoring API.
+Reusing a source-worldline/label pair resolves its original retained strand.
+
+Recovery validates the supported profile and source commit/boundary, replays the
+source history, invokes native fork construction at the recorded coordinate, and
+then restores child history and Action dispositions. Copied prefix entries are
+derived from retained source history and the fork record; application output is
+never used to recreate ancestry. The next writer may differ from the writer of
+the retained parent commit. Recovery corroborates the parent coordinate, commit,
+state root and global tick without requiring those writer identities to match.
+
+Selection remains an application convention expressed by an Edict operation
+that records a chosen worldline and native commit. This driver does not perform
+merge, promotion, braid settlement, or cross-worldline atomic validation of a
+selection policy. New information on a strand is a new explicit reading; it does
+not replace observations bound to an earlier attempt. Recovering a retained
+alternative does not establish an efficiency advantage over retained branches
+and ordinary artifact retrieval.

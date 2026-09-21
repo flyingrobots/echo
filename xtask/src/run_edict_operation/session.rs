@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 
 struct Session {
+    heads: std::collections::BTreeMap<String, warp_core::WriterHeadKey>,
     fixture: HostFixture,
     package: PackageMetadata,
     package_id: warp_core::EchoOperationPackageIdV1,
@@ -84,6 +85,7 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
             ),
         );
     let mut session = Session {
+        heads: std::collections::BTreeMap::from([("parent".to_owned(), fixture.head)]),
         fixture,
         package,
         package_id,
@@ -91,6 +93,35 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
         configuration,
         basis: input.basis,
     };
+    if config.retained_alternatives {
+        // The initial application operation is retained once. Recovery resolves
+        // its original binding; it never re-executes it to rebuild history.
+        if session
+            .fixture
+            .host
+            .echo_operation_observation_v1("host-bootstrap")
+            .is_err()
+        {
+            let result = session
+                .call(&json!({"op":"observe","attempt":"host-bootstrap","keys":["bootstrap"]}))?;
+            if result.get("error").is_some() {
+                bail!("bootstrap observation failed");
+            }
+        }
+        let result = session.call(
+            &json!({"op":"submit","attempt":"host-bootstrap","key":"bootstrap","value":""}),
+        )?;
+        if result["outcome"] != "committed" {
+            bail!("bootstrap operation failed: {result}");
+        }
+        for label in ["a", "b"] {
+            let head = session
+                .fixture
+                .host
+                .fork_local_operation_strand_v1(session.fixture.head, label)?;
+            session.heads.insert(label.to_owned(), head);
+        }
+    }
     let mut input = std::io::stdin().lock();
     loop {
         let mut line = Vec::new();
@@ -132,7 +163,8 @@ impl Session {
 
     fn call(&mut self, request: &Value) -> Result<Value> {
         let allowed: &[&str] = match text(request, "op")? {
-            "status" => &["op"],
+            "status" | "ancestry" => &["op"],
+            "use" => &["op", "lane"],
             "observe" => &["op", "attempt", "keys"],
             "changes" | "reading" => &["op", "attempt"],
             "submit" => &["op", "attempt", "key", "value", "request_id"],
@@ -148,6 +180,30 @@ impl Session {
             bail!("unexpected request field; observation bindings are runtime-owned");
         }
         match text(request, "op")? {
+            "use" => {
+                self.fixture.head = *self
+                    .heads
+                    .get(text(request, "lane")?)
+                    .context("unknown lane")?;
+                self.call(&json!({"op":"status"}))
+            }
+            "ancestry" => {
+                use warp_core::ProvenanceStore;
+                let provenance = self.fixture.host.provenance();
+                let lane = self.fixture.head.worldline_id;
+                let len = provenance.len(lane)?;
+                if len > 4096 {
+                    bail!("ancestry aperture exceeded");
+                }
+                let commits = (0..len)
+                    .map(|tick| {
+                        provenance
+                            .entry(lane, warp_core::WorldlineTick::from_raw(tick))
+                            .map(|entry| hex::encode(entry.expected.commit_hash))
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(json!({"worldline":hex::encode(lane.as_bytes()),"commits":commits}))
+            }
             "status" => {
                 let application_basis = echo_operation_anchored_node_creation_application_basis_v1(
                     self.fixture.node,
@@ -157,7 +213,21 @@ impl Session {
                     .fixture
                     .host
                     .echo_operation_evaluation_basis_v1(self.fixture.head, application_basis)?;
+                let strand = self
+                    .fixture
+                    .host
+                    .runtime()
+                    .strands()
+                    .find_by_child_worldline(&self.fixture.head.worldline_id);
+                let fork = strand.map(|strand| {
+                    let basis = strand.fork_basis_ref();
+                    json!({
+                        "source_worldline":hex::encode(basis.source_lane_id.as_bytes()),
+                        "tick":basis.fork_tick.as_u64(),"commit":hex::encode(basis.commit_hash)
+                    })
+                });
                 Ok(json!({
+                    "fork": fork,
                     "worldline": hex::encode(self.fixture.head.worldline_id.as_bytes()),
                     "state_root": hex::encode(current_state(&self.fixture)?.state_root()),
                     "commit_id": hex::encode(basis.commit_id()),

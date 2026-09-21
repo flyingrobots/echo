@@ -964,7 +964,10 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
     drop(active);
     let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
     assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
-    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    // An empty epoch consumed no record position. Fencing must change the
+    // writer identity without introducing a gap before the next append.
+    assert_ne!(successor.epoch_id, epoch_id());
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(0));
     drop(contender);
     must_ok(fs::remove_dir_all(root));
 }

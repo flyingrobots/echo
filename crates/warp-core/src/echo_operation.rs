@@ -29,6 +29,9 @@ use echo_edict_canonical::{
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
+mod observed;
+pub use observed::EchoOperationObservationV1;
+
 use crate::{
     attachment::{AtomPayload, AttachmentKey, AttachmentValue},
     clock::{GlobalTick, WorldlineTick},
@@ -2779,6 +2782,7 @@ enum AnchoredNodeOperationModeV1 {
 /// Canonical basis-bearing invocation emitted by a generated client/helper.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationInvocationV1 {
+    observation: Option<EchoOperationObservationV1>,
     package_id: EchoOperationPackageIdV1,
     operation_coordinate: String,
     evaluation_basis: EchoOperationEvaluationBasisV1,
@@ -2816,6 +2820,7 @@ impl EchoOperationInvocationV1 {
             },
             replacement_bytes,
             application_input_bytes: None,
+            observation: None,
         }
     }
 
@@ -2841,6 +2846,7 @@ impl EchoOperationInvocationV1 {
             kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
             replacement_bytes,
             application_input_bytes: None,
+            observation: None,
         }
     }
 
@@ -2868,6 +2874,7 @@ impl EchoOperationInvocationV1 {
             kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCreateIfAbsent,
             replacement_bytes,
             application_input_bytes: Some(canonical_application_input_bytes),
+            observation: None,
         }
     }
 
@@ -2892,6 +2899,19 @@ impl EchoOperationInvocationV1 {
                 EchoOperationArtifactErrorKindV1::InvalidBudget,
                 "invocation delegated step budget must be nonzero",
             ));
+        }
+        if let Some(observation) = &self.observation {
+            let mut inner = self.clone();
+            inner.observation = None;
+            return encode_canonical_cbor_v1(&map_value([
+                ("schema", text_value(observed::OBSERVED_SCHEMA)),
+                (
+                    "invocation",
+                    CanonicalValueV1::Bytes(inner.to_canonical_bytes()?),
+                ),
+                ("observation", observation.to_value()),
+            ]))
+            .map_err(canonical_error);
         }
         let common = |schema| {
             [
@@ -2971,7 +2991,7 @@ impl EchoOperationInvocationV1 {
         encode_canonical_cbor_v1(&value).map_err(canonical_error)
     }
 
-    fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, EchoOperationArtifactErrorV1> {
         let value = decode_canonical_cbor_v1(bytes).map_err(canonical_error)?;
         let schema = match &value {
             CanonicalValueV1::Map(entries) => entries
@@ -2986,6 +3006,27 @@ impl EchoOperationInvocationV1 {
                 .ok_or_else(|| invalid_structure("invocation schema must be text"))?,
             _ => return Err(invalid_structure("artifact root must be a map")),
         };
+        if schema == observed::OBSERVED_SCHEMA {
+            let mut fields = exact_text_map(value, &["schema", "invocation", "observation"])?;
+            let inner_bytes = take_bytes(&mut fields, "invocation")?;
+            let inner = decode_canonical_cbor_v1(&inner_bytes).map_err(canonical_error)?;
+            if let CanonicalValueV1::Map(entries) = &inner {
+                if entries.iter().any(|(key, value)| {
+                    key == &text_value("schema") && value == &text_value(observed::OBSERVED_SCHEMA)
+                }) {
+                    return Err(invalid_structure("nested observed invocation is forbidden"));
+                }
+            }
+            let mut invocation = Self::from_canonical_bytes(&inner_bytes)?;
+            invocation.observation = Some(EchoOperationObservationV1::from_value(take_field(
+                &mut fields,
+                "observation",
+            )?)?);
+            if invocation.to_canonical_bytes()? != bytes {
+                return Err(invalid_structure("observed invocation is not canonical"));
+            }
+            return Ok(invocation);
+        }
         let (expected_fields, create_if_absent, projected) = match schema {
             INVOCATION_SCHEMA => (
                 &[
@@ -3063,6 +3104,7 @@ impl EchoOperationInvocationV1 {
             }
         };
         let invocation = Self {
+            observation: None,
             package_id: EchoOperationPackageIdV1(take_hash(&mut fields, "package_id")?),
             operation_coordinate: take_text(&mut fields, "operation_coordinate")?,
             evaluation_basis: EchoOperationEvaluationBasisV1::from_value(take_field(
@@ -3709,6 +3751,10 @@ pub enum EchoOperationObstructionKindV1 {
     /// The compiler-owned result projection could not produce one bounded
     /// canonical result from the exact admitted application input.
     ResultProjectionInvalid,
+    /// A supplied observation changed despite a current submission basis.
+    ObservationChanged,
+    /// An observed resource is no longer available under the bounded profile.
+    ObservationUnavailable,
 }
 
 /// Retained runtime policy evidence needed to reproduce one obstruction.
@@ -4381,6 +4427,8 @@ fn obstruction_kind_from_code(
         11 => Ok(EchoOperationObstructionKindV1::ReplacementTooLarge),
         12 => Ok(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch),
         13 => Ok(EchoOperationObstructionKindV1::ResultProjectionInvalid),
+        14 => Ok(EchoOperationObstructionKindV1::ObservationChanged),
+        15 => Ok(EchoOperationObstructionKindV1::ObservationUnavailable),
         _ => Err(invalid_structure(
             "unknown executable-operation obstruction kind",
         )),
@@ -4615,6 +4663,17 @@ pub(crate) fn prepare_operation_v1(
     let node = admitted.invocation.node;
     let mut actual_footprint = Footprint::default();
     let mut budget_meter = EchoOperationBudgetMeterV1::new(admitted.invocation.delegated_budget);
+    if let Some(observation) = &admitted.invocation.observation {
+        if let Err(kind) = observation.validate_at_execution(
+            state,
+            current_basis,
+            &mut actual_footprint,
+            &mut budget_meter,
+        ) {
+            return obstruction(kind);
+        }
+    }
+    let observed_footprint = actual_footprint.clone();
     let descent_stack =
         match operation_descent_stack_with_portal_reads(state, node.warp_id, |portal| {
             if !budget_meter.charge(1, 32, 0) {
@@ -4629,7 +4688,7 @@ pub(crate) fn prepare_operation_v1(
     let Some(store) = state.store(&node.warp_id) else {
         return obstruction(EchoOperationObstructionKindV1::NodeMissing);
     };
-    let declared_footprint = match mode {
+    let mut declared_footprint = match mode {
         AnchoredNodeOperationModeV1::CompareAndSet { .. } => {
             anchored_node_compare_and_set_footprint(node, &descent_stack)
         }
@@ -4637,6 +4696,7 @@ pub(crate) fn prepare_operation_v1(
             anchored_node_create_if_absent_footprint(node, &descent_stack)
         }
     };
+    declared_footprint.union_assign(&observed_footprint);
     if !budget_meter.charge(1, 32, 0) {
         return obstruction(EchoOperationObstructionKindV1::BudgetExceeded);
     }
@@ -4739,6 +4799,14 @@ pub(crate) fn prepare_operation_v1(
     }
     let mut in_slots = vec![SlotId::Node(node), SlotId::Attachment(slot)];
     in_slots.extend(descent_stack.iter().copied().map(SlotId::Attachment));
+    in_slots.extend(observed_footprint.n_read.iter().copied().map(SlotId::Node));
+    in_slots.extend(
+        observed_footprint
+            .a_read
+            .iter()
+            .copied()
+            .map(SlotId::Attachment),
+    );
     let patch = WarpTickPatchV1::new(
         policy_id,
         installed.installed_operation_id.as_hash(),
@@ -6767,6 +6835,8 @@ fn obstruction_kind_code(kind: EchoOperationObstructionKindV1) -> u8 {
         EchoOperationObstructionKindV1::ReplacementTooLarge => 11,
         EchoOperationObstructionKindV1::EvaluationAuthorityMismatch => 12,
         EchoOperationObstructionKindV1::ResultProjectionInvalid => 13,
+        EchoOperationObstructionKindV1::ObservationChanged => 14,
+        EchoOperationObstructionKindV1::ObservationUnavailable => 15,
     }
 }
 
@@ -7311,7 +7381,7 @@ mod tests {
         }
     }
 
-    fn projected_create_fixture(
+    pub(super) fn projected_create_fixture(
         max_output_bytes: u64,
     ) -> (
         InstalledEchoOperationV1,

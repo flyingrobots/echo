@@ -7,6 +7,13 @@
 
 ### Added
 
+- Bounded executable-operation host sessions retain immutable observations and
+  logical-request bindings in the native WAL. Echo evaluates supplied node/atom
+  preconditions inside operation preparation, includes their reads in scheduler
+  footprints, and retains typed refusal or commitment outcomes across reopening.
+  The generic `run-edict-operation --serve` driver supports repeated operations,
+  historical outcome lookup, and derived observation-change discovery.
+
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and
@@ -1627,6 +1634,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   hook regressions.
 
 ### Fixed
+
+- Reopening a filesystem WAL through an empty writer epoch no longer consumes an
+  unwritten log position. A second reopen followed by append previously left an
+  LSN gap and made subsequent recovery fail.
 
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact

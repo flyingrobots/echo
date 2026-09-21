@@ -486,6 +486,8 @@ pub enum WalRecordKind {
     ExternalActionClaimRecorded,
     /// Echo admitted one schema-bound external-action settlement.
     ExternalActionSettlementRecorded,
+    /// Runtime retained an immutable operation observation or request binding.
+    ExecutableOperationContextRetained,
 }
 
 impl WalRecordKind {
@@ -525,6 +527,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => "ExternalActionRequestRecorded",
             Self::ExternalActionClaimRecorded => "ExternalActionClaimRecorded",
             Self::ExternalActionSettlementRecorded => "ExternalActionSettlementRecorded",
+            Self::ExecutableOperationContextRetained => "ExecutableOperationContextRetained",
         }
     }
 
@@ -553,7 +556,8 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
-            Self::ExecutableOperationPackageInstalled => WalAppendAuthority::RuntimeControl,
+            Self::ExecutableOperationPackageInstalled
+            | Self::ExecutableOperationContextRetained => WalAppendAuthority::RuntimeControl,
             Self::ExecutableOperationExecutionRecorded
             | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
@@ -614,6 +618,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => 29,
             Self::ExternalActionClaimRecorded => 30,
             Self::ExternalActionSettlementRecorded => 31,
+            Self::ExecutableOperationContextRetained => 32,
         }
     }
 
@@ -650,6 +655,7 @@ impl WalRecordKind {
             29 => Ok(Self::ExternalActionRequestRecorded),
             30 => Ok(Self::ExternalActionClaimRecorded),
             31 => Ok(Self::ExternalActionSettlementRecorded),
+            32 => Ok(Self::ExecutableOperationContextRetained),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -1586,7 +1592,7 @@ fn validate_writer_epoch_request(
                 if request.started_at_lsn <= final_lsn {
                     return Err(WalStoreError::WriterEpochLsnRegression);
                 }
-            } else if request.started_at_lsn <= previous_epoch.started_at_lsn {
+            } else if request.started_at_lsn < previous_epoch.started_at_lsn {
                 return Err(WalStoreError::WriterEpochLsnRegression);
             }
             if request.storage_fencing_token == previous_epoch.storage_fencing_token
@@ -5763,8 +5769,10 @@ impl FilesystemWalStore {
             .unwrap_or_default();
         let required_started_at_lsn = previous_closure
             .final_lsn
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
             .and_then(Lsn::checked_next)
+            // An empty epoch reserved but never consumed its first LSN.
+            // Advancing it would leave a gap in the retained frame sequence.
+            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
             .unwrap_or(minimum_started_at_lsn);
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())

@@ -1113,6 +1113,98 @@ fn filesystem_runtime_wal_ack_commits_strict_filesystem_durability() {
 }
 
 #[test]
+fn filesystem_runtime_wal_empty_reopen_does_not_consume_a_log_position() {
+    let root = temp_runtime_wal_dir("empty-reopen-continuation");
+    let reopen = || {
+        let (runtime, first, second) = runtime_pair();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("reopen");
+        (host, first, second)
+    };
+    let (mut first, lane, _) = reopen();
+    first
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("first append");
+    drop(first);
+    let (empty, _, _) = reopen();
+    drop(empty);
+    let (mut last, _, lane) = reopen();
+    last.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("second append");
+    let recovered = last
+        .runtime_wal()
+        .expect("WAL")
+        .recover_read_only()
+        .expect("contiguous history");
+    assert_eq!(recovered.certificate.committed_transactions_replayed, 2);
+    let commits = last.runtime_wal().expect("WAL").commits();
+    assert_eq!(commits[1].first_lsn, Lsn::from_raw(3));
+}
+
+#[test]
+fn observed_operation_contexts_recover_without_replacing_original_inputs() {
+    let root = temp_runtime_wal_dir("observed-request-context");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    let observation = host
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .expect("retain reading");
+    let invocation = |value: &[u8]| {
+        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+        observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320),
+        node, value.to_vec(), vec![0xa0],
+    )
+    };
+    // Binding is durable before ingress. This test does not claim that the
+    // deliberately uninstalled package can be admitted or executed.
+    let original = host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"old"))
+        .expect("bind request");
+    drop(host);
+    let (mut recovered, head, node) = reopen();
+    assert_eq!(
+        recovered
+            .echo_operation_observation_v1("attempt")
+            .expect("original reading"),
+        observation
+    );
+    assert_eq!(
+        recovered
+            .bind_echo_operation_request_v1("request", "attempt", invocation(b"old"))
+            .expect("retry"),
+        original
+    );
+    assert!(recovered
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"changed"))
+        .is_err());
+    assert!(recovered
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .is_err());
+    assert!(recovered.echo_operation_observation_v1("missing").is_err());
+    assert_eq!(recovered.runtime_wal().expect("WAL").commits().len(), 2);
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
     let wal_root = temp_runtime_wal_dir("tail-report");
     let (runtime, worldline_id) = runtime();

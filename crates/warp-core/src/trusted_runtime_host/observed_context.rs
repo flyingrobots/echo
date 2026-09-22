@@ -5,6 +5,7 @@ use super::{
     BTreeMap, Error, Hash, TrustedRuntimeHost, TrustedRuntimeWal, WalAppendAuthority,
     WalTransactionId, WalTransactionKind,
 };
+use crate::EchoOperationAnchoredNodeOccupancyV1 as Occupancy;
 use crate::{
     EchoOperationInvocationV1, EchoOperationObservationV1, NodeKey, ProvenanceStore, WriterHeadKey,
 };
@@ -173,7 +174,6 @@ impl TrustedRuntimeHost {
         let store = state
             .store(&first.warp_id)
             .ok_or_else(|| error("observation warp unavailable"))?;
-        use crate::EchoOperationAnchoredNodeOccupancyV1 as Occupancy;
         let occupancy = match (
             store.node(&first.local_id).is_some(),
             store.node_attachment(&first.local_id).is_some(),

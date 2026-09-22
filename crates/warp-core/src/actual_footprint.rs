@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner};
 use crate::footprint::Footprint;
-use crate::footprint_guard::{op_write_targets, ViolationKind};
+use crate::footprint_guard::{op_write_targets, OpTargets, ViolationKind};
 use crate::ident::{EdgeId, NodeId, WarpId};
 use crate::tick_patch::WarpOp;
 
@@ -236,19 +236,22 @@ impl ActualFootprint {
     /// pre-filtering.
     pub fn record_op(&mut self, op: &WarpOp, warp_id: WarpId) {
         let targets = op_write_targets(op);
+        self.record_targets(&targets, warp_id);
+    }
 
+    pub(crate) fn record_targets(&mut self, targets: &OpTargets, warp_id: WarpId) {
         if targets.op_warp.is_some_and(|op_warp| op_warp != warp_id) {
             return;
         }
 
-        for node in targets.nodes {
-            self.record_node_write(node);
+        for node in &targets.nodes {
+            self.record_node_write(*node);
         }
-        for edge in targets.edges {
-            self.record_edge_write(edge);
+        for edge in &targets.edges {
+            self.record_edge_write(*edge);
         }
-        for attachment in targets.attachments {
-            self.record_attachment_write(attachment);
+        for attachment in &targets.attachments {
+            self.record_attachment_write(*attachment);
         }
     }
 

@@ -1142,13 +1142,17 @@ fn execute_item_observed(
         // Derive the complete write record before validation can unwind on its
         // first violation. Check-first would leave later emitted targets absent
         // from the purported actual footprint.
-        for op in &delta.ops_ref()[ops_before..] {
-            actual.record_op(op, store.warp_id());
+        let targets = delta.ops_ref()[ops_before..]
+            .iter()
+            .map(crate::footprint_guard::op_write_targets)
+            .collect::<Vec<_>>();
+        for target in &targets {
+            actual.record_targets(target, store.warp_id());
         }
 
         let check_result = catch_unwind(AssertUnwindSafe(|| {
-            for op in &delta.ops_ref()[ops_before..] {
-                guard.check_op(op);
+            for target in &targets {
+                guard.check_targets(target);
             }
         }));
 

@@ -499,9 +499,14 @@ impl FootprintGuard {
     /// 3. Missing `op_warp` on non-instance ops is always an error
     /// 4. Node/edge/attachment targets must be in the write sets
     #[track_caller]
+    #[cfg(test)]
     pub(crate) fn check_op(&self, op: &WarpOp) {
         let targets = op_write_targets(op);
+        self.check_targets(&targets);
+    }
 
+    #[track_caller]
+    pub(crate) fn check_targets(&self, targets: &OpTargets) {
         // 1. Instance-level ops blocked for user rules
         if targets.is_instance_op && !self.is_system {
             std::panic::panic_any(FootprintViolation {

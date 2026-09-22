@@ -7,6 +7,14 @@
 
 ### Added
 
+- The unreleased `flyingrobots-echo-runtime` crate now proves the first sealed
+  Rust host facade over Echo's trusted runtime and WAL recovery lane. The
+  trusted host implementation can compile without `native_rule_bootstrap`, and
+  the facade exposes bounded configuration plus read-only recovery evidence
+  without exporting the underlying engine, native rule registration, or raw
+  receipt, authority-epoch, and commit constructors. Installation, submission,
+  scheduling, outcomes, and receipts remain outside this first boundary; the
+  crate is explicitly `publish = false` and authorizes no release.
 - The checked Edict provider contract now admits generic nominal Core types as
   exact contract coordinates over bounded storage representations. The
   regenerated provider package remains application-neutral and adds no Jim,

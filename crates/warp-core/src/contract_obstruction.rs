@@ -228,7 +228,7 @@ impl ContractObstruction {
                     submission_id: *submission_id,
                 },
             ),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             RuntimeError::EchoOperationCommit(_)
             | RuntimeError::EchoOperationActionAdmissionMissing(_)
             | RuntimeError::EchoOperationActionRequiresRuntimeWalAck => {

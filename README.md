@@ -196,10 +196,13 @@ application-owned Edict operation now crosses it through a compiler-produced
 package and structurally separate accepted verification report, but no Jedit
 rope lawpack or `ReplaceRange` operation uses it. It does not yet claim
 cross-category scheduler composition or independently implemented semantic
-conformance. It also temporarily reuses `TrustedRuntimeHost`'s joint
-`native_rule_bootstrap` and `trusted_runtime` feature gate. The program itself
-has no native hooks, but the host surface must be decoupled from the legacy
-bootstrap feature before a product can remove that compatibility feature.
+conformance. The existing `xtask` witness still enables both
+`native_rule_bootstrap` and `trusted_runtime`, but the trusted host and WAL
+implementation can now compile without `native_rule_bootstrap`. The unreleased
+`flyingrobots-echo-runtime` crate proves a sealed
+construction-and-recovery facade over that lane. Package installation,
+submission, scheduling, and receipt access have not yet moved to the facade, so
+it remains `publish = false` and is not yet the external product host boundary.
 
 The following sequence is the existing Wesley bootstrap fixture:
 

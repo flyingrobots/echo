@@ -92,6 +92,12 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
+It is also excluded from Echo's public Rust alpha closure. No feature declared
+by a published runtime package may activate native bootstrap directly or
+transitively. The compatibility lane must remain in a `publish = false` package
+and outside every packaged runtime feature combination. This boundary is owned
+by [Public Rust release boundary](../architecture/public-rust-release-boundary.md).
+
 ## Execution Corridors
 
 ### Provider-v1 compatibility corridor
@@ -250,13 +256,17 @@ are deterministic self-validation.
 For descended targets, the retained footprint and patch inputs include every
 portal attachment in the validated root-to-target reachability chain.
 
-The slice currently reuses `TrustedRuntimeHost`, whose module is exposed only
-under the joint `native_rule_bootstrap` and `trusted_runtime` feature gate. That
-compile-time coupling does not place a callback in the operation program, but
-it prevents the maintenance runner from serving as the final product cutover
-boundary.
-The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
-can delete the legacy feature without also losing executable operations.
+The trusted host and WAL implementation now compile under `trusted_runtime`
+without enabling `native_rule_bootstrap`. The unreleased
+`flyingrobots-echo-runtime` crate proves a sealed public construction and WAL
+recovery facade on that feature lane while exporting neither `RewriteRule` nor
+`TrustedRuntimeHost`.
+
+This is the first release-boundary extraction, not the finished external host.
+Package installation, submission, scheduling, typed outcomes, and receipts
+still need bounded facade APIs and a clean external-host witness. The facade
+therefore remains `publish = false`; `warp-core` and its trusted implementation
+surface are not the recommended application API.
 
 ## Footprint Honesty
 

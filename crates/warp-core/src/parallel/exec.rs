@@ -491,11 +491,11 @@ impl std::fmt::Debug for WorkerResult {
 ///
 /// # Footprint evidence posture
 ///
-/// This lane is **unretained and unenforced**. It builds no [`FootprintGuard`]
+/// This lane is **unretained and unenforced**. It builds no `FootprintGuard`
 /// and publishes no footprint record. Legacy callbacks receive the bare
 /// [`GraphView`]; observed callbacks record into a throwaway frame solely to
 /// satisfy their capability contract. Authoritative evidence exists only on the
-/// work-queue path, whose per-item call site is [`execute_item_enforced`].
+/// work-queue path, whose per-item call site is `execute_item_enforced`.
 ///
 /// That distinction is load-bearing rather than bookkeeping. A verification
 /// host that replayed through this lane would have no retained

@@ -82,7 +82,7 @@ use crate::footprint_guard::FootprintGuard;
 /// capability would imply two writers to one transcript, which is precisely the
 /// thing the exclusive borrow is expressing.
 ///
-/// Construct with [`ExecutionGraphView::new_guarded`] when footprint
+/// Construct with `ExecutionGraphView::new_guarded` when footprint
 /// enforcement is active and [`ExecutionGraphView::new`] otherwise. The two
 /// constructors correspond to distinct evidence postures: only a guarded view
 /// can support a claim that a footprint property was *tested under

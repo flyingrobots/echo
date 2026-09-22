@@ -652,6 +652,7 @@ mod tests {
     #[test]
     fn replay_checkpoint_clone_preserves_replay_artifacts_but_clears_ingress_ledger() {
         let mut state = WorldlineState::empty();
+        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())];
         state.last_snapshot = Some(Snapshot {
             root: *state.root(),
             hash: [3u8; 32],
@@ -755,12 +756,17 @@ mod tests {
             state.last_materialization_errors.len()
         );
         assert_eq!(checkpoint.tx_counter, state.tx_counter);
+        assert_eq!(
+            checkpoint.last_execution_footprints,
+            state.last_execution_footprints
+        );
         assert!(checkpoint.committed_ingress.is_empty());
     }
 
     #[test]
     fn replay_base_from_initial_resets_frontier_metadata() {
         let mut state = WorldlineState::empty();
+        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())];
         let snapshot = Snapshot {
             root: *state.root(),
             hash: [1u8; 32],
@@ -821,9 +827,25 @@ mod tests {
         );
         assert!(replay_base.last_snapshot.is_none());
         assert!(replay_base.tick_history.is_empty());
+        assert!(replay_base.last_execution_footprints.is_empty());
         assert!(replay_base.last_materialization.is_empty());
         assert!(replay_base.last_materialization_errors.is_empty());
         assert_eq!(replay_base.tx_counter, 0);
         assert!(replay_base.committed_ingress.is_empty());
+    }
+
+    fn sample_execution_evidence(node: NodeKey) -> crate::ExecutionFootprintEvidence {
+        let mut actual = crate::ActualFootprint::new();
+        actual.record_node_read(node.local_id);
+        crate::ExecutionFootprintEvidence::new(
+            crate::ExecutionEvidenceKey::new(
+                7,
+                node.warp_id,
+                node.local_id,
+                crate::OpOrigin::default(),
+            ),
+            actual,
+            crate::ActualFootprintPosture::RecordedWithoutEnforcement,
+        )
     }
 }

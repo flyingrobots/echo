@@ -1635,6 +1635,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- The observed-session driver refuses an obviously insufficient compiled
+  budget before durable setup and explains that observation reads require an
+  authored, verified allowance rather than silently increasing the grant.
+
 - Filesystem writer takeover refuses an unreconciled WAL tail before reusing
   an empty epoch's log position, preventing duplicate physical LSNs.
 

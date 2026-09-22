@@ -204,6 +204,16 @@ reads. Relevant value changes produce `ObservationChanged`; unavailable support
 produces an obstruction. Unrelated movement does not invalidate the reading.
 The original invocation remains the replay input, including its observation.
 
+The pinned Hello Echo fixture has a 64-byte read budget for an unobserved
+one-shot create; it is not an observation-session profile. `--serve` refuses
+that insufficient budget before creating a WAL. An authored observation profile
+must budget for both the operation and its aperture: each node reading costs two
+steps and 64 bytes plus its encoded value, with additional descent reads where
+applicable. Compile and independently verify that profile before installation;
+the driver never increases a package or grant ceiling. Passing the startup
+minimum does not guarantee that a larger aperture fits. Runtime metering still
+returns `BudgetExceeded` when the actual admitted allowance is exhausted.
+
 Change discovery is a reading over retained observations and native patches.
 It returns aperture keys whose current values differ or which native patches
 wrote after the reading, including a change followed by restoration of the

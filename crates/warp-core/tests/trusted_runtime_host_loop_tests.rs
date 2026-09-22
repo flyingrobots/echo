@@ -1205,6 +1205,105 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
 }
 
 #[test]
+fn healthy_contexts_advance_without_reconstructing_the_wal() {
+    let root = temp_runtime_wal_dir("context-steady-prefix");
+    let (runtime, lane, _) = runtime_pair();
+    let node = *runtime
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    let head = WriterHeadKey {
+        worldline_id: lane,
+        head_id: make_head_id("default-a"),
+    };
+    let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("WAL");
+    let before = warp_core::causal_wal::filesystem_recovery_work();
+    for i in 0..8 {
+        let attempt = format!("attempt-{i}");
+        let observation = host
+            .retain_echo_operation_observation_v1(&attempt, head, &[node])
+            .expect("capture");
+        assert_eq!(
+            host.echo_operation_observation_v1(&attempt)
+                .expect("reading"),
+            observation
+        );
+        let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
+        let original = host
+            .bind_echo_operation_request_v1(&attempt, &attempt, invocation.clone())
+            .expect("bind");
+        assert_eq!(
+            host.bind_echo_operation_request_v1(&attempt, &attempt, invocation)
+                .expect("retry"),
+            original
+        );
+    }
+    let after = warp_core::causal_wal::filesystem_recovery_work();
+    assert_eq!(
+        after, before,
+        "healthy operations rescanned committed records"
+    );
+}
+
+#[test]
+fn context_append_failure_reconciles_the_actual_committed_prefix() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ] {
+        let root = temp_runtime_wal_dir("context-uncertain-prefix");
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("fault");
+        assert!(host
+            .retain_echo_operation_observation_v1("uncertain", head, &[node])
+            .is_err());
+        let committed = target == FilesystemWalFaultTarget::CommitMarkerSynced;
+        assert_eq!(
+            host.echo_operation_observation_v1("uncertain").is_ok(),
+            committed
+        );
+        let retry = host.retain_echo_operation_observation_v1("uncertain", head, &[node]);
+        assert_eq!(
+            retry.is_err(),
+            committed,
+            "durable observation cannot be replaced"
+        );
+        host.retain_echo_operation_observation_v1("next", head, &[node])
+            .expect("reconciled append");
+        let report = host
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("valid retained prefix");
+        assert_eq!(report.certificate.committed_transactions_replayed, 2);
+        assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    }
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
     let wal_root = temp_runtime_wal_dir("tail-report");
     let (runtime, worldline_id) = runtime();

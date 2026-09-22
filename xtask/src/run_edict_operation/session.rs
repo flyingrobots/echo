@@ -142,6 +142,10 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
         let response = result.unwrap_or_else(|error| json!({"error": format!("{error:#}")}));
         println!("{}", serde_json::to_string(&response)?);
         std::io::stdout().flush()?;
+        if std::env::var_os("ECHO_WAL_PROFILE").is_some() {
+            let (scans, frames) = warp_core::causal_wal::filesystem_recovery_work();
+            eprintln!("{}", json!({"wal_profile":{"scans":scans,"frames":frames}}));
+        }
     }
     Ok(())
 }

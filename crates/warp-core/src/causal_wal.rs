@@ -5585,7 +5585,7 @@ pub struct FilesystemWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
-    writer_lock: Option<File>,
+    writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     #[cfg(any(test, feature = "host_test"))]
@@ -8477,7 +8477,18 @@ fn reconcile_writer_epoch_closures(
     Ok(())
 }
 
-fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
+#[derive(Debug)]
+struct WriterEpochLock(File);
+
+impl Drop for WriterEpochLock {
+    fn drop(&mut self) {
+        // A concurrent fork can retain the open file description until exec.
+        // Relinquish this owner's lock explicitly before closing its descriptor.
+        let _ = self.0.unlock();
+    }
+}
+
+fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreError> {
     let lock_path = root.join("writer-epoch.lock");
     let lock = OpenOptions::new()
         .create(true)
@@ -8491,7 +8502,34 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
             std::fs::TryLockError::Error(error) => Err(error.into()),
         };
     }
-    Ok(lock)
+    Ok(WriterEpochLock(lock))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod writer_lease_tests {
+    use super::*;
+
+    #[test]
+    fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
+        let root =
+            std::env::temp_dir().join(format!("echo-inherited-lease-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("scratch directory");
+        let lease = acquire_writer_epoch_lock(&root).expect("first writer");
+        // A forked process briefly inherits the same open file description
+        // before exec closes CLOEXEC descriptors. A duplicate models that
+        // lifetime deterministically, without depending on a process race.
+        let inherited = lease.0.try_clone().expect("inherited descriptor");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(lease);
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner exits");
+        drop(successor);
+        drop(inherited);
+        fs::remove_dir_all(root).expect("scratch cleanup");
+    }
 }
 
 fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {

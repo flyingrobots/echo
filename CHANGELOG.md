@@ -1640,6 +1640,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Filesystem writer leases explicitly unlock when their owner leaves scope,
+  so a descriptor briefly inherited by a concurrent child process cannot keep
+  the departed writer's lease alive and spuriously refuse its successor.
+
 - The observed-session driver refuses an obviously insufficient compiled
   budget before durable setup and explains that observation reads require an
   authored, verified allowance rather than silently increasing the grant.

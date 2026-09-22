@@ -1635,6 +1635,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Observed operations reject observations from another writer head even when
+  both heads belong to the same worldline.
+
 - Reopening a filesystem WAL through an empty writer epoch no longer consumes an
   unwritten log position. A second reopen followed by append previously left an
   LSN gap and made subsequent recovery fail.

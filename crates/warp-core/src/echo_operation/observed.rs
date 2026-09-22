@@ -169,7 +169,7 @@ impl EchoOperationObservationV1 {
         footprint: &mut Footprint,
         meter: &mut EchoOperationBudgetMeterV1,
     ) -> Result<(), EchoOperationObstructionKindV1> {
-        if self.basis.writer_head().worldline_id != submission.writer_head().worldline_id
+        if self.basis.writer_head() != submission.writer_head()
             || self.basis.worldline_tick() > submission.worldline_tick()
         {
             return Err(EchoOperationObstructionKindV1::ObservationChanged);
@@ -275,6 +275,25 @@ mod tests {
             ),
             observed,
         )
+    }
+
+    #[test]
+    fn observation_cannot_cross_writer_heads_in_one_worldline() {
+        let (_, state, basis, _, _, _) = super::super::tests::projected_create_fixture(1024);
+        let observation = EchoOperationObservationV1::capture(&state, basis, &[*state.root()])
+            .expect("observation");
+        let mut other = basis;
+        other.writer_head.head_id = crate::make_head_id("another-head");
+        let result = observation.validate_at_execution(
+            &state,
+            other,
+            &mut Footprint::default(),
+            &mut EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(32, 4096, 1024)),
+        );
+        assert_eq!(
+            result,
+            Err(EchoOperationObstructionKindV1::ObservationChanged)
+        );
     }
 
     #[test]

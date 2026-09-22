@@ -107,8 +107,9 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 # compiles the target with the feature off, finds an empty crate, and reports
 # "running 0 tests ... test result: ok" — a green that means nothing was run.
 # With it, cargo skips the target outright, so a per-crate run cannot be
-# mistaken for coverage. Under `--workspace`, feature unification turns these
-# on and the tests actually execute.
+# mistaken for coverage. Under `--workspace`, dependencies enable
+# `native_rule_bootstrap` and `trusted_runtime`. Targets requiring
+# `delta_validate` still need that feature selected explicitly.
 
 [[test]]
 name = "causal_anchor_external_consumer_tests"

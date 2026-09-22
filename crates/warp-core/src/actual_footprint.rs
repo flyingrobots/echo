@@ -598,8 +598,6 @@ mod tests {
         );
     }
 
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    #[cfg(not(feature = "unsafe_graph"))]
     mod from_ops {
         use super::*;
         use crate::record::NodeRecord;
@@ -714,6 +712,8 @@ mod tests {
         /// because a silent divergence would let a witness claim a violation
         /// enforcement never saw — or, worse, report soundness for an
         /// execution enforcement would have stopped.
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
         mod differential {
             use super::*;
             use crate::footprint_guard::FootprintGuard;

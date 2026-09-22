@@ -1640,6 +1640,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Trusted-host operation observations and logical-request bindings now advance a
+  derived index from acknowledged WAL appends instead of reconstructing retained
+  history on each call. Append errors invalidate the fast path; reconciliation
+  still resolves commits that became durable before the caller observed failure.
+
 - Filesystem writer leases explicitly unlock when their owner leaves scope,
   so a descriptor briefly inherited by a concurrent child process cannot keep
   the departed writer's lease alive and spuriously refuse its successor.

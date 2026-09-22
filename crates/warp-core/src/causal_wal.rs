@@ -6163,13 +6163,33 @@ impl WalStorePort for FilesystemWalStore {
     }
 }
 
+thread_local! {
+    static FILESYSTEM_RECOVERY_WORK: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Cumulative filesystem recovery calls and decoded frames on the calling thread.
+/// Failed scans count as calls; frames count after segment decoding succeeds.
+/// Diagnostic work counters are not retained evidence or admission authority.
+#[must_use]
+pub fn filesystem_recovery_work() -> (u64, u64) {
+    FILESYSTEM_RECOVERY_WORK.get()
+}
+
 /// Recovers committed transactions from filesystem WAL segments.
 pub fn recover_filesystem_store(
     root: impl AsRef<Path>,
     mode: RecoveryAccessMode,
 ) -> Result<RecoveryScanReport, WalRecoveryError> {
+    FILESYSTEM_RECOVERY_WORK.set((
+        filesystem_recovery_work().0 + 1,
+        filesystem_recovery_work().1,
+    ));
     let root = root.as_ref();
     let (frames, commits, torn_tail) = read_filesystem_segments(root)?;
+    FILESYSTEM_RECOVERY_WORK.set((
+        filesystem_recovery_work().0,
+        filesystem_recovery_work().1 + frames.len() as u64,
+    ));
     let mut report = recover_from_frames_and_commits(&frames, &commits, mode)?;
     if torn_tail && matches!(report.tail_posture, RecoveryTailPosture::Clean) {
         report.tail_posture = match mode {

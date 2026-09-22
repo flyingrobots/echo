@@ -14,7 +14,7 @@ use echo_edict_canonical::{
 };
 
 /// Failure to retain or resolve an immutable operation context.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error("operation context: {0}")]
 pub struct EchoOperationContextErrorV1(String);
 
@@ -46,80 +46,106 @@ fn check_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(Default)]
-struct Contexts {
+#[derive(Debug, Clone, Default)]
+pub(super) struct Contexts {
     observations: BTreeMap<String, EchoOperationObservationV1>,
     requests: BTreeMap<String, (String, Hash, Vec<u8>)>,
 }
 
-impl TrustedRuntimeWal {
-    fn operation_contexts(&self) -> Result<Contexts> {
-        let report = self.store.recover_read_only().map_err(error)?;
-        let mut contexts = Contexts::default();
-        for transaction in report.transactions {
-            for frame in transaction.frames {
-                if frame.header.record_kind
-                    != crate::causal_wal::WalRecordKind::ExecutableOperationContextRetained
-                {
-                    continue;
-                }
-                let V::Array(fields) =
-                    decode_canonical_cbor_v1(&frame.payload.canonical_bytes).map_err(error)?
-                else {
-                    return Err(error("invalid context record"));
-                };
-                if fields.len() < 4 || field_text(&fields[0])? != SCHEMA {
-                    return Err(error("invalid context schema"));
-                }
-                let id = field_text(&fields[2])?.to_owned();
-                check_id(&id)?;
-                match field_text(&fields[1])? {
-                    "observation" if fields.len() == 4 => {
-                        let observation =
-                            EchoOperationObservationV1::decode(field_bytes(&fields[3])?)
-                                .map_err(error)?;
-                        if contexts.observations.insert(id, observation).is_some() {
-                            return Err(error("duplicate observation identity"));
-                        }
-                    }
-                    "request" if fields.len() == 6 => {
-                        let attempt = field_text(&fields[3])?.to_owned();
-                        let digest: Hash = field_bytes(&fields[4])?.try_into().map_err(error)?;
-                        let invocation_bytes = field_bytes(&fields[5])?.to_vec();
-                        let invocation =
-                            EchoOperationInvocationV1::from_canonical_bytes(&invocation_bytes)
-                                .map_err(error)?;
-                        let observation = contexts
-                            .observations
-                            .get(&attempt)
-                            .ok_or_else(|| error("request observation unavailable"))?;
-                        if !invocation.has_observation(observation)
-                            || invocation
-                                .observed_semantic_identity(observation)
-                                .map_err(error)?
-                                != digest
-                        {
-                            return Err(error("request identity mismatch"));
-                        }
-                        if contexts
-                            .requests
-                            .insert(id, (attempt, digest, invocation_bytes))
-                            .is_some()
-                        {
-                            return Err(error("duplicate request identity"));
-                        }
-                    }
-                    _ => return Err(error("invalid context record kind")),
-                }
-            }
+impl Contexts {
+    pub(super) fn from_recovery(report: &crate::causal_wal::RecoveryScanReport) -> Result<Self> {
+        let mut contexts = Self::default();
+        for transaction in &report.transactions {
+            contexts.apply_frames(&transaction.frames)?;
         }
         Ok(contexts)
     }
 
+    pub(super) fn apply_frames(&mut self, frames: &[crate::causal_wal::WalFrame]) -> Result<()> {
+        for frame in frames {
+            if frame.header.record_kind
+                != crate::causal_wal::WalRecordKind::ExecutableOperationContextRetained
+            {
+                continue;
+            }
+            let V::Array(fields) =
+                decode_canonical_cbor_v1(&frame.payload.canonical_bytes).map_err(error)?
+            else {
+                return Err(error("invalid context record"));
+            };
+            if fields.len() < 4 || field_text(&fields[0])? != SCHEMA {
+                return Err(error("invalid context schema"));
+            }
+            let id = field_text(&fields[2])?.to_owned();
+            check_id(&id)?;
+            match field_text(&fields[1])? {
+                "observation" if fields.len() == 4 => {
+                    let observation = EchoOperationObservationV1::decode(field_bytes(&fields[3])?)
+                        .map_err(error)?;
+                    if self.observations.insert(id, observation).is_some() {
+                        return Err(error("duplicate observation identity"));
+                    }
+                }
+                "request" if fields.len() == 6 => {
+                    let attempt = field_text(&fields[3])?.to_owned();
+                    let digest: Hash = field_bytes(&fields[4])?.try_into().map_err(error)?;
+                    let invocation_bytes = field_bytes(&fields[5])?.to_vec();
+                    let invocation =
+                        EchoOperationInvocationV1::from_canonical_bytes(&invocation_bytes)
+                            .map_err(error)?;
+                    let observation = self
+                        .observations
+                        .get(&attempt)
+                        .ok_or_else(|| error("request observation unavailable"))?;
+                    if !invocation.has_observation(observation)
+                        || invocation
+                            .observed_semantic_identity(observation)
+                            .map_err(error)?
+                            != digest
+                    {
+                        return Err(error("request identity mismatch"));
+                    }
+                    if self
+                        .requests
+                        .insert(id, (attempt, digest, invocation_bytes))
+                        .is_some()
+                    {
+                        return Err(error("duplicate request identity"));
+                    }
+                }
+                _ => return Err(error("invalid context record kind")),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl TrustedRuntimeWal {
+    fn operation_contexts(&self) -> Result<std::borrow::Cow<'_, Contexts>> {
+        if let Some((prefix, contexts)) = &self.operation_context_index {
+            if *prefix == self.previous_committed_transaction_digest {
+                return Ok(std::borrow::Cow::Borrowed(contexts));
+            }
+        }
+        // A read after an uncertain append resolves retained truth, but does not
+        // restore permission to append from the old writer cursor.
+        let report = self.store.recover_read_only().map_err(error)?;
+        Ok(std::borrow::Cow::Owned(Contexts::from_recovery(&report)?))
+    }
+
+    fn reconcile_operation_context_prefix(&mut self) -> Result<()> {
+        if self
+            .operation_context_index
+            .as_ref()
+            .is_none_or(|(prefix, _)| *prefix != self.previous_committed_transaction_digest)
+        {
+            self.refresh_cursor_from_store_for_writer().map_err(error)?;
+        }
+        Ok(())
+    }
+
     fn retain_operation_context(&mut self, fields: Vec<V>) -> Result<()> {
-        // A previous flush may have failed after bytes reached storage. Rebuild
-        // the owned writer cursor and truncate an uncommitted tail before append.
-        self.refresh_cursor_from_store_for_writer().map_err(error)?;
+        self.reconcile_operation_context_prefix()?;
         let bytes = encode_canonical_cbor_v1(&V::Array(fields)).map_err(error)?;
         let transaction_id = WalTransactionId::from_hash(*blake3::hash(&bytes).as_bytes());
         let mut builder = self.builder(
@@ -151,11 +177,12 @@ impl TrustedRuntimeHost {
         nodes: &[NodeKey],
     ) -> Result<EchoOperationObservationV1> {
         check_id(attempt)?;
-        let contexts = self
+        let wal = self
             .runtime_wal
-            .as_ref()
-            .ok_or_else(|| error("durable WAL required"))?
-            .operation_contexts()?;
+            .as_mut()
+            .ok_or_else(|| error("durable WAL required"))?;
+        wal.reconcile_operation_context_prefix()?;
+        let contexts = wal.operation_contexts()?;
         if contexts.observations.contains_key(attempt) {
             return Err(error("attempt observation is immutable"));
         }
@@ -212,7 +239,8 @@ impl TrustedRuntimeHost {
             .ok_or_else(|| error("durable WAL required"))?
             .operation_contexts()?
             .observations
-            .remove(attempt)
+            .get(attempt)
+            .cloned()
             .ok_or_else(|| error("observation unavailable; re-observation requires a new attempt"))
     }
 
@@ -292,11 +320,12 @@ impl TrustedRuntimeHost {
         invocation: EchoOperationInvocationV1,
     ) -> Result<Vec<u8>> {
         check_id(request)?;
-        let contexts = self
+        let wal = self
             .runtime_wal
-            .as_ref()
-            .ok_or_else(|| error("durable WAL required"))?
-            .operation_contexts()?;
+            .as_mut()
+            .ok_or_else(|| error("durable WAL required"))?;
+        wal.reconcile_operation_context_prefix()?;
+        let contexts = wal.operation_contexts()?;
         let observation = contexts
             .observations
             .get(attempt)

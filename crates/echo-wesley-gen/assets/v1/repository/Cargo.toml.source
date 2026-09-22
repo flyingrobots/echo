@@ -2,6 +2,7 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [workspace]
 members = [
+    "crates/echo-runtime",
     "crates/echo-runtime-schema",
     "crates/warp-math",
     "crates/warp-core",
@@ -42,12 +43,13 @@ echo-file-aperture = { version = "0.1.0", path = "crates/echo-file-aperture" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
 echo-runtime-schema = { version = "0.1.0", path = "crates/echo-runtime-schema", default-features = false }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
+echo-runtime = { version = "0.1.0-alpha.1", path = "crates/echo-runtime" }
 echo-edict-canonical = { version = "0.1.0", path = "crates/echo-edict-canonical" }
 echo-scene-codec = { version = "0.1.0", path = "crates/echo-scene-codec" }
 echo-scene-port = { version = "0.1.0", path = "crates/echo-scene-port" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
 warp-math = { version = "0.1.0", path = "crates/warp-math" }
-warp-core = { version = "0.1.1", path = "crates/warp-core" }
+warp-core = { version = "0.1.1", path = "crates/warp-core", default-features = false }
 
 # ── Workspace-wide lint policy ──────────────────────────────────────
 # Maximum strictness. Crates opt in via `[lints] workspace = true`.

@@ -1640,6 +1640,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Trusted-host operation observations and logical-request bindings now advance a
+  derived index from acknowledged WAL appends instead of reconstructing retained
+  history on each call. Append errors invalidate the fast path; reconciliation
+  still resolves commits that became durable before the caller observed failure.
+
 - Reopening a filesystem WAL through an empty writer epoch no longer consumes an
   unwritten log position. A second reopen followed by append previously left an
   LSN gap and made subsequent recovery fail.

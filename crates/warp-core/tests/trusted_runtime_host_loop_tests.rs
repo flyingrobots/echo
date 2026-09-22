@@ -1304,6 +1304,66 @@ fn context_append_failure_reconciles_the_actual_committed_prefix() {
 }
 
 #[test]
+fn durable_request_error_resolves_original_bytes_before_retrying() {
+    let root = temp_runtime_wal_dir("request-uncertain-prefix");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    let observation = host
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .expect("observation");
+    let invocation = |value: &[u8]| {
+        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, value.to_vec(), vec![0xa0])
+    };
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .is_err());
+    // The caller did not see success, but the semantic identity is already fixed.
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    let scans = warp_core::causal_wal::filesystem_recovery_work();
+    let bytes = host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .expect("resolve durable request");
+    assert_eq!(scans, warp_core::causal_wal::filesystem_recovery_work());
+    assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    drop(host);
+    let (mut recovered, _, _) = reopen();
+    assert_eq!(
+        recovered
+            .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+            .expect("original after reopen"),
+        bytes
+    );
+    assert!(recovered
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    assert_eq!(recovered.runtime_wal().expect("WAL").commits().len(), 2);
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
     let wal_root = temp_runtime_wal_dir("tail-report");
     let (runtime, worldline_id) = runtime();

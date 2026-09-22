@@ -1635,6 +1635,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Filesystem writer takeover refuses an unreconciled WAL tail before reusing
+  an empty epoch's log position, preventing duplicate physical LSNs.
+
 - Observation change discovery preserves intervening writes after values are
   restored, including after reopening. The session driver resolves keys and
   commit evidence together from native provenance instead of repeatedly

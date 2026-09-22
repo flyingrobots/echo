@@ -186,7 +186,7 @@ impl EchoOperationObservationV1 {
             if !meter.charge(2, 64 + actual.len() as u64, 0) {
                 return Err(EchoOperationObstructionKindV1::BudgetExceeded);
             }
-            footprint.n_read.insert(*node);
+            record_node_read(footprint, *node);
             footprint.a_read.insert(AttachmentKey::node_alpha(*node));
             if actual != *expected {
                 return Err(EchoOperationObstructionKindV1::ObservationChanged);
@@ -316,6 +316,11 @@ mod tests {
             .n_read
             .iter()
             .any(|node| *node == observed));
+        assert_ne!(
+            prepared.actual_footprint().factor_mask & (1_u64 << (observed.local_id.0[0] & 63)),
+            0,
+            "the observation's partition must be represented in the footprint mask"
+        );
         assert!(prepared
             .patch()
             .in_slots()

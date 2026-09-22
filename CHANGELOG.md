@@ -1635,6 +1635,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Observation reads now populate the footprint partition mask as well as the
+  exact read sets, keeping retained footprint evidence consistent.
+
 - Observed operations reject observations from another writer head even when
   both heads belong to the same worldline.
 

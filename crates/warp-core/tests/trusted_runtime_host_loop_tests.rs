@@ -1168,6 +1168,14 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
     let observation = host
         .retain_echo_operation_observation_v1("attempt", head, &[node])
         .expect("retain reading");
+    assert_eq!(
+        observation.basis().application_basis(),
+        warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+            node,
+            warp_core::EchoOperationAnchoredNodeOccupancyV1::NodeOnly,
+        ),
+        "the canonical root exists without an alpha attachment"
+    );
     let invocation = |value: &[u8]| {
         warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
         warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",

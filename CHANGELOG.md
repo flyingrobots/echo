@@ -1635,6 +1635,9 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Retained observations bind the anchor's actual occupancy instead of claiming
+  that every observed anchor was absent.
+
 - Observation reads now populate the footprint partition mask as well as the
   exact read sets, keeping retained footprint evidence consistent.
 

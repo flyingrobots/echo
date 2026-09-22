@@ -162,17 +162,30 @@ impl TrustedRuntimeHost {
         let first = nodes
             .first()
             .ok_or_else(|| error("observation needs an aperture"))?;
-        let application_basis =
-            crate::echo_operation_anchored_node_absent_application_basis_v1(*first);
-        let basis = self
-            .echo_operation_evaluation_basis_v1(head, application_basis)
-            .map_err(error)?;
         let state = self
             .runtime
             .worldlines()
             .get(&head.worldline_id)
             .ok_or_else(|| error("worldline unavailable"))?
             .state();
+        let store = state
+            .store(&first.warp_id)
+            .ok_or_else(|| error("observation warp unavailable"))?;
+        use crate::EchoOperationAnchoredNodeOccupancyV1 as Occupancy;
+        let occupancy = match (
+            store.node(&first.local_id).is_some(),
+            store.node_attachment(&first.local_id).is_some(),
+        ) {
+            (false, false) => Occupancy::Absent,
+            (true, false) => Occupancy::NodeOnly,
+            (false, true) => Occupancy::AttachmentOnly,
+            (true, true) => Occupancy::NodeAndAttachment,
+        };
+        let application_basis =
+            crate::echo_operation_anchored_node_creation_application_basis_v1(*first, occupancy);
+        let basis = self
+            .echo_operation_evaluation_basis_v1(head, application_basis)
+            .map_err(error)?;
         let observation =
             EchoOperationObservationV1::capture(state, basis, nodes).map_err(error)?;
         self.runtime_wal

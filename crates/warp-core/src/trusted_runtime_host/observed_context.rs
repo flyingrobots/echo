@@ -5,7 +5,10 @@ use super::{
     BTreeMap, Error, Hash, TrustedRuntimeHost, TrustedRuntimeWal, WalAppendAuthority,
     WalTransactionId, WalTransactionKind,
 };
-use crate::{EchoOperationInvocationV1, EchoOperationObservationV1, NodeKey, WriterHeadKey};
+use crate::EchoOperationAnchoredNodeOccupancyV1 as Occupancy;
+use crate::{
+    EchoOperationInvocationV1, EchoOperationObservationV1, NodeKey, ProvenanceStore, WriterHeadKey,
+};
 use echo_edict_canonical::{
     decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1 as V,
 };
@@ -189,17 +192,29 @@ impl TrustedRuntimeHost {
         let first = nodes
             .first()
             .ok_or_else(|| error("observation needs an aperture"))?;
-        let application_basis =
-            crate::echo_operation_anchored_node_absent_application_basis_v1(*first);
-        let basis = self
-            .echo_operation_evaluation_basis_v1(head, application_basis)
-            .map_err(error)?;
         let state = self
             .runtime
             .worldlines()
             .get(&head.worldline_id)
             .ok_or_else(|| error("worldline unavailable"))?
             .state();
+        let store = state
+            .store(&first.warp_id)
+            .ok_or_else(|| error("observation warp unavailable"))?;
+        let occupancy = match (
+            store.node(&first.local_id).is_some(),
+            store.node_attachment(&first.local_id).is_some(),
+        ) {
+            (false, false) => Occupancy::Absent,
+            (true, false) => Occupancy::NodeOnly,
+            (false, true) => Occupancy::AttachmentOnly,
+            (true, true) => Occupancy::NodeAndAttachment,
+        };
+        let application_basis =
+            crate::echo_operation_anchored_node_creation_application_basis_v1(*first, occupancy);
+        let basis = self
+            .echo_operation_evaluation_basis_v1(head, application_basis)
+            .map_err(error)?;
         let observation =
             EchoOperationObservationV1::capture(state, basis, nodes).map_err(error)?;
         self.runtime_wal
@@ -229,46 +244,70 @@ impl TrustedRuntimeHost {
             .ok_or_else(|| error("observation unavailable; re-observation requires a new attempt"))
     }
 
-    /// Returns only changed resources in this attempt's retained aperture.
+    /// Returns support changed now or written since this attempt's reading.
     pub fn echo_operation_observation_changes_v1(&self, attempt: &str) -> Result<Vec<NodeKey>> {
-        let observation = self.echo_operation_observation_v1(attempt)?;
-        let state = self
-            .runtime
-            .worldlines()
-            .get(&observation.basis().writer_head().worldline_id)
-            .ok_or_else(|| error("worldline unavailable"))?
-            .state();
-        observation.changed_nodes(state).map_err(error)
+        self.echo_operation_observation_change_evidence_v1(attempt)
+            .map(|(nodes, _)| nodes)
     }
 
     /// Retained commits which wrote the changed support after this reading.
     /// Unrelated commits and their payloads are excluded from the result.
     pub fn echo_operation_observation_change_commits_v1(&self, attempt: &str) -> Result<Vec<Hash>> {
+        self.echo_operation_observation_change_evidence_v1(attempt)
+            .map(|(_, commits)| commits)
+    }
+
+    /// Resolves aperture changes and their commit evidence together.
+    ///
+    /// Native retained writes remain discoverable after a value is restored.
+    /// Current-value differences also remain visible. Missing retained provenance
+    /// obstructs instead of being interpreted as an unchanged observation.
+    pub fn echo_operation_observation_change_evidence_v1(
+        &self,
+        attempt: &str,
+    ) -> Result<(Vec<NodeKey>, Vec<Hash>)> {
         let observation = self.echo_operation_observation_v1(attempt)?;
-        let changed = self.echo_operation_observation_changes_v1(attempt)?;
-        let history = self
-            .runtime_wal
-            .as_ref()
-            .ok_or_else(|| error("durable WAL required"))?
-            .recover_read_only()
-            .map_err(error)?;
-        Ok(history
-            .provenance_entries
-            .iter()
-            .filter(|entry| {
-                entry.worldline_id == observation.basis().writer_head().worldline_id
-                    && entry.worldline_tick >= observation.basis().worldline_tick()
-                    && entry.patch.as_ref().is_some_and(|patch| {
-                        changed.iter().any(|node| {
-                            patch.out_slots.contains(&crate::SlotId::Node(*node))
-                                || patch.out_slots.contains(&crate::SlotId::Attachment(
-                                    crate::AttachmentKey::node_alpha(*node),
-                                ))
-                        })
-                    })
-            })
-            .map(|entry| entry.expected.commit_hash)
-            .collect())
+        let lane = observation.basis().writer_head().worldline_id;
+        let worldline = self
+            .runtime
+            .worldlines()
+            .get(&lane)
+            .ok_or_else(|| error("worldline unavailable"))?;
+        let mut changed = observation
+            .changed_nodes(worldline.state())
+            .map_err(error)?
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut commits = Vec::new();
+        // This index is populated by native commitment and reconstructed by WAL
+        // recovery before the host becomes available. Do not reconstruct it for
+        // each change query.
+        for tick in
+            observation.basis().worldline_tick().as_u64()..worldline.frontier_tick().as_u64()
+        {
+            let entry = self
+                .provenance()
+                .entry(lane, crate::WorldlineTick::from_raw(tick))
+                .map_err(error)?;
+            let Some(patch) = entry.patch else {
+                continue;
+            };
+            let mut relevant = false;
+            for (node, _) in observation.readings() {
+                if patch.out_slots.contains(&crate::SlotId::Node(node))
+                    || patch.out_slots.contains(&crate::SlotId::Attachment(
+                        crate::AttachmentKey::node_alpha(node),
+                    ))
+                {
+                    changed.insert(node);
+                    relevant = true;
+                }
+            }
+            if relevant {
+                commits.push(entry.expected.commit_hash);
+            }
+        }
+        Ok((changed.into_iter().collect(), commits))
     }
 
     /// Binds a logical request before ingress acceptance. Exact retry returns

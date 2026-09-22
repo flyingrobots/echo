@@ -1145,6 +1145,126 @@ fn filesystem_runtime_wal_empty_reopen_does_not_consume_a_log_position() {
 }
 
 #[test]
+fn observation_change_discovery_retains_intervening_writes_after_values_are_restored() {
+    fn toggle_root(view: GraphView<'_>, _: &NodeId, delta: &mut TickDelta) {
+        let root = make_node_id("root");
+        let current = view.node(&root).expect("root").ty;
+        delta.push(WarpOp::UpsertNode {
+            node: warp_core::NodeKey {
+                warp_id: view.warp_id(),
+                local_id: root,
+            },
+            record: NodeRecord {
+                ty: if current == make_type_id("world") {
+                    make_type_id("changed")
+                } else {
+                    make_type_id("world")
+                },
+            },
+        });
+    }
+    fn footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footprint {
+        let mut fp = warp_core::runtime_ingress_eint_read_footprint(view, scope);
+        fp.n_read
+            .insert_with_warp(view.warp_id(), make_node_id("root"));
+        fp.n_write
+            .insert_with_warp(view.warp_id(), make_node_id("root"));
+        fp
+    }
+    fn matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID).is_some()
+    }
+    let path = temp_runtime_wal_dir("observation-aba");
+    let (initial, lane) = runtime();
+    let root = *initial
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    let head = WriterHeadKey {
+        worldline_id: lane,
+        head_id: make_head_id("default"),
+    };
+    let mut host = TrustedRuntimeHost::new(initial, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&path))
+        .expect("WAL");
+    let mut package = package();
+    package.mutation_handlers[0].rule.executor = toggle_root;
+    package.mutation_handlers[0].rule.matcher = matches;
+    package.mutation_handlers[0].rule.compute_footprint = footprint;
+    host.register_contract_package(package).expect("package");
+    host.retain_echo_operation_observation_v1("watch", head, &[root])
+        .expect("observe");
+    let unrelated = warp_core::NodeKey {
+        warp_id: root.warp_id,
+        local_id: make_node_id("unrelated"),
+    };
+    host.retain_echo_operation_observation_v1("control", head, &[unrelated])
+        .expect("control");
+    for index in 0..2 {
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id: lane },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, &[index]).expect("EINT"),
+        );
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("submit");
+        host.stage_installed_contract_submission(
+            submission.submission_id,
+            &admission_ticket(59 + index),
+        )
+        .expect("stage");
+        host.run_until_idle(4).expect("execute");
+    }
+    assert_eq!(
+        host.runtime()
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .store(&root.warp_id)
+            .expect("store")
+            .node(&root.local_id)
+            .expect("root")
+            .ty,
+        make_type_id("world")
+    );
+    drop(host);
+    let (initial, _) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial, empty_engine()).expect("fresh host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&path))
+        .expect("reopen");
+    host.runtime_wal()
+        .expect("WAL")
+        .reset_recover_read_only_call_count_for_test();
+    assert_eq!(
+        host.echo_operation_observation_changes_v1("watch")
+            .expect("changes"),
+        vec![root]
+    );
+    assert_eq!(
+        host.echo_operation_observation_change_commits_v1("watch")
+            .expect("commits")
+            .len(),
+        2
+    );
+    assert!(host
+        .echo_operation_observation_changes_v1("control")
+        .expect("control changes")
+        .is_empty());
+    assert_eq!(
+        host.runtime_wal()
+            .expect("WAL")
+            .recover_read_only_call_count_for_test(),
+        0,
+        "change discovery must reuse the recovered native provenance index"
+    );
+}
+
+#[test]
 fn observed_operation_contexts_recover_without_replacing_original_inputs() {
     let root = temp_runtime_wal_dir("observed-request-context");
     let reopen = || {
@@ -1168,6 +1288,14 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
     let observation = host
         .retain_echo_operation_observation_v1("attempt", head, &[node])
         .expect("retain reading");
+    assert_eq!(
+        observation.basis().application_basis(),
+        warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+            node,
+            warp_core::EchoOperationAnchoredNodeOccupancyV1::NodeOnly,
+        ),
+        "the canonical root exists without an alpha attachment"
+    );
     let invocation = |value: &[u8]| {
         warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
         warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",

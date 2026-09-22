@@ -53,6 +53,12 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
         package.target_intrinsic,
     )?;
     validate_package_configuration(&package, &configuration)?;
+    // One root-level observed slot costs two steps and 64 bytes plus its
+    // nonempty encoded value; the create operation also reads 64 bytes. These
+    // are necessary lower bounds, not a promise that every aperture fits.
+    if package.budget.read_bytes() <= 128 || package.budget.steps() < 3 {
+        bail!("insufficient budget for an observation-bound session: compile an observation-capable profile with more than 128 read bytes and at least 3 steps; the full aperture and operation remain subject to the admitted ceiling");
+    }
     let input = parse_input(
         &read_bounded(&config.input, MAX_INPUT_BYTES, "bootstrap")?,
         &configuration,
@@ -268,14 +274,10 @@ impl Session {
                 Ok(json!({"attempt":attempt, "readings":readings}))
             }
             "changes" => {
-                let nodes = self
+                let (nodes, commits) = self
                     .fixture
                     .host
-                    .echo_operation_observation_changes_v1(text(request, "attempt")?)?;
-                let commits = self
-                    .fixture
-                    .host
-                    .echo_operation_observation_change_commits_v1(text(request, "attempt")?)?;
+                    .echo_operation_observation_change_evidence_v1(text(request, "attempt")?)?;
                 Ok(
                     json!({"changed":!nodes.is_empty(), "nodes":nodes.iter().map(|node| hex::encode(node.local_id.0)).collect::<Vec<_>>(), "commits":commits.iter().map(hex::encode).collect::<Vec<_>>()}),
                 )

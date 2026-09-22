@@ -5585,7 +5585,7 @@ pub struct FilesystemWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
-    writer_lock: Option<File>,
+    writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     #[cfg(any(test, feature = "host_test"))]
@@ -5734,6 +5734,8 @@ impl FilesystemWalStore {
     /// reread. An active epoch left by a terminated process is closed under
     /// that lease before the successor is derived and admitted. A concurrently
     /// live writer retains the lease and prevents takeover.
+    /// An uncommitted or torn tail must be reconciled by writable recovery
+    /// before takeover; refusing it preserves the previous epoch ledger.
     pub fn acquire_fresh_writer_epoch(
         &mut self,
         minimum_started_at_lsn: Lsn,
@@ -5743,6 +5745,16 @@ impl FilesystemWalStore {
         }
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.reload_writer_epoch_ledger()?;
+        let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
+            |error| match error {
+                WalRecoveryError::Store(error) => error,
+                WalRecoveryError::Validation(error) => WalStoreError::Validation(error),
+                WalRecoveryError::Index(error) => WalStoreError::RecoveryIndex(error),
+            },
+        )?;
+        if !matches!(recovery.tail_posture, RecoveryTailPosture::Clean) {
+            return Err(WalStoreError::SegmentHasUncommittedTail(self.segment_id));
+        }
 
         if self.active_epoch.is_some() {
             let previous_ledger = self.writer_epoch_ledger();
@@ -8485,7 +8497,18 @@ fn reconcile_writer_epoch_closures(
     Ok(())
 }
 
-fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
+#[derive(Debug)]
+struct WriterEpochLock(File);
+
+impl Drop for WriterEpochLock {
+    fn drop(&mut self) {
+        // A concurrent fork can retain the open file description until exec.
+        // Relinquish this owner's lock explicitly before closing its descriptor.
+        let _ = self.0.unlock();
+    }
+}
+
+fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreError> {
     let lock_path = root.join("writer-epoch.lock");
     let lock = OpenOptions::new()
         .create(true)
@@ -8499,7 +8522,34 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
             std::fs::TryLockError::Error(error) => Err(error.into()),
         };
     }
-    Ok(lock)
+    Ok(WriterEpochLock(lock))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod writer_lease_tests {
+    use super::*;
+
+    #[test]
+    fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
+        let root =
+            std::env::temp_dir().join(format!("echo-inherited-lease-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("scratch directory");
+        let lease = acquire_writer_epoch_lock(&root).expect("first writer");
+        // A forked process briefly inherits the same open file description
+        // before exec closes CLOEXEC descriptors. A duplicate models that
+        // lifetime deterministically, without depending on a process race.
+        let inherited = lease.0.try_clone().expect("inherited descriptor");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(lease);
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner exits");
+        drop(successor);
+        drop(inherited);
+        fs::remove_dir_all(root).expect("scratch cleanup");
+    }
 }
 
 fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {
@@ -9896,6 +9946,9 @@ pub enum WalValidationError {
 /// WAL store errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalStoreError {
+    /// The retained prefix could not establish its recovery indexes.
+    #[error(transparent)]
+    RecoveryIndex(#[from] WalRecoveryIndexError),
     /// A writer epoch is already active.
     #[error("WAL writer epoch already active")]
     WriterEpochAlreadyActive,

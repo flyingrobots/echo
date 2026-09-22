@@ -1694,6 +1694,10 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Filesystem writer leases explicitly unlock when their owner leaves scope,
+  so a descriptor briefly inherited by a concurrent child process cannot keep
+  the departed writer's lease alive and spuriously refuse its successor.
+
 - A writer epoch that commits nothing no longer consumes an LSN. An LSN names a
   WAL frame; acquiring an epoch persists ledger evidence and emits no frame, so
   an epoch's start LSN is the next unallocated frame coordinate and is

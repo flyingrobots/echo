@@ -215,6 +215,11 @@ or missing predecessor links, reused fencing evidence, LSN regression,
 corrupted ledgers, and commits without their epoch ledger fail closed before
 append.
 
+Orderly owner teardown explicitly unlocks the lease before closing its file.
+This prevents a descriptor temporarily inherited by a concurrent fork from
+extending the departed owner's lock until the child executes its program.
+The live owner's lease still excludes every competing writer.
+
 Epoch-chain advancement is strict, but the start LSN is not the thing that
 advances. An LSN names a WAL _frame_; acquiring an epoch persists ledger
 evidence and emits no frame. An epoch's start LSN is therefore the next

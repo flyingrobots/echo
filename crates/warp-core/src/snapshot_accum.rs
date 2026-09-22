@@ -810,6 +810,7 @@ impl SnapshotAccumulator {
         use blake3::Hasher;
 
         let mut hasher = Hasher::new();
+        hasher.update(crate::domain::STATE_ROOT_V1);
 
         // Root binding
         hasher.update(&root.warp_id.0);
@@ -983,6 +984,17 @@ fn hash_attachment_value(hasher: &mut blake3::Hasher, value: &AttachmentValue) {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accumulator_root_matches_the_canonical_snapshot_root() {
+        let state = crate::WorldlineState::empty();
+        let accumulator = SnapshotAccumulator::from_warp_state(state.warp_state());
+        let actual = accumulator.build(state.root(), [0; 32], 0);
+        assert_eq!(
+            actual.state_root,
+            crate::snapshot::compute_state_root(state.warp_state(), state.root())
+        );
+    }
 
     #[test]
     fn test_empty_accumulator() {

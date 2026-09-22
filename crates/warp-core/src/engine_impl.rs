@@ -2170,11 +2170,19 @@ impl Engine {
                                 | crate::inbox::ACK_PENDING_RULE_NAME
                         );
                         if is_system {
-                            ExecItem::new_system(exec, rw.scope.local_id, rw.origin)
-                                .with_evidence_sequence(evidence_sequence)
+                            ExecItem::new_system(
+                                evidence_sequence,
+                                exec,
+                                rw.scope.local_id,
+                                rw.origin,
+                            )
                         } else {
-                            ExecItem::from_rule_executor(exec, rw.scope.local_id, rw.origin)
-                                .with_evidence_sequence(evidence_sequence)
+                            ExecItem::from_rule_executor(
+                                evidence_sequence,
+                                exec,
+                                rw.scope.local_id,
+                                rw.origin,
+                            )
                         }
                     }
                     #[cfg(any(
@@ -2183,8 +2191,12 @@ impl Engine {
                     ))]
                     {
                         let _ = name;
-                        ExecItem::from_rule_executor(exec, rw.scope.local_id, rw.origin)
-                            .with_evidence_sequence(evidence_sequence)
+                        ExecItem::from_rule_executor(
+                            evidence_sequence,
+                            exec,
+                            rw.scope.local_id,
+                            rw.origin,
+                        )
                     }
                 })
                 .collect();

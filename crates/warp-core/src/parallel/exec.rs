@@ -348,33 +348,56 @@ impl ExecItem {
     ///
     /// This is the default constructor for all externally-registered rules.
     /// The cfg-gated `kind` field is set to `User` automatically.
-    pub fn new(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
-        Self::from_rule_executor(RuleExecutor::legacy(exec), scope, origin)
+    ///
+    /// The caller must supply a canonical sequence unique across the complete
+    /// work-unit batch; a per-rule match index is not an execution identity.
+    /// Omitting that sequence is rejected:
+    ///
+    /// ```compile_fail
+    /// use warp_core::{GraphView, NodeId, OpOrigin, TickDelta};
+    /// use warp_core::parallel::ExecItem;
+    /// fn execute(_: GraphView<'_>, _: &NodeId, _: &mut TickDelta) {}
+    /// let item = ExecItem::new(execute, NodeId([0; 32]), OpOrigin::default());
+    /// ```
+    pub fn new(evidence_sequence: u32, exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+        Self::from_rule_executor(evidence_sequence, RuleExecutor::legacy(exec), scope, origin)
     }
 
     /// Creates an observed user-level `ExecItem`.
     ///
     /// Reads performed by `exec` pass through [`ExecutionGraphView`] and are
     /// eligible for complete per-Action evidence when enforcement is active.
-    pub fn new_observed(exec: ObservedExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
-        Self::from_rule_executor(RuleExecutor::observed(exec), scope, origin)
+    /// As with [`Self::new`], the caller supplies the batch-wide canonical
+    /// evidence sequence rather than a per-rule match index.
+    pub fn new_observed(
+        evidence_sequence: u32,
+        exec: ObservedExecuteFn,
+        scope: NodeId,
+        origin: OpOrigin,
+    ) -> Self {
+        Self::from_rule_executor(
+            evidence_sequence,
+            RuleExecutor::observed(exec),
+            scope,
+            origin,
+        )
     }
 
-    pub(crate) fn from_rule_executor(exec: RuleExecutor, scope: NodeId, origin: OpOrigin) -> Self {
+    pub(crate) fn from_rule_executor(
+        evidence_sequence: u32,
+        exec: RuleExecutor,
+        scope: NodeId,
+        origin: OpOrigin,
+    ) -> Self {
         Self {
             exec,
             scope,
             origin,
-            evidence_sequence: origin.match_ix,
+            evidence_sequence,
             #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
             #[cfg(not(feature = "unsafe_graph"))]
             kind: ExecItemKind::User,
         }
-    }
-
-    pub(crate) const fn with_evidence_sequence(mut self, sequence: u32) -> Self {
-        self.evidence_sequence = sequence;
-        self
     }
 
     /// Creates a new system-level `ExecItem`.
@@ -383,12 +406,17 @@ impl ExecItem {
     /// are allowed to emit instance-level ops under enforcement.
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
-    pub(crate) fn new_system(exec: RuleExecutor, scope: NodeId, origin: OpOrigin) -> Self {
+    pub(crate) fn new_system(
+        evidence_sequence: u32,
+        exec: RuleExecutor,
+        scope: NodeId,
+        origin: OpOrigin,
+    ) -> Self {
         Self {
             exec,
             scope,
             origin,
-            evidence_sequence: origin.match_ix,
+            evidence_sequence,
             kind: ExecItemKind::System,
         }
     }
@@ -1305,6 +1333,7 @@ mod tests {
         store.insert_node(undeclared, NodeRecord { ty: node_ty });
 
         let items = vec![ExecItem::new(
+            0,
             reads_an_undeclared_node,
             scope,
             OpOrigin {
@@ -1370,6 +1399,7 @@ mod tests {
             let scope = NodeId(bytes);
             store.insert_node(scope, NodeRecord { ty: node_ty });
             items.push(ExecItem::new(
+                i as u32,
                 test_executor,
                 scope,
                 OpOrigin {

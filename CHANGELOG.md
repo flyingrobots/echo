@@ -1694,6 +1694,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- `ExecItem` constructors require an explicit canonical evidence sequence.
+  Manually assembled work units no longer silently reuse a per-rule match
+  index as the execution sequence. Engine callers pass the existing batch-wide
+  enumeration directly, preserving scheduler order.
+
 - Filesystem writer leases explicitly unlock when their owner leaves scope,
   so a descriptor briefly inherited by a concurrent child process cannot keep
   the departed writer's lease alive and spuriously refuse its successor.

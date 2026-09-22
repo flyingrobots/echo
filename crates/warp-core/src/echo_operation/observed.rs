@@ -278,6 +278,37 @@ mod tests {
     }
 
     #[test]
+    fn retry_identity_survives_submission_occupancy_changes_but_not_input_changes() {
+        let (_, state, basis, _, invocation, _) =
+            super::super::tests::projected_create_fixture(1_024);
+        let observation = EchoOperationObservationV1::capture(&state, basis, &[*state.root()])
+            .expect("observation");
+        let original = invocation
+            .observed_semantic_identity(&observation)
+            .expect("identity");
+        let mut retry = invocation.clone();
+        retry.evaluation_basis.application_basis =
+            echo_operation_anchored_node_creation_application_basis_v1(
+                invocation.node,
+                EchoOperationAnchoredNodeOccupancyV1::NodeAndAttachment,
+            );
+        retry.evaluation_basis.worldline_tick = WorldlineTick::from_raw(100);
+        assert_eq!(
+            retry
+                .observed_semantic_identity(&observation)
+                .expect("retry identity"),
+            original
+        );
+        retry.replacement_bytes.push(1);
+        assert_ne!(
+            retry
+                .observed_semantic_identity(&observation)
+                .expect("changed identity"),
+            original
+        );
+    }
+
+    #[test]
     fn observation_cannot_cross_writer_heads_in_one_worldline() {
         let (_, state, basis, _, _, _) = super::super::tests::projected_create_fixture(1024);
         let observation = EchoOperationObservationV1::capture(&state, basis, &[*state.root()])

@@ -194,14 +194,10 @@ impl Session {
                 Ok(json!({"attempt":attempt, "readings":readings}))
             }
             "changes" => {
-                let nodes = self
+                let (nodes, commits) = self
                     .fixture
                     .host
-                    .echo_operation_observation_changes_v1(text(request, "attempt")?)?;
-                let commits = self
-                    .fixture
-                    .host
-                    .echo_operation_observation_change_commits_v1(text(request, "attempt")?)?;
+                    .echo_operation_observation_change_evidence_v1(text(request, "attempt")?)?;
                 Ok(
                     json!({"changed":!nodes.is_empty(), "nodes":nodes.iter().map(|node| hex::encode(node.local_id.0)).collect::<Vec<_>>(), "commits":commits.iter().map(hex::encode).collect::<Vec<_>>()}),
                 )

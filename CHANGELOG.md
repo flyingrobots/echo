@@ -1635,6 +1635,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- Observation change discovery preserves intervening writes after values are
+  restored, including after reopening. The session driver resolves keys and
+  commit evidence together from native provenance instead of repeatedly
+  reconstructing WAL history.
+
 - Retained observations bind the anchor's actual occupancy instead of claiming
   that every observed anchor was absent.
 

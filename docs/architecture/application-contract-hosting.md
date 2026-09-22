@@ -205,9 +205,16 @@ produces an obstruction. Unrelated movement does not invalidate the reading.
 The original invocation remains the replay input, including its observation.
 
 Change discovery is a reading over retained observations and native patches.
-It returns changed aperture keys and the retained commits that wrote them,
+It returns aperture keys whose current values differ or which native patches
+wrote after the reading, including a change followed by restoration of the
+original value. Notification evidence therefore differs from the value-based
+admission precondition: an intervening write can merit attention even when the
+original value is valid again. It returns the retained commits that wrote them,
 without persisting a second notification log. It survives loss of the driver's
 caches. Unknown observation identities obstruct rather than silently recapture.
+The combined change-evidence query resolves the observation once and reads the
+host's native provenance index, which is reconstructed during reopening. It does
+not repeatedly recover the WAL to derive keys and commit identities separately.
 
 This is a trusted, locally scripted host profile, not an authenticated agent
 service or the complete public optics boundary. It covers bounded atomic node

@@ -159,6 +159,9 @@ struct RuntimeCounterDiagnosticArgs {
 
 #[derive(Args)]
 struct RunEdictOperationArgs {
+    /// Enable two retained native AuthorOnly strands in the trusted host.
+    #[arg(long, requires = "serve")]
+    retained_alternatives: bool,
     /// Serve bounded JSON requests against one persistent worldline.
     #[arg(long)]
     serve: bool,
@@ -486,6 +489,7 @@ fn main() -> Result<()> {
 
 fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
     let config = run_edict_operation::RunEdictOperationConfig {
+        retained_alternatives: args.retained_alternatives,
         package: args.package,
         verification_report: args.verification_report,
         lawpack_manifest: args.lawpack_manifest,

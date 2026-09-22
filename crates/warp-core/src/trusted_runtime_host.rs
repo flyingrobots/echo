@@ -15,6 +15,7 @@ use std::{
 use thiserror::Error;
 
 mod observed_context;
+mod retained_strands;
 pub use observed_context::EchoOperationContextErrorV1;
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
@@ -1318,24 +1319,30 @@ impl TrustedRuntimeHost {
         config: TrustedRuntimeWalConfig,
     ) -> Result<(), TrustedRuntimeHostError> {
         let runtime_wal = TrustedRuntimeWal::from_config(config)?;
-        let recovery = runtime_wal.recover_read_only()?;
+        let mut recovery = runtime_wal.recover_read_only()?;
         if let Some(submission_id) = recovery.missing_submission_envelopes.first().copied() {
             return Err(TrustedRuntimeWalError::SubmissionEnvelopeMissing { submission_id }.into());
         }
         if let Some(receipt_digest) = recovery.missing_runtime_state_deltas.first().copied() {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaMissing { receipt_digest }.into());
         }
-        ensure_runtime_authority_is_durable(
+        let (forked_runtime, forked_provenance) = retained_strands::restore(
             &self.runtime,
             &self.provenance,
+            &runtime_wal,
+            &mut recovery,
+        )?;
+        ensure_runtime_authority_is_durable(
+            &forked_runtime,
+            &forked_provenance,
             &self.engine,
             &recovery,
         )?;
         self.engine
             .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
 
-        let mut restored_runtime = self.runtime.clone();
-        let mut restored_provenance = self.provenance.clone();
+        let mut restored_runtime = forked_runtime;
+        let mut restored_provenance = forked_provenance;
         restored_runtime
             .restore_witnessed_submission_persistence(recovery.witnessed_submissions)?;
         restore_provenance_entries(&mut restored_provenance, &recovery.provenance_entries)?;
@@ -4742,7 +4749,9 @@ fn evaluation_basis_matches_recovered_coordinate(
             crate::WorldlineTick::from_raw(parent_tick),
         ))
         .is_some_and(|parent| {
-            parent.head_key == Some(basis.writer_head())
+            // A native fork preserves the source writer's head in its copied
+            // prefix. The next writer need not have authored the parent commit.
+            parent.worldline_id == basis.writer_head().worldline_id
                 && parent.expected.state_root == basis.state_root()
                 && parent.expected.commit_hash == basis.commit_id()
                 && basis.commit_global_tick() == Some(parent.commit_global_tick)
@@ -6936,6 +6945,15 @@ mod tests {
         ));
 
         let mut wrong_root = parent.clone();
+        let mut other_writer = parent.clone();
+        other_writer.head_key = Some(crate::WriterHeadKey {
+            worldline_id: parent.worldline_id,
+            head_id: crate::make_head_id("original-fork-writer"),
+        });
+        assert!(evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &BTreeMap::from([(parent_coordinate, &other_writer)])
+        ));
         wrong_root.expected.state_root = [39; 32];
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());

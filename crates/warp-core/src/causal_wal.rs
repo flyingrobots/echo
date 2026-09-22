@@ -5734,6 +5734,8 @@ impl FilesystemWalStore {
     /// reread. An active epoch left by a terminated process is closed under
     /// that lease before the successor is derived and admitted. A concurrently
     /// live writer retains the lease and prevents takeover.
+    /// An uncommitted or torn tail must be reconciled by writable recovery
+    /// before takeover; refusing it preserves the previous epoch ledger.
     pub fn acquire_fresh_writer_epoch(
         &mut self,
         minimum_started_at_lsn: Lsn,
@@ -5743,6 +5745,16 @@ impl FilesystemWalStore {
         }
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.reload_writer_epoch_ledger()?;
+        let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
+            |error| match error {
+                WalRecoveryError::Store(error) => error,
+                WalRecoveryError::Validation(error) => WalStoreError::Validation(error),
+                WalRecoveryError::Index(error) => WalStoreError::RecoveryIndex(error),
+            },
+        )?;
+        if !matches!(recovery.tail_posture, RecoveryTailPosture::Clean) {
+            return Err(WalStoreError::SegmentHasUncommittedTail(self.segment_id));
+        }
 
         if self.active_epoch.is_some() {
             let previous_ledger = self.writer_epoch_ledger();
@@ -9876,6 +9888,9 @@ pub enum WalValidationError {
 /// WAL store errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalStoreError {
+    /// The retained prefix could not establish its recovery indexes.
+    #[error(transparent)]
+    RecoveryIndex(#[from] WalRecoveryIndexError),
     /// A writer epoch is already active.
     #[error("WAL writer epoch already active")]
     WriterEpochAlreadyActive,

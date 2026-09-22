@@ -1640,6 +1640,27 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Fixed
 
+- The observed-session driver refuses an obviously insufficient compiled
+  budget before durable setup and explains that observation reads require an
+  authored, verified allowance rather than silently increasing the grant.
+
+- Filesystem writer takeover refuses an unreconciled WAL tail before reusing
+  an empty epoch's log position, preventing duplicate physical LSNs.
+
+- Observation change discovery preserves intervening writes after values are
+  restored, including after reopening. The session driver resolves keys and
+  commit evidence together from native provenance instead of repeatedly
+  reconstructing WAL history.
+
+- Retained observations bind the anchor's actual occupancy instead of claiming
+  that every observed anchor was absent.
+
+- Observation reads now populate the footprint partition mask as well as the
+  exact read sets, keeping retained footprint evidence consistent.
+
+- Observed operations reject observations from another writer head even when
+  both heads belong to the same worldline.
+
 - Reopening a filesystem WAL through an empty writer epoch no longer consumes an
   unwritten log position. A second reopen followed by append previously left an
   LSN gap and made subsequent recovery fail.

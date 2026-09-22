@@ -169,7 +169,7 @@ impl EchoOperationObservationV1 {
         footprint: &mut Footprint,
         meter: &mut EchoOperationBudgetMeterV1,
     ) -> Result<(), EchoOperationObstructionKindV1> {
-        if self.basis.writer_head().worldline_id != submission.writer_head().worldline_id
+        if self.basis.writer_head() != submission.writer_head()
             || self.basis.worldline_tick() > submission.worldline_tick()
         {
             return Err(EchoOperationObstructionKindV1::ObservationChanged);
@@ -186,7 +186,7 @@ impl EchoOperationObservationV1 {
             if !meter.charge(2, 64 + actual.len() as u64, 0) {
                 return Err(EchoOperationObstructionKindV1::BudgetExceeded);
             }
-            footprint.n_read.insert(*node);
+            record_node_read(footprint, *node);
             footprint.a_read.insert(AttachmentKey::node_alpha(*node));
             if actual != *expected {
                 return Err(EchoOperationObstructionKindV1::ObservationChanged);
@@ -278,6 +278,56 @@ mod tests {
     }
 
     #[test]
+    fn retry_identity_survives_submission_occupancy_changes_but_not_input_changes() {
+        let (_, state, basis, _, invocation, _) =
+            super::super::tests::projected_create_fixture(1_024);
+        let observation = EchoOperationObservationV1::capture(&state, basis, &[*state.root()])
+            .expect("observation");
+        let original = invocation
+            .observed_semantic_identity(&observation)
+            .expect("identity");
+        let mut retry = invocation.clone();
+        retry.evaluation_basis.application_basis =
+            echo_operation_anchored_node_creation_application_basis_v1(
+                invocation.node,
+                EchoOperationAnchoredNodeOccupancyV1::NodeAndAttachment,
+            );
+        retry.evaluation_basis.worldline_tick = WorldlineTick::from_raw(100);
+        assert_eq!(
+            retry
+                .observed_semantic_identity(&observation)
+                .expect("retry identity"),
+            original
+        );
+        retry.replacement_bytes.push(1);
+        assert_ne!(
+            retry
+                .observed_semantic_identity(&observation)
+                .expect("changed identity"),
+            original
+        );
+    }
+
+    #[test]
+    fn observation_cannot_cross_writer_heads_in_one_worldline() {
+        let (_, state, basis, _, _, _) = super::super::tests::projected_create_fixture(1024);
+        let observation = EchoOperationObservationV1::capture(&state, basis, &[*state.root()])
+            .expect("observation");
+        let mut other = basis;
+        other.writer_head.head_id = crate::make_head_id("another-head");
+        let result = observation.validate_at_execution(
+            &state,
+            other,
+            &mut Footprint::default(),
+            &mut EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(32, 4096, 1024)),
+        );
+        assert_eq!(
+            result,
+            Err(EchoOperationObstructionKindV1::ObservationChanged)
+        );
+    }
+
+    #[test]
     fn fresh_submission_cannot_erase_changed_observation() {
         let (outcome, _) = exercise(true);
         assert!(
@@ -297,6 +347,11 @@ mod tests {
             .n_read
             .iter()
             .any(|node| *node == observed));
+        assert_ne!(
+            prepared.actual_footprint().factor_mask & (1_u64 << (observed.local_id.0[0] & 63)),
+            0,
+            "the observation's partition must be represented in the footprint mask"
+        );
         assert!(prepared
             .patch()
             .in_slots()

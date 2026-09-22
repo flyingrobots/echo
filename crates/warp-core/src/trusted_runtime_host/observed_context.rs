@@ -131,10 +131,10 @@ impl TrustedRuntimeWal {
     }
 
     fn reconcile_operation_context_prefix(&mut self) -> Result<()> {
-        if !self
+        if self
             .operation_context_index
             .as_ref()
-            .is_some_and(|(prefix, _)| *prefix == self.previous_committed_transaction_digest)
+            .is_none_or(|(prefix, _)| *prefix != self.previous_committed_transaction_digest)
         {
             self.refresh_cursor_from_store_for_writer().map_err(error)?;
         }

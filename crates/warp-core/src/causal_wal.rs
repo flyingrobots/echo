@@ -8532,8 +8532,7 @@ mod writer_lease_tests {
 
     #[test]
     fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
-        let root =
-            std::env::temp_dir().join(format!("echo-inherited-lease-{}", std::process::id()));
+        let root = PathBuf::from("target/warp-core-test-tmp/inherited-writer-lease");
         fs::create_dir_all(&root).expect("scratch directory");
         let lease = acquire_writer_epoch_lock(&root).expect("first writer");
         // A forked process briefly inherits the same open file description

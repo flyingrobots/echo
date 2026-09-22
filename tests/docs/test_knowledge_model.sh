@@ -8,6 +8,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
 
 readonly required_docs=(
+  "docs/DOCUMENTATION_STANDARDS.md"
   "docs/adr/README.md"
   "docs/adr/0012-repository-knowledge-model.md"
   "docs/adr/0013-echo-continuum-authority-boundary.md"

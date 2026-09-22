@@ -20,7 +20,8 @@ owns the boundary you are changing:
   [Runtime Constellation](docs/topics/RuntimeConstellation.md), and
   [WARP Optics](docs/topics/WarpOptics.md) — living cross-module doctrine;
 - [specifications](docs/spec/), [invariants](docs/invariants/), and
-  [ADRs](docs/adr/) — executable contracts and durable decisions.
+  [topics](docs/topics/) — executable contracts and concept-owned durable
+  decisions under the [Documentation Standards](docs/DOCUMENTATION_STANDARDS.md).
 
 The current north star is:
 

@@ -4,7 +4,7 @@
 # Falsification witnesses
 
 **Status:** proposed. Roadmap stages 1 and 2 are implemented; stages 3 through
-14 remain open. ADR 0027 remains Proposed. This document is both the design for
+14 remain open. The [admission design](../architecture/falsification-witness-admission.md) remains proposed. This document is both the design for
 first-class falsification artifacts and the roadmap that sequences their
 delivery.
 
@@ -1587,22 +1587,22 @@ The vertical is complete only when all of the following hold.
 
 ### Stages
 
-| #   | Stage                       | Status | Deliverable                                                                                                     | Exit condition                                                                                                                                                                   |
-| --- | --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ADR                         | Done   | `docs/adr/0027-first-class-falsification-witnesses.md`                                                          | Trust boundary, outcome taxonomy, identity law, minimality language, evidence-worldline rule, and non-goals accepted. Coupled edit to `tests/docs/test_adr_namespace.sh` landed. |
-| 2   | Footprint accumulation      | Done   | `ActualFootprint`, `ExecutionGraphView`, `ActualFootprintPosture`, `RuleExecutor`, `ExecutionFootprintEvidence` | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard remains crate-private.                               |
-| 3   | Execution-evidence delivery | Open   | Actual footprints reach the property evaluator on the `execution_evidence` channel bound to Action outcomes     | A read-only evaluator can compute `Actual ⊆ Declared` without a new observation projection and without widening the bound aperture.                                              |
-| 4   | Schemas                     | Open   | Core and ABI DTOs for four artifacts plus violation, replay, minimization, and causal-slice support types       | Canonical codecs, bounds, golden vectors, mutation tests.                                                                                                                        |
-| 5   | Property admission          | Open   | Exact package admission and installation                                                                        | Naked predicate programs cannot install or evaluate.                                                                                                                             |
-| 6   | Discovery adapter           | Open   | `cargo xtask falsify` consuming explicit proposals and optionally `proptest` output                             | Seed is provenance; explicit case is replayable.                                                                                                                                 |
-| 7   | Verifier                    | Open   | One bounded exact-basis replay through ordinary scheduler and observation surfaces                              | Returns closed property outcome without target mutation.                                                                                                                         |
-| 8   | Slicer                      | Open   | Conservative backward dependency closure                                                                        | Every retained fixture slice replays; removal candidates delegated to the reducer.                                                                                               |
-| 9   | Reducer                     | Open   | Deterministic phase order, lexicographic metric, violation equivalence, budgets, cache                          | Stable output across repeated runs and fresh hosts.                                                                                                                              |
-| 10  | Fresh-host certificate      | Open   | Complete reconstruction and comparison                                                                          | Same violation class and closure reproduced from retained material.                                                                                                              |
-| 11  | WAL admission               | Open   | Transaction code 13, record codes from 32, evidence-worldline frontier, recovery indexes                        | Crashpoint suite passes.                                                                                                                                                         |
-| 12  | Footprint vertical          | Open   | Hook-free false property plus generated-pack compatibility fixture                                              | One locally irreducible admitted witness and one honest non-witness.                                                                                                             |
-| 13  | Regression reuse            | Open   | Reapply admitted cases to successor properties                                                                  | `StillFalsifies`, `NoLongerFalsifies`, `Inapplicable`, and `Obstructed` are durable typed outcomes.                                                                              |
-| 14  | Release qualification       | Open   | CI lane with false-footprint oracle under release enforcement                                                   | Generated footprint claims cannot silently ship without negative-oracle coverage.                                                                                                |
+| #   | Stage                       | Status | Deliverable                                                                                                     | Exit condition                                                                                                                                     |
+| --- | --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Admission design            | Done   | `docs/architecture/falsification-witness-admission.md`                                                          | Trust boundary, outcome taxonomy, identity law, minimality language, evidence-worldline rule, and non-goals recorded as a proposal.                |
+| 2   | Footprint accumulation      | Done   | `ActualFootprint`, `ExecutionGraphView`, `ActualFootprintPosture`, `RuleExecutor`, `ExecutionFootprintEvidence` | A canonical per-Action actual read/write footprint is retained as evidence; the ordinary panic path is unchanged; the guard remains crate-private. |
+| 3   | Execution-evidence delivery | Open   | Actual footprints reach the property evaluator on the `execution_evidence` channel bound to Action outcomes     | A read-only evaluator can compute `Actual ⊆ Declared` without a new observation projection and without widening the bound aperture.                |
+| 4   | Schemas                     | Open   | Core and ABI DTOs for four artifacts plus violation, replay, minimization, and causal-slice support types       | Canonical codecs, bounds, golden vectors, mutation tests.                                                                                          |
+| 5   | Property admission          | Open   | Exact package admission and installation                                                                        | Naked predicate programs cannot install or evaluate.                                                                                               |
+| 6   | Discovery adapter           | Open   | `cargo xtask falsify` consuming explicit proposals and optionally `proptest` output                             | Seed is provenance; explicit case is replayable.                                                                                                   |
+| 7   | Verifier                    | Open   | One bounded exact-basis replay through ordinary scheduler and observation surfaces                              | Returns closed property outcome without target mutation.                                                                                           |
+| 8   | Slicer                      | Open   | Conservative backward dependency closure                                                                        | Every retained fixture slice replays; removal candidates delegated to the reducer.                                                                 |
+| 9   | Reducer                     | Open   | Deterministic phase order, lexicographic metric, violation equivalence, budgets, cache                          | Stable output across repeated runs and fresh hosts.                                                                                                |
+| 10  | Fresh-host certificate      | Open   | Complete reconstruction and comparison                                                                          | Same violation class and closure reproduced from retained material.                                                                                |
+| 11  | WAL admission               | Open   | Transaction code 13, record codes from 32, evidence-worldline frontier, recovery indexes                        | Crashpoint suite passes.                                                                                                                           |
+| 12  | Footprint vertical          | Open   | Hook-free false property plus generated-pack compatibility fixture                                              | One locally irreducible admitted witness and one honest non-witness.                                                                               |
+| 13  | Regression reuse            | Open   | Reapply admitted cases to successor properties                                                                  | `StillFalsifies`, `NoLongerFalsifies`, `Inapplicable`, and `Obstructed` are durable typed outcomes.                                                |
+| 14  | Release qualification       | Open   | CI lane with false-footprint oracle under release enforcement                                                   | Generated footprint claims cannot silently ship without negative-oracle coverage.                                                                  |
 
 Stages 2 and 3 did not appear in the originating draft. Both are consequences of
 verification, and they split along a clean seam: stage 2 is scheduler-side
@@ -1624,7 +1624,7 @@ asserts the lane is not wired into CI, and
 sentence to be present. Wiring the lane means changing the topic sentence and the
 doc-truth assertion in the same commit.
 
-The ADR must explicitly reject:
+The admission design must explicitly reject:
 
 - storing only a property-test seed;
 - treating a test runner's shrink result as authoritative;
@@ -1661,7 +1661,7 @@ crates/warp-core/tests/falsification_wal_tests.rs
 crates/warp-core/tests/footprint_honesty_vertical.rs
 
 xtask/src/falsification.rs
-docs/adr/0027-first-class-falsification-witnesses.md
+docs/architecture/falsification-witness-admission.md
 docs/topics/FalsificationWitnesses.md
 ```
 

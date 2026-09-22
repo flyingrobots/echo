@@ -59,7 +59,7 @@
   cross-warp emission and unauthorized instance ops are scope and authority
   failures that the recorder declines to report as footprint-subset failures,
   so a reducer cannot hop between bug classes by conflating them.
-- ADR 0027 proposes first-class falsification witnesses, and
+- `docs/architecture/falsification-witness-admission.md` proposes first-class falsification witnesses, and
   `docs/topics/FalsificationWitnesses.md` carries the design and delivery
   roadmap. Anyone may propose a counterexample; only Echo may admit that it
   falsifies an exact property instance. Discovery stays outside the admission

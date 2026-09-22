@@ -5,8 +5,15 @@
 
 Topics describe Echo's current architectural boundaries. They are neither
 historical design packets nor work trackers. Update a topic in the same change
-that changes its boundary, and anchor strong claims to code, tests, specs, or an
-ADR.
+that changes its boundary, and anchor strong claims to code, tests,
+specifications, invariants, accepted architecture, or retained historical
+decisions.
+
+Topics are organized by named concepts, not a global chronology. When one
+topic supersedes, refines, depends on, or materially relates to another
+decision, state that relationship with descriptive links near the top of the
+owning page. See the [documentation standards](../DOCUMENTATION_STANDARDS.md)
+for the page and relationship contracts.
 
 ## Index
 

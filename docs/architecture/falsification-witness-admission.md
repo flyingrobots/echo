@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR 0027: First-Class Falsification Witnesses
+# Falsification witness admission
 
 - **Status:** Proposed
 - **Date:** 2026-08-01
@@ -305,13 +305,13 @@ unchanged because existing tags do not move.
 
 - `docs/topics/FalsificationWitnesses.md` — schemas, verification pseudocode,
   reduction law, threat model, test matrix, and delivery roadmap.
-- [ADR 0014](0014-generated-rule-authorship-and-footprints.md) — generated rule
+- [ADR 0014](../adr/0014-generated-rule-authorship-and-footprints.md) — generated rule
   authorship and footprint honesty.
-- [ADR 0021](0021-public-optic-observation-boundary.md) — public WARP optic over
+- [ADR 0021](../adr/0021-public-optic-observation-boundary.md) — public WARP optic over
   internal observation.
-- [ADR 0023](0023-admitted-executable-operation-packages.md) — admitted
+- [ADR 0023](../adr/0023-admitted-executable-operation-packages.md) — admitted
   executable operation packages.
-- [ADR 0025](0025-scheduler-owned-executable-operation-actions.md) —
+- [ADR 0025](../adr/0025-scheduler-owned-executable-operation-actions.md) —
   scheduler-owned executable-operation Actions.
 - `docs/topics/GeneratedRules.md` — the stated absence of a false-footprint
   negative oracle.

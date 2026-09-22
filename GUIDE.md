@@ -62,7 +62,9 @@ If you need a comprehensive spec, use the [docs/README.md](./docs/README.md) map
 If you need current architectural truth, use the
 [architecture](./docs/architecture/), [specification](./docs/spec/),
 [invariant](./docs/invariants/), and [topic](./docs/topics/) maps. Durable
-decisions live in [ADRs](./docs/adr/); live work and status live in GitHub.
+decisions live with their owning concept under the
+[Documentation Standards](./docs/DOCUMENTATION_STANDARDS.md); the numbered
+[ADR directory](./docs/adr/) is historical. Live work and status live in GitHub.
 
 If you are just starting, use the [README.md](./README.md) and the orientation tracks above.
 

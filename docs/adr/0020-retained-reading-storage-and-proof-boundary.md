@@ -5,6 +5,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-13
+- **Refined by:** [Echo–Keep Physical Content Boundary](../architecture/echo-keep-physical-content-boundary.md)
 
 ## Context
 

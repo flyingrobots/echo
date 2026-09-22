@@ -964,7 +964,10 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
     drop(active);
     let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
     assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
-    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    // An empty epoch consumed no record position. Fencing must change the
+    // writer identity without introducing a gap before the next append.
+    assert_ne!(successor.epoch_id, epoch_id());
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(0));
     drop(contender);
     must_ok(fs::remove_dir_all(root));
 }
@@ -1015,6 +1018,60 @@ fn filesystem_commits_without_writer_epoch_ledger_fail_closed() {
         "committed WAL without its writer-epoch ledger must fail closed",
     );
     assert!(matches!(error, WalStoreError::MissingWriterEpochLedger));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_takeover_refuses_unreconciled_tail_before_reusing_its_lsn() {
+    let mut fixture = WalHardeningFixture::new("takeover-uncommitted");
+    fixture.append_uncommitted_submission_frame("uncommitted", Lsn::from_raw(0));
+    let root = fixture.root.clone();
+    drop(fixture);
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let error = must_err(
+        store.acquire_fresh_writer_epoch(Lsn::from_raw(0)),
+        "takeover must not reuse an occupied uncommitted coordinate",
+    );
+    assert!(matches!(error, WalStoreError::SegmentHasUncommittedTail(_)));
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::Writable,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::TruncatedAll);
+    let epoch = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    let builder = WalTransactionBuilder::new(
+        epoch.epoch_id,
+        WalSegmentId::from_raw(1),
+        transaction_id("reconciled"),
+        WalTransactionKind::SubmissionIntake,
+        WalAppendAuthority::SubmissionIntake,
+        Lsn::from_raw(0),
+        digest("hardening:previous-frame"),
+        digest("hardening:previous-commit"),
+        WalDurabilityMode::StrictFilesystem,
+        PayloadCodecId::from_hash(digest("hardening:codec")),
+        PayloadSchemaId::from_hash(digest("hardening:schema")),
+        1,
+        1,
+        digest("hardening:domain"),
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_submission_acceptance_transaction(
+            builder,
+            submission_acceptance("reconciled"),
+            vec![frontier(
+                "reconciled",
+                AffectedFrontierKind::SubmissionQueue,
+            )],
+        ))),
+    );
+    drop(store);
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(report.last_committed_lsn(), Some(Lsn::from_raw(1)));
     must_ok(fs::remove_dir_all(root));
 }
 

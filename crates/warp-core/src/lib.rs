@@ -257,13 +257,13 @@ pub use echo_operation::{
     EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
     EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionIdV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationIdV1,
-    EchoOperationInvocationV1, EchoOperationObstructionIdV1, EchoOperationObstructionKindV1,
-    EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1, EchoOperationPackageIdV1,
-    EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1, EchoOperationProgramIdV1,
-    EchoOperationProgramV1, EchoOperationReceiptV1, EchoOperationResultIdV1,
-    EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1, ExecutableOperationPackageV1,
-    InstalledEchoOperationIdV1, InstalledEchoOperationV1, PreparedEchoOperationIdV1,
-    PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
+    EchoOperationInvocationV1, EchoOperationObservationV1, EchoOperationObstructionIdV1,
+    EchoOperationObstructionKindV1, EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1,
+    EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
+    EchoOperationProgramIdV1, EchoOperationProgramV1, EchoOperationReceiptV1,
+    EchoOperationResultIdV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
+    ExecutableOperationPackageV1, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    PreparedEchoOperationIdV1, PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 pub use edict_target_ir::{
     accept_edict_echo_target_ir, execute_accepted_edict_echo_target_ir, AcceptedEdictEchoTargetIr,
@@ -484,10 +484,11 @@ pub use tick_patch::{
 };
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeHostParts, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
-    TrustedRuntimeWalStoreKind, WitnessedCausalAnchorAdmission,
+    EchoOperationContextErrorV1, EvidenceCatalogPosture, RuntimeWalActivationGap,
+    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostParts,
+    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalRecovery, TrustedRuntimeWalStoreKind,
+    WitnessedCausalAnchorAdmission,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

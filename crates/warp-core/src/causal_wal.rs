@@ -486,6 +486,8 @@ pub enum WalRecordKind {
     ExternalActionClaimRecorded,
     /// Echo admitted one schema-bound external-action settlement.
     ExternalActionSettlementRecorded,
+    /// Runtime retained an immutable operation observation or request binding.
+    ExecutableOperationContextRetained,
 }
 
 impl WalRecordKind {
@@ -525,6 +527,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => "ExternalActionRequestRecorded",
             Self::ExternalActionClaimRecorded => "ExternalActionClaimRecorded",
             Self::ExternalActionSettlementRecorded => "ExternalActionSettlementRecorded",
+            Self::ExecutableOperationContextRetained => "ExecutableOperationContextRetained",
         }
     }
 
@@ -553,7 +556,8 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
-            Self::ExecutableOperationPackageInstalled => WalAppendAuthority::RuntimeControl,
+            Self::ExecutableOperationPackageInstalled
+            | Self::ExecutableOperationContextRetained => WalAppendAuthority::RuntimeControl,
             Self::ExecutableOperationExecutionRecorded
             | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
@@ -614,6 +618,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => 29,
             Self::ExternalActionClaimRecorded => 30,
             Self::ExternalActionSettlementRecorded => 31,
+            Self::ExecutableOperationContextRetained => 32,
         }
     }
 
@@ -650,6 +655,7 @@ impl WalRecordKind {
             29 => Ok(Self::ExternalActionRequestRecorded),
             30 => Ok(Self::ExternalActionClaimRecorded),
             31 => Ok(Self::ExternalActionSettlementRecorded),
+            32 => Ok(Self::ExecutableOperationContextRetained),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,
@@ -1586,7 +1592,7 @@ fn validate_writer_epoch_request(
                 if request.started_at_lsn <= final_lsn {
                     return Err(WalStoreError::WriterEpochLsnRegression);
                 }
-            } else if request.started_at_lsn <= previous_epoch.started_at_lsn {
+            } else if request.started_at_lsn < previous_epoch.started_at_lsn {
                 return Err(WalStoreError::WriterEpochLsnRegression);
             }
             if request.storage_fencing_token == previous_epoch.storage_fencing_token
@@ -5579,7 +5585,7 @@ pub struct FilesystemWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
-    writer_lock: Option<File>,
+    writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     #[cfg(any(test, feature = "host_test"))]
@@ -5728,6 +5734,8 @@ impl FilesystemWalStore {
     /// reread. An active epoch left by a terminated process is closed under
     /// that lease before the successor is derived and admitted. A concurrently
     /// live writer retains the lease and prevents takeover.
+    /// An uncommitted or torn tail must be reconciled by writable recovery
+    /// before takeover; refusing it preserves the previous epoch ledger.
     pub fn acquire_fresh_writer_epoch(
         &mut self,
         minimum_started_at_lsn: Lsn,
@@ -5737,6 +5745,16 @@ impl FilesystemWalStore {
         }
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.reload_writer_epoch_ledger()?;
+        let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
+            |error| match error {
+                WalRecoveryError::Store(error) => error,
+                WalRecoveryError::Validation(error) => WalStoreError::Validation(error),
+                WalRecoveryError::Index(error) => WalStoreError::RecoveryIndex(error),
+            },
+        )?;
+        if !matches!(recovery.tail_posture, RecoveryTailPosture::Clean) {
+            return Err(WalStoreError::SegmentHasUncommittedTail(self.segment_id));
+        }
 
         if self.active_epoch.is_some() {
             let previous_ledger = self.writer_epoch_ledger();
@@ -5763,8 +5781,10 @@ impl FilesystemWalStore {
             .unwrap_or_default();
         let required_started_at_lsn = previous_closure
             .final_lsn
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
             .and_then(Lsn::checked_next)
+            // An empty epoch reserved but never consumed its first LSN.
+            // Advancing it would leave a gap in the retained frame sequence.
+            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
             .unwrap_or(minimum_started_at_lsn);
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())
@@ -8457,7 +8477,18 @@ fn reconcile_writer_epoch_closures(
     Ok(())
 }
 
-fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
+#[derive(Debug)]
+struct WriterEpochLock(File);
+
+impl Drop for WriterEpochLock {
+    fn drop(&mut self) {
+        // A concurrent fork can retain the open file description until exec.
+        // Relinquish this owner's lock explicitly before closing its descriptor.
+        let _ = self.0.unlock();
+    }
+}
+
+fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreError> {
     let lock_path = root.join("writer-epoch.lock");
     let lock = OpenOptions::new()
         .create(true)
@@ -8471,7 +8502,33 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
             std::fs::TryLockError::Error(error) => Err(error.into()),
         };
     }
-    Ok(lock)
+    Ok(WriterEpochLock(lock))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod writer_lease_tests {
+    use super::*;
+
+    #[test]
+    fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
+        let root = PathBuf::from("target/warp-core-test-tmp/inherited-writer-lease");
+        fs::create_dir_all(&root).expect("scratch directory");
+        let lease = acquire_writer_epoch_lock(&root).expect("first writer");
+        // A forked process briefly inherits the same open file description
+        // before exec closes CLOEXEC descriptors. A duplicate models that
+        // lifetime deterministically, without depending on a process race.
+        let inherited = lease.0.try_clone().expect("inherited descriptor");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(lease);
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner exits");
+        drop(successor);
+        drop(inherited);
+        fs::remove_dir_all(root).expect("scratch cleanup");
+    }
 }
 
 fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {
@@ -9868,6 +9925,9 @@ pub enum WalValidationError {
 /// WAL store errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalStoreError {
+    /// The retained prefix could not establish its recovery indexes.
+    #[error(transparent)]
+    RecoveryIndex(#[from] WalRecoveryIndexError),
     /// A writer epoch is already active.
     #[error("WAL writer epoch already active")]
     WriterEpochAlreadyActive,

@@ -278,7 +278,11 @@ mutation. A standalone application-owned Edict create-if-absent operation now
 crosses this route as an exact compiler-produced package and independently
 accepted verification report through `cargo xtask run-edict-operation`. That
 witness proves its package-declared typed obstruction and one Action in one
-Tick. Its duplicate report exposes equal before/after application-state roots
+Tick. Its `--serve` mode continues one worldline through multiple operations,
+retains observation-bound requests, and reopens native history; the bounded
+trusted-host scope is described in
+[application contract hosting](docs/architecture/application-contract-hosting.md#observation-bound-native-host-sessions).
+Its duplicate report exposes equal before/after application-state roots
 and typed target-value digests; the roots commit the reachable graph state, not
 WAL, history, Receipt, or commit metadata. It does not claim external
 multi-Action Tick composition, a product-ready application runner, a Jedit

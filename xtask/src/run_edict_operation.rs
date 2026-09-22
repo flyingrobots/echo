@@ -193,6 +193,9 @@ struct HostFixture {
     node: NodeKey,
 }
 
+mod session;
+pub use session::serve;
+
 /// Runs the exact package and returns its durable singleton scheduler witness.
 pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
     let package_bytes = read_bounded(&config.package, MAX_ARTIFACT_BYTES, "package")?;

@@ -159,6 +159,9 @@ struct RuntimeCounterDiagnosticArgs {
 
 #[derive(Args)]
 struct RunEdictOperationArgs {
+    /// Serve bounded JSON requests against one persistent worldline.
+    #[arg(long)]
+    serve: bool,
     /// Exact compiler-produced executable-operation package.
     #[arg(long)]
     package: PathBuf,
@@ -177,7 +180,7 @@ struct RunEdictOperationArgs {
     /// Typed operation input encoded as JSON.
     #[arg(long)]
     input: PathBuf,
-    /// Empty directory owned by this run's strict filesystem WAL.
+    /// Strict filesystem WAL directory; must be empty unless --serve reopens it.
     #[arg(long)]
     wal_dir: PathBuf,
     /// Emit the witness report as JSON.
@@ -482,7 +485,7 @@ fn main() -> Result<()> {
 }
 
 fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
-    let report = run_edict_operation::run(run_edict_operation::RunEdictOperationConfig {
+    let config = run_edict_operation::RunEdictOperationConfig {
         package: args.package,
         verification_report: args.verification_report,
         lawpack_manifest: args.lawpack_manifest,
@@ -490,7 +493,11 @@ fn run_edict_operation(args: RunEdictOperationArgs) -> Result<()> {
         target_configuration: args.target_configuration,
         input: args.input,
         wal_dir: args.wal_dir,
-    })?;
+    };
+    if args.serve {
+        return run_edict_operation::serve(config);
+    }
+    let report = run_edict_operation::run(config)?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);

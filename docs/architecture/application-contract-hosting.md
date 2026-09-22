@@ -180,6 +180,69 @@ the exact program, after which Echo independently admits each invocation.
 
 ## External Edict Provider Artifacts
 
+### Observation-bound native host sessions
+
+The bounded `cargo xtask run-edict-operation --serve` driver continues one
+worldline through multiple compiled create-if-absent operations and reopens its
+native WAL. The bootstrap `basis` string selects that worldline once. Each
+submission gets a current runtime evaluation basis; it does not replace the
+observation basis retained for its attempt.
+
+The trusted host captures bounded node/atom readings before returning them to a
+caller. Immutable observation and logical-request bindings are retained as
+`ExecutableOperationContextRetained` WAL records. Request binding precedes
+ordinary durable ingress acceptance. Retrying the same semantic request returns
+its original canonical invocation and resolves its original native disposition;
+different input, package, operation, grant, or observation attempt under that
+identity is refused. A crash between binding and ingress can resume acceptance
+of that exact invocation. Transport rebasing does not alter its meaning.
+
+Observation preconditions execute in Echo's operation preparation, against the
+state the scheduler will commit from. Their resource reads enter the native
+footprint and patch input slots. The operation's admitted budget covers those
+reads. Relevant value changes produce `ObservationChanged`; unavailable support
+produces an obstruction. Unrelated movement does not invalidate the reading.
+The original invocation remains the replay input, including its observation.
+
+The pinned Hello Echo fixture has a 64-byte read budget for an unobserved
+one-shot create; it is not an observation-session profile. `--serve` refuses
+that insufficient budget before creating a WAL. An authored observation profile
+must budget for both the operation and its aperture: each node reading costs two
+steps and 64 bytes plus its encoded value, with additional descent reads where
+applicable. Compile and independently verify that profile before installation;
+the driver never increases a package or grant ceiling. Passing the startup
+minimum does not guarantee that a larger aperture fits. Runtime metering still
+returns `BudgetExceeded` when the actual admitted allowance is exhausted.
+
+Change discovery is a reading over retained observations and native patches.
+It returns aperture keys whose current values differ or which native patches
+wrote after the reading, including a change followed by restoration of the
+original value. Notification evidence therefore differs from the value-based
+admission precondition: an intervening write can merit attention even when the
+original value is valid again. It returns the retained commits that wrote them,
+without persisting a second notification log. It survives loss of the driver's
+caches. Unknown observation identities obstruct rather than silently recapture.
+The combined change-evidence query resolves the observation once and reads the
+host's native provenance index, which is reconstructed during reopening. It does
+not repeatedly recover the WAL to derive keys and commit identities separately.
+
+This is a trusted, locally scripted host profile, not an authenticated agent
+service or the complete public optics boundary. It covers bounded atomic node
+and attachment readings in the caller's granted aperture, not model-internal
+influence, arbitrary subtree observations, or speculative strand settlement.
+The driver accepts at most 1,024 observations and 4,096 request bindings per WAL;
+each observation contains at most 16 nodes and 4,096 retained value bytes.
+It currently rebuilds context indexes from the WAL. Production indexing,
+retention policy, and authenticated aperture delegation remain separate work.
+
+Disconnected create-if-absent cells can leave the root-reachable state hash
+unchanged. Recovery evidence must therefore include native commit identities
+and the recovered cells, not just that root hash. Reopening an empty writer
+epoch reuses its unconsumed first LSN under a fresh fenced epoch; it must not
+introduce a gap into the retained frame sequence.
+
+### Provider artifact boundary
+
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
 

@@ -104,6 +104,13 @@ witnessed submission, target receipt, or basis receipt evidence returns a typed
 also an obstruction. The query never consults or repairs a process-local
 request map.
 
+`TrustedRuntimeApp::causal_receipt_history` provides the bounded,
+basis-pinned traversal used by applications to discover those receipts after
+restart. It includes the same typed derivation on inverse entries and obstructs
+when any cited receipt, submission, envelope, or parent evidence is missing or
+inconsistent. See
+[/topics/CausalReceiptHistory](/topics/CausalReceiptHistory).
+
 ## Obstruction Is Truth
 
 Echo obstructs before submission when:

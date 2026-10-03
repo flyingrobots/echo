@@ -11,9 +11,9 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::{
-    CausalTickReceiptRef, ContractEvidenceIdentity, ContractOperationKind, Hash, IngressTarget,
-    InstalledContractPackageId, IntentKind, ProvenanceService, WorldlineId, WorldlineRuntime,
-    WorldlineTick,
+    CausalTickReceiptRef, ContractEvidenceIdentity, ContractOperationKind, Hash,
+    IngressCausalParent, IngressTarget, InstalledContractPackageId, IntentKind, ProvenanceService,
+    WorldlineId, WorldlineRuntime, WorldlineTick,
 };
 
 /// App request to derive and durably witness one contract-defined inverse intent.
@@ -102,6 +102,80 @@ pub enum ContractInverseHistoryObstruction {
         /// Missing current-basis receipt.
         basis_receipt_ref: Box<CausalTickReceiptRef>,
     },
+}
+
+pub(crate) fn recover_contract_inverse_derivation(
+    runtime: &WorldlineRuntime,
+    inverse_receipt_ref: &CausalTickReceiptRef,
+) -> Result<Option<ContractInverseDerivation>, ContractInverseHistoryObstruction> {
+    let correlation = runtime
+        .receipt_correlation_for_receipt_ref(inverse_receipt_ref)
+        .ok_or_else(
+            || ContractInverseHistoryObstruction::InverseReceiptUnavailable {
+                inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+            },
+        )?;
+    let envelope = runtime
+        .witnessed_submission_envelope(&correlation.submission_id)
+        .ok_or_else(
+            || ContractInverseHistoryObstruction::InverseSubmissionUnavailable {
+                inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                submission_id: correlation.submission_id,
+            },
+        )?;
+    let mut target_receipt_refs = Vec::new();
+    let mut current_basis_receipt_refs = Vec::new();
+    for parent in envelope.causal_parents() {
+        match *parent {
+            IngressCausalParent::TickReceipt { receipt_ref } => {
+                current_basis_receipt_refs.push(receipt_ref);
+            }
+            IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                target_receipt_refs.push(receipt_ref);
+            }
+        }
+    }
+    target_receipt_refs.sort_unstable();
+    target_receipt_refs.dedup();
+    let Some(target_receipt_ref) = target_receipt_refs.first().copied() else {
+        return Ok(None);
+    };
+    if target_receipt_refs.len() != 1 {
+        return Err(ContractInverseHistoryObstruction::AmbiguousInverseTarget {
+            inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+        });
+    }
+    if runtime
+        .receipt_correlation_for_receipt_ref(&target_receipt_ref)
+        .is_none()
+    {
+        return Err(
+            ContractInverseHistoryObstruction::TargetReceiptUnavailable {
+                inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                target_receipt_ref: Box::new(target_receipt_ref),
+            },
+        );
+    }
+    current_basis_receipt_refs.sort_unstable();
+    current_basis_receipt_refs.dedup();
+    for basis_receipt_ref in &current_basis_receipt_refs {
+        if runtime
+            .receipt_correlation_for_receipt_ref(basis_receipt_ref)
+            .is_none()
+        {
+            return Err(
+                ContractInverseHistoryObstruction::CurrentBasisReceiptUnavailable {
+                    inverse_receipt_ref: Box::new(*inverse_receipt_ref),
+                    basis_receipt_ref: Box::new(*basis_receipt_ref),
+                },
+            );
+        }
+    }
+    Ok(Some(ContractInverseDerivation {
+        inverse_receipt_ref: *inverse_receipt_ref,
+        target_receipt_ref,
+        current_basis_receipt_refs,
+    }))
 }
 
 /// Installed read-only inverse law for one generated mutation operation.

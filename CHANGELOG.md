@@ -34,6 +34,14 @@
   receipts, stale bases, unavailable inverse fragments, unmappable spans, absent
   handlers, and contract-version mismatches remain typed obstructions; inverse
   admission never deletes or rewrites the original transition.
+- `warp-core` trusted applications can now traverse bounded causal receipt
+  history at an explicit worldline frontier in either canonical direction.
+  Echo-issued continuation cursors bind worldline, basis, direction, and exact
+  last receipt; each entry includes witnessed submission identity, contract
+  evidence, canonical parent receipts, and any typed inverse derivation.
+  Filesystem recovery returns identical pages without a process-local history
+  authority, while missing, duplicate, or inconsistent retained evidence
+  produces typed obstructions instead of truncated history.
 - `warp-core` now distinguishes repeatable `TickReceipt` content commitments
   from admitted receipt-event identity. `CausalTickReceiptRef` binds receipt
   content to worldline, worldline tick, global tick, commit, submission, and

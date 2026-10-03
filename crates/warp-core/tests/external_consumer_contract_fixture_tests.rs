@@ -16,6 +16,7 @@ use echo_registry_api::{
 };
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, AuthoredObserverPlan,
+    CausalReceiptHistoryDirection, CausalReceiptHistoryObstruction, CausalReceiptHistoryRequest,
     ContractEvidenceIdentity, ContractInverseAdmissionRequest, ContractInverseHandler,
     ContractInverseIntent, ContractMutationHandler, ContractOperationKind, ContractPackageIdentity,
     ContractQueryObserver, ContractQueryObserverResult, EngineBuilder, GraphStore, GraphView,
@@ -201,17 +202,24 @@ fn replace_inverse_handler() -> ContractInverseHandler {
                 ),
             );
         }
-        if context.target_vars_bytes != REPLACE_VARS_B {
-            return Err(
-                warp_core::ContractInverseHandlerError::causal_span_unmappable(
-                    "fixture only maps the second replacement",
-                ),
-            );
+        if context.target_vars_bytes == REPLACE_VARS_B {
+            return Ok(ContractInverseIntent::new(
+                REPLACE_RANGE_OP_ID,
+                REPLACE_VARS_A.to_vec(),
+            ));
         }
-        Ok(ContractInverseIntent::new(
-            REPLACE_RANGE_OP_ID,
-            REPLACE_VARS_A.to_vec(),
-        ))
+        if context.target_vars_bytes == REPLACE_VARS_A && context.policy_bytes == b"redo-exact-span"
+        {
+            return Ok(ContractInverseIntent::new(
+                REPLACE_RANGE_OP_ID,
+                REPLACE_VARS_B.to_vec(),
+            ));
+        }
+        Err(
+            warp_core::ContractInverseHandlerError::causal_span_unmappable(
+                "fixture maps the second replacement and its admitted inverse",
+            ),
+        )
     })
 }
 
@@ -387,7 +395,7 @@ fn document_value(host: &TrustedRuntimeHost, worldline_id: WorldlineId) -> Vec<u
 }
 
 #[test]
-fn inverse_intent_resolves_one_admitted_transition_after_restart() {
+fn inverse_intent_and_causal_receipt_history_survive_restart() {
     let wal_root = temp_runtime_wal_dir("restart");
     let (initial_runtime, worldline_id) = runtime();
     let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
@@ -655,6 +663,66 @@ fn inverse_intent_resolves_one_admitted_transition_after_restart() {
         .receipt_correlation_for_submission(&inverse.submission_id)
         .expect("inverse should retain its own receipt evidence")
         .causal_receipt_ref;
+    let redo = {
+        let mut app = reconstructed.app();
+        app.submit_contract_inverse_with_runtime_wal_ack(ContractInverseAdmissionRequest {
+            target_receipt_ref: inverse_receipt_ref,
+            current_target: IngressTarget::DefaultWriter { worldline_id },
+            expected_current_frontier_tick: WorldlineTick::from_raw(4),
+            policy_bytes: b"redo-exact-span".to_vec(),
+        })
+        .expect("redo should derive as the inverse of the admitted inverse")
+    };
+    reconstructed
+        .stage_installed_contract_submission(redo.submission_id, &admission_ticket(54))
+        .expect("redo replacement should stage normally");
+    reconstructed
+        .run_until_idle(4)
+        .expect("redo replacement should apply normally");
+    assert_eq!(document_value(&reconstructed, worldline_id), REPLACE_VARS_B);
+    assert_eq!(
+        reconstructed
+            .runtime()
+            .worldlines()
+            .get(&worldline_id)
+            .expect("worldline should exist")
+            .frontier_tick(),
+        WorldlineTick::from_raw(5)
+    );
+    let redo_correlation = reconstructed
+        .runtime()
+        .receipt_correlation_for_submission(&redo.submission_id)
+        .expect("redo should retain receipt evidence");
+    assert_eq!(
+        redo_correlation.causal_parent_receipts,
+        vec![inverse_receipt_ref]
+    );
+    let redo_receipt_ref = redo_correlation.causal_receipt_ref;
+    let (history_before_restart, cursor_before_restart) = {
+        let app = reconstructed.app();
+        let full_history = app
+            .causal_receipt_history(CausalReceiptHistoryRequest {
+                worldline_id,
+                basis_frontier_tick: WorldlineTick::from_raw(5),
+                direction: CausalReceiptHistoryDirection::NewestFirst,
+                page_size: 5,
+                cursor: None,
+            })
+            .expect("live causal receipt history should be readable");
+        let first_page = app
+            .causal_receipt_history(CausalReceiptHistoryRequest {
+                worldline_id,
+                basis_frontier_tick: WorldlineTick::from_raw(5),
+                direction: CausalReceiptHistoryDirection::NewestFirst,
+                page_size: 2,
+                cursor: None,
+            })
+            .expect("live causal receipt history cursor should be readable");
+        let cursor = first_page
+            .next_cursor
+            .expect("five retained receipts should require a second page");
+        (full_history, cursor)
+    };
     drop(reconstructed);
 
     let (history_runtime, _) = runtime();
@@ -663,22 +731,175 @@ fn inverse_intent_resolves_one_admitted_transition_after_restart() {
     history
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
         .expect("history host should recover inverse evidence");
-    let derivation = {
+    let (inverse_derivation, redo_derivation) = {
         let app = history.app();
         assert_eq!(
             app.contract_inverse_derivation(&target_receipt_ref)
                 .expect("ordinary edit history should remain readable"),
             None
         );
-        app.contract_inverse_derivation(&inverse_receipt_ref)
+        let inverse_derivation = app
+            .contract_inverse_derivation(&inverse_receipt_ref)
             .expect("inverse history should remain readable")
-            .expect("inverse receipt should retain a typed derivation")
+            .expect("inverse receipt should retain a typed derivation");
+        let redo_derivation = app
+            .contract_inverse_derivation(&redo_receipt_ref)
+            .expect("redo history should remain readable")
+            .expect("redo receipt should retain a typed derivation");
+        (inverse_derivation, redo_derivation)
     };
-    assert_eq!(derivation.inverse_receipt_ref, inverse_receipt_ref);
-    assert_eq!(derivation.target_receipt_ref, target_receipt_ref);
+    assert_eq!(inverse_derivation.inverse_receipt_ref, inverse_receipt_ref);
+    assert_eq!(inverse_derivation.target_receipt_ref, target_receipt_ref);
     assert_eq!(
-        derivation.current_basis_receipt_refs,
+        inverse_derivation.current_basis_receipt_refs,
         vec![current_basis_receipt_ref]
+    );
+    assert_eq!(redo_derivation.inverse_receipt_ref, redo_receipt_ref);
+    assert_eq!(redo_derivation.target_receipt_ref, inverse_receipt_ref);
+    assert_eq!(
+        redo_derivation.current_basis_receipt_refs,
+        vec![inverse_receipt_ref]
+    );
+    let first_page = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::NewestFirst,
+            page_size: 2,
+            cursor: None,
+        })
+        .expect("first recovered history page should be readable")
+    };
+    assert_eq!(first_page.next_cursor, Some(cursor_before_restart.clone()));
+    let second_page = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::NewestFirst,
+            page_size: 2,
+            cursor: Some(cursor_before_restart),
+        })
+        .expect("second recovered history page should be readable")
+    };
+    let third_page = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::NewestFirst,
+            page_size: 2,
+            cursor: second_page.next_cursor.clone(),
+        })
+        .expect("third recovered history page should be readable")
+    };
+    let recovered_entries = first_page
+        .entries
+        .iter()
+        .chain(&second_page.entries)
+        .chain(&third_page.entries)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(recovered_entries, history_before_restart.entries);
+    assert_eq!(
+        recovered_entries
+            .iter()
+            .map(|entry| entry.receipt_ref)
+            .collect::<Vec<_>>(),
+        vec![
+            redo_receipt_ref,
+            inverse_receipt_ref,
+            current_basis_receipt_ref,
+            target_receipt_ref,
+            first_receipt_ref,
+        ]
+    );
+    for entry in &recovered_entries {
+        let contract = entry
+            .contract
+            .as_ref()
+            .expect("each fixture transition should retain contract evidence");
+        assert_eq!(contract.op_id, REPLACE_RANGE_OP_ID);
+        assert_eq!(contract.op_kind, ContractOperationKind::Mutation);
+    }
+    assert!(first_page.next_cursor.is_some());
+    assert!(second_page.next_cursor.is_some());
+    assert!(third_page.next_cursor.is_none());
+    assert_eq!(
+        recovered_entries[0].inverse_derivation,
+        Some(redo_derivation)
+    );
+    assert_eq!(
+        recovered_entries[1].inverse_derivation,
+        Some(inverse_derivation)
+    );
+    let oldest_first = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::OldestFirst,
+            page_size: 5,
+            cursor: None,
+        })
+        .expect("oldest-first history should be readable")
+    };
+    assert_eq!(
+        oldest_first
+            .entries
+            .iter()
+            .map(|entry| entry.receipt_ref)
+            .collect::<Vec<_>>(),
+        vec![
+            first_receipt_ref,
+            target_receipt_ref,
+            current_basis_receipt_ref,
+            inverse_receipt_ref,
+            redo_receipt_ref,
+        ]
+    );
+    let invalid_size = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::NewestFirst,
+            page_size: 0,
+            cursor: None,
+        })
+    };
+    assert!(matches!(
+        invalid_size,
+        Err(CausalReceiptHistoryObstruction::InvalidPageSize { .. })
+    ));
+    let future_basis = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(6),
+            direction: CausalReceiptHistoryDirection::NewestFirst,
+            page_size: 1,
+            cursor: None,
+        })
+    };
+    assert!(matches!(
+        future_basis,
+        Err(CausalReceiptHistoryObstruction::BasisBeyondFrontier { .. })
+    ));
+    let mismatched_cursor = {
+        let app = history.app();
+        app.causal_receipt_history(CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: WorldlineTick::from_raw(5),
+            direction: CausalReceiptHistoryDirection::OldestFirst,
+            page_size: 2,
+            cursor: first_page.next_cursor,
+        })
+    };
+    assert_eq!(
+        mismatched_cursor,
+        Err(CausalReceiptHistoryObstruction::CursorScopeMismatch)
     );
 
     fs::remove_dir_all(wal_root).expect("test WAL directory should be removable");

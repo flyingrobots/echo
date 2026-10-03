@@ -224,11 +224,86 @@ The filesystem store holds an operating-system writer lease for the complete
 active epoch. A second live process cannot append, close, or replace that
 epoch. After process loss releases the lease, the trusted runtime closes the
 recovered active epoch under the newly acquired lease and derives a fresh
+<<<<<<< HEAD
 successor with a monotonic start LSN, new epoch identity, fencing token, and
 lease evidence bound to the exact latest predecessor and its final commit.
 Duplicate identities, stale or missing predecessor links, reused fencing
 evidence, LSN regression, corrupted ledgers, and commits without their epoch
 ledger fail closed before append.
+||||||| parent of 54b7abc3 (fix: release writer leases despite inherited descriptors)
+successor with a new epoch identity, fencing token, and lease evidence bound to
+the exact latest predecessor and its final commit. Duplicate identities, stale
+or missing predecessor links, reused fencing evidence, LSN regression,
+corrupted ledgers, and commits without their epoch ledger fail closed before
+append.
+
+Epoch-chain advancement is strict, but the start LSN is not the thing that
+advances. An LSN names a WAL _frame_; acquiring an epoch persists ledger
+evidence and emits no frame. An epoch's start LSN is therefore the next
+unallocated frame coordinate, and it is non-regressing rather than universally
+strictly increasing:
+
+```text
+previous epoch committed frames:
+    successor.start = previous.final_lsn + 1
+
+previous epoch committed no frames:
+    successor.start = previous.start
+```
+
+An epoch is not entitled to spend an LSN it never wrote. Requiring a strict
+advance past an empty epoch would invent a phantom coordinate, and recovery
+reports the resulting hole as `LsnContinuityMismatch` to every later reader —
+one hole per barren restart, which is what an inspect-then-close host produces
+on every open. A missing LSN must keep meaning missing or corrupt material, an
+explicitly classified uncommitted tail, or an obstruction; never "a writer
+epoch may have silently eaten it."
+
+An epoch that wrote frames but committed none is closure-empty yet holds
+occupied coordinates. Recovery resolves or truncates that tail before a
+successor may write, and the successor still resumes after the predecessor's
+committed frames.
+=======
+
+successor with a new epoch identity, fencing token, and lease evidence bound to
+the exact latest predecessor and its final commit. Duplicate identities, stale
+or missing predecessor links, reused fencing evidence, LSN regression,
+corrupted ledgers, and commits without their epoch ledger fail closed before
+append.
+
+Orderly owner teardown explicitly unlocks the lease before closing its file.
+This prevents a descriptor temporarily inherited by a concurrent fork from
+extending the departed owner's lock until the child executes its program.
+The live owner's lease still excludes every competing writer.
+
+Epoch-chain advancement is strict, but the start LSN is not the thing that
+advances. An LSN names a WAL _frame_; acquiring an epoch persists ledger
+evidence and emits no frame. An epoch's start LSN is therefore the next
+unallocated frame coordinate, and it is non-regressing rather than universally
+strictly increasing:
+
+```text
+previous epoch committed frames:
+    successor.start = previous.final_lsn + 1
+
+previous epoch committed no frames:
+    successor.start = previous.start
+```
+
+An epoch is not entitled to spend an LSN it never wrote. Requiring a strict
+advance past an empty epoch would invent a phantom coordinate, and recovery
+reports the resulting hole as `LsnContinuityMismatch` to every later reader —
+one hole per barren restart, which is what an inspect-then-close host produces
+on every open. A missing LSN must keep meaning missing or corrupt material, an
+explicitly classified uncommitted tail, or an obstruction; never "a writer
+epoch may have silently eaten it."
+
+An epoch that wrote frames but committed none is closure-empty yet holds
+occupied coordinates. Recovery resolves or truncates that tail before a
+successor may write, and the successor still resumes after the predecessor's
+committed frames.
+
+> > > > > > > 54b7abc3 (fix: release writer leases despite inherited descriptors)
 
 The operating-system lease is the filesystem adapter's exclusion authority.
 The persisted fencing, process, host, and lease fields are deterministic

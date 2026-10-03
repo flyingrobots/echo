@@ -9,7 +9,8 @@ use crate::hashes::make_rule_id;
 #[cfg(test)]
 use warp_core::GraphStore;
 use warp_core::{
-    ConflictPolicy, Footprint, GraphView, Hash, NodeId, PatternGraph, RewriteRule, TickDelta,
+    ConflictPolicy, ExecutionGraphView, Footprint, GraphView, Hash, NodeId, ObservedExecuteFn,
+    PatternGraph, RewriteRule, RuleExecutor, TickDelta,
 };
 
 /// Type alias for join functions matching warp-core's `JoinFn`.
@@ -35,7 +36,7 @@ pub fn scope_exists(view: GraphView<'_>, scope: &NodeId) -> bool {
 // --- Executor Functions ---
 
 /// Executor that does nothing.
-pub fn noop_exec(_: GraphView<'_>, _: &NodeId, _: &mut TickDelta) {}
+pub fn noop_exec(_: &mut ExecutionGraphView<'_, '_>, _: &NodeId, _: &mut TickDelta) {}
 
 // --- Footprint Functions ---
 
@@ -113,7 +114,7 @@ impl NoOpRule {
 pub type MatcherFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
 
 /// Type alias for Phase 5 parallel execution executor functions.
-pub type ExecutorFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
+pub type ExecutorFn = ObservedExecuteFn;
 
 /// Type alias for Phase 5 parallel execution footprint functions.
 pub type FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint;
@@ -233,7 +234,7 @@ impl SyntheticRuleBuilder {
             name: self.name,
             left: PatternGraph { nodes: vec![] },
             matcher: self.matcher,
-            executor: self.executor,
+            executor: RuleExecutor::observed(self.executor),
             compute_footprint: self.footprint,
             factor_mask: self.factor_mask,
             conflict_policy: self.conflict_policy,

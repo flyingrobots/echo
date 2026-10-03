@@ -15,11 +15,11 @@
 use warp_core::{
     compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_type_id, make_warp_id,
     ApplyResult, AtomPayload, AtomWriteSet, AttachmentKey, AttachmentSet, AttachmentValue,
-    ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint, GlobalTick,
-    GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
-    OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId,
-    TickCommitStatus, WarpId, WarpOp, WarpTickPatchV1, WorldlineId, WorldlineState, WorldlineTick,
-    WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+    ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, ExecutionGraphView,
+    Footprint, GlobalTick, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey,
+    NodeRecord, OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule,
+    RuleExecutor, SessionId, TickCommitStatus, WarpId, WarpOp, WarpTickPatchV1, WorldlineId,
+    WorldlineState, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -273,7 +273,7 @@ fn make_parallel_touch_rule() -> RewriteRule {
             // Match if the node exists
             view.node(scope).is_some()
         },
-        executor: |view, scope, delta| {
+        executor: RuleExecutor::observed(|view: &mut ExecutionGraphView<'_, '_>, scope, delta| {
             // Phase 5: read from view, emit ops to delta (no direct mutation).
             let marker_payload = AtomPayload::new(
                 parallel_marker_type_id(),
@@ -286,7 +286,7 @@ fn make_parallel_touch_rule() -> RewriteRule {
                 local_id: *scope,
             });
             delta.push(WarpOp::SetAttachment { key, value });
-        },
+        }),
         compute_footprint: |view, scope| {
             let mut a_write = AttachmentSet::default();
             if view.node(scope).is_some() {
@@ -997,18 +997,20 @@ macro_rules! make_touch_rule {
             name: $rule_name,
             left: warp_core::PatternGraph { nodes: vec![] },
             matcher: |view, scope| view.node(scope).is_some(),
-            executor: |view, scope, delta| {
-                let marker_payload = warp_core::AtomPayload::new(
-                    warp_core::make_type_id($marker_type),
-                    bytes::Bytes::from_static($marker_bytes),
-                );
-                let value = Some(warp_core::AttachmentValue::Atom(marker_payload));
-                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
-                    warp_id: view.warp_id(),
-                    local_id: *scope,
-                });
-                delta.push(warp_core::WarpOp::SetAttachment { key, value });
-            },
+            executor: warp_core::RuleExecutor::observed(
+                |view: &mut warp_core::ExecutionGraphView<'_, '_>, scope, delta| {
+                    let marker_payload = warp_core::AtomPayload::new(
+                        warp_core::make_type_id($marker_type),
+                        bytes::Bytes::from_static($marker_bytes),
+                    );
+                    let value = Some(warp_core::AttachmentValue::Atom(marker_payload));
+                    let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                        warp_id: view.warp_id(),
+                        local_id: *scope,
+                    });
+                    delta.push(warp_core::WarpOp::SetAttachment { key, value });
+                },
+            ),
             compute_footprint: |view, scope| {
                 let mut a_write = warp_core::AttachmentSet::default();
                 if view.node(scope).is_some() {

@@ -25,7 +25,7 @@ use crate::contract_registry::{ContractMutationHandler, ContractPackageIdentity}
 use crate::footprint::Footprint;
 use crate::graph_view::GraphView;
 use crate::ident::{make_type_id, NodeId};
-use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule, RuleExecutor};
 use crate::TickDelta;
 
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -1920,7 +1920,7 @@ fn materialize_mutation_handler(
             name: dispatch.rule_name,
             left: PatternGraph { nodes: Vec::new() },
             matcher: dispatch.matcher,
-            executor,
+            executor: RuleExecutor::legacy(executor),
             compute_footprint,
             factor_mask: u64::MAX,
             conflict_policy: ConflictPolicy::Abort,
@@ -2145,8 +2145,12 @@ mod tests {
             handler.rule.matcher,
             matcher as ProviderMutationMatchFnV1
         ));
+        assert!(matches!(handler.rule.executor, RuleExecutor::Legacy(_)));
+        let RuleExecutor::Legacy(installed_executor) = handler.rule.executor else {
+            return;
+        };
         assert!(std::ptr::fn_addr_eq(
-            handler.rule.executor,
+            installed_executor,
             execute_provider_host::<TestHost> as ProviderMutationExecuteFnV1
         ));
         assert!(std::ptr::fn_addr_eq(

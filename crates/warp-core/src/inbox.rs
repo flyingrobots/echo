@@ -23,10 +23,11 @@
 use blake3::Hasher;
 
 use crate::attachment::AttachmentKey;
+use crate::execution_graph_view::ExecutionGraphView;
 use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
 use crate::graph_view::GraphView;
 use crate::ident::{make_node_id, make_type_id, EdgeId, EdgeKey, Hash, NodeId};
-use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule, RuleExecutor};
 use crate::tick_patch::WarpOp;
 use crate::TickDelta;
 
@@ -85,7 +86,7 @@ fn dispatch_inbox_rule_impl() -> RewriteRule {
         name: DISPATCH_INBOX_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: inbox_matcher,
-        executor: inbox_executor,
+        executor: RuleExecutor::observed(inbox_executor),
         compute_footprint: inbox_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -117,7 +118,7 @@ fn ack_pending_rule_impl() -> RewriteRule {
         name: ACK_PENDING_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: ack_pending_matcher,
-        executor: ack_pending_executor,
+        executor: RuleExecutor::observed(ack_pending_executor),
         compute_footprint: ack_pending_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -132,7 +133,7 @@ fn inbox_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
         && view.edges_from(scope).any(|e| e.ty == pending_ty)
 }
 
-fn inbox_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+fn inbox_executor(view: &mut ExecutionGraphView<'_, '_>, scope: &NodeId, delta: &mut TickDelta) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
@@ -201,7 +202,11 @@ fn ack_pending_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     view.has_edge(&edge_id)
 }
 
-fn ack_pending_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+fn ack_pending_executor(
+    view: &mut ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     // Phase 5: read from view, emit ops to delta (no direct mutation).
     let warp_id = view.warp_id();
     let inbox_id = make_node_id(INBOX_PATH);

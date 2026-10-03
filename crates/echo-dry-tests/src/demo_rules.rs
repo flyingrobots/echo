@@ -8,10 +8,13 @@ use warp_core::{
     decode_motion_atom_payload_q32_32, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
     motion_payload_type_id, pack_port_key, AtomPayload, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeSet, Engine, Footprint, GraphStore, GraphView, Hash,
-    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, WarpId,
-    WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeSet, Engine, ExecutionGraphView, Footprint, GraphStore,
+    GraphView, Hash, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule,
+    RuleExecutor, TickDelta, WarpId, WarpOp,
 };
+
+#[cfg(test)]
+use warp_core::ActualFootprint;
 
 // =============================================================================
 // Motion Rule
@@ -54,7 +57,7 @@ mod motion_scalar_backend {
 
 use motion_scalar_backend::{scalar_from_raw, scalar_to_raw};
 
-fn motion_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+fn motion_executor(view: &mut ExecutionGraphView<'_, '_>, scope: &NodeId, delta: &mut TickDelta) {
     if view.node(scope).is_none() {
         return;
     }
@@ -187,7 +190,7 @@ pub fn motion_rule() -> RewriteRule {
         name: MOTION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,
-        executor: motion_executor,
+        executor: RuleExecutor::observed(motion_executor),
         compute_footprint: compute_motion_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -222,7 +225,7 @@ fn port_matcher(_: GraphView<'_>, _: &NodeId) -> bool {
     true
 }
 
-fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+fn port_executor(view: &mut ExecutionGraphView<'_, '_>, scope: &NodeId, delta: &mut TickDelta) {
     if view.node(scope).is_none() {
         return;
     }
@@ -306,7 +309,7 @@ pub fn port_rule() -> RewriteRule {
         name: PORT_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: port_matcher,
-        executor: port_executor,
+        executor: RuleExecutor::observed(port_executor),
         compute_footprint: compute_port_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -353,9 +356,10 @@ mod tests {
             Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
         );
 
-        let view = GraphView::new(&store);
+        let mut actual = ActualFootprint::new();
+        let mut view = ExecutionGraphView::new(&store, &mut actual);
         let mut delta = TickDelta::new();
-        port_executor(view, &node_id, &mut delta);
+        port_executor(&mut view, &node_id, &mut delta);
 
         assert!(delta.is_empty(), "no-op update should not emit a delta op");
     }

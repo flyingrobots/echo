@@ -16,7 +16,8 @@ pub use exec::{
     execute_parallel_sharded_with_adaptive_routing, execute_parallel_sharded_with_policy,
     execute_parallel_with_adaptive_routing, execute_parallel_with_policy, execute_serial,
     execute_work_queue, resolve_adaptive_shard_routing, DeltaAccumulationPolicy, ExecItem,
-    ParallelExecutionPolicy, PoisonedDelta, ShardAssignmentPolicy, WorkUnit, WorkerResult,
+    ParallelExecutionPolicy, PoisonedDelta, ShardAssignmentPolicy, WorkUnit, WorkerExecution,
+    WorkerResult,
 };
 #[cfg(not(any(test, feature = "delta_validate")))]
 pub(crate) use merge::check_write_to_new_warp;

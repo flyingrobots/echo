@@ -764,8 +764,8 @@ mod tests {
     use warp_core::{
         make_edge_id, make_head_id, make_intent_kind, make_node_id, make_type_id, AttachmentKey,
         AttachmentValue, AtomPayload, ContractQueryObserverContext, ContractQueryObserverError,
-        ContractQueryObserverResult, EdgeRecord, EngineBuilder, GraphStore, GraphView,
-        InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord,
+        ContractQueryObserverResult, EdgeRecord, EngineBuilder, ExecutionGraphView, GraphStore,
+        GraphView, InboxPolicy, IngressEnvelope, IngressTarget, NodeId, NodeKey, NodeRecord,
         ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
         ObservationProjection, ObservationService, PlaybackMode, ProvenanceService,
         ReadingObserverBasis, ReadingObserverPlan, ReadingResidualPosture, SchedulerCoordinator,
@@ -784,7 +784,11 @@ mod tests {
         make_edge_id("generated-contract-host/result-edge")
     }
 
-    fn increment_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+    fn increment_executor(
+        view: &mut ExecutionGraphView<'_, '_>,
+        scope: &NodeId,
+        delta: &mut TickDelta,
+    ) {
         let Some(vars) = increment_contract_vars(view, scope) else {
             return;
         };
@@ -1885,6 +1889,7 @@ fn test_toy_contract_generated_contract_host_query_observer_compiles_in_consumer
     let generated = String::from_utf8_lossy(&output.stdout);
     assert!(generated.contains("pub fn increment_contract_rule"));
     assert!(generated.contains("pub fn increment_contract_vars"));
+    assert!(generated.contains("executor: RuleExecutor::observed(executor)"));
     assert!(generated.contains("pub fn increment_contract_runtime_ingress_footprint"));
     assert!(generated.contains("pub fn counter_value_query_observer"));
     assert!(generated.contains("pub fn counter_value_observer_vars"));

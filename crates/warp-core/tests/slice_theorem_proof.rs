@@ -81,7 +81,11 @@ fn rule_id(name: &str) -> warp_core::Hash {
 // =============================================================================
 
 // R1: reads A, writes B attachment (writes known value V)
-fn r1_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn r1_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(&node_id(0));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
@@ -124,7 +128,7 @@ fn r1_rule() -> RewriteRule {
         name: R1_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r1_executor,
+        executor: warp_core::RuleExecutor::observed(r1_executor),
         compute_footprint: r1_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -133,7 +137,11 @@ fn r1_rule() -> RewriteRule {
 }
 
 // R2: reads C, writes D attachment (independent)
-fn r2_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn r2_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(&node_id(2));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
@@ -176,7 +184,7 @@ fn r2_rule() -> RewriteRule {
         name: R2_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r2_executor,
+        executor: warp_core::RuleExecutor::observed(r2_executor),
         compute_footprint: r2_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -185,7 +193,11 @@ fn r2_rule() -> RewriteRule {
 }
 
 // R3: reads E, writes F attachment (independent)
-fn r3_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn r3_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(&node_id(4));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
@@ -228,7 +240,7 @@ fn r3_rule() -> RewriteRule {
         name: R3_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r3_executor,
+        executor: warp_core::RuleExecutor::observed(r3_executor),
         compute_footprint: r3_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -237,7 +249,11 @@ fn r3_rule() -> RewriteRule {
 }
 
 // R4: reads B attachment, writes G attachment (DEPENDENT on R1 — R1 writes B)
-fn r4_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn r4_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(&node_id(1));
     let attachment = view.node_attachment(&node_id(1));
     // Transform: if R1 has written, produce "r4-saw-r1", else "r4-no-input"
@@ -293,7 +309,7 @@ fn r4_rule() -> RewriteRule {
         name: R4_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r4_executor,
+        executor: warp_core::RuleExecutor::observed(r4_executor),
         compute_footprint: r4_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -302,7 +318,11 @@ fn r4_rule() -> RewriteRule {
 }
 
 // R5: reads H, writes I attachment (independent)
-fn r5_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn r5_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(&node_id(7));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
@@ -345,7 +365,7 @@ fn r5_rule() -> RewriteRule {
         name: R5_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r5_executor,
+        executor: warp_core::RuleExecutor::observed(r5_executor),
         compute_footprint: r5_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -354,7 +374,11 @@ fn r5_rule() -> RewriteRule {
 }
 
 // R6: reads J (in engine's root warp), attempts cross-warp emission into W2
-fn r6_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+fn r6_executor(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let _ = view.node(scope);
     // Attempt to emit into W2 (wrong warp — our engine always uses make_warp_id("root"))
     let w2 = make_warp_id("slice-w2");
@@ -392,7 +416,7 @@ fn r6_rule() -> RewriteRule {
         name: R6_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| view.node(scope).is_some(),
-        executor: r6_executor,
+        executor: warp_core::RuleExecutor::observed(r6_executor),
         compute_footprint: r6_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,

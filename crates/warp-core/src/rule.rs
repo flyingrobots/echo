@@ -3,6 +3,7 @@
 //! Rewrite rule definitions.
 #![cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
 
+use crate::execution_graph_view::ExecutionGraphView;
 use crate::footprint::Footprint;
 use crate::graph_view::GraphView;
 use crate::ident::{Hash, NodeId, TypeId};
@@ -25,17 +26,70 @@ pub struct PatternGraph {
 /// - `&NodeId`: The candidate scope node to test
 pub type MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
 
-/// Function pointer that applies a rewrite to the given scope.
+/// Legacy function pointer that applies a rewrite to the given scope.
 ///
-/// Phase 5 signature: executors read from an immutable [`GraphView`]
-/// and emit mutations to a [`TickDelta`]. This enforces the separation
-/// between observation and mutation required by the deterministic execution model.
+/// This ABI cannot record graph reads and therefore always produces
+/// `UnavailableLegacyExecutor` evidence. It remains for frozen compatibility
+/// callbacks such as provider-v1. Native bootstrap rules use
+/// [`ObservedExecuteFn`] instead. Both ABIs preserve the separation between
+/// observation and mutation: executors emit mutations to a [`TickDelta`].
 ///
 /// Parameters:
 /// - `GraphView`: Read-only view over the graph state (Copy type, 8 bytes)
 /// - `&NodeId`: The node ID where the rewrite is applied
 /// - `&mut TickDelta`: Mutable reference to record emitted changes
 pub type ExecuteFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
+
+/// Function pointer for an executor whose graph reads are recorded.
+///
+/// Unlike legacy [`ExecuteFn`], the observed callback receives an exclusive
+/// borrow of [`ExecutionGraphView`]. The view records each attempted read before
+/// applying the declared-footprint guard, so an unwind cannot erase the access
+/// that caused it.
+pub type ObservedExecuteFn =
+    for<'store, 'frame> fn(&mut ExecutionGraphView<'store, 'frame>, &NodeId, &mut TickDelta);
+
+/// Execution ABI selected for one rewrite rule.
+///
+/// Native rules use [`Observed`](Self::Observed). [`Legacy`](Self::Legacy)
+/// remains explicit for frozen compatibility callbacks, including provider-v1;
+/// it never produces an authoritative read-footprint record.
+#[derive(Clone, Copy)]
+pub enum RuleExecutor {
+    /// Executor whose reads pass through [`ExecutionGraphView`].
+    Observed(ObservedExecuteFn),
+    /// Compatibility executor whose reads pass through legacy [`GraphView`].
+    Legacy(ExecuteFn),
+}
+
+impl RuleExecutor {
+    /// Wraps an executor that records graph reads.
+    #[must_use]
+    pub const fn observed(executor: ObservedExecuteFn) -> Self {
+        Self::Observed(executor)
+    }
+
+    /// Wraps a frozen compatibility executor.
+    #[must_use]
+    pub const fn legacy(executor: ExecuteFn) -> Self {
+        Self::Legacy(executor)
+    }
+
+    /// Returns `true` when the callback uses the observed executor ABI.
+    #[must_use]
+    pub const fn is_observed(self) -> bool {
+        matches!(self, Self::Observed(_))
+    }
+}
+
+impl core::fmt::Debug for RuleExecutor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Observed(_) => "RuleExecutor::Observed",
+            Self::Legacy(_) => "RuleExecutor::Legacy",
+        })
+    }
+}
 
 /// Function pointer that computes a rewrite footprint at the provided scope.
 ///
@@ -86,8 +140,8 @@ pub struct RewriteRule {
     pub left: PatternGraph,
     /// Callback used to determine if the rule matches the provided scope.
     pub matcher: MatchFn,
-    /// Callback that applies the rewrite to the provided scope.
-    pub executor: ExecuteFn,
+    /// Observed or explicitly legacy callback that applies the rewrite.
+    pub executor: RuleExecutor,
     /// Callback that computes a footprint for independence checks.
     pub compute_footprint: FootprintFn,
     /// Spatial partition bitmask used as an O(1) prefilter.

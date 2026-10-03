@@ -1797,6 +1797,7 @@ impl<'a> ExternalActionPayloadCursor<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
 

@@ -94,6 +94,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                i as u32,
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -217,6 +218,7 @@ fn make_multi_warp_setup(
             let id = make_node_id(&format!("bench/w{w}/n{i}"));
             store.insert_node(id, NodeRecord { ty: node_ty });
             items.push(ExecItem::new(
+                (w * items_per_warp + i) as u32,
                 touch_executor,
                 id,
                 OpOrigin {

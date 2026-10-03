@@ -63,6 +63,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                i as u32,
                 touch_executor,
                 scope,
                 OpOrigin {

@@ -10,8 +10,8 @@
 use echo_dry_tests::{motion_rule, port_rule, MOTION_RULE_NAME, PORT_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
-    EngineError, Footprint, GraphStore, GraphView, NodeId, NodeRecord, PatternGraph, RewriteRule,
-    TickDelta,
+    EngineError, ExecutionGraphView, Footprint, GraphStore, GraphView, NodeId, NodeRecord,
+    PatternGraph, RewriteRule, RuleExecutor, TickDelta,
 };
 
 const LITMUS_PORT_READ_0: &str = "litmus/port_read_0";
@@ -28,7 +28,12 @@ fn litmus_port_read_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     view.node(scope).is_some()
 }
 
-fn litmus_port_read_executor(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {}
+fn litmus_port_read_executor(
+    _view: &mut ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    _delta: &mut TickDelta,
+) {
+}
 
 fn litmus_port_read_0_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
@@ -58,7 +63,7 @@ fn litmus_port_read_0_rule() -> RewriteRule {
         name: LITMUS_PORT_READ_0,
         left: PatternGraph { nodes: Vec::new() },
         matcher: litmus_port_read_matcher,
-        executor: litmus_port_read_executor,
+        executor: RuleExecutor::observed(litmus_port_read_executor),
         compute_footprint: litmus_port_read_0_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,
@@ -72,7 +77,7 @@ fn litmus_port_read_1_rule() -> RewriteRule {
         name: LITMUS_PORT_READ_1,
         left: PatternGraph { nodes: Vec::new() },
         matcher: litmus_port_read_matcher,
-        executor: litmus_port_read_executor,
+        executor: RuleExecutor::observed(litmus_port_read_executor),
         compute_footprint: litmus_port_read_1_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

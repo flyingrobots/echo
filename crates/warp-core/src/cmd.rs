@@ -12,11 +12,12 @@ use echo_wasm_abi::kernel_port as abi;
 use echo_wasm_abi::{encode_cbor, unpack_import_suffix_intent_v1};
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
+use crate::execution_graph_view::ExecutionGraphView;
 use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
 use crate::ident::{make_type_id, EdgeId, NodeId, NodeKey};
 use crate::inbox::INTENT_ATTACHMENT_TYPE;
 use crate::record::{EdgeRecord, NodeRecord};
-use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule, RuleExecutor};
 use crate::tick_patch::WarpOp;
 use crate::TickDelta;
 
@@ -45,7 +46,7 @@ pub fn import_suffix_intent_rule() -> RewriteRule {
         name: IMPORT_SUFFIX_INTENT_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: import_suffix_intent_matches,
-        executor: import_suffix_intent_executor,
+        executor: RuleExecutor::observed(import_suffix_intent_executor),
         compute_footprint: import_suffix_intent_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -77,11 +78,11 @@ fn import_suffix_intent_matches(view: crate::GraphView<'_>, scope: &NodeId) -> b
 }
 
 fn import_suffix_intent_executor(
-    view: crate::GraphView<'_>,
+    view: &mut ExecutionGraphView<'_, '_>,
     scope: &NodeId,
     delta: &mut TickDelta,
 ) {
-    let Some(request) = import_suffix_request_from_scope(view, scope) else {
+    let Some(request) = import_suffix_request_from_execution_view(view, scope) else {
         return;
     };
     let result = staged_import_suffix_result(&request);
@@ -122,6 +123,19 @@ fn import_suffix_intent_executor(
             Bytes::from(result_bytes),
         ))),
     });
+}
+
+fn import_suffix_request_from_execution_view(
+    view: &mut ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+) -> Option<abi::ImportSuffixRequest> {
+    let Some(AttachmentValue::Atom(atom)) = view.node_attachment(scope) else {
+        return None;
+    };
+    if atom.type_id != make_type_id(INTENT_ATTACHMENT_TYPE) {
+        return None;
+    }
+    unpack_import_suffix_intent_v1(atom.bytes.as_ref()).ok()
 }
 
 fn import_suffix_intent_footprint(view: crate::GraphView<'_>, scope: &NodeId) -> Footprint {

@@ -1586,7 +1586,14 @@ fn validate_writer_epoch_request(
                 if request.started_at_lsn <= final_lsn {
                     return Err(WalStoreError::WriterEpochLsnRegression);
                 }
-            } else if request.started_at_lsn <= previous_epoch.started_at_lsn {
+            } else if request.started_at_lsn < previous_epoch.started_at_lsn {
+                // The predecessor committed nothing, so it consumed no LSN. The
+                // successor may resume at the same coordinate; only moving
+                // backwards is a regression. Requiring a strict advance here
+                // would mint a hole in the frame sequence for every barren
+                // epoch, which recovery rejects as `LsnContinuityMismatch`.
+                // Epoch distinctness is carried by the epoch id, ordinal,
+                // fencing token, and lease evidence — not by the start LSN.
                 return Err(WalStoreError::WriterEpochLsnRegression);
             }
             if request.storage_fencing_token == previous_epoch.storage_fencing_token
@@ -5579,7 +5586,7 @@ pub struct FilesystemWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
-    writer_lock: Option<File>,
+    writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     #[cfg(any(test, feature = "host_test"))]
@@ -5761,11 +5768,20 @@ impl FilesystemWalStore {
             .and_then(|epoch| self.epoch_closures.get(&epoch.epoch_id))
             .copied()
             .unwrap_or_default();
-        let required_started_at_lsn = previous_closure
-            .final_lsn
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
-            .and_then(Lsn::checked_next)
-            .unwrap_or(minimum_started_at_lsn);
+        // An epoch's start LSN is the next unallocated *frame* coordinate. An
+        // LSN is assigned to a WAL frame; acquiring an epoch persists ledger
+        // evidence but emits no frame, so an epoch that committed nothing spent
+        // nothing and its successor resumes at the same coordinate. Advancing
+        // past it would invent a phantom coordinate that
+        // `validate_recovery_frame_order` reports as a gap to every later
+        // reader. Epoch-chain advancement is carried by epoch identity, fencing
+        // evidence, and predecessor linkage — not by the start LSN.
+        let required_started_at_lsn = match previous_closure.final_lsn {
+            Some(final_lsn) => final_lsn
+                .checked_next()
+                .ok_or(WalStoreError::WriterEpochChainGap)?,
+            None => previous_epoch.map_or(minimum_started_at_lsn, |epoch| epoch.started_at_lsn),
+        };
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())
             .map_err(|_| WalStoreError::WriterEpochChainGap)?
@@ -8457,7 +8473,18 @@ fn reconcile_writer_epoch_closures(
     Ok(())
 }
 
-fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
+#[derive(Debug)]
+struct WriterEpochLock(File);
+
+impl Drop for WriterEpochLock {
+    fn drop(&mut self) {
+        // A concurrent fork can retain the open file description until exec.
+        // Relinquish this owner's lock explicitly before closing its descriptor.
+        let _ = self.0.unlock();
+    }
+}
+
+fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreError> {
     let lock_path = root.join("writer-epoch.lock");
     let lock = OpenOptions::new()
         .create(true)
@@ -8471,7 +8498,33 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
             std::fs::TryLockError::Error(error) => Err(error.into()),
         };
     }
-    Ok(lock)
+    Ok(WriterEpochLock(lock))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod writer_lease_tests {
+    use super::*;
+
+    #[test]
+    fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
+        let root = PathBuf::from("target/warp-core-test-tmp/inherited-writer-lease");
+        fs::create_dir_all(&root).expect("scratch directory");
+        let lease = acquire_writer_epoch_lock(&root).expect("first writer");
+        // A forked process briefly inherits the same open file description
+        // before exec closes CLOEXEC descriptors. A duplicate models that
+        // lifetime deterministically, without depending on a process race.
+        let inherited = lease.0.try_clone().expect("inherited descriptor");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(lease);
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner exits");
+        drop(successor);
+        drop(inherited);
+        fs::remove_dir_all(root).expect("scratch cleanup");
+    }
 }
 
 fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {

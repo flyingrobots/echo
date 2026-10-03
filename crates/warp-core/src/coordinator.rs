@@ -4938,8 +4938,13 @@ mod tests {
             == Some(TOY_INCREMENT_VARS)
     }
 
-    fn toy_increment_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut crate::TickDelta) {
-        let Some(vars) = crate::contract_host::eint_vars_for_op(view, scope, TOY_INCREMENT_OP_ID)
+    fn toy_increment_executor(
+        view: &mut crate::ExecutionGraphView<'_, '_>,
+        scope: &NodeId,
+        delta: &mut crate::TickDelta,
+    ) {
+        let Some(vars) =
+            crate::contract_host::observed_eint_vars_for_op(view, scope, TOY_INCREMENT_OP_ID)
         else {
             return;
         };
@@ -5003,7 +5008,7 @@ mod tests {
             name: "cmd/contract/toy-counter/increment",
             left: PatternGraph { nodes: vec![] },
             matcher: toy_increment_matches,
-            executor: toy_increment_executor,
+            executor: crate::RuleExecutor::observed(toy_increment_executor),
             compute_footprint: toy_increment_footprint,
             factor_mask: 0,
             conflict_policy: ConflictPolicy::Abort,
@@ -5534,7 +5539,7 @@ mod tests {
             name: rule_name,
             left: PatternGraph { nodes: vec![] },
             matcher: runtime_marker_matches,
-            executor: |_view, _scope, _delta| {},
+            executor: crate::RuleExecutor::observed(|_view, _scope, _delta| {}),
             compute_footprint: |_view, _scope| crate::Footprint::default(),
             factor_mask: 0,
             conflict_policy: ConflictPolicy::Abort,
@@ -5555,7 +5560,7 @@ mod tests {
             name: rule_name,
             left: PatternGraph { nodes: vec![] },
             matcher: |_view, _scope| true,
-            executor: |_view, _scope, _delta| {},
+            executor: crate::RuleExecutor::observed(|_view, _scope, _delta| {}),
             compute_footprint: |view, _scope| {
                 let mut footprint = crate::Footprint::default();
                 footprint
@@ -5577,7 +5582,9 @@ mod tests {
             name: rule_name,
             left: PatternGraph { nodes: vec![] },
             matcher: runtime_panic_matches,
-            executor: |_view, _scope, _delta| std::panic::panic_any("runtime-commit-panic"),
+            executor: crate::RuleExecutor::observed(|_view, _scope, _delta| {
+                std::panic::panic_any("runtime-commit-panic")
+            }),
             compute_footprint: |_view, _scope| crate::Footprint::default(),
             factor_mask: 0,
             conflict_policy: ConflictPolicy::Abort,

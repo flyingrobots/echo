@@ -33,7 +33,7 @@ The boundary is:
 | CAS object              | A hash addresses bytes, facts, manifests, or projection material; availability requires separate CAS evidence.                                       |
 | Projection cache        | Derived observer-relative materialization can be reused when its basis, aperture, observer authority, policy, schema, evaluator, and coverage match. |
 | Causal-anchor claim     | A canonical claim binds a subject, supplied basis-frontier digest, root sets, and purpose without claiming admission.                                |
-| Trusted admitted anchor | Echo validated a current logical basis and host-owned root support, then committed the claim and receipt atomically through the causal WAL.        |
+| Trusted admitted anchor | Echo validated a current logical basis and host-owned root support, then committed the claim and receipt atomically through the causal WAL.          |
 | Domain checkpoint       | An application explains what an Echo anchor means in domain terms.                                                                                   |
 
 A graph-wide materialized checkpoint may exist as an export, backup, or diagnostic
@@ -423,13 +423,13 @@ not delete authority, and it must be reconstructible from the ordered history.
 
 The authority questions have these concrete answers:
 
-| Question | Answer |
-| --- | --- |
-| What is authoritative after restart? | The committed anchor fact/receipt transition in witnessed Echo control history. |
-| Is `causal_anchor_by_id()` a WAL-owned registry? | No. It is a projection over reconstructed witnessed history; the WAL only carries the committed transition. |
-| Are lookup maps disposable? | Yes. No persistent anchor lookup map is required for correctness. |
-| Can anchors participate in basis-pinned observations and provenance? | Yes. Witnessed entries bind pre- and post-admission frontiers, the admitted fact, its receipt, and durable commit evidence. |
-| Can anchors participate in Continuum exchange? | Yes. WSC causal-history profile version 2 carries explicit anchor fact, receipt, transaction, LSN, and commit evidence without granting local admission authority. |
+| Question                                                             | Answer                                                                                                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| What is authoritative after restart?                                 | The committed anchor fact/receipt transition in witnessed Echo control history.                                                                                    |
+| Is `causal_anchor_by_id()` a WAL-owned registry?                     | No. It is a projection over reconstructed witnessed history; the WAL only carries the committed transition.                                                        |
+| Are lookup maps disposable?                                          | Yes. No persistent anchor lookup map is required for correctness.                                                                                                  |
+| Can anchors participate in basis-pinned observations and provenance? | Yes. Witnessed entries bind pre- and post-admission frontiers, the admitted fact, its receipt, and durable commit evidence.                                        |
+| Can anchors participate in Continuum exchange?                       | Yes. WSC causal-history profile version 2 carries explicit anchor fact, receipt, transaction, LSN, and commit evidence without granting local admission authority. |
 
 ### Continuum exchange posture
 

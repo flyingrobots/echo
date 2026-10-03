@@ -77,11 +77,11 @@ fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
 mod enforcement {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use warp_core::{
-        make_edge_id, make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload,
-        AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Engine,
-        Footprint, FootprintViolation, FootprintViolationWithPanic, GraphStore, GraphView, NodeId,
-        NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, ViolationKind,
-        WarpInstance, WarpOp,
+        make_edge_id, make_node_id, make_type_id, make_warp_id, ActualFootprintPosture,
+        ApplyResult, AtomPayload, AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy,
+        EdgeRecord, EdgeSet, Engine, Footprint, FootprintViolation, FootprintViolationWithPanic,
+        GraphStore, GraphView, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet,
+        RewriteRule, RuleExecutor, TickDelta, ViolationKind, WarpInstance, WarpOp,
     };
 
     // =============================================================================
@@ -136,7 +136,7 @@ mod enforcement {
             name,
             left: PatternGraph { nodes: vec![] },
             matcher: always_match,
-            executor,
+            executor: RuleExecutor::legacy(executor),
             compute_footprint,
             factor_mask: 0,
             conflict_policy: ConflictPolicy::Abort,
@@ -188,6 +188,183 @@ mod enforcement {
             matches!(violation.kind, ViolationKind::NodeReadNotDeclared(id) if id == undeclared),
             "expected NodeReadNotDeclared, got {:?}",
             violation.kind
+        );
+    }
+
+    #[test]
+    fn observed_execution_retains_reads_and_writes_before_enforcement_unwinds() {
+        let scope = make_node_id("observed-evidence-scope");
+        let undeclared = make_node_id("observed-evidence-undeclared");
+        let mut engine = build_enforcement_engine(scope);
+        engine
+            .register_rule(RewriteRule {
+                id: test_rule_id("test/observed-evidence"),
+                name: "test/observed-evidence",
+                left: PatternGraph { nodes: vec![] },
+                matcher: always_match,
+                executor: RuleExecutor::observed(|view, _scope, delta| {
+                    let undeclared = make_node_id("observed-evidence-undeclared");
+                    delta.push(WarpOp::UpsertNode {
+                        node: NodeKey {
+                            warp_id: view.warp_id(),
+                            local_id: undeclared,
+                        },
+                        record: NodeRecord {
+                            ty: make_type_id("observed-evidence-node"),
+                        },
+                    });
+                    let _ = view.node(&undeclared);
+                }),
+                compute_footprint: |_view, _scope| Footprint::default(),
+                factor_mask: 0,
+                conflict_policy: ConflictPolicy::Abort,
+                join_fn: None,
+            })
+            .expect("register observed rule");
+
+        let tx = engine.begin();
+        assert!(matches!(
+            engine.apply(tx, "test/observed-evidence", &scope),
+            Ok(ApplyResult::Applied)
+        ));
+        let result = catch_unwind(AssertUnwindSafe(|| engine.commit(tx)));
+        assert!(
+            result.is_err(),
+            "undeclared read must retain the ordinary panic"
+        );
+
+        let evidence = engine.last_execution_footprints();
+        assert_eq!(evidence.len(), 1);
+        let record = &evidence[0];
+        assert_eq!(record.scope(), scope);
+        assert!(record.posture().is_authoritative());
+        assert_eq!(
+            record.actual().nodes_read().copied().collect::<Vec<_>>(),
+            vec![undeclared]
+        );
+        assert_eq!(
+            record.actual().nodes_write().copied().collect::<Vec<_>>(),
+            vec![undeclared]
+        );
+    }
+
+    #[test]
+    fn successful_observed_execution_retains_authoritative_reads_and_writes() {
+        let scope = make_node_id("observed-success-scope");
+        let target = make_node_id("observed-success-target");
+        let mut engine = build_enforcement_engine(scope);
+        engine
+            .register_rule(RewriteRule {
+                id: test_rule_id("test/observed-success"),
+                name: "test/observed-success",
+                left: PatternGraph { nodes: vec![] },
+                matcher: always_match,
+                executor: RuleExecutor::observed(|view, scope, delta| {
+                    let target = make_node_id("observed-success-target");
+                    let _ = view.node(scope);
+                    delta.push(WarpOp::UpsertNode {
+                        node: NodeKey {
+                            warp_id: view.warp_id(),
+                            local_id: target,
+                        },
+                        record: NodeRecord {
+                            ty: make_type_id("observed-success-node"),
+                        },
+                    });
+                }),
+                compute_footprint: |view, scope| {
+                    let mut footprint = Footprint::default();
+                    footprint.n_read.insert_with_warp(view.warp_id(), *scope);
+                    footprint
+                        .n_write
+                        .insert_with_warp(view.warp_id(), make_node_id("observed-success-target"));
+                    footprint
+                },
+                factor_mask: 0,
+                conflict_policy: ConflictPolicy::Abort,
+                join_fn: None,
+            })
+            .expect("register observed rule");
+
+        let tx = engine.begin();
+        assert!(matches!(
+            engine.apply(tx, "test/observed-success", &scope),
+            Ok(ApplyResult::Applied)
+        ));
+        engine.commit(tx).expect("commit observed rule");
+
+        let evidence = engine.last_execution_footprints();
+        assert_eq!(evidence.len(), 1);
+        let record = &evidence[0];
+        assert_eq!(
+            record.posture(),
+            ActualFootprintPosture::RecordedAndEnforced
+        );
+        assert_eq!(
+            record.actual().nodes_read().copied().collect::<Vec<_>>(),
+            vec![scope]
+        );
+        assert_eq!(
+            record.actual().nodes_write().copied().collect::<Vec<_>>(),
+            vec![target]
+        );
+    }
+
+    #[test]
+    fn legacy_execution_retains_writes_but_marks_the_read_axis_unknown() {
+        let scope = make_node_id("legacy-evidence-scope");
+        let target = make_node_id("legacy-evidence-target");
+        let mut engine = build_enforcement_engine(scope);
+        engine
+            .register_rule(RewriteRule {
+                id: test_rule_id("test/legacy-evidence"),
+                name: "test/legacy-evidence",
+                left: PatternGraph { nodes: vec![] },
+                matcher: always_match,
+                executor: RuleExecutor::legacy(|view, _scope, delta| {
+                    delta.push(WarpOp::UpsertNode {
+                        node: NodeKey {
+                            warp_id: view.warp_id(),
+                            local_id: make_node_id("legacy-evidence-target"),
+                        },
+                        record: NodeRecord {
+                            ty: make_type_id("legacy-evidence-node"),
+                        },
+                    });
+                }),
+                compute_footprint: |view, _scope| {
+                    let mut footprint = Footprint::default();
+                    footprint
+                        .n_write
+                        .insert_with_warp(view.warp_id(), make_node_id("legacy-evidence-target"));
+                    footprint
+                },
+                factor_mask: 0,
+                conflict_policy: ConflictPolicy::Abort,
+                join_fn: None,
+            })
+            .expect("register legacy rule");
+
+        let tx = engine.begin();
+        assert!(matches!(
+            engine.apply(tx, "test/legacy-evidence", &scope),
+            Ok(ApplyResult::Applied)
+        ));
+        engine.commit(tx).expect("commit legacy rule");
+
+        let evidence = engine.last_execution_footprints();
+        assert_eq!(evidence.len(), 1);
+        let record = &evidence[0];
+        assert_eq!(
+            record.posture(),
+            ActualFootprintPosture::UnavailableLegacyExecutor
+        );
+        assert!(!record.posture().read_axis_is_complete());
+        assert!(!record.posture().is_authoritative());
+        assert!(record.actual().nodes_read().next().is_none());
+        assert_eq!(
+            record.actual().nodes_write().copied().collect::<Vec<_>>(),
+            vec![target]
         );
     }
 

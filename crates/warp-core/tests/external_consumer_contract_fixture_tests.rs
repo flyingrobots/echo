@@ -128,8 +128,12 @@ fn replace_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
     warp_core::eint_vars_for_op(view, scope, REPLACE_RANGE_OP_ID).is_some()
 }
 
-fn replace_execute(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
-    let Some(vars) = warp_core::eint_vars_for_op(view, scope, REPLACE_RANGE_OP_ID) else {
+fn replace_execute(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
+    let Some(vars) = warp_core::observed_eint_vars_for_op(view, scope, REPLACE_RANGE_OP_ID) else {
         return;
     };
     let warp_id = view.warp_id();
@@ -177,7 +181,7 @@ fn replace_rule() -> warp_core::RewriteRule {
         name: REPLACE_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: replace_matches,
-        executor: replace_execute,
+        executor: warp_core::RuleExecutor::observed(replace_execute),
         compute_footprint: replace_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

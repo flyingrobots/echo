@@ -651,8 +651,8 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
         if args.contract_host && has_mutation_ops {
             helper_prelude.extend(quote! {
                 use warp_core::{
-                    ConflictPolicy, Footprint, GraphView, NodeId, PatternGraph, RewriteRule,
-                    TickDelta,
+                    ConflictPolicy, ExecutionGraphView, Footprint, GraphView, NodeId,
+                    ObservedExecuteFn, PatternGraph, RewriteRule, RuleExecutor,
                 };
             });
         }
@@ -838,8 +838,15 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
 
                             /// Decode this mutation's generated vars from a scheduler-materialized
                             /// EINT runtime ingress event.
-                            pub fn #contract_vars_fn_name(view: GraphView<'_>, scope: &NodeId) -> Option<#vars_name> {
-                                let vars = warp_core::eint_vars_for_op(view, scope, super::#const_name)?;
+                            pub fn #contract_vars_fn_name(
+                                view: &mut ExecutionGraphView<'_, '_>,
+                                scope: &NodeId,
+                            ) -> Option<#vars_name> {
+                                let vars = warp_core::observed_eint_vars_for_op(
+                                    view,
+                                    scope,
+                                    super::#const_name,
+                                )?;
                                 echo_wasm_abi::codec::decode_from_bytes(vars).ok()
                             }
 
@@ -854,7 +861,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                             /// Build a `warp-core` command rule for this generated contract
                             /// mutation using a host-supplied executor and footprint function.
                             pub fn #contract_rule_fn_name(
-                                executor: for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta),
+                                executor: ObservedExecuteFn,
                                 compute_footprint: for<'a> fn(GraphView<'a>, &NodeId) -> Footprint,
                             ) -> RewriteRule {
                                 RewriteRule {
@@ -862,7 +869,7 @@ fn generate_rust(ir: &WesleyIR, args: &Args) -> Result<String> {
                                     name: #contract_rule_name_const,
                                     left: PatternGraph { nodes: Vec::new() },
                                     matcher: #contract_match_fn_name,
-                                    executor,
+                                    executor: RuleExecutor::observed(executor),
                                     compute_footprint,
                                     factor_mask: 0,
                                     conflict_policy: ConflictPolicy::Abort,

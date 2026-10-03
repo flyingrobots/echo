@@ -1594,6 +1594,16 @@ else
 fi
 
 fake_pre_push_warp_core_recovery_output="$(run_fake_verify pre-push crates/warp-core/tests/scheduler_fault_recovery_authority.rs)"
+for parallel_target in parallel_engine_integration_multiwarp parallel_merge_tripwire parallel_merge_warpopkey parallel_openportal_rules parallel_stress_multiwarp; do
+  parallel_output="$(run_fake_verify pre-push "crates/warp-core/tests/${parallel_target}.rs")"
+  parallel_cargo_log="$(extract_log_section cargo-log "$parallel_output")"
+  if printf '%s\n' "$parallel_cargo_log" | grep -q -- "test -p warp-core --features delta_validate --test ${parallel_target}"; then
+    pass "pre-push keeps delta_validate for ${parallel_target}"
+  else
+    fail "pre-push omitted delta_validate for ${parallel_target}"
+  fi
+done
+
 fake_pre_push_warp_core_recovery_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_warp_core_recovery_output")"
 if printf '%s\n' "$fake_pre_push_warp_core_recovery_cargo_log" | grep -q -- 'test -p warp-core --features trusted_runtime --test scheduler_fault_recovery_authority'; then
   pass "pre-push keeps required trusted_runtime feature for scheduler fault recovery authority test"

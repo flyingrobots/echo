@@ -65,6 +65,14 @@
 
 ### Added
 
+- `warp-core` trusted applications can now traverse bounded causal receipt
+  history at an explicit worldline frontier in either canonical direction
+  (#660). Echo-issued continuation cursors bind worldline, basis, direction, and
+  exact last receipt; each entry includes witnessed submission identity,
+  contract evidence, canonical parent receipts, and any typed inverse
+  derivation. Filesystem recovery returns identical pages without a
+  process-local history authority, while missing, duplicate, or inconsistent
+  retained evidence produces typed obstructions instead of truncated history.
 - `submit_bound_echo_operation_request_v1` submits the Action bound to a
   logical request and durably links the request to that submission;
   `echo_operation_request_outcome_v1` returns the linked submission and its

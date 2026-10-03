@@ -49,6 +49,7 @@ mod causal_anchor;
 mod causal_anchor_wal_tests;
 mod causal_facts;
 mod causal_receipt;
+mod causal_receipt_history;
 pub mod causal_wal;
 #[cfg(test)]
 mod causal_wal_tests;
@@ -219,6 +220,11 @@ pub use causal_facts::{
     InvocationObstructionKind, PublishedGraphFact, ARTIFACT_REGISTRATION_RECEIPT_KIND,
 };
 pub use causal_receipt::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
+pub use causal_receipt_history::{
+    CausalReceiptHistoryCursor, CausalReceiptHistoryDirection, CausalReceiptHistoryEntry,
+    CausalReceiptHistoryObstruction, CausalReceiptHistoryPage, CausalReceiptHistoryRequest,
+    MAX_CAUSAL_RECEIPT_HISTORY_PAGE_SIZE,
+};
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{
     import_suffix_intent_rule, import_suffix_result_edge_id, import_suffix_result_node_id,

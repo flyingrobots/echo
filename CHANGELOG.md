@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- The ordered-publication compiler witness retains the return code and raw
+  streams when unexpected output violates JSONL, instead of hiding the compiler
+  result behind a JSON decoding or non-object error.
+
 - Removed the unguarded ordered-publication image-build recipe. Its test-only
   witness requires a guarded reusable worker with copied sources and accounted
   compiler output; the supported runner remains separate follow-up work.

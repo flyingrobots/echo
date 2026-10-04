@@ -11,6 +11,7 @@ import tempfile
 
 
 def build(root, document, expected_kind):
+    """Check a compiler boundary, retaining raw streams when JSONL is invalid."""
     request = {
         "schema": "edict.compiler.settings/v1", "type": "compilerSettings",
         "operation": "build", document: f"edict.{document}.json",
@@ -20,16 +21,28 @@ def build(root, document, expected_kind):
         input=json.dumps(request) + "\n", text=True, capture_output=True,
         timeout=120, check=False,
     )
-    events = [json.loads(line) for stream in (result.stdout, result.stderr)
-              for line in stream.splitlines()]
+    events, raw = [], []
+    for stream in (result.stdout, result.stderr):
+        for line in stream.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                raw.append(line)
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+            else:
+                raw.append(line)
     diagnostics = [event for event in events if event.get("type") == "diagnostic"]
     if expected_kind is None:
         valid = result.returncode == 0 and not diagnostics
     else:
         valid = (result.returncode == 2 and len(diagnostics) == 1
                  and diagnostics[0]["kind"] == expected_kind)
-    if not valid:
-        raise RuntimeError(f"Unexpected public build boundary: {result}\n{events}")
+    if raw or not valid:
+        raise RuntimeError(
+            f"Unexpected public build boundary: {result}\nEvents: {events}\nRaw: {raw}"
+        )
     if expected_kind is not None:
         required_details = {
             "TargetLoweringFailed": ["obstruction_requirement_step_output_dependency"],

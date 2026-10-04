@@ -76,3 +76,8 @@ This is real compiler/provider boundary evidence, not successful stateful
 lowering or execution. The probe's `snapshot-read-probe` intrinsic remains
 unsupported. No executable package is synthesized from a schema or oracle,
 and no native Jim planner is used.
+
+Unexpected non-object or non-JSON output fails the witness while retaining
+the compiler return code, both raw streams, and parsed events in the diagnostic.
+The parser regression uses Python's standard library and runs in the same
+guarded worker with `python3 scripts/consumer-witnesses/test_ordered_publication.py`.

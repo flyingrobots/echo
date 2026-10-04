@@ -249,6 +249,31 @@ sha256_stream() {
   fi
 }
 
+crate_package_name() {
+  local crate="$1"
+  local manifest="crates/${crate}/Cargo.toml"
+  local package_name
+
+  package_name="$({
+    awk '
+      /^\[package\]$/ { in_package = 1; next }
+      in_package && /^\[/ { exit }
+      in_package && /^name[[:space:]]*=/ {
+        value = $0
+        sub(/^[^=]*=[[:space:]]*"/, "", value)
+        sub(/"[[:space:]]*$/, "", value)
+        print value
+        exit
+      }
+    ' "$manifest"
+  } || true)"
+  if [[ -z "$package_name" ]]; then
+    echo "verify-local: missing [package] name in ${manifest}" >&2
+    return 1
+  fi
+  printf '%s\n' "$package_name"
+}
+
 SCRIPT_HASH="$(sha256_file "$0")"
 
 readonly FULL_CRITICAL_PREFIXES=(
@@ -797,7 +822,7 @@ run_docs_lint() {
 
 run_targeted_checks() {
   local crates=("$@")
-  local crate
+  local crate package
   local rustdoc_crates=()
 
   if [[ ${#crates[@]} -eq 0 ]]; then
@@ -820,8 +845,9 @@ run_targeted_checks() {
     done
 
     for crate in "${rustdoc_crates[@]}"; do
+      package="$(crate_package_name "$crate")"
       echo "[verify-local] rustdoc warnings gate (${crate})"
-      RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
+      RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$package" --no-deps
     done
   fi
 
@@ -829,14 +855,15 @@ run_targeted_checks() {
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
       continue
     fi
+    package="$(crate_package_name "$crate")"
     local -a test_args=()
     mapfile -t test_args < <(targeted_test_args_for_crate "$crate")
     if use_nextest; then
-      echo "[verify-local] cargo nextest run -p ${crate} ${test_args[*]}"
-      cargo +"$PINNED" nextest run -p "$crate" "${test_args[@]}"
+      echo "[verify-local] cargo nextest run -p ${package} ${test_args[*]}"
+      cargo +"$PINNED" nextest run -p "$package" "${test_args[@]}"
     else
-      echo "[verify-local] cargo test -p ${crate} ${test_args[*]}"
-      cargo +"$PINNED" test -p "$crate" "${test_args[@]}"
+      echo "[verify-local] cargo test -p ${package} ${test_args[*]}"
+      cargo +"$PINNED" test -p "$package" "${test_args[@]}"
     fi
   done
 
@@ -847,19 +874,20 @@ run_crate_lint_and_check() {
   local scope="$1"
   shift
   local crates=("$@")
-  local crate
+  local crate package
 
   for crate in "${crates[@]}"; do
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
       echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
       continue
     fi
+    package="$(crate_package_name "$crate")"
     local -a clippy_args=()
     mapfile -t clippy_args < <(clippy_target_args_for_scope "$crate" "$scope")
-    echo "[verify-local] cargo clippy -p ${crate} ${clippy_args[*]}"
-    cargo +"$PINNED" clippy -p "$crate" "${clippy_args[@]}" -- -D warnings -D missing_docs
-    echo "[verify-local] cargo check -p ${crate}"
-    cargo +"$PINNED" check -p "$crate" --quiet
+    echo "[verify-local] cargo clippy -p ${package} ${clippy_args[*]}"
+    cargo +"$PINNED" clippy -p "$package" "${clippy_args[@]}" -- -D warnings -D missing_docs
+    echo "[verify-local] cargo check -p ${package}"
+    cargo +"$PINNED" check -p "$package" --quiet
   done
 }
 
@@ -1277,39 +1305,40 @@ collect_pre_push_rust_slices() {
 
 run_pre_push_rust_slice() {
   local slice="$1"
-  local crate kind target features filter
+  local crate package kind target features filter
   IFS='|' read -r crate kind target features filter <<< "$slice"
 
   if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
     echo "[verify-local][pre-push] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
     return
   fi
+  package="$(crate_package_name "$crate")"
 
   local -a cargo_args=()
   case "$kind" in
     lib)
-      cargo_args=("test" "-p" "$crate")
+      cargo_args=("test" "-p" "$package")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--lib")
       [[ -n "$filter" ]] && cargo_args+=("$filter")
       ;;
     test)
-      cargo_args=("test" "-p" "$crate")
+      cargo_args=("test" "-p" "$package")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--test" "$target")
       ;;
     bins)
-      cargo_args=("test" "-p" "$crate")
+      cargo_args=("test" "-p" "$package")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--bins")
       ;;
     bin)
-      cargo_args=("test" "-p" "$crate")
+      cargo_args=("test" "-p" "$package")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--bin" "$target")
       ;;
     check)
-      cargo_args=("check" "-p" "$crate")
+      cargo_args=("check" "-p" "$package")
       [[ -n "$features" ]] && cargo_args+=("--features" "$features")
       cargo_args+=("--quiet")
       ;;
@@ -2046,14 +2075,15 @@ run_ultra_fast_checks() {
   echo "[verify-local] cargo fmt --all -- --check"
   cargo +"$PINNED" fmt --all -- --check
 
-  local crate
+  local crate package
   for crate in "${changed_crates[@]}"; do
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
       echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
       continue
     fi
-    echo "[verify-local] cargo check -p ${crate}"
-    cargo +"$PINNED" check -p "$crate" --quiet
+    package="$(crate_package_name "$crate")"
+    echo "[verify-local] cargo check -p ${package}"
+    cargo +"$PINNED" check -p "$package" --quiet
   done
 
   if [[ "$classification" == "full" ]]; then

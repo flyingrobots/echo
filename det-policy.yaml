@@ -55,6 +55,10 @@ crates:
     class: DET_CRITICAL
     owner_role: "Tooling Engineer"
     paths: ["crates/echo-edict-provider-verifier/**", "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm", "tests/edict-provider-host-v1/**"]
+  echo-runtime:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-runtime/**"]
   echo-runtime-schema:
     class: DET_CRITICAL
     owner_role: "Architect"

@@ -7,7 +7,7 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use crate::contract_registry::{
     prepare_installed_contract_package, ContractMutationHandler, InstalledContractPackage,
     InstalledContractPackageError,
@@ -29,7 +29,7 @@ use crate::observation::ContractQueryObserver;
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::parallel::merge_deltas;
 use crate::parallel::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
-#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[cfg(feature = "trusted_runtime")]
 use crate::provider_contract::{
     prepare_installed_provider_contract_package_v1, InstalledProviderContractPackageIdV1,
     InstalledProviderContractPackageRecordV1, ProviderContractInstallationError,
@@ -441,18 +441,15 @@ pub struct Engine {
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
     installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     installed_echo_operations_by_coordinate: BTreeMap<String, EchoOperationPackageIdV1>,
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     installed_provider_contract_packages:
         BTreeMap<InstalledProviderContractPackageIdV1, InstalledProviderContractPackageRecordV1>,
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     installed_provider_contract_package_references:
         BTreeMap<ProviderPackageReferenceV1, InstalledProviderContractPackageIdV1>,
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     provider_contract_mutation_packages: BTreeMap<u32, InstalledProviderContractPackageIdV1>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     contract_mutation_handlers: BTreeMap<u32, InstalledContractPackageId>,
@@ -890,11 +887,11 @@ impl Engine {
             installed_contract_packages: BTreeMap::new(),
             installed_echo_operation_packages: BTreeMap::new(),
             installed_echo_operations_by_coordinate: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             installed_provider_contract_packages: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             installed_provider_contract_package_references: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             provider_contract_mutation_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
             contract_inverse_handlers: BTreeMap::new(),
@@ -1092,11 +1089,11 @@ impl Engine {
             installed_contract_packages: BTreeMap::new(),
             installed_echo_operation_packages: BTreeMap::new(),
             installed_echo_operations_by_coordinate: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             installed_provider_contract_packages: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             installed_provider_contract_package_references: BTreeMap::new(),
-            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            #[cfg(feature = "trusted_runtime")]
             provider_contract_mutation_packages: BTreeMap::new(),
             contract_mutation_handlers: BTreeMap::new(),
             contract_inverse_handlers: BTreeMap::new(),
@@ -1183,7 +1180,7 @@ impl Engine {
         &mut self,
         observer: ContractQueryObserver,
     ) -> Result<(), EngineError> {
-        #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+        #[cfg(feature = "trusted_runtime")]
         if self
             .provider_contract_mutation_packages
             .contains_key(&observer.query_id)
@@ -1259,7 +1256,7 @@ impl Engine {
     /// Returns [`InstalledContractPackageError`] if registry verification fails,
     /// any handler/observer names an unsupported operation, or the package would
     /// conflict with an already-registered package, rule, mutation op, or query op.
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     #[doc(hidden)]
     pub fn register_contract_package<'a>(
         &mut self,
@@ -1299,10 +1296,7 @@ impl Engine {
         self.installed_echo_operation_packages.get(&package_id)
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn preflight_recovered_echo_operation_packages_v1(
         &self,
         recovered: &[InstalledEchoOperationV1],
@@ -1315,10 +1309,7 @@ impl Engine {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn restore_recovered_echo_operation_packages_v1(
         &mut self,
         recovered: &[InstalledEchoOperationV1],
@@ -1333,10 +1324,7 @@ impl Engine {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) fn installed_echo_operation_packages_v1(
         &self,
     ) -> impl Iterator<Item = &InstalledEchoOperationV1> {
@@ -1344,10 +1332,7 @@ impl Engine {
     }
 
     /// Returns the engine-owned policy id used by operation patches.
-    #[cfg_attr(
-        not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(feature = "trusted_runtime"), allow(dead_code))]
     pub(crate) const fn echo_operation_policy_id(&self) -> u32 {
         self.policy_id
     }
@@ -1365,7 +1350,7 @@ impl Engine {
     /// Returns a structured provider installation failure when preparation
     /// fails or any package root, operation, or scheduler rule conflicts with
     /// existing Engine-owned registry state.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn install_admitted_provider_contract_package_v1_trusted(
         &mut self,
         package_reference: ProviderPackageReferenceV1,
@@ -1391,7 +1376,7 @@ impl Engine {
         Ok(prepared.record)
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn provider_contract_registration_error(
         error: EngineError,
     ) -> ProviderContractInstallationError {
@@ -1418,7 +1403,7 @@ impl Engine {
         }
     }
 
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     fn preflight_installed_provider_contract_package_v1(
         &self,
         record: &InstalledProviderContractPackageRecordV1,
@@ -1493,7 +1478,7 @@ impl Engine {
         Ok(())
     }
 
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     fn installed_contract_registration_error<'a>(
         error: EngineError,
     ) -> InstalledContractPackageError<'a> {
@@ -1517,7 +1502,7 @@ impl Engine {
         }
     }
 
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     fn preflight_installed_contract_package<'a>(
         &self,
         record: &InstalledContractPackageRecord,
@@ -1584,7 +1569,7 @@ impl Engine {
     }
 
     /// Returns the package id that installed a mutation operation id.
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     #[must_use]
     pub fn installed_contract_mutation_package_id(
         &self,
@@ -1594,7 +1579,7 @@ impl Engine {
     }
 
     /// Returns contract evidence for the installed package that owns a mutation op id.
-    #[cfg(feature = "native_rule_bootstrap")]
+    #[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     #[must_use]
     pub fn installed_contract_mutation_evidence(
         &self,
@@ -1607,7 +1592,7 @@ impl Engine {
     }
 
     /// Returns the provider-native package id that installed a mutation operation.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[must_use]
     pub fn installed_provider_contract_mutation_package_id(
         &self,
@@ -1619,7 +1604,7 @@ impl Engine {
     }
 
     /// Returns provider-native evidence for the installed package that owns a mutation.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[must_use]
     pub fn installed_provider_contract_mutation_evidence_v1(
         &self,
@@ -1632,7 +1617,7 @@ impl Engine {
     }
 
     /// Returns one installed provider-native package by its deterministic id.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[must_use]
     pub fn installed_provider_contract_package(
         &self,
@@ -1642,7 +1627,7 @@ impl Engine {
     }
 
     /// Returns the installed provider-native package for an exact package root.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     #[must_use]
     pub fn installed_provider_contract_package_by_reference(
         &self,
@@ -1655,7 +1640,7 @@ impl Engine {
     }
 
     /// Returns the installed read-only inverse law for a mutation operation.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[cfg(feature = "trusted_runtime")]
     pub(crate) fn installed_contract_inverse_handler(
         &self,
         op_id: u32,

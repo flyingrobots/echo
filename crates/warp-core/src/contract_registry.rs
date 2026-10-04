@@ -6,7 +6,7 @@
 //! read-only inverse laws, and query observers without importing application
 //! nouns into core.
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use std::collections::BTreeSet;
 
 use echo_registry_api::{
@@ -15,9 +15,9 @@ use echo_registry_api::{
 };
 use thiserror::Error;
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use blake3::Hasher;
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use echo_registry_api::verify_contract_artifact;
 
 use crate::ident::Hash;
@@ -25,7 +25,7 @@ use crate::observation::ContractQueryObserver;
 use crate::rule::RewriteRule;
 use crate::ContractInverseHandler;
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 const INSTALLED_CONTRACT_PACKAGE_ID_DOMAIN: &[u8] = b"echo:installed-contract-package-id:v1\0";
 
 /// Deterministic identity for an installed generated contract package.
@@ -363,7 +363,7 @@ pub enum InstalledContractPackageError<'a> {
 }
 
 /// Validated package installation plan.
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) struct PreparedInstalledContractPackage {
     pub(crate) record: InstalledContractPackageRecord,
     pub(crate) mutation_handlers: Vec<ContractMutationHandler>,
@@ -371,7 +371,7 @@ pub(crate) struct PreparedInstalledContractPackage {
     pub(crate) query_observers: Vec<ContractQueryObserver>,
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn prepare_installed_contract_package(
     package: InstalledContractPackage<'_>,
 ) -> Result<PreparedInstalledContractPackage, InstalledContractPackageError<'_>> {
@@ -424,8 +424,10 @@ pub(crate) fn prepare_installed_contract_package(
                 rule_id: handler.rule.id,
             });
         }
-        if matches!(handler.rule.conflict_policy, crate::ConflictPolicy::Join)
-            && handler.rule.join_fn.is_none()
+        if matches!(
+            handler.rule.conflict_policy,
+            crate::rule::ConflictPolicy::Join
+        ) && handler.rule.join_fn.is_none()
         {
             return Err(InstalledContractPackageError::MissingJoinFn);
         }
@@ -514,7 +516,7 @@ pub(crate) fn prepare_installed_contract_package(
     })
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn validate_identity(
     identity: ContractPackageIdentity<'_>,
 ) -> Result<(), InstalledContractPackageError<'_>> {
@@ -530,7 +532,7 @@ fn validate_identity(
     Ok(())
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn generated_contract_rule_op_id(rule_name: &str) -> Option<u32> {
     let mut parts = rule_name.split('/');
     if parts.next()? != "cmd" {
@@ -548,7 +550,7 @@ fn generated_contract_rule_op_id(rule_name: &str) -> Option<u32> {
     Some(op_id)
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn installed_contract_package_id(
     identity: ContractPackageIdentity<'_>,
     registry_info: RegistryInfo,
@@ -564,7 +566,7 @@ fn installed_contract_package_id(
     InstalledContractPackageId::from_bytes(hasher.finalize().into())
 }
 
-#[cfg(feature = "native_rule_bootstrap")]
+#[cfg(any(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn push_len_prefixed(hasher: &mut Hasher, bytes: &[u8]) {
     hasher.update(&(bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);

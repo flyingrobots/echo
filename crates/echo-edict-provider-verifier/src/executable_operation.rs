@@ -67,9 +67,9 @@ const EVALUATION_BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
 const FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-create-if-absent-exact/v1";
 const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-create-if-absent/v1";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
-const MAX_RESULT_PROJECTION_NODES: usize = 256;
-const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
-const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
+pub(super) const MAX_RESULT_PROJECTION_NODES: usize = 256;
+pub(super) const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
+pub(super) const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
 const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
 const MAX_APPLICATION_RESULT_BYTES: u64 = 64 * 1_024;
 
@@ -267,6 +267,11 @@ fn verify_compiler_produced_pure(
         intent_name,
         &operation_coordinate,
     )?;
+    if !crate::pure_projection::preserves(intent, target_ir, intent_name, result_projection) {
+        return Err(super::unsupported_semantics(
+            "result-projection.echo-pure-relation",
+        ));
+    }
     let expected =
         encode_expected_pure_package(request, closure, intent_name, intent, &operation_coordinate)?;
     let actual = encode_canonical_cbor_v1(package)

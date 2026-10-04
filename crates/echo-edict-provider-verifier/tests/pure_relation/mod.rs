@@ -173,3 +173,73 @@ fn replace_unsigned_one(value: &mut CanonicalValueV1) -> bool {
         _ => false,
     }
 }
+
+#[test]
+fn verifier_refuses_projection_that_changes_an_output_field() {
+    assert_projection_mutation_refused(|projection| {
+        let fields = map_field_mut(map_field_mut(projection, "expression"), "fields");
+        let end = map_field(fields, "endByte").clone();
+        assert_ne!(map_field(fields, "startByte"), &end);
+        *map_field_mut(fields, "startByte") = end;
+    });
+}
+
+#[test]
+fn verifier_refuses_projection_with_a_different_output_contract() {
+    assert_projection_mutation_refused(|projection| {
+        *map_field_mut(projection, "outputType") = text("unrelated.Output");
+    });
+}
+
+#[test]
+fn verifier_refuses_projection_with_a_different_output_budget() {
+    assert_projection_mutation_refused(|projection| {
+        let CanonicalValueV1::Integer(limit) = map_field_mut(projection, "maxOutputBytes") else {
+            panic!("output limit");
+        };
+        *limit += 1;
+    });
+}
+
+#[test]
+fn verifier_refuses_projection_with_a_dropped_result_field() {
+    assert_projection_mutation_refused(|projection| {
+        let CanonicalValueV1::Map(fields) =
+            map_field_mut(map_field_mut(projection, "expression"), "fields")
+        else {
+            panic!("projection fields");
+        };
+        assert!(fields.pop().is_some());
+    });
+}
+
+#[test]
+fn verifier_refuses_projection_rebound_to_another_declared_binding() {
+    assert_projection_mutation_refused(|projection| {
+        let fields = map_field_mut(map_field_mut(projection, "expression"), "fields");
+        let other_source = map_field(map_field(fields, "createdLeafCeiling"), "source").clone();
+        let source = map_field_mut(map_field_mut(fields, "rangeIsEmpty"), "source");
+        assert_eq!(text_field(source, "kind"), Some("pureBinding"));
+        assert_ne!(source, &other_source);
+        *source = other_source;
+    });
+}
+
+fn assert_projection_mutation_refused(mutate: impl FnOnce(&mut CanonicalValueV1)) {
+    let (names, mut fixture, _) = compiler_fixture();
+    let mut projection = decode_canonical_cbor_v1(&fixture.result_projection).expect("projection");
+    mutate(&mut projection);
+    fixture.result_projection = canonical_bytes(&projection);
+    let package = lower_package(names, &fixture);
+    match verifier::verify(verification_request(names, &fixture, package)) {
+        Err(refusal) => assert_eq!(
+            refusal.kind,
+            verifier::ProviderRefusalKind::UnsupportedSemantics
+        ),
+        Ok(result) => {
+            let report =
+                decode_canonical_cbor_v1(&result.outputs[0].artifact.bytes).expect("report");
+            assert_eq!(text_field(&report, "outcome"), Some("rejected"));
+        }
+    }
+}

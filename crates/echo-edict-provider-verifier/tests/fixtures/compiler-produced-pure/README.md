@@ -18,3 +18,9 @@ U32 literal in Target IR while retaining the original Core, then rebinds the
 package normally. A semantic verifier must refuse that inconsistent relation.
 This is a compiler-artifact mutation test, not an authored source change or
 proof of an admitted Jim edit. Application vocabulary appears only in fixtures.
+
+Projection mutations retain Core and Target IR, then change the independently
+bound output projection: another application-input field, another declared
+binding, an omitted result field, an unrelated output type, or a changed output
+budget. The package is rebound through the normal lowerer before verification;
+these witnesses exercise semantic correspondence beyond artifact identity.

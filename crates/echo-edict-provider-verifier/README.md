@@ -50,8 +50,17 @@ constraints, and optional basis against Core. It refuses extra intents or
 requirements. This is an identity-preserving lowering relation: independently
 digest-binding two artifacts does not prove that one preserves the other.
 The retained public-compiler fixture has an exact-byte positive control and
-seven separately rebound semantic mutation witnesses. The checked component below includes this relation check; host admission and
-runtime execution remain separate evidence boundaries.
+seven separately rebound semantic mutation witnesses. The checked component
+below includes this relation check; host admission and runtime execution remain
+separate evidence boundaries.
+
+The native pure projection check independently follows each application-input
+or declared-binding source path back to the Core result, including exact record
+field membership, output type, and output-byte budget. A declared binding ID or
+a digest-bound projection is insufficient to establish that correspondence.
+Five additional retained-fixture mutations demonstrate wrong fields, wrong
+bindings, missing fields, and changed output contracts or budgets. This new
+native check awaits checked-component promotion before publication.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive

@@ -619,6 +619,13 @@ fn pure_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                         "body",
                         owned_map([
                             (
+                                "locals",
+                                CanonicalValueV1::Array(vec![owned_map([
+                                    ("id", text("arg.0")),
+                                    ("type", text(format!("{}.Input", names.application))),
+                                ])]),
+                            ),
+                            (
                                 "nodes",
                                 CanonicalValueV1::Array(vec![owned_map([
                                     ("kind", text("let")),

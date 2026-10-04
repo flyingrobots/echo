@@ -241,6 +241,9 @@ consume separately verified packages built from Jim-owned source using the
 existing compiler/provider pins. They cover differences at every ID byte,
 empty and unequal-length payloads, deterministic work accounting, exact budget
 limits, input bounds, substituted pins, and forged unsupported predicates.
+The target declares `trusted_runtime` as a required Cargo feature; CI and
+the opt-in local full-test routes execute it with that feature, including
+when only its fixture or interpreter source changes.
 Comparing supplied IDs does not establish the current graph head; that requires
 a separate admitted read and application-owned fact decoding.
 

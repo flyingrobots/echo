@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
+  in the feature-enabled CI and opt-in local test routes. Selecting the target
+  without the feature can no longer produce a zero-test success.
+
 - The ordered-publication compiler witness retains the return code and raw
   streams when unexpected output violates JSONL, instead of hiding the compiler
   result behind a JSON decoding or non-object error.

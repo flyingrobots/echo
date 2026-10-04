@@ -1178,7 +1178,7 @@ pre_push_feature_string_for_test_target() {
     warp-core:parallel_parallel_exec)
       printf '%s\n' "delta_validate"
       ;;
-    warp-core:scheduler_fault_recovery_authority|warp-core:edict_pure_evaluation_tests|warp-core:edict_pure_unsigned_subtraction_tests|warp-core:edict_pure_byte_length_tests)
+    warp-core:scheduler_fault_recovery_authority|warp-core:edict_pure_evaluation_tests|warp-core:edict_pure_unsigned_subtraction_tests|warp-core:edict_pure_byte_length_tests|warp-core:edict_byte_equality_tests)
       printf '%s\n' "trusted_runtime"
       ;;
     warp-math:determinism_policy_tests)
@@ -1383,13 +1383,15 @@ prepare_warp_core_scope() {
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
-      crates/warp-core/src/edict_pure.rs|crates/warp-core/src/edict_pure/*.rs|crates/warp-core/tests/fixtures/edict-pure-jedit/*|crates/warp-core/tests/fixtures/edict-pure-subtraction/*|crates/warp-core/tests/fixtures/edict-pure-byte-length/*)
+      crates/warp-core/src/edict_pure.rs|crates/warp-core/src/edict_pure/*.rs|crates/warp-core/tests/fixtures/edict-pure-jedit/*|crates/warp-core/tests/fixtures/edict-pure-subtraction/*|crates/warp-core/tests/fixtures/edict-pure-byte-length/*|crates/warp-core/tests/fixtures/edict-byte-equality/*)
         append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         append_unique "edict_pure_unsigned_subtraction_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "edict_pure_unsigned_subtraction_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         append_unique "edict_pure_byte_length_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
         append_unique "edict_pure_byte_length_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_byte_equality_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_equality_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
         ;;
       crates/warp-core/tests/*.rs)
         local test_name

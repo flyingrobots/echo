@@ -7,12 +7,11 @@
 
 ### Fixed
 
-- The native Edict executable-package verifier now refuses pure-v1 Target IR
+- The Edict executable-package verifier now refuses pure-v1 Target IR
   that changes Core let bindings, results, input constraints, or basis, or
   introduces extra intents or requirements. Exact package reconstruction alone
   could accept an independently rebound but semantically inconsistent pair.
-  Checked-component promotion and host replay remain required before this
-  source change can ship in the provider package.
+  The native verifier and checked WASM package carry the same relation check.
 
 ### Added
 

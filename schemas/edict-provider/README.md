@@ -171,8 +171,8 @@ remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
 277,694 bytes with SHA-256
 `e842063bd8d8ec12fff5b392a9d6bc646e2e3025c7a0c93726f53eed3cb5a0bf`; the
-promoted verifier is 308,859 bytes with SHA-256
-`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
+promoted verifier is 310,404 bytes with SHA-256
+`9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d`.
 
 The generated provider schema admits both the existing anchored
 create-if-absent configuration and the exact two-field

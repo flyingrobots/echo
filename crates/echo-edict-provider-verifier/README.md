@@ -50,15 +50,14 @@ constraints, and optional basis against Core. It refuses extra intents or
 requirements. This is an identity-preserving lowering relation: independently
 digest-binding two artifacts does not prove that one preserves the other.
 The retained public-compiler fixture has an exact-byte positive control and
-seven separately rebound semantic mutation witnesses. Publication of this native
-check into the checked component remains a separate required build gate; the
-component identity below describes the currently retained binary.
+seven separately rebound semantic mutation witnesses. The checked component below includes this relation check; host admission and
+runtime execution remain separate evidence boundaries.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 308,859-byte checked
+transport-to-model conversion. Its reproducibly built 310,404-byte checked
 component has SHA-256
-`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
+`9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

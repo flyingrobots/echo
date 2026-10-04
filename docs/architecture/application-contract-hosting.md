@@ -172,6 +172,53 @@ independently reconstructs that relation. No runtime evaluator, installation,
 graph mutation, Tick settlement, or application-specific Echo branch follows
 from package acceptance.
 
+### Bounded pure evaluation
+
+The trusted-host `warp_core::edict_pure::evaluate` function now computes an
+ordinary value from an exact compiler-produced pure package and canonical
+input. The host supplies the package digest from an independently verified,
+authorized release. The evaluator checks that pin before decoding executable
+meaning. A caller-supplied digest or accepted-report-shaped value does not
+establish authorization. This function has no graph, scheduler, filesystem,
+clock, native callback, or WAL access and produces no Tick or Receipt.
+
+The interpreter implements the generic subset demanded by the first real
+compiler witness: unsigned integer constants, records, locals, field access,
+integer equality and ordering, lazy conditionals, and zero-argument authored
+pure helpers. Calls resolve opaque lawpack coordinates to retained Edict bodies
+with separate lexical scope. No application coordinate selects a native
+implementation. Unsupported expression forms are rejected during decoding,
+including unselected branches. Authored runtime types constrain input,
+bindings, helper returns, and output. Nominal contracts resolve their declared
+storage representations. Authored input constraints run before bindings, and
+the compiler's result projection must match the selected Target IR result.
+
+Host ceilings intersect the package's declared step, allocation, and output
+budgets. Each expression, predicate, runtime type visit, and copied value node
+costs one step. Storage accounting charges a fixed 64-byte cell per materialized
+value node plus text and byte payload lengths, cumulatively including copies
+and result-encoding scratch. These interpreter units are independent of Rust
+layout and pointer width; they are not a report of physical allocator usage.
+Package and input decoding have separate host byte apertures capped at 16 MiB,
+the canonical decoder's node limit, and a 64-level interpreter depth limit.
+Syntax and type expansion share a 65,536-node decode budget. Decode and code
+storage are bounded by those admission apertures, outside execution accounting.
+
+The executable witness is
+[`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
+It consumes retained exact external compiler output, checks both authored
+branches and a helper result, and proves that a separately compiled source
+mutation changes the runtime result. Its fixture retains separate verifier
+reports and reproduction coordinates. Reversed input ordering, invalid runtime
+representations, package substitution, noncanonical input, and exhausted host
+budgets produce errors without returning an application result.
+
+This refines the pure-package boundary above and depends on its independently
+verified artifact closure. It does not extend the installed operation lifecycle
+in [ADR 0023](../adr/0023-admitted-executable-operation-packages.md). Generic
+effectful execution and its settlement evidence remain tracked by
+[issue #684](https://github.com/flyingrobots/echo/issues/684).
+
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a

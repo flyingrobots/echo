@@ -150,6 +150,9 @@ jobs:
                   cargo clippy -p warp-core --features native_rule_bootstrap,trusted_runtime --test executable_operation_pipeline_tests -- -D warnings -D missing_docs
                   cargo clippy -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test executable_operation_pipeline_tests -- -D warnings -D missing_docs
 
+            - name: cargo clippy (compiler-produced pure evaluation)
+              run: cargo clippy -p warp-core --features trusted_runtime --lib --test edict_pure_evaluation_tests -- -D warnings -D missing_docs
+
     clippy-det-fixed:
         name: Clippy (det_fixed)
         runs-on: ubuntu-latest
@@ -309,6 +312,10 @@ jobs:
               run: |
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test executable_operation_pipeline_tests
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test executable_operation_pipeline_tests
+            - name: cargo test (compiler-produced pure evaluation)
+              run: |
+                  cargo test -p warp-core --features trusted_runtime --test edict_pure_evaluation_tests
+                  cargo test -p warp-core --features trusted_runtime --lib edict_pure::
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
             - name: PRNG golden regression (warp-math)

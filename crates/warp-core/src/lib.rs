@@ -66,6 +66,8 @@ mod dynamic_binding;
     allow(dead_code)
 )]
 mod echo_operation;
+#[cfg(feature = "trusted_runtime")]
+pub mod edict_pure;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;

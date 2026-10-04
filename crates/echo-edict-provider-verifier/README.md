@@ -59,14 +59,14 @@ or declared-binding source path back to the Core result, including exact record
 field membership, output type, and output-byte budget. A declared binding ID or
 a digest-bound projection is insufficient to establish that correspondence.
 Five additional retained-fixture mutations demonstrate wrong fields, wrong
-bindings, missing fields, and changed output contracts or budgets. This new
-native check awaits checked-component promotion before publication.
+bindings, missing fields, and changed output contracts or budgets. The checked
+component includes the same projection check.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 310,404-byte checked
+transport-to-model conversion. Its reproducibly built 312,702-byte checked
 component has SHA-256
-`9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d`.
+`0436c9f9ebc02af47a06de314bde8f0954d9b1c291c65e2dc120f53d37691de3`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

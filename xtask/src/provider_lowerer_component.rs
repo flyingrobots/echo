@@ -62,7 +62,7 @@ pub(crate) const VERIFIER_CHECKED_COMPONENT_REPOSITORY_PATH: &str =
     "schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm";
 /// Approved SHA-256 identity of the checked verifier component.
 pub(crate) const APPROVED_CHECKED_VERIFIER_COMPONENT_SHA256: &str =
-    "9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d";
+    "0436c9f9ebc02af47a06de314bde8f0954d9b1c291c65e2dc120f53d37691de3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProviderComponentSpec {

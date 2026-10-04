@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:67870ba17705e4d164209b02005ff69cc67d598c783525bb9a55ff46ba6deea9"
+    "digest": "sha256:0bf1f563a3a01428fa787ab309c83e0b3c40af17287b154bca6ee1f44cdf29a2"
   },
   "artifacts": [
     {
@@ -178,13 +178,13 @@
       "artifactKind": "verifier",
       "resource": {
         "coordinate": "echo.dpo.verifier/component@1",
-        "digest": "sha256:9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d"
+        "digest": "sha256:0436c9f9ebc02af47a06de314bde8f0954d9b1c291c65e2dc120f53d37691de3"
       },
       "source": {
         "kind": "component",
         "component": {
           "coordinate": "echo.dpo.verifier/component@1",
-          "digest": "sha256:9ecba4285fd33d2c2a0541056c98f3a840c4f0d4b8aef1a8611381dd2af4751d"
+          "digest": "sha256:0436c9f9ebc02af47a06de314bde8f0954d9b1c291c65e2dc120f53d37691de3"
         }
       }
     }

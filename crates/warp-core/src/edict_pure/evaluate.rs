@@ -21,7 +21,14 @@ impl Meter {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
         }
-        self.steps = self.steps.checked_add(1).ok_or(Error::StepBudgetExceeded)?;
+        self.charge_steps(1)
+    }
+
+    fn charge_steps(&mut self, count: u64) -> Result<(), Error> {
+        self.steps = self
+            .steps
+            .checked_add(count)
+            .ok_or(Error::StepBudgetExceeded)?;
         if self.steps > self.limits.max_steps {
             return Err(Error::StepBudgetExceeded);
         }
@@ -176,13 +183,19 @@ fn predicate(
     meter.step(depth)?;
     let left = expression(&predicate.left, locals, helpers, meter, depth + 1)?;
     let right = expression(&predicate.right, locals, helpers, meter, depth + 1)?;
-    let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
-        return Err(Error::UnsupportedProgram);
-    };
-    Ok(match predicate.op {
-        Comparison::Equal => left == right,
-        Comparison::LessOrEqual => left <= right,
-    })
+    match (&predicate.op, left, right) {
+        (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
+        (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
+        (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {
+            // Charge the full operand aperture before comparing, including unequal
+            // lengths. Cost cannot depend on a library's short-circuit behavior.
+            let count = u64::try_from(left.len().max(right.len()))
+                .map_err(|_| Error::StepBudgetExceeded)?;
+            meter.charge_steps(count)?;
+            Ok(left == right)
+        }
+        _ => Err(Error::UnsupportedProgram),
+    }
 }
 
 fn validate(value: &Value, ty: &RuntimeType, meter: &mut Meter, depth: usize) -> Result<(), Error> {

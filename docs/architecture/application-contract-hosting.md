@@ -184,8 +184,8 @@ clock, native callback, or WAL access and produces no Tick or Receipt.
 
 The interpreter implements the generic subset demanded by the first real
 compiler witness: unsigned integer constants, records, locals, field access,
-integer equality and ordering, lazy conditionals, and zero-argument authored
-pure helpers. Calls resolve opaque lawpack coordinates to retained Edict bodies
+integer equality and ordering, bounded byte equality, lazy conditionals, and
+zero-argument authored pure helpers. Calls resolve opaque lawpack coordinates to retained Edict bodies
 with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Authored runtime types constrain input,
@@ -195,7 +195,11 @@ the compiler's result projection must match the selected Target IR result.
 
 Host ceilings intersect the package's declared step, allocation, and output
 budgets. Each expression, predicate, runtime type visit, and copied value node
-costs one step. Storage accounting charges a fixed 64-byte cell per materialized
+costs one step. Byte equality additionally charges the larger operand's entire
+byte length before comparison, even when lengths differ or the first byte
+mismatches. This deterministic charge does not claim constant-time machine
+execution. Byte ordering and mixed byte/integer predicates remain unsupported.
+Storage accounting charges a fixed 64-byte cell per materialized
 value node plus text and byte payload lengths, cumulatively including copies
 and result-encoding scratch. These interpreter units are independent of Rust
 layout and pointer width; they are not a report of physical allocator usage.
@@ -212,6 +216,15 @@ mutation changes the runtime result. Its fixture retains separate verifier
 reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
+
+The paired nominal-ID and variable-payload equality witnesses in
+[`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
+consume separately verified packages built from Jim-owned source using the
+existing compiler/provider pins. They cover differences at every ID byte,
+empty and unequal-length payloads, deterministic work accounting, exact budget
+limits, input bounds, substituted pins, and forged unsupported predicates.
+Comparing supplied IDs does not establish the current graph head; that requires
+a separate admitted read and application-owned fact decoding.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle

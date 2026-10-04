@@ -14,6 +14,11 @@
 
 ### Added
 
+- The package-pinned pure evaluator now supports equality of bounded byte
+  values, including nominal IDs. It charges the larger operand's byte length
+  before comparing, independent of mismatch position. Byte ordering and mixed
+  operand predicates still refuse; this adds no graph-read or admission API.
+
 - Explicit opt-in admission of Edict's ordered-instruction contract publication,
   with exact schema/manifest pins and a bounded manifest size. The original
   admission API retains its original publication. This authenticates schema

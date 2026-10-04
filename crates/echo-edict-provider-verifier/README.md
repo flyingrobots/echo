@@ -76,6 +76,15 @@ Five additional retained-fixture mutations demonstrate wrong fields, wrong
 bindings, missing fields, and changed output contracts or budgets. The checked
 component includes the same projection check.
 
+Both native pure routes additionally enforce the compiler-owned structural
+projection contract: at most 64 KiB of canonical artifact bytes, 256 expression
+nodes, 32 path segments, 1,024 UTF-8 bytes per identifier or field/path string,
+and exactly the fields belonging to each expression and source variant. These
+structural guards still require checked-component promotion. The artifact byte
+limit is distinct from `maxOutputBytes`: pure output remains bounded by the
+matching Core budget and consumer execution limits, rather than the anchored
+route's fixed 64 KiB output ceiling.
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
 transport-to-model conversion. Its reproducibly built 312,702-byte checked

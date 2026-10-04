@@ -435,6 +435,17 @@ fn validate_pure_result_projection(
     intent_name: &str,
     operation_coordinate: &str,
 ) -> Result<(), ProviderRefusalV1> {
+    if input.artifact.artifact.bytes.len() > MAX_RESULT_PROJECTION_ARTIFACT_BYTES {
+        return Err(invalid_artifact(
+            &input.role,
+            "result projection exceeds the canonical byte bound",
+        ));
+    }
+    validate_projection_text(operation_coordinate, &input.role)?;
+    validate_projection_text(
+        required_nonempty_text(value, "outputType", &input.role)?,
+        &input.role,
+    )?;
     require_exact_fields(
         value,
         &[
@@ -473,9 +484,11 @@ fn validate_pure_result_projection(
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default();
+    let mut nodes = 0;
     validate_pure_projection_expression(
         required_map(value, "expression", &input.role)?,
         &binding_ids,
+        &mut nodes,
         &input.role,
     )
 }
@@ -483,23 +496,58 @@ fn validate_pure_result_projection(
 fn validate_pure_projection_expression(
     value: &CanonicalValueV1,
     binding_ids: &BTreeSet<&str>,
+    nodes: &mut usize,
     subject: &str,
 ) -> Result<(), ProviderRefusalV1> {
+    if *nodes == MAX_RESULT_PROJECTION_NODES {
+        return Err(invalid_artifact(
+            subject,
+            "result projection exceeds the expression-node bound",
+        ));
+    }
+    *nodes += 1;
     match required_text(value, "kind", subject)? {
         "record" => {
-            for (_, expression) in as_map(required_map(value, "fields", subject)?)
+            require_exact_fields(value, &["fields", "kind"], subject)?;
+            for (name, expression) in as_map(required_map(value, "fields", subject)?)
                 .ok_or_else(|| invalid_artifact(subject, "projection fields must be a map"))?
             {
-                validate_pure_projection_expression(expression, binding_ids, subject)?;
+                let Some(name) = as_text(name) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "projection field names must be text",
+                    ));
+                };
+                validate_projection_text(name, subject)?;
+                validate_pure_projection_expression(expression, binding_ids, nodes, subject)?;
             }
             Ok(())
         }
         "source" => {
+            require_exact_fields(value, &["kind", "path", "source"], subject)?;
+            let path = required_array(value, "path", subject)?;
+            if path.len() > MAX_RESULT_PROJECTION_PATH_SEGMENTS {
+                return Err(invalid_artifact(
+                    subject,
+                    "result projection path exceeds the segment bound",
+                ));
+            }
+            for segment in path {
+                let Some(segment) = as_text(segment) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "projection path segment must be text",
+                    ));
+                };
+                validate_projection_text(segment, subject)?;
+            }
             let source = required_map(value, "source", subject)?;
             match required_text(source, "kind", subject)? {
-                "applicationInput" => Ok(()),
+                "applicationInput" => require_exact_fields(source, &["kind"], subject),
                 "pureBinding" => {
+                    require_exact_fields(source, &["bindingId", "kind"], subject)?;
                     let id = required_nonempty_text(source, "bindingId", subject)?;
+                    validate_projection_text(id, subject)?;
                     if binding_ids.contains(id) {
                         Ok(())
                     } else {

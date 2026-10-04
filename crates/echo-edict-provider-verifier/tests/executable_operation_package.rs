@@ -11,6 +11,7 @@ use echo_edict_provider_lowerer as lowerer;
 use echo_edict_provider_verifier as verifier;
 
 mod pure_profile;
+mod pure_projection_bounds;
 mod pure_relation;
 mod pure_source;
 

@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Native pure executable-package providers now enforce the compiler-owned
+  projection artifact, node, path, text, and exact-field bounds. The pure output
+  budget remains Core-declared; the anchored route's fixed output ceiling is
+  not applied to pure programs. Checked-component promotion remains pending.
 - Native pure executable-package providers now require an adapter profile with
   empty `semanticEffects` and a nonempty `budgetObligation` before constructing
   or accepting a no-effects package. Effectful profiles remain unsupported on

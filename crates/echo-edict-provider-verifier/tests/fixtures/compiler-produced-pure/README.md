@@ -6,7 +6,7 @@ The package hex is copied byte-for-byte from Echo commit
 `8c725d699241a7e3adee482029031ff6bade25fa`, fixture
 `crates/warp-core/tests/fixtures/edict-pure-jedit/executable-operation-package.cbor.hex`.
 It was produced by the public Edict compiler at
-`3f81f759e921a69b04fe8cf8e62f8f3dc7b7e` and Echo provider
+`3f81f759e921a69b04fe8cf8e62e62f8f3dc7b7e` and Echo provider
 `49e9efb68001dfd78563d18bac9359a87671e431`.
 The retained source, lawpack, adapter, and configuration are copied from Jim
 `a894c7c4c6d150c0fb210d2e0ca4c27bf518b4c7`, under `edict/replace-range/`.

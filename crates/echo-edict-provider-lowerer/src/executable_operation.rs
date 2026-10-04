@@ -126,6 +126,7 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         RESULT_PROJECTION_DOMAIN,
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
+    let source = validate_source(&source, closure.source, &request.core)?;
 
     if is_pure_configuration(&configuration) {
         return lower_compiler_produced_pure(
@@ -143,7 +144,6 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
 
     let intent = validate_core(&core, &request.core)?;
 
-    let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
         semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
     let semantic_obstruction =

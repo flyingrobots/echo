@@ -7,6 +7,11 @@
 
 ### Fixed
 
+- The native pure executable-package lowerer and verifier now validate source
+  artifacts before dispatch: the source reference must match Core's coordinate,
+  and its canonical value must be a UTF-8 byte string. Rebinding an invalid
+  source's digest no longer bypasses these checks. Checked-component promotion
+  remains required before this native fix reaches the published provider.
 - The pure executable-package verifier now compares the application
   result projection with the authored Core result and its output contract.
   A digest-bound projection could previously select another field or binding,

@@ -54,6 +54,12 @@ seven separately rebound semantic mutation witnesses. The checked component
 below includes this relation check; host admission and runtime execution remain
 separate evidence boundaries.
 
+Before selecting either executable-package route, both native providers require
+the source artifact reference to match Core's coordinate and its canonical value
+to contain UTF-8 bytes. These checks do not parse or recompile the source and do
+not prove source-to-Core correspondence. The checked component below predates
+this additional native validation and requires reproducible promotion.
+
 The native pure projection check independently follows each application-input
 or declared-binding source path back to the Core result, including exact record
 field membership, output type, and output-byte budget. A declared binding ID or

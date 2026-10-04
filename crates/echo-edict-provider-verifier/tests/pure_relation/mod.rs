@@ -3,7 +3,7 @@
 //! Semantic relation checks over retained public-compiler output.
 use super::*;
 
-fn compiler_fixture() -> (FixtureNames<'static>, RawFixture, Vec<u8>) {
+pub(super) fn compiler_fixture() -> (FixtureNames<'static>, RawFixture, Vec<u8>) {
     let names = FixtureNames {
         application: "jedit.text.replace_range@1",
         intent: "replaceRange",

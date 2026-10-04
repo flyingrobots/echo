@@ -11,6 +11,7 @@ use echo_edict_provider_lowerer as lowerer;
 use echo_edict_provider_verifier as verifier;
 
 mod pure_relation;
+mod pure_source;
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";

@@ -139,6 +139,7 @@ pub(super) fn verify(
         &closure.result_projection.artifact,
         RESULT_PROJECTION_DOMAIN,
     )?;
+    let source = validate_source(&source, closure.source, &request.core)?;
 
     if is_pure_configuration(&configuration) {
         return verify_compiler_produced_pure(
@@ -157,7 +158,6 @@ pub(super) fn verify(
 
     let intent = validate_core(&core, &request.core)?;
 
-    let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
         semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
     let semantic_obstruction =

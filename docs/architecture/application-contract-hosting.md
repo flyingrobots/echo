@@ -277,6 +277,11 @@ It does not prove instruction ordering, select an executable profile, or confer
 support for graph reads or writes. The existing provider generation path still
 selects the original publication.
 
+Primary artifact generation also compares the supplied pack's exact schema and
+manifest with the source materials bound into its generation input. Admission
+of each pack separately does not establish this relation: crossed publications
+return `ContractPackInputMismatch` before constructing any output or provenance.
+
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
 

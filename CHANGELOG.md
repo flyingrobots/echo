@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Provider artifact generation rejects a contract publication whose exact
+  schema or manifest differs from the generation input. Cross-publication calls
+  can no longer emit artifacts with misleading input provenance.
+
 - The filesystem WAL writer lease now attempts an explicit unlock when its
   owning guard drops. A retained duplicate descriptor no longer extends a
   successfully released lease and blocks immediate writer takeover. Live-writer

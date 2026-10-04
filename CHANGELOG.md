@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Native pure executable-package providers now require an adapter profile with
+  empty `semanticEffects` and a nonempty `budgetObligation` before constructing
+  or accepting a no-effects package. Effectful profiles remain unsupported on
+  this route. Checked-component promotion remains pending for this native fix.
 - The native pure executable-package lowerer and verifier now validate source
   artifacts before dispatch: the source reference must match Core's coordinate,
   and its canonical value must be a UTF-8 byte string. Rebinding an invalid

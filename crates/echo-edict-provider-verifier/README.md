@@ -60,6 +60,14 @@ to contain UTF-8 bytes. These checks do not parse or recompile the source and do
 not prove source-to-Core correspondence. The checked component below predates
 this additional native validation and requires reproducible promotion.
 
+The native pure route also requires the selected adapter profile to declare an
+empty `semanticEffects` array and a nonempty `budgetObligation`. A profile that
+declares effects is unsupported even when the supplied program has no effect
+steps. This keeps the selected profile consistent with this route's no-effects
+package identity; it is not evidence of an effect-execution exploit in earlier
+components. Host admission and compiler budget discharge remain separate
+checks. Checked-component promotion of this validation is still pending.
+
 The native pure projection check independently follows each application-input
 or declared-binding source path back to the Core result, including exact record
 field membership, output type, and output-byte budget. A declared binding ID or

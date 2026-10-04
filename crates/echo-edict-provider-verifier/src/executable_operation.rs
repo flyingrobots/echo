@@ -417,6 +417,10 @@ fn validate_pure_lawpack(
     if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
         return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
     }
+    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    required_nonempty_text(profile, "budgetObligation", "adapter.echo-pure-operation")?;
     require_resource_ref(
         required_map(
             profile,

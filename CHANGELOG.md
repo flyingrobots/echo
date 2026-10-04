@@ -7,6 +7,11 @@
 
 ### Added
 
+- The pure Edict evaluator supports checked U32/U64 subtraction from
+  compiler-produced packages, preserving operand order, unsigned bounds, and
+  deterministic execution/allocation accounting. Invalid operands and underflow
+  fail closed. This extends pure evaluation, not graph mutation or settlement.
+
 - Trusted Echo hosts can evaluate the first compiler-produced bounded pure
   Edict subset through a package-pinned interpreter. Runtime type checks,
   authored constraints, separate helper scope, deterministic cost accounting,

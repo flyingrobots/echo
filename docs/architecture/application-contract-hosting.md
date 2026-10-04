@@ -185,7 +185,12 @@ clock, native callback, or WAL access and produces no Tick or Receipt.
 The interpreter implements the generic subset demanded by the first real
 compiler witness: unsigned integer constants, records, locals, field access,
 integer equality and ordering, lazy conditionals, and zero-argument authored
-pure helpers. Calls resolve opaque lawpack coordinates to retained Edict bodies
+pure helpers, plus `core.integer.subtract<U32/U64>` with two operands. Subtraction
+validates both values against the declared unsigned width and refuses underflow
+with `InvalidArtifact`; it never wraps or saturates. Operands and the result
+use the ordinary execution meter. The compiler and target verifier own static
+totality evidence; the interpreter additionally checks runtime values even when
+the supplied package pin matches. Calls resolve opaque lawpack coordinates to retained Edict bodies
 with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Authored runtime types constrain input,
@@ -212,6 +217,14 @@ mutation changes the runtime result. Its fixture retains separate verifier
 reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
+
+[`edict_pure_unsigned_subtraction_tests.rs`](../../crates/warp-core/tests/edict_pure_unsigned_subtraction_tests.rs)
+adds a real external compiler package that returns an unsigned difference under
+an ordered input constraint. Literal results cover equal endpoints, nonzero
+differences, and the U64 boundary. Deliberate artifact mutations with matching
+test-host pins exercise U32 bounds, malformed calls, operand types, and
+underflow; these mutated artifacts are not verification or admission evidence.
+The original pure-program fixture still runs unchanged.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle

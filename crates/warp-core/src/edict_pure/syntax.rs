@@ -110,12 +110,28 @@ impl Parser<'_> {
             }
             "call" => {
                 exact_fields(value, &["kind", "callee", "args", "typeArgs"])?;
-                if !array(field(value, "args")?)?.is_empty()
-                    || !array(field(value, "typeArgs")?)?.is_empty()
-                {
+                let callee = text_field(value, "callee")?;
+                let args = array(field(value, "args")?)?;
+                let types = array(field(value, "typeArgs")?)?;
+                if callee == "core.integer.subtract" {
+                    let ([left, right], [width]) = (args, types) else {
+                        return Err(Error::UnsupportedProgram);
+                    };
+                    let max = match text(width)? {
+                        "U32" => u64::from(u32::MAX),
+                        "U64" => u64::MAX,
+                        _ => return Err(Error::UnsupportedProgram),
+                    };
+                    return Ok(Expr::UnsignedSubtract {
+                        max,
+                        left: Box::new(self.expr(left, depth + 1)?),
+                        right: Box::new(self.expr(right, depth + 1)?),
+                    });
+                }
+                if !args.is_empty() || !types.is_empty() {
                     return Err(Error::UnsupportedProgram);
                 }
-                Ok(Expr::Call(text_field(value, "callee")?.to_owned()))
+                Ok(Expr::Call(callee.to_owned()))
             }
             _ => Err(Error::UnsupportedProgram),
         }

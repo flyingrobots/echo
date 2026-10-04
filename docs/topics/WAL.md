@@ -215,6 +215,17 @@ Duplicate identities, stale or missing predecessor links, reused fencing
 evidence, LSN regression, corrupted ledgers, and commits without their epoch
 ledger fail closed before append.
 
+The store's internal lease guard explicitly attempts to unlock before its file
+descriptor closes, both when the store drops and when `close_epoch` releases
+the guard after persisting the closed epoch. This avoids extending that owner's
+lease merely because another descriptor retains the same open file description,
+as can happen between fork and exec. Closing only one descriptor is insufficient
+under Rust's [file-lock lifetime contract](https://doc.rust-lang.org/std/fs/struct.File.html#method.unlock).
+Drop is a best-effort fallback: it cannot return an unlock error and does not
+prove release succeeded after an OS error. A contender must still acquire its
+own lock. Explicit fallible release and the broader process-bound ownership
+contract remain in [issue #718](https://github.com/flyingrobots/echo/issues/718).
+
 The operating-system lease is the filesystem adapter's exclusion authority.
 The persisted fencing, process, host, and lease fields are deterministic
 chain-position markers, not ambient PID or machine measurements and not a

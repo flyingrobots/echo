@@ -1537,8 +1537,8 @@ else
 fi
 
 # Every feature-gated pure operation must be selected with its runtime enabled.
-for entry in unsigned_subtraction:edict-pure-subtraction byte_length:edict-pure-byte-length; do
-  target="edict_pure_${entry%%:*}_tests"
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality; do
+  target="${entry%%:*}"
   fixture="${entry#*:}"
   for mode in pre-push full; do
     pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify "$mode" "crates/warp-core/tests/$target.rs")"

@@ -7,6 +7,13 @@
 
 ### Fixed
 
+- Byte-equality fixture reproduction guidance now requires guarded reusable
+  compiler storage and preserves the limits of its frozen provider evidence.
+
+- Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
+  in the feature-enabled CI and opt-in local test routes. Selecting the target
+  without the feature can no longer produce a zero-test success.
+
 - The ordered-publication compiler witness retains the return code and raw
   streams when unexpected output violates JSONL, instead of hiding the compiler
   result behind a JSON decoding or non-object error.
@@ -50,6 +57,11 @@
   The native verifier and checked WASM package carry the same relation check.
 
 ### Added
+
+- The package-pinned pure evaluator now supports equality of bounded byte
+  values, including nominal IDs. It charges the larger operand's byte length
+  before comparing, independent of mismatch position. Byte ordering and mixed
+  operand predicates still refuse; this adds no graph-read or admission API.
 
 - Explicit opt-in admission of Edict's ordered-instruction contract publication,
   with exact schema/manifest pins and a bounded manifest size. The original

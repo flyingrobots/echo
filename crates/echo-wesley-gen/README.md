@@ -55,6 +55,14 @@ named contract's owning root in the authenticated CDDL. Canonical decoding or
 hashing alone is not schema admission, and even successful owning-root
 validation does not install an artifact or confer Echo runtime authority.
 
+`admit_provider_contract_pack_for_publication_v1(...)` also permits explicit
+selection of the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md)
+from Edict #219. Its schema and manifest have separate fixed digests and a
+publication-specific size bound. The original entry point and checked provider
+generation still select the original pure-binding publication. Neither API
+infers a publication from input bytes or treats schema admission as support for
+ordered execution or stateful effects.
+
 `provider_generation::build_provider_generation_input_v1(...)` joins that
 admitted pack with exact Echo semantic-source bytes and the checked versioned
 generation settings. It constructs Wesley's canonical extension-generation
@@ -165,7 +173,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 38-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 40-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every

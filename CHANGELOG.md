@@ -7,6 +7,11 @@
 
 ### Added
 
+- Explicit opt-in admission of Edict's ordered-instruction contract publication,
+  with exact schema/manifest pins and a bounded manifest size. The original
+  admission API retains its original publication. This authenticates schema
+  bytes; it does not add ordered execution or stateful runtime capabilities.
+
 - Trusted Echo hosts can evaluate the first compiler-produced bounded pure
   Edict subset through a package-pinned interpreter. Runtime type checks,
   authored constraints, separate helper scope, deterministic cost accounting,

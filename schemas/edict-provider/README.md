@@ -322,7 +322,7 @@ proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact 38-file publication carrier for
+The crate-local `assets/v1/` tree is an exact 40-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 20-file source
 closure, including the provider-generic registry implementation. Carrier paths

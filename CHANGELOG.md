@@ -10,16 +10,17 @@
 - Native pure executable-package providers now enforce the compiler-owned
   projection artifact, node, path, text, and exact-field bounds. The pure output
   budget remains Core-declared; the anchored route's fixed output ceiling is
-  not applied to pure programs. Checked-component promotion remains pending.
+  not applied to pure programs. Both independently reproduced checked components
+  include these bounds.
 - Native pure executable-package providers now require an adapter profile with
   empty `semanticEffects` and a nonempty `budgetObligation` before constructing
   or accepting a no-effects package. Effectful profiles remain unsupported on
-  this route. Checked-component promotion remains pending for this native fix.
+  this route. Both checked components include this validation.
 - The native pure executable-package lowerer and verifier now validate source
   artifacts before dispatch: the source reference must match Core's coordinate,
   and its canonical value must be a UTF-8 byte string. Rebinding an invalid
-  source's digest no longer bypasses these checks. Checked-component promotion
-  remains required before this native fix reaches the published provider.
+  source's digest no longer bypasses these checks. Both checked components
+  include this validation.
 - The pure executable-package verifier now compares the application
   result projection with the authored Core result and its output contract.
   A digest-bound projection could previously select another field or binding,

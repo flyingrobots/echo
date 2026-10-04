@@ -57,8 +57,8 @@ separate evidence boundaries.
 Before selecting either executable-package route, both native providers require
 the source artifact reference to match Core's coordinate and its canonical value
 to contain UTF-8 bytes. These checks do not parse or recompile the source and do
-not prove source-to-Core correspondence. The checked component below predates
-this additional native validation and requires reproducible promotion.
+not prove source-to-Core correspondence. Both checked components include this
+validation after independent reproducible promotion.
 
 The native pure route also requires the selected adapter profile to declare an
 empty `semanticEffects` array and a nonempty `budgetObligation`. A profile that
@@ -66,7 +66,7 @@ declares effects is unsupported even when the supplied program has no effect
 steps. This keeps the selected profile consistent with this route's no-effects
 package identity; it is not evidence of an effect-execution exploit in earlier
 components. Host admission and compiler budget discharge remain separate
-checks. Checked-component promotion of this validation is still pending.
+checks. Both checked components include this validation.
 
 The native pure projection check independently follows each application-input
 or declared-binding source path back to the Core result, including exact record
@@ -79,17 +79,17 @@ component includes the same projection check.
 Both native pure routes additionally enforce the compiler-owned structural
 projection contract: at most 64 KiB of canonical artifact bytes, 256 expression
 nodes, 32 path segments, 1,024 UTF-8 bytes per identifier or field/path string,
-and exactly the fields belonging to each expression and source variant. These
-structural guards still require checked-component promotion. The artifact byte
+and exactly the fields belonging to each expression and source variant. Both
+checked components include these structural guards. The artifact byte
 limit is distinct from `maxOutputBytes`: pure output remains bounded by the
 matching Core budget and consumer execution limits, rather than the anchored
 route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 312,702-byte checked
+transport-to-model conversion. Its reproducibly built 314,580-byte checked
 component has SHA-256
-`0436c9f9ebc02af47a06de314bde8f0954d9b1c291c65e2dc120f53d37691de3`.
+`629a85723295e07775ae9ec001ddb57be789a92f990cee4490947b47d3ba6d1b`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

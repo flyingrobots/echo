@@ -5579,7 +5579,7 @@ pub struct FilesystemWalStore {
     active_epoch: Option<WriterEpoch>,
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
-    writer_lock: Option<File>,
+    writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     #[cfg(any(test, feature = "host_test"))]
@@ -8457,7 +8457,18 @@ fn reconcile_writer_epoch_closures(
     Ok(())
 }
 
-fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
+#[derive(Debug)]
+struct WriterEpochLock(File);
+
+impl Drop for WriterEpochLock {
+    fn drop(&mut self) {
+        // A concurrent fork can retain the open file description until exec.
+        // Best-effort explicit release must precede closing this descriptor.
+        let _ = self.0.unlock();
+    }
+}
+
+fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreError> {
     let lock_path = root.join("writer-epoch.lock");
     let lock = OpenOptions::new()
         .create(true)
@@ -8471,7 +8482,55 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<File, WalStoreError> {
             std::fs::TryLockError::Error(error) => Err(error.into()),
         };
     }
-    Ok(lock)
+    Ok(WriterEpochLock(lock))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod writer_lease_tests {
+    use super::*;
+
+    fn scratch_root() -> PathBuf {
+        const MAX_DIRECTORY_ATTEMPTS: usize = 1_024;
+        let parent = PathBuf::from("target/warp-core-test-tmp");
+        fs::create_dir_all(&parent).expect("scratch parent");
+        for ordinal in 0..MAX_DIRECTORY_ATTEMPTS {
+            let root = parent.join(format!("retained-writer-lease-{ordinal}"));
+            match fs::create_dir(&root) {
+                Ok(()) => return root,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => panic!("scratch directory: {error}"),
+            }
+        }
+        panic!("no unclaimed scratch directory");
+    }
+
+    #[test]
+    fn owner_drop_releases_retained_descriptor_without_releasing_successor() {
+        let root = scratch_root();
+        let lease = acquire_writer_epoch_lock(&root).expect("first writer");
+        // Model the open-file-description lifetime retained across fork before
+        // exec closes inherited descriptors, without relying on race timing.
+        let retained = lease.0.try_clone().expect("retained descriptor");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(lease);
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner drops");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(retained);
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(successor);
+        drop(acquire_writer_epoch_lock(&root).expect("next successor"));
+        fs::remove_dir_all(root).expect("remove only this invocation's scratch directory");
+    }
 }
 
 fn sync_directory_store(path: &Path) -> Result<(), WalStoreError> {

@@ -198,6 +198,18 @@ bindings, helper returns, and output. Nominal contracts resolve their declared
 storage representations. Authored input constraints run before bindings, and
 the compiler's result projection must match the selected Target IR result.
 
+The generic `core.bytes.length<OperandType>` operation measures one bounded byte
+value and returns U64. Its retained operand coordinate resolves through the
+ordinary type decoder; the interpreter validates that byte representation and
+its declared bounds before measuring. It counts raw bytes, including non-UTF-8
+bytes, rather than Unicode scalars. Operand evaluation, type validation, and
+result storage use the ordinary meter. This does not introduce String length,
+implicit conversion, or any application-specific text interpretation.
+Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
+`Bytes<min=N,max=M>` coordinates also resolve directly, without a named type
+entry. Noncanonical numbers, inverted bounds, and an interval spelling with
+equal endpoints reject; equal endpoints use `exact=N`.
+
 Host ceilings intersect the package's declared step, allocation, and output
 budgets. Each expression, predicate, runtime type visit, and copied value node
 costs one step. Storage accounting charges a fixed 64-byte cell per materialized
@@ -225,6 +237,11 @@ differences, and the U64 boundary. Deliberate artifact mutations with matching
 test-host pins exercise U32 bounds, malformed calls, operand types, and
 underflow; these mutated artifacts are not verification or admission evidence.
 The original pure-program fixture still runs unchanged.
+
+[`edict_pure_byte_length_tests.rs`](../../crates/warp-core/tests/edict_pure_byte_length_tests.rs)
+adds the next external compiler artifact and literal empty, Unicode, and raw
+byte-count witnesses. Wrong signatures, non-byte operands, narrowed bounds,
+substituted packages, and exhausted budgets reject with structured errors.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle

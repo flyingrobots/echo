@@ -34,6 +34,11 @@
 
 ### Added
 
+- The pure Edict evaluator measures bounded byte operands through the generic
+  compiler-produced `core.bytes.length` operation, returning U64 byte counts
+  with normal type validation and deterministic resource accounting. Empty,
+  Unicode, and non-UTF-8 inputs are measured as bytes, not characters.
+
 - The pure Edict evaluator supports checked U32/U64 subtraction from
   compiler-produced packages, preserving operand order, unsigned bounds, and
   deterministic execution/allocation accounting. Invalid operands and underflow

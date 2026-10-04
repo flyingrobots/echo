@@ -32,3 +32,39 @@ profile or change any Jedit producer pin.
 [Echo #734](https://github.com/flyingrobots/echo/issues/734) owns this admission
 boundary. [Echo #684](https://github.com/flyingrobots/echo/issues/684) retains the
 subsequent lowering, independent verification, and stateful execution work.
+
+## Public compiler witness
+
+From the repository root, the COPY-based Docker witness is:
+
+```sh
+docker build -f scripts/consumer-witnesses/ordered-publication.Dockerfile \
+  -t echo-ordered-publication-witness .
+docker run --rm echo-ordered-publication-witness
+```
+
+The image builds pinned Edict `2405a550e93e1e97fff640caa44bbd0f65ffff3c`,
+fetches Jim's authored read/guard probe at
+`19edb6fba94a8fea2dea63aa2f05cffc3e084f97`, and retains the old Echo provider
+at `49e9efb68001dfd78563d18bac9359a87671e431` as a negative control. It also
+uses the current Echo library to generate and digest-admit a disposable
+provider candidate with this explicit schema publication. Existing checked
+provider artifacts and Jedit producer pins are not rewritten.
+
+The same public JSONL lawpack/application build crosses three boundaries:
+
+1. The original v1 adapter refuses the read-result guard during target lowering.
+2. A disposable v2 lawpack selection reaches the old provider's schema refusal.
+3. Replacing only that provider with the ordered-publication candidate reaches
+   `ProviderLowererRefused: UnsupportedSemantics` at `core.echo-pure-operation`.
+
+Every refusal must leave the application output empty. The source body remains
+unchanged; only the lawpack import digest changes after its experimental v2
+selection. The v2 reference binds the exact compiler CDDL for this experiment,
+not a released Echo v2 semantic contract. The success marker is
+`ORDERED_PUBLICATION_REACHED_SEMANTIC_REFUSAL`.
+
+This is real compiler/provider boundary evidence, not successful stateful
+lowering or execution. The probe's `snapshot-read-probe` intrinsic remains
+unsupported. No executable package is synthesized from a schema or oracle,
+and no native Jim planner is used.

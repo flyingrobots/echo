@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- Generated provider helpers bind the bounded-read schema publication, including
+  its exact schema identity in the helper contract and derivation materials.
+
 - The filesystem WAL writer lease now attempts an explicit unlock when its
   owning guard drops. A retained duplicate descriptor no longer extends a
   successfully released lease and blocks immediate writer takeover. Live-writer

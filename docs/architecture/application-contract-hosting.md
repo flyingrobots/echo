@@ -316,11 +316,16 @@ application head. Application fact decoding remains outside the generic atom
 primitive.
 
 The runtime witnesses in `crates/warp-core/tests/edict_node_read_tests.rs` use
-retained public-compiler packages with independently recorded pins. These
-witnesses establish private evaluation without frontier mutation. They do not
+retained public-compiler packages with independently recorded pins. The Docker
+entrypoint `scripts/consumer-witnesses/bounded-read-runtime.sh` builds the pinned
+public compiler and explicit provider publication, reproduces both packages and
+accepted reports, and executes those **fresh output files** through the same
+runtime witnesses. Compiler output stays in one reusable worker target, outside
+image layers; the script serializes the campaign and checks a measured cache
+budget before and after builds. These witnesses establish private evaluation
+without frontier mutation. They do not
 establish installation, public request authorization, a causal Tick, WAL
-retention, a receipt, or an admitted reading. Fresh compiler-to-runtime execution
-and the remaining release evidence are tracked by
+retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
 [#740](https://github.com/flyingrobots/echo/issues/740).
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic

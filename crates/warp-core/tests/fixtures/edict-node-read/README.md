@@ -24,6 +24,9 @@ that each retained accepted report binds that exact package. The pair reads
 two independently addressed stored atoms with an intervening guard. Test data
 can come from fresh public compiler output through `EDICT_READ_OUTPUT_ROOT`;
 that selection never changes the expected pins or bypasses Docker isolation.
+The Docker entrypoint `scripts/consumer-witnesses/bounded-read-runtime.sh`
+builds the public compiler and provider, then supplies the freshly emitted
+files to this test target in the same serialized worker campaign.
 
 These are private evaluation witnesses, not installation or admitted causal
 history. They do not prove Tick/WAL/receipt/reading or recovery behavior.

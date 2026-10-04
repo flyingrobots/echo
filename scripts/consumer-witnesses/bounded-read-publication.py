@@ -4,6 +4,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ def build(root, document, refusal=False):
         "operation": "build", document: f"edict.{document}.json",
     }
     result = subprocess.run(
-        ["/edict/target/debug/edict"], cwd=root,
+        [os.environ.get("EDICT_READ_COMPILER", "/edict/target/debug/edict")], cwd=root,
         input=json.dumps(request) + "\n", text=True, capture_output=True,
         timeout=120, check=False,
     )

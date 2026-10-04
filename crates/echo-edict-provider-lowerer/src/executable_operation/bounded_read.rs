@@ -176,8 +176,14 @@ pub(super) fn lower(
             interpreter: "echo.operation-interpreter.compiler-produced-bounded-read/v1",
         },
     )?;
+    let response_bytes = [PACKAGE_ROLE.len(), PACKAGE_DOMAIN.len(), bytes.len()]
+        .into_iter()
+        .try_fold(0_u64, |sum, size| {
+            sum.checked_add(u64::try_from(size).ok()?)
+        })
+        .ok_or_else(|| invalid_artifact(SUBJECT, "read response size overflow"))?;
     if request.limits.max_output_count == 0
-        || bytes.len() as u64 > request.limits.max_total_response_bytes
+        || response_bytes > request.limits.max_total_response_bytes
     {
         return Err(invalid_artifact(
             SUBJECT,

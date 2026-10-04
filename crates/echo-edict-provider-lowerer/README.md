@@ -52,8 +52,10 @@ obstruction constructors; terminal guards require an empty obstruction payload.
 This read profile is not yet in the checked provider schema or component
 publication. Its native fixture captures actual compiler request bytes with
 diagnostic-only compiler instrumentation; it is not evidence of a successful
-unmodified application build. Independent verification and a bounded runtime
-evaluator remain open under [#740](https://github.com/flyingrobots/echo/issues/740).
+unmodified application build. The separate native verifier now reconstructs
+the ordered Core relation without calling this lowerer. Provider publication
+and a bounded runtime evaluator remain open under
+[#740](https://github.com/flyingrobots/echo/issues/740).
 Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.

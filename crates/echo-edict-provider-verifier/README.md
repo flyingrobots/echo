@@ -44,6 +44,24 @@ names its domain-framed identity. That subject binds the exact package, Target
 IR, and application result projection; it does not prove runtime evaluation,
 admission, or an Echo consequence.
 
+The native `compiler-produced-bounded-read/v1` route reconstructs an ordered
+Core body from the Target IR instruction list, reversing failure mappings
+through the declared adapter. It independently checks read signatures, scoped
+local identities, type bounds, guards, obstruction constructors, projection,
+budget agreement, profile identities, and every embedded semantic artifact.
+It does not import or call the lowerer in production. Coherently rehashed Core,
+Target IR, and package mutations still receive rejected reports when they
+violate that relation. Accepted and rejected reports retain the existing exact
+executable-subject binding; the byte ceiling counts artifact bytes, role and
+domain strings, and diagnostic strings.
+
+This route is native evidence only. Its fixtures were captured from the real
+compiler with diagnostic-only request instrumentation. The checked provider
+schema/components still do not publish this configuration, and no runtime read
+evaluator is implemented. A native accepted report does not establish a
+successful unmodified public application build or an authorized state reading.
+Those boundaries remain under [#740](https://github.com/flyingrobots/echo/issues/740).
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
 transport-to-model conversion. Its reproducibly built 308,859-byte checked

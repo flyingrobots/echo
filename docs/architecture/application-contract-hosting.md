@@ -271,12 +271,20 @@ and result, with exact imported read signatures and scoped local identities.
 The package retains source, Core, Target IR, exports, lawpack, adapter,
 configuration, and result projection bytes.
 
-This is currently a **native lowering boundary only**. The checked provider
-publication still rejects this new configuration, its independent verifier does
-not accept the new package kind, and Echo has no evaluator for that kind. The
-native regression uses captured compiler request artifacts; it does not prove a
-successful unmodified public application build or a state observation. Provider
-publication, independent verification, bounded runtime views/apertures, and
+The structurally separate native verifier reconstructs an ordered Core body
+from Target IR and reverses target failure mappings through the declared
+adapter. It checks local availability and types, compares the reconstruction
+with Core, and checks the projection and every embedded artifact independently
+of the lowerer. Coherently rehashed package/target mutations cannot change the
+authored order, read address, guard, failure mapping, or result. Accepted and
+rejected reports bind the exact package, Target IR, and projection; response
+ceilings include their artifact bytes, role/domain strings, and diagnostics.
+
+These are currently **native lowering and verification boundaries only**. The
+checked provider publication still rejects this new configuration, and Echo
+has no evaluator for that kind. The native regressions use captured compiler
+request artifacts; they do not prove a successful unmodified public application
+build or a state observation. Provider publication, bounded runtime views/apertures, and
 execution evidence remain tracked by [#740](https://github.com/flyingrobots/echo/issues/740).
 The host must eventually establish the read view's authority; package profile
 identities alone cannot grant it. Application fact decoding remains outside the

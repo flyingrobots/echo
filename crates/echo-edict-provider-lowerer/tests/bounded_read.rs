@@ -292,6 +292,23 @@ fn host_response_ceiling_prevents_publication_of_an_oversized_package() {
 }
 
 #[test]
+fn exact_response_ceiling_includes_the_output_role_and_artifact_domain() {
+    let mut request = fixture();
+    let output = lower(request.clone())
+        .expect("baseline output")
+        .outputs
+        .remove(0);
+    let total = output.role.len() + output.artifact.domain.len() + output.artifact.bytes.len();
+    request.limits.max_total_response_bytes = total as u64;
+    assert!(lower(request.clone()).is_ok());
+    request.limits.max_total_response_bytes -= 1;
+    assert!(
+        lower(request).is_err(),
+        "metadata bytes escaped the host ceiling"
+    );
+}
+
+#[test]
 fn compiler_authored_pair_keeps_independent_read_producers_and_ordered_guards() {
     let mut request = fixture();
     macro_rules! pair {

@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Independent verification for generic bounded executable-operation packages.
 
+mod bounded_read;
+
 use std::collections::BTreeSet;
 
 use blake3::Hasher;
@@ -139,6 +141,10 @@ pub(super) fn verify(
         &closure.result_projection.artifact,
         RESULT_PROJECTION_DOMAIN,
     )?;
+
+    if bounded_read::selected(&configuration) {
+        return bounded_read::verify(request, &closure);
+    }
 
     if is_pure_configuration(&configuration) {
         return verify_compiler_produced_pure(

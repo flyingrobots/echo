@@ -169,10 +169,26 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-277,694 bytes with SHA-256
-`a4758f060122fba8c073841ccaa22bf0b8a742b495b76eb33c914eff3250dcf5`; the
-promoted verifier is 308,859 bytes with SHA-256
-`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
+379,400 bytes with SHA-256
+`e51681b48256bc266724c1706ad89a299de1625efe8e1541245ef9a1c6ef4848`; the
+promoted verifier is 383,447 bytes with SHA-256
+`3999e6ecd765b0d6a27927175c0366a5c77ffc8f5aa2288ac382719ea0eed623`.
+
+The checked schema/components also support the explicit
+`compiler-produced-bounded-read/v1` configuration with required `maxReads`
+(1–65,536) and `maxReadBytes` (1–67,108,864) limits. Its package kind is distinct
+from pure computation. Ordered read programs require explicit selection of the
+ordered contract publication; the default generation path preserves the
+original contract selection. The public compiler witness builds a single read
+and a pair with independent addresses, runs both Wasm components, and requires
+repeatable package/report pairs. It proves no runtime read or mutation.
+
+Run from the repository root without mounting the checkout:
+
+```sh
+docker build -f scripts/consumer-witnesses/bounded-read-publication.Dockerfile -t echo-bounded-read-publication .
+docker run --rm echo-bounded-read-publication
+```
 
 The generated provider schema admits both the existing anchored
 create-if-absent configuration and the exact two-field

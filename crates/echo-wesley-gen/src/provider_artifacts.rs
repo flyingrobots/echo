@@ -234,7 +234,8 @@ edict-source-bytes = bstr
 
 echo-operation-package =
   echo-anchored-operation-package /
-  echo-compiler-produced-pure-operation-package
+  echo-compiler-produced-pure-operation-package /
+  echo-compiler-produced-read-operation-package
 
 echo-anchored-operation-package = {
   "application_result_projection": echo-operation-application-result-projection,
@@ -265,6 +266,19 @@ echo-compiler-produced-pure-operation-package = {
   "interpreter_profile_identity": bstr .size 32,
   "operation_coordinate": echo-nonempty-tstr,
   "package_kind": "compiler-produced-bounded-pure/v1",
+  program: bstr,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-read-operation-package = {
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-compiler-produced-pure-budget,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  "package_kind": "compiler-produced-bounded-read/v1",
   program: bstr,
   schema: "echo.operation-package/v1",
   "semantic_closure": echo-operation-semantic-closure,
@@ -318,11 +332,19 @@ echo-operation-semantic-closure = {
 
 echo-operation-lowering-configuration =
   echo-attachment-create-if-absent-lowering-configuration /
-  echo-compiler-produced-bounded-pure-lowering-configuration
+  echo-compiler-produced-bounded-pure-lowering-configuration /
+  echo-compiler-produced-bounded-read-lowering-configuration
 
 echo-compiler-produced-bounded-pure-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
   programKind: "compiler-produced-bounded-pure/v1",
+}
+
+echo-compiler-produced-bounded-read-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "compiler-produced-bounded-read/v1",
+  maxReads: 1..65536,
+  maxReadBytes: 1..67108864,
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {

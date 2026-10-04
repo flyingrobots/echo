@@ -280,15 +280,22 @@ authored order, read address, guard, failure mapping, or result. Accepted and
 rejected reports bind the exact package, Target IR, and projection; response
 ceilings include their artifact bytes, role/domain strings, and diagnostics.
 
-These are currently **native lowering and verification boundaries only**. The
-checked provider publication still rejects this new configuration, and Echo
-has no evaluator for that kind. The native regressions use captured compiler
-request artifacts; they do not prove a successful unmodified public application
-build or a state observation. Provider publication, bounded runtime views/apertures, and
-execution evidence remain tracked by [#740](https://github.com/flyingrobots/echo/issues/740).
-The host must eventually establish the read view's authority; package profile
-identities alone cannot grant it. Application fact decoding remains outside the
-generic atom primitive.
+The checked schema and reproducibly promoted components now support this read
+configuration. The explicit ordered-contract publication compiles the authored
+single and independent-address paired read/guard programs through unmodified
+Edict, including both Wasm components and exact accepted verifier reports.
+Repeated builds reproduce the package/report bytes. The original contract
+publication remains selected by the default generator; callers must explicitly
+select the ordered publication for these ordered read programs.
+
+The [COPY-based compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.Dockerfile)
+preserves the authored source and also proves the old provider's schema refusal.
+Its success establishes compilation and verification, **not a state observation**.
+Echo still has no evaluator for this package kind. Bounded runtime views,
+apertures, and execution evidence remain under
+[#740](https://github.com/flyingrobots/echo/issues/740). The host must establish
+the read view's authority; package profile identities alone cannot grant it.
+Application fact decoding remains outside the generic atom primitive.
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
@@ -536,10 +543,10 @@ and operation-specific validation of codec-owned EINT variables also remain
 outside this generic provider invocation closure.
 
 Both refreshed components have crossed reproducible checked promotion. The
-lowerer is 230,297 bytes with SHA-256
-`f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`; the
-verifier is 247,766 bytes with SHA-256
-`edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`.
+lowerer is 379,400 bytes with SHA-256
+`e51681b48256bc266724c1706ad89a299de1625efe8e1541245ef9a1c6ef4848`; the
+verifier is 383,447 bytes with SHA-256
+`3999e6ecd765b0d6a27927175c0366a5c77ffc8f5aa2288ac382719ea0eed623`.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing

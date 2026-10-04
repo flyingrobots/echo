@@ -22,13 +22,13 @@ compiler; it changes no compilation or validation decisions. Hex files retain
 those exact bytes. The native test reconstructs their role/coordinate envelopes
 and recomputes canonical artifact identities.
 
-**This is native lowerer evidence, not a successful unmodified public application
-build.** The generated ordered-schema provider candidate still rejects the new
-configuration at `05-target-configuration` schema admission. Publication,
-independent verification, and runtime execution remain prerequisites under
-Echo #740. No executable package or accepted verifier report was captured here.
-The frozen Jim application, original producer pins, and historical WIP remain
-unchanged.
+**This capture is native test evidence, not a successful public application
+build.** At capture time the ordered-schema candidate rejected configuration
+at `05-target-configuration`. No executable package or accepted verifier report
+was captured here. The separate `bounded-read-publication` Docker witness now
+compiles this authored source through unmodified Edict and the promoted
+components. Runtime execution remains open under Echo #740. Frozen Jim
+application pins and historical WIP remain unchanged.
 
 | Artifact | Bytes | Raw SHA-256 |
 | --- | ---: | --- |

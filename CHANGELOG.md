@@ -18,15 +18,17 @@
   configuration for opaque node-atom reads and ordered byte guards. It checks
   the imported signature, local scope, failure mappings, and Core/Target order,
   and retains the exact semantic artifacts in its output package. This profile
-  is not yet published in the provider schema/components or supported by the
-  runtime; existing provider packages remain unchanged.
+  is published in the checked schema/components and compiles through the
+  explicit ordered-contract package. Runtime evaluation remains separate.
 
 - The native read-package verifier independently reconstructs Core instructions
   from ordered Target IR and checks signatures, local scope, obstructions,
   projection, budgets, and exact embedded artifacts. Accepted and rejected
   reports bind the exact package, target, and projection. Both native read
   paths include output metadata and diagnostics in their response-byte limits.
-  The checked provider publication and runtime remain unchanged.
+  Public Edict builds accept single and independent-address paired reads with
+  the promoted lowerer/verifier components; repeated builds reproduce the exact
+  package/report pair. Existing frozen consumer pins remain unchanged.
 
 - The package-pinned pure evaluator now supports equality of bounded byte
   values, including nominal IDs. It charges the larger operand's byte length

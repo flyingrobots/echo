@@ -49,13 +49,13 @@ locals, record construction/selection, byte equality, and unsigned equality or
 ordering guards. Failure arms currently require zero-argument application
 obstruction constructors; terminal guards require an empty obstruction payload.
 
-This read profile is not yet in the checked provider schema or component
-publication. Its native fixture captures actual compiler request bytes with
-diagnostic-only compiler instrumentation; it is not evidence of a successful
-unmodified application build. The separate native verifier now reconstructs
-the ordered Core relation without calling this lowerer. Provider publication
-and a bounded runtime evaluator remain open under
-[#740](https://github.com/flyingrobots/echo/issues/740).
+The checked schema and component now publish this read configuration. Selecting
+the ordered contract publication lets unmodified Edict compile the authored
+single and independent-address paired reads through this component and the
+independent verifier. The original native fixtures retain their diagnostic
+capture provenance; the separate public compiler witness proves package/report
+publication without instrumentation. A bounded runtime evaluator remains open
+under [#740](https://github.com/flyingrobots/echo/issues/740).
 Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.
@@ -136,8 +136,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 277,694-byte checked lowerer component has SHA-256
-`a4758f060122fba8c073841ccaa22bf0b8a742b495b76eb33c914eff3250dcf5` and has
+The refreshed 379,400-byte checked lowerer component has SHA-256
+`e51681b48256bc266724c1706ad89a299de1625efe8e1541245ef9a1c6ef4848` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

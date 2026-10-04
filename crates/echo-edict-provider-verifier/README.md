@@ -55,18 +55,20 @@ violate that relation. Accepted and rejected reports retain the existing exact
 executable-subject binding; the byte ceiling counts artifact bytes, role and
 domain strings, and diagnostic strings.
 
-This route is native evidence only. Its fixtures were captured from the real
-compiler with diagnostic-only request instrumentation. The checked provider
-schema/components still do not publish this configuration, and no runtime read
-evaluator is implemented. A native accepted report does not establish a
-successful unmodified public application build or an authorized state reading.
-Those boundaries remain under [#740](https://github.com/flyingrobots/echo/issues/740).
+This route is included in the checked schema/components. The explicit ordered
+contract publication passes unmodified public Edict builds for single and paired
+reads, including this verifier's accepted report and repeatable package/report
+bytes. Native fixtures retain their diagnostic-capture provenance; the separate
+public witness requires no compiler instrumentation. No runtime read evaluator
+is implemented yet. Compilation and accepted verification do not authorize a
+state reading; that boundary remains under
+[#740](https://github.com/flyingrobots/echo/issues/740).
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 308,859-byte checked
+transport-to-model conversion. Its reproducibly built 383,447-byte checked
 component has SHA-256
-`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
+`3999e6ecd765b0d6a27927175c0366a5c77ffc8f5aa2288ac382719ea0eed623`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

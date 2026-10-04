@@ -429,6 +429,8 @@ fn pure_fixture_request(names: FixtureNames<'_>) -> LoweringRequestV1 {
                     names.effect,
                     owned_map([
                         ("core", text("continuum.profile.read-only/v1")),
+                        ("semanticEffects", CanonicalValueV1::Array(Vec::new())),
+                        ("budgetObligation", text("application.budget/v1")),
                         (
                             "targetConfiguration",
                             resource_ref(&configuration.reference),

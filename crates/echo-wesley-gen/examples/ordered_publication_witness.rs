@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<()> {
     if !std::path::Path::new("/.dockerenv").is_file() {
-        bail!("run this consumer witness in its COPY-based Docker image");
+        bail!("run this consumer witness in a guarded Docker worker with copied sources");
     }
     let mut arguments = std::env::args_os().skip(1);
     let output = PathBuf::from(

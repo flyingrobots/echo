@@ -185,13 +185,31 @@ clock, native callback, or WAL access and produces no Tick or Receipt.
 The interpreter implements the generic subset demanded by the first real
 compiler witness: unsigned integer constants, records, locals, field access,
 integer equality and ordering, bounded byte equality, lazy conditionals, and
-zero-argument authored pure helpers. Calls resolve opaque lawpack coordinates to retained Edict bodies
+zero-argument authored pure helpers, plus `core.integer.subtract<U32/U64>` with
+two operands. Subtraction
+validates both values against the declared unsigned width and refuses underflow
+with `InvalidArtifact`; it never wraps or saturates. Operands and the result
+use the ordinary execution meter. The compiler and target verifier own static
+totality evidence; the interpreter additionally checks runtime values even when
+the supplied package pin matches. Calls resolve opaque lawpack coordinates to retained Edict bodies
 with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
 storage representations. Authored input constraints run before bindings, and
 the compiler's result projection must match the selected Target IR result.
+
+The generic `core.bytes.length<OperandType>` operation measures one bounded byte
+value and returns U64. Its retained operand coordinate resolves through the
+ordinary type decoder; the interpreter validates that byte representation and
+its declared bounds before measuring. It counts raw bytes, including non-UTF-8
+bytes, rather than Unicode scalars. Operand evaluation, type validation, and
+result storage use the ordinary meter. This does not introduce String length,
+implicit conversion, or any application-specific text interpretation.
+Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
+`Bytes<min=N,max=M>` coordinates also resolve directly, without a named type
+entry. Noncanonical numbers, inverted bounds, and an interval spelling with
+equal endpoints reject; equal endpoints use `exact=N`.
 
 Host ceilings intersect the package's declared step, allocation, and output
 budgets. Each expression, predicate, runtime type visit, and copied value node
@@ -223,8 +241,24 @@ consume separately verified packages built from Jim-owned source using the
 existing compiler/provider pins. They cover differences at every ID byte,
 empty and unequal-length payloads, deterministic work accounting, exact budget
 limits, input bounds, substituted pins, and forged unsupported predicates.
+The target declares `trusted_runtime` as a required Cargo feature; CI and
+the opt-in local full-test routes execute it with that feature, including
+when only its fixture or interpreter source changes.
 Comparing supplied IDs does not establish the current graph head; that requires
 a separate admitted read and application-owned fact decoding.
+
+[`edict_pure_unsigned_subtraction_tests.rs`](../../crates/warp-core/tests/edict_pure_unsigned_subtraction_tests.rs)
+adds a real external compiler package that returns an unsigned difference under
+an ordered input constraint. Literal results cover equal endpoints, nonzero
+differences, and the U64 boundary. Deliberate artifact mutations with matching
+test-host pins exercise U32 bounds, malformed calls, operand types, and
+underflow; these mutated artifacts are not verification or admission evidence.
+The original pure-program fixture still runs unchanged.
+
+[`edict_pure_byte_length_tests.rs`](../../crates/warp-core/tests/edict_pure_byte_length_tests.rs)
+adds the next external compiler artifact and literal empty, Unicode, and raw
+byte-count witnesses. Wrong signatures, non-byte operands, narrowed bounds,
+substituted packages, and exhausted budgets reject with structured errors.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle
@@ -327,6 +361,11 @@ without frontier mutation. They do not
 establish installation, public request authorization, a causal Tick, WAL
 retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
 [#740](https://github.com/flyingrobots/echo/issues/740).
+
+Primary artifact generation also compares the supplied pack's exact schema and
+manifest with the source materials bound into its generation input. Admission
+of each pack separately does not establish this relation: crossed publications
+return `ContractPackInputMismatch` before constructing any output or provenance.
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
@@ -574,10 +613,8 @@ and operation-specific validation of codec-owned EINT variables also remain
 outside this generic provider invocation closure.
 
 Both refreshed components have crossed reproducible checked promotion. The
-lowerer is 379,400 bytes with SHA-256
-`f689ad69041a229114c968258a28f8b92c6776a2868eb6a516482ba4760f0d3c`; the
-verifier is 383,447 bytes with SHA-256
-`3999e6ecd765b0d6a27927175c0366a5c77ffc8f5aa2288ac382719ea0eed623`.
+[component reference](../../schemas/edict-provider/components/v1/README.md)
+owns their current byte lengths, SHA-256 identities, and reproduction procedure.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing

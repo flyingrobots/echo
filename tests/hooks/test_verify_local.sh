@@ -1536,6 +1536,39 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
 fi
 
+# Every feature-gated pure operation must be selected with its runtime enabled.
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality; do
+  target="${entry%%:*}"
+  fixture="${entry#*:}"
+  for mode in pre-push full; do
+    pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify "$mode" "crates/warp-core/tests/$target.rs")"
+    if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then
+      pass "$mode enables trusted_runtime for $target"
+    else
+      fail "$mode should execute $target with trusted_runtime"
+      printf '%s\n' "$pure_output"
+    fi
+  done
+
+  for changed in crates/warp-core/src/edict_pure/syntax.rs "crates/warp-core/tests/fixtures/$fixture/ReplaceRange.edict"; do
+    pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
+    if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then
+      pass "full verification selects $target for $changed"
+    else
+      fail "full verification should select $target for $changed"
+      printf '%s\n' "$pure_output"
+    fi
+  done
+
+  for command in test clippy; do
+    if grep -Eq "cargo $command -p warp-core --features trusted_runtime .*--test $target" .github/workflows/ci.yml; then
+      pass "CI $command enables $target"
+    else
+      fail "CI $command should enable $target"
+    fi
+  done
+done
+
 fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
 fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"
 if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib observation::tests'; then

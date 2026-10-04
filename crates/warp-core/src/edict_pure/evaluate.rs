@@ -182,6 +182,38 @@ pub(crate) fn expression(
             validate(&value, &helper.ty, meter, depth + 1)?;
             Ok(value)
         }
+        Expr::UnsignedSubtract { max, left, right } => {
+            let left = expression(left, locals, helpers, meter, depth + 1)?;
+            let right = expression(right, locals, helpers, meter, depth + 1)?;
+            let ty = RuntimeType::Unsigned(*max);
+            validate(&left, &ty, meter, depth + 1)?;
+            validate(&right, &ty, meter, depth + 1)?;
+            let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
+                return Err(Error::InvalidArtifact);
+            };
+            let difference = left
+                .checked_sub(right)
+                .filter(|value| *value >= 0)
+                .ok_or(Error::InvalidArtifact)?;
+            meter.copy(&Value::Integer(difference))
+        }
+        Expr::ByteLength { min, max, value } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            validate(
+                &value,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let Value::Bytes(bytes) = value else {
+                return Err(Error::InvalidArtifact);
+            };
+            let length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidArtifact)?;
+            meter.copy(&Value::Integer(i128::from(length)))
+        }
     }
 }
 
@@ -251,6 +283,62 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_length_charges_operand_validation_and_u64_result() -> Result<(), Error> {
+        let mut meter = Meter {
+            limits: EvaluationLimits {
+                max_package_bytes: 1024,
+                max_input_bytes: 1024,
+                max_steps: 100,
+                max_allocated_bytes: 1024,
+                max_output_bytes: 1024,
+            },
+            steps: 0,
+            allocated: 0,
+        };
+        let length = Expr::ByteLength {
+            min: 0,
+            max: 32,
+            value: Box::new(Expr::Constant(Value::Bytes(vec![0, 1, 255]))),
+        };
+        assert_eq!(
+            expression(&length, &BTreeMap::new(), &BTreeMap::new(), &mut meter, 0)?,
+            Value::Integer(3)
+        );
+        // Operator, operand visit/copy, byte-bound validation, result copy.
+        assert_eq!(meter.steps, 5);
+        assert_eq!(meter.allocated, 131);
+        Ok(())
+    }
+
+    #[test]
+    fn unsigned_subtraction_charges_operands_validation_and_result() -> Result<(), Error> {
+        let mut meter = Meter {
+            limits: EvaluationLimits {
+                max_package_bytes: 1024,
+                max_input_bytes: 1024,
+                max_steps: 100,
+                max_allocated_bytes: 1024,
+                max_output_bytes: 1024,
+            },
+            steps: 0,
+            allocated: 0,
+        };
+        let subtract = Expr::UnsignedSubtract {
+            max: u64::MAX,
+            left: Box::new(Expr::Constant(Value::Integer(9))),
+            right: Box::new(Expr::Constant(Value::Integer(4))),
+        };
+        assert_eq!(
+            expression(&subtract, &BTreeMap::new(), &BTreeMap::new(), &mut meter, 0)?,
+            Value::Integer(5)
+        );
+        // Operator, two constant visits/copies, two validations, result copy.
+        assert_eq!(meter.steps, 8);
+        assert_eq!(meter.allocated, 192);
+        Ok(())
+    }
 
     #[test]
     fn value_storage_meter_uses_architecture_independent_units() -> Result<(), Error> {

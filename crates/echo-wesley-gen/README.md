@@ -79,6 +79,9 @@ the exact source artifact.
 `provider_artifacts::generate_provider_primary_artifacts_v1(...)` projects the
 normalized semantic model into five canonical-CBOR primary artifacts, fourteen
 declarative generated resources, and one exact self-contained CDDL artifact.
+Before construction, it requires both contract-pack source artifacts to match
+the exact schema and manifest bound into the generation input. A different
+admitted publication returns `ContractPackInputMismatch` without an output.
 Every canonical value is validated against its generated owning root; the
 Edict-owned lawpack, target-profile, authority-facts, export, intrinsic, and
 operation-profile values are also checked independently against the admitted

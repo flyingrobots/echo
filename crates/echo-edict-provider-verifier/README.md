@@ -65,6 +65,47 @@ private evaluator consumes pinned packages over real frontier storage; see
 for its bounded aperture and evidence limits. Compilation and accepted
 verification do not authorize a state reading.
 
+The native pure-v1 verifier additionally compares the one selected intent's
+ordered let bindings (identity, local, and expression), result, input
+constraints, and optional basis against Core. It refuses extra intents or
+requirements. This is an identity-preserving lowering relation: independently
+digest-binding two artifacts does not prove that one preserves the other.
+The retained public-compiler fixture has an exact-byte positive control and
+seven separately rebound semantic mutation witnesses. The checked component
+below includes this relation check; host admission and runtime execution remain
+separate evidence boundaries.
+
+Before selecting either executable-package route, both native providers require
+the source artifact reference to match Core's coordinate and its canonical value
+to contain UTF-8 bytes. These checks do not parse or recompile the source and do
+not prove source-to-Core correspondence. Both checked components include this
+validation after independent reproducible promotion.
+
+The native pure route also requires the selected adapter profile to declare an
+empty `semanticEffects` array and a nonempty `budgetObligation`. A profile that
+declares effects is unsupported even when the supplied program has no effect
+steps. This keeps the selected profile consistent with this route's no-effects
+package identity; it is not evidence of an effect-execution exploit in earlier
+components. Host admission and compiler budget discharge remain separate
+checks. Both checked components include this validation.
+
+The native pure projection check independently follows each application-input
+or declared-binding source path back to the Core result, including exact record
+field membership, output type, and output-byte budget. A declared binding ID or
+a digest-bound projection is insufficient to establish that correspondence.
+Five additional retained-fixture mutations demonstrate wrong fields, wrong
+bindings, missing fields, and changed output contracts or budgets. The checked
+component includes the same projection check.
+
+Both native pure routes additionally enforce the compiler-owned structural
+projection contract: at most 64 KiB of canonical artifact bytes, 256 expression
+nodes, 32 path segments, 1,024 UTF-8 bytes per identifier or field/path string,
+and exactly the fields belonging to each expression and source variant. Both
+checked components include these structural guards. The artifact byte
+limit is distinct from `maxOutputBytes`: pure output remains bounded by the
+matching Core budget and consumer execution limits, rather than the anchored
+route's fixed 64 KiB output ceiling.
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
 transport-to-model conversion. Its reproducibly built 383,447-byte checked

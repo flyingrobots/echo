@@ -232,7 +232,11 @@ echo-nonempty-tstr = tstr .regexp "(?s).+"
 
 edict-source-bytes = bstr
 
-echo-operation-package = {
+echo-operation-package =
+  echo-anchored-operation-package /
+  echo-compiler-produced-pure-operation-package
+
+echo-anchored-operation-package = {
   "application_result_projection": echo-operation-application-result-projection,
   "application_basis_schema_identity": bstr .size 32,
   "authority_profile_identity": bstr .size 32,
@@ -252,6 +256,25 @@ echo-operation-package = {
   schema: "echo.operation-package/v1",
   "semantic_closure": echo-operation-semantic-closure,
   "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-pure-operation-package = {
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-compiler-produced-pure-budget,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  "package_kind": "compiler-produced-bounded-pure/v1",
+  program: bstr,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-pure-budget = {
+  "max_allocated_bytes": uint,
+  "max_output_bytes": uint,
+  "max_steps": uint,
 }
 
 echo-operation-application-result-projection = {
@@ -293,7 +316,16 @@ echo-operation-semantic-closure = {
   "target_ir_identity": bstr .size 32,
 }
 
-echo-operation-lowering-configuration = {
+echo-operation-lowering-configuration =
+  echo-attachment-create-if-absent-lowering-configuration /
+  echo-compiler-produced-bounded-pure-lowering-configuration
+
+echo-compiler-produced-bounded-pure-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "compiler-produced-bounded-pure/v1",
+}
+
+echo-attachment-create-if-absent-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
   authorityProfile: echo-nonempty-tstr,
   budgetCeiling: {
@@ -316,11 +348,24 @@ echo-operation-lowering-configuration = {
 echo-operation-package-verifier-report = {
   apiVersion: "echo.operation-package-verifier-report/v1",
   applicationResultProjection: resource-ref,
+  executableSubject: echo-bound-executable-subject,
   package: resource-ref,
   targetIr: resource-ref,
   outcome: "accepted" / "rejected",
   diagnosticAbi: resource-ref,
   diagnosticBytes: bstr,
+}
+
+echo-bound-executable-subject = {
+  reference: resource-ref,
+  bytes: bstr,
+}
+
+echo-executable-subject = {
+  apiVersion: "echo.executable-subject/v1",
+  applicationResultProjection: resource-ref,
+  package: resource-ref,
+  targetIr: resource-ref,
 }
 
 generated-artifact = {

@@ -169,16 +169,24 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-258,787 bytes with SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`; the
-promoted verifier is 277,836 bytes with SHA-256
-`279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
+279,564 bytes with SHA-256
+`11244b22dcf7128489953f7a2d09df1eeb69e7b25bddb54e0e255b51ca23e016`; the
+promoted verifier is 314,580 bytes with SHA-256
+`629a85723295e07775ae9ec001ddb57be789a92f990cee4490947b47d3ba6d1b`.
+
+The generated provider schema admits both the existing anchored
+create-if-absent configuration and the exact two-field
+`compiler-produced-bounded-pure/v1` configuration. The latter contains no
+application coordinate or policy choice. The checked lowerer now emits the
+distinct generic pure package and the checked independent verifier reconstructs
+that exact compiler relation. The package remains uninstalled and unevaluated;
+it confers no Echo runtime authority or consequence.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication introduced in
 [Edict PR #162](https://github.com/flyingrobots/edict/pull/162) and extended
-with the result-projection contract in
-[Edict PR #174](https://github.com/flyingrobots/edict/pull/174). Echo passes the
+with generic pure binding contracts in
+[Edict PR #201](https://github.com/flyingrobots/edict/pull/201). Echo passes the
 CDDL and manifest bytes explicitly to
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
 the pinned publication identity, exact inventories, resource bytes, digests,

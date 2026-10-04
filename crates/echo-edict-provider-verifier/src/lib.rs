@@ -13,6 +13,8 @@
 #[cfg(target_arch = "wasm32")]
 mod component;
 mod executable_operation;
+mod pure_projection;
+mod pure_relation;
 mod semantic_resources;
 
 use std::fmt::Write as _;

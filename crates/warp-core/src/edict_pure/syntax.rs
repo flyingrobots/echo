@@ -35,6 +35,9 @@ impl Parser<'_> {
         } {
             return Ok(RuntimeType::Unsigned(max));
         }
+        if name.starts_with("Bytes<") {
+            return bounded_bytes(name);
+        }
         let name = name
             .strip_prefix(self.coordinate)
             .and_then(|name| name.strip_prefix('.'))
@@ -108,17 +111,48 @@ impl Parser<'_> {
                     Box::new(self.expr(field(value, "else")?, depth + 1)?),
                 ))
             }
-            "call" => {
-                exact_fields(value, &["kind", "callee", "args", "typeArgs"])?;
-                if !array(field(value, "args")?)?.is_empty()
-                    || !array(field(value, "typeArgs")?)?.is_empty()
-                {
-                    return Err(Error::UnsupportedProgram);
-                }
-                Ok(Expr::Call(text_field(value, "callee")?.to_owned()))
-            }
+            "call" => self.call(value, depth),
             _ => Err(Error::UnsupportedProgram),
         }
+    }
+
+    fn call(&mut self, value: &Value, depth: usize) -> Result<Expr, Error> {
+        exact_fields(value, &["kind", "callee", "args", "typeArgs"])?;
+        let callee = text_field(value, "callee")?;
+        let args = array(field(value, "args")?)?;
+        let types = array(field(value, "typeArgs")?)?;
+        if callee == "core.bytes.length" {
+            let ([value], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteLength {
+                min,
+                max,
+                value: Box::new(self.expr(value, depth + 1)?),
+            });
+        }
+        if callee == "core.integer.subtract" {
+            let ([left, right], [width]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let max = match text(width)? {
+                "U32" => u64::from(u32::MAX),
+                "U64" => u64::MAX,
+                _ => return Err(Error::UnsupportedProgram),
+            };
+            return Ok(Expr::UnsignedSubtract {
+                max,
+                left: Box::new(self.expr(left, depth + 1)?),
+                right: Box::new(self.expr(right, depth + 1)?),
+            });
+        }
+        if !args.is_empty() || !types.is_empty() {
+            return Err(Error::UnsupportedProgram);
+        }
+        Ok(Expr::Call(callee.to_owned()))
     }
 
     pub fn predicate(&mut self, value: &Value, depth: usize) -> Result<Predicate, Error> {
@@ -179,4 +213,38 @@ impl Parser<'_> {
             _ => Err(Error::UnsupportedProgram),
         }
     }
+}
+
+// Core's canonical structural Bytes coordinates are self-describing. They do
+// never obtain their meaning from a caller-defined type-table entry.
+fn bounded_bytes(name: &str) -> Result<RuntimeType, Error> {
+    let fields = name
+        .strip_prefix("Bytes<")
+        .and_then(|name| name.strip_suffix('>'))
+        .ok_or(Error::InvalidArtifact)?;
+    let (min, max) = if let Some(exact) = fields.strip_prefix("exact=") {
+        let exact = byte_bound(exact)?;
+        (exact, exact)
+    } else if let Some(max) = fields.strip_prefix("max=") {
+        (0, byte_bound(max)?)
+    } else if let Some(bounds) = fields.strip_prefix("min=") {
+        let (min, max) = bounds.split_once(",max=").ok_or(Error::InvalidArtifact)?;
+        let (min, max) = (byte_bound(min)?, byte_bound(max)?);
+        // Equal endpoints have the canonical exact=N spelling.
+        if min >= max {
+            return Err(Error::InvalidArtifact);
+        }
+        (min, max)
+    } else {
+        return Err(Error::InvalidArtifact);
+    };
+    Ok(RuntimeType::Bytes { min, max })
+}
+
+fn byte_bound(value: &str) -> Result<u64, Error> {
+    let bound: u64 = value.parse().map_err(|_| Error::InvalidArtifact)?;
+    if bound.to_string() != value {
+        return Err(Error::InvalidArtifact);
+    }
+    Ok(bound)
 }

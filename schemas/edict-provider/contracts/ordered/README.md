@@ -6,8 +6,8 @@
 This is the complete Apache-2.0 contract-pack pair from Edict commit
 [`2405a550e93e1e97fff640caa44bbd0f65ffff3c`](https://github.com/flyingrobots/edict/commit/2405a550e93e1e97fff640caa44bbd0f65ffff3c),
 under upstream `fixtures/provider-contracts/v1/`. The owning change is
-[Edict #219](https://github.com/flyingrobots/edict/pull/219), which must pass
-upstream review and land before this dependent change is ready to merge.
+[Edict #219](https://github.com/flyingrobots/edict/pull/219), merged as
+`ac63fe679973e8119244471c124cde44dea5984f`.
 
 The CDDL SHA-256 is
 `82273f3ea016a421c881f15b0fd451802205903ac9177bac8accbf3173f66d2c`;

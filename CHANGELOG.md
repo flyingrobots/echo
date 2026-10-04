@@ -12,7 +12,42 @@
   successfully released lease and blocks immediate writer takeover. Live-writer
   exclusion and the successor's independent lease remain enforced.
 
+- Native pure executable-package providers now enforce the compiler-owned
+  projection artifact, node, path, text, and exact-field bounds. The pure output
+  budget remains Core-declared; the anchored route's fixed output ceiling is
+  not applied to pure programs. Both independently reproduced checked components
+  include these bounds.
+- Native pure executable-package providers now require an adapter profile with
+  empty `semanticEffects` and a nonempty `budgetObligation` before constructing
+  or accepting a no-effects package. Effectful profiles remain unsupported on
+  this route. Both checked components include this validation.
+- The native pure executable-package lowerer and verifier now validate source
+  artifacts before dispatch: the source reference must match Core's coordinate,
+  and its canonical value must be a UTF-8 byte string. Rebinding an invalid
+  source's digest no longer bypasses these checks. Both checked components
+  include this validation.
+- The pure executable-package verifier now compares the application
+  result projection with the authored Core result and its output contract.
+  A digest-bound projection could previously select another field or binding,
+  omit a field, or change its output type or budget and still be accepted.
+  The independently reproduced checked component includes this check.
+- The Edict executable-package verifier now refuses pure-v1 Target IR
+  that changes Core let bindings, results, input constraints, or basis, or
+  introduces extra intents or requirements. Exact package reconstruction alone
+  could accept an independently rebound but semantically inconsistent pair.
+  The native verifier and checked WASM package carry the same relation check.
+
 ### Added
+
+- The pure Edict evaluator measures bounded byte operands through the generic
+  compiler-produced `core.bytes.length` operation, returning U64 byte counts
+  with normal type validation and deterministic resource accounting. Empty,
+  Unicode, and non-UTF-8 inputs are measured as bytes, not characters.
+
+- The pure Edict evaluator supports checked U32/U64 subtraction from
+  compiler-produced packages, preserving operand order, unsigned bounds, and
+  deterministic execution/allocation accounting. Invalid operands and underflow
+  fail closed. This extends pure evaluation, not graph mutation or settlement.
 
 - Trusted Echo hosts can evaluate the first compiler-produced bounded pure
   Edict subset through a package-pinned interpreter. Runtime type checks,

@@ -18,6 +18,16 @@ pub(super) enum Expr {
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String),
+    ByteLength {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+    },
+    UnsignedSubtract {
+        max: u64,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]

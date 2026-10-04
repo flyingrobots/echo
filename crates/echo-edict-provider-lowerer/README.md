@@ -35,9 +35,26 @@ post-effect scope by their complete identities before cloning expressions into
 Target IR. It accepts only an empty input-constraint set and the reviewed
 zero-argument `domain.WriteRejected` obstruction constructor. Effect inputs and
 intent results admit no call-expression callee in this closure; later
-constraint, constructor, or call semantics require explicit lowering laws. Reads remain
-unsupported and fail closed; the lowerer never represents a read as a synthetic
-mutation.
+constraint, constructor, or call semantics require explicit lowering laws. Reads
+remain unsupported in that checked compatibility closure; the lowerer never
+represents a read as a synthetic mutation.
+
+The native Rust source separately supports the opt-in
+`compiler-produced-bounded-read/v1` configuration, including explicit `maxReads`
+and `maxReadBytes` bounds. It lowers opaque node-atom reads with source-ordered
+guards, validates imported signatures and failure mappings, rejects unavailable
+locals and altered instruction order, and retains every semantic artifact needed
+by subsequent verification and interpretation. The supported expressions are
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Failure arms currently require zero-argument application
+obstruction constructors; terminal guards require an empty obstruction payload.
+
+This read profile is not yet in the checked provider schema or component
+publication. Its native fixture captures actual compiler request bytes with
+diagnostic-only compiler instrumentation; it is not evidence of a successful
+unmodified application build. Independent verification and a bounded runtime
+evaluator remain open under [#740](https://github.com/flyingrobots/echo/issues/740).
+Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.
 When Edict requests `executable-operation-package.echo`, the lowerer consumes

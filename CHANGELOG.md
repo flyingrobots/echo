@@ -14,6 +14,13 @@
 
 ### Added
 
+- The native provider lowerer has an explicit `compiler-produced-bounded-read/v1`
+  configuration for opaque node-atom reads and ordered byte guards. It checks
+  the imported signature, local scope, failure mappings, and Core/Target order,
+  and retains the exact semantic artifacts in its output package. This profile
+  is not yet published in the provider schema/components, independently verified,
+  or supported by the runtime; existing provider packages remain unchanged.
+
 - The package-pinned pure evaluator now supports equality of bounded byte
   values, including nominal IDs. It charges the larger operand's byte length
   before comparing, independent of mismatch position. Byte ordering and mixed

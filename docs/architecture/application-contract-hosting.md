@@ -260,6 +260,28 @@ It does not prove instruction ordering, select an executable profile, or confer
 support for graph reads or writes. The existing provider generation path still
 selects the original publication.
 
+The native lowerer source additionally recognizes the opt-in
+`compiler-produced-bounded-read/v1` configuration. This separate profile carries
+explicit read-count and aggregate read-byte ceilings; it does not reinterpret
+pure packages as effectful programs. Its current expression subset covers
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Reads select opaque atom bytes by WARP/node/expected-type IDs.
+Core and ordered Target IR must agree on every producer, guard, failure mapping,
+and result, with exact imported read signatures and scoped local identities.
+The package retains source, Core, Target IR, exports, lawpack, adapter,
+configuration, and result projection bytes.
+
+This is currently a **native lowering boundary only**. The checked provider
+publication still rejects this new configuration, its independent verifier does
+not accept the new package kind, and Echo has no evaluator for that kind. The
+native regression uses captured compiler request artifacts; it does not prove a
+successful unmodified public application build or a state observation. Provider
+publication, independent verification, bounded runtime views/apertures, and
+execution evidence remain tracked by [#740](https://github.com/flyingrobots/echo/issues/740).
+The host must eventually establish the read view's authority; package profile
+identities alone cannot grant it. Application fact decoding remains outside the
+generic atom primitive.
+
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
 

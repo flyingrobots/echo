@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
+mod bounded_read;
+
 use std::collections::BTreeSet;
 
 use blake3::Hasher;
@@ -126,6 +128,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
         RESULT_PROJECTION_DOMAIN,
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
+
+    if bounded_read::is_configuration(&configuration) {
+        return bounded_read::lower(request, &closure);
+    }
 
     if is_pure_configuration(&configuration) {
         return lower_compiler_produced_pure(
@@ -548,6 +554,36 @@ fn encode_pure_package(
     ]);
     let program = encode_canonical_cbor_v1(&program)
         .map_err(|_| invalid_artifact(PACKAGE_ROLE, "pure program could not be encoded"))?;
+    encode_compiler_package(
+        request,
+        closure,
+        intent,
+        operation_coordinate,
+        program,
+        CompilerPackageProfile {
+            kind: PURE_PROGRAM_KIND,
+            authority: PURE_AUTHORITY_PROFILE,
+            footprint: PURE_FOOTPRINT_CONTRACT,
+            interpreter: PURE_INTERPRETER_PROFILE,
+        },
+    )
+}
+
+struct CompilerPackageProfile {
+    kind: &'static str,
+    authority: &'static str,
+    footprint: &'static str,
+    interpreter: &'static str,
+}
+
+fn encode_compiler_package(
+    request: &LoweringRequestV1,
+    closure: &ClosureInputs<'_>,
+    intent: &CanonicalValueV1,
+    operation_coordinate: &str,
+    program: Vec<u8>,
+    profile: CompilerPackageProfile,
+) -> Result<Vec<u8>, ProviderRefusalV1> {
     let core_identity = hash_from_bound(&request.core)?;
     let budget = required_map(intent, "coreEvaluationBudget", operation_coordinate)?;
     let semantic_closure = canonical_map([
@@ -581,7 +617,7 @@ fn encode_pure_package(
     let package = canonical_map([
         (
             "authority_profile_identity",
-            hash_value(profile_digest(PURE_AUTHORITY_PROFILE)),
+            hash_value(profile_digest(profile.authority)),
         ),
         (
             "budget_ceiling",
@@ -608,14 +644,14 @@ fn encode_pure_package(
         ),
         (
             "footprint_contract_identity",
-            hash_value(profile_digest(PURE_FOOTPRINT_CONTRACT)),
+            hash_value(profile_digest(profile.footprint)),
         ),
         (
             "interpreter_profile_identity",
-            hash_value(profile_digest(PURE_INTERPRETER_PROFILE)),
+            hash_value(profile_digest(profile.interpreter)),
         ),
         ("operation_coordinate", canonical_text(operation_coordinate)),
-        ("package_kind", canonical_text(PURE_PROGRAM_KIND)),
+        ("package_kind", canonical_text(profile.kind)),
         ("program", CanonicalValueV1::Bytes(program)),
         ("schema", canonical_text(PACKAGE_SCHEMA)),
         ("semantic_closure", semantic_closure),

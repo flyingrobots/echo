@@ -5,6 +5,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- The filesystem WAL writer lease now attempts an explicit unlock when its
+  owning guard drops. A retained duplicate descriptor no longer extends a
+  successfully released lease and blocks immediate writer takeover. Live-writer
+  exclusion and the successor's independent lease remain enforced.
+
 ### Added
 
 - Explicit opt-in admission of Edict's ordered-instruction contract publication,

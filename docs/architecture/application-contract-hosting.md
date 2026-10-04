@@ -266,6 +266,22 @@ the exact program, after which Echo independently admits each invocation.
 
 ## External Edict Provider Artifacts
 
+Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
+publications. The original `admit_provider_contract_pack_v1` entry point remains
+bound to its pure-binding publication. The opt-in
+`admit_provider_contract_pack_for_publication_v1` entry point additionally admits
+the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md).
+The closed selector fixes both byte identities and the input size ceiling before
+parsing; mixed publications reject. This is structural schema authority only.
+It does not prove instruction ordering, select an executable profile, or confer
+support for graph reads or writes. The existing provider generation path still
+selects the original publication.
+
+Primary artifact generation also compares the supplied pack's exact schema and
+manifest with the source materials bound into its generation input. Admission
+of each pack separately does not establish this relation: crossed publications
+return `ContractPackInputMismatch` before constructing any output or provenance.
+
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
 
@@ -368,7 +384,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 38-file package-local carrier tree
+The publishable Rust crate uses a separate 40-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

@@ -7,6 +7,18 @@
 
 ### Fixed
 
+- The ordered-publication compiler witness retains the return code and raw
+  streams when unexpected output violates JSONL, instead of hiding the compiler
+  result behind a JSON decoding or non-object error.
+
+- Removed the unguarded ordered-publication image-build recipe. Its test-only
+  witness requires a guarded reusable worker with copied sources and accounted
+  compiler output; the supported runner remains separate follow-up work.
+
+- Provider artifact generation rejects a contract publication whose exact
+  schema or manifest differs from the generation input. Cross-publication calls
+  can no longer emit artifacts with misleading input provenance.
+
 - The filesystem WAL writer lease now attempts an explicit unlock when its
   owning guard drops. A retained duplicate descriptor no longer extends a
   successfully released lease and blocks immediate writer takeover. Live-writer
@@ -38,6 +50,11 @@
   The native verifier and checked WASM package carry the same relation check.
 
 ### Added
+
+- Explicit opt-in admission of Edict's ordered-instruction contract publication,
+  with exact schema/manifest pins and a bounded manifest size. The original
+  admission API retains its original publication. This authenticates schema
+  bytes; it does not add ordered execution or stateful runtime capabilities.
 
 - The pure Edict evaluator measures bounded byte operands through the generic
   compiler-produced `core.bytes.length` operation, returning U64 byte counts

@@ -32,7 +32,9 @@ use crate::provider_canonical::{
 use crate::provider_contract_pack::{
     AdmittedProviderContractPackV1, ProviderContractValidationErrorKind,
 };
-use crate::provider_generation::ProviderGenerationInputV1;
+use crate::provider_generation::{
+    ProviderGenerationInputV1, EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_COORDINATE_V1,
+};
 use crate::provider_semantics::{
     generated_resource_root, ArtifactResourceDeclaration, ArtifactResourceProvision,
     AuthorityClass, AuthorityFactSourceKind, EffectKindHint, ExecutionClass,
@@ -396,6 +398,8 @@ verifier-report = {
 /// Stable failure categories returned by provider artifact construction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderArtifactGenerationErrorKind {
+    /// The admitted contract pack differs from the exact generation input.
+    ContractPackInputMismatch,
     /// Requested primary projection roles differed from the validated source.
     ProjectionClosureMismatch,
     /// A required generated or external resource could not be resolved.
@@ -421,6 +425,7 @@ pub enum ProviderArtifactGenerationErrorKind {
 impl ProviderArtifactGenerationErrorKind {
     const fn label(self) -> &'static str {
         match self {
+            Self::ContractPackInputMismatch => "contract-pack-input-mismatch",
             Self::ProjectionClosureMismatch => "projection-closure-mismatch",
             Self::ResourceClosureMismatch => "resource-closure-mismatch",
             Self::SchemaGenerationFailed => "schema-generation-failed",
@@ -739,7 +744,8 @@ impl ProviderPrimaryArtifactsV1 {
 ///
 /// # Errors
 ///
-/// Returns a structured error if the requested projection closure disagrees
+/// Returns a structured error if the supplied contract pack differs from the exact
+/// schema or manifest bound into the generation input, the requested projection closure disagrees
 /// with the validated semantic source, a required resource cannot be resolved,
 /// schema construction fails, canonical encoding fails, or any emitted value
 /// is rejected by its owning CDDL root.
@@ -747,6 +753,25 @@ pub fn generate_provider_primary_artifacts_v1(
     input: &ProviderGenerationInputV1,
     contract_pack: &AdmittedProviderContractPackV1,
 ) -> Result<ProviderPrimaryArtifactsV1, ProviderArtifactGenerationError> {
+    for (coordinate, bytes) in [
+        (contract_pack.coordinate(), contract_pack.schema_bytes()),
+        (
+            EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_COORDINATE_V1,
+            contract_pack.manifest_bytes(),
+        ),
+    ] {
+        if !input
+            .source_artifacts()
+            .iter()
+            .any(|artifact| artifact.coordinate == coordinate && artifact.bytes.as_slice() == bytes)
+        {
+            return Err(ProviderArtifactGenerationError::new(
+                ProviderArtifactGenerationErrorKind::ContractPackInputMismatch,
+                coordinate,
+                input.digest(),
+            ));
+        }
+    }
     let source = input.semantic_source().source();
     let projection_roles = expected_projection_roles(source);
     if input.wesley_input().projection_roles != projection_roles {

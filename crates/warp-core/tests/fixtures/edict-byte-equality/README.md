@@ -29,17 +29,36 @@ Edict domain-framed package pins are:
 
 ## Reproduction
 
-Use the COPY-based Docker command documented in the linked Jim source directory.
-Its script replaces only the authored source in disposable application copies,
-invokes Edict's public JSONL build, and retains each emitted package and separate
-accepted report. Compare those bytes with these decoded carriers. The two
-public builds used for this change produced byte-identical packages and reports.
-No Core, Target IR, package, or report was hand-authored or edited.
+Use an existing guarded Docker worker with copied sources and the exact pinned
+compiler and provider above. Its exclusive lock, shared storage and log limits,
+host/VM free-space floors, CPU/memory limits, and timeout must cover compiler
+output, temporary application copies, logs, and child processes. Keep compiler
+output in accounted reusable storage. The historical Jim image-build recipe
+is provenance, not a supported reproduction command: it compiles into image
+layers and does not enforce these requirements. No standalone runner is supplied
+here.
+
+The pinned Jim `build.sh` expects the compiler at `/edict/target/debug/edict`,
+the provider under `/echo`, the frozen application under `/application-source`,
+and the two source files under `/comparison-sources`. Its disposable
+`/comparison-head`, `/comparison-payload`, and `/comparison-output` paths must
+be fresh and included in the worker's accounting. The script replaces only the
+authored source in each application copy, invokes Edict's public JSONL build,
+and retains each emitted package and separate accepted report. Compare those
+bytes with these decoded carriers. The two historical public builds produced
+byte-identical packages and reports. No Core, Target IR, package, or report was
+hand-authored or edited.
 
 The evaluator tests validate each package pin and its separate report binding,
 then check literal authored branch results and metered bounds. Mutated packages
 in rejection cases deliberately use matching test-host pins; they are not
 compiler-produced or independently accepted artifacts.
+
+The recorded accepted reports describe the frozen provider above, which predates
+later source/Core/Target relation and projection checks. Acceptance under that
+provider alone is not a proof of complete source-to-target equivalence. The
+source identity, decoded program, and literal runtime results are separate
+evidence; these fixtures do not silently adopt a newer producer.
 
 This is pure value computation. A supplied head ID is not a graph observation,
 and byte equality grants no admission authority. Generic snapshot reads,

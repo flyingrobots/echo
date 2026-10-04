@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- Byte-equality fixture reproduction guidance now requires guarded reusable
+  compiler storage and preserves the limits of its frozen provider evidence.
+
 - Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
   in the feature-enabled CI and opt-in local test routes. Selecting the target
   without the feature can no longer produce a zero-test success.

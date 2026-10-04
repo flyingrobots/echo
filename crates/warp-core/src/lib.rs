@@ -68,6 +68,8 @@ mod dynamic_binding;
 mod echo_operation;
 #[cfg(feature = "trusted_runtime")]
 pub mod edict_pure;
+#[cfg(feature = "trusted_runtime")]
+pub mod edict_read;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;

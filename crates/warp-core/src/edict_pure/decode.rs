@@ -155,6 +155,7 @@ pub(super) fn package(
         field(&projection, "expression")?,
         &input_id,
         &projection_bindings,
+        &BTreeMap::new(),
         0,
     )?;
     if result != projected {

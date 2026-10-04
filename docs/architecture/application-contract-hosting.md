@@ -291,11 +291,37 @@ select the ordered publication for these ordered read programs.
 The [COPY-based compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.Dockerfile)
 preserves the authored source and also proves the old provider's schema refusal.
 Its success establishes compilation and verification, **not a state observation**.
-Echo still has no evaluator for this package kind. Bounded runtime views,
-apertures, and execution evidence remain under
-[#740](https://github.com/flyingrobots/echo/issues/740). The host must establish
-the read view's authority; package profile identities alone cannot grant it.
-Application fact decoding remains outside the generic atom primitive.
+
+The `trusted_runtime` feature exposes `edict_read::evaluate` for private
+computation over an immutable borrowed `WorldlineFrontier`. The host supplies
+an independently verified package digest and selects the frontier and sorted,
+unique node aperture. `ReadView` checks the expected worldline, tick, and actual
+state root; node addresses include both WARP and node identities. A package
+profile cannot authorize its own aperture. The interpreter is not a substitute
+for independent provider verification of the package's authored semantics.
+
+Reads return opaque atom bytes and enforce the requested type and authored byte
+bound. Missing nodes or attachments, descent attachments, type mismatches, and
+oversized atoms map to authored obstructions. Descent is never followed. Guards
+run in authored order and can stop execution before a later read. Host ceilings
+intersect package ceilings for read attempts, aggregate read bytes, expression
+work, allocated value storage, and output. Atom work and storage are charged
+before copying. Parsing has separate byte and expression-shape ceilings.
+
+View preparation hashes the **entire frontier state**, outside the interpreted
+evaluation budget. A small aperture therefore does not imply bounded setup
+cost. Successful results retain the selected basis and a separate opaque
+application basis value; that application value is not proof of a canonical
+application head. Application fact decoding remains outside the generic atom
+primitive.
+
+The runtime witnesses in `crates/warp-core/tests/edict_node_read_tests.rs` use
+retained public-compiler packages with independently recorded pins. These
+witnesses establish private evaluation without frontier mutation. They do not
+establish installation, public request authorization, a causal Tick, WAL
+retention, a receipt, or an admitted reading. Fresh compiler-to-runtime execution
+and the remaining release evidence are tracked by
+[#740](https://github.com/flyingrobots/echo/issues/740).
 
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:

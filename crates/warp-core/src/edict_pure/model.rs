@@ -6,12 +6,12 @@ use echo_edict_canonical::CanonicalValueV1 as Value;
 
 use super::EvaluationLimits;
 
-pub(super) const MAX_DEPTH: usize = 64;
-pub(super) const MAX_PROGRAM_NODES: usize = 65_536;
-pub(super) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_DEPTH: usize = 64;
+pub(crate) const MAX_PROGRAM_NODES: usize = 65_536;
+pub(crate) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Expr {
+pub(crate) enum Expr {
     Constant(Value),
     Local(String),
     Field(Box<Expr>, String),
@@ -21,36 +21,36 @@ pub(super) enum Expr {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Predicate {
+pub(crate) struct Predicate {
     pub op: Comparison,
     pub left: Expr,
     pub right: Expr,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Comparison {
+pub(crate) enum Comparison {
     Equal,
     LessOrEqual,
 }
 
-pub(super) enum RuntimeType {
+pub(crate) enum RuntimeType {
     Unsigned(u64),
     Bytes { min: u64, max: u64 },
     Record(Vec<(String, RuntimeType)>),
 }
 
-pub(super) struct Binding {
+pub(crate) struct Binding {
     pub id: String,
     pub ty: RuntimeType,
     pub value: Expr,
 }
 
-pub(super) struct Helper {
+pub(crate) struct Helper {
     pub result: Expr,
     pub ty: RuntimeType,
 }
 
-pub(super) struct Program {
+pub(crate) struct Program {
     pub input_id: String,
     pub input_type: RuntimeType,
     pub output_type: RuntimeType,

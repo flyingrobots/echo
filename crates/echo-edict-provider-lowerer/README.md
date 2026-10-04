@@ -54,8 +54,10 @@ the ordered contract publication lets unmodified Edict compile the authored
 single and independent-address paired reads through this component and the
 independent verifier. The original native fixtures retain their diagnostic
 capture provenance; the separate public compiler witness proves package/report
-publication without instrumentation. A bounded runtime evaluator remains open
-under [#740](https://github.com/flyingrobots/echo/issues/740).
+publication without instrumentation. A separate trusted-host private evaluator
+consumes pinned packages over real frontier storage; its authority and evidence
+limits are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
 Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.

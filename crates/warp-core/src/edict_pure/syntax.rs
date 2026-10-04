@@ -8,7 +8,7 @@ use super::model::{Comparison, Expr, Predicate, RuntimeType, MAX_DEPTH};
 use super::values::{array, exact_fields, field, map, number, text, text_field};
 use super::EvaluationError as Error;
 
-pub(super) struct Parser<'a> {
+pub(crate) struct Parser<'a> {
     pub types: &'a Value,
     pub coordinate: &'a str,
     pub remaining: usize,
@@ -29,11 +29,28 @@ impl Parser<'_> {
     pub fn ty(&mut self, name: &str, depth: usize) -> Result<RuntimeType, Error> {
         self.enter(depth)?;
         if let Some(max) = match name {
+            "U8" => Some(u64::from(u8::MAX)),
+            "U16" => Some(u64::from(u16::MAX)),
             "U32" => Some(u64::from(u32::MAX)),
             "U64" => Some(u64::MAX),
             _ => None,
         } {
             return Ok(RuntimeType::Unsigned(max));
+        }
+        for (prefix, exact) in [("Bytes<exact=", true), ("Bytes<max=", false)] {
+            if let Some(bound) = name
+                .strip_prefix(prefix)
+                .and_then(|value| value.strip_suffix('>'))
+            {
+                let max = bound.parse::<u64>().map_err(|_| Error::InvalidArtifact)?;
+                if bound != max.to_string() {
+                    return Err(Error::InvalidArtifact);
+                }
+                return Ok(RuntimeType::Bytes {
+                    min: if exact { max } else { 0 },
+                    max,
+                });
+            }
         }
         let name = name
             .strip_prefix(self.coordinate)
@@ -144,6 +161,7 @@ impl Parser<'_> {
         value: &Value,
         input_id: &str,
         bindings: &BTreeMap<String, String>,
+        capabilities: &BTreeMap<String, String>,
         depth: usize,
     ) -> Result<Expr, Error> {
         self.enter(depth)?;
@@ -154,7 +172,7 @@ impl Parser<'_> {
                 for (key, expression) in map(field(value, "fields")?)? {
                     fields.push((
                         text(key)?.to_owned(),
-                        self.projection(expression, input_id, bindings, depth + 1)?,
+                        self.projection(expression, input_id, bindings, capabilities, depth + 1)?,
                     ));
                 }
                 Ok(Expr::Record(fields))
@@ -166,6 +184,9 @@ impl Parser<'_> {
                     "applicationInput" => input_id,
                     "pureBinding" => bindings
                         .get(text_field(source, "bindingId")?)
+                        .ok_or(Error::InvalidArtifact)?,
+                    "capabilityResult" => capabilities
+                        .get(text_field(source, "stepId")?)
                         .ok_or(Error::InvalidArtifact)?,
                     _ => return Err(Error::UnsupportedProgram),
                 };

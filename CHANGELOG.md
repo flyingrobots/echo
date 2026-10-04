@@ -17,6 +17,12 @@
 
 ### Added
 
+- Trusted-host private evaluation of pinned bounded-read packages over an
+  immutable frontier and explicit node aperture. Reads and ordered guards
+  enforce typed obstructions and intersected host/package budgets without
+  mutating the frontier. Full-state view preparation is outside the interpreted
+  budget; this API produces no causal admission, receipt, or WAL evidence.
+
 - The native provider lowerer has an explicit `compiler-produced-bounded-read/v1`
   configuration for opaque node-atom reads and ordered byte guards. It checks
   the imported signature, local scope, failure mappings, and Core/Target order,

@@ -59,10 +59,11 @@ This route is included in the checked schema/components. The explicit ordered
 contract publication passes unmodified public Edict builds for single and paired
 reads, including this verifier's accepted report and repeatable package/report
 bytes. Native fixtures retain their diagnostic-capture provenance; the separate
-public witness requires no compiler instrumentation. No runtime read evaluator
-is implemented yet. Compilation and accepted verification do not authorize a
-state reading; that boundary remains under
-[#740](https://github.com/flyingrobots/echo/issues/740).
+public witness requires no compiler instrumentation. A separate trusted-host
+private evaluator consumes pinned packages over real frontier storage; see
+[application contract hosting](../../docs/architecture/application-contract-hosting.md)
+for its bounded aperture and evidence limits. Compilation and accepted
+verification do not authorize a state reading.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive

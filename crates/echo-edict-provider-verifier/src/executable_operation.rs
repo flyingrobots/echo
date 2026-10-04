@@ -257,6 +257,9 @@ fn verify_compiler_produced_pure(
         request,
     )?;
     validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
+    if !crate::pure_relation::preserves(intent, target_ir, intent_name) {
+        return Err(super::unsupported_semantics("target-ir.echo-pure-relation"));
+    }
     validate_pure_result_projection(
         result_projection,
         closure.result_projection,

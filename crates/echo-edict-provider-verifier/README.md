@@ -44,6 +44,16 @@ names its domain-framed identity. That subject binds the exact package, Target
 IR, and application result projection; it does not prove runtime evaluation,
 admission, or an Echo consequence.
 
+The native pure-v1 verifier additionally compares the one selected intent's
+ordered let bindings (identity, local, and expression), result, input
+constraints, and optional basis against Core. It refuses extra intents or
+requirements. This is an identity-preserving lowering relation: independently
+digest-binding two artifacts does not prove that one preserves the other.
+The retained public-compiler fixture has an exact-byte positive control and
+seven separately rebound semantic mutation witnesses. Publication of this native
+check into the checked component remains a separate required build gate; the
+component identity below describes the currently retained binary.
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
 transport-to-model conversion. Its reproducibly built 308,859-byte checked

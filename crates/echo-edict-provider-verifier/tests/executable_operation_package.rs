@@ -10,6 +10,8 @@ use echo_edict_canonical::{
 use echo_edict_provider_lowerer as lowerer;
 use echo_edict_provider_verifier as verifier;
 
+mod pure_relation;
+
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
 const PACKAGE_DOMAIN: &str = "echo.operation-package/v1";
@@ -578,6 +580,24 @@ fn pure_budget() -> CanonicalValueV1 {
     ])
 }
 
+fn pure_binding_local(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    owned_map([
+        ("id", text("local.0")),
+        ("type", text(format!("{}.Output", names.application))),
+    ])
+}
+
+fn pure_expression(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    owned_map([("kind", text("local")), ("ref", pure_binding_local(names))])
+}
+
+fn pure_binding_value() -> CanonicalValueV1 {
+    owned_map([
+        ("kind", text("record")),
+        ("fields", CanonicalValueV1::Map(Vec::new())),
+    ])
+}
+
 fn pure_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
     owned_map([
         ("apiVersion", text("edict.core/v1")),
@@ -594,12 +614,20 @@ fn pure_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                         text("continuum.profile.read-only/v1"),
                     ),
                     ("coreEvaluationBudget", pure_budget()),
+                    ("inputConstraints", CanonicalValueV1::Array(Vec::new())),
                     (
                         "body",
-                        owned_map([(
-                            "nodes",
-                            CanonicalValueV1::Array(vec![owned_map([("kind", text("let"))])]),
-                        )]),
+                        owned_map([
+                            (
+                                "nodes",
+                                CanonicalValueV1::Array(vec![owned_map([
+                                    ("kind", text("let")),
+                                    ("binding", pure_binding_local(names)),
+                                    ("value", pure_binding_value()),
+                                ])]),
+                            ),
+                            ("result", pure_expression(names)),
+                        ]),
                     ),
                 ]),
             )]),
@@ -658,10 +686,17 @@ fn pure_target_ir(
                 owned_map([
                     ("operationProfile", text("continuum.profile.read-only/v1")),
                     ("coreEvaluationBudget", pure_budget()),
+                    ("inputConstraints", CanonicalValueV1::Array(Vec::new())),
                     ("steps", CanonicalValueV1::Array(Vec::new())),
+                    ("requirements", CanonicalValueV1::Array(Vec::new())),
+                    ("result", pure_expression(names)),
                     (
                         "pureBindings",
-                        CanonicalValueV1::Array(vec![owned_map([("id", text("binding.0"))])]),
+                        CanonicalValueV1::Array(vec![owned_map([
+                            ("id", text(format!("{}.binding.0", names.intent))),
+                            ("binding", pure_binding_local(names)),
+                            ("value", pure_binding_value()),
+                        ])]),
                     ),
                 ]),
             )]),
@@ -686,7 +721,7 @@ fn pure_result_projection(names: FixtureNames<'_>) -> CanonicalValueV1 {
                     "source",
                     owned_map([
                         ("kind", text("pureBinding")),
-                        ("bindingId", text("binding.0")),
+                        ("bindingId", text(format!("{}.binding.0", names.intent))),
                     ]),
                 ),
                 ("path", CanonicalValueV1::Array(Vec::new())),

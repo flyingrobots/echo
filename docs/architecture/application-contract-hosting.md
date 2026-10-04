@@ -322,7 +322,7 @@ Repeated builds reproduce the package/report bytes. The original contract
 publication remains selected by the default generator; callers must explicitly
 select the ordered publication for these ordered read programs.
 
-The [COPY-based compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.Dockerfile)
+The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
 preserves the authored source and also proves the old provider's schema refusal.
 Its success establishes compilation and verification, **not a state observation**.
 
@@ -350,14 +350,18 @@ application head. Application fact decoding remains outside the generic atom
 primitive.
 
 The runtime witnesses in `crates/warp-core/tests/edict_node_read_tests.rs` use
-retained public-compiler packages with independently recorded pins. The Docker
-entrypoint `scripts/consumer-witnesses/bounded-read-runtime.sh` builds the pinned
-public compiler and explicit provider publication, reproduces both packages and
-accepted reports, and executes those **fresh output files** through the same
-runtime witnesses. Compiler output stays in one reusable worker target, outside
-image layers; the script serializes the campaign and checks a measured cache
-budget before and after builds. These witnesses establish private evaluation
-without frontier mutation. They do not
+retained public-compiler packages with independently recorded pins. A guarded reusable Docker worker can run the public compiler witness with
+copied inputs, then set `EDICT_READ_OUTPUT_ROOT` to its evidence directory when
+running the runtime tests. That route evaluates the **fresh output files**.
+The compiler witness requires `/read-fixtures`, `/old-provider`, `/read-provider`,
+and `EDICT_READ_COMPILER` (default `/edict/target/debug/edict`); it creates
+`/read-evidence` and refuses to reuse existing variant directories. The operator
+must supply an exclusive worker lock, process-tree timeout, and a fail-closed
+continuous guard over shared compiler output, writable layers, temporary data,
+and logs, including host and Docker free-space floors. Before/after measurements
+alone do not enforce those budgets. The supported runner remains separate work
+in [#742](https://github.com/flyingrobots/echo/issues/742).
+These witnesses establish private evaluation without frontier mutation. They do not
 establish installation, public request authorization, a causal Tick, WAL
 retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
 [#740](https://github.com/flyingrobots/echo/issues/740).

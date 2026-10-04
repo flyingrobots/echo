@@ -183,12 +183,12 @@ original contract selection. The public compiler witness builds a single read
 and a pair with independent addresses, runs both Wasm components, and requires
 repeatable package/report pairs. It proves no runtime read or mutation.
 
-Run from the repository root without mounting the checkout:
-
-```sh
-docker build -f scripts/consumer-witnesses/bounded-read-publication.Dockerfile -t echo-bounded-read-publication .
-docker run --rm echo-bounded-read-publication
-```
+Run the [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
+only inside a guarded reusable worker with copied sources. Its required inputs,
+output directory, and resource enforcement prerequisites are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
+A supported guarded runner is tracked separately in
+[#742](https://github.com/flyingrobots/echo/issues/742).
 
 The generated provider schema admits both the existing anchored
 create-if-absent configuration and the exact two-field

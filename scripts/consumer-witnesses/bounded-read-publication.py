@@ -80,7 +80,7 @@ def compile_variant(name, source):
 
 def main():
     if not Path("/.dockerenv").is_file():
-        raise RuntimeError("Use the COPY-based bounded-read-publication Dockerfile")
+        raise RuntimeError("Run inside a guarded Docker worker with copied sources")
     single = compile_variant("single", Path("/read-fixtures/source/ReplaceRange.edict"))
     pair = compile_variant("pair", Path("/read-fixtures/pair/ReplaceRange.edict"))
     if any(single[name] == pair[name] for name in OUTPUTS):

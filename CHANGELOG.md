@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
+  compiler and fresh-output runtime witnesses require a continuously guarded
+  reusable worker; pre/post measurements alone are not budget enforcement.
+
 - Generated provider helpers bind the bounded-read schema publication, including
   its exact schema identity in the helper contract and derivation materials.
 

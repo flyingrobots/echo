@@ -35,20 +35,28 @@ subsequent lowering, independent verification, and stateful execution work.
 
 ## Public compiler witness
 
-From the repository root, the COPY-based Docker witness is:
+The test-only [Python witness](../../../../scripts/consumer-witnesses/ordered-publication.py)
+and [candidate generator](../../../../crates/echo-wesley-gen/examples/ordered_publication_witness.rs)
+require an existing guarded Docker worker with copied sources. There is no
+supported standalone image-build recipe. A repository-owned runner with setup,
+resource enforcement, and fault checks remains tracked in
+[Echo #742](https://github.com/flyingrobots/echo/issues/742).
 
-```sh
-docker build -f scripts/consumer-witnesses/ordered-publication.Dockerfile \
-  -t echo-ordered-publication-witness .
-docker run --rm echo-ordered-publication-witness
-```
+The worker must enforce the shared project storage and log budgets, host and
+Docker free-space floors, exclusive ownership, CPU/memory limits, and a timeout
+that terminates child processes. Compiler output and caches belong in the
+worker's accounted reusable storage, never in image build layers. A Docker
+presence check in either witness does not enforce those requirements.
 
-The image builds pinned Edict `2405a550e93e1e97fff640caa44bbd0f65ffff3c`,
-fetches Jim's authored read/guard probe at
-`19edb6fba94a8fea2dea63aa2f05cffc3e084f97`, and retains the old Echo provider
-at `49e9efb68001dfd78563d18bac9359a87671e431` as a negative control. It also
-uses the current Echo library to generate and digest-admit a disposable
-provider candidate with this explicit schema publication. Existing checked
+The witness requires pinned Edict `2405a550e93e1e97fff640caa44bbd0f65ffff3c`
+under `/edict`, with its executable at `/edict/target/debug/edict`. It also
+requires Jim's authored read/guard probe under `/consumer-source` at
+`19edb6fba94a8fea2dea63aa2f05cffc3e084f97`, and the old Echo provider under
+`/echo-source` at `49e9efb68001dfd78563d18bac9359a87671e431` as a negative control.
+Compiler and provider tooling use Rust 1.95.0 and 1.90.0 respectively.
+The candidate generator uses the current Echo library to generate and
+digest-admit a disposable provider under `/ordered-provider` with this explicit
+schema publication before the Python witness runs. Existing checked
 provider artifacts and Jedit producer pins are not rewritten.
 
 The same public JSONL lawpack/application build crosses three boundaries:

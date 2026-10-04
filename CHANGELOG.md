@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Removed the unguarded ordered-publication image-build recipe. Its test-only
+  witness requires a guarded reusable worker with copied sources and accounted
+  compiler output; the supported runner remains separate follow-up work.
+
 - Provider artifact generation rejects a contract publication whose exact
   schema or manifest differs from the generation input. Cross-publication calls
   can no longer emit artifacts with misleading input provenance.

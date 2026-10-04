@@ -48,7 +48,7 @@ def build(root, document, expected_kind):
 
 def main():
     if not Path("/.dockerenv").is_file():
-        raise RuntimeError("Use the COPY-based consumer witness Dockerfile")
+        raise RuntimeError("Run inside a guarded Docker worker with copied sources")
     source = Path("/consumer-source/edict/replace-range-probes/state-read")
     with tempfile.TemporaryDirectory(prefix="ordered-publication-") as scratch:
         root = Path(scratch)

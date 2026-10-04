@@ -1536,6 +1536,35 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
 fi
 
+# Feature-gated arithmetic must be selected with its runtime enabled.
+for mode in pre-push full; do
+  subtraction_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify "$mode" crates/warp-core/tests/edict_pure_unsigned_subtraction_tests.rs)"
+  if printf '%s\n' "$subtraction_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_pure_unsigned_subtraction_tests'; then
+    pass "$mode enables trusted_runtime for subtraction integration tests"
+  else
+    fail "$mode should execute subtraction tests with trusted_runtime"
+    printf '%s\n' "$subtraction_output"
+  fi
+done
+
+for changed in crates/warp-core/src/edict_pure/syntax.rs crates/warp-core/tests/fixtures/edict-pure-subtraction/ReplaceRange.edict; do
+  subtraction_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
+  if printf '%s\n' "$subtraction_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_pure_unsigned_subtraction_tests'; then
+    pass "full verification selects subtraction witness for $changed"
+  else
+    fail "full verification should select subtraction witness for $changed"
+    printf '%s\n' "$subtraction_output"
+  fi
+done
+
+for command in test clippy; do
+  if grep -Eq "cargo $command -p warp-core --features trusted_runtime .*--test edict_pure_unsigned_subtraction_tests" .github/workflows/ci.yml; then
+    pass "CI $command enables the subtraction witness"
+  else
+    fail "CI $command should enable the subtraction witness"
+  fi
+done
+
 fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
 fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"
 if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib observation::tests'; then

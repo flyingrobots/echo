@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 277,694 bytes with SHA-256
-`a4758f060122fba8c073841ccaa22bf0b8a742b495b76eb33c914eff3250dcf5`.
+The checked component is 279,564 bytes with SHA-256
+`11244b22dcf7128489953f7a2d09df1eeb69e7b25bddb54e0e255b51ca23e016`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 308,859 bytes
+`wit-component` version recorded above. Its checked component is 314,580 bytes
 with SHA-256
-`174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`.
+`629a85723295e07775ae9ec001ddb57be789a92f990cee4490947b47d3ba6d1b`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's

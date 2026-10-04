@@ -495,10 +495,8 @@ and operation-specific validation of codec-owned EINT variables also remain
 outside this generic provider invocation closure.
 
 Both refreshed components have crossed reproducible checked promotion. The
-lowerer is 230,297 bytes with SHA-256
-`f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`; the
-verifier is 247,766 bytes with SHA-256
-`edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`.
+[component reference](../../schemas/edict-provider/components/v1/README.md)
+owns their current byte lengths, SHA-256 identities, and reproduction procedure.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing

@@ -67,9 +67,9 @@ const EVALUATION_BASIS_SCHEMA: &str = "echo.operation.evaluation-basis/v1";
 const FOOTPRINT_CONTRACT: &str = "anchored-node-alpha-create-if-absent-exact/v1";
 const TARGET_PROFILE: &str = "echo.operation-target.anchored-node-alpha-create-if-absent/v1";
 const PRECONDITION_MISMATCH: &str = "echo.executable-operation/precondition-mismatch/v1";
-const MAX_RESULT_PROJECTION_NODES: usize = 256;
-const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
-const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
+pub(super) const MAX_RESULT_PROJECTION_NODES: usize = 256;
+pub(super) const MAX_RESULT_PROJECTION_PATH_SEGMENTS: usize = 32;
+pub(super) const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
 const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
 const MAX_APPLICATION_RESULT_BYTES: u64 = 64 * 1_024;
 
@@ -139,6 +139,7 @@ pub(super) fn verify(
         &closure.result_projection.artifact,
         RESULT_PROJECTION_DOMAIN,
     )?;
+    let source = validate_source(&source, closure.source, &request.core)?;
 
     if is_pure_configuration(&configuration) {
         return verify_compiler_produced_pure(
@@ -157,7 +158,6 @@ pub(super) fn verify(
 
     let intent = validate_core(&core, &request.core)?;
 
-    let source = validate_source(&source, closure.source, &request.core)?;
     let semantic_effect =
         semantic_lawpack_member_coordinate(source, closure.lawpack, intent.effect_coordinate)?;
     let semantic_obstruction =
@@ -257,6 +257,9 @@ fn verify_compiler_produced_pure(
         request,
     )?;
     validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
+    if !crate::pure_relation::preserves(intent, target_ir, intent_name) {
+        return Err(super::unsupported_semantics("target-ir.echo-pure-relation"));
+    }
     validate_pure_result_projection(
         result_projection,
         closure.result_projection,
@@ -264,6 +267,11 @@ fn verify_compiler_produced_pure(
         intent_name,
         &operation_coordinate,
     )?;
+    if !crate::pure_projection::preserves(intent, target_ir, intent_name, result_projection) {
+        return Err(super::unsupported_semantics(
+            "result-projection.echo-pure-relation",
+        ));
+    }
     let expected =
         encode_expected_pure_package(request, closure, intent_name, intent, &operation_coordinate)?;
     let actual = encode_canonical_cbor_v1(package)
@@ -409,6 +417,10 @@ fn validate_pure_lawpack(
     if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
         return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
     }
+    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    required_nonempty_text(profile, "budgetObligation", "adapter.echo-pure-operation")?;
     require_resource_ref(
         required_map(
             profile,
@@ -494,6 +506,17 @@ fn validate_pure_result_projection(
     intent_name: &str,
     operation_coordinate: &str,
 ) -> Result<(), ProviderRefusalV1> {
+    if input.artifact.artifact.bytes.len() > MAX_RESULT_PROJECTION_ARTIFACT_BYTES {
+        return Err(invalid_artifact(
+            &input.role,
+            "result projection exceeds the canonical byte bound",
+        ));
+    }
+    validate_projection_text(operation_coordinate, &input.role)?;
+    validate_projection_text(
+        required_nonempty_text(value, "outputType", &input.role)?,
+        &input.role,
+    )?;
     require_exact_fields(
         value,
         &[
@@ -532,9 +555,11 @@ fn validate_pure_result_projection(
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default();
+    let mut nodes = 0;
     validate_pure_projection_expression(
         required_map(value, "expression", &input.role)?,
         &binding_ids,
+        &mut nodes,
         &input.role,
     )
 }
@@ -542,23 +567,58 @@ fn validate_pure_result_projection(
 fn validate_pure_projection_expression(
     value: &CanonicalValueV1,
     binding_ids: &BTreeSet<&str>,
+    nodes: &mut usize,
     subject: &str,
 ) -> Result<(), ProviderRefusalV1> {
+    if *nodes == MAX_RESULT_PROJECTION_NODES {
+        return Err(invalid_artifact(
+            subject,
+            "result projection exceeds the expression-node bound",
+        ));
+    }
+    *nodes += 1;
     match required_text(value, "kind", subject)? {
         "record" => {
-            for (_, expression) in as_map(required_map(value, "fields", subject)?)
+            require_exact_fields(value, &["fields", "kind"], subject)?;
+            for (name, expression) in as_map(required_map(value, "fields", subject)?)
                 .ok_or_else(|| invalid_artifact(subject, "projection fields must be a map"))?
             {
-                validate_pure_projection_expression(expression, binding_ids, subject)?;
+                let Some(name) = as_text(name) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "projection field names must be text",
+                    ));
+                };
+                validate_projection_text(name, subject)?;
+                validate_pure_projection_expression(expression, binding_ids, nodes, subject)?;
             }
             Ok(())
         }
         "source" => {
+            require_exact_fields(value, &["kind", "path", "source"], subject)?;
+            let path = required_array(value, "path", subject)?;
+            if path.len() > MAX_RESULT_PROJECTION_PATH_SEGMENTS {
+                return Err(invalid_artifact(
+                    subject,
+                    "result projection path exceeds the segment bound",
+                ));
+            }
+            for segment in path {
+                let Some(segment) = as_text(segment) else {
+                    return Err(invalid_artifact(
+                        subject,
+                        "projection path segment must be text",
+                    ));
+                };
+                validate_projection_text(segment, subject)?;
+            }
             let source = required_map(value, "source", subject)?;
             match required_text(source, "kind", subject)? {
-                "applicationInput" => Ok(()),
+                "applicationInput" => require_exact_fields(source, &["kind"], subject),
                 "pureBinding" => {
+                    require_exact_fields(source, &["bindingId", "kind"], subject)?;
                     let id = required_nonempty_text(source, "bindingId", subject)?;
+                    validate_projection_text(id, subject)?;
                     if binding_ids.contains(id) {
                         Ok(())
                     } else {

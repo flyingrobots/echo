@@ -24,7 +24,7 @@ The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
 The checked component is 379,400 bytes with SHA-256
-`e51681b48256bc266724c1706ad89a299de1625efe8e1541245ef9a1c6ef4848`.
+`f689ad69041a229114c968258a28f8b92c6776a2868eb6a516482ba4760f0d3c`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's

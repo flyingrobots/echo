@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- `ReadView::at` validates the aperture and derives the selected current frontier
+  basis with one state hash. `ReadView::new` still checks an independently
+  selected expected basis. Both retain the same aperture and trust boundaries.
+
 - Public bounded-read compiler timeouts retain partial stdout/stderr and the
   original timeout as the failure cause.
 

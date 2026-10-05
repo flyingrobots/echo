@@ -329,8 +329,11 @@ Its success establishes compilation and verification, **not a state observation*
 The `trusted_runtime` feature exposes `edict_read::evaluate` for private
 computation over an immutable borrowed `WorldlineFrontier`. The host supplies
 an independently verified package digest and selects the frontier and sorted,
-unique node aperture. `ReadView` checks the expected worldline, tick, and actual
-state root; node addresses include both WARP and node identities. A package
+unique node aperture. `ReadView::new` checks the expected worldline, tick, and
+actual state root. `ReadView::at` derives the basis from the selected frontier
+with one state hash when no independently selected expected basis is needed.
+Both constructors enforce the same aperture constraints. Node addresses include
+both WARP and node identities. A package
 profile cannot authorize its own aperture. The interpreter is not a substitute
 for independent provider verification of the package's authored semantics.
 Input selection follows the same explicit `arg.0` identity as the provider

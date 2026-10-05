@@ -246,6 +246,44 @@ fn single_read_reports_real_basis_application_proposition_and_exact_accounting()
 }
 
 #[test]
+fn current_frontier_view_preserves_basis_aperture_and_evaluation() {
+    let (frontier, keys) = frontier();
+    let aperture = [keys[0]];
+    let view = ReadView::at(&frontier, &aperture).unwrap();
+    assert_eq!(view.basis(), ReadBasis::at(&frontier));
+    let (package, pin) = package(false);
+    assert_eq!(
+        evaluate(
+            &package,
+            pin,
+            &single_input(keys[0], b"alpha"),
+            &view,
+            limits()
+        ),
+        single(&frontier, keys[0], b"alpha", limits())
+    );
+    let mut descending = keys.clone();
+    descending.sort_by(|left, right| right.cmp(left));
+    for invalid in [vec![keys[0]; 2], descending, vec![keys[0]; 65_537]] {
+        assert!(matches!(
+            ReadView::at(&frontier, &invalid),
+            Err(ReadError::InvalidAperture)
+        ));
+    }
+    let empty = ReadView::at(&frontier, &[]).unwrap();
+    assert_eq!(
+        evaluate(
+            &package,
+            pin,
+            &single_input(keys[0], b"alpha"),
+            &empty,
+            limits()
+        ),
+        Err(ReadError::OutsideAperture(keys[0]))
+    );
+}
+
+#[test]
 fn host_budgets_refuse_one_unit_below_the_exact_success_boundary() {
     let (frontier, keys) = frontier();
     let result = single(&frontier, keys[0], b"alpha", limits()).unwrap();

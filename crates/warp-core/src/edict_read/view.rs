@@ -61,6 +61,20 @@ pub struct ReadView<'a> {
 }
 
 impl<'a> ReadView<'a> {
+    /// Derives the current basis once and validates a bounded node aperture.
+    ///
+    /// The trusted caller selects the frontier and aperture independently of
+    /// application input. Use [`Self::new`] to check an independently selected
+    /// expected basis. This constructor does not authorize a public request.
+    pub fn at(frontier: &'a WorldlineFrontier, aperture: &'a [NodeKey]) -> Result<Self, ReadError> {
+        Self::validate_aperture(aperture)?;
+        Ok(Self {
+            frontier,
+            basis: ReadBasis::at(frontier),
+            aperture,
+        })
+    }
+
     /// Validates a real basis and a sorted, unique, bounded node aperture.
     ///
     /// The trusted caller must select this frontier and aperture independently
@@ -70,10 +84,7 @@ impl<'a> ReadView<'a> {
         expected: ReadBasis,
         aperture: &'a [NodeKey],
     ) -> Result<Self, ReadError> {
-        if aperture.len() > MAX_APERTURE_NODES || aperture.windows(2).any(|pair| pair[0] >= pair[1])
-        {
-            return Err(ReadError::InvalidAperture);
-        }
+        Self::validate_aperture(aperture)?;
         if ReadBasis::at(frontier) != expected {
             return Err(ReadError::BasisMismatch);
         }
@@ -82,6 +93,14 @@ impl<'a> ReadView<'a> {
             basis: expected,
             aperture,
         })
+    }
+
+    fn validate_aperture(aperture: &[NodeKey]) -> Result<(), ReadError> {
+        if aperture.len() > MAX_APERTURE_NODES || aperture.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ReadError::InvalidAperture);
+        }
+        Ok(())
     }
 
     /// Identity established from the borrowed frontier.

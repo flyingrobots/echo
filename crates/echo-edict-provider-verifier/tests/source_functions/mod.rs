@@ -688,18 +688,33 @@ fn source_functions_pure_input_identity_does_not_depend_on_declaration_inventory
 
 #[test]
 fn source_functions_pure_basis_has_complete_input_only_call_authority() {
-    for case in ["none", "valid", "null", "unknown", "arity", "capture"] {
+    for case in [
+        "none",
+        "valid",
+        "representation",
+        "null",
+        "unknown",
+        "arity",
+        "capture",
+    ] {
         let (names, fixture, package) = called_fixture(|core, target| {
             let coordinate = text_field(core, "coordinate")
                 .expect("coordinate")
                 .to_owned();
-            let parameter = local("arg.0", "Bytes<exact=32>");
+            // The retained basis is input.basisHeadId: nominal HeadId, not its
+            // structural byte representation. Keep the old signature as refusal.
+            let parameter_type = if case == "representation" {
+                "Bytes<exact=32>"
+            } else {
+                "jedit.text@1.HeadId"
+            };
+            let parameter = local("arg.0", parameter_type);
             add_field(
                 map_field_mut(core, "functions"),
                 "basisValue",
                 function(
                     vec![parameter.clone()],
-                    "Bytes<exact=32>",
+                    parameter_type,
                     vec![],
                     vec![],
                     reference(&parameter),
@@ -708,7 +723,9 @@ fn source_functions_pure_basis_has_complete_input_only_call_authority() {
             let original = map_field(intent(core), "basis").clone();
             let expression = match case {
                 "none" | "null" => CanonicalValueV1::Null,
-                "valid" => call(&format!("{coordinate}.basisValue"), vec![original]),
+                "valid" | "representation" => {
+                    call(&format!("{coordinate}.basisValue"), vec![original])
+                }
                 "unknown" => call(&format!("{coordinate}.missing"), vec![]),
                 "arity" => call(&format!("{coordinate}.basisValue"), vec![]),
                 "capture" => reference(&local("local.0", "U64")),

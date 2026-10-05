@@ -460,7 +460,17 @@ impl Checker<'_, '_> {
         let right = self.expression(get(predicate, "right")?, frame, depth + 1)?;
         let mut charge = left.charge;
         charge.append(right.charge)?;
-        let compare = match (string(get(predicate, "op")?)?, &left.schema, &right.schema) {
+        if (matches!(left.schema, Schema::Nominal { .. })
+            || matches!(right.schema, Schema::Nominal { .. }))
+            && left.schema != right.schema
+        {
+            return Err(());
+        }
+        let compare = match (
+            string(get(predicate, "op")?)?,
+            left.schema.representation(),
+            right.schema.representation(),
+        ) {
             ("==", Schema::Blob { high: a, .. }, Schema::Blob { high: b, .. }) => {
                 u128::from((*a).max(*b))
             }
@@ -533,12 +543,12 @@ impl Checker<'_, '_> {
                     charge.append(self.expression(get(node, "input")?, &frame, 0)?.charge)?;
                     let local = get(node, "binding")?;
                     let expected = self.types.local(local)?;
-                    let Schema::Blob { high, .. } = expected else {
+                    let Schema::Blob { high, .. } = expected.representation() else {
                         return Err(());
                     };
                     charge.append(Charge {
-                        ticks: u128::from(high) + 1,
-                        storage: u128::from(high) + 64,
+                        ticks: u128::from(*high) + 1,
+                        storage: u128::from(*high) + 64,
                     })?;
                     frame.define(local, expected)?;
                 }

@@ -265,9 +265,12 @@ both authenticated imported pure-function and effect exports, including unused
 source definitions. Reserving an effect name does not permit calling it from a
 pure helper. Imported functions cannot refer back to source-owned functions.
 The imported subset remains zero-argument bodies without local bindings.
-Source-call ownership requires exact membership in `Core.functions`. Disjoint
-imported pure functions remain callable when they share the source package's
-coordinate prefix.
+Source-call ownership requires exact membership in `Core.functions`. A shared
+package prefix alone does not make an imported pure function source-owned.
+Calls must also satisfy the type-resolution aperture: same-prefix named types
+currently resolve through module-relative `Core.types` keys; fully qualified
+imported type keys under that prefix remain a provider/runtime compatibility
+limitation.
 
 Each call evaluates every argument once, from left to right in the caller's
 frame, including unused arguments. Validated argument values move into a fresh
@@ -288,8 +291,15 @@ executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
 The source-function target subset supports unsigned words, bounded bytes,
-records and nominal representations, with U32/U64 integer literals. Boolean,
-string, list, variant and effectful helper forms receive provider refusal.
+records and nominal types, with U32/U64 integer literals. Provider compatibility
+retains each nominal type's contract identity, which must match its resolved
+Core type-table key. Equal representations do not permit assignment, arguments,
+returns or comparisons across distinct nominal identities, or between a nominal
+type and its representation. Same-nominal byte and unsigned-word comparisons
+use the ordinary representation costs. Runtime values carry no additional
+nominal tag; materialization, validation and encoding bounds remain based on
+the representation. Boolean, string, list, variant and effectful helper forms
+receive provider refusal.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered
 U64 slice offsets within the operand's guaranteed minimum length. Caller

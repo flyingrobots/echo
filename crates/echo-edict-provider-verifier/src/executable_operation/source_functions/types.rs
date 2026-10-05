@@ -8,8 +8,15 @@ use std::collections::BTreeMap;
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum Schema {
     Word(u64),
-    Blob { low: u64, high: u64 },
+    Blob {
+        low: u64,
+        high: u64,
+    },
     Fields(BTreeMap<String, Schema>),
+    Nominal {
+        identity: String,
+        representation: Box<Schema>,
+    },
 }
 #[derive(Clone, Copy, Default)]
 pub(super) struct Charge {
@@ -40,6 +47,12 @@ pub(super) struct Size {
     pub height: usize,
 }
 impl Schema {
+    pub(super) fn representation(&self) -> &Self {
+        match self {
+            Self::Nominal { representation, .. } => representation.representation(),
+            _ => self,
+        }
+    }
     pub(super) fn encloses(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Blob { low, high }, Self::Blob { low: a, high: b }) => low <= a && b <= high,
@@ -72,6 +85,8 @@ impl Schema {
             height: 0,
         };
         match self {
+            // Nominal types retain identity without adding physical value tags.
+            Self::Nominal { representation, .. } => return representation.measure(),
             Self::Word(_) => {}
             Self::Blob { high, .. } => {
                 size.copy.storage += u128::from(*high);
@@ -172,12 +187,21 @@ impl<'a> Types<'a> {
             return Err(());
         }
         let prefix = format!("{}.", string(get(self.module, "coordinate")?)?);
-        let definition = get(
-            get(self.module, "types")?,
-            name.strip_prefix(&prefix).unwrap_or(name),
-        )?;
+        let resolved = name.strip_prefix(&prefix).unwrap_or(name);
+        let definition = get(get(self.module, "types")?, resolved)?;
         match string(get(definition, "kind")?)? {
-            "Nominal" => self.resolve(string(get(definition, "representation")?)?, depth + 1),
+            "Nominal" => {
+                let identity = string(get(definition, "contract")?)?;
+                if identity != resolved {
+                    return Err(());
+                }
+                let representation =
+                    self.resolve(string(get(definition, "representation")?)?, depth + 1)?;
+                Ok(Schema::Nominal {
+                    identity: identity.to_owned(),
+                    representation: Box::new(representation),
+                })
+            }
             "Bytes" => {
                 let high = unsigned(get(definition, "max")?)?;
                 let low = super::super::map_field(definition, "min")

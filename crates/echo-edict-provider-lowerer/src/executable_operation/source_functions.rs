@@ -14,6 +14,15 @@ enum Ty {
     Word(u64),
     Bytes(u64, u64),
     Record(BTreeMap<String, Ty>),
+    Nominal(String, Box<Ty>),
+}
+impl Ty {
+    fn representation(&self) -> &Self {
+        match self {
+            Self::Nominal(_, representation) => representation.representation(),
+            _ => self,
+        }
+    }
 }
 #[derive(Clone, Copy, Default)]
 struct Cost {
@@ -190,12 +199,18 @@ impl Judgment<'_> {
             return Err(());
         }
         let prefix = format!("{}.", string(get(self.core, "coordinate")?)?);
-        let definition = get(
-            get(self.core, "types")?,
-            name.strip_prefix(&prefix).unwrap_or(name),
-        )?;
+        let key = name.strip_prefix(&prefix).unwrap_or(name);
+        let definition = get(get(self.core, "types")?, key)?;
         match string(get(definition, "kind")?)? {
-            "Nominal" => self.ty(string(get(definition, "representation")?)?, depth + 1),
+            "Nominal" => {
+                if string(get(definition, "contract")?)? != key {
+                    return Err(());
+                }
+                Ok(Ty::Nominal(
+                    key.to_owned(),
+                    Box::new(self.ty(string(get(definition, "representation")?)?, depth + 1)?),
+                ))
+            }
             "Bytes" => {
                 let min = super::map_field(definition, "min")
                     .map(number)
@@ -517,7 +532,15 @@ impl Judgment<'_> {
         }
         let left = self.expression(get(value, "left")?, scope, source, prefix + 1)?;
         let right = self.expression(get(value, "right")?, scope, source, prefix + 1)?;
-        let extra = match (string(get(value, "op")?)?, &left.ty, &right.ty) {
+        match (&left.ty, &right.ty) {
+            (Ty::Nominal(..), _) | (_, Ty::Nominal(..)) if left.ty != right.ty => return Err(()),
+            _ => {}
+        }
+        let extra = match (
+            string(get(value, "op")?)?,
+            left.ty.representation(),
+            right.ty.representation(),
+        ) {
             ("==", Ty::Bytes(_, a), Ty::Bytes(_, b)) => (*a).max(*b),
             ("==" | "<=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
             _ => return Err(()),
@@ -598,8 +621,8 @@ impl Judgment<'_> {
                 "effect" if read => {
                     cost =
                         cost.plus(self.expression(get(node, "input")?, &scope, true, 0)?.cost)?;
-                    let Ty::Bytes(_, max) = self.declaration(get(node, "binding")?, &mut scope)?
-                    else {
+                    let declared = self.declaration(get(node, "binding")?, &mut scope)?;
+                    let Ty::Bytes(_, max) = declared.representation() else {
                         return Err(());
                     };
                     cost = cost.plus(Cost {
@@ -641,6 +664,8 @@ impl Judgment<'_> {
 }
 fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
     match ty {
+        // Nominal identity is static authority, not an extra runtime value cell.
+        Ty::Nominal(_, representation) => shape(representation),
         Ty::Word(_) => Ok((
             Cost {
                 steps: 1,

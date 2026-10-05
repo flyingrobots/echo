@@ -96,7 +96,10 @@
   totality, combined runtime depth, and conservative whole-operation costs.
   Providers and runtime reject source functions that shadow authenticated
   imported effects, including otherwise valid unused definitions. Bounded-read
-  call lookup admits disjoint imported pure functions in the same package.
+  call lookup distinguishes source and imported functions by exact membership,
+  including disjoint names under one package prefix.
+  Independent provider checks retain nominal type identity for source-function
+  compatibility while deriving runtime costs from the underlying representation.
 
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and

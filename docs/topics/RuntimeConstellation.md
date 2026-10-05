@@ -42,9 +42,14 @@ consumer is real, not to make `warp-core` look smaller.
 
 ## Bunny Numeric Boundary
 
-Bunny's deterministic scalar contract should be signed Q32.32 with raw `i64`
-golden vectors and ties-to-even conversion, matching Echo's `det_fixed` lane.
-Geometry extraction must preserve:
+Bunny 0.6.0 owns Echo's signed Q32.32 arithmetic and conversion algorithms.
+`warp-math` exposes its checked `FixedQ32_32` foundation and delegates existing
+`DFix64` saturation and motion-payload conversions to Bunny. Raw `i64` golden
+vectors, IEEE conversion bits, and literal payload bytes define the compatibility
+boundary; see the [normative math policy](../determinism/SPEC_DETERMINISTIC_MATH.md).
+This integration does not introduce an executable fixed-point Edict profile.
+
+Further geometry extraction must preserve:
 
 - inclusive AABB contact semantics;
 - canonical pair ordering;
@@ -56,9 +61,10 @@ contact, broad-phase, mesh, and graphics-schema concerns belong in Bunny. Echo
 ticks, worldlines, causal bases, admissions, receipts, retention, and
 provenance do not.
 
-The current `echo-wasm-abi` float-to-fixed conversion truncates while the
-Q32.32 lane uses ties-to-even. That mismatch must be resolved with cross-language
-golden vectors before calling a Bunny extraction parity-complete.
+The existing `echo-wasm-abi` float-to-fixed helper deliberately retains truncation
+as a legacy compatibility API. Canonical Bunny conversion uses ties-to-even; a
+distinguishing golden vector keeps this policy difference explicit. This scalar
+integration does not claim complete geometry or Rust/JavaScript scene parity.
 
 ## Scene Evidence Exit Conditions
 

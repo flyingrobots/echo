@@ -71,7 +71,7 @@ and checking it from the executable model would create a second shape authority.
 Run:
 
 ```bash
-cargo +1.90.0 test -p echo-wesley-gen --test provider_semantic_source
+cargo +1.96.0 test -p echo-wesley-gen --test provider_semantic_source
 ```
 
 ## No Discovery

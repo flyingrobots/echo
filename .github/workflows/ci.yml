@@ -19,7 +19,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -56,7 +56,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -84,7 +84,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -110,7 +110,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -132,7 +132,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -160,7 +160,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -169,6 +169,8 @@ jobs:
                       .
             - name: cargo clippy (warp-core lib, det_fixed)
               run: cargo clippy -p warp-core --lib --features det_fixed -- -D warnings -D missing_docs
+            - name: cargo clippy (warp-math all targets, det_fixed)
+              run: cargo clippy -p warp-math --all-targets --features det_fixed -- -D warnings -D missing_docs
 
     test-workspace:
         name: Tests (workspace sans warp-core)
@@ -177,7 +179,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -185,9 +187,9 @@ jobs:
             - name: cargo test (workspace sans warp-core)
               run: cargo test --workspace --exclude warp-core
             - name: checked Edict provider crate assets are current and packaged
-              run: cargo +1.90.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --check-package-list
+              run: cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --check-package-list
             - name: checked Edict provider package is current
-              run: cargo +1.90.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package -- --check
+              run: cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package -- --check
             - name: package publishable Edict canonical leaf
               run: cargo package -p echo-edict-canonical --locked
 
@@ -201,6 +203,9 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
+            # Outer xtask uses Bunny through warp-core; the inner producer
+            # still authenticates the exact Rust/Cargo 1.90 identities.
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: dtolnay/rust-toolchain@1.90.0
               with:
                   components: clippy
@@ -228,6 +233,9 @@ jobs:
               with:
                   submodules: false
                   persist-credentials: false
+            # Outer xtask uses Bunny through warp-core; the inner producer
+            # still authenticates the exact Rust/Cargo 1.90 identities.
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: dtolnay/rust-toolchain@1.90.0
               with:
                   components: clippy
@@ -245,7 +253,7 @@ jobs:
               run: cargo +1.90.0 clippy -p echo-edict-provider-verifier --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs
 
     edict-provider-host-v1:
-        name: Edict provider host contract (Rust 1.94)
+        name: Edict provider host contract (Rust 1.96)
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
@@ -254,7 +262,7 @@ jobs:
             - uses: dtolnay/rust-toolchain@1.90.0
               with:
                   targets: wasm32-unknown-unknown
-            - uses: dtolnay/rust-toolchain@1.94.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
@@ -272,7 +280,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   targets: wasm32-unknown-unknown
             - uses: Swatinem/rust-cache@v2
@@ -289,7 +297,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -352,7 +360,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   targets: x86_64-unknown-linux-musl
             - name: Install musl tools
@@ -373,13 +381,15 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
                       .
             - name: cargo test (warp-core, det_fixed)
               run: cargo test -p warp-core --features det_fixed
+            - name: cargo test (warp-math, det_fixed)
+              run: cargo test -p warp-math --features det_fixed
 
     test-musl-det-fixed:
         name: Tests (musl, det_fixed)
@@ -388,7 +398,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
               with:
                   targets: x86_64-unknown-linux-musl
             - name: Install musl tools
@@ -407,7 +417,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - name: Check workspace rust-version declarations
               shell: bash
               run: |
@@ -432,7 +442,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -457,7 +467,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -526,7 +536,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: actions/setup-node@v4
               with:
                   node-version: "20"
@@ -540,7 +550,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -557,7 +567,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   submodules: false
-            - uses: dtolnay/rust-toolchain@1.90.0
+            - uses: dtolnay/rust-toolchain@1.96.0
             - uses: Swatinem/rust-cache@v2
             - name: rustdoc warnings gate (warp-core)
               run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps

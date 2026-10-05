@@ -28,6 +28,16 @@ if grep -q -- 'cargo clippy -p warp-math --all-targets -- -D warnings -D missing
 else
   fail "CI clippy should cover all warp-math targets"
 fi
+if grep -q -- 'cargo test -p warp-math --features det_fixed' .github/workflows/ci.yml; then
+  pass "CI runs the fixed warp-math integration tests directly"
+else
+  fail "CI must run warp-math det_fixed tests, not only the dependent warp-core crate"
+fi
+if grep -q -- 'cargo clippy -p warp-math --all-targets --features det_fixed -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
+  pass "CI strictly lints fixed warp-math integration tests"
+else
+  fail "CI must lint warp-math det_fixed tests and adapters directly"
+fi
 if grep -q -- 'cargo +1.90.0 clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
   pass "CI clippy covers the wasm-only Edict provider adapter"
 else
@@ -1634,6 +1644,15 @@ if printf '%s\n' "$fake_pre_push_warp_math_fixed_cargo_log" | grep -q -- 'test -
 else
   fail "pre-push should keep required det_fixed feature for dfix64_tests"
   printf '%s\n' "$fake_pre_push_warp_math_fixed_output"
+fi
+
+fake_pre_push_bunny_numeric_output="$(run_fake_verify pre-push crates/warp-math/tests/bunny_numeric_contract.rs)"
+fake_pre_push_bunny_numeric_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_bunny_numeric_output")"
+if printf '%s\n' "$fake_pre_push_bunny_numeric_cargo_log" | grep -q -- 'test -p warp-math --features det_fixed --test bunny_numeric_contract'; then
+  pass "pre-push exercises the Bunny-backed DFix64 compatibility vectors"
+else
+  fail "pre-push must enable det_fixed for bunny_numeric_contract"
+  printf '%s\n' "$fake_pre_push_bunny_numeric_output"
 fi
 
 fake_pre_push_warp_math_serde_output="$(run_fake_verify pre-push crates/warp-math/tests/determinism_policy_tests.rs)"

@@ -35,6 +35,7 @@ repository = "https://github.com/flyingrobots/echo"
 rust-version = "1.90.0"
 
 [workspace.dependencies]
+bunny-num = "=0.6.0"
 echo-cas = { version = "0.1.0", path = "crates/echo-cas" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }

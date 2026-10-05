@@ -77,7 +77,7 @@ pub struct MotionV2Builder {
 impl MotionV2Builder {
     pub fn new(pos: [i64; 3], vel: [i64; 3]) -> Self {
         let mut buf = [0u8; 48];
-        for (i, raw) in pos.into_iter().chain(vel.into_iter()).enumerate() {
+        for (i, raw) in pos.into_iter().chain(vel).enumerate() {
             buf[i * 8..i * 8 + 8].copy_from_slice(&raw.to_le_bytes());
         }
         Self { buf }

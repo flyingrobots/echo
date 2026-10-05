@@ -172,10 +172,11 @@ logging callback, or WASI capability.
 Build and audit local component bytes from the repository root with:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component build \
+cargo +1.96.0 xtask provider-lowerer-component build \
   --target-dir target/provider-lowerer-component
 ```
 
+The outer build driver uses Rust 1.96.0 for its Echo numerical dependencies.
 Local component construction resolves and authenticates absolute Rust 1.90.0
 Cargo and compiler executables, binds the inner Cargo build to that exact
 compiler, disables configured wrappers, and validates the complete module,
@@ -192,9 +193,10 @@ repository-approved SHA-256 identity, complete component admission, and
 provisioned designated builds. Successful refresh uses synchronized temporary
 bytes and atomic replacement, while write failure preserves the prior artifact.
 `designated-build` can emit candidates but refuses the checked repository path.
-Edict-host invocation evidence lives in the isolated Rust 1.94 witness under
+Edict-host invocation evidence lives in the isolated Rust 1.96 witness under
 `tests/edict-provider-host-v1/` so Wasmtime and unpublished Edict host crates do
-not enter Echo's Rust 1.90 workspace dependency graph.
+not enter Echo's workspace dependency graph. The witness retains its frozen
+Edict Git pins and uses Rust 1.96 for its Echo runtime dependency.
 
 These bytes implement a provider translation. They do not install a package,
 admit runtime authority, execute an operation, or attest an Echo consequence.

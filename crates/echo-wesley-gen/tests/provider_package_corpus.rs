@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest as _, Sha256};
 
 const EXPECTED_PROVIDER_DIGEST: &str =
-    "sha256:9e953d3e05f96ca2a512e37df2c3233ea79676bbc2ee7e17fee11918277386e3";
+    "sha256:0e58e22e034ce81ecbb57d085505ab314c769bcda24b2d06bfa77d9062729116";
 const EXPECTED_MANIFEST_RAW_SHA256: &str =
-    "e2b55c86e5fccef79614fe2d06e2f67d5ec76056749d513fe893da8d7f813b55";
+    "12be23c8ffcac95ed7bc51bbdf5497b72891650bdd7a4439bcb79c15fbcfa971";
 
 const PACKAGE_PATHS: [&str; 25] = [
     "components/lowerer.echo-dpo.component.wasm",

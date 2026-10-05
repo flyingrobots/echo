@@ -43,7 +43,45 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 - **Deserialize:** Must route through `F32Scalar::new()` or a validator that applies canonicalization.
 - **Serialize:** Safe to dump bytes _if_ the value is already canonical.
 
-## 3. Local Validation (CI parity)
+## 3. Canonical Signed Q32.32 (Bunny)
+
+Echo and Edict pin `bunny-num` exactly to **0.6.0** as the normative fixed-point
+arithmetic foundation. Bunny's [Numeric Constitution](https://github.com/flyingrobots/bunny/blob/9bf43600d08ff8e2a0ab888713948b409e386513/docs/NUMERIC_CONSTITUTION.md)
+defines the arithmetic algorithms and policy choices. Echo exposes the same
+`FixedQ32_32` type at `warp_math::fixed_q32_32::FixedQ32_32` and through
+`warp_core::math::fixed_q32_32`.
+
+- Representation is a signed two's-complement `i64`, with value `raw / 2^32`.
+  `from_raw` and `raw` preserve bits. Equality and ordering compare raw values.
+- Canonical numerical callers use `checked_add`, `checked_sub`, `checked_neg`,
+  `checked_mul`, and `checked_div`. Overflow and division by zero return `None`;
+  they must not be converted into successful canonical results.
+- Multiplication and division use wide integer intermediates and round to nearest
+  with ties-to-even before checking representability. Negative ties use the same
+  even-result rule. U64 integer operations are not Q32.32 operations.
+- Validated float ingress uses `try_from_f32`, rejecting non-finite and
+  out-of-range values. Float egress is lossy and rounds to nearest ties-to-even.
+  Canonical arithmetic does not pass through floats.
+- Existing `DFix64` operators delegate to Bunny's saturating compatibility
+  operators: add/sub/neg/mul/div clamp on overflow; nonzero divided by zero
+  saturates by numerator sign, and `0 / 0` remains zero.
+- Existing `fixed_q32_32::from_f32` and motion-payload conversion delegate to
+  Bunny's saturating conversion: NaN becomes zero and infinities or finite
+  out-of-range values clamp. They are not validating ingress APIs.
+- Motion v2 preserves six little-endian signed Q32.32 raw values (48 bytes),
+  existing payload TypeIds, and legacy v0 decoding. Debug text is not wire data.
+
+The legacy `echo_wasm_abi::codec::fx_from_f32` and its vector helper retain
+truncation toward zero. An input of 1.5 raw units gives 1 there and 2 under Bunny;
+the negative input gives -1 and -2 respectively. These APIs are compatibility
+boundaries, not alternative definitions of canonical math.
+
+This foundation does not add fixed-point source syntax, compiler lowering, or a
+new executable Edict operation profile. `DFix64` trigonometry still converts
+through Echo's deterministic f32 LUT. Float-mode linear algebra and geometry
+extraction are separate boundaries; their migration is not implied here.
+
+## 4. Local Validation (CI parity)
 
 Echo’s deterministic-math CI lanes are intentionally “boring”: they run the same commands you
 should run locally before proposing changes to scalar backends or transcendentals.
@@ -59,11 +97,14 @@ compatibility, but deterministic math validation lives in `warp-math`.
 
 ### Fixed-point lane (`det_fixed`)
 
-`DFix64` (Q32.32) is currently feature-gated so we can evolve it without destabilizing the
-default runtime surface.
+Bunny's checked Q32.32 type and motion conversions are available by default.
+`DFix64` remains feature-gated as a compatibility scalar adapter. Hand-derived
+raw/IEEE vectors cover rounding and refusal separately from saturation; literal
+motion bytes witness the runtime consumer boundary.
 
 - `cargo test -p warp-math --features det_fixed`
-- `cargo clippy -p warp-math --lib --features det_fixed -- -D warnings -D missing_docs`
+- `cargo test -p warp-core --test bunny_motion_compatibility`
+- `cargo clippy -p warp-math --all-targets --features det_fixed -- -D warnings -D missing_docs`
 
 ### MUSL (Linux portability lane)
 

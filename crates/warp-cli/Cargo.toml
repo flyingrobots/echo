@@ -4,7 +4,7 @@
 name = "warp-cli"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.90.0"
+rust-version = "1.96.0"
 description = "Echo developer CLI: verify, bench, inspect"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"

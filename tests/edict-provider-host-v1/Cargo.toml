@@ -5,7 +5,7 @@
 name = "echo-edict-provider-host-v1-witness"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.94"
+rust-version = "1.96.0"
 license = "Apache-2.0"
 publish = false
 

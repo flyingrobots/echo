@@ -635,9 +635,10 @@ fn compute_ingress_id(
 // =============================================================================
 
 /// Policy controlling which envelopes a head's inbox will accept.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum InboxPolicy {
     /// Accept all envelopes.
+    #[default]
     AcceptAll,
     /// Accept only envelopes whose intent kind is in the filter set.
     KindFilter(BTreeSet<IntentKind>),
@@ -646,12 +647,6 @@ pub enum InboxPolicy {
         /// Maximum envelopes to admit per SuperTick.
         max_per_tick: u32,
     },
-}
-
-impl Default for InboxPolicy {
-    fn default() -> Self {
-        Self::AcceptAll
-    }
 }
 
 /// Outcome of attempting to ingest an envelope into a head inbox.

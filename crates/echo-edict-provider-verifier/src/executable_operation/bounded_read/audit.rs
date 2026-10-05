@@ -6,7 +6,7 @@ mod reads;
 mod types;
 
 use super::super::{
-    canonical_map, canonical_text, semantic_lawpack_member_coordinate, validate_pure_lawpack,
+    canonical_map, canonical_text, semantic_lawpack_member_coordinate, validate_compiler_lawpack,
     validate_source,
 };
 use super::{
@@ -63,7 +63,7 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     if text(intent, "requiredOperationProfile")? != PROFILE {
         return Err(());
     }
-    validate_pure_lawpack(
+    validate_compiler_lawpack(
         &e.lawpack,
         &e.exports,
         &e.adapter,

@@ -8,7 +8,7 @@ use super::{
     as_map, canonical_map, canonical_text, encode_canonical_cbor_v1, encode_compiler_package,
     invalid_artifact, map_field, require_exact_fields, require_resource_ref, required_array,
     required_nonempty_text, required_u64, single_text_map_entry, text_field, validate_bound,
-    validate_pure_lawpack, validate_source, Artifact, BoundArtifact, CanonicalValueV1 as Value,
+    validate_compiler_lawpack, validate_source, Artifact, BoundArtifact, CanonicalValueV1 as Value,
     ClosureInputs, CompilerPackageProfile, LoweringOutputArtifact, LoweringOutputKind,
     LoweringRequestV1, LoweringSuccessV1, ProviderRefusalV1, ADAPTER_DOMAIN, CONFIGURATION_ABI,
     CONFIGURATION_DOMAIN, CORE_ABI, CORE_DOMAIN, EXPORTS_DOMAIN, LAWPACK_DOMAIN, PACKAGE_DOMAIN,
@@ -113,7 +113,7 @@ pub(super) fn lower(
     if text(intent, "requiredOperationProfile")? != READ_PROFILE {
         return Err(invalid());
     }
-    validate_pure_lawpack(
+    validate_compiler_lawpack(
         &lawpack,
         &exports,
         &adapter,

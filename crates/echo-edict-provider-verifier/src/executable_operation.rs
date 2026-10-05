@@ -375,6 +375,37 @@ fn validate_pure_lawpack(
     closure: &ClosureInputs<'_>,
     target_profile: &BoundArtifact,
     intent: &CanonicalValueV1,
+    request: &VerificationRequestV1,
+) -> Result<(), ProviderRefusalV1> {
+    validate_compiler_lawpack(
+        value,
+        exports_value,
+        adapter_value,
+        closure,
+        target_profile,
+        intent,
+        request,
+    )?;
+    let profiles = required_map(
+        adapter_value,
+        "operationProfiles",
+        "adapter.echo-pure-operation",
+    )?;
+    let (_, profile) = single_text_map_entry(profiles)
+        .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
+    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    Ok(())
+}
+
+fn validate_compiler_lawpack(
+    value: &CanonicalValueV1,
+    exports_value: &CanonicalValueV1,
+    adapter_value: &CanonicalValueV1,
+    closure: &ClosureInputs<'_>,
+    target_profile: &BoundArtifact,
+    intent: &CanonicalValueV1,
     _request: &VerificationRequestV1,
 ) -> Result<(), ProviderRefusalV1> {
     let id = required_text(value, "id", "lawpack.echo-pure-operation")?;
@@ -421,9 +452,6 @@ fn validate_pure_lawpack(
     let (_, profile) = single_text_map_entry(profiles)
         .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
     if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
-        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
-    }
-    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
         return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
     }
     required_nonempty_text(profile, "budgetObligation", "adapter.echo-pure-operation")?;

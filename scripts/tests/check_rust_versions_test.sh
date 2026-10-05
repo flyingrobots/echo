@@ -295,9 +295,51 @@ test_rejects_invalid_unterminated_policy_rows() {
   done
 }
 
+test_rejects_metadata_only_versions() {
+  local failures=0 declaration
+  for declaration in 'rust-version = "1.90.0"' 'rust-version.workspace = true'; do
+    if ! with_tmp_repo bash -c '
+      set -euo pipefail
+      sed "/^rust-version/d" crates/foo/Cargo.toml > replacement
+      mv replacement crates/foo/Cargo.toml
+      printf "\n[package.metadata]\n%s\n" "$1" >> crates/foo/Cargo.toml
+      if ./scripts/check_rust_versions.sh > refusal.log 2>&1; then
+        echo "accepted metadata-only package MSRV: $1" >&2
+        exit 1
+      fi
+      grep -q "rust-version missing: crates/foo/Cargo.toml" refusal.log
+    ' bash "$declaration"; then
+      failures=$((failures + 1))
+    fi
+  done
+  [[ "$failures" -eq 0 ]]
+}
+
+test_ignores_metadata_before_package() {
+  with_tmp_repo bash -c '
+    set -euo pipefail
+    printf "[package.metadata]\nrust-version = \"1.89.0\"\n" > replacement
+    cat crates/foo/Cargo.toml >> replacement
+    mv replacement crates/foo/Cargo.toml
+    ./scripts/check_rust_versions.sh >/dev/null
+  '
+}
+
+test_allows_package_header_comment() {
+  with_tmp_repo bash -c '
+    set -euo pipefail
+    sed "s/\[package\]/[package] # actual package declaration/" crates/foo/Cargo.toml > replacement
+    mv replacement crates/foo/Cargo.toml
+    ./scripts/check_rust_versions.sh >/dev/null
+  '
+}
+
 main() {
   [[ -f "$checker_src" ]] || fail "checker script missing: $checker_src"
 
+  test_rejects_metadata_only_versions
+  test_ignores_metadata_before_package
+  test_allows_package_header_comment
   test_rejects_invalid_unterminated_policy_rows
   test_accepts_unterminated_policy_row
   test_system_bash_handles_initially_empty_policy_arrays

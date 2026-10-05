@@ -107,7 +107,8 @@ for manifest in "${manifests[@]}"; do
   relative="${manifest#"$repo_root/"}"
   expected="$(policy_value "$relative")" || fail "unregistered manifest in MSRV policy: $relative"
   version="$(awk '
-    /^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"/ {
+    /^[[:space:]]*\[/ { in_package = ($0 ~ /^[[:space:]]*\[package\][[:space:]]*(#.*)?$/) }
+    in_package && /^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"/ {
       if (match($0, /"[^"]+"/)) {
         print substr($0, RSTART + 1, RLENGTH - 2)
         exit
@@ -115,7 +116,10 @@ for manifest in "${manifests[@]}"; do
     }
   ' "$manifest")"
   if [[ -z "$version" ]]; then
-    inherited="$(awk '/^[[:space:]]*rust-version\.workspace[[:space:]]*=[[:space:]]*true/ { print "yes"; exit }' "$manifest")"
+    inherited="$(awk '
+      /^[[:space:]]*\[/ { in_package = ($0 ~ /^[[:space:]]*\[package\][[:space:]]*(#.*)?$/) }
+      in_package && /^[[:space:]]*rust-version\.workspace[[:space:]]*=[[:space:]]*true/ { print "yes"; exit }
+    ' "$manifest")"
     [[ -n "$inherited" ]] || fail "rust-version missing: $relative"
     version="$workspace_version"
   fi

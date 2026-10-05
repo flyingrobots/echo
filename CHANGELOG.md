@@ -1657,7 +1657,8 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - The general Rust toolchain and numerical consumer MSRVs are 1.96.0. Independent
   leaves and authenticated provider component producers retain their explicit
   1.90.0 policy; the outer component driver uses 1.96.0. The MSRV guard also
-  validates a final policy row without a newline.
+  validates a final policy row without a newline and reads package MSRVs only
+  from `[package]`, excluding metadata.
 
 - Public installed-contract evidence fields on runtime ingress, receipt
   correlation, outcome, and WAL state-delta carriers now use

@@ -58,6 +58,11 @@
 
 ### Added
 
+- Bounded pure evaluation supports generic `core.bytes.slice` with half-open
+  U64 ranges, runtime byte/range validation, and deterministic selected-byte
+  work and storage charges before copying. Raw and empty byte slices work
+  without application-specific dispatch or text interpretation.
+
 - The package-pinned pure evaluator now supports equality of bounded byte
   values, including nominal IDs. It charges the larger operand's byte length
   before comparing, independent of mismatch position. Byte ordering and mixed

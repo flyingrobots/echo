@@ -51,6 +51,16 @@ impl Meter {
         Ok(value.clone())
     }
 
+    fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
+        let length = u64::try_from(bytes.len()).map_err(|_| Error::AllocationBudgetExceeded)?;
+        // Selected-byte work and ordinary value storage are admitted before copying.
+        self.charge_steps(length)?;
+        self.step(0)?;
+        self.allocate(VALUE_CELL_BYTES)?;
+        self.allocate(length)?;
+        Ok(Value::Bytes(bytes.to_vec()))
+    }
+
     fn charge(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
         self.step(depth)?;
         self.allocate(VALUE_CELL_BYTES)?;
@@ -202,7 +212,50 @@ fn expression(
             let length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidArtifact)?;
             meter.copy(&Value::Integer(i128::from(length)))
         }
+        Expr::ByteSlice {
+            min,
+            max,
+            value,
+            start,
+            end,
+        } => {
+            let value = expression(value, locals, helpers, meter, depth + 1)?;
+            let start = expression(start, locals, helpers, meter, depth + 1)?;
+            let end = expression(end, locals, helpers, meter, depth + 1)?;
+            byte_slice(
+                value,
+                start,
+                end,
+                &RuntimeType::Bytes {
+                    min: *min,
+                    max: *max,
+                },
+                meter,
+                depth + 1,
+            )
+        }
     }
+}
+
+fn byte_slice(
+    value: Value,
+    start: Value,
+    end: Value,
+    ty: &RuntimeType,
+    meter: &mut Meter,
+    depth: usize,
+) -> Result<Value, Error> {
+    validate(&value, ty, meter, depth)?;
+    validate(&start, &RuntimeType::Unsigned(u64::MAX), meter, depth)?;
+    validate(&end, &RuntimeType::Unsigned(u64::MAX), meter, depth)?;
+    let (Value::Bytes(bytes), Value::Integer(start), Value::Integer(end)) = (value, start, end)
+    else {
+        return Err(Error::InvalidArtifact);
+    };
+    let start = usize::try_from(start).map_err(|_| Error::InvalidArtifact)?;
+    let end = usize::try_from(end).map_err(|_| Error::InvalidArtifact)?;
+    let selected = bytes.get(start..end).ok_or(Error::InvalidArtifact)?;
+    meter.copy_bytes(selected)
 }
 
 fn predicate(
@@ -266,6 +319,53 @@ fn validate(value: &Value, ty: &RuntimeType, meter: &mut Meter, depth: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_slice_admits_work_and_storage_before_materializing_result() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 1024,
+            max_input_bytes: 1024,
+            max_steps: 4,
+            max_allocated_bytes: 67,
+            max_output_bytes: 1024,
+        };
+        let mut meter = Meter {
+            limits,
+            steps: 0,
+            allocated: 0,
+        };
+        assert_eq!(
+            meter.copy_bytes(&[0, 128, 255])?,
+            Value::Bytes(vec![0, 128, 255])
+        );
+        assert_eq!((meter.steps, meter.allocated), (4, 67));
+        let mut work = Meter {
+            limits: EvaluationLimits {
+                max_steps: 2,
+                ..limits
+            },
+            steps: 0,
+            allocated: 0,
+        };
+        assert_eq!(
+            work.copy_bytes(&[0, 128, 255]),
+            Err(Error::StepBudgetExceeded)
+        );
+        assert_eq!(work.allocated, 0);
+        let mut storage = Meter {
+            limits: EvaluationLimits {
+                max_allocated_bytes: 66,
+                ..limits
+            },
+            steps: 0,
+            allocated: 0,
+        };
+        assert_eq!(
+            storage.copy_bytes(&[0, 128, 255]),
+            Err(Error::AllocationBudgetExceeded)
+        );
+        Ok(())
+    }
 
     #[test]
     fn byte_length_charges_operand_validation_and_u64_result() -> Result<(), Error> {

@@ -211,12 +211,24 @@ Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
 entry. Noncanonical numbers, inverted bounds, and an interval spelling with
 equal endpoints reject; equal endpoints use `exact=N`.
 
+The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
+raw bytes in the half-open range `[start, end)`. It validates the operand's byte
+bounds and both offsets as U64, then refuses reversed or out-of-bounds ranges
+with `InvalidArtifact`. Authored input constraints still run before bindings.
+Empty and full ranges are valid; slicing inside a UTF-8 codepoint is a raw-byte
+operation. The operand's minimum or exact length does not become a result
+minimum: ordinary binding and output types validate the selected value.
+
 Host ceilings intersect the package's declared step, allocation, and output
 budgets. Each expression, predicate, runtime type visit, and copied value node
 costs one step. Byte equality additionally charges the larger operand's entire
 byte length before comparison, even when lengths differ or the first byte
 mismatches. This deterministic charge does not claim constant-time machine
-execution. Byte ordering and mixed byte/integer predicates remain unsupported.
+execution. Byte slicing additionally charges one work unit per selected byte,
+and the ordinary value cell plus selected-byte storage, before copying the
+selected range. Empty slices incur ordinary expression and value costs but no
+selected-byte work. Byte ordering and mixed byte/integer predicates remain
+unsupported.
 Storage accounting charges a fixed 64-byte cell per materialized
 value node plus text and byte payload lengths, cumulatively including copies
 and result-encoding scratch. These interpreter units are independent of Rust
@@ -259,6 +271,16 @@ The original pure-program fixture still runs unchanged.
 adds the next external compiler artifact and literal empty, Unicode, and raw
 byte-count witnesses. Wrong signatures, non-byte operands, narrowed bounds,
 substituted packages, and exhausted budgets reject with structured errors.
+
+[`edict_byte_slice_tests.rs`](../../crates/warp-core/tests/edict_byte_slice_tests.rs)
+executes a retained compiler-produced slice package against twelve literal
+consumer cases, including raw non-UTF-8 bytes and authored constraint refusals.
+Malformed call, coordinate, operand, range, and budget controls exercise runtime
+defenses. A test-only alpha-renaming control changes application coordinates,
+operation and record names, and input fields while preserving results and costs;
+these names do not select primitive behavior. The mutated controls are not new
+compiler or verifier evidence. The feature-gated suite runs in CI and local
+full-test routes, including changes confined to its fixture or support helper.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle

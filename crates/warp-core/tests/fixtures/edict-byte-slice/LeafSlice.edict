@@ -1,0 +1,24 @@
+package jedit.text.replace_range@1;
+
+use lawpack jedit.text@1 digest "sha256:95758c1605894672cc9069fde01bb8b6e11842b053102660c9cd4f4d6f34d64e" as text;
+
+type Input = {
+  blobBytes: Bytes<max=1048576>,
+  startByte: U64,
+  endByte: U64,
+};
+
+type LeafBytes = {
+  bytes: Bytes<max=1048576>,
+};
+
+intent sliceLeaf(input: Input) returns LeafBytes
+  profile text.replaceRange
+  basis none
+  budget <= text.replaceRangeBudget
+  where input.startByte <= input.endByte,
+        input.endByte <= len(input.blobBytes)
+{
+  let bytes = slice(input.blobBytes, input.startByte, input.endByte);
+  return { bytes };
+}

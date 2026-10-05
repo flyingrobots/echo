@@ -23,6 +23,13 @@ pub(super) enum Expr {
         max: u64,
         value: Box<Expr>,
     },
+    ByteSlice {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+        start: Box<Expr>,
+        end: Box<Expr>,
+    },
     UnsignedSubtract {
         max: u64,
         left: Box<Expr>,

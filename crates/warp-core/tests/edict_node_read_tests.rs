@@ -198,12 +198,14 @@ fn compiler_outputs_have_exact_independently_recorded_pins_and_accepted_reports(
             digest("echo.operation-package/v1", &decode(&raw).unwrap()).unwrap(),
             pin
         );
-        let report = decode(&artifact(
-            pair,
-            "verification-report",
-            if pair { PAIR_REPORT } else { SINGLE_REPORT },
-        ))
-        .unwrap();
+        let retained_report = if pair { PAIR_REPORT } else { SINGLE_REPORT };
+        let report_bytes = artifact(pair, "verification-report", retained_report);
+        assert_eq!(
+            report_bytes,
+            hex::decode(retained_report.trim()).unwrap(),
+            "fresh verifier report differs from the independently retained report"
+        );
+        let report = decode(&report_bytes).unwrap();
         assert_eq!(field(&report, "outcome"), &Value::Text("accepted".into()));
         assert_eq!(
             field(field(&report, "package"), "digest"),

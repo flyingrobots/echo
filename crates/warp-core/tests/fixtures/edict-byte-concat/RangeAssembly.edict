@@ -1,0 +1,21 @@
+package jedit.text.replace_range@1;
+
+use lawpack jedit.text@1 digest "sha256:95758c1605894672cc9069fde01bb8b6e11842b053102660c9cd4f4d6f34d64e" as text;
+
+type Input = {
+  firstFragment: Bytes<max=8>,
+  secondFragment: Bytes<max=8>,
+};
+
+type RangeBytes = {
+  bytes: Bytes<max=16>,
+};
+
+intent assembleRange(input: Input) returns RangeBytes
+  profile text.replaceRange
+  basis none
+  budget <= text.replaceRangeBudget
+{
+  let bytes = input.firstFragment + input.secondFragment;
+  return { bytes };
+}

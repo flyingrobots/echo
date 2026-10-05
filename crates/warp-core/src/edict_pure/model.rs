@@ -30,6 +30,14 @@ pub(crate) enum Expr {
         start: Box<Expr>,
         end: Box<Expr>,
     },
+    ByteConcat {
+        left_min: u64,
+        left_max: u64,
+        right_min: u64,
+        right_max: u64,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     UnsignedSubtract {
         max: u64,
         left: Box<Expr>,

@@ -63,14 +63,33 @@ impl Meter {
         Ok(value.clone())
     }
 
-    fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
-        let length = u64::try_from(bytes.len()).map_err(|_| Error::AllocationBudgetExceeded)?;
-        // Selected-byte work and ordinary value storage are admitted before copying.
+    fn charge_bytes(&mut self, length: usize) -> Result<(), Error> {
+        let length = u64::try_from(length).map_err(|_| Error::AllocationBudgetExceeded)?;
+        // Byte work and ordinary result storage are admitted before materialization.
         self.charge_steps(length)?;
         self.step(0)?;
         self.allocate(VALUE_CELL_BYTES)?;
-        self.allocate(length)?;
+        self.allocate(length)
+    }
+
+    fn copy_bytes(&mut self, bytes: &[u8]) -> Result<Value, Error> {
+        self.charge_bytes(bytes.len())?;
         Ok(Value::Bytes(bytes.to_vec()))
+    }
+
+    fn concat_bytes(&mut self, left: &[u8], right: &[u8]) -> Result<Value, Error> {
+        let length = left
+            .len()
+            .checked_add(right.len())
+            .ok_or(Error::AllocationBudgetExceeded)?;
+        self.charge_bytes(length)?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| Error::AllocationBudgetExceeded)?;
+        bytes.extend_from_slice(left);
+        bytes.extend_from_slice(right);
+        Ok(Value::Bytes(bytes))
     }
 
     pub(crate) fn charge(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
@@ -224,6 +243,39 @@ pub(crate) fn expression(
             let length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidArtifact)?;
             meter.copy(&Value::Integer(i128::from(length)))
         }
+        Expr::ByteConcat {
+            left_min,
+            left_max,
+            right_min,
+            right_max,
+            left,
+            right,
+        } => {
+            let left = expression(left, locals, helpers, meter, depth + 1)?;
+            let right = expression(right, locals, helpers, meter, depth + 1)?;
+            validate(
+                &left,
+                &RuntimeType::Bytes {
+                    min: *left_min,
+                    max: *left_max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            validate(
+                &right,
+                &RuntimeType::Bytes {
+                    min: *right_min,
+                    max: *right_max,
+                },
+                meter,
+                depth + 1,
+            )?;
+            let (Value::Bytes(left), Value::Bytes(right)) = (left, right) else {
+                return Err(Error::InvalidArtifact);
+            };
+            meter.concat_bytes(&left, &right)
+        }
         Expr::ByteSlice {
             min,
             max,
@@ -336,6 +388,48 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_concat_admits_both_copy_lengths_before_allocation() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 1024,
+            max_input_bytes: 1024,
+            max_steps: 4,
+            max_allocated_bytes: 67,
+            max_output_bytes: 1024,
+        };
+        let mut exact = Meter::new(limits);
+        assert_eq!(
+            exact.concat_bytes(&[0], &[128, 255])?,
+            Value::Bytes(vec![0, 128, 255])
+        );
+        assert_eq!(exact.usage(), (4, 67));
+        let mut work = Meter::new(EvaluationLimits {
+            max_steps: 3,
+            ..limits
+        });
+        assert_eq!(
+            work.concat_bytes(&[0], &[128, 255]),
+            Err(Error::StepBudgetExceeded)
+        );
+        assert_eq!(work.allocated, 0);
+        let mut storage = Meter::new(EvaluationLimits {
+            max_allocated_bytes: 66,
+            ..limits
+        });
+        assert_eq!(
+            storage.concat_bytes(&[0], &[128, 255]),
+            Err(Error::AllocationBudgetExceeded)
+        );
+        let mut empty = Meter::new(EvaluationLimits {
+            max_steps: 1,
+            max_allocated_bytes: 64,
+            ..limits
+        });
+        assert_eq!(empty.concat_bytes(&[], &[])?, Value::Bytes(vec![]));
+        assert_eq!(empty.usage(), (1, 64));
+        Ok(())
+    }
 
     #[test]
     fn byte_slice_admits_work_and_storage_before_materializing_result() -> Result<(), Error> {

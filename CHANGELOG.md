@@ -89,6 +89,11 @@
 
 ### Added
 
+- Bounded pure evaluation supports generic `core.bytes.concat` with independent
+  operand byte bounds, checked maximum composition, and combined-byte work and
+  result storage charged before allocation/copy. Application names and text
+  encoding do not affect concatenation behavior or costs.
+
 - Bounded pure evaluation supports generic `core.bytes.slice` with half-open
   U64 ranges, runtime byte/range validation, and deterministic selected-byte
   work and storage charges before copying. Raw and empty byte slices work

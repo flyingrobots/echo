@@ -294,6 +294,83 @@ It does not prove instruction ordering, select an executable profile, or confer
 support for graph reads or writes. The existing provider generation path still
 selects the original publication.
 
+The native lowerer source additionally recognizes the opt-in
+`compiler-produced-bounded-read/v1` configuration. This separate profile carries
+explicit read-count and aggregate read-byte ceilings; it does not reinterpret
+pure packages as effectful programs. Its current expression subset covers
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Reads select opaque atom bytes by WARP/node/expected-type IDs.
+Core and ordered Target IR must agree on every producer, guard, failure mapping,
+and result, with exact imported read signatures and scoped local identities.
+The package retains source, Core, Target IR, exports, lawpack, adapter,
+configuration, and result projection bytes.
+
+The structurally separate native verifier reconstructs an ordered Core body
+from Target IR and reverses target failure mappings through the declared
+adapter. It checks local availability and types, compares the reconstruction
+with Core, and checks the projection and every embedded artifact independently
+of the lowerer. Coherently rehashed package/target mutations cannot change the
+authored order, read address, guard, failure mapping, or result. Accepted and
+rejected reports bind the exact package, Target IR, and projection; response
+ceilings include their artifact bytes, role/domain strings, and diagnostics.
+
+The checked schema and reproducibly promoted components now support this read
+configuration. The explicit ordered-contract publication compiles the authored
+single and independent-address paired read/guard programs through unmodified
+Edict, including both Wasm components and exact accepted verifier reports.
+Repeated builds reproduce the package/report bytes. The original contract
+publication remains selected by the default generator; callers must explicitly
+select the ordered publication for these ordered read programs.
+
+The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
+preserves the authored source and also proves the old provider's schema refusal.
+Its success establishes compilation and verification, **not a state observation**.
+
+The `trusted_runtime` feature exposes `edict_read::evaluate` for private
+computation over an immutable borrowed `WorldlineFrontier`. The host supplies
+an independently verified package digest and selects the frontier and sorted,
+unique node aperture. `ReadView::new` checks the expected worldline, tick, and
+actual state root. `ReadView::at` derives the basis from the selected frontier
+with one state hash when no independently selected expected basis is needed.
+Both constructors enforce the same aperture constraints. Node addresses include
+both WARP and node identities. A package
+profile cannot authorize its own aperture. The interpreter is not a substitute
+for independent provider verification of the package's authored semantics.
+Input selection follows the same explicit `arg.0` identity as the provider
+scope checks; local declaration order does not select the application input.
+
+Reads return opaque atom bytes and enforce the requested type and authored byte
+bound. Missing nodes or attachments, descent attachments, type mismatches, and
+oversized atoms map to authored obstructions. Descent is never followed. Guards
+run in authored order and can stop execution before a later read. Host ceilings
+intersect package ceilings for read attempts, aggregate read bytes, expression
+work, allocated value storage, and output. Atom work and storage are charged
+before copying. Parsing has separate byte and expression-shape ceilings.
+
+View preparation hashes the **entire frontier state**, outside the interpreted
+evaluation budget. A small aperture therefore does not imply bounded setup
+cost. Successful results retain the selected basis and a separate opaque
+application basis value; that application value is not proof of a canonical
+application head. Application fact decoding remains outside the generic atom
+primitive.
+
+The runtime witnesses in `crates/warp-core/tests/edict_node_read_tests.rs` use
+retained public-compiler packages with independently recorded pins. A guarded reusable Docker worker can run the public compiler witness with
+copied inputs, then set `EDICT_READ_OUTPUT_ROOT` to its evidence directory when
+running the runtime tests. That route evaluates the **fresh output files**.
+The compiler witness requires `/read-fixtures`, `/old-provider`, `/read-provider`,
+and `EDICT_READ_COMPILER` (default `/edict/target/debug/edict`); it creates
+`/read-evidence` and refuses to reuse existing variant directories. The operator
+must supply an exclusive worker lock, process-tree timeout, and a fail-closed
+continuous guard over shared compiler output, writable layers, temporary data,
+and logs, including host and Docker free-space floors. Before/after measurements
+alone do not enforce those budgets. The supported runner remains separate work
+in [#742](https://github.com/flyingrobots/echo/issues/742).
+These witnesses establish private evaluation without frontier mutation. They do not
+establish installation, public request authorization, a causal Tick, WAL
+retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
+[#740](https://github.com/flyingrobots/echo/issues/740).
+
 Primary artifact generation also compares the supplied pack's exact schema and
 manifest with the source materials bound into its generation input. Admission
 of each pack separately does not establish this relation: crossed publications

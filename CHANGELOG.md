@@ -7,6 +7,37 @@
 
 ### Fixed
 
+- `ReadView::at` validates the aperture and derives the selected current frontier
+  basis with one state hash. `ReadView::new` still checks an independently
+  selected expected basis. Both retain the same aperture and trust boundaries.
+
+- Public bounded-read compiler timeouts retain partial stdout/stderr and the
+  original timeout as the failure cause.
+
+- Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
+  Named structural types starting with `U` now reach ordinary type lookup, as
+  they already do in independent verification and runtime parsing.
+
+- Private read evaluation identifies the input by its verified `arg.0` identity.
+  Reordering a package's local declarations no longer changes input selection.
+
+- Read-provider lawpack validation remains separate from the pure profile's
+  empty-effect requirement, preserving read acceptance and pure-effect refusal
+  after integration of the strengthened pure-provider checks.
+
+- The bounded-read public compiler witness preserves return status and raw
+  streams when malformed or non-object JSONL prevents structured validation.
+
+- Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
+  in feature-enabled CI and opt-in local routes, including shared parser edits.
+
+- Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
+  compiler and fresh-output runtime witnesses require a continuously guarded
+  reusable worker; pre/post measurements alone are not budget enforcement.
+
+- Generated provider helpers bind the bounded-read schema publication, including
+  its exact schema identity in the helper contract and derivation materials.
+
 - Byte-equality fixture reproduction guidance now requires guarded reusable
   compiler storage and preserves the limits of its frozen provider evidence.
 
@@ -57,6 +88,28 @@
   The native verifier and checked WASM package carry the same relation check.
 
 ### Added
+
+- Trusted-host private evaluation of pinned bounded-read packages over an
+  immutable frontier and explicit node aperture. Reads and ordered guards
+  enforce typed obstructions and intersected host/package budgets without
+  mutating the frontier. Full-state view preparation is outside the interpreted
+  budget; this API produces no causal admission, receipt, or WAL evidence.
+
+- The native provider lowerer has an explicit `compiler-produced-bounded-read/v1`
+  configuration for opaque node-atom reads and ordered byte guards. It checks
+  the imported signature, local scope, failure mappings, and Core/Target order,
+  and retains the exact semantic artifacts in its output package. This profile
+  is published in the checked schema/components and compiles through the
+  explicit ordered-contract package. Runtime evaluation remains separate.
+
+- The native read-package verifier independently reconstructs Core instructions
+  from ordered Target IR and checks signatures, local scope, obstructions,
+  projection, budgets, and exact embedded artifacts. Accepted and rejected
+  reports bind the exact package, target, and projection. Both native read
+  paths include output metadata and diagnostics in their response-byte limits.
+  Public Edict builds accept single and independent-address paired reads with
+  the promoted lowerer/verifier components; repeated builds reproduce the exact
+  package/report pair. Existing frozen consumer pins remain unchanged.
 
 - The package-pinned pure evaluator now supports equality of bounded byte
   values, including nominal IDs. It charges the larger operand's byte length

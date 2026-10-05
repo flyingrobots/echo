@@ -44,6 +44,27 @@ names its domain-framed identity. That subject binds the exact package, Target
 IR, and application result projection; it does not prove runtime evaluation,
 admission, or an Echo consequence.
 
+The native `compiler-produced-bounded-read/v1` route reconstructs an ordered
+Core body from the Target IR instruction list, reversing failure mappings
+through the declared adapter. It independently checks read signatures, scoped
+local identities, type bounds, guards, obstruction constructors, projection,
+budget agreement, profile identities, and every embedded semantic artifact.
+It does not import or call the lowerer in production. Coherently rehashed Core,
+Target IR, and package mutations still receive rejected reports when they
+violate that relation. Accepted and rejected reports retain the existing exact
+executable-subject binding; the byte ceiling counts artifact bytes, role and
+domain strings, and diagnostic strings.
+
+This route is included in the checked schema/components. The explicit ordered
+contract publication passes unmodified public Edict builds for single and paired
+reads, including this verifier's accepted report and repeatable package/report
+bytes. Native fixtures retain their diagnostic-capture provenance; the separate
+public witness requires no compiler instrumentation. A separate trusted-host
+private evaluator consumes pinned packages over real frontier storage; see
+[application contract hosting](../../docs/architecture/application-contract-hosting.md)
+for its bounded aperture and evidence limits. Compilation and accepted
+verification do not authorize a state reading.
+
 The native pure-v1 verifier additionally compares the one selected intent's
 ordered let bindings (identity, local, and expression), result, input
 constraints, and optional basis against Core. It refuses extra intents or
@@ -87,9 +108,9 @@ route's fixed 64 KiB output ceiling.
 
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 314,580-byte checked
+transport-to-model conversion. Its reproducibly built 389,503-byte checked
 component has SHA-256
-`629a85723295e07775ae9ec001ddb57be789a92f990cee4490947b47d3ba6d1b`.
+`d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

@@ -219,6 +219,19 @@ Empty and full ranges are valid; slicing inside a UTF-8 codepoint is a raw-byte
 operation. The operand's minimum or exact length does not become a result
 minimum: ordinary binding and output types validate the selected value.
 
+The generic `core.bytes.concat<LeftType, RightType>(left, right)` operation
+appends two bounded byte values in source order. Both coordinates must decode
+to byte types, and their declared maximum sum must fit U64. Each actual operand
+must inhabit its own minimum/maximum bounds. Static expression-coordinate
+proofs remain the compiler/Target verifier's responsibility; the runtime checks
+actual values and the independently declared binding/output bounds.
+
+Concatenation charges one work unit per combined byte, plus the ordinary result
+cell and combined-byte storage, before reserving or copying the output. Empty
+operands still incur ordinary evaluation and result-cell costs. Raw bytes retain
+their order, including invalid UTF-8; no application names select behavior or
+costs.
+
 Host ceilings intersect the package's declared step, allocation, and output
 budgets. Each expression, predicate, runtime type visit, and copied value node
 costs one step. Byte equality additionally charges the larger operand's entire
@@ -281,6 +294,14 @@ operation and record names, and input fields while preserving results and costs;
 these names do not select primitive behavior. The mutated controls are not new
 compiler or verifier evidence. The feature-gated suite runs in CI and local
 full-test routes, including changes confined to its fixture or support helper.
+
+[`edict_byte_concat_tests.rs`](../../crates/warp-core/tests/edict_byte_concat_tests.rs)
+executes the exact externally compiled two-fragment program against twelve
+literal consumer expectations. Signature, operand-bound, declared-sum overflow,
+actual result-bound and host/package budget controls exercise runtime defenses.
+Its retained package/report binding and application-name renaming checks follow
+the same distinction between compiler evidence and test-only mutations. CI and
+local full-test routes include its fixture and support-helper changes.
 
 This refines the pure-package boundary above and depends on its independently
 verified artifact closure. It does not extend the installed operation lifecycle

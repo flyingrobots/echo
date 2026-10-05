@@ -151,6 +151,25 @@ impl Parser<'_> {
                 end: Box::new(self.expr(end, depth + 1)?),
             });
         }
+        if callee == "core.bytes.concat" {
+            let ([left, right], [left_coordinate, right_coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min: left_min, max: left_max } =
+                self.ty(text(left_coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min: right_min, max: right_max } =
+                self.ty(text(right_coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            left_max.checked_add(right_max).ok_or(Error::InvalidArtifact)?;
+            return Ok(Expr::ByteConcat {
+                left_min, left_max, right_min, right_max,
+                left: Box::new(self.expr(left, depth + 1)?),
+                right: Box::new(self.expr(right, depth + 1)?),
+            });
+        }
         if callee == "core.integer.subtract" {
             let ([left, right], [width]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);

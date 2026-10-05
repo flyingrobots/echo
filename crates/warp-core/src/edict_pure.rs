@@ -21,7 +21,7 @@ pub struct EvaluationLimits {
     pub max_package_bytes: usize,
     /// Maximum encoded application input size before canonical decoding.
     pub max_input_bytes: usize,
-    /// Maximum deterministic work units, including byte-comparison positions and selected slice bytes.
+    /// Maximum deterministic work units, including byte comparisons, selected slice bytes, and concatenated bytes.
     pub max_steps: u64,
     /// Maximum cumulative materialized value bytes, including copies.
     pub max_allocated_bytes: u64,
@@ -34,7 +34,7 @@ pub struct EvaluationLimits {
 pub struct EvaluationResult {
     /// Canonical application result bytes.
     pub output: Vec<u8>,
-    /// Deterministic work units, including byte-comparison apertures and selected slice bytes.
+    /// Deterministic work units, including byte comparisons, selected slice bytes, and concatenated bytes.
     pub steps: u64,
     /// Cumulative charged value storage.
     pub allocated_bytes: u64,

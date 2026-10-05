@@ -118,6 +118,10 @@ required-features = ["trusted_runtime"]
 name = "edict_byte_equality_tests"
 required-features = ["trusted_runtime"]
 
+[[test]]
+name = "edict_node_read_tests"
+required-features = ["trusted_runtime"]
+
 [build-dependencies]
 blake3 = "1.0"
 

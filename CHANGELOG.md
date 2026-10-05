@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
+  in feature-enabled CI and opt-in local routes, including shared parser edits.
+
 - Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
   compiler and fresh-output runtime witnesses require a continuously guarded
   reusable worker; pre/post measurements alone are not budget enforcement.

@@ -24,7 +24,7 @@ fail() {
 policy_keys=()
 policy_versions=()
 policy_count=0
-while read -r key version extra; do
+while read -r key version extra || [[ -n "$key$version$extra" ]]; do
   [[ -z "$key" || "$key" == \#* ]] && continue
   [[ -n "$version" && -z "$extra" ]] || fail "malformed MSRV policy row: $key"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid MSRV policy version: $key $version"

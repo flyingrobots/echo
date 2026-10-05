@@ -267,9 +267,39 @@ test_system_bash_handles_initially_empty_policy_arrays() {
   '
 }
 
+test_accepts_unterminated_policy_row() {
+  with_tmp_repo bash -c '
+    set -euo pipefail
+    contents="$(cat scripts/rust-msrv-policy.tsv)"
+    printf "%s" "$contents" > scripts/rust-msrv-policy.tsv
+    ./scripts/check_rust_versions.sh >/dev/null
+  '
+}
+
+test_rejects_invalid_unterminated_policy_rows() {
+  for row in \
+    "crates/unknown/Cargo.toml 1.90.0" \
+    "unknown-key 1.90.0" \
+    "crates/foo/Cargo.toml 1.90.0" \
+    "crates/unknown/Cargo.toml not-a-version" \
+    "crates/unknown/Cargo.toml"; do
+    with_tmp_repo bash -c '
+      set -euo pipefail
+      printf "%s" "$1" >> scripts/rust-msrv-policy.tsv
+      if ./scripts/check_rust_versions.sh > refusal.log 2>&1; then
+        echo "accepted invalid final policy row: $1" >&2
+        exit 1
+      fi
+      grep -q "Error:" refusal.log
+    ' bash "$row"
+  done
+}
+
 main() {
   [[ -f "$checker_src" ]] || fail "checker script missing: $checker_src"
 
+  test_rejects_invalid_unterminated_policy_rows
+  test_accepts_unterminated_policy_row
   test_system_bash_handles_initially_empty_policy_arrays
   test_passes_with_matching_versions
   test_passes_with_workspace_inherited_version

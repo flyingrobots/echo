@@ -77,7 +77,9 @@ pub fn set_field(value: &mut Value, name: &str, replacement: Value) {
 pub fn mutate(change: impl FnOnce(&mut Value)) -> (Vec<u8>, [u8; 32]) {
     rewrite(|_, _, target| {
         let intent = field_mut(field_mut(target, "intents"), "assembleRange");
-        let Value::Array(bindings) = field_mut(intent, "pureBindings") else { panic!("bindings") };
+        let Value::Array(bindings) = field_mut(intent, "pureBindings") else {
+            panic!("bindings")
+        };
         change(field_mut(&mut bindings[0], "value"));
     })
 }
@@ -85,38 +87,76 @@ pub fn mutate(change: impl FnOnce(&mut Value)) -> (Vec<u8>, [u8; 32]) {
 pub fn narrow_binding() -> (Vec<u8>, [u8; 32]) {
     rewrite(|_, _, target| {
         let intent = field_mut(field_mut(target, "intents"), "assembleRange");
-        let Value::Array(bindings) = field_mut(intent, "pureBindings") else { panic!("bindings") };
-        set_field(field_mut(&mut bindings[0], "binding"), "type", Value::Text("Bytes<max=4>".into()));
+        let Value::Array(bindings) = field_mut(intent, "pureBindings") else {
+            panic!("bindings")
+        };
+        set_field(
+            field_mut(&mut bindings[0], "binding"),
+            "type",
+            Value::Text("Bytes<max=4>".into()),
+        );
     })
 }
 
 pub fn budget(package_key: &str, core_key: &str, value: u64) -> (Vec<u8>, [u8; 32]) {
     rewrite(|artifact, core, target| {
-        set_field(field_mut(artifact, "budget_ceiling"), package_key, Value::Integer(value.into()));
+        set_field(
+            field_mut(artifact, "budget_ceiling"),
+            package_key,
+            Value::Integer(value.into()),
+        );
         for artifact in [core, target] {
             let intent = field_mut(field_mut(artifact, "intents"), "assembleRange");
-            set_field(field_mut(intent, "coreEvaluationBudget"), core_key, Value::Integer(value.into()));
+            set_field(
+                field_mut(intent, "coreEvaluationBudget"),
+                core_key,
+                Value::Integer(value.into()),
+            );
         }
     })
 }
 
 fn rewrite(change: impl FnOnce(&mut Value, &mut Value, &mut Value)) -> (Vec<u8>, [u8; 32]) {
     let mut artifact = decode(&package()).unwrap();
-    let Value::Bytes(bytes) = field(&artifact, "program") else { panic!("program") };
+    let Value::Bytes(bytes) = field(&artifact, "program") else {
+        panic!("program")
+    };
     let mut program = decode(bytes).unwrap();
-    let Value::Bytes(bytes) = field(&program, "core_artifact") else { panic!("core") };
+    let Value::Bytes(bytes) = field(&program, "core_artifact") else {
+        panic!("core")
+    };
     let mut core = decode(bytes).unwrap();
-    let Value::Bytes(bytes) = field(&program, "target_ir_artifact") else { panic!("target") };
+    let Value::Bytes(bytes) = field(&program, "target_ir_artifact") else {
+        panic!("target")
+    };
     let mut target = decode(bytes).unwrap();
     change(&mut artifact, &mut core, &mut target);
     for (key, closure_key, domain, value) in [
-        ("core_artifact", "core_identity", "edict.core.module/v1", core),
-        ("target_ir_artifact", "target_ir_identity", "edict.target-ir.artifact/v1", target),
+        (
+            "core_artifact",
+            "core_identity",
+            "edict.core.module/v1",
+            core,
+        ),
+        (
+            "target_ir_artifact",
+            "target_ir_identity",
+            "edict.target-ir.artifact/v1",
+            target,
+        ),
     ] {
         set_field(&mut program, key, Value::Bytes(encode(&value).unwrap()));
-        set_field(field_mut(&mut artifact, "semantic_closure"), closure_key, Value::Bytes(digest(domain, &value).unwrap().into()));
+        set_field(
+            field_mut(&mut artifact, "semantic_closure"),
+            closure_key,
+            Value::Bytes(digest(domain, &value).unwrap().into()),
+        );
     }
-    set_field(&mut artifact, "program", Value::Bytes(encode(&program).unwrap()));
+    set_field(
+        &mut artifact,
+        "program",
+        Value::Bytes(encode(&program).unwrap()),
+    );
     let pin = digest("echo.operation-package/v1", &artifact).unwrap();
     (encode(&artifact).unwrap(), pin)
 }

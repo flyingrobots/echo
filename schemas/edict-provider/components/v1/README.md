@@ -45,15 +45,16 @@ non-callable protocol instance and equality-bounded verification request/result
 type aliases; its only callable world export is `verify`. It has no core, WASI,
 or ambient capability imports.
 
-In the designated immutable `linux/amd64` Rust 1.90.0 builder above, rebuild and
-check the artifact without rewriting it:
+In the designated immutable `linux/amd64` builder above, install Rust 1.96.0
+for the outer `xtask` driver while retaining the authenticated Rust 1.90.0 inner
+compiler and Cargo. Rebuild and check the artifact without rewriting it:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component check \
+cargo +1.96.0 xtask provider-lowerer-component check \
   --target-dir target/provider-lowerer-component \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
 
-cargo +1.90.0 xtask provider-verifier-component check \
+cargo +1.96.0 xtask provider-verifier-component check \
   --target-dir target/provider-verifier-component \
   --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
 ```
@@ -75,13 +76,13 @@ After two designated-builder candidates compare exactly, promote either explicit
 candidate through the same structural admission boundary:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component promote \
+cargo +1.96.0 xtask provider-lowerer-component promote \
   --candidate-a /explicit/build-a/lowerer.echo-dpo.component.wasm \
   --candidate-b /explicit/build-b/lowerer.echo-dpo.component.wasm \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm \
   --write
 
-cargo +1.90.0 xtask provider-verifier-component promote \
+cargo +1.96.0 xtask provider-verifier-component promote \
   --candidate-a /explicit/build-a/verifier.echo-dpo.component.wasm \
   --candidate-b /explicit/build-b/verifier.echo-dpo.component.wasm \
   --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm \

@@ -184,8 +184,10 @@ carrier to match its fixed owner, requires generated artifacts and components
 to match their checked package copies, and can prove that `cargo package --list`
 selects exactly the complete carrier inventory. Explicit `--write` mode copies
 authoritative owners without requiring the temporarily stale package copy,
-allowing the honest staged sequence artifact generation, carrier sync, package
-generation, then final carrier corroboration. Each fixed owner leaf is opened
+allowing the staged sequence owner-carrier sync, artifact generation, carrier
+sync, package generation, then final carrier corroboration. When a source
+manifest, lockfile, or toolchain changes, the first owner-carrier sync is required
+before generation because the generator reads compile-time source carriers. Each fixed owner leaf is opened
 without following its final symbolic link and read twice through the same
 retained descriptor; file-type, length, or byte disagreement refuses a moving
 owner. It never discovers a preferred owner or normalizes authored bytes. The
@@ -202,8 +204,8 @@ verifier resource trees to the ordinary package-carrier operation. Without
 invocation, so no accepted flag is silently skipped.
 
 The isolated `tests/edict-provider-host-v1` gate pins Edict revision
-`c75c3f550d049485ba00eae0dc272c6dd6aca11f` and consumes the exact checked
-package. It constructs the native 24-domain schema registry, validates all 19
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes the exact checked
+package. It constructs the native 31-binding schema registry, validates all 19
 canonical package members under their owning roots, binds every lawpack and
 target-profile resource field to exact packaged bytes, prepares both frozen-WIT
 components, and validates both request kinds without invoking guest code. That
@@ -221,6 +223,35 @@ memory, reads the target tree through the same bounded handles, reports sorted
 missing/changed/unexpected drift, and returns before every directory-creation or
 write path. This boundary does not claim that unrelated ancestors used to locate
 the requested root are symlink-free.
+
+## Refreshing source-bound provider publication
+
+Run these steps in order from the repository root after Cargo has updated the
+workspace lockfile and, when affected, the standalone host witness lockfile.
+Use the guarded shared worker and owned target directories required by the
+workspace resource policy. Each `cargo run` recompiles changed compile-time
+carriers before invoking the next boundary.
+
+```bash
+# Capture current source owners before generating their provenance.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-artifacts --
+
+# Expose the checked corpus to the package assembler.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write --sync-component-resources
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package --
+
+# Capture the final package manifest, then require exact owner agreement.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write --sync-component-resources
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-artifacts -- --check
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package -- --check
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --check-package-list --sync-component-resources
+```
+
+Source-bundle changes can alter generation provenance and the package root while
+leaving provider component bytes unchanged. Verify that boundary separately with
+the authenticated component build/check and the standalone package admission
+witness. Do not edit generated files or hash locks manually to bypass drift.
 
 ## Usage
 
@@ -241,19 +272,19 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 
 # Rebuild the checked Edict provider artifact corpus from exact inputs
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts --
 
 # Report checked-corpus drift without rewriting anything
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts -- --check
 
 # Publish the self-contained digest-locked provider package
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package --
 
 # Report package drift without rewriting anything
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package -- --check
 ```
 

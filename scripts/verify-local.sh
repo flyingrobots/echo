@@ -15,7 +15,7 @@ VERIFY_REPORT_TIMING="${VERIFY_REPORT_TIMING:-1}"
 cd "$REPO_ROOT"
 
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
-PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
+PINNED="${PINNED:-${PINNED_FROM_FILE:-1.96.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
 # Resolve the real gitdir so stamps work in linked worktrees, where .git is
 # a file pointer rather than a directory.
@@ -1184,7 +1184,7 @@ pre_push_feature_string_for_test_target() {
     warp-math:determinism_policy_tests)
       printf '%s\n' "serde"
       ;;
-    warp-math:dfix64_tests)
+    warp-math:dfix64_tests|warp-math:bunny_numeric_contract)
       printf '%s\n' "det_fixed"
       ;;
     warp-math:prng_golden_regression)

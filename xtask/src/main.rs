@@ -3977,13 +3977,11 @@ fn is_maintained_shell_path(path: &str) -> bool {
     let extension = path_ref.extension().and_then(|value| value.to_str());
 
     if path.starts_with(".githooks/") {
-        return extension.is_none()
-            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+        return extension.is_none_or(|value| value.eq_ignore_ascii_case("sh"));
     }
 
     if path.starts_with("scripts/hooks/") {
-        return extension.is_none()
-            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+        return extension.is_none_or(|value| value.eq_ignore_ascii_case("sh"));
     }
 
     if path.starts_with("scripts/") || path.starts_with("tests/hooks/") {

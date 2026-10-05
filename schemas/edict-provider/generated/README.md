@@ -18,14 +18,14 @@ Rebuild the corpus from the exact checked semantic source, generation settings,
 Edict contract pack, and compile-time provider generator source bundle:
 
 ```bash
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts --
 ```
 
 Check exact paths and bytes without creating, deleting, or rewriting anything:
 
 ```bash
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts -- --check
 ```
 

@@ -407,10 +407,9 @@ impl<P> PendingTx<P> {
             let p = self.fat.get_mut(r.handle).map_or_else(
                 || unreachable!("BUG: handle out of range {}", r.handle),
                 |slot| {
-                    slot.take().map_or_else(
-                        || unreachable!("BUG: missing payload at handle {}", r.handle),
-                        |p| p,
-                    )
+                    slot.take().unwrap_or_else(|| {
+                        unreachable!("BUG: missing payload at handle {}", r.handle)
+                    })
                 },
             );
             out.push(p);

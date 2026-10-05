@@ -2891,7 +2891,7 @@ fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp
 
         // Sort by sort_key for canonical order.
         // Use unstable sort for efficiency; equal keys become consecutive for dedup.
-        flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        flat.sort_unstable_by_key(|a| a.0);
 
         // Reject conflicting ops with same sort_key.
         for w in flat.windows(2) {

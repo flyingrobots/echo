@@ -18,14 +18,14 @@ The manifest file has a separate raw content identity.
 Regenerate the package only from the repository root:
 
 ```bash
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package --
 ```
 
 Check the exact tree without repairing or rewriting it:
 
 ```bash
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package -- --check
 ```
 
@@ -36,7 +36,8 @@ package proves a reproducible distribution occurrence. It does not by itself
 prove Edict schema admission, component-host readiness, Echo installation,
 runtime authority, invocation, execution, commitment, observation, or receipt.
 
-The separate isolated Edict c75 host gate binds this exact manifest, constructs
+The separate isolated Edict host gate retains the revision pinned in
+`tests/edict-provider-host-v1/Cargo.toml`, binds this exact manifest, constructs
 all 31 schema bindings, validates every canonical primary and generated
 resource, proves the field-level resource identity graph, prepares both exact
 components, and validates both request kinds without invoking guest code. Run

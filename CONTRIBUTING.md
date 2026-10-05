@@ -40,7 +40,7 @@ prioritize:
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
     - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
 
-- The container includes Rust 1.90.0 (via `rust-toolchain.toml`), clippy/rustfmt, Node, and gh.
+- The container includes Rust 1.96.0 (via `rust-toolchain.toml`), clippy/rustfmt, Node, and gh.
 - Post-create installs the pinned toolchain (no override); wasm32 target and components are added automatically.
 
 ## Branching & Workflow
@@ -122,9 +122,33 @@ prioritize:
   toolchain. Broad tests and rustdoc are CI-owned by default. Run
   `VERIFY_LOCAL_FULL_TESTS=1 VERIFY_LOCAL_RUSTDOC=1 scripts/verify-local.sh pre-push`
   to opt in locally.
-- Toolchain: pinned to Rust 1.90.0. Ensure your local override matches:
-    - rustup toolchain install 1.90.0
-    - rustup override set 1.90.0
+- Toolchain: pinned to Rust 1.96.0. Ensure your local override matches:
+    - rustup toolchain install 1.96.0
+    - rustup override set 1.96.0
+
+### Runtime and provider toolchains
+
+The general toolchain is Rust 1.96.0 because `bunny-num` 0.6.0 requires it.
+Numerical consumers declare MSRV 1.96.0. Independent leaves retain the workspace
+default MSRV 1.90.0; [the explicit policy](scripts/rust-msrv-policy.tsv) enumerates
+each manifest, and `scripts/check_rust_versions.sh` rejects unknown packages or
+policy drift. That guard validates declarations; compile checks against the
+respective toolchains establish dependency compatibility. Native provider tests that consume `warp-core` use the general
+toolchain even though the provider libraries retain MSRV 1.90.0.
+
+Provider component construction deliberately uses two toolchains. Run the outer
+`xtask` with Rust 1.96.0; it resolves and authenticates the existing exact Rust
+1.90.0 compiler and Cargo for the inner WASM build. Install both when building
+components. The designated builder image, authenticated tool identities, and
+checked component digests remain independently verified. Do not use
+`--ignore-rust-version` or change the provider's inner compiler to match the
+outer driver. The standalone frozen Edict-host witness now runs with Rust 1.96.0
+for its Echo dependency; its upstream Git pins remain unchanged.
+
+Adding a dependency or changing the root toolchain also changes the generator's
+explicit source bundle. Refresh owner assets, generated provenance, and the
+provider package through their supported commands; unchanged component bytes do
+not make stale source-bound package assets current.
 
 ### Shared Workspace Settings
 

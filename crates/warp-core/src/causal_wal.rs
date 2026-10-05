@@ -11221,15 +11221,9 @@ fn sync_directory(path: &Path) -> Result<(), WalCheckpointIoError> {
 }
 
 fn len_u64(len: usize) -> u64 {
-    match u64::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
-    }
+    u64::try_from(len).unwrap_or(u64::MAX)
 }
 
 fn len_u32(len: usize) -> u32 {
-    match u32::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u32::MAX,
-    }
+    u32::try_from(len).unwrap_or(u32::MAX)
 }

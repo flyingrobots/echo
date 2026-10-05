@@ -1649,6 +1649,15 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Echo and Edict share exact `bunny-num` 0.6.0 for the canonical signed Q32.32
+  foundation. `warp-math` exposes Bunny's checked type and delegates existing
+  `DFix64` arithmetic and motion conversions while preserving saturation,
+  ties-to-even, raw payload bytes, and the separate legacy ABI truncation policy.
+  This does not add fixed-point language syntax or runtime operation profiles.
+- The general Rust toolchain and numerical consumer MSRVs are 1.96.0. Independent
+  leaves and authenticated provider component producers retain their explicit
+  1.90.0 policy; the outer component driver uses 1.96.0.
+
 - Public installed-contract evidence fields on runtime ingress, receipt
   correlation, outcome, and WAL state-delta carriers now use
   `Option<InstalledInvocationEvidence>` instead of

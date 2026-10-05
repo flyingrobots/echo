@@ -4,11 +4,12 @@
 //! Deterministic math helpers covering scalar utilities, linear algebra
 //! primitives, quaternions, and timeline-friendly pseudo-random numbers.
 //!
-//! All operations round to `f32` to mirror the runtime’s float32 mode.
+//! Float-mode operations round to `f32`. Canonical signed Q32.32 arithmetic and
+//! conversions use Bunny; the `det_fixed` scalar preserves Echo's saturating API.
 
 use std::f32::consts::TAU;
 
-/// Deterministic Q32.32 conversion helpers used by fixed-point lanes and payload codecs.
+/// Bunny checked Q32.32 arithmetic and Echo compatibility conversion helpers.
 pub mod fixed_q32_32;
 mod mat4;
 mod prng;

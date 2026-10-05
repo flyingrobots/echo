@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Compiler-produced bounded byte concatenation
 
 Exact source, twelve literal expectations, executable package and separate

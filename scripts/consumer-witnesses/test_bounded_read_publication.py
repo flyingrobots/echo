@@ -21,6 +21,19 @@ SPEC.loader.exec_module(WITNESS)
 
 
 class BuildOutputTests(unittest.TestCase):
+    def test_timeout_preserves_partial_streams_and_cause(self):
+        failure = subprocess.TimeoutExpired(
+            ["edict"], 120, output=b"partial compiler status", stderr=b"partial diagnostic"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(WITNESS.subprocess, "run", side_effect=failure):
+                with self.assertRaises(Exception) as raised:
+                    WITNESS.build(Path(directory), "application")
+        self.assertIsInstance(raised.exception, RuntimeError)
+        self.assertIs(raised.exception.__cause__, failure)
+        for detail in ("120", "partial compiler status", "partial diagnostic"):
+            self.assertIn(detail, str(raised.exception))
+
     def invoke(self, result, refusal=False):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(WITNESS.subprocess, "run", return_value=result):

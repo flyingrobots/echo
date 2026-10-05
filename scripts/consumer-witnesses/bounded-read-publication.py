@@ -18,11 +18,17 @@ def build(root, document, refusal=False):
         "schema": "edict.compiler.settings/v1", "type": "compilerSettings",
         "operation": "build", document: f"edict.{document}.json",
     }
-    result = subprocess.run(
-        [os.environ.get("EDICT_READ_COMPILER", "/edict/target/debug/edict")], cwd=root,
-        input=json.dumps(request) + "\n", text=True, capture_output=True,
-        timeout=120, check=False,
-    )
+    try:
+        result = subprocess.run(
+            [os.environ.get("EDICT_READ_COMPILER", "/edict/target/debug/edict")], cwd=root,
+            input=json.dumps(request) + "\n", text=True, capture_output=True,
+            timeout=120, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Public compiler timed out after {exc.timeout}s: "
+            f"stdout={exc.stdout!r}, stderr={exc.stderr!r}"
+        ) from exc
     events, raw = [], []
     for stream in (result.stdout, result.stderr):
         for line in stream.splitlines():

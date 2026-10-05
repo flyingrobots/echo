@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- Public bounded-read compiler timeouts retain partial stdout/stderr and the
+  original timeout as the failure cause.
+
 - Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
   Named structural types starting with `U` now reach ordinary type lookup, as
   they already do in independent verification and runtime parsing.

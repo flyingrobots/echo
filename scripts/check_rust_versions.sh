@@ -57,7 +57,14 @@ policy_value() {
 expected_toolchain="$(policy_value toolchain)" || fail "toolchain missing from MSRV policy"
 expected_workspace="$(policy_value workspace)" || fail "workspace default missing from MSRV policy"
 
-toolchain_channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"/ { print $2; exit }' "$toolchain_file")"
+read_toolchain_channel() {
+  awk -F'"' '
+    /^[[:space:]]*\[/ { in_toolchain = ($0 ~ /^[[:space:]]*\[toolchain\][[:space:]]*(#.*)?$/) }
+    in_toolchain && /^[[:space:]]*channel[[:space:]]*=[[:space:]]*"/ { print $2; exit }
+  ' "$1"
+}
+
+toolchain_channel="$(read_toolchain_channel "$toolchain_file")"
 [[ "$toolchain_channel" == "$expected_toolchain" ]] || fail "toolchain does not match MSRV policy ($toolchain_channel != $expected_toolchain)"
 
 workspace_version="$(awk '
@@ -106,6 +113,12 @@ done
 for manifest in "${manifests[@]}"; do
   relative="${manifest#"$repo_root/"}"
   expected="$(policy_value "$relative")" || fail "unregistered manifest in MSRV policy: $relative"
+  if [[ "$relative" == tests/edict-provider-host-v1/Cargo.toml ]]; then
+    nested_toolchain="${manifest%Cargo.toml}rust-toolchain.toml"
+    [[ -f "$nested_toolchain" ]] || fail "toolchain file missing: $nested_toolchain"
+    nested_channel="$(read_toolchain_channel "$nested_toolchain")"
+    [[ "$nested_channel" == "$expected" ]] || fail "toolchain does not match MSRV policy: $nested_toolchain ($nested_channel != $expected)"
+  fi
   version="$(awk '
     /^[[:space:]]*\[/ { in_package = ($0 ~ /^[[:space:]]*\[package\][[:space:]]*(#.*)?$/) }
     in_package && /^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"/ {

@@ -133,7 +133,9 @@ Numerical consumers declare MSRV 1.96.0. Independent leaves retain the workspace
 default MSRV 1.90.0; [the explicit policy](scripts/rust-msrv-policy.tsv) enumerates
 each manifest, and `scripts/check_rust_versions.sh` rejects unknown packages or
 policy drift, including a final policy row without a newline. It reads package
-MSRVs only from `[package]`, excluding metadata. That guard validates declarations; compile checks against the
+MSRVs only from `[package]`, excluding metadata, and checks that the standalone
+host witness selects its declared compiler in its nested toolchain file. That
+guard validates declarations; compile checks against the
 respective toolchains establish dependency compatibility. Native provider tests that consume `warp-core` use the general
 toolchain even though the provider libraries retain MSRV 1.90.0.
 

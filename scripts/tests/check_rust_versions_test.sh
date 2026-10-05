@@ -334,9 +334,34 @@ test_allows_package_header_comment() {
   '
 }
 
+test_standalone_host_toolchain_matches_its_policy() {
+  local failures=0 channel
+  for channel in 1.89.0 1.90.0 missing; do
+    if ! with_tmp_repo bash -c '
+      set -euo pipefail
+      mkdir -p tests/edict-provider-host-v1
+      cp crates/foo/Cargo.toml tests/edict-provider-host-v1/Cargo.toml
+      printf "%s\n" "tests/edict-provider-host-v1/Cargo.toml 1.90.0" >> scripts/rust-msrv-policy.tsv
+      if [[ "$1" != missing ]]; then
+        printf "[toolchain]\nchannel = \"%s\"\n" "$1" > tests/edict-provider-host-v1/rust-toolchain.toml
+      fi
+      if ./scripts/check_rust_versions.sh > result.log 2>&1; then
+        [[ "$1" == 1.90.0 ]] || { echo "accepted invalid nested toolchain: $1" >&2; exit 1; }
+      else
+        [[ "$1" != 1.90.0 ]] || { cat result.log >&2; exit 1; }
+        grep -q "toolchain.*tests/edict-provider-host-v1/rust-toolchain.toml" result.log
+      fi
+    ' bash "$channel"; then
+      failures=$((failures + 1))
+    fi
+  done
+  [[ "$failures" -eq 0 ]]
+}
+
 main() {
   [[ -f "$checker_src" ]] || fail "checker script missing: $checker_src"
 
+  test_standalone_host_toolchain_matches_its_policy
   test_rejects_metadata_only_versions
   test_ignores_metadata_before_package
   test_allows_package_header_comment

@@ -2,6 +2,6 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 [toolchain]
-channel = "1.94.0"
+channel = "1.96.0"
 profile = "minimal"
 components = ["clippy", "rustfmt"]

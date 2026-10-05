@@ -8,23 +8,35 @@ use super::model::{Comparison, Expr, Helper, Predicate, Program, RuntimeType, MA
 use super::{EvaluationError as Error, EvaluationLimits, EvaluationResult};
 
 // Fixed interpreter storage units; Rust layout and pointer width cannot alter cost.
-const VALUE_CELL_BYTES: u64 = 64;
+pub(crate) const VALUE_CELL_BYTES: u64 = 64;
 
-struct Meter {
+pub(crate) struct Meter {
     limits: EvaluationLimits,
     steps: u64,
     allocated: u64,
 }
 
 impl Meter {
-    fn step(&mut self, depth: usize) -> Result<(), Error> {
+    pub(crate) fn new(limits: EvaluationLimits) -> Self {
+        Self {
+            limits,
+            steps: 0,
+            allocated: 0,
+        }
+    }
+
+    pub(crate) const fn usage(&self) -> (u64, u64) {
+        (self.steps, self.allocated)
+    }
+
+    pub(crate) fn step(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
         }
         self.charge_steps(1)
     }
 
-    fn charge_steps(&mut self, count: u64) -> Result<(), Error> {
+    pub(crate) fn charge_steps(&mut self, count: u64) -> Result<(), Error> {
         self.steps = self
             .steps
             .checked_add(count)
@@ -35,7 +47,7 @@ impl Meter {
         Ok(())
     }
 
-    fn allocate(&mut self, bytes: u64) -> Result<(), Error> {
+    pub(crate) fn allocate(&mut self, bytes: u64) -> Result<(), Error> {
         self.allocated = self
             .allocated
             .checked_add(bytes)
@@ -46,7 +58,7 @@ impl Meter {
         Ok(())
     }
 
-    fn copy(&mut self, value: &Value) -> Result<Value, Error> {
+    pub(crate) fn copy(&mut self, value: &Value) -> Result<Value, Error> {
         self.charge(value, 0)?;
         Ok(value.clone())
     }
@@ -61,7 +73,7 @@ impl Meter {
         Ok(Value::Bytes(bytes.to_vec()))
     }
 
-    fn charge(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
+    pub(crate) fn charge(&mut self, value: &Value, depth: usize) -> Result<(), Error> {
         self.step(depth)?;
         self.allocate(VALUE_CELL_BYTES)?;
         match value {
@@ -125,7 +137,7 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
     })
 }
 
-fn expression(
+pub(crate) fn expression(
     expr: &Expr,
     locals: &BTreeMap<String, Value>,
     helpers: &BTreeMap<String, Helper>,
@@ -258,7 +270,7 @@ fn byte_slice(
     meter.copy_bytes(selected)
 }
 
-fn predicate(
+pub(crate) fn predicate(
     predicate: &Predicate,
     locals: &BTreeMap<String, Value>,
     helpers: &BTreeMap<String, Helper>,
@@ -283,7 +295,12 @@ fn predicate(
     }
 }
 
-fn validate(value: &Value, ty: &RuntimeType, meter: &mut Meter, depth: usize) -> Result<(), Error> {
+pub(crate) fn validate(
+    value: &Value,
+    ty: &RuntimeType,
+    meter: &mut Meter,
+    depth: usize,
+) -> Result<(), Error> {
     meter.step(depth)?;
     match (value, ty) {
         (Value::Integer(value), RuntimeType::Unsigned(max))

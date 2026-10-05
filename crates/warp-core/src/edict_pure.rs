@@ -7,10 +7,10 @@
 //! package identity from an independently verified, authorized release.
 
 mod decode;
-mod evaluate;
-mod model;
-mod syntax;
-mod values;
+pub(crate) mod evaluate;
+pub(crate) mod model;
+pub(crate) mod syntax;
+pub(crate) mod values;
 
 use echo_edict_canonical::decode_canonical_cbor_v1;
 

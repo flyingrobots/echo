@@ -1536,8 +1536,8 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
 fi
 
-# Every feature-gated pure operation must be selected with its runtime enabled.
-for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice; do
+# Every feature-gated Edict operation must be selected with its runtime enabled.
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice edict_node_read_tests:edict-node-read; do
   target="${entry%%:*}"
   fixture="${entry#*:}"
   for mode in pre-push full; do
@@ -1578,6 +1578,16 @@ else
   fail "byte-slice helper changes should select the feature-enabled owning test"
   printf '%s\n' "$slice_helper_output"
 fi
+
+for changed in crates/warp-core/src/edict_read.rs crates/warp-core/src/edict_read/evaluate.rs; do
+  read_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
+  if printf '%s\n' "$read_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_node_read_tests'; then
+    pass "full verification selects node read tests for $changed"
+  else
+    fail "full verification should select node read tests for $changed"
+    printf '%s\n' "$read_output"
+  fi
+done
 
 fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
 fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"

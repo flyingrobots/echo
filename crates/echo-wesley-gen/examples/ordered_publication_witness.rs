@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generates a schema-publication candidate for the Docker consumer witness.
-//! This is not a released provider package or an ordered execution profile.
+//! Supports public compiler witnesses; generation grants no runtime authority.
 
 use anyhow::{bail, Context, Result};
 use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;

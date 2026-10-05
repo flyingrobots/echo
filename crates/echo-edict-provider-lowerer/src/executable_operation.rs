@@ -2,6 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
+mod bounded_read;
+
 use std::collections::BTreeSet;
 
 use blake3::Hasher;
@@ -127,6 +129,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
     let source = validate_source(&source, closure.source, &request.core)?;
+
+    if bounded_read::is_configuration(&configuration) {
+        return bounded_read::lower(request, &closure);
+    }
 
     if is_pure_configuration(&configuration) {
         return lower_compiler_produced_pure(
@@ -300,6 +306,35 @@ fn validate_pure_lawpack(
     target_profile: &BoundArtifact,
     intent: &CanonicalValueV1,
 ) -> Result<(), ProviderRefusalV1> {
+    validate_compiler_lawpack(
+        value,
+        exports_value,
+        adapter_value,
+        closure,
+        target_profile,
+        intent,
+    )?;
+    let profiles = required_map(
+        adapter_value,
+        "operationProfiles",
+        "adapter.echo-pure-operation",
+    )?;
+    let (_, profile) = single_text_map_entry(profiles)
+        .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
+    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
+        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+    }
+    Ok(())
+}
+
+fn validate_compiler_lawpack(
+    value: &CanonicalValueV1,
+    exports_value: &CanonicalValueV1,
+    adapter_value: &CanonicalValueV1,
+    closure: &ClosureInputs<'_>,
+    target_profile: &BoundArtifact,
+    intent: &CanonicalValueV1,
+) -> Result<(), ProviderRefusalV1> {
     let id = required_text(value, "id", "lawpack.echo-pure-operation")?;
     let version = required_text(value, "version", "lawpack.echo-pure-operation")?;
     if text_field(value, "apiVersion") != Some(LAWPACK_DOMAIN)
@@ -344,9 +379,6 @@ fn validate_pure_lawpack(
     let (_, profile) = single_text_map_entry(profiles)
         .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
     if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
-        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
-    }
-    if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
         return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
     }
     required_nonempty_text(profile, "budgetObligation", "adapter.echo-pure-operation")?;
@@ -600,6 +632,36 @@ fn encode_pure_package(
     ]);
     let program = encode_canonical_cbor_v1(&program)
         .map_err(|_| invalid_artifact(PACKAGE_ROLE, "pure program could not be encoded"))?;
+    encode_compiler_package(
+        request,
+        closure,
+        intent,
+        operation_coordinate,
+        program,
+        CompilerPackageProfile {
+            kind: PURE_PROGRAM_KIND,
+            authority: PURE_AUTHORITY_PROFILE,
+            footprint: PURE_FOOTPRINT_CONTRACT,
+            interpreter: PURE_INTERPRETER_PROFILE,
+        },
+    )
+}
+
+struct CompilerPackageProfile {
+    kind: &'static str,
+    authority: &'static str,
+    footprint: &'static str,
+    interpreter: &'static str,
+}
+
+fn encode_compiler_package(
+    request: &LoweringRequestV1,
+    closure: &ClosureInputs<'_>,
+    intent: &CanonicalValueV1,
+    operation_coordinate: &str,
+    program: Vec<u8>,
+    profile: CompilerPackageProfile,
+) -> Result<Vec<u8>, ProviderRefusalV1> {
     let core_identity = hash_from_bound(&request.core)?;
     let budget = required_map(intent, "coreEvaluationBudget", operation_coordinate)?;
     let semantic_closure = canonical_map([
@@ -633,7 +695,7 @@ fn encode_pure_package(
     let package = canonical_map([
         (
             "authority_profile_identity",
-            hash_value(profile_digest(PURE_AUTHORITY_PROFILE)),
+            hash_value(profile_digest(profile.authority)),
         ),
         (
             "budget_ceiling",
@@ -660,14 +722,14 @@ fn encode_pure_package(
         ),
         (
             "footprint_contract_identity",
-            hash_value(profile_digest(PURE_FOOTPRINT_CONTRACT)),
+            hash_value(profile_digest(profile.footprint)),
         ),
         (
             "interpreter_profile_identity",
-            hash_value(profile_digest(PURE_INTERPRETER_PROFILE)),
+            hash_value(profile_digest(profile.interpreter)),
         ),
         ("operation_coordinate", canonical_text(operation_coordinate)),
-        ("package_kind", canonical_text(PURE_PROGRAM_KIND)),
+        ("package_kind", canonical_text(profile.kind)),
         ("program", CanonicalValueV1::Bytes(program)),
         ("schema", canonical_text(PACKAGE_SCHEMA)),
         ("semantic_closure", semantic_closure),

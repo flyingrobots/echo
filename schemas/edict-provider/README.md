@@ -169,10 +169,26 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-279,564 bytes with SHA-256
-`11244b22dcf7128489953f7a2d09df1eeb69e7b25bddb54e0e255b51ca23e016`; the
-promoted verifier is 314,580 bytes with SHA-256
-`629a85723295e07775ae9ec001ddb57be789a92f990cee4490947b47d3ba6d1b`.
+381,459 bytes with SHA-256
+`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a`; the
+promoted verifier is 389,503 bytes with SHA-256
+`d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
+
+The checked schema/components also support the explicit
+`compiler-produced-bounded-read/v1` configuration with required `maxReads`
+(1–65,536) and `maxReadBytes` (1–67,108,864) limits. Its package kind is distinct
+from pure computation. Ordered read programs require explicit selection of the
+ordered contract publication; the default generation path preserves the
+original contract selection. The public compiler witness builds a single read
+and a pair with independent addresses, runs both Wasm components, and requires
+repeatable package/report pairs. It proves no runtime read or mutation.
+
+Run the [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
+only inside a guarded reusable worker with copied sources. Its required inputs,
+output directory, and resource enforcement prerequisites are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
+A supported guarded runner is tracked separately in
+[#742](https://github.com/flyingrobots/echo/issues/742).
 
 The generated provider schema admits both the existing anchored
 create-if-absent configuration and the exact two-field

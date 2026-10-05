@@ -1,0 +1,20 @@
+{
+  "schema": "edict.application/v1",
+  "coordinate": "jedit.text.replace_range@1",
+  "sources": [
+    "src/ReplaceRange.edict"
+  ],
+  "lawpacks": [
+    {
+      "manifest": "vendor/atom-read/manifest.cbor",
+      "exports": "vendor/atom-read/exports.cbor",
+      "adapter": "vendor/atom-read/adapter.cbor",
+      "targetConfiguration": "vendor/atom-read/echo-operation-configuration.cbor"
+    }
+  ],
+  "target": {
+    "profile": "echo.dpo@1",
+    "providerPackage": ".build/echo-provider"
+  },
+  "outputDirectory": ".build/application"
+}

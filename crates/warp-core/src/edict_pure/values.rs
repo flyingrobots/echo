@@ -4,7 +4,7 @@ use echo_edict_canonical::CanonicalValueV1 as Value;
 
 use super::EvaluationError as Error;
 
-pub(super) fn map(value: &Value) -> Result<&[(Value, Value)], Error> {
+pub(crate) fn map(value: &Value) -> Result<&[(Value, Value)], Error> {
     if let Value::Map(fields) = value {
         Ok(fields)
     } else {
@@ -12,7 +12,7 @@ pub(super) fn map(value: &Value) -> Result<&[(Value, Value)], Error> {
     }
 }
 
-pub(super) fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, Error> {
+pub(crate) fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, Error> {
     map(value)?
         .iter()
         .find_map(|(key, value)| {
@@ -25,7 +25,7 @@ pub(super) fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, Error
         .ok_or(Error::InvalidArtifact)
 }
 
-pub(super) fn text(value: &Value) -> Result<&str, Error> {
+pub(crate) fn text(value: &Value) -> Result<&str, Error> {
     if let Value::Text(value) = value {
         Ok(value)
     } else {
@@ -33,11 +33,11 @@ pub(super) fn text(value: &Value) -> Result<&str, Error> {
     }
 }
 
-pub(super) fn text_field<'a>(value: &'a Value, name: &str) -> Result<&'a str, Error> {
+pub(crate) fn text_field<'a>(value: &'a Value, name: &str) -> Result<&'a str, Error> {
     text(field(value, name)?)
 }
 
-pub(super) fn number(value: &Value) -> Result<u64, Error> {
+pub(crate) fn number(value: &Value) -> Result<u64, Error> {
     if let Value::Integer(value) = value {
         u64::try_from(*value).map_err(|_| Error::InvalidArtifact)
     } else {
@@ -45,7 +45,7 @@ pub(super) fn number(value: &Value) -> Result<u64, Error> {
     }
 }
 
-pub(super) fn bytes(value: &Value) -> Result<&[u8], Error> {
+pub(crate) fn bytes(value: &Value) -> Result<&[u8], Error> {
     if let Value::Bytes(value) = value {
         Ok(value)
     } else {
@@ -53,7 +53,7 @@ pub(super) fn bytes(value: &Value) -> Result<&[u8], Error> {
     }
 }
 
-pub(super) fn array(value: &Value) -> Result<&[Value], Error> {
+pub(crate) fn array(value: &Value) -> Result<&[Value], Error> {
     if let Value::Array(value) = value {
         Ok(value)
     } else {
@@ -61,7 +61,7 @@ pub(super) fn array(value: &Value) -> Result<&[Value], Error> {
     }
 }
 
-pub(super) fn exact_fields(value: &Value, names: &[&str]) -> Result<(), Error> {
+pub(crate) fn exact_fields(value: &Value, names: &[&str]) -> Result<(), Error> {
     let fields = map(value)?;
     if fields.len() != names.len() || names.iter().any(|name| field(value, name).is_err()) {
         return Err(Error::InvalidArtifact);
@@ -69,7 +69,7 @@ pub(super) fn exact_fields(value: &Value, names: &[&str]) -> Result<(), Error> {
     Ok(())
 }
 
-pub(super) fn require_text(value: &Value, name: &str, expected: &str) -> Result<(), Error> {
+pub(crate) fn require_text(value: &Value, name: &str, expected: &str) -> Result<(), Error> {
     if text_field(value, name)? == expected {
         Ok(())
     } else {

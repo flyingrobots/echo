@@ -35,9 +35,30 @@ post-effect scope by their complete identities before cloning expressions into
 Target IR. It accepts only an empty input-constraint set and the reviewed
 zero-argument `domain.WriteRejected` obstruction constructor. Effect inputs and
 intent results admit no call-expression callee in this closure; later
-constraint, constructor, or call semantics require explicit lowering laws. Reads remain
-unsupported and fail closed; the lowerer never represents a read as a synthetic
-mutation.
+constraint, constructor, or call semantics require explicit lowering laws. Reads
+remain unsupported in that checked compatibility closure; the lowerer never
+represents a read as a synthetic mutation.
+
+The native Rust source separately supports the opt-in
+`compiler-produced-bounded-read/v1` configuration, including explicit `maxReads`
+and `maxReadBytes` bounds. It lowers opaque node-atom reads with source-ordered
+guards, validates imported signatures and failure mappings, rejects unavailable
+locals and altered instruction order, and retains every semantic artifact needed
+by subsequent verification and interpretation. The supported expressions are
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Failure arms currently require zero-argument application
+obstruction constructors; terminal guards require an empty obstruction payload.
+
+The checked schema and component now publish this read configuration. Selecting
+the ordered contract publication lets unmodified Edict compile the authored
+single and independent-address paired reads through this component and the
+independent verifier. The original native fixtures retain their diagnostic
+capture provenance; the separate public compiler witness proves package/report
+publication without instrumentation. A separate trusted-host private evaluator
+consumes pinned packages over real frontier storage; its authority and evidence
+limits are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
+Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.
 When Edict requests `executable-operation-package.echo`, the lowerer consumes
@@ -117,8 +138,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 279,564-byte checked lowerer component has SHA-256
-`11244b22dcf7128489953f7a2d09df1eeb69e7b25bddb54e0e255b51ca23e016` and has
+The refreshed 381,459-byte checked lowerer component has SHA-256
+`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT

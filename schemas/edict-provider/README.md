@@ -169,8 +169,8 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-381,626 bytes with SHA-256
-`4d6215b4fc718d716455fa7fb5181cf20ff2c96b797af8ea1e8be2cc8fe60ab0`; the
+381,459 bytes with SHA-256
+`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a`; the
 promoted verifier is 389,503 bytes with SHA-256
 `d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
 

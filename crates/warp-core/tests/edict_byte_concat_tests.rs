@@ -188,7 +188,7 @@ fn concat_rejects_malformed_calls_and_static_bound_overflow() {
                 call,
                 "typeArgs",
                 Value::Array(vec![Value::Text(left.into()), Value::Text(right.into())]),
-            )
+            );
         });
         assert_eq!(
             evaluate(&artifact, verified, &input(b"a", b"b"), limits()),
@@ -224,7 +224,7 @@ fn concat_validates_both_operand_values_and_each_declared_bound() {
                 call,
                 "typeArgs",
                 Value::Array(vec![Value::Text(left.into()), Value::Text(right.into())]),
-            )
+            );
         });
         let result = evaluate(&artifact, verified, &input(b"ab", b"cde"), limits());
         if valid {

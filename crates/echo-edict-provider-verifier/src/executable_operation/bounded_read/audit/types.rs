@@ -273,8 +273,11 @@ impl<'a> Symbols<'a> {
         }
         let core = self.core;
         let prefix = format!("{}.", text(core, "coordinate")?);
-        if let Some(member) = name.strip_prefix(&prefix) {
-            let definition = get(get(core, "functions")?, member)?;
+        let source_definition = name.strip_prefix(&prefix).and_then(|member| {
+            super::super::map_field(core, "functions")
+                .and_then(|functions| super::super::map_field(functions, member))
+        });
+        if let Some(definition) = source_definition {
             let parameters = super::sequence(definition, "params")?;
             if !types.is_empty() || actual.len() != parameters.len() {
                 return Err(());

@@ -291,11 +291,10 @@ impl<'a> Scope<'a> {
             .map(|value| self.expression(value, depth + 1))
             .collect::<Result<Vec<_>, _>>()?;
         let prefix = format!("{}.", text(self.core, "coordinate")?);
-        let signature = if let Some(member) = name.strip_prefix(&prefix) {
-            Some(field(field(self.core, "functions")?, member)?)
-        } else {
-            None
-        };
+        let signature = name.strip_prefix(&prefix).and_then(|member| {
+            super::map_field(self.core, "functions")
+                .and_then(|functions| super::map_field(functions, member))
+        });
         if let Some(function) = signature {
             let params = super::array(function, "params")?;
             if !types.is_empty() || params.len() != actual.len() {

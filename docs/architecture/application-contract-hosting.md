@@ -265,6 +265,9 @@ both authenticated imported pure-function and effect exports, including unused
 source definitions. Reserving an effect name does not permit calling it from a
 pure helper. Imported functions cannot refer back to source-owned functions.
 The imported subset remains zero-argument bodies without local bindings.
+Source-call ownership requires exact membership in `Core.functions`. Disjoint
+imported pure functions remain callable when they share the source package's
+coordinate prefix.
 
 Each call evaluates every argument once, from left to right in the caller's
 frame, including unused arguments. Validated argument values move into a fresh

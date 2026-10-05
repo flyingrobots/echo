@@ -95,7 +95,8 @@
   judgments validate the complete source/imported closure, supported types,
   totality, combined runtime depth, and conservative whole-operation costs.
   Providers and runtime reject source functions that shadow authenticated
-  imported effects, including otherwise valid unused definitions.
+  imported effects, including otherwise valid unused definitions. Bounded-read
+  call lookup admits disjoint imported pure functions in the same package.
 
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and

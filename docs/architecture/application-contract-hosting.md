@@ -594,7 +594,7 @@ directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
 
 Native readiness is a later, independent crossing pinned to Edict revision
-`c75c3f550d049485ba00eae0dc272c6dd6aca11f`. The exact manifest constructs the
+`2e3f52f9e6d615f96eb594a40126e223a9253d98`. The exact manifest constructs the
 immutable schema registry; all five canonical primaries and 14 generated
 resources validate under their owning roots; every lawpack/target-profile field
 is bound to the expected coordinate and independently recomputed domain-framed

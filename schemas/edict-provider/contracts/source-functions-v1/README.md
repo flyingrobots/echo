@@ -6,7 +6,9 @@
 This complete Apache-2.0 contract pair was copied from Edict commit
 [`acd71fce03d2b5fc6d78c2a92ca922a45da6bac2`](https://github.com/flyingrobots/edict/commit/acd71fce03d2b5fc6d78c2a92ca922a45da6bac2),
 under `fixtures/provider-contracts/source-functions-v1/`, for
-[Edict #226](https://github.com/flyingrobots/edict/issues/226).
+[Edict #226](https://github.com/flyingrobots/edict/issues/226). The pair is byte-identical at the
+merged compiler revision
+[`01161c1745baad0d713234ba1a671b9a26923aa4`](https://github.com/flyingrobots/edict/commit/01161c1745baad0d713234ba1a671b9a26923aa4).
 
 The CDDL contains 34,460 bytes with SHA-256
 `e484eabd615584a38cb57454b52747786f2314c135c13f99da6f6bae619a709f`.
@@ -36,6 +38,14 @@ its independent verifier must validate source-owned definitions against the
 exact authenticated Core, separately from imported lawpack authority. Runtime
 support and limits belong to the
 [application contract hosting contract](../../../../docs/architecture/application-contract-hosting.md).
+
+The isolated `tests/edict-provider-host-v1` suite retains its frozen
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` compiler/host and exact compatibility
+corpus. Source-function consumer checks use the separately pinned public
+compiler, whose application build invokes both provider components through its
+actual host. Record that compiler revision and the exact emitted package/report
+bytes for runtime checks. Preserve the frozen suite's broader refusal and replay
+checks when refreshing the provider components.
 
 ## Explicit candidate generation
 

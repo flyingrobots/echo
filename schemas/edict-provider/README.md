@@ -330,8 +330,9 @@ writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
 
-The isolated Edict c75 host gate then consumes that exact checked package. It
-constructs all 24 native schema bindings, validates the five canonical primaries
+The isolated legacy Edict host gate pins revision
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes that exact checked package.
+It constructs all 31 native schema bindings, validates the five canonical primaries
 and 14 generated resources, proves every owner field names the expected exact
 resource digest, prepares both components, and obtains both opaque request
 proofs without guest invocation. Schema-valid resource substitution, reference

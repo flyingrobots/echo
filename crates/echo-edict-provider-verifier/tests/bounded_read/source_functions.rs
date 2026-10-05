@@ -365,12 +365,11 @@ fn bounded_read_source_helper_refuses_the_original_insufficient_step_ceiling() {
     }
 }
 
-
 fn rename_owned_coordinates(value: &mut Value, previous: &str, replacement: &str) {
     match value {
         Value::Text(name) => {
             if name == previous {
-                *name = replacement.to_owned();
+                replacement.clone_into(name);
             } else if let Some(member) = name.strip_prefix(&format!("{previous}.")) {
                 *name = format!("{replacement}.{member}");
             }
@@ -425,8 +424,11 @@ fn same_package_source_function(collision: bool) -> LoweringRequestV1 {
             panic!("type name")
         };
         if let Some(relative) = name.strip_prefix(&prefix) {
-            assert_ne!(field(definition, "kind"), &text("Nominal"),
-                "this fixture must not move a nominal authority definition");
+            assert_ne!(
+                field(definition, "kind"),
+                &text("Nominal"),
+                "this fixture must not move a nominal authority definition"
+            );
             *name = relative.to_owned();
         }
         assert!(names.insert(name.clone()), "type inventory remains unique");
@@ -435,11 +437,20 @@ fn same_package_source_function(collision: bool) -> LoweringRequestV1 {
     let functions = field_mut(&mut core, "functions");
     let unused = field(functions, "retain").clone();
     insert(functions, unused_name, unused);
-    source.core = bound(coordinate, "edict.core.module/v1", encode(&core).expect("core bytes"));
+    source.core = bound(
+        coordinate,
+        "edict.core.module/v1",
+        encode(&core).expect("core bytes"),
+    );
     *field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore") = map([
         ("id", text(coordinate)),
-        ("digest", Value::Array(vec![text("sha256"),
-            Value::Bytes(source.core.reference.digest.bytes.clone())])),
+        (
+            "digest",
+            Value::Array(vec![
+                text("sha256"),
+                Value::Bytes(source.core.reference.digest.bytes.clone()),
+            ]),
+        ),
     ]);
     let Value::Bytes(authored) =
         decode(&source.semantic_inputs[3].artifact.artifact.bytes).expect("source")
@@ -455,15 +466,30 @@ fn same_package_source_function(collision: bool) -> LoweringRequestV1 {
          fn {unused_name}(value: text.FactBytes) -> text.FactBytes {{ let bytes = value; return bytes; }}\n"
     );
     assert_eq!(authored.matches("intent replaceRange(").count(), 1);
-    authored = authored.replace("intent replaceRange(", &format!("{helpers}intent replaceRange("));
+    authored = authored.replace(
+        "intent replaceRange(",
+        &format!("{helpers}intent replaceRange("),
+    );
     assert_eq!(authored.matches("  return actual;").count(), 1);
-    authored = authored.replace("  return actual;", "  let retained = retain(actual);\n  return retained;");
-    source.semantic_inputs[3].artifact = bound(coordinate, "edict.source/v1",
-        encode(&Value::Bytes(authored.into_bytes())).expect("source bytes"));
-    source.semantic_inputs[5].artifact = bound("echo.span-ir/v2", "edict.target-ir.artifact/v1",
-        encode(&target).expect("target bytes"));
-    source.semantic_inputs[6].artifact = bound(&format!("{coordinate}.replaceRange"),
-        "edict.result-projection.artifact/v1", encode(&projection).expect("projection bytes"));
+    authored = authored.replace(
+        "  return actual;",
+        "  let retained = retain(actual);\n  return retained;",
+    );
+    source.semantic_inputs[3].artifact = bound(
+        coordinate,
+        "edict.source/v1",
+        encode(&Value::Bytes(authored.into_bytes())).expect("source bytes"),
+    );
+    source.semantic_inputs[5].artifact = bound(
+        "echo.span-ir/v2",
+        "edict.target-ir.artifact/v1",
+        encode(&target).expect("target bytes"),
+    );
+    source.semantic_inputs[6].artifact = bound(
+        &format!("{coordinate}.replaceRange"),
+        "edict.result-projection.artifact/v1",
+        encode(&projection).expect("projection bytes"),
+    );
     source
 }
 
@@ -471,8 +497,10 @@ fn collision_verification() -> verifier::VerificationRequestV1 {
     let positive = same_package_source_function(false);
     let negative = same_package_source_function(true);
     for index in [0, 1, 2, 4, 6] {
-        assert_eq!(positive.semantic_inputs[index].artifact, negative.semantic_inputs[index].artifact,
-            "changing an unused source name must preserve imported authority and result projection");
+        assert_eq!(
+            positive.semantic_inputs[index].artifact, negative.semantic_inputs[index].artifact,
+            "changing an unused source name must preserve imported authority and result projection"
+        );
     }
     // Only the disjoint control goes through the lowerer. The collision package
     // is assembled independently, so a future lowerer refusal cannot mask a
@@ -480,15 +508,22 @@ fn collision_verification() -> verifier::VerificationRequestV1 {
     let mut verification = request(positive);
     verification.core = transport(negative.core.clone());
     verification.target_ir = transport(negative.semantic_inputs[5].artifact.clone());
-    verification.semantic_inputs.iter_mut().find(|input| input.role == "04-source")
-        .expect("source input").artifact = transport(negative.semantic_inputs[3].artifact.clone());
+    verification
+        .semantic_inputs
+        .iter_mut()
+        .find(|input| input.role == "04-source")
+        .expect("source input")
+        .artifact = transport(negative.semantic_inputs[3].artifact.clone());
     change_package(&mut verification, |package| {
         let closure = field_mut(package, "semantic_closure");
         for (key, artifact) in [
             ("canonical_meaning_identity", &negative.core),
             ("core_identity", &negative.core),
             ("target_ir_identity", &negative.semantic_inputs[5].artifact),
-            ("edict_source_identity", &negative.semantic_inputs[3].artifact),
+            (
+                "edict_source_identity",
+                &negative.semantic_inputs[3].artifact,
+            ),
         ] {
             *field_mut(closure, key) = Value::Bytes(artifact.reference.digest.bytes.clone());
         }
@@ -521,8 +556,12 @@ fn bounded_read_disjoint_source_functions_share_the_imported_effect_package() {
 #[test]
 fn lowerer_source_function_names_cannot_shadow_imported_read_effects() {
     let source = same_package_source_function(true);
-    let refusal = lower(source).expect_err("unused source function collides with imported read effect");
-    assert_eq!(refusal.kind, echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics);
+    let refusal =
+        lower(source).expect_err("unused source function collides with imported read effect");
+    assert_eq!(
+        refusal.kind,
+        echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
 }
 
 #[test]

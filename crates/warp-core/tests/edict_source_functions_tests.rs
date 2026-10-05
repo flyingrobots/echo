@@ -907,15 +907,15 @@ mod effect_name_collision {
     use super::*;
     use warp_core::edict_read::{evaluate as read, ReadBasis, ReadError, ReadLimits, ReadView};
     use warp_core::{
-        make_node_id, make_type_id, AtomPayload, AttachmentValue, GraphStore, NodeKey,
-        NodeRecord, WorldlineFrontier, WorldlineId, WorldlineState,
+        make_node_id, make_type_id, AtomPayload, AttachmentValue, GraphStore, NodeKey, NodeRecord,
+        WorldlineFrontier, WorldlineId, WorldlineState,
     };
 
     fn rename(value: &mut Value, previous: &str, coordinate: &str) {
         match value {
             Value::Text(name) => {
                 if name.as_str() == previous {
-                    *name = coordinate.to_owned();
+                    coordinate.clone_into(name);
                 } else if let Some(member) = name.strip_prefix(&format!("{previous}.")) {
                     *name = format!("{coordinate}.{member}");
                 }
@@ -938,12 +938,20 @@ mod effect_name_collision {
     fn package(collision: bool) -> (Vec<u8>, [u8; 32]) {
         let original = hex::decode(
             include_str!("fixtures/edict-node-read/single-executable-operation-package.hex").trim(),
-        ).unwrap();
+        )
+        .unwrap();
         let (raw, _) = rewrite(original, |program, core, target| {
             let exports = embedded(program, "lawpack_exports_artifact");
-            let Value::Array(effects) = field(&exports, "effects") else { panic!("effects") };
-            assert_eq!(field(&effects[0], "coordinate"), &text("jedit.text@1.readFact"));
-            let Value::Text(previous) = field(core, "coordinate") else { panic!("coordinate") };
+            let Value::Array(effects) = field(&exports, "effects") else {
+                panic!("effects")
+            };
+            assert_eq!(
+                field(&effects[0], "coordinate"),
+                &text("jedit.text@1.readFact")
+            );
+            let Value::Text(previous) = field(core, "coordinate") else {
+                panic!("coordinate")
+            };
             let previous = previous.clone();
             let coordinate = "jedit.text@1";
             for value in [&mut *core, target] {
@@ -951,11 +959,15 @@ mod effect_name_collision {
             }
             // The admitted synthetic Core uses unique module-relative type keys;
             // qualified type references and imported authority remain unchanged.
-            let Value::Map(types) = field_mut(core, "types") else { panic!("types") };
+            let Value::Map(types) = field_mut(core, "types") else {
+                panic!("types")
+            };
             let prefix = format!("{coordinate}.");
             let mut names = std::collections::BTreeSet::new();
             for (key, definition) in types {
-                let Value::Text(name) = key else { panic!("type name") };
+                let Value::Text(name) = key else {
+                    panic!("type name")
+                };
                 if let Some(relative) = name.strip_prefix(&prefix) {
                     assert_ne!(field(definition, "kind"), &text("Nominal"));
                     *name = relative.to_owned();
@@ -965,34 +977,58 @@ mod effect_name_collision {
             let name = if collision { "readFact" } else { "unusedRead" };
             let result = record([
                 ("kind", text("const")),
-                ("value", record([
-                    ("kind", text("int")),
-                    ("width", text("U64")),
-                    ("value", Value::Integer(0)),
-                ])),
+                (
+                    "value",
+                    record([
+                        ("kind", text("int")),
+                        ("width", text("U64")),
+                        ("value", Value::Integer(0)),
+                    ]),
+                ),
             ]);
-            insert(core, "functions", record([(
-                name, function(vec![], "U64", vec![], vec![], result),
-            )]));
+            insert(
+                core,
+                "functions",
+                record([(name, function(vec![], "U64", vec![], vec![], result))]),
+            );
             let mut projection = embedded(program, "result_projection_artifact");
             rename(&mut projection, &previous, coordinate);
-            set_field(program, "result_projection_artifact", Value::Bytes(encode(&projection).unwrap()));
-            let Value::Bytes(source) = embedded(program, "source_artifact") else { panic!("source") };
+            set_field(
+                program,
+                "result_projection_artifact",
+                Value::Bytes(encode(&projection).unwrap()),
+            );
+            let Value::Bytes(source) = embedded(program, "source_artifact") else {
+                panic!("source")
+            };
             let mut source = String::from_utf8(source).unwrap();
             let header = format!("package {previous};");
             assert_eq!(source.matches(&header).count(), 1);
             source = source.replace(&header, &format!("package {coordinate};"));
             assert_eq!(source.matches("intent replaceRange(").count(), 1);
-            source = source.replace("intent replaceRange(", &format!(
-                "fn {name}() -> U64 {{ return 0u64; }}\nintent replaceRange("));
-            set_field(program, "source_artifact", Value::Bytes(encode(&Value::Bytes(source.into_bytes())).unwrap()));
+            source = source.replace(
+                "intent replaceRange(",
+                &format!("fn {name}() -> U64 {{ return 0u64; }}\nintent replaceRange("),
+            );
+            set_field(
+                program,
+                "source_artifact",
+                Value::Bytes(encode(&Value::Bytes(source.into_bytes())).unwrap()),
+            );
         });
         let mut package = decode(&raw).unwrap();
         let program = embedded(&package, "program");
         let source = embedded(&program, "source_artifact");
-        set_field(&mut package, "operation_coordinate", text("jedit.text@1.replaceRange"));
-        set_field(field_mut(&mut package, "semantic_closure"), "edict_source_identity",
-            Value::Bytes(digest("edict.source/v1", &source).unwrap().into()));
+        set_field(
+            &mut package,
+            "operation_coordinate",
+            text("jedit.text@1.replaceRange"),
+        );
+        set_field(
+            field_mut(&mut package, "semantic_closure"),
+            "edict_source_identity",
+            Value::Bytes(digest("edict.source/v1", &source).unwrap().into()),
+        );
         let pin = digest("echo.operation-package/v1", &package).unwrap();
         (encode(&package).unwrap(), pin)
     }
@@ -1001,40 +1037,76 @@ mod effect_name_collision {
     fn runtime_refuses_an_unused_source_function_named_for_an_imported_effect() {
         let mut store = GraphStore::default();
         let node = make_node_id("effect-name-control");
-        store.insert_node(node, NodeRecord { ty: make_type_id("node") });
-        store.set_node_attachment(node, Some(AttachmentValue::Atom(AtomPayload {
-            type_id: make_type_id("document"), bytes: b"alpha".to_vec().into(),
-        })));
-        let key = NodeKey { warp_id: store.warp_id(), local_id: node };
-        let frontier = WorldlineFrontier::new(WorldlineId::from_bytes([7; 32]),
-            WorldlineState::from_root_store(store, node).unwrap());
+        store.insert_node(
+            node,
+            NodeRecord {
+                ty: make_type_id("node"),
+            },
+        );
+        store.set_node_attachment(
+            node,
+            Some(AttachmentValue::Atom(AtomPayload {
+                type_id: make_type_id("document"),
+                bytes: b"alpha".to_vec().into(),
+            })),
+        );
+        let key = NodeKey {
+            warp_id: store.warp_id(),
+            local_id: node,
+        };
+        let frontier = WorldlineFrontier::new(
+            WorldlineId::from_bytes([7; 32]),
+            WorldlineState::from_root_store(store, node).unwrap(),
+        );
         let before = frontier.state().state_root();
         let basis = ReadBasis::at(&frontier);
         let aperture = [key];
         let view = ReadView::new(&frontier, basis, &aperture).unwrap();
         let supplied = encode(&record([
-            ("address", record([
-                ("warpId", Value::Bytes(key.warp_id.0.to_vec())),
-                ("nodeId", Value::Bytes(key.local_id.0.to_vec())),
-                ("typeId", Value::Bytes(make_type_id("document").0.to_vec())),
-            ])),
+            (
+                "address",
+                record([
+                    ("warpId", Value::Bytes(key.warp_id.0.to_vec())),
+                    ("nodeId", Value::Bytes(key.local_id.0.to_vec())),
+                    ("typeId", Value::Bytes(make_type_id("document").0.to_vec())),
+                ]),
+            ),
             ("expected", Value::Bytes(b"alpha".to_vec())),
-        ])).unwrap();
-        let limits = ReadLimits { evaluation: concat::limits(), max_reads: 1, max_read_bytes: 5 };
+        ]))
+        .unwrap();
+        let limits = ReadLimits {
+            evaluation: concat::limits(),
+            max_reads: 1,
+            max_read_bytes: 5,
+        };
         let (positive, pin) = package(false);
-        let result = read(&positive, pin, &supplied, &view, limits).expect("disjoint unused function admits");
-        assert_eq!(decode(&result.output).unwrap(), Value::Bytes(b"alpha".to_vec()));
+        let result = read(&positive, pin, &supplied, &view, limits)
+            .expect("disjoint unused function admits");
+        assert_eq!(
+            decode(&result.output).unwrap(),
+            Value::Bytes(b"alpha".to_vec())
+        );
         assert_eq!((result.reads, result.read_bytes), (1, 5));
         assert_eq!(result.basis, basis);
         let (negative, pin) = package(true);
         let positive_program = embedded(&decode(&positive).unwrap(), "program");
         let negative_program = embedded(&decode(&negative).unwrap(), "program");
-        for name in ["lawpack_exports_artifact", "lawpack_adapter_artifact", "lawpack_artifact",
-            "target_configuration_artifact", "result_projection_artifact"] {
-            assert_eq!(field(&positive_program, name), field(&negative_program, name));
+        for name in [
+            "lawpack_exports_artifact",
+            "lawpack_adapter_artifact",
+            "lawpack_artifact",
+            "target_configuration_artifact",
+            "result_projection_artifact",
+        ] {
+            assert_eq!(
+                field(&positive_program, name),
+                field(&negative_program, name)
+            );
         }
-        assert_eq!(read(&negative, pin, &supplied, &view, limits),
-            Err(ReadError::Evaluation(EvaluationError::InvalidArtifact)));
+        assert_eq!(
+            read(&negative, pin, &supplied, &view, limits),
+            Err(ReadError::Evaluation(EvaluationError::InvalidArtifact))
+        );
         assert_eq!(frontier.state().state_root(), before);
     }
 }

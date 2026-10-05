@@ -260,9 +260,11 @@ verifier audits dependency summaries and lexical frames before checking the
 Core/Target relation. Rebinding artifact hashes does not establish that relation.
 Unknown or colliding function names, wrong argument types or arity, generic
 calls, cycles, undeclared or duplicate locals, forward local references, and
-caller-local captures reject. Imported functions cannot refer back to
-source-owned functions. The imported subset remains zero-argument bodies without
-local bindings.
+caller-local captures reject. Source function coordinates must be disjoint from
+both authenticated imported pure-function and effect exports, including unused
+source definitions. Reserving an effect name does not permit calling it from a
+pure helper. Imported functions cannot refer back to source-owned functions.
+The imported subset remains zero-argument bodies without local bindings.
 
 Each call evaluates every argument once, from left to right in the caller's
 frame, including unused arguments. Validated argument values move into a fresh

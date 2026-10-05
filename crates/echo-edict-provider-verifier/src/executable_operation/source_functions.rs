@@ -215,6 +215,12 @@ fn inventory<'a>(
             return Err(());
         }
     }
+    // Exported effects own their coordinates even when no source body calls them.
+    // This exclusion does not add effects to the pure-call inventory.
+    let effect_names = sequence(get(exports, "effects")?)?
+        .iter()
+        .map(|effect| string(get(effect, "coordinate")?))
+        .collect::<Check<BTreeSet<_>>>()?;
     for (name, definition) in members(get(core, "functions")?)? {
         types.step(0)?;
         let name = string(name)?;
@@ -235,6 +241,7 @@ fn inventory<'a>(
         }
         let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
         if name.starts_with("core.")
+            || effect_names.contains(name.as_str())
             || definitions
                 .insert(
                     name,

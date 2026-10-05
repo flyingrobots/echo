@@ -94,6 +94,8 @@
   ordered local bindings, and one cumulative budget. Independent provider
   judgments validate the complete source/imported closure, supported types,
   totality, combined runtime depth, and conservative whole-operation costs.
+  Providers and runtime reject source functions that shadow authenticated
+  imported effects, including otherwise valid unused definitions.
 
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and

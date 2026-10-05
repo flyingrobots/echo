@@ -99,6 +99,12 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
             return Err(());
         }
     }
+    // Exported effects own their coordinates even when no source body calls them.
+    // This exclusion does not add effects to the pure-call inventory.
+    let effect_names = list(get(exports, "effects")?)?
+        .iter()
+        .map(|effect| string(get(effect, "coordinate")?))
+        .collect::<Check<BTreeSet<_>>>()?;
     for (name, function) in members(get(core, "functions")?)? {
         let name = string(name)?;
         if !identifier(name)
@@ -110,6 +116,7 @@ fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
         exact(function, &["params", "returnType", "body"])?;
         let name = format!("{}.{}", string(get(core, "coordinate")?)?, name);
         if name.starts_with("core.")
+            || effect_names.contains(name.as_str())
             || functions
                 .insert(
                     name,

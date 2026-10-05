@@ -60,6 +60,12 @@ pub(crate) fn decode(
         }
     }
     if let Ok(functions) = field(core, "functions") {
+        // Imported effect names remain reserved authority, including when the
+        // colliding source definition is unused. They are never pure helpers.
+        let effect_names = array(field(exports, "effects")?)?
+            .iter()
+            .map(|effect| text_field(effect, "coordinate"))
+            .collect::<Result<BTreeSet<_>, Error>>()?;
         for (name, value) in map(functions)? {
             let name = text(name)?;
             if name.is_empty()
@@ -78,6 +84,7 @@ pub(crate) fn decode(
             exact_fields(value, &["params", "returnType", "body"])?;
             let coordinate = format!("{}.{}", parser.coordinate, name);
             if coordinate.starts_with("core.")
+                || effect_names.contains(coordinate.as_str())
                 || definitions
                     .insert(
                         coordinate,

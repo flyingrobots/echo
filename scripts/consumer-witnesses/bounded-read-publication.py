@@ -23,14 +23,26 @@ def build(root, document, refusal=False):
         input=json.dumps(request) + "\n", text=True, capture_output=True,
         timeout=120, check=False,
     )
-    events = [json.loads(line) for stream in (result.stdout, result.stderr)
-              for line in stream.splitlines()]
+    events, raw = [], []
+    for stream in (result.stdout, result.stderr):
+        for line in stream.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                raw.append(line)
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+            else:
+                raw.append(line)
     diagnostics = [event for event in events if event.get("type") == "diagnostic"]
     statuses = [event for event in events if event.get("type") == "status"]
     code = 2 if refusal else 0
-    if (result.returncode != code or len(statuses) != 1
+    if (raw or result.returncode != code or len(statuses) != 1
             or statuses[0].get("exitCode") != code):
-        raise RuntimeError(f"Unexpected public compiler result: {result}")
+        raise RuntimeError(
+            f"Unexpected public compiler result: {result}\nEvents: {events}\nRaw: {raw}"
+        )
     if refusal:
         if (len(diagnostics) != 1
                 or diagnostics[0].get("kind") != "InvalidProviderInvocation"

@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- The bounded-read public compiler witness preserves return status and raw
+  streams when malformed or non-object JSONL prevents structured validation.
+
 - Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
   in feature-enabled CI and opt-in local routes, including shared parser edits.
 

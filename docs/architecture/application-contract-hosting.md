@@ -333,6 +333,8 @@ unique node aperture. `ReadView` checks the expected worldline, tick, and actual
 state root; node addresses include both WARP and node identities. A package
 profile cannot authorize its own aperture. The interpreter is not a substitute
 for independent provider verification of the package's authored semantics.
+Input selection follows the same explicit `arg.0` identity as the provider
+scope checks; local declaration order does not select the application input.
 
 Reads return opaque atom bytes and enforce the requested type and authored byte
 bound. Missing nodes or attachments, descent attachments, type mismatches, and

@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- Private read evaluation identifies the input by its verified `arg.0` identity.
+  Reordering a package's local declarations no longer changes input selection.
+
 - Read-provider lawpack validation remains separate from the pure profile's
   empty-effect requirement, preserving read acceptance and pure-effect refusal
   after integration of the strengthened pure-provider checks.

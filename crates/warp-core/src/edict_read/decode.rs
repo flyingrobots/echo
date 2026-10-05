@@ -98,8 +98,10 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
     require_text(&package, "operation_coordinate", &coordinate)?;
     require_text(&projection, "operationCoordinate", &coordinate)?;
     let body = field(intent, "body")?;
+    // Provider scopes identify the input by identity, not declaration order.
     let input_local = array(field(body, "locals")?)?
-        .first()
+        .iter()
+        .find(|local| text_field(local, "id") == Ok("arg.0"))
         .ok_or(Error::InvalidArtifact)?;
     let input_id = text_field(input_local, "id")?.to_owned();
     if text_field(input_local, "type")? != text_field(intent, "input")? {

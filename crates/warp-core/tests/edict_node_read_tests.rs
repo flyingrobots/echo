@@ -573,3 +573,65 @@ fn empty_atoms_are_values_and_missing_warps_are_obstructions() {
         })
     );
 }
+
+fn field_mut<'a>(value: &'a mut Value, name: &str) -> &'a mut Value {
+    let Value::Map(fields) = value else {
+        panic!("map")
+    };
+    &mut fields
+        .iter_mut()
+        .find(|(key, _)| key == &Value::Text(name.into()))
+        .unwrap()
+        .1
+}
+
+#[test]
+fn input_identity_survives_coherently_reordered_local_declarations() {
+    let (frontier, keys) = frontier();
+    let aperture = [keys[0]];
+    let view = ReadView::new(&frontier, ReadBasis::at(&frontier), &aperture).unwrap();
+    let (raw, pin) = package(false);
+    let input = single_input(keys[0], b"alpha");
+    let expected = evaluate(&raw, pin, &input, &view, limits()).unwrap();
+    let mut package = decode(&raw).unwrap();
+    let Value::Bytes(program_bytes) = field(&package, "program") else {
+        panic!("program")
+    };
+    let mut program = decode(program_bytes).unwrap();
+    let Value::Bytes(core_bytes) = field(&program, "core_artifact") else {
+        panic!("Core")
+    };
+    let mut core = decode(core_bytes).unwrap();
+    let body = field_mut(
+        field_mut(field_mut(&mut core, "intents"), "replaceRange"),
+        "body",
+    );
+    let Value::Array(locals) = field_mut(body, "locals") else {
+        panic!("locals")
+    };
+    assert_eq!(field(&locals[0], "id"), &Value::Text("arg.0".into()));
+    locals.rotate_left(1);
+    assert_ne!(field(&locals[0], "id"), &Value::Text("arg.0".into()));
+    let core_identity = digest("edict.core.module/v1", &core).unwrap();
+    *field_mut(&mut program, "core_artifact") = Value::Bytes(encode(&core).unwrap());
+    let Value::Bytes(target_bytes) = field(&program, "target_ir_artifact") else {
+        panic!("Target")
+    };
+    let mut target = decode(target_bytes).unwrap();
+    let source_core = field_mut(field_mut(&mut target, "semanticClosure"), "sourceCore");
+    *field_mut(source_core, "digest") = Value::Array(vec![
+        Value::Text("sha256".into()),
+        Value::Bytes(core_identity.to_vec()),
+    ]);
+    let target_identity = digest("edict.target-ir.artifact/v1", &target).unwrap();
+    *field_mut(&mut program, "target_ir_artifact") = Value::Bytes(encode(&target).unwrap());
+    *field_mut(&mut package, "program") = Value::Bytes(encode(&program).unwrap());
+    let closure = field_mut(&mut package, "semantic_closure");
+    for key in ["core_identity", "canonical_meaning_identity"] {
+        *field_mut(closure, key) = Value::Bytes(core_identity.to_vec());
+    }
+    *field_mut(closure, "target_ir_identity") = Value::Bytes(target_identity.to_vec());
+    let pin = digest("echo.operation-package/v1", &package).unwrap();
+    let actual = evaluate(&encode(&package).unwrap(), pin, &input, &view, limits());
+    assert_eq!(actual, Ok(expected));
+}

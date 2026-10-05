@@ -660,3 +660,28 @@ fn coherent_core_target_and_package_budgets_must_still_match_the_adapter() {
     });
     assert_rejected(request);
 }
+
+#[test]
+fn input_identity_does_not_depend_on_local_declaration_order() {
+    let mut request = request(fixture());
+    changed_core(&mut request, |core| {
+        mutate(core, "intents", |intents| {
+            mutate(intents, "replaceRange", |intent| {
+                mutate(intent, "body", |body| {
+                    mutate(body, "locals", |locals| {
+                        let Value::Array(locals) = locals else {
+                            panic!("locals")
+                        };
+                        locals.rotate_left(1);
+                    });
+                });
+            });
+        });
+    });
+    let response = verifier::verify(request).expect("reordered declaration verification");
+    let report = decode(&response.outputs[0].artifact.bytes).expect("report");
+    assert_eq!(
+        field(&report, "outcome"),
+        &Value::Text("accepted".to_owned())
+    );
+}

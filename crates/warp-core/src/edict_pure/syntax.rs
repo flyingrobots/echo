@@ -136,6 +136,21 @@ impl Parser<'_> {
                 value: Box::new(self.expr(value, depth + 1)?),
             });
         }
+        if callee == "core.bytes.slice" {
+            let ([value, start, end], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteSlice {
+                min,
+                max,
+                value: Box::new(self.expr(value, depth + 1)?),
+                start: Box::new(self.expr(start, depth + 1)?),
+                end: Box::new(self.expr(end, depth + 1)?),
+            });
+        }
         if callee == "core.integer.subtract" {
             let ([left, right], [width]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);

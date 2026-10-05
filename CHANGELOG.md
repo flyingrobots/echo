@@ -89,6 +89,11 @@
 
 ### Added
 
+- Bounded pure evaluation supports generic `core.bytes.slice` with half-open
+  U64 ranges, runtime byte/range validation, and deterministic selected-byte
+  work and storage charges before copying. Raw and empty byte slices work
+  without application-specific dispatch or text interpretation.
+
 - Trusted-host private evaluation of pinned bounded-read packages over an
   immutable frontier and explicit node aperture. Reads and ordered guards
   enforce typed obstructions and intersected host/package budgets without

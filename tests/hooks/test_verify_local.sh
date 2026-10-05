@@ -1537,7 +1537,7 @@ else
 fi
 
 # Every feature-gated Edict operation must be selected with its runtime enabled.
-for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_node_read_tests:edict-node-read; do
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice edict_node_read_tests:edict-node-read; do
   target="${entry%%:*}"
   fixture="${entry#*:}"
   for mode in pre-push full; do
@@ -1550,7 +1550,9 @@ for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_
     fi
   done
 
-  for changed in crates/warp-core/src/edict_pure/syntax.rs "crates/warp-core/tests/fixtures/$fixture/ReplaceRange.edict"; do
+  source_file=ReplaceRange.edict
+  [[ "$target" != edict_byte_slice_tests ]] || source_file=LeafSlice.edict
+  for changed in crates/warp-core/src/edict_pure/syntax.rs "crates/warp-core/tests/fixtures/$fixture/$source_file"; do
     pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
     if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then
       pass "full verification selects $target for $changed"
@@ -1568,6 +1570,14 @@ for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_
     fi
   done
 done
+
+slice_helper_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full crates/warp-core/tests/support/edict_byte_slice.rs)"
+if printf '%s\n' "$slice_helper_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_byte_slice_tests'; then
+  pass "byte-slice helper changes select the feature-enabled owning test"
+else
+  fail "byte-slice helper changes should select the feature-enabled owning test"
+  printf '%s\n' "$slice_helper_output"
+fi
 
 for changed in crates/warp-core/src/edict_read.rs crates/warp-core/src/edict_read/evaluate.rs; do
   read_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"

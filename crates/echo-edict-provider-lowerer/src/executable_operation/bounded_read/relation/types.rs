@@ -95,14 +95,15 @@ impl<'a> Scope<'a> {
             .checked_sub(1)
             .ok_or_else(invalid)?;
         self.remaining_type_work.set(remaining);
-        if let Some(width) = coordinate.strip_prefix('U') {
-            return match width {
-                "8" => Ok(ReadType::Unsigned(u8::MAX.into())),
-                "16" => Ok(ReadType::Unsigned(u16::MAX.into())),
-                "32" => Ok(ReadType::Unsigned(u32::MAX.into())),
-                "64" => Ok(ReadType::Unsigned(u64::MAX)),
-                _ => Err(invalid()),
-            };
+        let word = match coordinate {
+            "U8" => Some(u64::from(u8::MAX)),
+            "U16" => Some(u64::from(u16::MAX)),
+            "U32" => Some(u64::from(u32::MAX)),
+            "U64" => Some(u64::MAX),
+            _ => None,
+        };
+        if let Some(max) = word {
+            return Ok(ReadType::Unsigned(max));
         }
         if let Some(spec) = coordinate
             .strip_prefix("Bytes<")
@@ -274,4 +275,57 @@ fn canonical_number(value: &str) -> Result<u64, ProviderRefusalV1> {
         return Err(invalid());
     }
     Ok(number)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+        Value::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (Value::Text(key.to_owned()), value))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn named_types_starting_with_u_are_not_unsigned_widths() {
+        let core = map([
+            ("coordinate", Value::Text("Ucorp.data@1".to_owned())),
+            (
+                "types",
+                map([(
+                    "UserBytes",
+                    map([
+                        ("kind", Value::Text("Bytes".to_owned())),
+                        ("max", Value::Integer(32)),
+                    ]),
+                )]),
+            ),
+        ]);
+        let scope = Scope {
+            core: &core,
+            inventory: BTreeMap::new(),
+            available: BTreeMap::new(),
+            used: BTreeSet::new(),
+            input: &core,
+            remaining_type_work: Cell::new(65_536),
+        };
+        for name in ["UserBytes", "Ucorp.data@1.UserBytes"] {
+            assert_eq!(scope.ty(name), Ok(ReadType::Bytes(0, 32)), "{name}");
+        }
+        for (name, max) in [
+            ("U8", u64::from(u8::MAX)),
+            ("U16", u64::from(u16::MAX)),
+            ("U32", u64::from(u32::MAX)),
+            ("U64", u64::MAX),
+        ] {
+            assert_eq!(scope.ty(name), Ok(ReadType::Unsigned(max)), "{name}");
+        }
+        for name in ["U0", "U128", "Ucorp.data@1.Unknown"] {
+            assert!(scope.ty(name).is_err(), "{name}");
+        }
+    }
 }

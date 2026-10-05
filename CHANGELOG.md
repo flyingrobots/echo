@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
+  Named structural types starting with `U` now reach ordinary type lookup, as
+  they already do in independent verification and runtime parsing.
+
 - Private read evaluation identifies the input by its verified `arg.0` identity.
   Reordering a package's local declarations no longer changes input selection.
 

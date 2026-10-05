@@ -15,7 +15,7 @@ pub(crate) struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn enter(&mut self, depth: usize) -> Result<(), Error> {
+    pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
         }
@@ -196,10 +196,14 @@ impl Parser<'_> {
                 right: Box::new(self.expr(right, depth + 1)?),
             });
         }
-        if !args.is_empty() || !types.is_empty() {
+        if !types.is_empty() {
             return Err(Error::UnsupportedProgram);
         }
-        Ok(Expr::Call(callee.to_owned()))
+        let args = args
+            .iter()
+            .map(|value| self.expr(value, depth + 1))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Expr::Call(callee.to_owned(), args))
     }
 
     pub fn predicate(&mut self, value: &Value, depth: usize) -> Result<Predicate, Error> {

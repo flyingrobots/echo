@@ -185,14 +185,15 @@ clock, native callback, or WAL access and produces no Tick or Receipt.
 The interpreter implements the generic subset demanded by the first real
 compiler witness: unsigned integer constants, records, locals, field access,
 integer equality and ordering, bounded byte equality, lazy conditionals, and
-zero-argument authored pure helpers, plus `core.integer.subtract<U32/U64>` with
-two operands. Subtraction
+source-owned pure functions with ordered parameters and local bindings,
+separately authenticated zero-argument imported helpers, and
+`core.integer.subtract<U32/U64>` with two operands. Subtraction
 validates both values against the declared unsigned width and refuses underflow
 with `InvalidArtifact`; it never wraps or saturates. Operands and the result
 use the ordinary execution meter. The compiler and target verifier own static
 totality evidence; the interpreter additionally checks runtime values even when
-the supplied package pin matches. Calls resolve opaque lawpack coordinates to retained Edict bodies
-with separate lexical scope. No application coordinate selects a native
+the supplied package pin matches. Calls resolve opaque source or lawpack
+coordinates to retained Edict bodies with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
@@ -250,6 +251,70 @@ Package and input decoding have separate host byte apertures capped at 16 MiB,
 the canonical decoder's node limit, and a 64-level interpreter depth limit.
 Syntax and type expansion share a 65,536-node decode budget. Decode and code
 storage are bounded by those admission apertures, outside execution accounting.
+
+Source functions remain authoritative in `Core.functions`; Target IR retains
+calls to their fully qualified coordinates. Both pure and bounded-read providers
+validate the complete source/imported function closure, including unused
+functions. The lowerer derives a forward judgment, while the independent
+verifier audits dependency summaries and lexical frames before checking the
+Core/Target relation. Rebinding artifact hashes does not establish that relation.
+Unknown or colliding function names, wrong argument types or arity, generic
+calls, cycles, undeclared or duplicate locals, forward local references, and
+caller-local captures reject. Imported functions cannot refer back to
+source-owned functions. The imported subset remains zero-argument bodies without
+local bindings.
+
+Each call evaluates every argument once, from left to right in the caller's
+frame, including unused arguments. Validated argument values move into a fresh
+parameter-only frame. Ordered local bindings and the return value are validated
+there. Parameter reads incur their ordinary copy charges. The operation shares
+one cumulative execution meter across arguments, nested calls, bindings and
+returns; returning from a frame does not refund allocation charges. Conditional
+branches are checked during admission, but only the selected branch executes.
+Read instructions obtain opaque atom bytes before passing ordinary values to a
+pure helper; helpers gain no read or mutation authority.
+
+The pure profile retains an optional authored basis and checks any present
+expression under the input-only scope, including call signatures and combined
+depth. `basis none` omits the canonical field; a present null rejects. Private
+pure evaluation does not resolve, execute or charge that basis, so valid basis
+helpers do not change its result or runtime counters. The bounded-read profile
+executes and charges its basis expression as part of the operation. This is a
+target-profile distinction, not permission to retain malformed basis authority.
+
+The source-function target subset supports unsigned words, bounded bytes,
+records and nominal representations, with U32/U64 integer literals. Boolean,
+string, list, variant and effectful helper forms receive provider refusal.
+For modules containing source functions, partial subtraction and slicing need
+literal evidence sufficient for totality: ordered unsigned operands, or ordered
+U64 slice offsets within the operand's guaranteed minimum length. Caller
+`where` constraints are not inherited into helper frames. Function-free legacy
+fixtures retain their existing admission and runtime behavior.
+
+Source-function admission derives conservative bounds for the whole operation:
+input validation and materialization, every argument and call occurrence,
+ordered bindings, parameter and return checks, predicate and byte work,
+bounded reads, output validation, and encoding scratch. Branch bounds take
+the maximum after predicate work. Checked arithmetic rejects overflow, and
+shared dependency summaries do not deduplicate repeated execution. A declared
+step, allocation or output ceiling below the derived bound rejects before
+package acceptance; tighter host ceilings can still refuse an evaluation.
+
+The combined interpreter aperture is 64 levels across surrounding expressions,
+predicates and calls, including nested parameter, binding and return validation.
+Admission checks every source and imported suffix independently of traversal
+order. This is stricter than Edict's separate 128-source-helper compiler limit;
+that compiler limit does not promise 128-frame Echo execution. Syntax and type
+expansion remain bounded separately from runtime value materialization.
+
+The native
+[`edict_source_functions_tests.rs`](../../crates/warp-core/tests/edict_source_functions_tests.rs)
+uses deliberately rebound test-owned packages to check fresh frames, argument
+order and single evaluation, cumulative fixed-cost oracles, lazy branches,
+combined depth, malformed authority, and a real stored atom passed to a helper.
+These synthetic boundary controls establish no public compiler or release
+provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
+local affected-test routing select the same feature explicitly.
 
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
@@ -340,9 +405,12 @@ selects the original publication.
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
-pure packages as effectful programs. Its current expression subset covers
-locals, record construction/selection, byte equality, and unsigned equality or
-ordering guards. Reads select opaque atom bytes by WARP/node/expected-type IDs.
+pure packages as effectful programs. Its expression subset includes typed
+source/imported helper calls, U32/U64 constants, lazy conditionals, byte length
+and concatenation, locals, record construction/selection, byte equality, and
+unsigned equality or ordering guards. The source-function totality and resource
+rules above also apply to this route. Reads select opaque atom bytes by
+WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
 and result, with exact imported read signatures and scoped local identities.
 The package retains source, Core, Target IR, exports, lawpack, adapter,
@@ -521,7 +589,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 40-file package-local carrier tree
+The publishable Rust crate uses a separate 42-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

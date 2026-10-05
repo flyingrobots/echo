@@ -338,7 +338,15 @@ proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact 40-file publication carrier for
+The [source-function contract publication](contracts/source-functions-v1/README.md)
+is selected explicitly through `ProviderContractPublicationV1::SourceFunctions`.
+It preserves the existing pure-binding and ordered publication bytes and does
+not change the default checked generation route. Its candidate generator uses
+the same artifact/provenance/package admission libraries with the selected new
+pair and the refreshed checked component carriers. Source-owned call authority
+and runtime capability still require independent provider validation.
+
+The crate-local `assets/v1/` tree is an exact 42-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 20-file source
 closure, including the provider-generic registry implementation. Carrier paths

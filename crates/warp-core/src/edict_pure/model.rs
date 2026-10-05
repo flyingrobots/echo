@@ -17,7 +17,7 @@ pub(crate) enum Expr {
     Field(Box<Expr>, String),
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
-    Call(String),
+    Call(String, Vec<Expr>),
     ByteLength {
         min: u64,
         max: u64,
@@ -58,6 +58,7 @@ pub(crate) enum Comparison {
     LessOrEqual,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeType {
     Unsigned(u64),
     Bytes { min: u64, max: u64 },
@@ -70,7 +71,15 @@ pub(crate) struct Binding {
     pub value: Expr,
 }
 
+pub(crate) struct Parameter {
+    pub id: String,
+    pub ty: RuntimeType,
+}
+
 pub(crate) struct Helper {
+    pub source_owned: bool,
+    pub params: Vec<Parameter>,
+    pub bindings: Vec<Binding>,
     pub result: Expr,
     pub ty: RuntimeType,
 }

@@ -31,6 +31,12 @@ impl Schema {
             (Self::Bytes { lower, upper }, Self::Bytes { lower: a, upper: b }) => {
                 lower <= a && b <= upper
             }
+            (Self::Row(expected), Self::Row(actual)) => {
+                expected.len() == actual.len()
+                    && expected
+                        .iter()
+                        .all(|(name, ty)| actual.get(name).is_some_and(|value| ty.includes(value)))
+            }
             _ => self == actual,
         }
     }
@@ -38,6 +44,7 @@ impl Schema {
 
 pub(super) struct Symbols<'a> {
     core: &'a Value,
+    exports: &'a Value,
     declared: BTreeMap<String, Value>,
     live: BTreeSet<String>,
     claimed: BTreeSet<String>,
@@ -45,7 +52,12 @@ pub(super) struct Symbols<'a> {
 }
 
 impl<'a> Symbols<'a> {
-    pub(super) fn new(core: &'a Value, declarations: &[Value], input: &str) -> Check<Self> {
+    pub(super) fn new(
+        core: &'a Value,
+        exports: &'a Value,
+        declarations: &[Value],
+        input: &str,
+    ) -> Check<Self> {
         let mut declared = BTreeMap::new();
         for declaration in declarations {
             exact(declaration, &["id", "type", "alphaName"])?;
@@ -63,6 +75,7 @@ impl<'a> Symbols<'a> {
         }
         let mut symbols = Self {
             core,
+            exports,
             declared,
             live: BTreeSet::from(["arg.0".to_owned()]),
             claimed: BTreeSet::from(["arg.0".to_owned()]),
@@ -109,6 +122,16 @@ impl<'a> Symbols<'a> {
                     upper: decimal(value)?,
                 });
             }
+            if let Some((left, right)) = bound
+                .strip_prefix("min=")
+                .and_then(|value| value.split_once(",max="))
+            {
+                let lower = decimal(left)?;
+                let upper = decimal(right)?;
+                if lower < upper {
+                    return Ok(Schema::Bytes { lower, upper });
+                }
+            }
             return Err(());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
@@ -129,6 +152,7 @@ impl<'a> Symbols<'a> {
                 Ok(Schema::Bytes { lower, upper })
             }
             "Int" => self.schema(text(value, "width")?, depth + 1),
+            "Nominal" => self.schema(text(value, "representation")?, depth + 1),
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (key, value) in members(get(value, "fields")?)? {
@@ -200,17 +224,121 @@ impl<'a> Symbols<'a> {
                 }
                 Ok(Schema::Row(fields))
             }
+            "const" => {
+                exact(value, &["kind", "value"])?;
+                let literal = get(value, "value")?;
+                exact(literal, &["kind", "value", "width"])?;
+                let width = text(literal, "width")?;
+                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                    return Err(());
+                }
+                let Schema::Word(max) = self.schema(width, 0)? else {
+                    return Err(());
+                };
+                if number(get(literal, "value")?)? > max {
+                    return Err(());
+                }
+                Ok(Schema::Word(max))
+            }
+            "if" => {
+                exact(value, &["kind", "predicate", "then", "else"])?;
+                self.predicate_at(get(value, "predicate")?, depth + 1)?;
+                let yes = self.expression(get(value, "then")?, depth + 1)?;
+                let no = self.expression(get(value, "else")?, depth + 1)?;
+                match (yes, no) {
+                    (
+                        Schema::Bytes { lower: a, upper: b },
+                        Schema::Bytes { lower: c, upper: d },
+                    ) => Ok(Schema::Bytes {
+                        lower: a.min(c),
+                        upper: b.max(d),
+                    }),
+                    (a, b) if a == b => Ok(a),
+                    _ => Err(()),
+                }
+            }
+            "call" => self.call(value, depth),
+            _ => Err(()),
+        }
+    }
+
+    fn call(&mut self, value: &Value, depth: usize) -> Check<Schema> {
+        exact(value, &["kind", "callee", "args", "typeArgs"])?;
+        let name = text(value, "callee")?;
+        let args = super::sequence(value, "args")?;
+        let types = super::sequence(value, "typeArgs")?;
+        let mut actual = Vec::new();
+        for argument in args {
+            actual.push(self.expression(argument, depth + 1)?);
+        }
+        let core = self.core;
+        let prefix = format!("{}.", text(core, "coordinate")?);
+        if let Some(member) = name.strip_prefix(&prefix) {
+            let definition = get(get(core, "functions")?, member)?;
+            let parameters = super::sequence(definition, "params")?;
+            if !types.is_empty() || actual.len() != parameters.len() {
+                return Err(());
+            }
+            for (parameter, argument) in parameters.iter().zip(&actual) {
+                if !self.schema(text(parameter, "type")?, 0)?.includes(argument) {
+                    return Err(());
+                }
+            }
+            return self.schema(text(definition, "returnType")?, 0);
+        }
+        let exports = self.exports;
+        if let Some(function) = super::sequence(exports, "pureFunctions")?
+            .iter()
+            .find(|function| text(function, "coordinate") == Ok(name))
+        {
+            if !types.is_empty()
+                || !args.is_empty()
+                || !super::sequence(function, "parameterTypes")?.is_empty()
+            {
+                return Err(());
+            }
+            return self.schema(text(function, "returnType")?, 0);
+        }
+        let mut declared = Vec::new();
+        for coordinate in types {
+            declared.push(self.schema(string(coordinate)?, 0)?);
+        }
+        match (name, actual.as_slice(), declared.as_slice()) {
+            ("core.bytes.length", [actual], [expected @ Schema::Bytes { .. }])
+                if expected.includes(actual) =>
+            {
+                Ok(Schema::Word(u64::MAX))
+            }
+            (
+                "core.bytes.concat",
+                [left, right],
+                [a @ Schema::Bytes {
+                    lower: a_min,
+                    upper: a_max,
+                }, b @ Schema::Bytes {
+                    lower: b_min,
+                    upper: b_max,
+                }],
+            ) if a.includes(left) && b.includes(right) => Ok(Schema::Bytes {
+                lower: a_min.checked_add(*b_min).ok_or(())?,
+                upper: a_max.checked_add(*b_max).ok_or(())?,
+            }),
             _ => Err(()),
         }
     }
 
     pub(super) fn predicate(&mut self, value: &Value) -> Check<()> {
+        self.predicate_at(value, 0)
+    }
+
+    fn predicate_at(&mut self, value: &Value, depth: usize) -> Check<()> {
+        self.charge(depth)?;
         exact(value, &["kind", "op", "left", "right"])?;
         if text(value, "kind")? != "compare" {
             return Err(());
         }
-        let left = self.expression(get(value, "left")?, 0)?;
-        let right = self.expression(get(value, "right")?, 0)?;
+        let left = self.expression(get(value, "left")?, depth + 1)?;
+        let right = self.expression(get(value, "right")?, depth + 1)?;
         match (text(value, "op")?, left, right) {
             ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
             ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),

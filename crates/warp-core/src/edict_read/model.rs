@@ -2,7 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use super::ReadLimits;
 pub(super) use crate::edict_pure::model::MAX_ARTIFACT_BYTES;
-use crate::edict_pure::model::{Expr, Predicate, RuntimeType};
+use crate::edict_pure::model::{Expr, Helper, Predicate, RuntimeType};
+use std::collections::BTreeMap;
 
 pub(super) struct ReadInstruction {
     pub binding: String,
@@ -36,5 +37,6 @@ pub(super) struct Program {
     pub constraints: Vec<(String, Predicate)>,
     pub instructions: Vec<Instruction>,
     pub result: Expr,
+    pub helpers: BTreeMap<String, Helper>,
     pub limits: ReadLimits,
 }

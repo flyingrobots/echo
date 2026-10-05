@@ -89,6 +89,12 @@
 
 ### Added
 
+- Generic source-owned Edict functions execute through both private pure and
+  bounded-read evaluation with fresh lexical frames, ordered argument evaluation,
+  ordered local bindings, and one cumulative budget. Independent provider
+  judgments validate the complete source/imported closure, supported types,
+  totality, combined runtime depth, and conservative whole-operation costs.
+
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and
   result storage charged before allocation/copy. Application names and text

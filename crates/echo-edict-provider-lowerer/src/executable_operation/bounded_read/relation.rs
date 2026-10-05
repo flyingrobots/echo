@@ -84,7 +84,12 @@ impl ReadRelation<'_> {
         }
         let body = field(intent, "body")?;
         require_exact_fields(body, &["locals", "nodes", "result"], SUBJECT)?;
-        let mut scope = Scope::new(self.core, array(body, "locals")?, text(intent, "input")?)?;
+        let mut scope = Scope::new(
+            self.core,
+            self.exports,
+            array(body, "locals")?,
+            text(intent, "input")?,
+        )?;
         if scope.expression(field(intent, "basis")?, 0)? != ReadType::Bytes(32, 32) {
             return Err(invalid());
         }

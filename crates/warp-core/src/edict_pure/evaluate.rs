@@ -204,10 +204,25 @@ pub(crate) fn expression(
             };
             expression(branch, locals, helpers, meter, depth + 1)
         }
-        Expr::Call(name) => {
+        Expr::Call(name, args) => {
             let helper = helpers.get(name).ok_or(Error::UnsupportedProgram)?;
-            // A helper has its own lexical scope, never the caller's local bindings.
-            let value = expression(&helper.result, &BTreeMap::new(), helpers, meter, depth + 1)?;
+            if args.len() != helper.params.len() {
+                return Err(Error::InvalidArtifact);
+            }
+            // Arguments run once, left to right in the caller's frame. Move each
+            // value into the fresh frame; later local reads charge their own copies.
+            let mut frame = BTreeMap::new();
+            for (argument, parameter) in args.iter().zip(&helper.params) {
+                let value = expression(argument, locals, helpers, meter, depth + 1)?;
+                validate(&value, &parameter.ty, meter, depth + 1)?;
+                frame.insert(parameter.id.clone(), value);
+            }
+            for binding in &helper.bindings {
+                let value = expression(&binding.value, &frame, helpers, meter, depth + 1)?;
+                validate(&value, &binding.ty, meter, depth + 1)?;
+                frame.insert(binding.id.clone(), value);
+            }
+            let value = expression(&helper.result, &frame, helpers, meter, depth + 1)?;
             validate(&value, &helper.ty, meter, depth + 1)?;
             Ok(value)
         }

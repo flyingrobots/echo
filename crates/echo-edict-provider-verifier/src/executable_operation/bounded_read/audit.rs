@@ -26,17 +26,19 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     {
         return Err(());
     }
-    exact(
-        &e.core,
-        &[
-            "apiVersion",
-            "coordinate",
-            "imports",
-            "types",
-            "intents",
-            "requiredCoreCapabilities",
-        ],
-    )?;
+    let mut fields = vec![
+        "apiVersion",
+        "coordinate",
+        "imports",
+        "types",
+        "intents",
+        "requiredCoreCapabilities",
+    ];
+    if super::map_field(&e.core, "functions").is_some() {
+        fields.push("functions");
+    }
+    exact(&e.core, &fields)?;
+    super::super::source_functions::validate(&e.core, &e.exports, true).map_err(|_| ())?;
     if text(&e.core, "apiVersion")? != "edict.core/v1"
         || text(&e.core, "coordinate")? != e.request.core.reference.coordinate
         || !sequence(&e.core, "requiredCoreCapabilities")?.is_empty()
@@ -150,7 +152,12 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
     )?;
     let body = get(intent, "body")?;
     exact(body, &["locals", "nodes", "result"])?;
-    let mut symbols = Symbols::new(&e.core, sequence(body, "locals")?, text(intent, "input")?)?;
+    let mut symbols = Symbols::new(
+        &e.core,
+        &e.exports,
+        sequence(body, "locals")?,
+        text(intent, "input")?,
+    )?;
     if symbols.expression(get(target, "basis")?, 0)?
         != (Schema::Bytes {
             lower: 32,

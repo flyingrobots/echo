@@ -568,3 +568,6 @@ fn lowerer_source_function_names_cannot_shadow_imported_read_effects() {
 fn verifier_source_function_names_cannot_shadow_imported_read_effects() {
     assert_rejected(collision_verification());
 }
+
+#[path = "imported_calls.rs"]
+mod imported_calls;

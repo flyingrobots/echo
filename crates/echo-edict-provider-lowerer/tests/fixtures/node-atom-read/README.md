@@ -27,8 +27,9 @@ build.** At capture time the ordered-schema candidate rejected configuration
 at `05-target-configuration`. No executable package or accepted verifier report
 was captured here. The separate `bounded-read-publication` Docker witness now
 compiles this authored source through unmodified Edict and the promoted
-components. Runtime execution remains open under Echo #740. Frozen Jim
-application pins and historical WIP remain unchanged.
+components. Trusted-host private evaluation is implemented by the bounded-read
+runtime. Admission, Tick, WAL, and receipts remain outside this fixture and
+evaluator. Frozen Jim application pins and historical WIP remain unchanged.
 
 | Artifact | Bytes | Raw SHA-256 |
 | --- | ---: | --- |

@@ -12,8 +12,10 @@ semantics. Lawpack, adapter, exports, configuration, and target profile bytes
 are identical to the parent fixture. The native test replaces only the four
 changed compiler artifacts below.
 
-Like the parent capture, the public build refuses the unpublished configuration;
-this is not independently verified executable or runtime evidence.
+These bytes retain diagnostic capture provenance. The separate
+`bounded-read-publication` witness compiles this paired source through the public
+compiler and promoted provider; the runtime witness consumes its fresh outputs.
+This capture alone is not independently verified executable or runtime evidence.
 
 | Artifact | Bytes | Raw SHA-256 |
 | --- | ---: | --- |

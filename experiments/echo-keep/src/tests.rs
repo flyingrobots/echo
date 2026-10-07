@@ -166,3 +166,31 @@ fn complete_binding_budget_preflight_does_not_read_source() -> Result<(), Identi
     ));
     Ok(())
 }
+
+#[test]
+fn identity_reader_stops_at_one_overlength_probe() -> Result<(), IdentityError> {
+    struct Endless {
+        consumed: usize,
+    }
+    impl Read for Endless {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            bytes.fill(97);
+            self.consumed += bytes.len();
+            Ok(bytes.len())
+        }
+    }
+    let binding = IdentityBinding::from_source(&mut Cursor::new(b"aaa"), 3)?;
+    let mut source = Endless { consumed: 0 };
+    assert!(matches!(
+        binding.verify_source(&mut source, 32),
+        Err(IdentityError::Mismatch)
+    ));
+    assert_eq!(source.consumed, 4);
+    let mut source = Endless { consumed: 0 };
+    assert!(matches!(
+        IdentityBinding::from_source(&mut source, 1),
+        Err(IdentityError::ResourceLimit)
+    ));
+    assert_eq!(source.consumed, 2);
+    Ok(())
+}

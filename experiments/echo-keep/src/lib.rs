@@ -46,7 +46,8 @@ impl IdentityBinding {
     /// Computes both independent laws from one bounded, non-materializing stream.
     ///
     /// Interrupted reads are retried. EOF seals the binding. The limit applies
-    /// to accepted source bytes, with one fixed 8 KiB read buffer.
+    /// to accepted source bytes, with one fixed 8 KiB read buffer. Reads request
+    /// at most the remaining allowance plus one overlength probe.
     ///
     /// # Errors
     /// Returns an operational error or resource refusal without a binding.
@@ -56,13 +57,18 @@ impl IdentityBinding {
         let mut length = 0_u64;
         let mut buffer = [0_u8; 8192];
         loop {
-            let count = match source.read(&mut buffer) {
+            let remaining = byte_limit - length;
+            let request = usize::try_from(remaining.saturating_add(1))
+                .unwrap_or(usize::MAX)
+                .min(buffer.len());
+            let window = &mut buffer[..request];
+            let count = match source.read(window) {
                 Ok(0) => break,
                 Ok(count) => count,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error.into()),
             };
-            let bytes = buffer.get(..count).ok_or(IdentityError::InvalidReadCount)?;
+            let bytes = window.get(..count).ok_or(IdentityError::InvalidReadCount)?;
             let incoming = u64::try_from(count).map_err(|_| IdentityError::ResourceLimit)?;
             length = length
                 .checked_add(incoming)
@@ -103,7 +109,7 @@ impl IdentityBinding {
         if byte_limit < self.length {
             return Err(IdentityError::ResourceLimit);
         }
-        let observed = match Self::from_source(source, byte_limit) {
+        let observed = match Self::from_source(source, self.length) {
             Err(IdentityError::ResourceLimit) => return Err(IdentityError::Mismatch),
             result => result?,
         };

@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
+
 - Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
 
 - The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.

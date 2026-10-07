@@ -107,6 +107,50 @@ get_header_content() {
   esac
 }
 
+# Only complete HTML license/copyright comments belong to a Markdown header.
+MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier[^<>]*-->[[:space:]]*$'
+MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross([[:space:]]([^-]|-[^-])*)?-->[[:space:]]*$'
+
+markdown_metadata_bounds() {
+  awk '
+    function map_key(line, quote) {
+      quote = sprintf("%c", 39)
+      trimmed = line
+      sub(/^[[:space:]]*/, "", trimmed)
+      if (substr(trimmed, 1, 1) == "\"") return trimmed ~ /^".*"[[:space:]]*:([[:space:]]|$)/
+      if (substr(trimmed, 1, 1) == quote) return trimmed ~ ("^" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
+      return trimmed ~ /.+:([[:space:]]|$)/
+    }
+    function metadata_hint(line, first_char) {
+      sub(/^[[:space:]]*/, "", line)
+      first_char = substr(line, 1, 1)
+      return map_key(line) || line ~ /^\?[[:space:]]/ || line ~ /^-([[:space:]]|$)/ || first_char == "[" || first_char == "{"
+    }
+    {
+      parsed = $0
+      sub(/\r$/, "", parsed)
+      if (parsed ~ /^---[[:blank:]]*$/) parsed = "---"
+      lines[NR] = parsed
+    }
+    END {
+      # Delimiters at line one declare the author-selected metadata aperture.
+      # Licensed body sections are ambiguous and are never relocated.
+      if (lines[1] != "---") { print 0, 0; exit }
+      # A complete line-one delimiter block is metadata; YAML grammar belongs
+      # to its consumer. Original delimiter and payload bytes are preserved.
+      for (i = 2; i <= NR; i++) {
+        if (lines[i] == "---") { print 1, i; exit }
+      }
+      first = 2
+      while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
+      if (first > NR || !metadata_hint(lines[first])) {
+        print 0, 0; exit
+      }
+      print 1, 0
+    }
+  ' "$1"
+}
+
 check_valid_header() {
   local f="$1"
   local expected_header_block="$2" # This is a multi-line string like "# SPDX...\n# ©..."
@@ -114,6 +158,7 @@ check_valid_header() {
   local file_lines=()
   # Read file line by line, handling newlines properly
   while IFS= read -r line; do
+    if [[ "$f" == *.md ]]; then line="${line%$'\r'}"; fi
     file_lines+=("$line")
   done < "$f"
 
@@ -123,6 +168,15 @@ check_valid_header() {
   # Skip shebang/xml if present
   if [[ "$first_line_in_file" =~ ^#! || "$first_line_in_file" =~ ^\<\?xml ]]; then
       i=1
+  fi
+
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -gt 0 ]]; then
+      if [[ "$metadata_end" -eq 0 ]]; then return 1; fi
+      i=$metadata_end
+    fi
   fi
 
   # Extract the lines from expected_header_block
@@ -140,7 +194,19 @@ check_valid_header() {
 
   # Compare line by line
   if [[ "${file_lines[i]:-}" == "${expected_lines[0]}" && "${file_lines[i+1]:-}" == "${expected_lines[1]}" ]]; then
-      return 0 # Exact header found
+      if [[ "$f" == *.md ]]; then
+        # Reject a conflicting declaration in the same bounded header region.
+        awk -v first="$((i + 3))" -v last="$((i + 15))" \
+          -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+          NR < first { next }
+          NR > last { exit }
+          /^[[:space:]]*$/ { next }
+          $0 ~ license_re || $0 ~ copyright_re { duplicate = 1; exit }
+          { exit }
+          END { exit duplicate ? 1 : 0 }
+        ' "$f" || return 1
+      fi
+      return 0 # Exact unique header found
   fi
   return 1
 }
@@ -167,22 +233,45 @@ strip_existing_headers() {
   local temp_file
   temp_file=$(mktemp)
   
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    awk -v metadata_start="$metadata_start" -v metadata_end="$metadata_end" \
+        -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+      BEGIN { header_active = 1 }
+      {
+        # The bounds helper admits only header comments and whitespace here.
+        if (metadata_start > 0 && NR <= metadata_end) { print; next }
+        if (header_active) {
+          if (NR > metadata_end + 15) header_active = 0
+          else if ($0 ~ license_re || $0 ~ copyright_re) next
+          else if ($0 !~ /^[[:space:]]*$/) header_active = 0
+        }
+        print
+      }
+    ' "$f" > "$temp_file"
+    cat "$temp_file" > "$f"
+    rm "$temp_file"
+    return
+  fi
+
   # Use AWK to filter out lines in the first 15 lines that match SPDX/Copyright patterns.
   # This effectively removes "bad" headers or "wrong license" headers.
   # We preserve shebangs because they typically don't match the pattern.
   
-  awk '
+  awk -v header_start=0 '
     BEGIN { header_block_active = 1; line_num = 0 }
     {
       line_num++;
+      if (line_num <= header_start) { print; next; }
       if (header_block_active) {
         # Once we pass line 15, we are out of the header block.
-        if (line_num > 15) { header_block_active = 0; }
+        if (line_num > header_start + 15) { header_block_active = 0; }
 
         # If it is not a SPDX/Copyright line, and it is not a shebang/xml declaration,
         # then we are likely past the header block.
         # This condition is crucial for `in_header_block` to become 0.
-        if (line_num > 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
+        if (line_num > header_start + 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
           header_block_active = 0;
         }
 
@@ -213,23 +302,58 @@ insert_header() {
   
   local first_line
   first_line=$(head -n 1 "$f" || true)
+  local header_cr=""
+  if [[ "$f" == *.md && "$first_line" == *$'\r' ]]; then
+    header_cr=$'\r'
+    header="${header//$'\n'/$'\r\n'}"
+  fi
   
-  # Logic to insert header AFTER shebang/xml declaration if present
-  if [[ "$first_line" =~ ^#! ]]; then
+  # Keep complete Markdown metadata ahead of the license in repair mode too.
+  local metadata_lines=""
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -eq 1 && "$metadata_end" -gt 0 ]]; then
+      metadata_lines="$metadata_end"
+    fi
+  fi
+
+  # Logic to insert header AFTER metadata/shebang/xml declaration if present
+  if [[ -n "$metadata_lines" ]]; then
+    head -n "$metadata_lines" "$f" > "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
+    tail -n "+$((metadata_lines + 1))" "$f" >> "$temp_file"
+  elif [[ "$first_line" =~ ^#! ]]; then
     echo "$first_line" > "$temp_file"
-    echo "$header" >> "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
   elif [[ "$first_line" =~ ^\<\?xml ]]; then
     echo "$first_line" > "$temp_file"
-    echo "$header" >> "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
   else
-    echo "$header" > "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" > "$temp_file"
     cat "$f" >> "$temp_file"
   fi
   
   cat "$temp_file" > "$f"
   rm "$temp_file"
+}
+
+
+markdown_has_unclosed_header_attempt() {
+  local file="$1" metadata_start metadata_end
+  read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$file")"
+  awk -v first="$((metadata_end + 1))" -v last="$((metadata_end + 15))" \
+    -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+    NR < first { next }
+    NR > last { exit }
+    /^[[:space:]]*$/ { next }
+    /^<!--[[:space:]]*(SPDX-License-Identifier|© James Ross)/ && !/-->/ { malformed = 1; exit }
+    $0 ~ license_re || $0 ~ copyright_re { next }
+    { exit }
+    END { exit malformed ? 0 : 1 }
+  ' "$file"
 }
 
 process_file() {
@@ -243,6 +367,21 @@ process_file() {
   local expected_header_block
   expected_header_block=$(get_header_content "$f" "$style")
   
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -gt 0 && "$metadata_end" -eq 0 ]]; then
+      echo "[FAIL] Cannot process Markdown with unclosed frontmatter: $f"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+      return
+    fi
+    if markdown_has_unclosed_header_attempt "$f"; then
+      echo "[FAIL] Cannot process Markdown with an unclosed license header: $f"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+      return
+    fi
+  fi
+
   if check_valid_header "$f" "$expected_header_block"; then
     return 0 # Header is already perfect, nothing to do.
   fi
@@ -297,6 +436,10 @@ if [[ "$CHECK_MODE" -eq 1 ]]; then
     exit 1
   fi
 else
+  if [[ "$FAILED_COUNT" -gt 0 ]]; then
+    echo "SPDX Repair Failed: $FAILED_COUNT files could not be repaired."
+    exit 1
+  fi
   if [[ "$MODIFIED_COUNT" -gt 0 ]]; then
     echo "-------------------------------------------------------"
     echo "Repaired SPDX headers in $MODIFIED_COUNT files."

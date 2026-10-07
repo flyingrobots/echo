@@ -126,7 +126,7 @@ accepted contracts. GitHub owns change-local plans and status. Git history owns
 the exact old text.
 
 Do not check in backlogs, cycle packets, retrospectives, review transcripts,
-status ledgers, or roadmap checklists. A short checked-in redirect may remain
+status ledgers, or roadmap checklists. The user-requested Echo study-feedback ROADMAP and linked task cards are a scoped planning exception. GitHub remains their status and accepted-dependency authority. A short checked-in redirect may remain
 when an old stable path must route readers to its current owner.
 
 Historical reasoning must not masquerade as current behavior. Mark retained
@@ -162,6 +162,8 @@ State the scope and consequence, and provide a safer check or recovery route
 when one exists.
 
 ## Writing and structure
+
+Markdown frontmatter remains first. The checker treats a complete line-one `---` delimiter block (optional trailing spaces or tabs are structural) as metadata and preserves its bytes; it does not validate YAML grammar. Unclosed line-one metadata with a mapping, explicit-key, block-sequence or flow-container hint, and unclosed reserved license-header attempts, refuse repair without mutation. Other ambiguous starter text is treated as body prose; this recognizer does not certify arbitrary YAML syntax. Place the SPDX and copyright comments immediately after its closing delimiter. The license checker validates this position when metadata starts at line one. The checker does not infer metadata from licensed body sections or relocate them. Place intended legacy frontmatter manually at line one. Task-like fields, quoted values and fenced examples can also be body prose; their presence cannot establish author intent. A successful license check certifies header placement relative to recognized line-one framing, not all metadata or body semantics.
 
 - Lead with the result, decision, warning, or essential condition.
 - Prefer exact Echo terms and define unfamiliar ones at first use.

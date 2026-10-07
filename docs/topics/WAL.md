@@ -247,6 +247,10 @@ later recorded any decided receipt under host-owned WAL authority.
 
 State roots cover reachable WARP state. A detached create-if-absent cell can leave the root unchanged. The retained patch and commit bind that write. Root equality alone is not a complete recovery or no-mutation witness.
 
+Action parent-state validation indexes verification obligations by exact worldline and tick. It checks basis obligations before reconstructing composite Tick decisions. Ordered cursors reuse verified prefixes within each sweep; a second sweep checks Tick parents, including delayed and cross-worldline bases. Raw retained decision order remains authoritative. Initial-boundary, checkpoint, patch, commit, result, obstruction, and conflict checks remain required.
+
+Each validation call retains one replay cursor per needed worldline and one transient Tick simulation. Replay-patch applications stay within two history sweeps. This bounds repeated prefix work and private snapshot retention; it does not claim linear elapsed time. State hashing and Tick simulation still depend on graph size. Test-only counters measure applied patches and logical retained data without becoming causal authority.
+
 ## Recovery Postures
 
 The useful postures are:

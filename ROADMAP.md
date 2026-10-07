@@ -69,7 +69,7 @@ Echo selects Rust 1.96.0 for its toolchain and warp-core. The workspace default 
 Keep main exports `DurableStore` and fenced snapshots. Its crate documentation still states that production durable ingestion, garbage collection, and compaction are unimplemented. Thus durable reads and durable publication have different readiness.
 
 - [ ] [K01: Prove the Echo and Keep content identity bridge](tasks/K01.md) — [issue #759](https://github.com/flyingrobots/echo/issues/759)
-- [ ] [K02: Add the Echo physical-content port and existing CAS adapters](tasks/K02.md) — [issue #760](https://github.com/flyingrobots/echo/issues/760)
+- [x] [K02: Add the Echo physical-content port and existing CAS adapters](tasks/K02.md) — [issue #760](https://github.com/flyingrobots/echo/issues/760)
 - [ ] [K03: Add an experimental Keep ReferenceStore adapter](tasks/K03.md) — [issue #761](https://github.com/flyingrobots/echo/issues/761)
 - [ ] [K04: Add a pinned-generation durable Keep read adapter](tasks/K04.md)
 - [ ] [K05: Prove durable Echo and Keep publication reconciliation](tasks/K05.md)
@@ -83,7 +83,7 @@ Proposed edges: K01 → K03; K02 → K03; K03 → K04; K04 → K05; K05 → K06.
 
 No feedback repair requires Keep integration. No Keep integration task requires a feedback repair merely because both touch storage. The shared Docker worker requires serial execution, not a graph edge.
 
-The initial proposed graph has ten task vertices and five internal edges. S01, S02, S03, and S04 are complete. The remaining graph has six task vertices and five internal edges; its first layer is `{K01,K02}`. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. GitHub records #759 and #760 as blockers of #761 under container #722. Future K04–K06 edges remain proposals until their executable issues exist. Reconcile these tracker edges before execution.
+The initial proposed graph has ten task vertices and five internal edges. S01, S02, S03, S04, and K02 are complete. The remaining graph has five task vertices and four internal edges; its first layer is `{K01}`. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. GitHub records #759 and #760 as blockers of #761 under container #722. Future K04–K06 edges remain proposals until their executable issues exist. Reconcile these tracker edges before execution.
 
 The user authorized K01–K03 for this run: implement the experimental adapter first. K04–K06 remain conditional follow-on work. The initial target is experimental integration. Production adoption requires a separately reviewable accepted decision after the evidence gates pass. Keep must not become the default through an incidental dependency change.
 

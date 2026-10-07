@@ -9,7 +9,7 @@ checker=${1:-scripts/ensure_spdx.sh}
 # baseline. Selectors narrow the added regression, not this preflight. A RED
 # assertion is evidence only after the baseline passes.
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root|fenced_task|copyright_attempt|empty_yaml_id|spaced_delimiters) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root|fenced_task|copyright_attempt|empty_yaml_id|spaced_delimiters|legacy_body) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -82,20 +82,10 @@ type: Feature
 ---
 # Task
 DOC
-if bash "$checker" --check "$work/header-first.md"; then
-  echo 'displaced metadata passed' >&2
-  exit 1
-fi
-if bash "$checker" "$work/header-first.md"; then
-  echo 'metadata relocation must report a change' >&2
-  exit 1
-else
-  test "$?" = 1
-fi
+cp "$work/header-first.md" "$work/header-first.original"
 bash "$checker" --check "$work/header-first.md"
-head -n 4 "$work/valid.md" > "$work/metadata.expected"
-head -n 4 "$work/header-first.md" > "$work/metadata.actual"
-cmp "$work/metadata.expected" "$work/metadata.actual"
+bash "$checker" "$work/header-first.md"
+cmp "$work/header-first.original" "$work/header-first.md"
 fi
 if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == displaced ]]; then
 cat > "$work/displaced.md" <<'DOC'
@@ -313,10 +303,10 @@ type: "Feature"
 ---
 # Body
 DOC
-if bash "$checker" --check "$work/quoted-type.md"; then exit 1; else test "$?" = 1; fi
-if bash "$checker" "$work/quoted-type.md"; then exit 1; else test "$?" = 1; fi
+cp "$work/quoted-type.md" "$work/quoted-type.original"
 bash "$checker" --check "$work/quoted-type.md"
-test "$(head -n 1 "$work/quoted-type.md")" = '---'
+bash "$checker" "$work/quoted-type.md"
+cmp "$work/quoted-type.original" "$work/quoted-type.md"
 fi
 if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == crlf ]]; then
 printf -- '---\r\nid: S01\r\n---\r\n# Body\r\n' > "$work/crlf.md"
@@ -376,10 +366,10 @@ type: Feature # task category
 ---
 # Body
 DOC
-if bash "$checker" --check "$work/type-comment.md"; then exit 1; else test "$?" = 1; fi
-if bash "$checker" "$work/type-comment.md"; then exit 1; else test "$?" = 1; fi
+cp "$work/type-comment.md" "$work/type-comment.original"
 bash "$checker" --check "$work/type-comment.md"
-test "$(head -n 1 "$work/type-comment.md")" = '---'
+bash "$checker" "$work/type-comment.md"
+cmp "$work/type-comment.original" "$work/type-comment.md"
 fi
 
 if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == sequence_root ]]; then
@@ -479,5 +469,24 @@ for root_value in '- item' '  - item' '-' '[one, two]' '{key: value}'; do
   test "$(sed -n '4p' "$work/closed-root.md")" = '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->'
   test "$(sed -n '5p' "$work/closed-root.md")" = '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->'
 done
+fi
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == legacy_body ]]; then
+cat > "$work/legacy-body.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Note: a body section can contain task-like fields.
+id: S01
+type: Feature
+---
+Preserved body.
+DOC
+cp "$work/legacy-body.md" "$work/legacy-body.original"
+bash "$checker" --check "$work/legacy-body.md"
+bash "$checker" "$work/legacy-body.md"
+cmp "$work/legacy-body.original" "$work/legacy-body.md"
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

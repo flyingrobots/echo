@@ -112,7 +112,7 @@ MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier[^<>]*-->[[:
 MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross([[:space:]]([^-]|-[^-])*)?-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
-  awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+  awk '
     function map_key(line, quote) {
       quote = sprintf("%c", 39)
       trimmed = line
@@ -133,73 +133,20 @@ markdown_metadata_bounds() {
       lines[NR] = parsed
     }
     END {
-      start = 0
-      if (lines[1] == "---") start = 1
-      else {
-        saw_header = 0
-        for (i = 1; i <= NR; i++) {
-          if (lines[i] ~ license_re || lines[i] ~ copyright_re) { saw_header = 1; continue }
-          if (lines[i] ~ /^[[:space:]]*$/) continue
-          if (saw_header && lines[i] == "---") start = i
-          break
-        }
-      }
-      if (!start) { print 0, 0; exit }
+      # Delimiters at line one declare the author-selected metadata aperture.
+      # Licensed body sections are ambiguous and are never relocated.
+      if (lines[1] != "---") { print 0, 0; exit }
       # A complete line-one delimiter block is metadata; YAML grammar belongs
-      # to its consumer. Legacy header-first relocation still needs task keys.
-      if (start == 1) {
-        for (i = 2; i <= NR; i++) {
-          if (lines[i] == "---") { print 1, i; exit }
-        }
+      # to its consumer. Original delimiter and payload bytes are preserved.
+      for (i = 2; i <= NR; i++) {
+        if (lines[i] == "---") { print 1, i; exit }
       }
-      first = start + 1
+      first = 2
       while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
       if (first > NR || !metadata_hint(lines[first])) {
         print 0, 0; exit
       }
-      finish = 0
-      has_id = 0
-      has_type = 0
-      has_fenced_example = 0
-      for (i = start + 1; i <= NR; i++) {
-        if (lines[i] == "---") { finish = i; break }
-        # A fenced example makes a legacy candidate ambiguous. Preserve it
-        # rather than interpreting example id/type lines as live task keys.
-        if (lines[i] ~ /^[[:space:]]*```/ || lines[i] ~ /^[[:space:]]*~~~/) has_fenced_example = 1
-        if (lines[i] ~ /^id[[:space:]]*:/) {
-          id_value = lines[i]
-          sub(/^id[[:space:]]*:[[:space:]]*/, "", id_value)
-          if (id_value ~ /^#/) id_value = ""
-          sub(/[[:space:]]+#.*$/, "", id_value)
-          sub(/[[:space:]]*$/, "", id_value)
-          id_quote = substr(id_value, 1, 1)
-          if (id_quote == "\"" || id_quote == sprintf("%c", 39)) {
-            if (length(id_value) >= 2 && substr(id_value, length(id_value), 1) == id_quote) {
-              id_value = substr(id_value, 2, length(id_value) - 2)
-              if (id_value != "") has_id = 1
-            }
-          } else if (id_value != "" && tolower(id_value) != "null" && id_value != "~" && index("[]{}|>&*!", id_quote) == 0) {
-            # Only a simple nonempty scalar authorizes legacy relocation.
-            # Collections, block scalars, aliases and tags need manual placement.
-            has_id = 1
-          }
-        }
-        if (lines[i] ~ /^type[[:space:]]*:/) {
-          value = lines[i]
-          sub(/^type[[:space:]]*:[[:space:]]*/, "", value)
-          sub(/[[:space:]]+#.*$/, "", value)
-          sub(/[[:space:]]*$/, "", value)
-          quote = substr(value, 1, 1)
-          if ((quote == "\"" || quote == sprintf("%c", 39)) && substr(value, length(value), 1) == quote) {
-            value = substr(value, 2, length(value) - 2)
-          }
-          if (value ~ /^(Feature|Bug|Decision|Research|Investigation|Spike)$/) has_type = 1
-        }
-      }
-      # Only the explicit task-card schema authorizes automatic relocation.
-      # Generic body prose after a licensed header is never moved on key: alone.
-      if (start > 1 && !(has_id && has_type && !has_fenced_example)) { print 0, 0; exit }
-      print start, finish
+      print 1, 0
     }
   ' "$1"
 }
@@ -227,8 +174,7 @@ check_valid_header() {
     local metadata_start metadata_end
     read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
     if [[ "$metadata_start" -gt 0 ]]; then
-      # A header-first metadata block must move to the start in repair mode.
-      if [[ "$metadata_start" -ne 1 || "$metadata_end" -eq 0 ]]; then return 1; fi
+      if [[ "$metadata_end" -eq 0 ]]; then return 1; fi
       i=$metadata_end
     fi
   fi
@@ -295,7 +241,6 @@ strip_existing_headers() {
       BEGIN { header_active = 1 }
       {
         # The bounds helper admits only header comments and whitespace here.
-        if (metadata_start > 1 && NR < metadata_start) next
         if (metadata_start > 0 && NR <= metadata_end) { print; next }
         if (header_active) {
           if (NR > metadata_end + 15) header_active = 0

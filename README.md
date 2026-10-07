@@ -293,6 +293,8 @@ compiler-declared maximum result size is capped at 65,536 before private
 scheduler evaluation. Produced canonical result bytes are measured against that
 declared ceiling during evaluation.
 
+The built `xtask run-edict-operation` binary keeps the caller's working directory and can run outside a Git checkout. Relative artifact and WAL paths resolve from that directory. `cargo xtask` still requires a Cargo workspace. Repository maintenance commands continue to resolve paths from their Git root.
+
 ## Contracts And Boundaries
 
 Echo core is intentionally generic. Application nouns belong in authored

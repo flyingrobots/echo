@@ -27,6 +27,14 @@ impl TempRunDir {
             .expect("xtask belongs to the Echo workspace")
             .join("target")
             .join("xtask-test-tmp");
+        Self::new_in(root)
+    }
+
+    fn outside_repo() -> Self {
+        Self::new_in(std::env::temp_dir().join("echo-xtask-test"))
+    }
+
+    fn new_in(root: PathBuf) -> Self {
         fs::create_dir_all(&root).expect("the xtask fixture root is creatable");
         for _ in 0..1024 {
             let ordinal = RUN_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -140,6 +148,84 @@ fn assert_rejected(output: &Output, expected_reason: &str) {
         stderr.contains(expected_reason),
         "rejection did not name `{expected_reason}`:\n{stderr}"
     );
+}
+
+#[test]
+fn runner_accepts_absolute_artifacts_outside_git() {
+    let run_dir = TempRunDir::outside_repo();
+    let git_probe = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(run_dir.path())
+        .output()
+        .expect("the Git fixture probe starts");
+    assert!(!git_probe.status.success(), "fixture must be outside Git");
+    let output = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &fixture_path("verification-report.cbor"),
+        &fixture_path("input.json"),
+        &run_dir.path().join("wal"),
+    )
+    .current_dir(run_dir.path())
+    .output()
+    .expect("the standalone runner starts");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("runner reports JSON");
+    assert_eq!(report["recovery"]["stateRecovered"], true);
+    assert_eq!(report["state"]["valueUtf8"], "Hello Echo");
+}
+
+#[test]
+fn runner_preserves_relative_paths_in_an_unrelated_nested_repository() {
+    let run_dir = TempRunDir::outside_repo();
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(run_dir.path())
+        .status()
+        .expect("fixture Git initialization starts")
+        .success());
+    let nested = run_dir.path().join("nested");
+    fs::create_dir(&nested).expect("caller directory is creatable");
+    fs::copy(fixture_path("input.json"), nested.join("input.json")).expect("input is copied");
+    let output = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &fixture_path("verification-report.cbor"),
+        Path::new("input.json"),
+        Path::new("wal"),
+    )
+    .current_dir(&nested)
+    .output()
+    .expect("the nested runner starts");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("runner reports JSON");
+    assert_eq!(report["recovery"]["stateRecovered"], true);
+    assert!(nested.join("wal").is_dir());
+    assert!(!run_dir.path().join("wal").exists());
+}
+
+#[test]
+fn repository_commands_still_resolve_the_echo_root() {
+    let run_dir = TempRunDir::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .arg("lint-dead-refs")
+        .current_dir(run_dir.path())
+        .output()
+        .expect("repository command starts");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("all links OK"));
 }
 
 #[test]

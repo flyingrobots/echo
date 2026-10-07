@@ -128,6 +128,8 @@ prioritize:
 
 ### Runtime and provider toolchains
 
+The isolated `experiments/echo-keep` workspace requires Rust 1.96.0 and remains outside default dependency resolution. Its manifest is part of the same explicit MSRV inventory; experimental packages do not bypass the version guard.
+
 The general toolchain is Rust 1.96.0 because `bunny-num` 0.6.0 requires it.
 Numerical consumers declare MSRV 1.96.0. Independent leaves retain the workspace
 default MSRV 1.90.0; [the explicit policy](scripts/rust-msrv-policy.tsv) enumerates

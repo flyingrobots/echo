@@ -4,7 +4,7 @@
 name = "echo-keep-experimental"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.96.0"
 publish = false
 license = "Apache-2.0"
 description = "Experimental Echo physical-content adapter over Keep"

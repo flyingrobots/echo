@@ -358,9 +358,44 @@ test_standalone_host_toolchain_matches_its_policy() {
   [[ "$failures" -eq 0 ]]
 }
 
+test_rejects_unregistered_experiment() {
+  with_tmp_repo bash -c '
+    set -euo pipefail
+    mkdir -p experiments/unknown
+    cp crates/foo/Cargo.toml experiments/unknown/Cargo.toml
+    if ./scripts/check_rust_versions.sh > refusal.log 2>&1; then exit 1; fi
+    grep -q "unregistered.*experiments/unknown/Cargo.toml" refusal.log
+  '
+}
+
+test_experiment_policy_requires_exact_version() {
+  for version in 1.90.0 1.96.0; do
+    with_tmp_repo bash -c '
+      set -euo pipefail
+      sed "s/1.90.0/1.96.0/" rust-toolchain.toml > replacement
+      mv replacement rust-toolchain.toml
+      sed "s/toolchain 1.90.0/toolchain 1.96.0/" scripts/rust-msrv-policy.tsv > replacement
+      mv replacement scripts/rust-msrv-policy.tsv
+      mkdir -p experiments/example
+      cp crates/foo/Cargo.toml experiments/example/Cargo.toml
+      sed "s/1.90.0/$1/" experiments/example/Cargo.toml > replacement
+      mv replacement experiments/example/Cargo.toml
+      printf "%s\n" "experiments/example/Cargo.toml 1.96.0" >> scripts/rust-msrv-policy.tsv
+      if [[ "$1" == 1.96.0 ]]; then
+        ./scripts/check_rust_versions.sh
+      else
+        if ./scripts/check_rust_versions.sh > refusal.log 2>&1; then exit 1; fi
+        grep -q "rust-version mismatch.*experiments/example/Cargo.toml" refusal.log
+      fi
+    ' bash "$version"
+  done
+}
+
 main() {
   [[ -f "$checker_src" ]] || fail "checker script missing: $checker_src"
 
+  test_rejects_unregistered_experiment
+  test_experiment_policy_requires_exact_version
   test_standalone_host_toolchain_matches_its_policy
   test_rejects_metadata_only_versions
   test_ignores_metadata_before_package

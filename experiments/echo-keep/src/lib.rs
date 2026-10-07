@@ -15,11 +15,20 @@ use std::io::{self, Read};
 /// An opaque in-process binding under the version-1 identity bridge.
 ///
 /// Keep coordinates stay private. This experimental type has no wire encoding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IdentityBinding {
     echo: BlobHash,
     keep: BlobId,
     length: u64,
+}
+
+impl std::fmt::Debug for IdentityBinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityBinding")
+            .field("echo", &self.echo)
+            .field("length", &self.length)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Operational or verification failure; no complete identity claim is returned.

@@ -194,3 +194,12 @@ fn identity_reader_stops_at_one_overlength_probe() -> Result<(), IdentityError> 
     assert_eq!(source.consumed, 2);
     Ok(())
 }
+
+#[test]
+fn binding_debug_keeps_backend_coordinates_private() -> Result<(), IdentityError> {
+    let binding = IdentityBinding::from_source(&mut Cursor::new(b"abc"), 3)?;
+    let debug = format!("{binding:?}");
+    assert!(!debug.contains("keep"), "{debug}");
+    assert!(!debug.contains(&format!("{:?}", binding.keep)), "{debug}");
+    Ok(())
+}

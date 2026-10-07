@@ -152,10 +152,21 @@ markdown_metadata_bounds() {
       has_type = 0
       for (i = start + 1; i <= NR; i++) {
         if (lines[i] == "---") { finish = i; break }
-        if (lines[i] ~ /^id[[:space:]]*:[[:space:]]*[^[:space:]]/) has_id = 1
+        if (lines[i] ~ /^id[[:space:]]*:/) {
+          id_value = lines[i]
+          sub(/^id[[:space:]]*:[[:space:]]*/, "", id_value)
+          sub(/[[:space:]]+#.*$/, "", id_value)
+          sub(/[[:space:]]*$/, "", id_value)
+          id_quote = substr(id_value, 1, 1)
+          if ((id_quote == "\"" || id_quote == sprintf("%c", 39)) && substr(id_value, length(id_value), 1) == id_quote) {
+            id_value = substr(id_value, 2, length(id_value) - 2)
+          }
+          if (id_value != "" && id_value != "null" && id_value != "~") has_id = 1
+        }
         if (lines[i] ~ /^type[[:space:]]*:/) {
           value = lines[i]
           sub(/^type[[:space:]]*:[[:space:]]*/, "", value)
+          sub(/[[:space:]]+#.*$/, "", value)
           sub(/[[:space:]]*$/, "", value)
           quote = substr(value, 1, 1)
           if ((quote == "\"" || quote == sprintf("%c", 39)) && substr(value, length(value), 1) == quote) {

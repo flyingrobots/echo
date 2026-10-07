@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -347,5 +347,35 @@ DOC
 if bash "$checker" "$work/delimiterless.md"; then exit 1; else test "$?" = 1; fi
 bash "$checker" --check "$work/delimiterless.md"
 test "$(grep -c SPDX-License-Identifier "$work/delimiterless.md")" = 1
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == empty_id ]]; then
+cat > "$work/empty-id.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: ""
+type: Feature
+---
+# Body
+DOC
+cp "$work/empty-id.md" "$work/empty-id.original"
+bash "$checker" --check "$work/empty-id.md"
+bash "$checker" "$work/empty-id.md"
+cmp "$work/empty-id.original" "$work/empty-id.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == type_comment ]]; then
+cat > "$work/type-comment.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: S01
+type: Feature # task category
+---
+# Body
+DOC
+if bash "$checker" --check "$work/type-comment.md"; then exit 1; else test "$?" = 1; fi
+if bash "$checker" "$work/type-comment.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/type-comment.md"
+test "$(head -n 1 "$work/type-comment.md")" = '---'
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

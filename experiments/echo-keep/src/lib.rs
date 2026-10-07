@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Experimental identity conformance for the Echo–Keep physical-content boundary.
+//! Experimental identity conformance and an optional non-durable Keep backend.
 //!
 //! Echo hashes raw bytes. Keep has a distinct, versioned identity law. A binding
 //! authenticates one bounded source under both laws; it proves no storage presence,
@@ -132,3 +132,8 @@ impl IdentityBinding {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "reference-adapter")]
+mod reference_adapter;
+#[cfg(feature = "reference-adapter")]
+pub use reference_adapter::{KeepReferenceAdapter, KeepReferenceView};

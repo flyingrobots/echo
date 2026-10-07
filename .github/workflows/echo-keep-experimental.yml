@@ -23,7 +23,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo test --manifest-path experiments/echo-keep/Cargo.toml --locked
-      - run: cargo clippy --manifest-path experiments/echo-keep/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path experiments/echo-keep/Cargo.toml --locked --features reference-adapter
+      - run: cargo clippy --manifest-path experiments/echo-keep/Cargo.toml --locked --all-targets --all-features -- -D warnings
       - run: cargo fmt --manifest-path experiments/echo-keep/Cargo.toml -- --check
       - name: Verify dependency-tree failure handling
         run: bash scripts/tests/keep_dependency_boundary_test.sh

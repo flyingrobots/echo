@@ -7,6 +7,8 @@
 
 ### Added
 
+- A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
+
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
 
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.

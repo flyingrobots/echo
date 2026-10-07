@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -136,5 +136,40 @@ for spacer in 0 1; do
   grep -qx 'James Ross and FLYING ROBOTS appear in this source sentence.' "$work/prose-$spacer.md"
   bash "$checker" --check "$work/prose-$spacer.md"
 done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == thematic ]]; then
+for separator_count in 1 2; do
+  {
+    printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->'
+    printf '%s\n' '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->'
+    printf '\n---\n# Body heading\nA normal paragraph.\n'
+    if [[ "$separator_count" = 2 ]]; then printf '\n---\nMore body.\n'; fi
+  } > "$work/thematic-$separator_count.md"
+  cp "$work/thematic-$separator_count.md" "$work/thematic-$separator_count.original"
+  bash "$checker" --check "$work/thematic-$separator_count.md"
+  bash "$checker" "$work/thematic-$separator_count.md"
+  cmp "$work/thematic-$separator_count.original" "$work/thematic-$separator_count.md"
+done
+printf '%s\n' '---' '# Body heading' 'A normal paragraph.' > "$work/unlicensed-break.md"
+cp "$work/unlicensed-break.md" "$work/unlicensed-break.original"
+if bash "$checker" --check "$work/unlicensed-break.md"; then exit 1; fi
+if bash "$checker" "$work/unlicensed-break.md"; then exit 1; else test "$?" = 1; fi
+tail -n +3 "$work/unlicensed-break.md" > "$work/unlicensed-break.body"
+cmp "$work/unlicensed-break.original" "$work/unlicensed-break.body"
+bash "$checker" --check "$work/unlicensed-break.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == malformed ]]; then
+cat > "$work/malformed-comment.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier Apache-2.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+if bash "$checker" "$work/malformed-comment.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/malformed-comment.md"
+test "$(grep -c 'SPDX-License-Identifier' "$work/malformed-comment.md")" = 1
+grep -qx '# Task' "$work/malformed-comment.md"
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

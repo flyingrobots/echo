@@ -108,26 +108,36 @@ get_header_content() {
 }
 
 # Only complete HTML license/copyright comments belong to a Markdown header.
-MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier:[[:space:]]*[^<>]+-->[[:space:]]*$'
+MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier(:[[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
 MD_COPYRIGHT_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
   awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
-    BEGIN { prefix = 1; start = 0; printed = 0; saw_header = 0 }
-    {
-      if (start > 0) {
-        if ($0 == "---") { print start, NR; printed = 1; exit }
-        next
+    { lines[NR] = $0 }
+    END {
+      start = 0
+      if (lines[1] == "---") start = 1
+      else {
+        saw_header = 0
+        for (i = 1; i <= NR; i++) {
+          if (lines[i] ~ license_re || lines[i] ~ copyright_re) { saw_header = 1; continue }
+          if (lines[i] ~ /^[[:space:]]*$/) continue
+          if (saw_header && lines[i] == "---") start = i
+          break
+        }
       }
-      if (NR == 1 && $0 == "---") { start = NR; next }
-      if (prefix) {
-        if ($0 ~ license_re || $0 ~ copyright_re) { saw_header = 1; next }
-        if ($0 ~ /^[[:space:]]*$/) { next }
-        if (saw_header && $0 == "---") { start = NR; next }
-        prefix = 0
+      if (!start) { print 0, 0; exit }
+      # A thematic break is body content. Task frontmatter begins with a map.
+      first = start + 1
+      while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
+      if (first > NR || lines[first] !~ /^[[:space:]]*[[:alpha:]_][[:alnum:]_.-]*:([[:space:]]|$)/) {
+        print 0, 0; exit
       }
+      for (i = start + 1; i <= NR; i++) {
+        if (lines[i] == "---") { print start, i; exit }
+      }
+      print start, 0
     }
-    END { if (!printed) print start, 0 }
   ' "$1"
 }
 

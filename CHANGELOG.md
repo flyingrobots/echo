@@ -5,6 +5,10 @@
 
 ## Unreleased
 
+### Added
+
+- A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
+
 ### Fixed
 
 - The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.

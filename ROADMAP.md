@@ -46,7 +46,7 @@ Code paths are relative to this repository, except the explicitly named hello-ec
 ## Execution sequence
 
 - [x] [S01: Describe the reachable-state boundary of WorldlineState::state_root](tasks/S01.md) — [issue #754](https://github.com/flyingrobots/echo/issues/754)
-- [ ] [S02: Run xtask run-edict-operation without a Git checkout or directory change](tasks/S02.md) — [issue #755](https://github.com/flyingrobots/echo/issues/755)
+- [x] [S02: Run xtask run-edict-operation without a Git checkout or directory change](tasks/S02.md) — [issue #755](https://github.com/flyingrobots/echo/issues/755)
 - [ ] [S03: Report the typed Action obstruction when the operation runner cannot commit](tasks/S03.md) — [issue #756](https://github.com/flyingrobots/echo/issues/756)
 - [ ] [S04: Avoid repeated prefix replay and unbounded state retention during Action WAL recovery](tasks/S04.md) — [issue #757](https://github.com/flyingrobots/echo/issues/757)
 
@@ -83,7 +83,7 @@ Proposed edges: K01 → K03; K02 → K03; K03 → K04; K04 → K05; K05 → K06.
 
 No feedback repair requires Keep integration. No Keep integration task requires a feedback repair merely because both touch storage. The shared Docker worker requires serial execution, not a graph edge.
 
-The initial proposed graph has ten task vertices and five internal edges. S01 is complete. The remaining graph has nine task vertices and five internal edges; its first layer is `{S02,S03,S04,K01,K02}`. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. Tracker edges require reconciliation before execution.
+The initial proposed graph has ten task vertices and five internal edges. S01 and S02 are complete. The remaining graph has eight task vertices and five internal edges; its first layer is `{S03,S04,K01,K02}`. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. Tracker edges require reconciliation before execution.
 
 The user authorized K01–K03 for this run: implement the experimental adapter first. K04–K06 remain conditional follow-on work. The initial target is experimental integration. Production adoption requires a separately reviewable accepted decision after the evidence gates pass. Keep must not become the default through an incidental dependency change.
 

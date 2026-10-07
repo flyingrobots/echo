@@ -13,7 +13,7 @@ description = "Experimental identity conformance for Echo and Keep"
 [workspace]
 
 [dependencies]
-echo-cas = { path = "../../crates/echo-cas" }
+echo-cas = { version = "0.1.0", path = "../../crates/echo-cas" }
 blake3 = "=1.8.5"
 keep = { git = "https://github.com/flyingrobots/keep", rev = "3165890e9291cfb5fe10e81a9d7cd151f3e59464" }
 thiserror = "2"

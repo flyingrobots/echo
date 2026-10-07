@@ -4388,6 +4388,7 @@ fn validate_recovered_echo_operation_parent_states(
             BasisObligation::Receipt(index),
         ));
     }
+    let mut action_invocations = Vec::with_capacity(recovery.echo_operation_action_outcomes.len());
     for (index, (submission_id, _, _)) in recovery.echo_operation_action_outcomes.iter().enumerate()
     {
         let submission = submissions.get(submission_id).ok_or(
@@ -4411,6 +4412,7 @@ fn validate_recovered_echo_operation_parent_states(
             basis.worldline_tick(),
             BasisObligation::Action(index),
         ));
+        action_invocations.push((bytes, invocation));
     }
     // Sort verification references; retained WAL/decision order remains unchanged.
     basis_obligations.sort_unstable();
@@ -4475,27 +4477,12 @@ fn validate_recovered_echo_operation_parent_states(
             BasisObligation::Action(index) => {
                 let (submission_id, ingress_id, outcome) =
                     &recovery.echo_operation_action_outcomes[index];
-                let submission = submissions.get(submission_id).ok_or(
-                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                        detail: "Action outcome has no retained submission",
-                    },
-                )?;
                 let correlation = correlations.get(submission_id).ok_or(
                     TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                         detail: "Action outcome has no retained receipt correlation",
                     },
                 )?;
-                let invocation_bytes = echo_operation_action_invocation_bytes_v1(
-                    &submission.envelope,
-                )
-                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                    detail: "Action outcome has no canonical invocation",
-                })?;
-                let invocation = inspect_action_invocation_v1(invocation_bytes).map_err(|_| {
-                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                        detail: "Action outcome invocation cannot be inspected",
-                    }
-                })?;
+                let (invocation_bytes, invocation) = &action_invocations[index];
                 action_scopes.insert(*submission_id, invocation.scope);
                 let installed = installations.get(&invocation.package_id).ok_or(
                     TrustedRuntimeWalError::EchoOperationExecutionMismatch {

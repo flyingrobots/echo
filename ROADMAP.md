@@ -13,6 +13,8 @@ These repairs make evidence boundaries clear, make the supplied runner usable, a
 
 The user requested this checked-in plan. That request overrides the normal policy that live plans exist only in GitHub. GitHub issues and PRs remain the status authority.
 
+The S01 repair landed in [PR #762](https://github.com/flyingrobots/echo/pull/762) at main commit `da929ca6093977e909af20ef918e2431ad9b338c`. GitHub records its final status.
+
 ## Source and verification boundary
 
 Source: `FEEDBACK-echo.md`, SHA-256 `a831edf49300065e982f166dae8fd2a801f533c0e88fd8afb3e52108725ccdfa`.
@@ -43,7 +45,7 @@ Code paths are relative to this repository, except the explicitly named hello-ec
 
 ## Execution sequence
 
-- [ ] [S01: Describe the reachable-state boundary of WorldlineState::state_root](tasks/S01.md) — [issue #754](https://github.com/flyingrobots/echo/issues/754)
+- [x] [S01: Describe the reachable-state boundary of WorldlineState::state_root](tasks/S01.md) — [issue #754](https://github.com/flyingrobots/echo/issues/754)
 - [ ] [S02: Run xtask run-edict-operation without a Git checkout or directory change](tasks/S02.md) — [issue #755](https://github.com/flyingrobots/echo/issues/755)
 - [ ] [S03: Report the typed Action obstruction when the operation runner cannot commit](tasks/S03.md) — [issue #756](https://github.com/flyingrobots/echo/issues/756)
 - [ ] [S04: Avoid repeated prefix replay and unbounded state retention during Action WAL recovery](tasks/S04.md) — [issue #757](https://github.com/flyingrobots/echo/issues/757)

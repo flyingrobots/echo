@@ -36,7 +36,7 @@ pub enum IdentityError {
     InvalidReadCount,
     /// Checked Keep length accounting failed.
     #[error("Keep identity accounting failed: {0}")]
-    Accounting(#[from] keep::BlobHashError),
+    Accounting(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// Exact Echo identity, Keep identity, or length did not match the binding.
     #[error("reconstructed bytes do not match the identity binding")]
     Mismatch,
@@ -69,7 +69,8 @@ impl IdentityBinding {
                 .filter(|n| *n <= byte_limit)
                 .ok_or(IdentityError::ResourceLimit)?;
             echo.update(bytes);
-            keep.update(bytes)?;
+            keep.update(bytes)
+                .map_err(|error| IdentityError::Accounting(Box::new(error)))?;
         }
         Ok(Self {
             echo: BlobHash::from_bytes(*echo.finalize().as_bytes()),

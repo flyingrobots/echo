@@ -88,7 +88,8 @@ fn substitution_and_length_mismatch_refuse() -> Result<(), IdentityError> {
             ..binding
         },
         IdentityBinding {
-            keep: BlobId::hash_bytes(b"other")?,
+            keep: BlobId::hash_bytes(b"other")
+                .map_err(|error| IdentityError::Accounting(Box::new(error)))?,
             ..binding
         },
         IdentityBinding {

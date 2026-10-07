@@ -9,7 +9,7 @@ checker=${1:-scripts/ensure_spdx.sh}
 # baseline. Selectors narrow the added regression, not this preflight. A RED
 # assertion is evidence only after the baseline passes.
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -392,4 +392,31 @@ for sequence_item in '- item' '  - item' '-'; do
 done
 fi
 
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == comment_id ]]; then
+cat > "$work/comment-id.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+id: # deliberately absent
+type: Feature
+---
+A preserved body paragraph.
+DOC
+cp "$work/comment-id.md" "$work/comment-id.original"
+bash "$checker" --check "$work/comment-id.md"
+bash "$checker" "$work/comment-id.md"
+cmp "$work/comment-id.original" "$work/comment-id.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == flow_root ]]; then
+for flow_root in '[one, two]' '{key: value}'; do
+  printf '%s\n' '---' "$flow_root" > "$work/flow-root.md"
+  cp "$work/flow-root.md" "$work/flow-root.original"
+  if bash "$checker" --check "$work/flow-root.md"; then exit 1; fi
+  if bash "$checker" "$work/flow-root.md"; then exit 1; else test "$?" = 1; fi
+  cmp "$work/flow-root.original" "$work/flow-root.md"
+done
+fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

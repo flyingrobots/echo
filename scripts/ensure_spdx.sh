@@ -121,6 +121,11 @@ markdown_metadata_bounds() {
       if (substr(trimmed, 1, 1) == quote) return trimmed ~ ("^" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
       return trimmed ~ /.+:([[:space:]]|$)/
     }
+    function metadata_hint(line, first_char) {
+      sub(/^[[:space:]]*/, "", line)
+      first_char = substr(line, 1, 1)
+      return map_key(line) || line ~ /^\?[[:space:]]/ || line ~ /^-([[:space:]]|$)/ || first_char == "[" || first_char == "{"
+    }
     { parsed = $0; sub(/\r$/, "", parsed); lines[NR] = parsed }
     END {
       start = 0
@@ -144,7 +149,7 @@ markdown_metadata_bounds() {
       }
       first = start + 1
       while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
-      if (first > NR || (!map_key(lines[first]) && lines[first] !~ /^\?[[:space:]]/ && lines[first] !~ /^[[:space:]]*-([[:space:]]|$)/)) {
+      if (first > NR || !metadata_hint(lines[first])) {
         print 0, 0; exit
       }
       finish = 0
@@ -155,6 +160,7 @@ markdown_metadata_bounds() {
         if (lines[i] ~ /^id[[:space:]]*:/) {
           id_value = lines[i]
           sub(/^id[[:space:]]*:[[:space:]]*/, "", id_value)
+          if (id_value ~ /^#/) id_value = ""
           sub(/[[:space:]]+#.*$/, "", id_value)
           sub(/[[:space:]]*$/, "", id_value)
           id_quote = substr(id_value, 1, 1)

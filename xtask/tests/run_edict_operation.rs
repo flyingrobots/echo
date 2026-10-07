@@ -103,6 +103,8 @@ fn runner_command_with_closure(
 ) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
     command
+        .env_remove("RUST_BACKTRACE")
+        .env_remove("RUST_LIB_BACKTRACE")
         .arg("run-edict-operation")
         .arg("--package")
         .arg(package)

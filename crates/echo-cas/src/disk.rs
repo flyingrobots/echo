@@ -198,7 +198,7 @@ impl DiskTier {
         self.pins.len()
     }
 
-    fn blob_path(&self, hash: &BlobHash) -> PathBuf {
+    pub(crate) fn blob_path(&self, hash: &BlobHash) -> PathBuf {
         let hex = blob_hash_hex(hash);
         self.blobs_dir.join(&hex[..2]).join(hex)
     }

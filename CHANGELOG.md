@@ -9,7 +9,11 @@
 
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
 
+- A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
+
 ### Fixed
+
+- Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
 
 - The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.
 

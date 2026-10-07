@@ -30,7 +30,7 @@ while read -r key version extra || [[ -n "$key$version$extra" ]]; do
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid MSRV policy version: $key $version"
   case "$key" in
     toolchain|workspace|xtask/Cargo.toml|tests/edict-provider-host-v1/Cargo.toml) ;;
-    crates/*/Cargo.toml|specs/*/Cargo.toml)
+    crates/*/Cargo.toml|specs/*/Cargo.toml|experiments/*/Cargo.toml)
       [[ "$key" != *"/../"* && "$key" != *"/./"* && "$key" != *"//"* ]] || fail "invalid MSRV policy path: $key"
       ;;
     *) fail "unknown MSRV policy key: $key" ;;
@@ -94,7 +94,7 @@ manifests=()
 manifest_count=0
 # Include nested manifests, the build driver, and the independent host witness.
 # Their presence must be accounted for explicitly in the policy inventory.
-for root in "$repo_root/crates" "$repo_root/specs"; do
+for root in "$repo_root/crates" "$repo_root/specs" "$repo_root/experiments"; do
   if [[ -d "$root" ]]; then
     while IFS= read -r manifest; do
       manifests[$manifest_count]="$manifest"

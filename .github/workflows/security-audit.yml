@@ -31,6 +31,8 @@ jobs:
           if ! command -v cargo-audit >/dev/null; then
             cargo install cargo-audit --locked
           fi
+      - name: Verify isolated lockfile audit coverage
+        run: bash scripts/tests/keep_audit_lockfiles_test.sh
       - name: Run cargo audit
         run: |
           set -euo pipefail

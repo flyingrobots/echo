@@ -126,7 +126,12 @@ markdown_metadata_bounds() {
       first_char = substr(line, 1, 1)
       return map_key(line) || line ~ /^\?[[:space:]]/ || line ~ /^-([[:space:]]|$)/ || first_char == "[" || first_char == "{"
     }
-    { parsed = $0; sub(/\r$/, "", parsed); lines[NR] = parsed }
+    {
+      parsed = $0
+      sub(/\r$/, "", parsed)
+      if (parsed ~ /^---[[:blank:]]*$/) parsed = "---"
+      lines[NR] = parsed
+    }
     END {
       start = 0
       if (lines[1] == "---") start = 1
@@ -168,10 +173,16 @@ markdown_metadata_bounds() {
           sub(/[[:space:]]+#.*$/, "", id_value)
           sub(/[[:space:]]*$/, "", id_value)
           id_quote = substr(id_value, 1, 1)
-          if ((id_quote == "\"" || id_quote == sprintf("%c", 39)) && substr(id_value, length(id_value), 1) == id_quote) {
-            id_value = substr(id_value, 2, length(id_value) - 2)
+          if (id_quote == "\"" || id_quote == sprintf("%c", 39)) {
+            if (length(id_value) >= 2 && substr(id_value, length(id_value), 1) == id_quote) {
+              id_value = substr(id_value, 2, length(id_value) - 2)
+              if (id_value != "") has_id = 1
+            }
+          } else if (id_value != "" && tolower(id_value) != "null" && id_value != "~" && index("[]{}|>&*!", id_quote) == 0) {
+            # Only a simple nonempty scalar authorizes legacy relocation.
+            # Collections, block scalars, aliases and tags need manual placement.
+            has_id = 1
           }
-          if (id_value != "" && id_value != "null" && id_value != "~") has_id = 1
         }
         if (lines[i] ~ /^type[[:space:]]*:/) {
           value = lines[i]

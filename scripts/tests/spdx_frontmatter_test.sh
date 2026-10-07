@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -299,5 +299,53 @@ cp "$work/unclosed-license.md" "$work/unclosed-license.original"
 if bash "$checker" "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
 cmp "$work/unclosed-license.original" "$work/unclosed-license.md"
 if bash "$checker" --check "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == quoted_type ]]; then
+cat > "$work/quoted-type.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: S01
+type: "Feature"
+---
+# Body
+DOC
+if bash "$checker" --check "$work/quoted-type.md"; then exit 1; else test "$?" = 1; fi
+if bash "$checker" "$work/quoted-type.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/quoted-type.md"
+test "$(head -n 1 "$work/quoted-type.md")" = '---'
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == crlf ]]; then
+printf -- '---\r\nid: S01\r\n---\r\n# Body\r\n' > "$work/crlf.md"
+head -n 3 "$work/crlf.md" > "$work/crlf.metadata"
+tail -n +4 "$work/crlf.md" > "$work/crlf.body"
+if bash "$checker" "$work/crlf.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/crlf.md"
+head -n 3 "$work/crlf.md" > "$work/crlf.actual-metadata"
+tail -n +6 "$work/crlf.md" > "$work/crlf.actual-body"
+cmp "$work/crlf.metadata" "$work/crlf.actual-metadata"
+cmp "$work/crlf.body" "$work/crlf.actual-body"
+python3 - "$work/crlf.md" <<'CHECK'
+from pathlib import Path
+import sys
+raw=Path(sys.argv[1]).read_bytes()
+assert b"\n" not in raw.replace(b"\r\n", b"")
+CHECK
+cp "$work/crlf.md" "$work/crlf.once"
+bash "$checker" "$work/crlf.md"
+cmp "$work/crlf.once" "$work/crlf.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == delimiterless ]]; then
+cat > "$work/delimiterless.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Body
+DOC
+if bash "$checker" "$work/delimiterless.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/delimiterless.md"
+test "$(grep -c SPDX-License-Identifier "$work/delimiterless.md")" = 1
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

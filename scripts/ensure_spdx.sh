@@ -108,7 +108,7 @@ get_header_content() {
 }
 
 # Only complete HTML license/copyright comments belong to a Markdown header.
-MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier([[:space:]]*[:=][[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
+MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier[^<>]*-->[[:space:]]*$'
 MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
@@ -121,7 +121,7 @@ markdown_metadata_bounds() {
       if (substr(trimmed, 1, 1) == quote) return trimmed ~ ("^" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
       return trimmed ~ /.+:([[:space:]]|$)/
     }
-    { lines[NR] = $0 }
+    { parsed = $0; sub(/\r$/, "", parsed); lines[NR] = parsed }
     END {
       start = 0
       if (lines[1] == "---") start = 1
@@ -153,7 +153,16 @@ markdown_metadata_bounds() {
       for (i = start + 1; i <= NR; i++) {
         if (lines[i] == "---") { finish = i; break }
         if (lines[i] ~ /^id[[:space:]]*:[[:space:]]*[^[:space:]]/) has_id = 1
-        if (lines[i] ~ /^type[[:space:]]*:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
+        if (lines[i] ~ /^type[[:space:]]*:/) {
+          value = lines[i]
+          sub(/^type[[:space:]]*:[[:space:]]*/, "", value)
+          sub(/[[:space:]]*$/, "", value)
+          quote = substr(value, 1, 1)
+          if ((quote == "\"" || quote == sprintf("%c", 39)) && substr(value, length(value), 1) == quote) {
+            value = substr(value, 2, length(value) - 2)
+          }
+          if (value ~ /^(Feature|Bug|Decision|Research|Investigation|Spike)$/) has_type = 1
+        }
       }
       # Only the explicit task-card schema authorizes automatic relocation.
       # Generic body prose after a licensed header is never moved on key: alone.
@@ -170,6 +179,7 @@ check_valid_header() {
   local file_lines=()
   # Read file line by line, handling newlines properly
   while IFS= read -r line; do
+    if [[ "$f" == *.md ]]; then line="${line%$'\r'}"; fi
     file_lines+=("$line")
   done < "$f"
 
@@ -315,6 +325,11 @@ insert_header() {
   
   local first_line
   first_line=$(head -n 1 "$f" || true)
+  local header_cr=""
+  if [[ "$f" == *.md && "$first_line" == *$'\r' ]]; then
+    header_cr=$'\r'
+    header="${header//$'\n'/$'\r\n'}"
+  fi
   
   # Keep complete Markdown metadata ahead of the license in repair mode too.
   local metadata_lines=""
@@ -329,18 +344,18 @@ insert_header() {
   # Logic to insert header AFTER metadata/shebang/xml declaration if present
   if [[ -n "$metadata_lines" ]]; then
     head -n "$metadata_lines" "$f" > "$temp_file"
-    echo "$header" >> "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
     tail -n "+$((metadata_lines + 1))" "$f" >> "$temp_file"
   elif [[ "$first_line" =~ ^#! ]]; then
     echo "$first_line" > "$temp_file"
-    echo "$header" >> "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
   elif [[ "$first_line" =~ ^\<\?xml ]]; then
     echo "$first_line" > "$temp_file"
-    echo "$header" >> "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
   else
-    echo "$header" > "$temp_file"
+    printf '%s%s\n' "$header" "$header_cr" > "$temp_file"
     cat "$f" >> "$temp_file"
   fi
   

@@ -83,6 +83,11 @@ issue or pull request. Record a durable decision in the named current document
 that owns its concept, and state supersession, refinement, dependency, and
 related-decision edges explicitly. Do not allocate a new numbered ADR.
 
+The user-requested Echo study-feedback `ROADMAP.md` and linked `tasks/` cards
+are a scoped exception to the checked-in-plan restriction. They project the
+requested work; GitHub still owns issue status and accepted dependencies.
+This exception does not authorize production Keep adoption or other backlogs.
+
 When recovering context, read the relevant canonical topic/spec/invariant and
 architecture document, follow any explicit links into the historical ADR
 archive, then inspect the current GitHub issue or pull request, `git log -n 5`,

@@ -107,6 +107,30 @@ get_header_content() {
   esac
 }
 
+# Only complete HTML license/copyright comments belong to a Markdown header.
+MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier:[[:space:]]*[^<>]+-->[[:space:]]*$'
+MD_COPYRIGHT_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
+
+markdown_metadata_bounds() {
+  awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+    BEGIN { prefix = 1; start = 0; printed = 0; saw_header = 0 }
+    {
+      if (start > 0) {
+        if ($0 == "---") { print start, NR; printed = 1; exit }
+        next
+      }
+      if (NR == 1 && $0 == "---") { start = NR; next }
+      if (prefix) {
+        if ($0 ~ license_re || $0 ~ copyright_re) { saw_header = 1; next }
+        if ($0 ~ /^[[:space:]]*$/) { next }
+        if (saw_header && $0 == "---") { start = NR; next }
+        prefix = 0
+      }
+    }
+    END { if (!printed) print start, 0 }
+  ' "$1"
+}
+
 check_valid_header() {
   local f="$1"
   local expected_header_block="$2" # This is a multi-line string like "# SPDX...\n# ©..."
@@ -125,15 +149,14 @@ check_valid_header() {
       i=1
   fi
 
-  # Markdown metadata must remain first. Check the license immediately after
-  # a complete frontmatter block rather than moving it ahead of the metadata.
-  if [[ "$f" == *.md && "$first_line_in_file" == "---" ]]; then
-    i=1
-    while [[ "$i" -lt "${#file_lines[@]}" && "${file_lines[i]}" != "---" ]]; do
-      i=$((i + 1))
-    done
-    if [[ "$i" -ge "${#file_lines[@]}" ]]; then return 1; fi
-    i=$((i + 1))
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -gt 0 ]]; then
+      # A header-first metadata block must move to the start in repair mode.
+      if [[ "$metadata_start" -ne 1 || "$metadata_end" -eq 0 ]]; then return 1; fi
+      i=$metadata_end
+    fi
   fi
 
   # Extract the lines from expected_header_block
@@ -178,17 +201,34 @@ strip_existing_headers() {
   local temp_file
   temp_file=$(mktemp)
   
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    awk -v metadata_start="$metadata_start" -v metadata_end="$metadata_end" \
+        -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+      BEGIN { header_active = 1 }
+      {
+        # The bounds helper admits only header comments and whitespace here.
+        if (metadata_start > 1 && NR < metadata_start) next
+        if (metadata_start > 0 && NR <= metadata_end) { print; next }
+        if (header_active) {
+          if (NR > metadata_end + 15) header_active = 0
+          else if ($0 ~ license_re || $0 ~ copyright_re) next
+          else if ($0 !~ /^[[:space:]]*$/) header_active = 0
+        }
+        print
+      }
+    ' "$f" > "$temp_file"
+    cat "$temp_file" > "$f"
+    rm "$temp_file"
+    return
+  fi
+
   # Use AWK to filter out lines in the first 15 lines that match SPDX/Copyright patterns.
   # This effectively removes "bad" headers or "wrong license" headers.
   # We preserve shebangs because they typically don't match the pattern.
   
-  local metadata_lines=0
-  if [[ "$f" == *.md && "$(head -n 1 "$f")" == "---" ]]; then
-    metadata_lines=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$f")
-    metadata_lines=${metadata_lines:-0}
-  fi
-
-  awk -v header_start="$metadata_lines" '
+  awk -v header_start=0 '
     BEGIN { header_block_active = 1; line_num = 0 }
     {
       line_num++;
@@ -271,6 +311,16 @@ process_file() {
   local expected_header_block
   expected_header_block=$(get_header_content "$f" "$style")
   
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -gt 0 && "$metadata_end" -eq 0 ]]; then
+      echo "[FAIL] Cannot process Markdown with unclosed frontmatter: $f"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+      return
+    fi
+  fi
+
   if check_valid_header "$f" "$expected_header_block"; then
     return 0 # Header is already perfect, nothing to do.
   fi
@@ -325,6 +375,10 @@ if [[ "$CHECK_MODE" -eq 1 ]]; then
     exit 1
   fi
 else
+  if [[ "$FAILED_COUNT" -gt 0 ]]; then
+    echo "SPDX Repair Failed: $FAILED_COUNT files could not be repaired."
+    exit 1
+  fi
   if [[ "$MODIFIED_COUNT" -gt 0 ]]; then
     echo "-------------------------------------------------------"
     echo "Repaired SPDX headers in $MODIFIED_COUNT files."

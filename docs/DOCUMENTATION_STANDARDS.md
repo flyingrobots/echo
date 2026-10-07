@@ -126,7 +126,7 @@ accepted contracts. GitHub owns change-local plans and status. Git history owns
 the exact old text.
 
 Do not check in backlogs, cycle packets, retrospectives, review transcripts,
-status ledgers, or roadmap checklists. A short checked-in redirect may remain
+status ledgers, or roadmap checklists. The user-requested Echo study-feedback ROADMAP and linked task cards are a scoped planning exception. GitHub remains their status and accepted-dependency authority. A short checked-in redirect may remain
 when an old stable path must route readers to its current owner.
 
 Historical reasoning must not masquerade as current behavior. Mark retained

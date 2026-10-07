@@ -143,3 +143,26 @@ fn interrupted_short_source_retries_but_failed_source_returns_no_binding()
     );
     Ok(())
 }
+
+#[test]
+fn complete_binding_budget_preflight_does_not_read_source() -> Result<(), IdentityError> {
+    struct UnreadSource(bool);
+    impl Read for UnreadSource {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            self.0 = true;
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+    let binding = IdentityBinding::from_source(&mut Cursor::new(b"abc"), 3)?;
+    let mut source = UnreadSource(false);
+    assert!(matches!(
+        binding.verify_source(&mut source, 1),
+        Err(IdentityError::ResourceLimit)
+    ));
+    assert!(!source.0);
+    assert!(matches!(
+        binding.verify_source(&mut Cursor::new(b""), 3),
+        Err(IdentityError::Mismatch)
+    ));
+    Ok(())
+}

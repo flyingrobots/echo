@@ -28,7 +28,7 @@ pub enum IdentityError {
     /// Input I/O failed; the original cause is retained.
     #[error("identity source I/O failed: {0}")]
     Input(#[from] io::Error),
-    /// Source bytes exceeded the caller-selected limit.
+    /// Source bytes or the requested complete verification exceed the byte limit.
     #[error("identity source exceeds its byte limit")]
     ResourceLimit,
     /// A reader returned an impossible byte count.
@@ -92,7 +92,9 @@ impl IdentityBinding {
     /// Rechecks both laws and exact length on a bounded reconstructed source.
     ///
     /// # Errors
-    /// Returns `Mismatch` for substituted identity or length, or a source error.
+    /// Returns `ResourceLimit` before reading when the declared binding cannot
+    /// fit the byte limit. Otherwise, observed identity or length disagreement
+    /// returns `Mismatch`. Source failures establish no complete identity.
     pub fn verify_source(
         &self,
         source: &mut dyn Read,

@@ -157,6 +157,20 @@ if bash "$checker" "$work/unlicensed-break.md"; then exit 1; else test "$?" = 1;
 tail -n +3 "$work/unlicensed-break.md" > "$work/unlicensed-break.body"
 cmp "$work/unlicensed-break.original" "$work/unlicensed-break.body"
 bash "$checker" --check "$work/unlicensed-break.md"
+cat > "$work/note-body.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Note: this section explains metadata.
+
+A normal body paragraph.
+---
+DOC
+cp "$work/note-body.md" "$work/note-body.original"
+bash "$checker" --check "$work/note-body.md"
+bash "$checker" "$work/note-body.md"
+cmp "$work/note-body.original" "$work/note-body.md"
 fi
 if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == malformed ]]; then
 cat > "$work/malformed-comment.md" <<'DOC'
@@ -171,5 +185,17 @@ if bash "$checker" "$work/malformed-comment.md"; then exit 1; else test "$?" = 1
 bash "$checker" --check "$work/malformed-comment.md"
 test "$(grep -c 'SPDX-License-Identifier' "$work/malformed-comment.md")" = 1
 grep -qx '# Task' "$work/malformed-comment.md"
+cat > "$work/equals-comment.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier = MIT -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+if bash "$checker" "$work/equals-comment.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/equals-comment.md"
+test "$(grep -c 'SPDX-License-Identifier' "$work/equals-comment.md")" = 1
+grep -qx '# Task' "$work/equals-comment.md"
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

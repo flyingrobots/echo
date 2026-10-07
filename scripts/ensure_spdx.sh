@@ -108,7 +108,7 @@ get_header_content() {
 }
 
 # Only complete HTML license/copyright comments belong to a Markdown header.
-MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier(:[[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
+MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier([[:space:]]*[:=][[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
 MD_COPYRIGHT_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
@@ -133,10 +133,18 @@ markdown_metadata_bounds() {
       if (first > NR || lines[first] !~ /^[[:space:]]*[[:alpha:]_][[:alnum:]_.-]*:([[:space:]]|$)/) {
         print 0, 0; exit
       }
+      finish = 0
+      has_id = 0
+      has_type = 0
       for (i = start + 1; i <= NR; i++) {
-        if (lines[i] == "---") { print start, i; exit }
+        if (lines[i] == "---") { finish = i; break }
+        if (lines[i] ~ /^[[:space:]]*id:[[:space:]]*[^[:space:]]/) has_id = 1
+        if (lines[i] ~ /^[[:space:]]*type:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
       }
-      print start, 0
+      # Only the explicit task-card schema authorizes automatic relocation.
+      # Generic body prose after a licensed header is never moved on key: alone.
+      if (start > 1 && !(has_id && has_type)) { print 0, 0; exit }
+      print start, finish
     }
   ' "$1"
 }

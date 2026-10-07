@@ -78,6 +78,10 @@ fn substitution_and_length_mismatch_refuse() -> Result<(), IdentityError> {
         binding.verify_source(&mut Cursor::new(b"abd"), 3),
         Err(IdentityError::Mismatch)
     ));
+    assert!(matches!(
+        binding.verify_source(&mut Cursor::new(b"abcd"), 3),
+        Err(IdentityError::Mismatch)
+    ));
     for changed in [
         IdentityBinding {
             echo: echo_cas::blob_hash(b"other"),
@@ -93,7 +97,7 @@ fn substitution_and_length_mismatch_refuse() -> Result<(), IdentityError> {
         },
     ] {
         assert!(matches!(
-            changed.verify_source(&mut Cursor::new(b"abc"), 3),
+            changed.verify_source(&mut Cursor::new(b"abc"), 4),
             Err(IdentityError::Mismatch)
         ));
     }

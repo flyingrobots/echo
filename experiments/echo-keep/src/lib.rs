@@ -97,7 +97,14 @@ impl IdentityBinding {
         source: &mut dyn Read,
         byte_limit: u64,
     ) -> Result<(), IdentityError> {
-        if Self::from_source(source, byte_limit)? == *self {
+        if byte_limit < self.length {
+            return Err(IdentityError::ResourceLimit);
+        }
+        let observed = match Self::from_source(source, byte_limit) {
+            Err(IdentityError::ResourceLimit) => return Err(IdentityError::Mismatch),
+            result => result?,
+        };
+        if observed == *self {
             Ok(())
         } else {
             Err(IdentityError::Mismatch)

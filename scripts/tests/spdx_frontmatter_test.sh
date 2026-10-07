@@ -9,7 +9,7 @@ checker=${1:-scripts/ensure_spdx.sh}
 # baseline. Selectors narrow the added regression, not this preflight. A RED
 # assertion is evidence only after the baseline passes.
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root|fenced_task|copyright_attempt) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -418,5 +418,27 @@ for flow_root in '[one, two]' '{key: value}'; do
   if bash "$checker" "$work/flow-root.md"; then exit 1; else test "$?" = 1; fi
   cmp "$work/flow-root.original" "$work/flow-root.md"
 done
+fi
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == fenced_task ]]; then
+for fence in '```' '````' '~~~' '~~~~'; do
+  {
+    printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->' '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->' '' '---' 'Note: task card example.'
+    printf '%syaml\n' "$fence"
+    printf '%s\n' 'id: S01' 'type: Feature' "$fence" '---' 'Preserved body.'
+  } > "$work/fenced-task.md"
+  cp "$work/fenced-task.md" "$work/fenced-task.original"
+  bash "$checker" --check "$work/fenced-task.md"
+  bash "$checker" "$work/fenced-task.md"
+  cmp "$work/fenced-task.original" "$work/fenced-task.md"
+done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == copyright_attempt ]]; then
+printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->' '<!-- © James Ross -->' '# Preserved body' > "$work/copyright-attempt.md"
+if bash "$checker" "$work/copyright-attempt.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/copyright-attempt.md"
+test "$(grep -c '© James Ross' "$work/copyright-attempt.md")" = 1
+grep -qx '# Preserved body' "$work/copyright-attempt.md"
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

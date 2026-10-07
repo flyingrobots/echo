@@ -109,7 +109,7 @@ get_header_content() {
 
 # Only complete HTML license/copyright comments belong to a Markdown header.
 MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier[^<>]*-->[[:space:]]*$'
-MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
+MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross([[:space:]]([^-]|-[^-])*)?-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
   awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
@@ -155,8 +155,12 @@ markdown_metadata_bounds() {
       finish = 0
       has_id = 0
       has_type = 0
+      has_fenced_example = 0
       for (i = start + 1; i <= NR; i++) {
         if (lines[i] == "---") { finish = i; break }
+        # A fenced example makes a legacy candidate ambiguous. Preserve it
+        # rather than interpreting example id/type lines as live task keys.
+        if (lines[i] ~ /^[[:space:]]*```/ || lines[i] ~ /^[[:space:]]*~~~/) has_fenced_example = 1
         if (lines[i] ~ /^id[[:space:]]*:/) {
           id_value = lines[i]
           sub(/^id[[:space:]]*:[[:space:]]*/, "", id_value)
@@ -183,7 +187,7 @@ markdown_metadata_bounds() {
       }
       # Only the explicit task-card schema authorizes automatic relocation.
       # Generic body prose after a licensed header is never moved on key: alone.
-      if (start > 1 && !(has_id && has_type)) { print 0, 0; exit }
+      if (start > 1 && !(has_id && has_type && !has_fenced_example)) { print 0, 0; exit }
       print start, finish
     }
   ' "$1"

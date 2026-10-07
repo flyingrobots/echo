@@ -62,7 +62,7 @@ Use `~/git/keep` as the source project. The local Keep checkout is `001ae2a`; it
 
 The [physical-content boundary](docs/architecture/echo-keep-physical-content-boundary.md) owns the accepted architecture. Keep supplies physical bytes and receipts. Echo retains content identity, WSC identity, causal history, semantic meaning, and authority. Keep receipts cannot replace Echo observations.
 
-Echo currently pins Rust 1.96.0. Keep requires Rust 1.96. The older Rust 1.90 statement in #722 is stale. A matching version number does not prove dependency, platform, or durability compatibility.
+Echo selects Rust 1.96.0 for its toolchain and warp-core. The workspace default and echo-cas still declare Rust 1.90.0. Keep requires Rust 1.96. The older Rust 1.90 statement in #722 is stale. A matching version number does not prove dependency, platform, or durability compatibility.
 
 Keep main exports `DurableStore` and fenced snapshots. Its crate documentation still states that production durable ingestion, garbage collection, and compaction are unimplemented. Thus durable reads and durable publication have different readiness.
 
@@ -73,15 +73,27 @@ Keep main exports `DurableStore` and fenced snapshots. Its crate documentation s
 - [ ] [K05: Prove durable Echo and Keep publication reconciliation](tasks/K05.md)
 - [ ] [K06: Prepare the migration and production adoption decision](tasks/K06.md)
 
-Execute K01, K02, K03, then K04. K05 requires Keep's missing durable publication capabilities and reconciliation anchors. K06 requires the complete crash, migration, and rollback evidence.
+Execute K01 and K02 as independent slices, then K03. Stop this run after the experimental adapter passes its conformance and review gates.
+
+K04–K06 are conditional follow-on work. K04 requires guarded storage that actually passes Keep's Linux ext4 admission. K05 is blocked on external Keep durable ingestion, operation lookup, and non-expiring retention anchors. K06 also requires crash, migration, rollback, and adoption evidence. Completing K03 does not unblock these requirements.
 
 Proposed edges: K01 → K03; K02 → K03; K03 → K04; K04 → K05; K05 → K06. K01 supplies the identity law. K02 supplies the port. K03 supplies backend conformance. K04 supplies pinned-view receipt validation. K05 supplies durable reconciliation.
 
 No feedback repair requires Keep integration. No Keep integration task requires a feedback repair merely because both touch storage. The shared Docker worker requires serial execution, not a graph edge.
 
-The combined proposed graph has ten task vertices and five edges. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External Keep publication prerequisites remain unresolved outside that graph. Tracker edges require reconciliation before execution.
+The combined proposed graph has ten task vertices and five edges. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. Tracker edges require reconciliation before execution.
 
 The user authorized K01–K03 for this run: implement the experimental adapter first. K04–K06 remain conditional follow-on work. The initial target is experimental integration. Production adoption requires a separately reviewable accepted decision after the evidence gates pass. Keep must not become the default through an incidental dependency change.
+
+## Solution constraints from independent critique
+
+S03 reports bounded outcome categories. It distinguishes a missing outcome from an obstruction and avoids raw record dumps.
+
+S04 indexes exact obligations before replay. It sorts verification references within each worldline and keeps retained protocol order authoritative. Its two-sweep plan supports stale and cross-worldline bases. Replay counters bound patch applications; they do not prove linear elapsed time.
+
+K01 verifies two distinct identity laws on the same source and reconstructed bytes. Equal source bytes do not make Echo and Keep digest values equal. K02 preserves existing CAS defaults and package compatibility.
+
+The independent critique confirms the S01 contract repair and experimental K01–K03 boundary. Its Reader source is receipt `7e05db3c-49d0-45df-b81b-2f1a6a25a6f7`. Reconciliation details remain on PR #758; this plan contains the resulting requirements.
 
 ## Verification and merge rules
 

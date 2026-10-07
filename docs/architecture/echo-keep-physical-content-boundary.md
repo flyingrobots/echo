@@ -6,8 +6,7 @@
 - **Status:** Accepted for experimental conformance; production adoption is
   not accepted.
 - **Decision date:** 2026-08-09
-- **Implementation posture:** No Echo physical-content port or Keep adapter is
-  implemented on this branch.
+- **Implementation posture:** `echo-cas::physical_content` supplies a fallible complete-object port and MemoryTier/DiskTier adapters. Borrowed views authenticate exact bytes but certify no pinned generation, complete-view absence, retention, synchronization, or crash durability. No Keep backend adapter is implemented yet.
 - **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
 - **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)
@@ -114,6 +113,14 @@ The initial port excludes:
 Echo may retain a bounded materializing helper implemented over this port. The
 helper is not Keep's foundational contract and must require an explicit byte
 limit.
+
+## Initial executable port
+
+`StagedContent::read_expected` reads under an explicit per-object byte limit and seals the Echo hash and exact length. `PhysicalContentBackend::publish_content` publishes that invisible staged object. Existing MemoryTier and DiskTier APIs remain compatible.
+
+`PhysicalContentView::reconstruct` uses bounded private staging. `TransactionalContentDestination` requires atomic promotion of a sealed `VerifiedContent` handle; an arbitrary `Write` sink is insufficient. `MemoryContentDestination` provides the initial bounded memory implementation. A failed source, integrity check, resource check, or promotion leaves prior visible bytes intact. The shared backend-neutral suite lives in `crates/echo-cas/tests/common/physical_content.rs`.
+
+The materializing port bounds each staging operation, not aggregate retained MemoryTier capacity or process RSS. Existing MemoryTier budgets remain advisory. Missing content is `CapabilityUnavailable`, with no authenticated absence receipt. Disk views verify bytes at read time without a pinned-generation claim. All initial receipts explicitly report unsupported durability and complete-view evidence. This additive port does not reroute current consumers or adopt Keep in production.
 
 ## Output visibility
 

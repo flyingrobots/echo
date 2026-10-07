@@ -5,6 +5,10 @@
 
 ## Unreleased
 
+### Added
+
+- A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
+
 ### Fixed
 
 - The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.

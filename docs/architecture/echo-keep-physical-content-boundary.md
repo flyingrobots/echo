@@ -6,8 +6,7 @@
 - **Status:** Accepted for experimental conformance; production adoption is
   not accepted.
 - **Decision date:** 2026-08-09
-- **Implementation posture:** No Echo physical-content port or Keep adapter is
-  implemented on this branch.
+- **Implementation posture:** `experiments/echo-keep` implements a bounded dual-identity bridge against Keep revision `3165890e9291cfb5fe10e81a9d7cd151f3e59464`. The package is a separate Rust 1.96 workspace. No physical-content port or backend adapter is implemented yet. Echo CAS remains the default.
 - **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
 - **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)

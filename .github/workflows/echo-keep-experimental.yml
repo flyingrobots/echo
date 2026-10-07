@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: Experimental Keep contract
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  identity:
+    name: Echo–Keep experimental conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+      - run: cargo test --manifest-path experiments/echo-keep/Cargo.toml --locked
+      - run: cargo clippy --manifest-path experiments/echo-keep/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo fmt --manifest-path experiments/echo-keep/Cargo.toml -- --check
+      - name: Preserve the default CAS toolchain and dependency boundary
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 check --locked -p echo-cas
+          if cargo tree --locked -p echo-cas | grep -q "keep v"; then exit 1; fi

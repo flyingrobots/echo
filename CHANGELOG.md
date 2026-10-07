@@ -5,6 +5,10 @@
 
 ## Unreleased
 
+### Added
+
+- An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
+
 ### Fixed
 
 - The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.

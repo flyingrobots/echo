@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-keep-experimental"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "Apache-2.0"
+description = "Experimental Echo physical-content adapter over Keep"
+
+# A separate workspace keeps Keep out of Echo default dependency resolution.
+[workspace]
+
+[dependencies]
+echo-cas = { path = "../../crates/echo-cas" }
+blake3 = "=1.8.5"
+keep = { git = "https://github.com/flyingrobots/keep", rev = "3165890e9291cfb5fe10e81a9d7cd151f3e59464" }
+thiserror = "2"

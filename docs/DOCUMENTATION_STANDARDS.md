@@ -163,7 +163,7 @@ when one exists.
 
 ## Writing and structure
 
-Markdown frontmatter remains first. Place the SPDX and copyright comments immediately after its closing delimiter. The license checker validates and repairs this position.
+Markdown frontmatter remains first. Place the SPDX and copyright comments immediately after its closing delimiter. The license checker validates this position when metadata starts at line one. For a legacy header-first file, automatic relocation is limited to task metadata with a nonempty `id` and a recognized `type`. Place other displaced frontmatter manually: generic map-like text after a licensed header is ambiguous with body prose, so the checker preserves it.
 
 - Lead with the result, decision, warning, or essential condition.
 - Prefer exact Echo terms and define unfamiliar ones at first use.

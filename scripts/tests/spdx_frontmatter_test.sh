@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -272,5 +272,32 @@ if bash "$checker" --check "$work/duplicate-header.md"; then exit 1; else test "
 if bash "$checker" "$work/duplicate-header.md"; then exit 1; else test "$?" = 1; fi
 bash "$checker" --check "$work/duplicate-header.md"
 test "$(grep -c SPDX-License-Identifier "$work/duplicate-header.md")" = 1
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == explicit_keys ]]; then
+cat > "$work/explicit-keys.md" <<'DOC'
+---
+? title
+: Example
+---
+# Body
+DOC
+head -n 4 "$work/explicit-keys.md" > "$work/explicit-keys.expected"
+if bash "$checker" "$work/explicit-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/explicit-keys.md"
+head -n 4 "$work/explicit-keys.md" > "$work/explicit-keys.actual"
+cmp "$work/explicit-keys.expected" "$work/explicit-keys.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == unclosed_license ]]; then
+cat > "$work/unclosed-license.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier: MIT
+# Body
+DOC
+cp "$work/unclosed-license.md" "$work/unclosed-license.original"
+if bash "$checker" "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
+cmp "$work/unclosed-license.original" "$work/unclosed-license.md"
+if bash "$checker" --check "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

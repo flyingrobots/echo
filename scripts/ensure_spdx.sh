@@ -135,10 +135,16 @@ markdown_metadata_bounds() {
         }
       }
       if (!start) { print 0, 0; exit }
-      # A thematic break is body content. Task frontmatter begins with a map.
+      # A complete line-one delimiter block is metadata; YAML grammar belongs
+      # to its consumer. Legacy header-first relocation still needs task keys.
+      if (start == 1) {
+        for (i = 2; i <= NR; i++) {
+          if (lines[i] == "---") { print 1, i; exit }
+        }
+      }
       first = start + 1
       while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
-      if (first > NR || !map_key(lines[first])) {
+      if (first > NR || (!map_key(lines[first]) && lines[first] !~ /^\?[[:space:]]/)) {
         print 0, 0; exit
       }
       finish = 0
@@ -342,6 +348,22 @@ insert_header() {
   rm "$temp_file"
 }
 
+
+markdown_has_unclosed_header_attempt() {
+  local file="$1" metadata_start metadata_end
+  read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$file")"
+  awk -v first="$((metadata_end + 1))" -v last="$((metadata_end + 15))" \
+    -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+    NR < first { next }
+    NR > last { exit }
+    /^[[:space:]]*$/ { next }
+    /^<!--[[:space:]]*(SPDX-License-Identifier|© James Ross)/ && !/-->/ { malformed = 1; exit }
+    $0 ~ license_re || $0 ~ copyright_re { next }
+    { exit }
+    END { exit malformed ? 0 : 1 }
+  ' "$file"
+}
+
 process_file() {
   local f="$1"
   if should_skip "$f"; then return; fi
@@ -358,6 +380,11 @@ process_file() {
     read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
     if [[ "$metadata_start" -gt 0 && "$metadata_end" -eq 0 ]]; then
       echo "[FAIL] Cannot process Markdown with unclosed frontmatter: $f"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+      return
+    fi
+    if markdown_has_unclosed_header_attempt "$f"; then
+      echo "[FAIL] Cannot process Markdown with an unclosed license header: $f"
       FAILED_COUNT=$((FAILED_COUNT + 1))
       return
     fi

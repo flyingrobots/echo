@@ -5,8 +5,11 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
+# Every selected regression first runs the required valid/missing/wrong/header
+# baseline. Selectors narrow the added regression, not this preflight. A RED
+# assertion is evidence only after the baseline passes.
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -378,4 +381,15 @@ if bash "$checker" "$work/type-comment.md"; then exit 1; else test "$?" = 1; fi
 bash "$checker" --check "$work/type-comment.md"
 test "$(head -n 1 "$work/type-comment.md")" = '---'
 fi
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == sequence_root ]]; then
+for sequence_item in '- item' '  - item' '-'; do
+  printf '%s\n' '---' "$sequence_item" > "$work/sequence-root.md"
+  cp "$work/sequence-root.md" "$work/sequence-root.original"
+  if bash "$checker" --check "$work/sequence-root.md"; then exit 1; fi
+  if bash "$checker" "$work/sequence-root.md"; then exit 1; else test "$?" = 1; fi
+  cmp "$work/sequence-root.original" "$work/sequence-root.md"
+done
+fi
+
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

@@ -144,7 +144,7 @@ markdown_metadata_bounds() {
       }
       first = start + 1
       while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
-      if (first > NR || (!map_key(lines[first]) && lines[first] !~ /^\?[[:space:]]/)) {
+      if (first > NR || (!map_key(lines[first]) && lines[first] !~ /^\?[[:space:]]/ && lines[first] !~ /^[[:space:]]*-([[:space:]]|$)/)) {
         print 0, 0; exit
       }
       finish = 0

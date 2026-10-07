@@ -4333,6 +4333,11 @@ fn validate_recovered_echo_operation_parent_states(
     recovered_provenance: &ProvenanceService,
     recovery: &TrustedRuntimeWalRecovery,
 ) -> Result<ParentStateValidationWork, TrustedRuntimeWalError> {
+    #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+    enum BasisObligation {
+        Receipt(usize),
+        Action(usize),
+    }
     let mut recovered_states = BTreeMap::new();
     let mut work = ParentStateValidationWork::default();
     let installations = recovery
@@ -4374,11 +4379,6 @@ fn validate_recovered_echo_operation_parent_states(
         ),
         Vec<(Hash, Hash)>,
     >::new();
-    #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-    enum BasisObligation {
-        Receipt(usize),
-        Action(usize),
-    }
     let mut basis_obligations = Vec::new();
     for (index, receipt) in recovery.echo_operation_receipts.iter().enumerate() {
         let basis = receipt.evaluation_basis();

@@ -9,7 +9,7 @@ This plan addresses four defects confirmed in Echo source. The audit uses commit
 
 The state-root API overstates its hash boundary. The operation runner requires an unrelated Git checkout and changes its input directory. Its error hides typed Action outcomes. Recovery repeats replay prefixes and retains each basis state.
 
-These repairs make evidence boundaries clear, make the supplied runner usable, and remove repeated recovery work. They do not complete every proposed Echo feature.
+These repairs make evidence boundaries clear, make the supplied runner usable, and remove repeated recovery work. They do not complete every proposed Echo feature. The separate Keep sequence below supplies the requested CAS integration plan.
 
 The user requested this checked-in plan. That request overrides the normal policy that live plans exist only in GitHub. GitHub issues and PRs remain the status authority.
 
@@ -50,9 +50,38 @@ Code paths are relative to this repository, except the explicitly named hello-ec
 
 Execute S01, S02, S03, then S04. Each issue produces one independently mergeable PR. This order puts smaller contract and runner repairs before recovery work.
 
-The dependency graph has four vertices and zero required edges. All four tasks form one antichain at the audited revision. The chosen sequence serializes the shared worker; it does not imply a code prerequisite.
+The feedback-repair graph has four vertices and zero required edges. All four tasks form one antichain at the audited revision. The chosen sequence serializes the shared worker; it does not imply a code prerequisite.
 
 Each task owns its stated defect. S01 owns hash-boundary text. S02 owns command directory behavior. S03 owns runner outcome errors. S04 owns recovery work and retention. No task owns a second task's requirements.
+
+## Keep CAS integration sequence
+
+Use `~/git/keep` as the source project. The local Keep checkout is `001ae2a`; its refreshed `origin/main` is `3165890e9291cfb5fe10e81a9d7cd151f3e59464`. Inspect and pin the actual integration revision. Preserve the existing paused checkout.
+
+[Issue #722](https://github.com/flyingrobots/echo/issues/722) is the integration container. Its six milestones describe the same work as the six task documents below. Do not count the container as another executable PR.
+
+The [physical-content boundary](docs/architecture/echo-keep-physical-content-boundary.md) owns the accepted architecture. Keep supplies physical bytes and receipts. Echo retains content identity, WSC identity, causal history, semantic meaning, and authority. Keep receipts cannot replace Echo observations.
+
+Echo currently pins Rust 1.96.0. Keep requires Rust 1.96. The older Rust 1.90 statement in #722 is stale. A matching version number does not prove dependency, platform, or durability compatibility.
+
+Keep main exports `DurableStore` and fenced snapshots. Its crate documentation still states that production durable ingestion, garbage collection, and compaction are unimplemented. Thus durable reads and durable publication have different readiness.
+
+- [ ] [K01: Prove the Echo and Keep content identity bridge](tasks/K01.md) — [issue #759](https://github.com/flyingrobots/echo/issues/759)
+- [ ] [K02: Add the Echo physical-content port and existing CAS adapters](tasks/K02.md) — [issue #760](https://github.com/flyingrobots/echo/issues/760)
+- [ ] [K03: Add an experimental Keep ReferenceStore adapter](tasks/K03.md) — [issue #761](https://github.com/flyingrobots/echo/issues/761)
+- [ ] [K04: Add a pinned-generation durable Keep read adapter](tasks/K04.md)
+- [ ] [K05: Prove durable Echo and Keep publication reconciliation](tasks/K05.md)
+- [ ] [K06: Prepare the migration and production adoption decision](tasks/K06.md)
+
+Execute K01, K02, K03, then K04. K05 requires Keep's missing durable publication capabilities and reconciliation anchors. K06 requires the complete crash, migration, and rollback evidence.
+
+Proposed edges: K01 → K03; K02 → K03; K03 → K04; K04 → K05; K05 → K06. K01 supplies the identity law. K02 supplies the port. K03 supplies backend conformance. K04 supplies pinned-view receipt validation. K05 supplies durable reconciliation.
+
+No feedback repair requires Keep integration. No Keep integration task requires a feedback repair merely because both touch storage. The shared Docker worker requires serial execution, not a graph edge.
+
+The combined proposed graph has ten task vertices and five edges. Its layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External Keep publication prerequisites remain unresolved outside that graph. Tracker edges require reconciliation before execution.
+
+The user authorized K01–K03 for this run: implement the experimental adapter first. K04–K06 remain conditional follow-on work. The initial target is experimental integration. Production adoption requires a separately reviewable accepted decision after the evidence gates pass. Keep must not become the default through an incidental dependency change.
 
 ## Verification and merge rules
 

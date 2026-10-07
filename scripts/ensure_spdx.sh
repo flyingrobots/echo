@@ -125,6 +125,17 @@ check_valid_header() {
       i=1
   fi
 
+  # Markdown metadata must remain first. Check the license immediately after
+  # a complete frontmatter block rather than moving it ahead of the metadata.
+  if [[ "$f" == *.md && "$first_line_in_file" == "---" ]]; then
+    i=1
+    while [[ "$i" -lt "${#file_lines[@]}" && "${file_lines[i]}" != "---" ]]; do
+      i=$((i + 1))
+    done
+    if [[ "$i" -ge "${#file_lines[@]}" ]]; then return 1; fi
+    i=$((i + 1))
+  fi
+
   # Extract the lines from expected_header_block
   local expected_lines=()
   # Use process substitution with IFS=$'\n' to split multi-line string into array elements
@@ -171,18 +182,25 @@ strip_existing_headers() {
   # This effectively removes "bad" headers or "wrong license" headers.
   # We preserve shebangs because they typically don't match the pattern.
   
-  awk '
+  local metadata_lines=0
+  if [[ "$f" == *.md && "$(head -n 1 "$f")" == "---" ]]; then
+    metadata_lines=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$f")
+    metadata_lines=${metadata_lines:-0}
+  fi
+
+  awk -v header_start="$metadata_lines" '
     BEGIN { header_block_active = 1; line_num = 0 }
     {
       line_num++;
+      if (line_num <= header_start) { print; next; }
       if (header_block_active) {
         # Once we pass line 15, we are out of the header block.
-        if (line_num > 15) { header_block_active = 0; }
+        if (line_num > header_start + 15) { header_block_active = 0; }
 
         # If it is not a SPDX/Copyright line, and it is not a shebang/xml declaration,
         # then we are likely past the header block.
         # This condition is crucial for `in_header_block` to become 0.
-        if (line_num > 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
+        if (line_num > header_start + 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
           header_block_active = 0;
         }
 
@@ -214,8 +232,18 @@ insert_header() {
   local first_line
   first_line=$(head -n 1 "$f" || true)
   
-  # Logic to insert header AFTER shebang/xml declaration if present
-  if [[ "$first_line" =~ ^#! ]]; then
+  # Keep complete Markdown metadata ahead of the license in repair mode too.
+  local metadata_lines=""
+  if [[ "$f" == *.md && "$first_line" == "---" ]]; then
+    metadata_lines=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$f")
+  fi
+
+  # Logic to insert header AFTER metadata/shebang/xml declaration if present
+  if [[ -n "$metadata_lines" ]]; then
+    head -n "$metadata_lines" "$f" > "$temp_file"
+    echo "$header" >> "$temp_file"
+    tail -n "+$((metadata_lines + 1))" "$f" >> "$temp_file"
+  elif [[ "$first_line" =~ ^#! ]]; then
     echo "$first_line" > "$temp_file"
     echo "$header" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"

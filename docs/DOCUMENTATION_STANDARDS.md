@@ -163,6 +163,8 @@ when one exists.
 
 ## Writing and structure
 
+Markdown frontmatter remains first. Place the SPDX and copyright comments immediately after its closing delimiter. The license checker validates and repairs this position.
+
 - Lead with the result, decision, warning, or essential condition.
 - Prefer exact Echo terms and define unfamiliar ones at first use.
 - Use active voice when it clarifies ownership.

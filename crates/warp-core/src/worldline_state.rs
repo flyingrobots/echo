@@ -247,7 +247,11 @@ impl WorldlineState {
         &self.warp_state
     }
 
-    /// Returns the canonical full-state root hash for this worldline.
+    /// Returns the canonical hash of WARP state reachable from this worldline's root.
+    ///
+    /// Detached nodes and their attachments are outside this hash boundary.
+    /// Equal state roots therefore do not prove equal stores. A committed
+    /// detached write remains bound by the tick patch digest and commit identity.
     #[must_use]
     pub fn state_root(&self) -> Hash {
         crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
@@ -481,6 +485,59 @@ mod tests {
         let ws = WorldlineState::empty();
         // WorldlineState is a transparent wrapper
         assert_eq!(ws.root().local_id, make_node_id("root"));
+    }
+
+    #[test]
+    fn detached_creates_preserve_state_root_but_change_patch_and_commit_identity() {
+        use crate::attachment::{AtomPayload, AttachmentValue};
+        use crate::snapshot::compute_commit_hash_v2;
+        use crate::tick_patch::{TickCommitStatus, WarpOp};
+
+        let mut state = WorldlineState::empty();
+        let root = state.state_root();
+        let mut patch_digests = Vec::new();
+        let mut commit_ids = Vec::new();
+        for label in ["detached-a", "detached-b"] {
+            let node = NodeKey {
+                warp_id: state.root().warp_id,
+                local_id: make_node_id(label),
+            };
+            let slot = AttachmentKey::node_alpha(node);
+            let patch = WarpTickPatchV1::new(
+                0,
+                [1; 32],
+                TickCommitStatus::Committed,
+                vec![crate::SlotId::Node(node), crate::SlotId::Attachment(slot)],
+                vec![crate::SlotId::Node(node), crate::SlotId::Attachment(slot)],
+                vec![
+                    WarpOp::UpsertNode {
+                        node,
+                        record: NodeRecord {
+                            ty: make_type_id("cell"),
+                        },
+                    },
+                    WarpOp::SetAttachment {
+                        key: slot,
+                        value: Some(AttachmentValue::Atom(AtomPayload::new(
+                            make_type_id("value"),
+                            bytes::Bytes::from_static(b"retained"),
+                        ))),
+                    },
+                ],
+            );
+            let result = patch.apply_to_state(&mut state.warp_state);
+            assert!(result.is_ok(), "detached create must apply: {result:?}");
+            assert_eq!(state.state_root(), root);
+            assert!(state.store(&node.warp_id).is_some_and(|store| {
+                store.node(&node.local_id).is_some()
+                    && store.node_attachment(&node.local_id).is_some()
+            }));
+            patch_digests.push(patch.digest());
+            // Hold root, parents, and policy fixed to isolate the patch binding.
+            commit_ids.push(compute_commit_hash_v2(&root, &[], &patch.digest(), 0));
+        }
+        assert_ne!(patch_digests[0], patch_digests[1]);
+        assert_ne!(commit_ids[0], commit_ids[1]);
     }
 
     #[test]

@@ -245,6 +245,8 @@ buffer says it is dirty, because a file was written to disk, or because a UI
 event happened. It is durable because Echo recorded the accepted submission and
 later recorded any decided receipt under host-owned WAL authority.
 
+State roots cover reachable WARP state. A detached create-if-absent cell can leave the root unchanged. The retained patch and commit bind that write. Root equality alone is not a complete recovery or no-mutation witness.
+
 ## Recovery Postures
 
 The useful postures are:

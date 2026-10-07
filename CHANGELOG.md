@@ -7,6 +7,8 @@
 
 ### Fixed
 
+- `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.
+
 - `ReadView::at` validates the aperture and derives the selected current frontier
   basis with one state hash. `ReadView::new` still checks an independently
   selected expected basis. Both retain the same aperture and trust boundaries.

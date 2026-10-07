@@ -108,11 +108,17 @@ get_header_content() {
 }
 
 # Only complete HTML license/copyright comments belong to a Markdown header.
-MD_LICENSE_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*SPDX-License-Identifier([[:space:]]*[:=][[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
-MD_COPYRIGHT_COMMENT_PATTERN='^[[:space:]]*<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
+MD_LICENSE_COMMENT_PATTERN='^<!--[[:space:]]*SPDX-License-Identifier([[:space:]]*[:=][[:space:]]*[^<>]+|[[:space:]]+[[:alnum:].+-]+([[:space:]]+(AND|OR|WITH)[[:space:]]+[[:alnum:].+-]+)*)[[:space:]]*-->[[:space:]]*$'
+MD_COPYRIGHT_COMMENT_PATTERN='^<!--[[:space:]]*© James Ross .*FLYING.*-->[[:space:]]*$'
 
 markdown_metadata_bounds() {
   awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+    function map_key(line, quote) {
+      quote = sprintf("%c", 39)
+      return line ~ /^[[:space:]]*[[:alpha:]_][[:alnum:]_.-]*:([[:space:]]|$)/ ||
+        line ~ /^[[:space:]]*".*"[[:space:]]*:([[:space:]]|$)/ ||
+        line ~ ("^[[:space:]]*" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
+    }
     { lines[NR] = $0 }
     END {
       start = 0
@@ -130,7 +136,7 @@ markdown_metadata_bounds() {
       # A thematic break is body content. Task frontmatter begins with a map.
       first = start + 1
       while (first <= NR && (lines[first] ~ /^[[:space:]]*$/ || lines[first] ~ /^[[:space:]]*#/)) first++
-      if (first > NR || lines[first] !~ /^[[:space:]]*[[:alpha:]_][[:alnum:]_.-]*:([[:space:]]|$)/) {
+      if (first > NR || !map_key(lines[first])) {
         print 0, 0; exit
       }
       finish = 0
@@ -138,8 +144,8 @@ markdown_metadata_bounds() {
       has_type = 0
       for (i = start + 1; i <= NR; i++) {
         if (lines[i] == "---") { finish = i; break }
-        if (lines[i] ~ /^[[:space:]]*id:[[:space:]]*[^[:space:]]/) has_id = 1
-        if (lines[i] ~ /^[[:space:]]*type:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
+        if (lines[i] ~ /^id:[[:space:]]*[^[:space:]]/) has_id = 1
+        if (lines[i] ~ /^type:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
       }
       # Only the explicit task-card schema authorizes automatic relocation.
       # Generic body prose after a licensed header is never moved on key: alone.
@@ -292,8 +298,12 @@ insert_header() {
   
   # Keep complete Markdown metadata ahead of the license in repair mode too.
   local metadata_lines=""
-  if [[ "$f" == *.md && "$first_line" == "---" ]]; then
-    metadata_lines=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$f")
+  if [[ "$f" == *.md ]]; then
+    local metadata_start metadata_end
+    read -r metadata_start metadata_end <<< "$(markdown_metadata_bounds "$f")"
+    if [[ "$metadata_start" -eq 1 && "$metadata_end" -gt 0 ]]; then
+      metadata_lines="$metadata_end"
+    fi
   fi
 
   # Logic to insert header AFTER metadata/shebang/xml declaration if present

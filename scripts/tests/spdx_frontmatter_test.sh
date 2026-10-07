@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -197,5 +197,52 @@ if bash "$checker" "$work/equals-comment.md"; then exit 1; else test "$?" = 1; f
 bash "$checker" --check "$work/equals-comment.md"
 test "$(grep -c 'SPDX-License-Identifier' "$work/equals-comment.md")" = 1
 grep -qx '# Task' "$work/equals-comment.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == indented_keys ]]; then
+cat > "$work/indented-keys.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Example: a task-card code sample follows.
+
+    id: S01
+    type: Feature
+---
+DOC
+cp "$work/indented-keys.md" "$work/indented-keys.original"
+bash "$checker" --check "$work/indented-keys.md"
+bash "$checker" "$work/indented-keys.md"
+cmp "$work/indented-keys.original" "$work/indented-keys.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == indented_comments ]]; then
+cat > "$work/indented-comments.md" <<'DOC'
+---
+id: S01
+---
+
+    <!-- SPDX-License-Identifier: MIT -->
+    <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+Body.
+DOC
+tail -n +4 "$work/indented-comments.md" > "$work/indented-comments.expected"
+if bash "$checker" "$work/indented-comments.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/indented-comments.md"
+tail -n +6 "$work/indented-comments.md" > "$work/indented-comments.actual"
+cmp "$work/indented-comments.expected" "$work/indented-comments.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == quoted_keys ]]; then
+for key in '"title"' "'title'"; do
+printf -- '---\n%s: Example\n---\n# Body\n' "$key" > "$work/quoted-keys.md"
+head -n 3 "$work/quoted-keys.md" > "$work/quoted-keys.metadata"
+if bash "$checker" "$work/quoted-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/quoted-keys.md"
+cp "$work/quoted-keys.md" "$work/quoted-keys.once"
+bash "$checker" "$work/quoted-keys.md"
+cmp "$work/quoted-keys.once" "$work/quoted-keys.md"
+head -n 3 "$work/quoted-keys.md" > "$work/quoted-keys.actual"
+cmp "$work/quoted-keys.metadata" "$work/quoted-keys.actual"
+done
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

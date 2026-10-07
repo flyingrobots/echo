@@ -31,3 +31,23 @@ jobs:
           cargo +1.90.0 check --locked -p echo-cas
           dependency_tree=$(cargo tree --locked -p echo-cas)
           if grep -q "keep v" <<< "$dependency_tree"; then exit 1; fi
+
+  dependency-policy:
+    name: Experimental Keep dependency policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate and verify scoped source policy
+        run: |
+          python3 scripts/keep_deny_policy.py .echo-keep-deny.toml
+          python3 scripts/tests/keep_deny_policy_test.py
+      - uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14
+        with:
+          manifest-path: experiments/echo-keep/Cargo.toml
+          rust-version: "1.96.0"
+          arguments: --locked --all-features
+          command-arguments: --config /github/workspace/.echo-keep-deny.toml
+      - name: Remove generated policy
+        if: always()
+        run: rm -f .echo-keep-deny.toml

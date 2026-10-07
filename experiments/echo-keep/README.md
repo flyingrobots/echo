@@ -19,3 +19,5 @@ cargo +1.90.0 check --locked -p echo-cas
 ```
 
 [The canonical boundary](../../docs/architecture/echo-keep-physical-content-boundary.md) owns the contract. [Issue #759](https://github.com/flyingrobots/echo/issues/759) owns this identity slice.
+
+The isolated graph has its own dependency-policy CI check. It derives all license, ban, advisory, and source rules from the root policy, with one scoped allowance for the pinned Keep Git source. The production workspace policy remains unchanged.

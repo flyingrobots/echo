@@ -70,12 +70,12 @@ Keep main exports `DurableStore` and fenced snapshots. Its crate documentation s
 
 - [x] [K01: Prove the Echo and Keep content identity bridge](tasks/K01.md) — [issue #759](https://github.com/flyingrobots/echo/issues/759)
 - [x] [K02: Add the Echo physical-content port and existing CAS adapters](tasks/K02.md) — [issue #760](https://github.com/flyingrobots/echo/issues/760)
-- [ ] [K03: Add an experimental Keep ReferenceStore adapter](tasks/K03.md) — [issue #761](https://github.com/flyingrobots/echo/issues/761)
+- [x] [K03: Add an experimental Keep ReferenceStore adapter](tasks/K03.md) — [issue #761](https://github.com/flyingrobots/echo/issues/761)
 - [ ] [K04: Add a pinned-generation durable Keep read adapter](tasks/K04.md)
 - [ ] [K05: Prove durable Echo and Keep publication reconciliation](tasks/K05.md)
 - [ ] [K06: Prepare the migration and production adoption decision](tasks/K06.md)
 
-Execute K01 and K02 as independent slices, then K03. Stop this run after the experimental adapter passes its conformance and review gates.
+K01 and K02 landed as independent slices, followed by K03. The experimental adapter passed its conformance and review gates in [PR #770](https://github.com/flyingrobots/echo/pull/770), integrated at `fe8789263a26fbcb7c7554c2b48f9c33b812c7eb`. This completes the authorized implementation scope.
 
 K04–K06 are conditional follow-on work. K04 requires guarded storage that actually passes Keep's Linux ext4 admission. K05 is blocked on external Keep durable ingestion, operation lookup, and non-expiring retention anchors. K06 also requires crash, migration, rollback, and adoption evidence. Completing K03 does not unblock these requirements.
 
@@ -83,7 +83,7 @@ Proposed edges: K01 → K03; K02 → K03; K03 → K04; K04 → K05; K05 → K06.
 
 No feedback repair requires Keep integration. No Keep integration task requires a feedback repair merely because both touch storage. The shared Docker worker requires serial execution, not a graph edge.
 
-The initial proposed graph has ten task vertices and five internal edges. S01, S02, S03, S04, K01, and K02 are complete. The remaining graph has four task vertices and three internal edges; its first layer is `{K03}`. The initial graph layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. GitHub records #759 and #760 as blockers of #761 under container #722. Future K04–K06 edges remain proposals until their executable issues exist. Reconcile these tracker edges before execution.
+The initial proposed graph has ten task vertices and five internal edges. S01, S02, S03, S04, K01, K02, and K03 are complete. The remaining conditional graph has three task vertices and two internal edges; its first structural layer is `{K04}`. No conditional task is ready for this run: external gates and the separate adoption decision remain unmet. The initial graph layers are `{S01,S02,S03,S04,K01,K02}`, `{K03}`, `{K04}`, `{K05}`, `{K06}`. External prerequisite nodes are `keep_durable_ingestion`, `durable_operation_lookup`, `non_expiring_retention_anchor`, and `admitted_guarded_storage`. Each has an unresolved edge into K05. Admitted guarded storage also gates K04. These nodes are capability requirements, not invented tracker issues. The ten-task, five-edge count covers internal task edges only. GitHub records #759 and #760 as blockers of #761 under container #722. Future K04–K06 edges remain proposals until their executable issues exist. Reconcile these tracker edges before execution.
 
 The user authorized K01–K03 for this run: implement the experimental adapter first. K04–K06 remain conditional follow-on work. The initial target is experimental integration. Production adoption requires a separately reviewable accepted decision after the evidence gates pass. Keep must not become the default through an incidental dependency change.
 
@@ -93,7 +93,7 @@ S03 reports bounded outcome categories. It distinguishes a missing outcome from 
 
 S04 indexes exact obligations before replay. It sorts verification references within each worldline and keeps retained protocol order authoritative. Its two-sweep plan supports stale and cross-worldline bases. Replay counters bound patch applications; they do not prove linear elapsed time.
 
-K01 verifies two distinct identity laws on the same source and reconstructed bytes. Equal source bytes do not make Echo and Keep digest values equal. K02 preserves existing CAS defaults and package compatibility.
+K01 verifies two distinct identity laws on the same source and reconstructed bytes. Equal source bytes do not make Echo and Keep digest values equal. K02 preserves existing CAS defaults and package compatibility. K03 keeps backend error causes private as well as binding fields: public formatting, downcast and source chains must not expose Keep coordinates. A late independent finding demonstrated this leak; the corrected adapter passed its regression and a fresh review.
 
 The independent critique confirms the S01 contract repair and experimental K01–K03 boundary. Its Reader source is receipt `7e05db3c-49d0-45df-b81b-2f1a6a25a6f7`. Reconciliation details remain on PR #758; this plan contains the resulting requirements.
 

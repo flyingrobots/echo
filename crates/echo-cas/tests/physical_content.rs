@@ -20,10 +20,9 @@ fn memory_complete_object_conformance() -> TestResult {
 }
 #[test]
 fn disk_complete_object_conformance_and_corruption_quarantine() -> TestResult {
-    let root = std::env::temp_dir().join(format!("echo-physical-content-{}", std::process::id()));
-    let _cleanup = Cleanup(root.clone());
-    fs::create_dir_all(&root)?;
-    let mut backend = DiskTier::open(&root)?;
+    let cleanup = fresh_disk_fixture()?;
+    let root = &cleanup.0;
+    let mut backend = DiskTier::open(root)?;
     common::conformance(&mut backend)?;
     let bytes = b"corrupt me";
     let hash = backend.put(bytes)?;
@@ -51,6 +50,24 @@ fn disk_complete_object_conformance_and_corruption_quarantine() -> TestResult {
     ));
     Ok(())
 }
+fn fresh_disk_fixture() -> io::Result<Cleanup> {
+    for slot in 0..1024 {
+        let root = std::env::temp_dir().join(format!(
+            "echo-physical-content-{}-{slot}",
+            std::process::id()
+        ));
+        match fs::create_dir(&root) {
+            Ok(()) => return Ok(Cleanup(root)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no fresh disk fixture slot",
+    ))
+}
+
 struct Cleanup(std::path::PathBuf);
 impl Drop for Cleanup {
     fn drop(&mut self) {

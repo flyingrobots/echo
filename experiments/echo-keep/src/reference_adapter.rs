@@ -14,6 +14,8 @@ use keep::{
     ReferenceStore, ReferenceStoreCapacity,
 };
 use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt;
 use std::io::Cursor;
 
 struct Binding {
@@ -81,7 +83,7 @@ impl PhysicalContentView for KeepReferenceView<'_> {
                 .0
                 .store
                 .reconstruct(binding.identity.keep, output)
-                .map_err(|error| ContentError::Backend(Box::new(error)))?;
+                .map_err(|error| backend_failure("reconstruction", error))?;
             if receipt.target() != binding.identity.keep
                 || receipt.layout_id() != binding.layout
                 || receipt.bytes_written().get() != target.length
@@ -113,7 +115,7 @@ impl PhysicalContentBackend for KeepReferenceAdapter {
         let content = staged.into_verified();
         let identity =
             IdentityBinding::from_source(&mut Cursor::new(content.bytes()), target.length)
-                .map_err(|error| ContentError::Backend(Box::new(error)))?;
+                .map_err(|error| backend_failure("identity verification", error))?;
         if identity.echo_identity() != target.hash || identity.length() != target.length {
             return Err(ContentError::Mismatch);
         }
@@ -136,12 +138,7 @@ impl PhysicalContentBackend for KeepReferenceAdapter {
         if staged.target() != identity.keep {
             return Err(ContentError::Mismatch);
         }
-        let receipt = staged
-            .commit(&mut self.store)
-            .map_err(|error| match error {
-                PublishError::CapacityExceeded { .. } => ContentError::ResourceLimit,
-                error => ContentError::Backend(Box::new(error)),
-            })?;
+        let receipt = staged.commit(&mut self.store).map_err(publication_error)?;
         if receipt.target() != identity.keep || receipt.layout_id() != layout {
             return Err(ContentError::Mismatch);
         }
@@ -158,8 +155,45 @@ fn ingestion_error(error: IngestionError) -> ContentError {
             LayoutValidationError::EntryLimitExceeded { .. }
             | LayoutValidationError::Allocation { .. },
         ) => ContentError::ResourceLimit,
-        error => ContentError::Backend(Box::new(error)),
+        error => backend_failure("staging", error),
     }
+}
+
+fn publication_error(error: PublishError) -> ContentError {
+    match error {
+        PublishError::CapacityExceeded { .. } => ContentError::ResourceLimit,
+        error => backend_failure("publication", error),
+    }
+}
+
+// Keep coordinates and concrete types cannot escape through error formatting,
+// downcast or the public source chain. The original cause remains privately
+// owned; ordinary Echo staging and destination I/O errors retain their API.
+struct BackendFailure {
+    operation: &'static str,
+    _cause: Box<dyn Error + Send + Sync>,
+}
+impl fmt::Debug for BackendFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeepBackendFailure")
+            .field("operation", &self.operation)
+            .finish_non_exhaustive()
+    }
+}
+impl fmt::Display for BackendFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Keep reference {} failed", self.operation)
+    }
+}
+impl Error for BackendFailure {}
+fn backend_failure(
+    operation: &'static str,
+    cause: impl Error + Send + Sync + 'static,
+) -> ContentError {
+    ContentError::Backend(Box::new(BackendFailure {
+        operation,
+        _cause: Box::new(cause),
+    }))
 }
 
 #[cfg(test)]

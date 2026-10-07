@@ -128,9 +128,20 @@ fn losing_the_store_or_recreating_the_adapter_refuses_without_a_receipt() -> Tes
         .reconstruct(target(b"good"), &mut output)
         .err()
         .ok_or("missing store accepted")?;
-    assert!(
-        matches!(error, ContentError::Backend(ref cause) if matches!(cause.downcast_ref::<ReconstructionError>(), Some(ReconstructionError::BlobMissing { .. })))
+    let keep_coordinate = format!(
+        "{:?}",
+        backend
+            .bindings
+            .get(&target(b"good").hash)
+            .ok_or("missing binding")?
+            .identity
+            .keep
     );
+    assert!(
+        matches!(error, ContentError::Backend(ref cause) if cause.downcast_ref::<ReconstructionError>().is_none() && cause.source().is_none())
+    );
+    assert!(!format!("{error:?}").contains(&keep_coordinate));
+    assert!(!format!("{error}").contains(&keep_coordinate));
     assert_eq!(output.visible(), b"prior");
     drop(backend);
     let fresh = adapter()?;
@@ -206,5 +217,43 @@ fn interrupted_ingress_retries_before_explicit_publication() -> TestResult {
     assert_eq!(output.visible(), b"good");
     assert!(!receipt.establishes_durability());
     assert!(!receipt.establishes_complete_view());
+    Ok(())
+}
+
+#[test]
+fn upstream_error_types_and_coordinates_remain_private() -> TestResult {
+    let store = ReferenceStore::new(ReferenceStoreCapacity::new(8));
+    let pending = store.stage(&mut Cursor::new(b"good"), LayoutEntryLimit::MAXIMUM)?;
+    let keep = pending.target();
+    let layout = pending.layout_id();
+    let other = IdentityBinding::from_source(&mut Cursor::new(b"next"), 4)?.keep;
+    for error in [
+        ingestion_error(IngestionError::BlobIdentityMismatch {
+            expected: keep,
+            observed: other,
+        }),
+        publication_error(PublishError::ConflictingLayout { identity: layout }),
+        backend_failure(
+            "reconstruction",
+            ReconstructionError::BlobMissing { requested: keep },
+        ),
+    ] {
+        let ContentError::Backend(ref cause) = error else {
+            return Err("missing operational error".into());
+        };
+        assert!(cause.downcast_ref::<IngestionError>().is_none());
+        assert!(cause.downcast_ref::<PublishError>().is_none());
+        assert!(cause.downcast_ref::<ReconstructionError>().is_none());
+        assert!(cause.source().is_none());
+        for coordinate in [
+            format!("{keep:?}"),
+            keep.to_string(),
+            format!("{layout:?}"),
+            layout.to_string(),
+        ] {
+            assert!(!format!("{error:?}").contains(&coordinate));
+            assert!(!format!("{error}").contains(&coordinate));
+        }
+    }
     Ok(())
 }

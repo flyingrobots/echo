@@ -3432,6 +3432,24 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                 <= 2 * (b"before".len() + create_count * b"created".len()),
             "{work:?}"
         );
+        if !retain_stale {
+            // The last composition retains its parent cursor and the larger child.
+            assert_eq!(
+                work.peak_retained_node_records,
+                2 * create_count + 1,
+                "{work:?}"
+            );
+            assert_eq!(
+                work.peak_retained_tick_records,
+                2 * create_count - 1,
+                "{work:?}"
+            );
+            assert_eq!(
+                work.peak_retained_atom_bytes,
+                2 * b"before".len() + (2 * create_count - 1) * b"created".len(),
+                "{work:?}"
+            );
+        }
         let state = reopened
             .runtime()
             .worldlines()

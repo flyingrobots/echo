@@ -4793,6 +4793,13 @@ fn validate_recovered_echo_operation_parent_states(
         .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
             detail: "Action Tick composition cannot be reconstructed",
         })?;
+        #[cfg(any(test, feature = "host_test"))]
+        work.note_states(
+            recovered_states
+                .values()
+                .map(|(_, state)| state)
+                .chain(std::iter::once(&reconstructed_state)),
+        );
         let reconstructed_outcomes = reconstructed_batch
             .outcomes
             .into_iter()

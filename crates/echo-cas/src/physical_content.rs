@@ -173,7 +173,12 @@ impl StagedContent {
         source: &mut dyn Read,
         byte_limit: usize,
     ) -> Result<Self, ContentError> {
-        let mut buffer = PrivateContentBuffer::new(byte_limit);
+        let expected_length =
+            usize::try_from(target.length).map_err(|_| ContentError::ResourceLimit)?;
+        if expected_length > byte_limit {
+            return Err(ContentError::ResourceLimit);
+        }
+        let mut buffer = PrivateContentBuffer::new(byte_limit, expected_length);
         io::copy(source, &mut buffer).map_err(|error| buffer.map_error(error))?;
         Ok(Self(VerifiedContent::seal(target, buffer.bytes)?))
     }
@@ -235,23 +240,17 @@ pub fn reconstruct_quarantined(
         return Err(ContentError::CapabilityUnavailable);
     }
     let limit = destination.byte_limit();
-    if usize::try_from(target.length)
-        .ok()
-        .is_none_or(|n| n > limit)
-    {
+    let expected_length =
+        usize::try_from(target.length).map_err(|_| ContentError::ResourceLimit)?;
+    if expected_length > limit {
         return Err(ContentError::ResourceLimit);
     }
-    let mut staging = PrivateContentBuffer::new(limit);
-    if let Err(error) = reconstruct(&mut staging) {
-        return Err(if staging.resource_failure {
-            ContentError::ResourceLimit
-        } else {
-            error
-        });
+    let mut staging = PrivateContentBuffer::new(limit, expected_length);
+    let result = reconstruct(&mut staging);
+    if let Some(error) = staging.failure() {
+        return Err(error);
     }
-    if staging.resource_failure {
-        return Err(ContentError::ResourceLimit);
-    }
+    result?;
     let verified = VerifiedContent::seal(target, staging.bytes)?;
     destination.promote(verified)?;
     Ok(ContentReceipt { target })
@@ -261,26 +260,42 @@ struct PrivateContentBuffer {
     bytes: Vec<u8>,
     limit: usize,
     resource_failure: bool,
+    identity_failure: bool,
+    expected_length: usize,
 }
 impl PrivateContentBuffer {
-    const fn new(limit: usize) -> Self {
+    const fn new(limit: usize, expected_length: usize) -> Self {
         Self {
             bytes: Vec::new(),
             limit,
             resource_failure: false,
+            identity_failure: false,
+            expected_length,
+        }
+    }
+    fn failure(&self) -> Option<ContentError> {
+        if self.identity_failure {
+            Some(ContentError::Mismatch)
+        } else if self.resource_failure {
+            Some(ContentError::ResourceLimit)
+        } else {
+            None
         }
     }
     fn map_error(&self, error: io::Error) -> ContentError {
-        if self.resource_failure {
-            ContentError::ResourceLimit
-        } else {
-            ContentError::Io(error)
-        }
+        self.failure().unwrap_or(ContentError::Io(error))
     }
 }
 impl Write for PrivateContentBuffer {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let length = self.bytes.len().checked_add(bytes.len());
+        if length.is_none_or(|n| n > self.expected_length) {
+            self.identity_failure = true;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "overlong physical content",
+            ));
+        }
         if length.is_none_or(|n| n > self.limit)
             || self.bytes.try_reserve_exact(bytes.len()).is_err()
         {

@@ -36,6 +36,8 @@ pub fn conformance(backend: &mut impl PhysicalContentBackend) -> TestResult {
             .is_err());
         let receipt = backend.publish_content(staged)?;
         assert_eq!(receipt.target(), target);
+        let repeated = StagedContent::read_expected(target, &mut Cursor::new(&bytes), bytes.len())?;
+        assert_eq!(backend.publish_content(repeated)?.target(), target);
         assert!(!receipt.establishes_durability());
         assert!(!receipt.establishes_complete_view());
         let receipt = backend

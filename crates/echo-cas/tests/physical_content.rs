@@ -75,7 +75,46 @@ fn prefix_and_ignored_writer_failure_never_reach_visible_output() -> TestResult 
         let _ = output.write_all(b"overflow");
         Ok(())
     });
-    assert!(matches!(error, Err(ContentError::ResourceLimit)));
+    assert!(matches!(error, Err(ContentError::Mismatch)));
     assert_eq!(destination.visible(), b"old");
+    Ok(())
+}
+
+#[test]
+fn impossible_staging_budget_does_not_read_source() {
+    struct UnreadSource(bool);
+    impl std::io::Read for UnreadSource {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            self.0 = true;
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+    let mut source = UnreadSource(false);
+    let target = ContentTarget {
+        hash: blob_hash(b"good"),
+        length: 4,
+    };
+    assert!(matches!(
+        echo_cas::physical_content::StagedContent::read_expected(target, &mut source, 3),
+        Err(ContentError::ResourceLimit)
+    ));
+    assert!(!source.0);
+}
+
+#[test]
+fn overlong_reconstruction_is_mismatch_at_any_sufficient_budget() -> TestResult {
+    let target = ContentTarget {
+        hash: blob_hash(b"good"),
+        length: 4,
+    };
+    for limit in [4, 8] {
+        let mut destination = MemoryContentDestination::new(b"old".to_vec(), limit)?;
+        let result = reconstruct_quarantined(target, &mut destination, |output| {
+            output.write_all(b"goodx")?;
+            Ok(())
+        });
+        assert!(matches!(result, Err(ContentError::Mismatch)));
+        assert_eq!(destination.visible(), b"old");
+    }
     Ok(())
 }

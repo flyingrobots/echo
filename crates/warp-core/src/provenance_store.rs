@@ -991,13 +991,14 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
     replayed: &mut WorldlineState,
     start_tick: WorldlineTick,
     target_tick: WorldlineTick,
-) -> Result<(), ReplayError> {
+) -> Result<usize, ReplayError> {
     if start_tick == target_tick {
-        return Ok(());
+        return Ok(0);
     }
 
     let root = *replayed.root();
     let mut last_entry = None;
+    let mut applied = 0;
     for raw_tick in start_tick.as_u64()..target_tick.as_u64() {
         let tick = WorldlineTick::from_raw(raw_tick);
         let entry = provenance.entry(worldline_id, tick)?;
@@ -1044,10 +1045,11 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
             .tick_history
             .push((snapshot, receipt, replay_patch));
         last_entry = Some(entry);
+        applied += 1;
     }
 
     finalize_replay_metadata(replayed, target_tick, last_entry.as_ref());
-    Ok(())
+    Ok(applied)
 }
 
 pub(crate) fn replay_worldline_state_at_from_provenance<P: ProvenanceStore>(
@@ -1056,6 +1058,16 @@ pub(crate) fn replay_worldline_state_at_from_provenance<P: ProvenanceStore>(
     base_state: &WorldlineState,
     target_tick: WorldlineTick,
 ) -> Result<WorldlineState, ReplayError> {
+    replay_worldline_state_at_with_work(provenance, worldline_id, base_state, target_tick)
+        .map(|(state, _)| state)
+}
+
+pub(crate) fn replay_worldline_state_at_with_work<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    base_state: &WorldlineState,
+    target_tick: WorldlineTick,
+) -> Result<(WorldlineState, usize), ReplayError> {
     let history_len = WorldlineTick::from_raw(provenance.len(worldline_id)?);
     if target_tick > history_len {
         return Err(ReplayError::History(HistoryError::HistoryUnavailable {
@@ -1066,14 +1078,14 @@ pub(crate) fn replay_worldline_state_at_from_provenance<P: ProvenanceStore>(
     validate_replay_base(provenance, worldline_id, base_state)?;
     let (mut replayed, start_tick) =
         restore_replay_base(provenance, worldline_id, base_state, target_tick)?;
-    advance_replay_state(
+    let applied = advance_replay_state(
         provenance,
         worldline_id,
         &mut replayed,
         start_tick,
         target_tick,
     )?;
-    Ok(replayed)
+    Ok((replayed, applied))
 }
 
 #[derive(Debug, Clone)]

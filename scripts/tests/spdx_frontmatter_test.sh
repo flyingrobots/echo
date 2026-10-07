@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 checker=${1:-scripts/ensure_spdx.sh}
 case "${SPDX_CASE:-all}" in
-  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys) ;;
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers) ;;
   *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
 esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
@@ -244,5 +244,33 @@ cmp "$work/quoted-keys.once" "$work/quoted-keys.md"
 head -n 3 "$work/quoted-keys.md" > "$work/quoted-keys.actual"
 cmp "$work/quoted-keys.metadata" "$work/quoted-keys.actual"
 done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == spaced_keys ]]; then
+cat > "$work/spaced-keys.md" <<'DOC'
+---
+title : Example
+---
+# Body
+DOC
+head -n 3 "$work/spaced-keys.md" > "$work/spaced-keys.expected"
+if bash "$checker" "$work/spaced-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/spaced-keys.md"
+head -n 3 "$work/spaced-keys.md" > "$work/spaced-keys.actual"
+cmp "$work/spaced-keys.expected" "$work/spaced-keys.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == duplicate_headers ]]; then
+cat > "$work/duplicate-header.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!-- SPDX-License-Identifier: MIT -->
+# Body
+DOC
+if bash "$checker" --check "$work/duplicate-header.md"; then exit 1; else test "$?" = 1; fi
+if bash "$checker" "$work/duplicate-header.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/duplicate-header.md"
+test "$(grep -c SPDX-License-Identifier "$work/duplicate-header.md")" = 1
 fi
 printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

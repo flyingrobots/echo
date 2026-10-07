@@ -115,9 +115,11 @@ markdown_metadata_bounds() {
   awk -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
     function map_key(line, quote) {
       quote = sprintf("%c", 39)
-      return line ~ /^[[:space:]]*[[:alpha:]_][[:alnum:]_.-]*:([[:space:]]|$)/ ||
-        line ~ /^[[:space:]]*".*"[[:space:]]*:([[:space:]]|$)/ ||
-        line ~ ("^[[:space:]]*" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
+      trimmed = line
+      sub(/^[[:space:]]*/, "", trimmed)
+      if (substr(trimmed, 1, 1) == "\"") return trimmed ~ /^".*"[[:space:]]*:([[:space:]]|$)/
+      if (substr(trimmed, 1, 1) == quote) return trimmed ~ ("^" quote ".*" quote "[[:space:]]*:([[:space:]]|$)")
+      return trimmed ~ /.+:([[:space:]]|$)/
     }
     { lines[NR] = $0 }
     END {
@@ -144,8 +146,8 @@ markdown_metadata_bounds() {
       has_type = 0
       for (i = start + 1; i <= NR; i++) {
         if (lines[i] == "---") { finish = i; break }
-        if (lines[i] ~ /^id:[[:space:]]*[^[:space:]]/) has_id = 1
-        if (lines[i] ~ /^type:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
+        if (lines[i] ~ /^id[[:space:]]*:[[:space:]]*[^[:space:]]/) has_id = 1
+        if (lines[i] ~ /^type[[:space:]]*:[[:space:]]*(Feature|Bug|Decision|Research|Investigation|Spike)[[:space:]]*$/) has_type = 1
       }
       # Only the explicit task-card schema authorizes automatic relocation.
       # Generic body prose after a licensed header is never moved on key: alone.
@@ -198,7 +200,19 @@ check_valid_header() {
 
   # Compare line by line
   if [[ "${file_lines[i]:-}" == "${expected_lines[0]}" && "${file_lines[i+1]:-}" == "${expected_lines[1]}" ]]; then
-      return 0 # Exact header found
+      if [[ "$f" == *.md ]]; then
+        # Reject a conflicting declaration in the same bounded header region.
+        awk -v first="$((i + 3))" -v last="$((i + 15))" \
+          -v license_re="$MD_LICENSE_COMMENT_PATTERN" -v copyright_re="$MD_COPYRIGHT_COMMENT_PATTERN" '
+          NR < first { next }
+          NR > last { exit }
+          /^[[:space:]]*$/ { next }
+          $0 ~ license_re || $0 ~ copyright_re { duplicate = 1; exit }
+          { exit }
+          END { exit duplicate ? 1 : 0 }
+        ' "$f" || return 1
+      fi
+      return 0 # Exact unique header found
   fi
   return 1
 }

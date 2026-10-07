@@ -411,6 +411,40 @@ fn malformed_input_and_nonempty_wal_fail_closed() {
 }
 
 #[test]
+fn result_projection_obstruction_reports_a_bounded_kind() {
+    let run_dir = TempRunDir::new();
+    let input_path = run_dir.path().join("wide-projection-input.json");
+    let private_key = "private-input-marker".repeat(256);
+    fs::write(
+        &input_path,
+        serde_json::to_vec(&serde_json::json!({
+            "basis": "u0",
+            "key": private_key,
+            "value": "small",
+        }))
+        .expect("wide fixture is JSON"),
+    )
+    .expect("wide fixture is writable");
+    let output = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &fixture_path("verification-report.cbor"),
+        &input_path,
+        &run_dir.path().join("wal"),
+    )
+    .output()
+    .expect("the obstructed runner starts");
+    assert_rejected(&output, "ResultProjectionInvalid");
+    assert!(
+        output.stderr.len() <= 256,
+        "outcome error must stay bounded"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("private-input-marker"));
+    assert!(!stderr.contains("invocation_admission"));
+    assert!(!stderr.contains("EchoOperationObstructionV1 {"));
+}
+
+#[test]
 fn replacement_bound_is_enforced_before_runtime_submission() {
     let run_dir = TempRunDir::new();
     let input = run_dir.path().join("oversized-input.json");

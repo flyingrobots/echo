@@ -7,6 +7,8 @@
 
 ### Fixed
 
+- The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded errors. It omits raw outcome records and invocation data on both Action error paths.
+
 - `xtask run-edict-operation` runs outside Git and resolves relative artifact and WAL paths from the caller directory. Repository maintenance commands retain their Git-root behavior.
 
 - `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.

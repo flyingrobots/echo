@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
+
 - Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
 
 - Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.
@@ -110,6 +112,18 @@
   The native verifier and checked WASM package carry the same relation check.
 
 ### Added
+
+- Generic source-owned Edict functions execute through both private pure and
+  bounded-read evaluation with fresh lexical frames, ordered argument evaluation,
+  ordered local bindings, and one cumulative budget. Independent provider
+  judgments validate the complete source/imported closure, supported types,
+  totality, combined runtime depth, and conservative whole-operation costs.
+  Providers and runtime reject source functions that shadow authenticated
+  imported effects, including otherwise valid unused definitions. Bounded-read
+  call lookup distinguishes source and imported functions by exact membership,
+  including disjoint names under one package prefix.
+  Independent provider checks retain nominal type identity for source-function
+  compatibility while deriving runtime costs from the underlying representation.
 
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and

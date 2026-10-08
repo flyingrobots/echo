@@ -67,18 +67,19 @@ pub(super) fn lower(
     )?;
     let source = validate_bound(&closure.source.artifact, SOURCE_DOMAIN)?;
     let source = validate_source(&source, closure.source, &request.core)?;
-    require_exact_fields(
-        &core,
-        &[
-            "apiVersion",
-            "coordinate",
-            "imports",
-            "types",
-            "intents",
-            "requiredCoreCapabilities",
-        ],
-        SUBJECT,
-    )?;
+    let mut core_fields = vec![
+        "apiVersion",
+        "coordinate",
+        "imports",
+        "types",
+        "intents",
+        "requiredCoreCapabilities",
+    ];
+    if map_field(&core, "functions").is_some() {
+        core_fields.push("functions");
+    }
+    require_exact_fields(&core, &core_fields, SUBJECT)?;
+    super::source_functions::validate(&core, &exports, true)?;
     require_exact_fields(
         &configuration,
         &["apiVersion", "programKind", "maxReads", "maxReadBytes"],

@@ -14,23 +14,39 @@ pub(super) enum ReadType {
     Bytes(u64, u64),
     Unsigned(u64),
     Record(BTreeMap<String, ReadType>),
+    Nominal(String, Box<ReadType>),
 }
 
 impl ReadType {
+    pub(super) fn representation(&self) -> &Self {
+        match self {
+            Self::Nominal(_, inner) => inner.representation(),
+            _ => self,
+        }
+    }
+
     pub(super) fn is_address(&self) -> bool {
         let Self::Record(fields) = self else {
             return false;
         };
         fields.len() == 3
-            && ["nodeId", "typeId", "warpId"]
-                .iter()
-                .all(|key| fields.get(*key) == Some(&Self::Bytes(32, 32)))
+            && ["nodeId", "typeId", "warpId"].iter().all(|key| {
+                fields
+                    .get(*key)
+                    .is_some_and(|ty| ty.representation() == &Self::Bytes(32, 32))
+            })
     }
 
     fn accepts(&self, actual: &Self) -> bool {
         match (self, actual) {
             (Self::Bytes(min, max), Self::Bytes(actual_min, actual_max)) => {
                 min <= actual_min && actual_max <= max
+            }
+            (Self::Record(expected), Self::Record(actual)) => {
+                expected.len() == actual.len()
+                    && expected
+                        .iter()
+                        .all(|(name, ty)| actual.get(name).is_some_and(|value| ty.accepts(value)))
             }
             _ => self == actual,
         }
@@ -39,6 +55,7 @@ impl ReadType {
 
 pub(super) struct Scope<'a> {
     core: &'a Value,
+    exports: &'a Value,
     inventory: BTreeMap<&'a str, &'a Value>,
     available: BTreeMap<&'a str, &'a Value>,
     used: BTreeSet<&'a str>,
@@ -49,6 +66,7 @@ pub(super) struct Scope<'a> {
 impl<'a> Scope<'a> {
     pub(super) fn new(
         core: &'a Value,
+        exports: &'a Value,
         locals: &'a [Value],
         input_type: &str,
     ) -> Result<Self, ProviderRefusalV1> {
@@ -67,6 +85,7 @@ impl<'a> Scope<'a> {
         }
         let scope = Self {
             core,
+            exports,
             inventory,
             available: BTreeMap::from([("arg.0", input)]),
             used: BTreeSet::from(["arg.0"]),
@@ -116,6 +135,16 @@ impl<'a> Scope<'a> {
             if let Some(max) = spec.strip_prefix("max=") {
                 return Ok(ReadType::Bytes(0, canonical_number(max)?));
             }
+            if let Some((left, right)) = spec
+                .strip_prefix("min=")
+                .and_then(|value| value.split_once(",max="))
+            {
+                let min = canonical_number(left)?;
+                let max = canonical_number(right)?;
+                if min < max {
+                    return Ok(ReadType::Bytes(min, max));
+                }
+            }
             return Err(invalid());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
@@ -134,6 +163,15 @@ impl<'a> Scope<'a> {
                 Ok(ReadType::Bytes(min, max))
             }
             "Int" => self.resolve(text(value, "width")?, depth + 1),
+            "Nominal" => {
+                if text(value, "contract")? != key {
+                    return Err(invalid());
+                }
+                Ok(ReadType::Nominal(
+                    key.to_owned(),
+                    Box::new(self.resolve(text(value, "representation")?, depth + 1)?),
+                ))
+            }
             "Record" => {
                 let fields = entries(field(value, "fields")?)?
                     .iter()
@@ -227,18 +265,129 @@ impl<'a> Scope<'a> {
                     .collect::<Result<BTreeMap<_, _>, ProviderRefusalV1>>()?;
                 Ok(ReadType::Record(fields))
             }
+            "const" => {
+                require_exact_fields(value, &["kind", "value"], SUBJECT)?;
+                let literal = field(value, "value")?;
+                require_exact_fields(literal, &["kind", "value", "width"], SUBJECT)?;
+                let width = text(literal, "width")?;
+                if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
+                    return Err(invalid());
+                }
+                let ReadType::Unsigned(max) = self.ty(width)? else {
+                    return Err(invalid());
+                };
+                if required_u64(literal, "value", SUBJECT)? > max {
+                    return Err(invalid());
+                }
+                Ok(ReadType::Unsigned(max))
+            }
+            "if" => {
+                require_exact_fields(value, &["kind", "predicate", "then", "else"], SUBJECT)?;
+                self.predicate_at(field(value, "predicate")?, depth + 1)?;
+                let yes = self.expression(field(value, "then")?, depth + 1)?;
+                let no = self.expression(field(value, "else")?, depth + 1)?;
+                match (yes, no) {
+                    (ReadType::Bytes(a, b), ReadType::Bytes(c, d)) => {
+                        Ok(ReadType::Bytes(a.min(c), b.max(d)))
+                    }
+                    (a, b) if a == b => Ok(a),
+                    _ => Err(invalid()),
+                }
+            }
+            "call" => self.call(value, depth),
+            _ => Err(invalid()),
+        }
+    }
+
+    fn call(&self, value: &Value, depth: usize) -> Result<ReadType, ProviderRefusalV1> {
+        require_exact_fields(value, &["kind", "callee", "args", "typeArgs"], SUBJECT)?;
+        let args = super::array(value, "args")?;
+        let types = super::array(value, "typeArgs")?;
+        let name = text(value, "callee")?;
+        let actual = args
+            .iter()
+            .map(|value| self.expression(value, depth + 1))
+            .collect::<Result<Vec<_>, _>>()?;
+        let prefix = format!("{}.", text(self.core, "coordinate")?);
+        let signature = name.strip_prefix(&prefix).and_then(|member| {
+            super::map_field(self.core, "functions")
+                .and_then(|functions| super::map_field(functions, member))
+        });
+        if let Some(function) = signature {
+            let params = super::array(function, "params")?;
+            if !types.is_empty() || params.len() != actual.len() {
+                return Err(invalid());
+            }
+            for (parameter, ty) in params.iter().zip(&actual) {
+                if !self.ty(text(parameter, "type")?)?.accepts(ty) {
+                    return Err(invalid());
+                }
+            }
+            return self.ty(text(function, "returnType")?);
+        }
+        if let Some(function) = super::array(self.exports, "pureFunctions")?
+            .iter()
+            .find(|function| super::text_field(function, "coordinate") == Some(name))
+        {
+            if !types.is_empty()
+                || !args.is_empty()
+                || !super::array(function, "parameterTypes")?.is_empty()
+            {
+                return Err(invalid());
+            }
+            return self.ty(text(function, "returnType")?);
+        }
+        let declared = types
+            .iter()
+            .map(|value| {
+                let Value::Text(name) = value else {
+                    return Err(invalid());
+                };
+                self.ty(name)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        match (name, actual.as_slice(), declared.as_slice()) {
+            ("core.bytes.length", [actual], [expected @ ReadType::Bytes(_, _)])
+                if expected.accepts(actual) =>
+            {
+                Ok(ReadType::Unsigned(u64::MAX))
+            }
+            (
+                "core.bytes.concat",
+                [left, right],
+                [a @ ReadType::Bytes(a_min, a_max), b @ ReadType::Bytes(b_min, b_max)],
+            ) if a.accepts(left) && b.accepts(right) => Ok(ReadType::Bytes(
+                a_min.checked_add(*b_min).ok_or_else(invalid)?,
+                a_max.checked_add(*b_max).ok_or_else(invalid)?,
+            )),
             _ => Err(invalid()),
         }
     }
 
     pub(super) fn predicate(&self, value: &Value) -> Result<(), ProviderRefusalV1> {
+        self.predicate_at(value, 0)
+    }
+
+    fn predicate_at(&self, value: &Value, depth: usize) -> Result<(), ProviderRefusalV1> {
+        if depth > 64 {
+            return Err(invalid());
+        }
         require_exact_fields(value, &["kind", "op", "left", "right"], SUBJECT)?;
         if text(value, "kind")? != "compare" {
             return Err(invalid());
         }
-        let left = self.expression(field(value, "left")?, 0)?;
-        let right = self.expression(field(value, "right")?, 0)?;
-        match (text(value, "op")?, left, right) {
+        let left = self.expression(field(value, "left")?, depth + 1)?;
+        let right = self.expression(field(value, "right")?, depth + 1)?;
+        if (matches!(left, ReadType::Nominal(..)) || matches!(right, ReadType::Nominal(..)))
+            && left != right
+        {
+            return Err(invalid());
+        }
+        match (
+            text(value, "op")?,
+            left.representation(),
+            right.representation(),
+        ) {
             ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
             ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
                 Ok(())
@@ -291,6 +440,36 @@ mod tests {
     }
 
     #[test]
+    fn distinct_nominals_without_source_functions_do_not_convert() -> Result<(), ProviderRefusalV1>
+    {
+        let nominal = |contract: &str| {
+            map([
+                ("kind", Value::Text("Nominal".into())),
+                ("contract", Value::Text(contract.into())),
+                ("representation", Value::Text("U64".into())),
+            ])
+        };
+        let core = map([
+            ("coordinate", Value::Text("example@1".into())),
+            ("types", map([("A", nominal("A")), ("B", nominal("B"))])),
+        ]);
+        let scope = Scope {
+            core: &core,
+            exports: &core,
+            inventory: BTreeMap::new(),
+            available: BTreeMap::new(),
+            used: BTreeSet::new(),
+            input: &core,
+            remaining_type_work: Cell::new(65_536),
+        };
+        let a = scope.ty("A")?;
+        assert!(scope.ty("example@1.A")?.accepts(&a));
+        assert!(!scope.ty("B")?.accepts(&a));
+        assert!(!scope.ty("U64")?.accepts(&a));
+        Ok(())
+    }
+
+    #[test]
     fn named_types_starting_with_u_are_not_unsigned_widths() {
         let core = map([
             ("coordinate", Value::Text("Ucorp.data@1".to_owned())),
@@ -307,6 +486,7 @@ mod tests {
         ]);
         let scope = Scope {
             core: &core,
+            exports: &core,
             inventory: BTreeMap::new(),
             available: BTreeMap::new(),
             used: BTreeSet::new(),

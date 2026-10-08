@@ -171,9 +171,15 @@ requires an `application_input_expected_value_digest_path` in the installed
 projection and exact equality between its 32-byte input value and the invocation
 precondition. Create projections omit this path. Missing or substituted bindings
 return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
-This native boundary does not establish compiler/provider production of projected
-compare-and-set packages: that integration and its scheduler/recovery witnesses
-remain unimplemented.
+The native lowerer and independent verifier select the CAS program from an exact
+`continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
+write class. Its configuration requires a distinct `expectedValueDigestField`
+and at least four steps; the package binds the corresponding input path and
+CAS-specific profile identities. The verifier reconstructs these bytes and
+rejects a substituted digest path. These native witnesses use synthetic semantic
+closures. Checked component/schema production, a real compiler build, and CAS
+scheduler/recovery witnesses remain unimplemented; this is not yet a complete
+application-build capability.
 
 The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
 

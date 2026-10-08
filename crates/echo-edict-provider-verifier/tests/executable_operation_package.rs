@@ -97,6 +97,109 @@ struct RawFixture {
 }
 
 #[test]
+fn cas_providers_refuse_missing_aliased_and_underbudget_digest_bindings() {
+    let names = FIXTURES[0];
+    let mut valid = configuration(names);
+    *map_field_mut(&mut valid, "programKind") = text("anchored-node-attachment-compare-and-set/v1");
+    let CanonicalValueV1::Map(fields) = map_field_mut(&mut valid, "invocationBinding") else {
+        panic!("map");
+    };
+    fields.push((text("expectedValueDigestField"), text("expected")));
+    let valid_fixture = raw_fixture_with_values(names, valid.clone(), result_projection(names));
+    let package = lower_package(names, &valid_fixture);
+    for case in ["missing", "key", "value", "budget"] {
+        let mut config = valid.clone();
+        if case == "budget" {
+            *map_field_mut(map_field_mut(&mut config, "budgetCeiling"), "steps") = integer(3);
+        } else if case == "missing" {
+            let CanonicalValueV1::Map(fields) = map_field_mut(&mut config, "invocationBinding")
+            else {
+                panic!("map");
+            };
+            fields.retain(|(key, _)| key != &text("expectedValueDigestField"));
+        } else {
+            *map_field_mut(
+                map_field_mut(&mut config, "invocationBinding"),
+                "expectedValueDigestField",
+            ) = text(case);
+        }
+        let fixture = raw_fixture_with_values(names, config, result_projection(names));
+        let lower = lowerer::lower(lowering_request(names, &fixture)).expect_err(case);
+        assert_eq!(
+            lower.kind,
+            lowerer::ProviderRefusalKind::UnsupportedSemantics,
+            "{case}"
+        );
+        let verify = verifier::verify(verification_request(names, &fixture, package.clone()))
+            .expect_err(case);
+        assert_eq!(
+            verify.kind,
+            verifier::ProviderRefusalKind::UnsupportedSemantics,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn verifier_accepts_projected_compare_and_set_and_rejects_rebound_digest_path() {
+    let names = FIXTURES[0];
+    let mut config = configuration(names);
+    *map_field_mut(&mut config, "programKind") =
+        text("anchored-node-attachment-compare-and-set/v1");
+    let CanonicalValueV1::Map(bindings) = map_field_mut(&mut config, "invocationBinding") else {
+        panic!("binding map");
+    };
+    bindings.push((text("expectedValueDigestField"), text("expected")));
+    let fixture = raw_fixture_with_values(names, config, result_projection(names));
+    let package = lower_package(names, &fixture);
+    let mut value = decode_canonical_cbor_v1(&package).expect("package decodes");
+    let projection = map_field_mut(&mut value, "application_result_projection");
+    assert_eq!(
+        map_field(projection, "application_input_expected_value_digest_path"),
+        &CanonicalValueV1::Array(vec![text("expected")])
+    );
+    let accepted = verifier::verify(verification_request(names, &fixture, package))
+        .expect("CAS verification completes");
+    let report =
+        decode_canonical_cbor_v1(&accepted.outputs[0].artifact.bytes).expect("report decodes");
+    assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+    *map_field_mut(projection, "application_input_expected_value_digest_path") =
+        CanonicalValueV1::Array(vec![text("other")]);
+    let rejected = verifier::verify(verification_request(
+        names,
+        &fixture,
+        canonical_bytes(&value),
+    ))
+    .expect("rejection report");
+    let report =
+        decode_canonical_cbor_v1(&rejected.outputs[0].artifact.bytes).expect("report decodes");
+    assert_eq!(text_field(&report, "outcome"), Some("rejected"));
+}
+
+fn cas_profile_value(value: CanonicalValueV1) -> CanonicalValueV1 {
+    match value {
+        CanonicalValueV1::Text(text_value) => text(match text_value.as_str() {
+            "continuum.profile.create/v1" => "continuum.profile.write/v1",
+            "echo.dpo@1.anchored-node-attachment-create-if-absent" => {
+                "echo.dpo@1.anchored-node-attachment-compare-and-set"
+            }
+            "create" => "replace",
+            _ => return CanonicalValueV1::Text(text_value),
+        }),
+        CanonicalValueV1::Map(entries) => CanonicalValueV1::Map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key, cas_profile_value(value)))
+                .collect(),
+        ),
+        CanonicalValueV1::Array(values) => {
+            CanonicalValueV1::Array(values.into_iter().map(cas_profile_value).collect())
+        }
+        other => other,
+    }
+}
+
+#[test]
 fn verifier_accepts_generic_lowerer_output_for_two_application_vocabularies() {
     for names in FIXTURES {
         let fixture = raw_fixture(names);
@@ -750,6 +853,15 @@ fn raw_fixture_with_values(
     configuration_value: CanonicalValueV1,
     result_projection_value: CanonicalValueV1,
 ) -> RawFixture {
+    let is_cas = text_field(&configuration_value, "programKind")
+        == Some("anchored-node-attachment-compare-and-set/v1");
+    let select_profile = |value| {
+        if is_cas {
+            cas_profile_value(value)
+        } else {
+            value
+        }
+    };
     let target_profile = TARGET_PROFILE.to_vec();
     let target_profile_ref = raw_ref("echo.dpo@1", "edict.target-profile/v1", &target_profile);
     let exports = canonical_bytes(&exports(names));
@@ -760,7 +872,7 @@ fn raw_fixture_with_values(
         "echo.operation-lowering-configuration/v1",
         &configuration,
     );
-    let adapter = canonical_bytes(&adapter(names, &configuration_ref));
+    let adapter = canonical_bytes(&select_profile(adapter(names, &configuration_ref)));
     let adapter_ref = raw_ref(names.adapter, "edict.lawpack-adapter/v1", &adapter);
     let lawpack = canonical_bytes(&lawpack(
         names,
@@ -771,7 +883,7 @@ fn raw_fixture_with_values(
         &target_profile_ref,
     ));
     let lawpack_ref = raw_ref(names.lawpack, "edict.lawpack/v1", &lawpack);
-    let core = canonical_bytes(&core(names));
+    let core = canonical_bytes(&select_profile(core(names)));
     let core_ref = raw_ref(names.application, "edict.core.module/v1", &core);
     let source = canonical_bytes(&CanonicalValueV1::Bytes(
         format!(
@@ -784,12 +896,12 @@ fn raw_fixture_with_values(
         )
         .into_bytes(),
     ));
-    let target_ir = canonical_bytes(&target_ir(
+    let target_ir = canonical_bytes(&select_profile(target_ir(
         names,
         &core_ref,
         &lawpack_ref,
         &target_profile_ref,
-    ));
+    )));
     let result_projection = canonical_bytes(&result_projection_value);
     RawFixture {
         core,

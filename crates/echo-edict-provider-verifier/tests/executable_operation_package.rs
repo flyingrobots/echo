@@ -1399,3 +1399,85 @@ fn bounded_key_profile_refuses_missing_core_key_type_in_both_providers() {
         verifier::ProviderRefusalKind::UnsupportedSemantics
     );
 }
+
+#[test]
+fn bounded_key_providers_agree_on_adversarial_core_limits() {
+    let names = FIXTURES[0];
+    let legacy = raw_fixture(names);
+    let legacy_package = lower_package(names, &legacy);
+    let mut config = configuration(names);
+    set_key_field(
+        &mut config,
+        "apiVersion",
+        text("echo.operation-lowering-configuration/v2"),
+    );
+    for (label, reference, definition) in [
+        (
+            "noncanonical decimal",
+            "String<max=064,canonical=raw-utf8>".to_owned(),
+            None,
+        ),
+        ("missing inline policy", "String<max=64>".to_owned(), None),
+        (
+            "inline maximum overflow",
+            "String<max=65537,canonical=raw-utf8>".to_owned(),
+            None,
+        ),
+        (
+            "missing named policy",
+            format!("{}.Key", names.application),
+            Some(owned_map([("kind", text("String")), ("max", integer(64))])),
+        ),
+        (
+            "named maximum overflow",
+            format!("{}.Key", names.application),
+            Some(owned_map([
+                ("kind", text("String")),
+                ("max", integer(65_537)),
+                ("canonical", text("raw-utf8")),
+            ])),
+        ),
+    ] {
+        let mut core_value = core(names);
+        let mut intents = map_field(&core_value, "intents").clone();
+        let mut intent = map_field(&intents, names.intent).clone();
+        set_key_field(
+            &mut intent,
+            "input",
+            text(format!("{}.Input", names.application)),
+        );
+        set_key_field(&mut intents, names.intent, intent);
+        set_key_field(&mut core_value, "intents", intents);
+        let mut types = owned_map([(
+            "Input",
+            owned_map([
+                ("kind", text("Record")),
+                ("fields", owned_map([("key", text(reference))])),
+            ]),
+        )]);
+        if let Some(definition) = definition {
+            set_key_field(&mut types, "Key", definition);
+        }
+        set_key_field(&mut core_value, "types", types);
+        let fixture =
+            raw_fixture_with_core(names, config.clone(), result_projection(names), core_value);
+        let lower_refusal = lowerer::lower(lowering_request(names, &fixture))
+            .expect_err("malformed key type must refuse in lowerer");
+        assert_eq!(
+            lower_refusal.kind,
+            lowerer::ProviderRefusalKind::UnsupportedSemantics,
+            "{label}"
+        );
+        let verify_refusal = verifier::verify(verification_request(
+            names,
+            &fixture,
+            legacy_package.clone(),
+        ))
+        .expect_err("malformed key type must independently refuse in verifier");
+        assert_eq!(
+            verify_refusal.kind,
+            verifier::ProviderRefusalKind::UnsupportedSemantics,
+            "{label}"
+        );
+    }
+}

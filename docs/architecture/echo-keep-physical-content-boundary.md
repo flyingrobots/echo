@@ -6,8 +6,7 @@
 - **Status:** Accepted for experimental conformance; production adoption is
   not accepted.
 - **Decision date:** 2026-08-09
-- **Implementation posture:** No Echo physical-content port or Keep adapter is
-  implemented on this branch.
+- **Implementation posture:** `experiments/echo-keep` supplies a bounded dual-identity bridge against Keep revision `3165890e9291cfb5fe10e81a9d7cd151f3e59464` in a separate Rust 1.96 workspace. `echo-cas::physical_content` supplies the fallible complete-object port and MemoryTier/DiskTier adapters. Borrowed views certify no pinned filesystem generation, complete-view absence, retention, synchronization, or crash durability. The disabled-by-default `reference-adapter` feature supplies an in-memory Keep ReferenceStore backend with private identity/layout bindings and explicit payload, object, count and layout-entry limits. Process death loses its store and bindings; no durable Keep adapter is implemented. Echo CAS remains the default.
 - **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
 - **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)
@@ -114,6 +113,20 @@ The initial port excludes:
 Echo may retain a bounded materializing helper implemented over this port. The
 helper is not Keep's foundational contract and must require an explicit byte
 limit.
+
+## Initial executable port
+
+`StagedContent::read_expected` reads under an explicit per-object byte limit and seals the Echo hash and exact length. `PhysicalContentBackend::publish_content` publishes that invisible staged object. Existing MemoryTier and DiskTier APIs remain compatible.
+
+`PhysicalContentView::reconstruct` uses bounded private staging. `TransactionalContentDestination` requires atomic promotion of a sealed `VerifiedContent` handle; an arbitrary `Write` sink is insufficient. `MemoryContentDestination` provides the initial bounded memory implementation. A failed source, integrity check, resource check, or promotion leaves prior visible bytes intact. The shared backend-neutral suite lives in `crates/echo-cas/tests/common/physical_content.rs`.
+
+The materializing port bounds each staging operation, not aggregate retained MemoryTier capacity or process RSS. Existing MemoryTier budgets remain advisory. Missing content is `CapabilityUnavailable`, with no authenticated absence receipt. Disk views verify bytes at read time without a pinned-generation claim. All initial receipts explicitly report unsupported durability and complete-view evidence. This additive port does not reroute current consumers or adopt Keep in production.
+
+## Experimental ReferenceStore adapter
+
+The isolated `experiments/echo-keep` workspace exposes `KeepReferenceAdapter` only with the `reference-adapter` feature. Expected publication computes both identities from the same sealed Echo bytes, stages against the exact Keep identity and validates the commit receipt before registering its private binding. Reconstruction borrows the immutable store, validates the selected Keep target, layout and byte count, and independently seals the Echo identity and exact length before destination promotion. The backend-neutral suite is shared with MemoryTier and DiskTier. No existing consumer is rerouted, and there is no implicit fallback. Backend failures keep their concrete Keep causes privately; an adapter-owned error hides coordinates from public formatting, downcast and source chains. Echo ingress and destination I/O causes retain their existing API.
+
+Physical payload capacity is distinct from per-object, object-count and layout-entry limits. Metadata growth is bounded by the latter two caps, with no process-RSS guarantee. Source, capacity, layout, receipt or destination failures emit no success receipt. Unbound targets report `CapabilityUnavailable`; bound targets whose Keep state is unavailable report an operational failure. The ReferenceStore and its bindings are volatile, with no persisted carrier, restart recovery, durable generation, authenticated absence, retention or crash-durability proposition.
 
 ## Output visibility
 

@@ -29,3 +29,4 @@ crates/warp-math/Cargo.toml 1.96.0
 crates/warp-wasm/Cargo.toml 1.96.0
 tests/edict-provider-host-v1/Cargo.toml 1.96.0
 xtask/Cargo.toml 1.96.0
+experiments/echo-keep/Cargo.toml 1.96.0

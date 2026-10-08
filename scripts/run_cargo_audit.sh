@@ -48,4 +48,10 @@ if [[ "${#ignore_ids[@]}" -ne 0 ]]; then
   printf '  - %s\n' "${ignore_ids[@]}" >&2
 fi
 
-cargo audit --deny warnings "${ignore_flags[@]}"
+[[ -f "$repo_root/Cargo.lock" ]] || { echo "Error: root Cargo.lock is missing" >&2; exit 1; }
+# The experiment has a separate resolver and must have its own advisory check.
+for lockfile in "$repo_root/Cargo.lock" "$repo_root/experiments/echo-keep/Cargo.lock"; do
+  if [[ -f "$lockfile" ]]; then
+    cargo audit --file "$lockfile" --deny warnings "${ignore_flags[@]}"
+  fi
+done

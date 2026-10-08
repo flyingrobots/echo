@@ -163,6 +163,10 @@ state, frontier, or Receipt publication. The transitional direct
 prepare/commit seam can still return noncommitted evidence to trusted host
 tests, but it is not the application lifecycle.
 
+The create-if-absent profile creates a node and its alpha attachment. It does not create a skeleton edge from the lane root. A detached cell therefore remains outside the reachable-state root hash. Equal roots do not prove equal stores or the absence of a detached write. The retained tick patch and commit identity bind that write; duplicate checks also compare the typed target-value digest. This preserves the [Merkle commit law](../spec/merkle-commit.md).
+
+The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
+
 The external-provider schema additionally admits one exact zero-choice
 `compiler-produced-bounded-pure/v1` target configuration. It contains no
 application operation, target-specific budget override, or mutation authority.

@@ -5,7 +5,25 @@
 
 ## Unreleased
 
+### Added
+
+- A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
+
+- An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
+
+- A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
+
 ### Fixed
+
+- The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
+
+- Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
+
+- The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.
+
+- `xtask run-edict-operation` runs outside Git and resolves relative artifact and WAL paths from the caller directory. Repository maintenance commands retain their Git-root behavior.
+
+- `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.
 
 - `ReadView::at` validates the aperture and derives the selected current frontier
   basis with one state hash. `ReadView::new` still checks an independently

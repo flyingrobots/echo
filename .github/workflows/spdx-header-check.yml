@@ -26,6 +26,9 @@ jobs:
             chmod +x check_spdx.sh
           fi
 
+      - name: Verify Markdown license preservation
+        run: bash scripts/tests/spdx_frontmatter_test.sh
+
       - name: Run SPDX check
         run: |
           if [ -f "scripts/check_spdx.sh" ]; then

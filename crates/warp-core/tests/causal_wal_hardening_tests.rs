@@ -3012,4 +3012,3 @@ fn segment_manifest_validation_gate_is_part_of_wal_release_readiness() {
         "manifest validation should be an explicit WAL release gate"
     );
 }
-

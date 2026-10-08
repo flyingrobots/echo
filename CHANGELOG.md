@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
+
 - Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
 
 - Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.

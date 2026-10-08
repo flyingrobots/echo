@@ -158,8 +158,10 @@ pub(super) fn check(e: &Evidence<'_>) -> Check<()> {
         sequence(body, "locals")?,
         text(intent, "input")?,
     )?;
-    if symbols.expression(get(target, "basis")?, 0)?
-        != (Schema::Bytes {
+    if symbols
+        .expression(get(target, "basis")?, 0)?
+        .representation()
+        != &(Schema::Bytes {
             lower: 32,
             upper: 32,
         })

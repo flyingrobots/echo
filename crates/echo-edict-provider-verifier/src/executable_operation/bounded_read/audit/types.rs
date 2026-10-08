@@ -7,23 +7,39 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum Schema {
-    Bytes { lower: u64, upper: u64 },
+    Bytes {
+        lower: u64,
+        upper: u64,
+    },
     Word(u64),
     Row(BTreeMap<String, Schema>),
+    Nominal {
+        identity: String,
+        storage: Box<Schema>,
+    },
 }
 
 impl Schema {
+    pub(super) fn representation(&self) -> &Self {
+        match self {
+            Self::Nominal { storage, .. } => storage.representation(),
+            _ => self,
+        }
+    }
+
     pub(super) fn address(&self) -> bool {
         let Self::Row(fields) = self else {
             return false;
         };
         fields.len() == 3
             && ["nodeId", "warpId", "typeId"].iter().all(|key| {
-                fields.get(*key)
-                    == Some(&Self::Bytes {
-                        lower: 32,
-                        upper: 32,
-                    })
+                fields.get(*key).is_some_and(|ty| {
+                    ty.representation()
+                        == &Self::Bytes {
+                            lower: 32,
+                            upper: 32,
+                        }
+                })
             })
     }
     fn includes(&self, actual: &Self) -> bool {
@@ -135,10 +151,8 @@ impl<'a> Symbols<'a> {
             return Err(());
         }
         let prefix = format!("{}.", text(self.core, "coordinate")?);
-        let value = get(
-            get(self.core, "types")?,
-            name.strip_prefix(&prefix).unwrap_or(name),
-        )?;
+        let key = name.strip_prefix(&prefix).unwrap_or(name);
+        let value = get(get(self.core, "types")?, key)?;
         match text(value, "kind")? {
             "Bytes" => {
                 let upper = number(get(value, "max")?)?;
@@ -152,7 +166,15 @@ impl<'a> Symbols<'a> {
                 Ok(Schema::Bytes { lower, upper })
             }
             "Int" => self.schema(text(value, "width")?, depth + 1),
-            "Nominal" => self.schema(text(value, "representation")?, depth + 1),
+            "Nominal" => {
+                if text(value, "contract")? != key {
+                    return Err(());
+                }
+                Ok(Schema::Nominal {
+                    identity: key.to_owned(),
+                    storage: Box::new(self.schema(text(value, "representation")?, depth + 1)?),
+                })
+            }
             "Record" => {
                 let mut fields = BTreeMap::new();
                 for (key, value) in members(get(value, "fields")?)? {
@@ -342,7 +364,16 @@ impl<'a> Symbols<'a> {
         }
         let left = self.expression(get(value, "left")?, depth + 1)?;
         let right = self.expression(get(value, "right")?, depth + 1)?;
-        match (text(value, "op")?, left, right) {
+        if (matches!(left, Schema::Nominal { .. }) || matches!(right, Schema::Nominal { .. }))
+            && left != right
+        {
+            return Err(());
+        }
+        match (
+            text(value, "op")?,
+            left.representation(),
+            right.representation(),
+        ) {
             ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
             ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
             _ => Err(()),
@@ -364,4 +395,44 @@ fn decimal(value: &str) -> Check<u64> {
         return Err(());
     }
     Ok(number)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn map(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+        Value::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (Value::Text(key.into()), value))
+                .collect(),
+        )
+    }
+    #[test]
+    fn distinct_nominals_without_source_functions_do_not_convert() -> Check<()> {
+        let nominal = |contract: &str| {
+            map([
+                ("kind", Value::Text("Nominal".into())),
+                ("contract", Value::Text(contract.into())),
+                ("representation", Value::Text("U64".into())),
+            ])
+        };
+        let core = map([
+            ("coordinate", Value::Text("example@1".into())),
+            ("types", map([("A", nominal("A")), ("B", nominal("B"))])),
+        ]);
+        let mut symbols = Symbols {
+            core: &core,
+            exports: &core,
+            declared: BTreeMap::new(),
+            live: BTreeSet::new(),
+            claimed: BTreeSet::new(),
+            work: 65_536,
+        };
+        let a = symbols.schema("A", 0)?;
+        assert!(symbols.schema("example@1.A", 0)?.includes(&a));
+        assert!(!symbols.schema("B", 0)?.includes(&a));
+        assert!(!symbols.schema("U64", 0)?.includes(&a));
+        Ok(())
+    }
 }

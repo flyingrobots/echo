@@ -90,7 +90,11 @@ impl ReadRelation<'_> {
             array(body, "locals")?,
             text(intent, "input")?,
         )?;
-        if scope.expression(field(intent, "basis")?, 0)? != ReadType::Bytes(32, 32) {
+        if scope
+            .expression(field(intent, "basis")?, 0)?
+            .representation()
+            != &ReadType::Bytes(32, 32)
+        {
             return Err(invalid());
         }
         for constraint in array(intent, "inputConstraints")? {

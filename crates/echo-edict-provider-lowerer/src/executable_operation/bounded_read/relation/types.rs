@@ -14,17 +14,27 @@ pub(super) enum ReadType {
     Bytes(u64, u64),
     Unsigned(u64),
     Record(BTreeMap<String, ReadType>),
+    Nominal(String, Box<ReadType>),
 }
 
 impl ReadType {
+    pub(super) fn representation(&self) -> &Self {
+        match self {
+            Self::Nominal(_, inner) => inner.representation(),
+            _ => self,
+        }
+    }
+
     pub(super) fn is_address(&self) -> bool {
         let Self::Record(fields) = self else {
             return false;
         };
         fields.len() == 3
-            && ["nodeId", "typeId", "warpId"]
-                .iter()
-                .all(|key| fields.get(*key) == Some(&Self::Bytes(32, 32)))
+            && ["nodeId", "typeId", "warpId"].iter().all(|key| {
+                fields
+                    .get(*key)
+                    .is_some_and(|ty| ty.representation() == &Self::Bytes(32, 32))
+            })
     }
 
     fn accepts(&self, actual: &Self) -> bool {
@@ -153,7 +163,15 @@ impl<'a> Scope<'a> {
                 Ok(ReadType::Bytes(min, max))
             }
             "Int" => self.resolve(text(value, "width")?, depth + 1),
-            "Nominal" => self.resolve(text(value, "representation")?, depth + 1),
+            "Nominal" => {
+                if text(value, "contract")? != key {
+                    return Err(invalid());
+                }
+                Ok(ReadType::Nominal(
+                    key.to_owned(),
+                    Box::new(self.resolve(text(value, "representation")?, depth + 1)?),
+                ))
+            }
             "Record" => {
                 let fields = entries(field(value, "fields")?)?
                     .iter()
@@ -360,7 +378,16 @@ impl<'a> Scope<'a> {
         }
         let left = self.expression(field(value, "left")?, depth + 1)?;
         let right = self.expression(field(value, "right")?, depth + 1)?;
-        match (text(value, "op")?, left, right) {
+        if (matches!(left, ReadType::Nominal(..)) || matches!(right, ReadType::Nominal(..)))
+            && left != right
+        {
+            return Err(invalid());
+        }
+        match (
+            text(value, "op")?,
+            left.representation(),
+            right.representation(),
+        ) {
             ("==", ReadType::Bytes(_, _), ReadType::Bytes(_, _)) => Ok(()),
             ("==" | "<=", ReadType::Unsigned(left), ReadType::Unsigned(right)) if left == right => {
                 Ok(())
@@ -410,6 +437,36 @@ mod tests {
                 .map(|(key, value)| (Value::Text(key.to_owned()), value))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn distinct_nominals_without_source_functions_do_not_convert() -> Result<(), ProviderRefusalV1>
+    {
+        let nominal = |contract: &str| {
+            map([
+                ("kind", Value::Text("Nominal".into())),
+                ("contract", Value::Text(contract.into())),
+                ("representation", Value::Text("U64".into())),
+            ])
+        };
+        let core = map([
+            ("coordinate", Value::Text("example@1".into())),
+            ("types", map([("A", nominal("A")), ("B", nominal("B"))])),
+        ]);
+        let scope = Scope {
+            core: &core,
+            exports: &core,
+            inventory: BTreeMap::new(),
+            available: BTreeMap::new(),
+            used: BTreeSet::new(),
+            input: &core,
+            remaining_type_work: Cell::new(65_536),
+        };
+        let a = scope.ty("A")?;
+        assert!(scope.ty("example@1.A")?.accepts(&a));
+        assert!(!scope.ty("B")?.accepts(&a));
+        assert!(!scope.ty("U64")?.accepts(&a));
+        Ok(())
     }
 
     #[test]

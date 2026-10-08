@@ -302,7 +302,7 @@ returns or comparisons across distinct nominal identities, or between a nominal
 type and its representation. Same-nominal byte and unsigned-word comparisons
 use the ordinary representation costs. Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Boolean, string, list, variant and effectful helper forms
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
 receive provider refusal.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered

@@ -371,6 +371,8 @@ Release-grade durability requires all of the following executable claims:
 - Retained evidence survives restart or produces a typed obstruction.
 - Required recovery artifacts are emitted by CI.
 
+Filesystem writer takeover acquires the process lease and checks the recovered tail before closing a predecessor epoch. An uncommitted or torn tail refuses takeover until writable recovery reconciles it. An empty predecessor leaves its starting LSN unused, so a distinct linked successor may start at that same coordinate; a committed predecessor requires the successor to start after its final LSN, with overflow refused.
+
 ## Evidence
 
 The runtime ACK and recovery witnesses live in

@@ -342,15 +342,17 @@ The native create-operation lowerer and structurally separate verifier recognize
 `apiVersion: echo.operation-lowering-configuration/v2` within the existing
 configuration artifact domain. Version 1 remains unchanged; providers that only
 recognize version 1 refuse the new selector. Version 2 requires an explicit Core
-intent input naming a local record, whose configured key field names a local
-`String` type with `unicode-scalar-nfc` canonical policy and a positive scalar
-maximum no greater than 65,536. Each provider independently derives the scalar
+intent input naming a record retained in Core's type table. The configured key
+field must resolve to a named `String` type or canonical inline
+`String<max=N,canonical=POLICY>` reference, with `raw-utf8` or
+`unicode-scalar-nfc` policy and a positive scalar maximum no greater than 65,536.
+Imported fully qualified type-table keys are resolved without stripping their
+package coordinate. Each provider independently derives the scalar
 limit from that type and the byte limit as `min(4 * max, 65536)`. The verifier
 reconstructs the entire expected package, including those limits, so changing
 or removing them fails the package relation.
 
-This native profile currently supports that named local type shape. It does not
-normalize input text or establish NFC validity. The runtime checks alone do not
+This native profile does not normalize input text or establish NFC validity. The runtime checks alone do not
 prove the Core relation; the independent provider verification supplies that
 separate evidence. Compiler-produced closure coverage, component publication,
 and compile-through-execution/replay acceptance remain required by

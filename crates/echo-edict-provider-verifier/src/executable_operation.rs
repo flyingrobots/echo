@@ -1238,25 +1238,43 @@ fn derive_key_scalar_limit(
     let intents = required_map(core, "intents", subject)?;
     let intent = required_map(intents, intent_name, subject)?;
     let input = required_text(intent, "input", subject)?;
-    let input_name = input
-        .strip_prefix(&prefix)
-        .ok_or_else(|| super::unsupported_semantics(subject))?;
+    let input_name = input.strip_prefix(&prefix).unwrap_or(input);
     let input = required_map(types, input_name, subject)?;
     if text_field(input, "kind") != Some("Record") {
         return Err(super::unsupported_semantics(subject));
     }
     let fields = required_map(input, "fields", subject)?;
     let key_type = required_text(fields, field, subject)?;
-    let key_name = key_type
-        .strip_prefix(&prefix)
-        .ok_or_else(|| super::unsupported_semantics(subject))?;
-    let key = required_map(types, key_name, subject)?;
-    if text_field(key, "kind") != Some("String")
-        || text_field(key, "canonical") != Some("unicode-scalar-nfc")
+    let max = if let Some(spec) = key_type
+        .strip_prefix("String<max=")
+        .and_then(|s| s.strip_suffix('>'))
     {
-        return Err(super::unsupported_semantics(subject));
-    }
-    let max = required_u64(key, "max", subject)?;
+        let (max, canonical) = spec
+            .split_once(",canonical=")
+            .ok_or_else(|| super::unsupported_semantics(subject))?;
+        if !matches!(canonical, "raw-utf8" | "unicode-scalar-nfc") {
+            return Err(super::unsupported_semantics(subject));
+        }
+        let parsed = max
+            .parse::<u64>()
+            .map_err(|_| super::unsupported_semantics(subject))?;
+        if parsed.to_string() != max {
+            return Err(super::unsupported_semantics(subject));
+        }
+        parsed
+    } else {
+        let key_name = key_type.strip_prefix(&prefix).unwrap_or(key_type);
+        let key = required_map(types, key_name, subject)?;
+        if text_field(key, "kind") != Some("String")
+            || !matches!(
+                text_field(key, "canonical"),
+                Some("raw-utf8" | "unicode-scalar-nfc")
+            )
+        {
+            return Err(super::unsupported_semantics(subject));
+        }
+        required_u64(key, "max", subject)?
+    };
     if max == 0 || max > 65_536 {
         return Err(super::unsupported_semantics(subject));
     }
@@ -1980,4 +1998,21 @@ fn canonical_map<const N: usize>(entries: [(&str, CanonicalValueV1); N]) -> Cano
             .map(|(key, value)| (canonical_text(key), value))
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod key_bound_tests {
+    use super::*;
+
+    #[test]
+    fn compiler_produced_imported_key_type_resolves_scalar_bound() {
+        let core = echo_edict_canonical::decode_canonical_cbor_v1(include_bytes!(
+            "../../echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/create-greeting.core.cbor"
+        )).expect("retained compiler Core decodes");
+        assert_eq!(
+            derive_key_scalar_limit(&core, "createGreeting", "key")
+                .expect("compiler key type resolves"),
+            64
+        );
+    }
 }

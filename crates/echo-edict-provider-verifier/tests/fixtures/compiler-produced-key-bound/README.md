@@ -36,5 +36,11 @@ python3 build.py --compiler /path/to/pinned/edict   --compiler-sha256 3b082d61c8
 
 Expected result: the compiler reports `errors: 0`, and writes
 `build/executable-operation-package.cbor` and `build/verification-report.cbor`.
-This proves the component-host build, not runtime execution or WAL replay of
-these retained bytes.
+The component-host build reproduces these retained bytes. The operation runner
+also accepts this v2 configuration: boundary inputs with 64 ASCII scalars or 64
+four-byte Unicode scalars execute and reproduce the exact application result in
+fresh-host and WAL recovery. The 65-scalar inputs fail the runner's success
+witness; empty, missing and non-text keys refuse input parsing. Direct runtime
+admission tests separately assert `ApplicationInputMismatch` for overlong keys.
+The runner currently reports an unexpected scheduler selection for those
+admission refusals; this message alone is not a typed rejection witness.

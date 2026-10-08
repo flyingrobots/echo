@@ -361,8 +361,10 @@ Edict compiler `2405a550e93e1e97fff640caa44bbd0f65ffff3c` exercises the
 configuration and package schemas through both component calls; its exact
 package/report and reproduction recipe are in the
 [compiler-produced key-bound fixture](../../crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/README.md).
-Execution/replay of that exact package and final acceptance remain required by
-[issue #764](https://github.com/flyingrobots/echo/issues/764).
+The operation runner accepts the v2 selector and has exercised this exact
+package with 64 ASCII and 64 four-byte Unicode scalars through execution,
+fresh-host recovery and WAL recovery. Remaining adversarial and review gates
+are tracked by [issue #764](https://github.com/flyingrobots/echo/issues/764).
 
 ## External Edict Provider Artifacts
 

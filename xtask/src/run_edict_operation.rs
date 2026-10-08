@@ -892,12 +892,13 @@ fn validate_closure(
 }
 
 fn parse_target_configuration(value: &CanonicalValueV1) -> Result<TargetConfiguration> {
-    require_text(
-        value,
-        "apiVersion",
-        "target configuration",
-        CONFIGURATION_DOMAIN,
-    )?;
+    let api_version = nonempty_text_field(value, "apiVersion", "target configuration")?;
+    if !matches!(
+        api_version,
+        CONFIGURATION_DOMAIN | "echo.operation-lowering-configuration/v2"
+    ) {
+        bail!("unsupported target configuration.apiVersion: {api_version}");
+    }
     require_text(value, "programKind", "target configuration", PROGRAM_KIND)?;
     let binding = map_field(value, "invocationBinding", "target configuration")?;
     require_text(
@@ -1481,5 +1482,36 @@ mod tests {
             value_mutation.is_err(),
             "a changed target value must fail closed"
         );
+    }
+    #[test]
+    fn create_configuration_accepts_only_supported_version_selectors() {
+        use echo_edict_canonical::{decode_canonical_cbor_v1, CanonicalValueV1};
+        let fixture = decode_canonical_cbor_v1(include_bytes!(
+            "../../crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/echo-operation-configuration.cbor"
+        )).expect("retained configuration decodes");
+        for (version, supported) in [
+            ("echo.operation-lowering-configuration/v1", true),
+            ("echo.operation-lowering-configuration/v2", true),
+            ("echo.operation-lowering-configuration/v3", false),
+        ] {
+            let mut value = fixture.clone();
+            let CanonicalValueV1::Map(fields) = &mut value else {
+                panic!("configuration map");
+            };
+            let (_, selector) = fields
+                .iter_mut()
+                .find(|(key, _)| key == &CanonicalValueV1::Text("apiVersion".to_owned()))
+                .expect("selector present");
+            *selector = CanonicalValueV1::Text(version.to_owned());
+            let result = super::parse_target_configuration(&value);
+            if supported {
+                assert!(result.is_ok());
+            } else {
+                assert_eq!(
+                    result.err().expect("unknown selector refuses").to_string(),
+                    format!("unsupported target configuration.apiVersion: {version}")
+                );
+            }
+        }
     }
 }

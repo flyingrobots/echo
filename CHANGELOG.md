@@ -7,6 +7,8 @@
 
 ### Added
 
+- An opt-in create-operation configuration v2 derives Unicode scalar key bounds in both provider components and binds them into packages. Runtime admission enforces nonempty keys and separate scalar/UTF-8 byte ceilings; legacy configuration v1 is unchanged.
+
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
 
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.

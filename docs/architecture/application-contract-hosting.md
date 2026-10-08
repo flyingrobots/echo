@@ -354,8 +354,10 @@ or removing them fails the package relation.
 
 This native profile does not normalize input text or establish NFC validity. The runtime checks alone do not
 prove the Core relation; the independent provider verification supplies that
-separate evidence. Compiler-produced closure coverage, component publication,
-and compile-through-execution/replay acceptance remain required by
+separate evidence. The checked provider component distribution includes this
+profile, built reproducibly with the pinned component toolchain and corroborated
+by its regenerated manifest. Fresh compiler-produced closure coverage and
+compile-through-execution/replay acceptance remain required by
 [issue #764](https://github.com/flyingrobots/echo/issues/764).
 
 ## External Edict Provider Artifacts

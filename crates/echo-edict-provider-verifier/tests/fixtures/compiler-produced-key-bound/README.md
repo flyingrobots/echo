@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Compiler-produced key type witness
 
 Exact source and checked-in Core bytes copied from Edict `3f81f759e921a69b04fe8cf8e62e62f8f3dc7b7e`,

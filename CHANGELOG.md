@@ -7,7 +7,7 @@
 
 ### Added
 
-- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Checked component/schema production and end-to-end execution/recovery integration remain pending.
+- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. End-to-end execution/recovery integration remains pending.
 
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
 

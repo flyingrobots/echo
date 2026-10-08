@@ -176,10 +176,12 @@ The native lowerer and independent verifier select the CAS program from an exact
 write class. Its configuration requires a distinct `expectedValueDigestField`
 and at least four steps; the package binds the corresponding input path and
 CAS-specific profile identities. The verifier reconstructs these bytes and
-rejects a substituted digest path. These native witnesses use synthetic semantic
-closures. Checked component/schema production, a real compiler build, and CAS
-scheduler/recovery witnesses remain unimplemented; this is not yet a complete
-application-build capability.
+rejects a substituted digest path. Native refusal witnesses use synthetic semantic closures. The generated schema
+and reproducible checked components also admit a real public Edict compiler build;
+its exact source, executable package and accepted report are retained under
+`crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/`.
+CAS scheduler execution and recovery of that compiler-produced package remain
+unverified; successful package production is not execution evidence.
 
 The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
 

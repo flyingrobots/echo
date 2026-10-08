@@ -15,6 +15,9 @@ use echo_edict_provider_lowerer::{
 
 use echo_edict_provider_verifier as verifier;
 
+#[path = "bounded_read/source_functions.rs"]
+mod source_functions;
+
 const PACKAGE: &str = "echo.operation-package/v1";
 
 fn bound(coordinate: &str, domain: &str, bytes: Vec<u8>) -> BoundArtifact {

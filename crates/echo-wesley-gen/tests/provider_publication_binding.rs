@@ -29,6 +29,14 @@ fn pack(publication: ProviderContractPublicationV1) -> AdmittedProviderContractP
             ),
             include_bytes!("../assets/v1/edict-provider/contracts/ordered/manifest.json"),
         ),
+        ProviderContractPublicationV1::SourceFunctions => (
+            include_bytes!(
+                "../../../schemas/edict-provider/contracts/source-functions-v1/edict-provider-contracts.cddl"
+            ),
+            include_bytes!(
+                "../../../schemas/edict-provider/contracts/source-functions-v1/manifest.json"
+            ),
+        ),
     };
     admit_provider_contract_pack_for_publication_v1(publication, schema, manifest)
         .expect("exact publication admits")
@@ -74,6 +82,7 @@ fn each_matching_publication_generates_its_bound_schema() {
     for publication in [
         ProviderContractPublicationV1::PureBindings,
         ProviderContractPublicationV1::OrderedInstructions,
+        ProviderContractPublicationV1::SourceFunctions,
     ] {
         let bound = pack(publication);
         let input = build_provider_generation_input_v1(SOURCE, &bound, SETTINGS)
@@ -82,5 +91,16 @@ fn each_matching_publication_generates_its_bound_schema() {
             .expect("independently admitted matching publication generates");
         assert!(primary.schema().bytes().starts_with(bound.schema_bytes()));
         assert_eq!(primary.generation_input_digest(), input.digest());
+    }
+}
+
+#[test]
+fn source_function_generation_rejects_every_other_publication_in_both_directions() {
+    for other in [
+        ProviderContractPublicationV1::PureBindings,
+        ProviderContractPublicationV1::OrderedInstructions,
+    ] {
+        rejects_crossed_publication(ProviderContractPublicationV1::SourceFunctions, other);
+        rejects_crossed_publication(other, ProviderContractPublicationV1::SourceFunctions);
     }
 }

@@ -65,7 +65,7 @@ const SEMANTIC_DIGEST: &str =
 const RELEASE_DIGEST: &str =
     "sha256:c39449495281b51f978468d08c21e93bcfa423176063b41675da61e4674b0066";
 const PACKAGE_ARTIFACT_SHA256: &str =
-    "bef39ea60891b2bec38643fc8307ea38cadf3915159e9717177bff8ec3335128";
+    "7eaf4213424fd9a0c8e9149ef2df03a742f2e326452409568e1af4f21180d114";
 const OTHER_PACKAGE_ARTIFACT_SHA256: &str =
     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
@@ -302,6 +302,10 @@ fn checked_materials_assemble_one_digest_locked_provider_package() {
     let reordered = assemble(true);
 
     assert_eq!(package, reordered);
+    assert_eq!(
+        package.provider_reference().digest,
+        format!("sha256:{PACKAGE_ARTIFACT_SHA256}")
+    );
     assert_eq!(package.members().len(), 24);
     assert_eq!(package.files().len(), 25);
     assert_eq!(package.manifest().artifacts.len(), 10);

@@ -27,14 +27,14 @@ pub(super) fn run(
         }
     })?;
     meter.charge(&input, 0)?;
-    let mut locals = BTreeMap::from([(program.input_id.clone(), input)]);
-    let helpers = BTreeMap::new();
-    let application_basis = expression(&program.basis, &locals, &helpers, &mut meter, 0)?;
+    let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
+    let helpers = &program.helpers;
+    let application_basis = expression(&program.basis, &locals, helpers, &mut meter, 0)?;
     let application_basis = bytes(&application_basis)?
         .try_into()
         .map_err(|_| Error::InvalidInput)?;
     for (coordinate, constraint) in &program.constraints {
-        if !predicate(constraint, &locals, &helpers, &mut meter, 0)? {
+        if !predicate(constraint, &locals, helpers, &mut meter, 0)? {
             return Err(Error::InputConstraintFailed(coordinate.clone()).into());
         }
     }
@@ -44,7 +44,7 @@ pub(super) fn run(
         meter.step(0)?;
         match instruction {
             Instruction::Read(read) => {
-                let address = expression(&read.input, &locals, &helpers, &mut meter, 0)?;
+                let address = expression(&read.input, &locals, helpers, &mut meter, 0)?;
                 let (node, expected_type) = address_value(&address)?;
                 if !view.contains(node) {
                     return Err(ReadError::OutsideAperture(node));
@@ -72,18 +72,18 @@ pub(super) fn run(
                 )?;
                 let value = Value::Bytes(bytes.to_vec());
                 validate(&value, &read.ty, &mut meter, 0)?;
-                locals.insert(read.binding.clone(), value);
+                locals.insert(read.binding.as_str(), value);
             }
             Instruction::Let { binding, ty, value } => {
-                let value = expression(value, &locals, &helpers, &mut meter, 0)?;
+                let value = expression(value, &locals, helpers, &mut meter, 0)?;
                 validate(&value, ty, &mut meter, 0)?;
-                locals.insert(binding.clone(), value);
+                locals.insert(binding.as_str(), value);
             }
             Instruction::Require {
                 predicate: condition,
                 obstruction,
             } => {
-                if !predicate(condition, &locals, &helpers, &mut meter, 0)? {
+                if !predicate(condition, &locals, helpers, &mut meter, 0)? {
                     return Err(ReadError::Obstructed {
                         coordinate: obstruction.clone(),
                         cause: ReadObstruction::Guard,
@@ -92,7 +92,7 @@ pub(super) fn run(
             }
         }
     }
-    let value = expression(&program.result, &locals, &helpers, &mut meter, 0)?;
+    let value = expression(&program.result, &locals, helpers, &mut meter, 0)?;
     validate(&value, &program.output_type, &mut meter, 0)?;
     meter.charge(&value, 0)?;
     let output = encode(&value).map_err(|_| Error::InvalidArtifact)?;

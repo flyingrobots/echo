@@ -486,6 +486,8 @@ pub enum WalRecordKind {
     ExternalActionClaimRecorded,
     /// Echo admitted one schema-bound external-action settlement.
     ExternalActionSettlementRecorded,
+    /// Runtime retained an immutable operation observation or request binding.
+    ExecutableOperationContextRetained,
 }
 
 impl WalRecordKind {
@@ -525,6 +527,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => "ExternalActionRequestRecorded",
             Self::ExternalActionClaimRecorded => "ExternalActionClaimRecorded",
             Self::ExternalActionSettlementRecorded => "ExternalActionSettlementRecorded",
+            Self::ExecutableOperationContextRetained => "ExecutableOperationContextRetained",
         }
     }
 
@@ -553,7 +556,8 @@ impl WalRecordKind {
             Self::SchedulerFaultQuarantined | Self::TrustedRuntimeControlRecorded => {
                 WalAppendAuthority::RuntimeControl
             }
-            Self::ExecutableOperationPackageInstalled => WalAppendAuthority::RuntimeControl,
+            Self::ExecutableOperationPackageInstalled
+            | Self::ExecutableOperationContextRetained => WalAppendAuthority::RuntimeControl,
             Self::ExecutableOperationExecutionRecorded
             | Self::ExecutableOperationStateDeltaRecorded => WalAppendAuthority::ExecutionKernel,
             Self::CausalAnchorFactRecorded | Self::CausalAnchorAdmissionReceiptRecorded => {
@@ -614,6 +618,7 @@ impl WalRecordKind {
             Self::ExternalActionRequestRecorded => 29,
             Self::ExternalActionClaimRecorded => 30,
             Self::ExternalActionSettlementRecorded => 31,
+            Self::ExecutableOperationContextRetained => 32,
         }
     }
 
@@ -650,6 +655,7 @@ impl WalRecordKind {
             29 => Ok(Self::ExternalActionRequestRecorded),
             30 => Ok(Self::ExternalActionClaimRecorded),
             31 => Ok(Self::ExternalActionSettlementRecorded),
+            32 => Ok(Self::ExecutableOperationContextRetained),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalRecordKind",
                 code,

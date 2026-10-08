@@ -471,8 +471,23 @@ Capture preflights each slot against the remaining aggregate canonical byte
 allowance before copying that slot’s Atom bytes.
 Execution checks the slot ceiling and charges its admitted read budget before
 materializing the value; oversized support obstructs rather than allocating it.
-It currently rebuilds context indexes from the WAL. Production indexing,
-retention policy, and authenticated aperture delegation remain separate work.
+The context index and writer cursor are derived from one validated committed WAL
+prefix on opening or reconciliation. Healthy appends apply only their new context
+records and advance the index's commit binding after durable acknowledgement.
+Reads borrow that index without replaying history. Any append error invalidates
+the binding, including an error reported after the commit marker was synced.
+Reads in that posture resolve retained records; context writes reconcile the
+writer cursor before checking identity or constructing another transaction. No
+transaction from an uncertain cursor can reach storage. Exact retries recover
+the original request rather than replacing its semantic input.
+Retention policy and authenticated aperture delegation remain separate work.
+
+For diagnostic workload accounting, `ECHO_WAL_PROFILE=1` makes the session driver
+emit cumulative thread-local recovery calls and decoded frame counts on stderr
+after each RPC. Counters restart with each process. They count all filesystem
+recovery calls, including required opening and explicit recovery, and do not
+change stdout responses or retained evidence. They are work counts, not CPU-time
+or physical-I/O measurements.
 
 Disconnected create-if-absent cells can leave the root-reachable state hash
 unchanged. Recovery evidence must therefore include native commit identities

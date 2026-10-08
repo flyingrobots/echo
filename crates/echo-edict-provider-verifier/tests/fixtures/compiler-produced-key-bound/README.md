@@ -18,7 +18,7 @@ produced by a fresh public application build using Edict compiler commit
 `3b082d61c8cd23b0f917efb55c4eebd54e75c0df5d31c72f90ad856853678bf5`.
 This compiler pin differs from the provenance of the retained input fixture.
 The lowerer component hash is
-`0f330366e7e50fc59f62158ad28c4d0cd8b2e82191375bcbf6535d2eb8194244`;
+`2e2f4aa5cd63fdec99e62934e18c5590697eaeef9b1bb0253689520bd65d23e9`;
 the verifier hash is
 `2d67816b9fa9128cbb0a5da761ce59fdb9c4410b28d7e1793cb5eedde47faeaa`.
 

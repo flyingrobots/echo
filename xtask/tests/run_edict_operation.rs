@@ -153,6 +153,28 @@ fn assert_rejected(output: &Output, expected_reason: &str) {
 }
 
 #[test]
+fn observed_session_rejects_an_unobserved_only_budget_before_creating_wal() {
+    let run_dir = TempRunDir::new();
+    let wal = run_dir.path().join("wal");
+    let output = runner_command(
+        &fixture_path("executable-operation-package.cbor"),
+        &fixture_path("verification-report.cbor"),
+        &fixture_path("input.json"),
+        &wal,
+    )
+    .arg("--serve")
+    .output()
+    .expect("session starts");
+    assert_rejected(
+        &output,
+        "insufficient budget for an observation-bound session",
+    );
+    assert!(
+        !wal.exists(),
+        "unsupported budget must fail before durable setup"
+    );
+}
+
 fn runner_accepts_absolute_artifacts_outside_git() {
     let run_dir = TempRunDir::outside_repo();
     let git_probe = Command::new("git")

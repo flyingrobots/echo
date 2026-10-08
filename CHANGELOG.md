@@ -7,6 +7,13 @@
 
 ### Added
 
+- Bounded executable-operation host sessions retain immutable observations and
+  logical-request bindings in the native WAL. Echo evaluates supplied node/atom
+  preconditions inside operation preparation, includes their reads in scheduler
+  footprints, and retains typed refusal or commitment outcomes across reopening.
+  The generic `run-edict-operation --serve` driver supports repeated operations,
+  historical outcome lookup, and derived observation-change discovery.
+
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
 
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
@@ -14,6 +21,8 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
 
 - Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
 
@@ -1834,6 +1843,35 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   hook regressions.
 
 ### Fixed
+
+- Filesystem writer leases explicitly unlock when their owner leaves scope,
+  so a descriptor briefly inherited by a concurrent child process cannot keep
+  the departed writer's lease alive and spuriously refuse its successor.
+
+- The observed-session driver refuses an obviously insufficient compiled
+  budget before durable setup and explains that observation reads require an
+  authored, verified allowance rather than silently increasing the grant.
+
+- Filesystem writer takeover refuses an unreconciled WAL tail before reusing
+  an empty epoch's log position, preventing duplicate physical LSNs.
+
+- Observation change discovery preserves intervening writes after values are
+  restored, including after reopening. The session driver resolves keys and
+  commit evidence together from native provenance instead of repeatedly
+  reconstructing WAL history.
+
+- Retained observations bind the anchor's actual occupancy instead of claiming
+  that every observed anchor was absent.
+
+- Observation reads now populate the footprint partition mask as well as the
+  exact read sets, keeping retained footprint evidence consistent.
+
+- Observed operations reject observations from another writer head even when
+  both heads belong to the same worldline.
+
+- Reopening a filesystem WAL through an empty writer epoch no longer consumes an
+  unwritten log position. A second reopen followed by append previously left an
+  LSN gap and made subsequent recovery fail.
 
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact

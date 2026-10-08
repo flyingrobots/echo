@@ -14,6 +14,9 @@ use std::{
 
 use thiserror::Error;
 
+mod observed_context;
+pub use observed_context::EchoOperationContextErrorV1;
+
 use crate::causal_anchor::prepare_causal_anchor_admission;
 
 use crate::{

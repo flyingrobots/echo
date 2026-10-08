@@ -570,3 +570,54 @@ fn compiler_cas_accepts_replacement_at_exact_declared_bound() {
     ));
     assert_eq!(fixture.value(), replacement.as_bytes());
 }
+
+#[test]
+fn compiler_cas_refuses_aliased_projection_before_installation() {
+    let fixture = Fixture::new(true);
+    let Value::Map(mut fields) = decode_canonical_cbor_v1(&package()).expect("compiler package")
+    else {
+        panic!("package map")
+    };
+    let (_, Value::Map(projection)) = fields
+        .iter_mut()
+        .find(|(key, _)| key == &Value::Text("application_result_projection".into()))
+        .expect("projection")
+    else {
+        panic!("projection map")
+    };
+    let (_, expected) = projection
+        .iter_mut()
+        .find(|(key, _)| key == &Value::Text("application_input_expected_value_digest_path".into()))
+        .expect("digest binding");
+    *expected = Value::Array(vec![Value::Text("key".into())]);
+    let bytes = encode_canonical_cbor_v1(&Value::Map(fields)).expect("mutated package");
+    let id = echo_operation_package_id_v1(&bytes);
+    // Pin the mutated identity so refusal proves structural validation, not
+    // merely a mismatch against the original package's hash.
+    let error = fixture
+        .host
+        .admit_echo_operation_package_v1(
+            &EchoOperationAdmissionPolicyV1::exact(
+                id,
+                OPERATION,
+                profile("cas.echo.authority.local-demo/v1"),
+                budget(),
+            ),
+            bytes,
+        )
+        .expect_err("aliased projection refused");
+    assert_eq!(
+        error.kind(),
+        warp_core::EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+    );
+    assert_eq!(
+        error.artifact().expect("artifact error").kind(),
+        warp_core::EchoOperationArtifactErrorKindV1::InvalidStructure
+    );
+    assert!(fixture
+        .host
+        .engine()
+        .installed_echo_operation_package_v1(id)
+        .is_none());
+    assert_eq!(fixture.value(), INITIAL);
+}

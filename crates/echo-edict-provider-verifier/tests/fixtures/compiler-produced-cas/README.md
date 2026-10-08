@@ -17,5 +17,8 @@ The retained build used the pinned Edict compiler from source commit
 `3b082d61c8cd23b0f917efb55c4eebd54e75c0df5d31c72f90ad856853678bf5`.
 `built/` preserves the authored source with its exact digest, the public compiler's
 successful status, and exact package/report bytes as lowercase hex. The report
-accepts this package. This proves compiler/provider production, not runtime
-execution or WAL recovery; those witnesses remain pending.
+accepts this package. This fixture proves compiler/provider production.
+`crates/warp-core/tests/edict_projected_cas_tests.rs` uses these exact bytes for
+separate scheduler and fresh-host WAL recovery witnesses, including pending
+Actions, committed results and stale-digest obstructions. It checks typed target
+bytes directly because the fixture target is detached from the reachable root.

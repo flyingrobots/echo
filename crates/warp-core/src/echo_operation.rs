@@ -2144,7 +2144,9 @@ impl ExecutableOperationPackageV1 {
                 self.program,
                 EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
             );
-            if projection.application_input_expected_value_digest_path.is_some()
+            if projection
+                .application_input_expected_value_digest_path
+                .is_some()
                 != requires_digest
             {
                 return Err(invalid_structure(
@@ -7667,10 +7669,9 @@ mod tests {
     #[test]
     fn package_admission_rejects_projection_digest_binding_for_the_wrong_program() {
         let (installed, _, _, _, _, _) = projected_create_fixture(1_024);
-        let create = ExecutableOperationPackageV1::from_canonical_bytes(
-            installed.canonical_package_bytes(),
-        )
-        .expect("valid create package");
+        let create =
+            ExecutableOperationPackageV1::from_canonical_bytes(installed.canonical_package_bytes())
+                .expect("valid create package");
         for cas in [false, true] {
             let mut package = if cas {
                 ExecutableOperationPackageV1::new(

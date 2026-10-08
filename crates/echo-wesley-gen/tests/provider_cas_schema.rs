@@ -152,8 +152,8 @@ fn projected_cas_schema_accepts_digest_path_without_changing_create_shape() {
             .find(|(key, _)| *key == "application_input_expected_value_digest_path")
             .expect("CAS digest path");
         *path = CanonicalValueV1::Array(vec![segment]);
-        let bytes = encode_canonical_cbor_v1(&map(invalid_fields))
-            .expect("canonical malformed projection");
+        let bytes =
+            encode_canonical_cbor_v1(&map(invalid_fields)).expect("canonical malformed projection");
         let error = generated
             .schema()
             .validate_root_bytes("echo-operation-application-result-projection", &bytes)

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Reproduce the projected CAS compiler witness
 
 Run `build.py` inside the guarded Echo worker with a pinned Edict compiler binary,

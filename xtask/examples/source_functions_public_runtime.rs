@@ -86,7 +86,7 @@ fn emitted(root: &Path, evidence: &serde_json::Value) -> Result<(Vec<u8>, Vec<u8
         result["firstBuild"]["exitCode"] == 0
             && result["firstBuild"]["diagnostics"]
                 .as_array()
-                .is_some_and(|items| items.is_empty()),
+                .is_some_and(Vec::is_empty),
         "compiler/verifier did not succeed"
     );
     let package = read(&root.join("executable-operation-package.cbor"))?;

@@ -66,9 +66,6 @@ impl<'a> Frame<'a> {
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    if super::map_field(core, "functions").is_none() {
-        return Ok(());
-    }
     audit(core, exports, read)
         .map_err(|()| super::super::unsupported_semantics("core.source-functions-verification"))
 }
@@ -168,6 +165,9 @@ fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
         definitions: &definitions,
         summaries: &summaries,
     };
+    if super::map_field(core, "functions").is_none() {
+        return Ok(());
+    }
     for (_, intent) in members(get(core, "intents")?)? {
         checker.intent(intent, read)?;
     }
@@ -179,7 +179,11 @@ fn inventory<'a>(
     types: &mut Types<'_>,
 ) -> Check<BTreeMap<String, Definition<'a>>> {
     let mut definitions = BTreeMap::new();
-    for export in sequence(get(exports, "pureFunctions")?)? {
+    let imported_functions = super::map_field(exports, "pureFunctions")
+        .map(sequence)
+        .transpose()?
+        .unwrap_or(&[]);
+    for export in imported_functions {
         if string(get(export, "source")?)? != "edict" {
             return Err(());
         }
@@ -221,7 +225,11 @@ fn inventory<'a>(
         .iter()
         .map(|effect| string(get(effect, "coordinate")?))
         .collect::<Check<BTreeSet<_>>>()?;
-    for (name, definition) in members(get(core, "functions")?)? {
+    let source_functions = super::map_field(core, "functions")
+        .map(members)
+        .transpose()?
+        .unwrap_or(&[]);
+    for (name, definition) in source_functions {
         types.step(0)?;
         let name = string(name)?;
         if !name.bytes().enumerate().all(|(index, byte)| {
@@ -704,4 +712,41 @@ fn exact(value: &Value, fields: &[&str]) -> Check<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+        Value::Map(
+            fields
+                .into_iter()
+                .map(|(key, value)| (Value::Text(key.into()), value))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn imported_inventory_is_audited_without_source_functions() {
+        let core = map([("types", map([])), ("intents", map([]))]);
+        let exports = map([
+            ("effects", Value::Array(vec![])),
+            (
+                "pureFunctions",
+                Value::Array(vec![map([("source", Value::Text("component".into()))])]),
+            ),
+        ]);
+        assert!(validate(&core, &exports, true).is_err());
+    }
+
+    #[test]
+    fn empty_inventory_without_source_functions_is_valid() {
+        let core = map([("types", map([])), ("intents", map([]))]);
+        let exports = map([
+            ("effects", Value::Array(vec![])),
+            ("pureFunctions", Value::Array(vec![])),
+        ]);
+        assert!(validate(&core, &exports, true).is_ok());
+    }
 }

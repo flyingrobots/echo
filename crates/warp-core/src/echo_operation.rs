@@ -1111,6 +1111,60 @@ fn projected_result_exceeds_bound() -> EchoOperationArtifactErrorV1 {
     invalid_structure("application result exceeds the compiler-declared output bound")
 }
 
+/// Opt-in, nonempty text-key limits bound into the operation package.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApplicationInputKeyBound {
+    max_unicode_scalars: u64,
+    max_utf8_bytes: u64,
+}
+
+impl ApplicationInputKeyBound {
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields =
+            exact_text_map(value, &["schema", "max_unicode_scalars", "max_utf8_bytes"])?;
+        if take_field(&mut fields, "schema")? != text_value("echo.application-input-key-bound/v1") {
+            return Err(invalid_structure(
+                "unsupported application input key-bound schema",
+            ));
+        }
+        let max_unicode_scalars = take_u64(&mut fields, "max_unicode_scalars")?;
+        let max_utf8_bytes = take_u64(&mut fields, "max_utf8_bytes")?;
+        if max_unicode_scalars == 0
+            || max_utf8_bytes == 0
+            || max_unicode_scalars > MAX_APPLICATION_INPUT_BYTES as u64
+            || max_utf8_bytes > MAX_APPLICATION_INPUT_BYTES as u64
+        {
+            return Err(invalid_structure(
+                "application input key limits exceed supported bounds",
+            ));
+        }
+        Ok(Self {
+            max_unicode_scalars,
+            max_utf8_bytes,
+        })
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        map_value([
+            ("schema", text_value("echo.application-input-key-bound/v1")),
+            ("max_unicode_scalars", uint_value(self.max_unicode_scalars)),
+            ("max_utf8_bytes", uint_value(self.max_utf8_bytes)),
+        ])
+    }
+
+    fn validate(&self, key: &str) -> Result<(), EchoOperationArtifactErrorV1> {
+        if key.is_empty()
+            || key.len() as u64 > self.max_utf8_bytes
+            || key.chars().count() as u64 > self.max_unicode_scalars
+        {
+            return Err(invalid_structure(
+                "application input key exceeds declared text bounds",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Compiler-owned application-result projection plus Echo's verified target plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationApplicationResultProjectionV1 {
@@ -1121,21 +1175,32 @@ pub struct EchoOperationApplicationResultProjectionV1 {
     max_output_bytes: u64,
     application_input_node_key_path: Vec<String>,
     application_input_replacement_path: Vec<String>,
+    application_input_key_bound: Option<ApplicationInputKeyBound>,
     runtime_expression: EchoOperationResultExpressionV1,
 }
 
 impl EchoOperationApplicationResultProjectionV1 {
     fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
-        let mut fields = exact_text_map(
-            value,
-            &[
-                "application_input_node_key_path",
-                "application_input_replacement_path",
-                "artifact_bytes",
-                "artifact_identity",
-                "runtime_expression",
-            ],
-        )?;
+        let mut expected = vec![
+            "application_input_node_key_path",
+            "application_input_replacement_path",
+            "artifact_bytes",
+            "artifact_identity",
+            "runtime_expression",
+        ];
+        if let CanonicalValueV1::Map(entries) = &value {
+            if entries
+                .iter()
+                .any(|(key, _)| *key == text_value("application_input_key_bound"))
+            {
+                expected.push("application_input_key_bound");
+            }
+        }
+        let mut fields = exact_text_map(value, &expected)?;
+        let application_input_key_bound = fields
+            .remove("application_input_key_bound")
+            .map(ApplicationInputKeyBound::from_value)
+            .transpose()?;
         let artifact_bytes = take_bytes(&mut fields, "artifact_bytes")?;
         let artifact_identity = take_hash(&mut fields, "artifact_identity")?;
         let node_key_path = take_projection_path(&mut fields, "application_input_node_key_path")?;
@@ -1166,12 +1231,13 @@ impl EchoOperationApplicationResultProjectionV1 {
             max_output_bytes,
             application_input_node_key_path: node_key_path,
             application_input_replacement_path: replacement_path,
+            application_input_key_bound,
             runtime_expression,
         })
     }
 
     fn to_value(&self) -> CanonicalValueV1 {
-        map_value([
+        let mut value = map_value([
             (
                 "application_input_node_key_path",
                 projection_path_value(&self.application_input_node_key_path),
@@ -1186,7 +1252,13 @@ impl EchoOperationApplicationResultProjectionV1 {
             ),
             ("artifact_identity", hash_value(self.artifact_identity)),
             ("runtime_expression", self.runtime_expression.to_value()),
-        ])
+        ]);
+        if let (Some(bound), CanonicalValueV1::Map(fields)) =
+            (&self.application_input_key_bound, &mut value)
+        {
+            fields.push((text_value("application_input_key_bound"), bound.to_value()));
+        }
+        value
     }
 
     /// Returns the exact compiler-owned projection identity.
@@ -1224,6 +1296,9 @@ impl EchoOperationApplicationResultProjectionV1 {
                 "application input node-key binding must resolve to text",
             ));
         };
+        if let Some(bound) = &self.application_input_key_bound {
+            bound.validate(node_key)?;
+        }
         let derived_node_id: Hash = Sha256::digest(node_key.as_bytes()).into();
         if derived_node_id != node.local_id.0 {
             return Err(invalid_structure(
@@ -8744,6 +8819,119 @@ mod tests {
                 .expect("legacy invocation encodes");
             admit_invocation_static_v1(Some(&installed), policy, &encoded)
                 .expect("legacy schema imposes no declared scalar-key limit");
+        }
+    }
+
+    #[test]
+    fn bounded_projection_key_counts_unicode_scalars() {
+        let (installed, _, _, _, invocation, _) = projected_create_fixture(1_024);
+        let projection = installed
+            .application_result_projection
+            .expect("projected fixture");
+        let CanonicalValueV1::Map(mut fields) = projection.to_value() else {
+            panic!("projection is a map");
+        };
+        fields.push((
+            text_value("application_input_key_bound"),
+            map_value([
+                ("schema", text_value("echo.application-input-key-bound/v1")),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(256)),
+            ]),
+        ));
+        let bounded =
+            EchoOperationApplicationResultProjectionV1::from_value(CanonicalValueV1::Map(fields))
+                .expect("versioned bounded projection decodes");
+        let roundtrip = EchoOperationApplicationResultProjectionV1::from_value(bounded.to_value())
+            .expect("bounded projection roundtrips");
+        assert_eq!(roundtrip, bounded);
+        for (key, accepted) in [
+            ("a".repeat(64), true),
+            ("a".repeat(65), false),
+            ("🦀".repeat(64), true),
+            ("🦀".repeat(65), false),
+            (String::new(), false),
+        ] {
+            let mut node = invocation.node;
+            node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
+            let input = encode_canonical_cbor_v1(&map_value([
+                ("key", text_value(&key)),
+                ("message", text_value("fixture-message")),
+            ]))
+            .expect("key input encodes");
+            let result = bounded.validate_application_input_binding(
+                &input,
+                node,
+                &invocation.replacement_bytes,
+            );
+            if accepted {
+                result.expect("key within both limits is accepted");
+            } else {
+                assert_eq!(
+                    result.expect_err("out-of-bound key refuses").kind(),
+                    EchoOperationArtifactErrorKindV1::InvalidStructure
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn projection_key_bound_rejects_invalid_metadata() {
+        for (scalars, bytes) in [
+            (0, 256),
+            (64, 0),
+            (-1, 256),
+            (64, -1),
+            (65_537, 256),
+            (64, 65_537),
+        ] {
+            let value = map_value([
+                ("schema", text_value("echo.application-input-key-bound/v1")),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(scalars)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(bytes)),
+            ]);
+            assert_eq!(
+                ApplicationInputKeyBound::from_value(value)
+                    .expect_err("invalid limits refuse")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+        for schema in ["", "echo.application-input-key-bound/v2"] {
+            let value = map_value([
+                ("schema", text_value(schema)),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(256)),
+            ]);
+            assert_eq!(
+                ApplicationInputKeyBound::from_value(value)
+                    .expect_err("unknown schema refuses")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+    }
+
+    #[test]
+    fn projection_key_byte_ceiling_is_independent_of_scalar_ceiling() {
+        let bound = ApplicationInputKeyBound::from_value(map_value([
+            ("schema", text_value("echo.application-input-key-bound/v1")),
+            ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+            ("max_utf8_bytes", CanonicalValueV1::Integer(4)),
+        ]))
+        .expect("independent finite limits decode");
+        bound.validate("🦀").expect("one scalar in four bytes");
+        bound
+            .validate("abcd")
+            .expect("four ASCII scalars in four bytes");
+        for key in ["🦀a", "abcde"] {
+            assert_eq!(
+                bound
+                    .validate(key)
+                    .expect_err("byte ceiling refuses under scalar ceiling")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
         }
     }
 }

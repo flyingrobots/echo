@@ -328,6 +328,22 @@ invocability, or authority, and Echo cannot install or invoke it naked. The
 admitted operation package binds the public contract and semantic closure to
 the exact program, after which Echo independently admits each invocation.
 
+The runtime projection decoder also accepts an opt-in
+`application_input_key_bound` record with schema
+`echo.application-input-key-bound/v1`, `max_unicode_scalars`, and
+`max_utf8_bytes`. Both limits must be positive and at most the 65,536-byte
+application-input ceiling. With this record present, static invocation admission
+requires a nonempty text key within both limits before comparing its hash with
+the invocation node identity. Unicode scalars and encoded UTF-8 bytes are counted
+separately; no normalization is performed. Legacy projections omit the record
+and retain their existing encoding and admission behavior.
+
+These runtime checks validate the supplied limits and input binding. They do not
+establish that the limits match the authored Core type. Production lowerer and
+independent verifier support for that relation, including explicit provider
+profile selection, remains required by
+[issue #764](https://github.com/flyingrobots/echo/issues/764).
+
 ## External Edict Provider Artifacts
 
 Echo's contract-pack admission distinguishes explicit, digest-pinned upstream

@@ -1226,6 +1226,11 @@ echo-compiler-produced-pure-budget = {
 }
 
 echo-operation-application-result-projection = {
+  ? "application_input_key_bound": {
+    "schema": "echo.application-input-key-bound/v1",
+    "max_unicode_scalars": 1..65536,
+    "max_utf8_bytes": 1..65536,
+  },
   "application_input_node_key_path": [* echo-nonempty-tstr],
   "application_input_replacement_path": [* echo-nonempty-tstr],
   "artifact_bytes": bstr,
@@ -1282,7 +1287,7 @@ echo-compiler-produced-bounded-read-lowering-configuration = {
 }
 
 echo-attachment-create-if-absent-lowering-configuration = {
-  apiVersion: "echo.operation-lowering-configuration/v1",
+  apiVersion: "echo.operation-lowering-configuration/v1" / "echo.operation-lowering-configuration/v2",
   authorityProfile: echo-nonempty-tstr,
   budgetCeiling: {
     readBytes: uint,

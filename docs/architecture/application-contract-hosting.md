@@ -356,8 +356,12 @@ This native profile does not normalize input text or establish NFC validity. The
 prove the Core relation; the independent provider verification supplies that
 separate evidence. The checked provider component distribution includes this
 profile, built reproducibly with the pinned component toolchain and corroborated
-by its regenerated manifest. Fresh compiler-produced closure coverage and
-compile-through-execution/replay acceptance remain required by
+by its regenerated manifest. A retained fresh public application build with
+Edict compiler `2405a550e93e1e97fff640caa44bbd0f65ffff3c` exercises the
+configuration and package schemas through both component calls; its exact
+package/report and reproduction recipe are in the
+[compiler-produced key-bound fixture](../../crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/README.md).
+Execution/replay of that exact package and final acceptance remain required by
 [issue #764](https://github.com/flyingrobots/echo/issues/764).
 
 ## External Edict Provider Artifacts

@@ -2797,3 +2797,43 @@ fn retained_native_fork_recovers_prefix_and_refuses_missing_source() {
         fork.commit_hash
     );
 }
+
+#[test]
+fn retained_fork_retry_reconciles_uncertain_commit_before_reopening() {
+    for target in [FilesystemWalFaultTarget::CommitMarkerSynced,
+        FilesystemWalFaultTarget::AppendFrame, FilesystemWalFaultTarget::FlushCommit] {
+        let root = temp_runtime_wal_dir("retained-fork-uncertain");
+        let (rt, lane) = runtime();
+        let head = *rt.heads().iter().next().expect("head").0;
+        let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root)).expect("wal");
+        host.register_contract_package(package()).expect("package");
+        let submission = host.app().submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+            .expect("submit");
+        host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+            .expect("stage");
+        host.run_until_idle(4).expect("source commit");
+        let before = host.runtime_wal().expect("wal").commits().len();
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(target))
+            .expect("fault");
+        assert!(host.fork_local_operation_strand_v1(head, "candidate").is_err());
+        let child = host.fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry original retained fork");
+        assert_eq!(host.runtime_wal().expect("wal").commits().len(), before + 1,
+            "retry must retain exactly one fork transaction");
+        let fork = host.runtime().strands().find_by_child_worldline(&child.worldline_id)
+            .expect("fork").fork_basis_ref();
+        drop(host);
+        let (rt, _) = runtime();
+        let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        restored.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("one retained fork reopens");
+        assert_eq!(restored.fork_local_operation_strand_v1(head, "candidate")
+            .expect("reopened retry"), child);
+        assert_eq!(restored.runtime().strands().find_by_child_worldline(&child.worldline_id)
+            .expect("retained fork").fork_basis_ref(), fork);
+        assert_eq!(restored.runtime_wal().expect("wal").commits().len(), before + 1);
+        drop(restored);
+        fs::remove_dir_all(root).expect("owned fixture cleanup");
+    }
+}

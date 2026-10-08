@@ -426,6 +426,38 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
     return provenance
 
 
+def retain_evidence(root, evidence, *, final=False):
+    """Preflight the exact replacement and include final report bytes in usage."""
+    usage = check_work_bound(root)
+    destination = root / "evidence.json"
+    previous_bytes = destination.stat().st_size if destination.exists() else 0
+    entries = usage["entries"] + (0 if destination.exists() else 1)
+    if final:
+        evidence["finalUsage"] = dict(usage, entries=entries)
+    for _ in range(8):
+        encoded = (json.dumps(evidence, indent=2) + "\n").encode("utf-8")
+        projected = {"bytes": usage["bytes"] - previous_bytes + len(encoded),
+                     "entries": entries}
+        if final and evidence["finalUsage"] != projected:
+            evidence["finalUsage"] = projected
+            continue
+        if projected["bytes"] > MAX_WORK_BYTES or entries > MAX_WORK_ENTRIES:
+            raise RuntimeError("Final evidence exceeds the local witness ceiling")
+        destination.write_bytes(encoded)
+        measured = check_work_bound(root)
+        if measured != projected:
+            raise RuntimeError("Witness evidence usage changed during publication")
+        return
+    raise RuntimeError("Final evidence usage did not stabilize")
+
+
+def finalize_evidence(root, evidence):
+    evidence["outcome"] = "public-compiler-and-provider-verifier-accepted"
+    evidence["runtimeExecution"] = "not-run-by-this-witness"
+    retain_evidence(root, evidence, final=True)
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("compiler", "compiler-source", "compiler-manifest", "pure-application-source",
@@ -485,7 +517,7 @@ def main():
         ]
         for name, source, provider, options in specs:
             evidence["results"][name] = run_variant(args, name, source, provider, **options)
-            (args.work_root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+            retain_evidence(args.work_root, evidence)
         pure = evidence["results"]["pure"]["firstBuild"]["artifacts"]
         for name in ["renamed-pure", "changed-body"]:
             other = evidence["results"][name]["firstBuild"]["artifacts"]
@@ -499,13 +531,14 @@ def main():
         if selected_inputs(args) != original:
             raise RuntimeError("An authoritative input changed during the witness")
         verify_compiler(args)
-        evidence["finalUsage"] = check_work_bound(args.work_root)
-        evidence["outcome"] = "public-compiler-and-provider-verifier-accepted"
-        evidence["runtimeExecution"] = "not-run-by-this-witness"
-        (args.work_root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        finalize_evidence(args.work_root, evidence)
     except BaseException as error:
+        evidence.pop("outcome", None)
         evidence["failure"] = {"type": type(error).__name__, "message": str(error)}
-        (args.work_root / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        try:
+            retain_evidence(args.work_root, evidence)
+        except RuntimeError as retention_error:
+            print(f"Failure report could not fit the witness bound: {retention_error}", flush=True)
         raise
     print("SOURCE_FUNCTION_PUBLIC_COMPILER_AND_VERIFIER_ACCEPTED", flush=True)
 

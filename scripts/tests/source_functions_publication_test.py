@@ -59,5 +59,22 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(result["firstBuild"]["artifacts"], result["repeatedBuild"]["artifacts"])
 
 
+    def test_final_usage_includes_final_evidence_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "evidence.json").write_text("{}\n")
+            evidence = {"results": {}}
+            publication.finalize_evidence(root, evidence)
+            self.assertEqual(evidence["finalUsage"], publication.check_work_bound(root))
+
+    def test_final_evidence_cannot_finish_above_the_local_ceiling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "evidence.json").write_text("{}\n")
+            with patch.object(publication, "MAX_WORK_BYTES", 4):
+                with self.assertRaises(RuntimeError):
+                    publication.finalize_evidence(root, {"results": {}})
+
+
 if __name__ == "__main__":
     unittest.main()

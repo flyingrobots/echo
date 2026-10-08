@@ -382,7 +382,8 @@ and attachment readings in the caller's granted aperture, not model-internal
 influence, arbitrary subtree observations, or speculative strand settlement.
 The driver accepts at most 1,024 observations and 4,096 request bindings per WAL;
 each observation contains at most 16 nodes and 4,096 retained value bytes.
-Capture preflights the aggregate canonical value size before copying Atom bytes.
+Capture preflights each slot against the remaining aggregate canonical byte
+allowance before copying that slot’s Atom bytes.
 Execution checks the slot ceiling and charges its admitted read budget before
 materializing the value; oversized support obstructs rather than allocating it.
 It currently rebuilds context indexes from the WAL. Production indexing,

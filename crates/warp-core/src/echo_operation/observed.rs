@@ -327,6 +327,65 @@ mod tests {
     }
 
     #[test]
+    fn capture_enforces_aggregate_slots_and_execution_meter_boundaries() {
+        let (_, mut state, mut basis, _, _, _) =
+            super::super::tests::projected_create_fixture(1_024);
+        let first = *state.root();
+        let second = NodeKey {
+            warp_id: first.warp_id,
+            local_id: crate::make_node_id("second-observation"),
+        };
+        for length in [1_900, 2_000] {
+            let store = state.warp_state.store_mut(&first.warp_id).expect("store");
+            store.insert_node(
+                second.local_id,
+                NodeRecord {
+                    ty: crate::make_type_id("node"),
+                },
+            );
+            for node in [first, second] {
+                store.set_node_attachment(
+                    node.local_id,
+                    Some(AttachmentValue::Atom(crate::AtomPayload::new(
+                        crate::make_type_id("observation"),
+                        vec![7; length].into(),
+                    ))),
+                );
+            }
+            basis.state_root = state.state_root();
+            let actual = EchoOperationObservationV1::capture(&state, basis, &[first, second]);
+            if length == 2_000 {
+                assert!(
+                    actual.is_err(),
+                    "individually bounded slots exceed aggregate allowance"
+                );
+                continue;
+            }
+            let observation = actual.expect("two slots fit aggregate allowance");
+            let cost = observation
+                .reads
+                .iter()
+                .map(|(_, bytes)| 64 + bytes.len() as u64)
+                .sum();
+            let mut exact = EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(4, cost, 0));
+            observation
+                .validate_at_execution(&state, basis, &mut Footprint::default(), &mut exact)
+                .expect("exact admitted read budget");
+            let mut short =
+                EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(4, cost - 1, 0));
+            assert_eq!(
+                observation.validate_at_execution(
+                    &state,
+                    basis,
+                    &mut Footprint::default(),
+                    &mut short
+                ),
+                Err(EchoOperationObstructionKindV1::BudgetExceeded)
+            );
+        }
+    }
+
+    #[test]
     fn slot_preflight_accounts_for_cbor_header_boundaries() {
         let (_, mut state, _, _, _, _) = super::super::tests::projected_create_fixture(1_024);
         let node = *state.root();

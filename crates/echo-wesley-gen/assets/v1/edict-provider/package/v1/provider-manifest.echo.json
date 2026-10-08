@@ -3,7 +3,7 @@
   "providerAbi": "edict:target-provider@1.0.0",
   "provider": {
     "coordinate": "echo.edict-provider@1",
-    "digest": "sha256:945376a32cb52425388cb7f5ca71ee6a8622a8448f40bb02cae7482834ca974c"
+    "digest": "sha256:09dd57c8119fa138325a87d7e2d9bfaa69276d5f24844420b2be2e03f8efe608"
   },
   "artifacts": [
     {

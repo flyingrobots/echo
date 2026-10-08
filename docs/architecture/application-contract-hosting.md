@@ -300,7 +300,10 @@ retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
 type and its representation. Same-nominal byte and unsigned-word comparisons
-use the ordinary representation costs. Runtime values carry no additional
+use the ordinary representation costs. Named `Int` definitions resolve through
+their declared unsigned width in both provider judgments and the shared
+pure/read runtime type parser, under its existing depth and work limits.
+Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
 the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
 receive provider refusal.

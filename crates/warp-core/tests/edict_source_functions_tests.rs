@@ -262,6 +262,71 @@ fn factored_concat() -> (Vec<u8>, [u8; 32]) {
 }
 
 #[test]
+fn source_functions_named_int_alias_executes_in_a_helper_signature() {
+    let (original, _) = factored_concat();
+    let (package, pin) = rewrite(original, |_, core, _| {
+        let coordinate = match field(core, "coordinate") {
+            Value::Text(value) => value.clone(),
+            _ => panic!("coordinate"),
+        };
+        insert(
+            field_mut(core, "types"),
+            "Count",
+            record([("kind", text("Int")), ("width", text("U64"))]),
+        );
+        let parameter = local("arg.0", "Count");
+        insert(
+            field_mut(core, "functions"),
+            "identityCount",
+            function(
+                vec![parameter.clone()],
+                "Count",
+                vec![],
+                vec![],
+                reference(&parameter),
+            ),
+        );
+        let saved = local("local.count", "Count");
+        let value = record([
+            ("kind", text("const")),
+            (
+                "value",
+                record([
+                    ("kind", text("int")),
+                    ("width", text("U64")),
+                    ("value", Value::Integer(7)),
+                ]),
+            ),
+        ]);
+        let body = field_mut(field_mut(field_mut(core, "functions"), "join"), "body");
+        set_field(body, "locals", array(vec![saved.clone()]));
+        set_field(
+            body,
+            "bindings",
+            array(vec![record([
+                ("kind", text("let")),
+                ("binding", saved),
+                (
+                    "value",
+                    call(&format!("{coordinate}.identityCount"), vec![value]),
+                ),
+            ])]),
+        );
+    });
+    let result = evaluate(
+        &package,
+        pin,
+        &concat::input(b"ab", b"cd"),
+        concat::limits(),
+    )
+    .expect("named Int parameter/result must decode and execute");
+    assert_eq!(
+        decode(&result.output).unwrap(),
+        record([("bytes", Value::Bytes(b"abcd".to_vec()))])
+    );
+}
+
+#[test]
 fn source_functions_nested_forward_calls_and_bindings_use_fresh_parameter_frames() {
     let (package, pin) = factored_concat();
     for (left, right) in [

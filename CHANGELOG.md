@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
+
 - Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
 
 - Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.

@@ -46,6 +46,7 @@ impl Parser<'_> {
             .unwrap_or(name);
         let definition = field(self.types, name)?;
         match text_field(definition, "kind")? {
+            "Int" => self.ty(text_field(definition, "width")?, depth + 1),
             "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
             "Bytes" => {
                 let min = field(definition, "min").map_or(Ok(0), number)?;

@@ -344,6 +344,8 @@ reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
 
+The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
+
 The paired nominal-ID and variable-payload equality witnesses in
 [`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
 consume separately verified packages built from Jim-owned source using the

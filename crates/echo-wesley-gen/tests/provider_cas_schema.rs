@@ -145,4 +145,22 @@ fn projected_cas_schema_accepts_digest_path_without_changing_create_shape() {
             .validate_root_bytes("echo-operation-application-result-projection", &bytes)
             .expect("valid projection shape");
     }
+    for segment in [text(""), CanonicalValueV1::Integer(1)] {
+        let mut invalid_fields = fields.clone();
+        let (_, path) = invalid_fields
+            .iter_mut()
+            .find(|(key, _)| *key == "application_input_expected_value_digest_path")
+            .expect("CAS digest path");
+        *path = CanonicalValueV1::Array(vec![segment]);
+        let bytes = encode_canonical_cbor_v1(&map(invalid_fields))
+            .expect("canonical malformed projection");
+        let error = generated
+            .schema()
+            .validate_root_bytes("echo-operation-application-result-projection", &bytes)
+            .expect_err("malformed digest-path segment refuses");
+        assert_eq!(
+            error.kind(),
+            echo_wesley_gen::provider_artifacts::ProviderArtifactGenerationErrorKind::OwningRootRejected
+        );
+    }
 }

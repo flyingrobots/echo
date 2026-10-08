@@ -180,8 +180,16 @@ rejects a substituted digest path. Native refusal witnesses use synthetic semant
 and reproducible checked components also admit a real public Edict compiler build;
 its exact source, executable package and accepted report are retained under
 `crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/`.
-CAS scheduler execution and recovery of that compiler-produced package remain
-unverified; successful package production is not execution evidence.
+`crates/warp-core/tests/edict_projected_cas_tests.rs` exercises those exact package
+bytes through durable Action intake, pending-Action recovery, scheduler-owned
+update, and fresh-host recovery of the committed value and typed result. A fresh
+causal basis with a stale expected digest produces `PreconditionMismatch`; that
+noncommitted outcome also survives recovery without changing the target value.
+Separate witnesses refuse substituted input digests, missing target nodes and
+oversized replacements. The target is detached, so these checks inspect its typed
+atom and receipt rather than treating an unchanged reachable-state root as proof
+of no write. The public CLI runner still selects the create-if-absent profile;
+this CAS lifecycle witness uses the trusted host and Action APIs directly.
 
 The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
 

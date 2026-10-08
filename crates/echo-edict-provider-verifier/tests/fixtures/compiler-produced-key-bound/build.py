@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 # Reproduce the bounded-key public application build inside the guarded worker.
 import hashlib,json,shutil,subprocess
 from pathlib import Path

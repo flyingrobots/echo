@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
+
 - The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
 
 - Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.

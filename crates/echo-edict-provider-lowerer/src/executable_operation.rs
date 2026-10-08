@@ -941,6 +941,7 @@ fn validate_core<'a>(
     if text_field(node, "kind") != Some("effect") {
         return Err(super::unsupported_semantics(coordinate));
     }
+    validate_application_argument(intent, body, node, coordinate)?;
     let effect_coordinate = required_text(node, "effect", coordinate)?;
     let (failure_name, obstruction_arm) =
         single_text_map_entry(required_map(node, "obstructionMap", coordinate)?)
@@ -958,6 +959,54 @@ fn validate_core<'a>(
         effect_coordinate,
         failure_name,
     })
+}
+
+fn validate_application_argument(
+    intent: &CanonicalValueV1,
+    body: &CanonicalValueV1,
+    effect: &CanonicalValueV1,
+    subject: &str,
+) -> Result<(), ProviderRefusalV1> {
+    // This program binds invocation fields directly to application input. It
+    // cannot evaluate a transformed effect argument; accepting one would bind
+    // a different mutation than the authored program describes.
+    let input_type = required_nonempty_text(intent, "input", subject)?;
+    let argument = required_map(effect, "input", subject)?;
+    if text_field(argument, "kind") != Some("local") {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.effect-input",
+        ));
+    }
+    require_exact_fields(argument, &["kind", "ref"], subject)?;
+    let reference = required_map(argument, "ref", subject)?;
+    require_exact_fields(reference, &["id", "alphaName", "type"], subject)?;
+    if text_field(reference, "id") != Some("arg.0")
+        || text_field(reference, "type") != Some(input_type)
+    {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.effect-input",
+        ));
+    }
+    let alpha_name = required_nonempty_text(reference, "alphaName", subject)?;
+    let locals = required_array(body, "locals", subject)?;
+    let mut inputs = locals
+        .iter()
+        .filter(|local| text_field(local, "id") == Some("arg.0"));
+    let Some(input) = inputs.next() else {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.input-local",
+        ));
+    };
+    if inputs.next().is_some()
+        || text_field(input, "type") != Some(input_type)
+        || text_field(input, "alphaName") != Some(alpha_name)
+    {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.input-local",
+        ));
+    }
+    require_exact_fields(input, &["id", "alphaName", "type"], subject)?;
+    Ok(())
 }
 
 fn validate_source<'a>(

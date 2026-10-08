@@ -171,6 +171,17 @@ requires an `application_input_expected_value_digest_path` in the installed
 projection and exact equality between its 32-byte input value and the invocation
 precondition. Create projections omit this path. Missing or substituted bindings
 return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
+Both mutation profiles require the effect argument to be the declared application
+input directly. The lowerer and independent verifier each check the canonical
+`arg.0` reference, its declared type and alpha name, and its unique local
+declaration. They refuse transformed records and other local references with
+`UnsupportedSemantics`; these bounded profiles do not evaluate arbitrary effect
+arguments. This prevents a package from silently replacing an authored argument
+with the caller's input fields. The compiler fixture retains the previously
+accepted `message: "forced"` counterexample as historical failing evidence; the
+corrected components refuse that source without publishing package artifacts,
+while the direct-input control produces the same package and report bytes.
+
 The native lowerer and independent verifier select the CAS program from an exact
 `continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
 write class. Its configuration requires a distinct `expectedValueDigestField`

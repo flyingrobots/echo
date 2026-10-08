@@ -24,6 +24,8 @@
 
 ### Fixed
 
+- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
+
 - Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
 
 - Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.

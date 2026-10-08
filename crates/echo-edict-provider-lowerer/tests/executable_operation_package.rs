@@ -755,37 +755,69 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
                     ),
                     (
                         "body",
-                        owned_map([(
-                            "nodes",
-                            CanonicalValueV1::Array(vec![owned_map([
-                                ("kind", text("effect")),
-                                (
-                                    "effect",
-                                    text(format!("{}.{}", names.alias, names.effect_member)),
-                                ),
-                                (
-                                    "obstructionMap",
-                                    dynamic_map([(
-                                        names.failure,
-                                        owned_map([(
-                                            "value",
+                        owned_map([
+                            (
+                                "locals",
+                                CanonicalValueV1::Array(vec![owned_map([
+                                    ("id", text("arg.0")),
+                                    ("alphaName", text("input")),
+                                    ("type", text(format!("{}.Input", names.application))),
+                                ])]),
+                            ),
+                            (
+                                "nodes",
+                                CanonicalValueV1::Array(vec![owned_map([
+                                    ("kind", text("effect")),
+                                    (
+                                        "input",
+                                        owned_map([
+                                            ("kind", text("local")),
+                                            (
+                                                "ref",
+                                                owned_map([
+                                                    ("id", text("arg.0")),
+                                                    ("alphaName", text("input")),
+                                                    (
+                                                        "type",
+                                                        text(format!(
+                                                            "{}.Input",
+                                                            names.application
+                                                        )),
+                                                    ),
+                                                ]),
+                                            ),
+                                        ]),
+                                    ),
+                                    (
+                                        "effect",
+                                        text(format!("{}.{}", names.alias, names.effect_member)),
+                                    ),
+                                    (
+                                        "obstructionMap",
+                                        dynamic_map([(
+                                            names.failure,
                                             owned_map([(
-                                                "callee",
-                                                text(format!(
-                                                    "{}.{}",
-                                                    names.alias,
-                                                    names
-                                                        .obstruction
-                                                        .rsplit_once('.')
-                                                        .expect("fixture obstruction has a member",)
-                                                        .1
-                                                )),
+                                                "value",
+                                                owned_map([(
+                                                    "callee",
+                                                    text(format!(
+                                                        "{}.{}",
+                                                        names.alias,
+                                                        names
+                                                            .obstruction
+                                                            .rsplit_once('.')
+                                                            .expect(
+                                                                "fixture obstruction has a member",
+                                                            )
+                                                            .1
+                                                    )),
+                                                )]),
                                             )]),
                                         )]),
-                                    )]),
-                                ),
-                            ])]),
-                        )]),
+                                    ),
+                                ])]),
+                            ),
+                        ]),
                     ),
                 ]),
             )]),

@@ -22,3 +22,30 @@ accepts this package. This fixture proves compiler/provider production.
 separate scheduler and fresh-host WAL recovery witnesses, including pending
 Actions, committed results and stale-digest obstructions. It checks typed target
 bytes directly because the fixture target is detached from the reachable root.
+
+## Direct-input and transformed-argument controls
+
+Inside the guarded worker, from the repository root, run the positive control
+with a fresh output directory:
+
+```sh
+python3 crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/build.py \
+  --compiler /tmp/echo-726-runtime/741-frozen-edict \
+  --compiler-sha256 3b082d61c8cd23b0f917efb55c4eebd54e75c0df5d31c72f90ad856853678bf5 \
+  --provider-package schemas/edict-provider/package/v1 \
+  --output-directory /tmp/echo-726-runtime/cas-direct-input-control
+```
+
+For the negative control, use another fresh output directory and append:
+
+```sh
+  --source-template crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/counterexamples/transformed-replacement/update-cell.edict \
+  --expect-refusal ProviderLowererRefused
+```
+
+The helper requires a nonzero compiler exit, the structured refusal in its JSONL
+output, and no published CBOR artifacts. It reads diagnostics from both stdout
+and stderr. The retained counterexample package/report are historical erroneous
+outputs, not expected output for corrected components. Both mutation profiles
+now require a direct reference to the declared application input; arbitrary
+transformed arguments remain outside their supported semantics.

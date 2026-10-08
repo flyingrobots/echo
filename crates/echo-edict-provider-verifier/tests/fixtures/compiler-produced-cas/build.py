@@ -47,6 +47,8 @@ parser.add_argument('--compiler',type=Path,required=True)
 parser.add_argument('--compiler-sha256',required=True)
 parser.add_argument('--provider-package',type=Path,required=True)
 parser.add_argument('--output-directory',type=Path,required=True)
+parser.add_argument('--source-template',type=Path)
+parser.add_argument('--expect-refusal',choices=['ProviderLowererRefused'])
 args=parser.parse_args()
 root=args.output_directory.resolve();root.mkdir(exist_ok=False)
 fixture=Path(__file__).resolve().parent
@@ -81,7 +83,7 @@ manifest['exports']['digest']=['sha256',digest(manifest['exports']['id'],exports
 for selection in manifest['targetAdapters']:
  ref=selection['adapter'];ref['digest']=['sha256',digest(ref['id'],adapter)]
 for name,value in [('echo-operation-configuration.cbor',config),('exports.cbor',exports),('adapter.cbor',adapter),('manifest.cbor',manifest)]: (root/name).write_bytes(enc(value))
-source=(fixture/'update-cell.edict.in').read_text().replace('LAWPACK_DIGEST',digest('edict.lawpack/v1',manifest).hex())
+source=(args.source_template or fixture/'update-cell.edict.in').read_text().replace('LAWPACK_DIGEST',digest('edict.lawpack/v1',manifest).hex())
 assert 'LAWPACK_DIGEST' not in source
 (root/'update-cell.edict').write_text(source)
 shutil.copytree(args.provider_package.resolve(),root/'provider')
@@ -92,5 +94,16 @@ result=subprocess.run([str(compiler)],input=json.dumps(request)+'\n',text=True,c
 assert len(result.stdout)+len(result.stderr)<128*1024
 (root/'compiler.stdout.jsonl').write_text(result.stdout);(root/'compiler.stderr.txt').write_text(result.stderr)
 print(result.stdout,result.stderr,flush=True)
-assert result.returncode==0,result.returncode
+if args.expect_refusal:
+ events=[json.loads(line) for line in (result.stdout+'\n'+result.stderr).splitlines() if line.strip()]
+ def has_code(value):
+  if isinstance(value,dict):
+   return any(key in ('kind','code') and entry==args.expect_refusal for key,entry in value.items()) or any(has_code(entry) for entry in value.values())
+  if isinstance(value,list):return any(has_code(entry) for entry in value)
+  return False
+ assert result.returncode!=0 and has_code(events),(result.returncode,events)
+ assert not any((root/'build').rglob('*.cbor')),'refused build published artifacts'
+ print('EXPECTED_STRUCTURED_REFUSAL',args.expect_refusal,flush=True)
+else:
+ assert result.returncode==0,result.returncode
 print('OUTPUT_FILES',sorted(str(p.relative_to(root)) for p in (root/'build').rglob('*') if p.is_file()),flush=True)

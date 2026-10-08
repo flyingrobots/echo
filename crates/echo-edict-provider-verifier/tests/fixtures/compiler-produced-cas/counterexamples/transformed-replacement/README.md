@@ -15,12 +15,18 @@ That selects the caller's field rather than the authored effect argument. The
 observed failure is successful production/verification of this mismatched
 binding. Execution of this counterexample package has not been performed.
 
-To reproduce, run the parent fixture's `build.py` in the guarded worker with the
-pinned compiler and candidate provider, then replace its generated
-`update-cell.edict` with this source and submit the same public JSONL application
-build again. The parent lawpack/configuration bytes and digest are unchanged.
-The correct result must preserve the authored effect argument or return an
-explicit unsupported-semantics refusal. The original direct-input source remains
-the positive control. Add the executable refusal/correctness regression before
-implementing the provider fix; do not turn the retained acceptance into a golden
-expectation.
+The corrected providers explicitly refuse this source because their bounded
+mutation profiles support only the declared application input as the effect
+argument. The regression
+`providers_refuse_effect_inputs_not_equal_to_the_declared_application_argument`
+checks lowerer and verifier refusals independently for both mutation profiles.
+Its first run failed because the lowerer accepted a transformed argument; after
+the fix the verifier executable suite passed 70 tests and the lowerer suite 13.
+
+To reproduce the public compiler refusal, run the command in the parent README
+with `--source-template` pointing to this `update-cell.edict` and
+`--expect-refusal ProviderLowererRefused`. The corrected component pair produced
+that structured refusal with compiler exit code 2 and no published CBOR outputs.
+The original direct-input positive control still emitted byte-identical package
+and report artifacts. These checks establish production/refusal; they do not
+claim execution of the historical erroneous package or final PR approval.

@@ -7,6 +7,11 @@
 
 ### Added
 
+- The trusted executable-operation host can retain two native alternative strands,
+  continue a losing strand under new observations, and recover its fork ancestry
+  and operation outcomes from the WAL. Application selection records do not
+  imply merge or promotion.
+
 - Bounded executable-operation host sessions retain immutable observations and
   logical-request bindings in the native WAL. Echo evaluates supplied node/atom
   preconditions inside operation preparation, includes their reads in scheduler
@@ -21,6 +26,8 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
 
 - Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
 

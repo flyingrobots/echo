@@ -49,6 +49,7 @@ const WARP_ID_SOURCE: &str = "action-lane/v1";
 
 /// Inputs needed to run one exact compiler-produced package.
 pub struct RunEdictOperationConfig {
+    pub retained_alternatives: bool,
     pub package: PathBuf,
     pub verification_report: PathBuf,
     pub lawpack_manifest: PathBuf,

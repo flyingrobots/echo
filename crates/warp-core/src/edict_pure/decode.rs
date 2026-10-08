@@ -7,7 +7,7 @@ use echo_edict_canonical::{
     CanonicalValueV1 as Value,
 };
 
-use super::model::{Binding, Helper, Program, MAX_PROGRAM_NODES};
+use super::model::{Binding, Program, MAX_PROGRAM_NODES};
 use super::syntax::Parser;
 use super::values::{array, bytes, exact_fields, field, number, require_text, text_field};
 use super::{EvaluationError as Error, EvaluationLimits};
@@ -117,7 +117,8 @@ pub(super) fn package(
         }
     }
     let input_local = array(field(field(core_intent, "body")?, "locals")?)?
-        .first()
+        .iter()
+        .find(|local| text_field(local, "id") == Ok("arg.0"))
         .ok_or(Error::InvalidArtifact)?;
     let input_id = text_field(input_local, "id")?.to_owned();
     if text_field(input_local, "type")? != text_field(core_intent, "input")? {
@@ -168,7 +169,18 @@ pub(super) fn package(
             parser.predicate(field(constraint, "predicate")?, 0)?,
         ));
     }
-    let helpers = helpers(&exports, &mut parser)?;
+    let helpers = super::functions::decode(&core, &exports, &mut parser)?;
+    if !array(field(&exports, "effects")?)?.is_empty() {
+        return Err(Error::UnsupportedProgram);
+    }
+    super::functions::check_roots(
+        &helpers,
+        bindings
+            .iter()
+            .map(|binding| &binding.value)
+            .chain(std::iter::once(&result)),
+        constraints.iter().map(|(_, predicate)| predicate),
+    )?;
     let budget = field(value, "budget_ceiling")?;
     let core_budget = field(core_intent, "coreEvaluationBudget")?;
     if field(target_intent, "coreEvaluationBudget")? != core_budget {
@@ -208,39 +220,4 @@ pub(super) fn package(
 
 fn embedded(program: &Value, key: &str) -> Result<Value, Error> {
     decode(bytes(field(program, key)?)?).map_err(|_| Error::InvalidArtifact)
-}
-
-fn helpers(exports: &Value, parser: &mut Parser<'_>) -> Result<BTreeMap<String, Helper>, Error> {
-    let mut result = BTreeMap::new();
-    for helper in array(field(exports, "pureFunctions")?)? {
-        require_text(helper, "source", "edict")?;
-        let implementation = field(helper, "body")?;
-        let body = field(implementation, "body")?;
-        for (value, name) in [
-            (helper, "parameterTypes"),
-            (helper, "typeParameters"),
-            (implementation, "params"),
-            (body, "bindings"),
-            (body, "locals"),
-        ] {
-            if !array(field(value, name)?)?.is_empty() {
-                return Err(Error::UnsupportedProgram);
-            }
-        }
-        let definition = Helper {
-            result: parser.expr(field(body, "result")?, 0)?,
-            ty: parser.ty(text_field(helper, "returnType")?, 0)?,
-        };
-        if result
-            .insert(text_field(helper, "coordinate")?.to_owned(), definition)
-            .is_some()
-        {
-            return Err(Error::InvalidArtifact);
-        }
-    }
-    // Reject effects even when a malformed package claims an empty authority profile.
-    if !array(field(exports, "effects")?)?.is_empty() {
-        return Err(Error::UnsupportedProgram);
-    }
-    Ok(result)
 }

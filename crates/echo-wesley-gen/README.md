@@ -57,11 +57,13 @@ validation does not install an artifact or confer Echo runtime authority.
 
 `admit_provider_contract_pack_for_publication_v1(...)` also permits explicit
 selection of the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md)
-from Edict #219. Its schema and manifest have separate fixed digests and a
+from Edict #219 and the
+[source-function publication](../../schemas/edict-provider/contracts/source-functions-v1/README.md)
+from Edict #226. Each schema/manifest pair has separate fixed digests and a
 publication-specific size bound. The original entry point and checked provider
 generation still select the original pure-binding publication. Neither API
 infers a publication from input bytes or treats schema admission as support for
-ordered execution or stateful effects.
+source-function execution, ordered execution, or stateful effects.
 
 `provider_generation::build_provider_generation_input_v1(...)` joins that
 admitted pack with exact Echo semantic-source bytes and the checked versioned
@@ -176,7 +178,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 40-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 42-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -252,6 +254,20 @@ Source-bundle changes can alter generation provenance and the package root while
 leaving provider component bytes unchanged. Verify that boundary separately with
 the authenticated component build/check and the standalone package admission
 witness. Do not edit generated files or hash locks manually to bypass drift.
+
+The source-function publication is an explicit candidate route:
+
+```bash
+cargo +1.96.0 run --locked -p echo-wesley-gen \
+  --example source_functions_publication_witness -- /owned-data/source-functions-provider
+```
+
+Run this only inside the same guarded worker, after refreshing the checked
+component carriers, with a new destination in its guarded data root. It selects
+`ProviderContractPublicationV1::SourceFunctions` and admits the complete package
+before writing it. The default checked generators retain the pure-binding
+publication. Neither route grants runtime authority merely by generating a
+schema-valid package.
 
 ## Usage
 

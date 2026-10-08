@@ -15,7 +15,7 @@ pub(crate) struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn enter(&mut self, depth: usize) -> Result<(), Error> {
+    pub(crate) fn enter(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
         }
@@ -46,6 +46,7 @@ impl Parser<'_> {
             .unwrap_or(name);
         let definition = field(self.types, name)?;
         match text_field(definition, "kind")? {
+            "Int" => self.ty(text_field(definition, "width")?, depth + 1),
             "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
             "Bytes" => {
                 let min = field(definition, "min").map_or(Ok(0), number)?;
@@ -196,10 +197,14 @@ impl Parser<'_> {
                 right: Box::new(self.expr(right, depth + 1)?),
             });
         }
-        if !args.is_empty() || !types.is_empty() {
+        if !types.is_empty() {
             return Err(Error::UnsupportedProgram);
         }
-        Ok(Expr::Call(callee.to_owned()))
+        let args = args
+            .iter()
+            .map(|value| self.expr(value, depth + 1))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Expr::Call(callee.to_owned(), args))
     }
 
     pub fn predicate(&mut self, value: &Value, depth: usize) -> Result<Predicate, Error> {

@@ -399,6 +399,7 @@ def run_variant(args, name, source, provider, *, refusal=None, read=False,
         provenance["refusalBoundary"] = require_budget_refusal(result)
     else:
         require_success(result)
+        shutil.rmtree(root / "application-output")
         repeated = compiler_build(args, root, "application", "repeated")
         provenance["repeatedBuild"] = repeated
         (root / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")

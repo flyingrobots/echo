@@ -130,7 +130,7 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
         }
     })?;
     meter.charge(&input, 0)?;
-    let mut locals = BTreeMap::from([(program.input_id.clone(), input)]);
+    let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
     for (coordinate, constraint) in &program.constraints {
         if !predicate(constraint, &locals, &program.helpers, &mut meter, 0)? {
             return Err(Error::InputConstraintFailed(coordinate.clone()));
@@ -139,7 +139,7 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
     for binding in &program.bindings {
         let value = expression(&binding.value, &locals, &program.helpers, &mut meter, 0)?;
         validate(&value, &binding.ty, &mut meter, 0)?;
-        locals.insert(binding.id.clone(), value);
+        locals.insert(binding.id.as_str(), value);
     }
     let result = expression(&program.result, &locals, &program.helpers, &mut meter, 0)?;
     validate(&result, &program.output_type, &mut meter, 0)?;
@@ -158,7 +158,7 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
 
 pub(crate) fn expression(
     expr: &Expr,
-    locals: &BTreeMap<String, Value>,
+    locals: &BTreeMap<&str, Value>,
     helpers: &BTreeMap<String, Helper>,
     meter: &mut Meter,
     depth: usize,
@@ -166,7 +166,7 @@ pub(crate) fn expression(
     meter.step(depth)?;
     match expr {
         Expr::Constant(value) => meter.copy(value),
-        Expr::Local(id) => meter.copy(locals.get(id).ok_or(Error::InvalidArtifact)?),
+        Expr::Local(id) => meter.copy(locals.get(id.as_str()).ok_or(Error::InvalidArtifact)?),
         Expr::Field(base, name) => {
             let record = expression(base, locals, helpers, meter, depth + 1)?;
             let Value::Map(fields) = record else {
@@ -215,12 +215,12 @@ pub(crate) fn expression(
             for (argument, parameter) in args.iter().zip(&helper.params) {
                 let value = expression(argument, locals, helpers, meter, depth + 1)?;
                 validate(&value, &parameter.ty, meter, depth + 1)?;
-                frame.insert(parameter.id.clone(), value);
+                frame.insert(parameter.id.as_str(), value);
             }
             for binding in &helper.bindings {
                 let value = expression(&binding.value, &frame, helpers, meter, depth + 1)?;
                 validate(&value, &binding.ty, meter, depth + 1)?;
-                frame.insert(binding.id.clone(), value);
+                frame.insert(binding.id.as_str(), value);
             }
             let value = expression(&helper.result, &frame, helpers, meter, depth + 1)?;
             validate(&value, &helper.ty, meter, depth + 1)?;
@@ -339,7 +339,7 @@ fn byte_slice(
 
 pub(crate) fn predicate(
     predicate: &Predicate,
-    locals: &BTreeMap<String, Value>,
+    locals: &BTreeMap<&str, Value>,
     helpers: &BTreeMap<String, Helper>,
     meter: &mut Meter,
     depth: usize,

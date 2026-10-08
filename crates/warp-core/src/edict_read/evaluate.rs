@@ -27,7 +27,7 @@ pub(super) fn run(
         }
     })?;
     meter.charge(&input, 0)?;
-    let mut locals = BTreeMap::from([(program.input_id.clone(), input)]);
+    let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
     let helpers = &program.helpers;
     let application_basis = expression(&program.basis, &locals, helpers, &mut meter, 0)?;
     let application_basis = bytes(&application_basis)?
@@ -72,12 +72,12 @@ pub(super) fn run(
                 )?;
                 let value = Value::Bytes(bytes.to_vec());
                 validate(&value, &read.ty, &mut meter, 0)?;
-                locals.insert(read.binding.clone(), value);
+                locals.insert(read.binding.as_str(), value);
             }
             Instruction::Let { binding, ty, value } => {
                 let value = expression(value, &locals, helpers, &mut meter, 0)?;
                 validate(&value, ty, &mut meter, 0)?;
-                locals.insert(binding.clone(), value);
+                locals.insert(binding.as_str(), value);
             }
             Instruction::Require {
                 predicate: condition,

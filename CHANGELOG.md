@@ -7,6 +7,8 @@
 
 ### Added
 
+- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. Compiler/provider production and end-to-end execution/recovery integration remain pending.
+
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
 
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.

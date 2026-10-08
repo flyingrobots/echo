@@ -6,7 +6,7 @@
     clippy::print_stdout,
     clippy::unwrap_used
 )]
-//! Standalone Rust 1.94 witness for the frozen Edict provider-host contract.
+//! Standalone Rust 1.96 witness for the frozen Edict provider-host contract.
 
 mod support;
 

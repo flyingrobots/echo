@@ -34,11 +34,83 @@ runtime expression and application-input paths, binds their identity into the
 expected package, and names that exact projection in the accepted report.
 Application vocabulary is treated only as opaque authored data.
 
+For `compiler-produced-bounded-pure/v1`, the verifier independently enforces
+the zero-choice configuration, effect-free Core and Target IR shapes, exact
+budget and closure bindings, pure-binding result projection, and embedded
+compiler artifact bytes. It reconstructs the distinct generic pure package
+without calling the lowerer and rejects canonical package substitution. An
+accepted report retains a canonical `echo.executable-subject/v1` manifest and
+names its domain-framed identity. That subject binds the exact package, Target
+IR, and application result projection; it does not prove runtime evaluation,
+admission, or an Echo consequence.
+
+The native `compiler-produced-bounded-read/v1` route reconstructs an ordered
+Core body from the Target IR instruction list, reversing failure mappings
+through the declared adapter. It independently checks read signatures, scoped
+local identities, type bounds, guards, obstruction constructors, projection,
+budget agreement, profile identities, and every embedded semantic artifact.
+It does not import or call the lowerer in production. Coherently rehashed Core,
+Target IR, and package mutations still receive rejected reports when they
+violate that relation. Accepted and rejected reports retain the existing exact
+executable-subject binding; the byte ceiling counts artifact bytes, role and
+domain strings, and diagnostic strings.
+
+This route is included in the checked schema/components. The explicit ordered
+contract publication passes unmodified public Edict builds for single and paired
+reads, including this verifier's accepted report and repeatable package/report
+bytes. Native fixtures retain their diagnostic-capture provenance; the separate
+public witness requires no compiler instrumentation. A separate trusted-host
+private evaluator consumes pinned packages over real frontier storage; see
+[application contract hosting](../../docs/architecture/application-contract-hosting.md)
+for its bounded aperture and evidence limits. Compilation and accepted
+verification do not authorize a state reading.
+
+The native pure-v1 verifier additionally compares the one selected intent's
+ordered let bindings (identity, local, and expression), result, input
+constraints, and optional basis against Core. It refuses extra intents or
+requirements. This is an identity-preserving lowering relation: independently
+digest-binding two artifacts does not prove that one preserves the other.
+The retained public-compiler fixture has an exact-byte positive control and
+seven separately rebound semantic mutation witnesses. The checked component
+below includes this relation check; host admission and runtime execution remain
+separate evidence boundaries.
+
+Before selecting either executable-package route, both native providers require
+the source artifact reference to match Core's coordinate and its canonical value
+to contain UTF-8 bytes. These checks do not parse or recompile the source and do
+not prove source-to-Core correspondence. Both checked components include this
+validation after independent reproducible promotion.
+
+The native pure route also requires the selected adapter profile to declare an
+empty `semanticEffects` array and a nonempty `budgetObligation`. A profile that
+declares effects is unsupported even when the supplied program has no effect
+steps. This keeps the selected profile consistent with this route's no-effects
+package identity; it is not evidence of an effect-execution exploit in earlier
+components. Host admission and compiler budget discharge remain separate
+checks. Both checked components include this validation.
+
+The native pure projection check independently follows each application-input
+or declared-binding source path back to the Core result, including exact record
+field membership, output type, and output-byte budget. A declared binding ID or
+a digest-bound projection is insufficient to establish that correspondence.
+Five additional retained-fixture mutations demonstrate wrong fields, wrong
+bindings, missing fields, and changed output contracts or budgets. The checked
+component includes the same projection check.
+
+Both native pure routes additionally enforce the compiler-owned structural
+projection contract: at most 64 KiB of canonical artifact bytes, 256 expression
+nodes, 32 path segments, 1,024 UTF-8 bytes per identifier or field/path string,
+and exactly the fields belonging to each expression and source variant. Both
+checked components include these structural guards. The artifact byte
+limit is distinct from `maxOutputBytes`: pure output remains bounded by the
+matching Core budget and consumer execution limits, rather than the anchored
+route's fixed 64 KiB output ceiling.
+
 The `wasm32` guest adapter vendors Edict's exact frozen
 `edict:target-provider/verifier@1.0.0` WIT world and performs only exhaustive
-transport-to-model conversion. Its reproducibly built 277,836-byte checked
+transport-to-model conversion. Its reproducibly built 389,503-byte checked
 component has SHA-256
-`279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
+`d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
 Component identity and admitted host replay remain separate propositions: the
 pinned Edict host preflights the request artifacts and declared output schema,
 invokes the checked component, then admits and manifests each returned accepted

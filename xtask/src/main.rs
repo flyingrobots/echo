@@ -455,14 +455,15 @@ struct PrPreflightArgs {
 }
 
 fn main() -> Result<()> {
-    // Ensure CWD is the repo root so that relative paths like "docs/",
-    // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
-    // where `cargo xtask` is invoked from.
-    let repo_root = find_repo_root()?;
-    std::env::set_current_dir(&repo_root)
-        .with_context(|| format!("failed to chdir to {}", repo_root.display()))?;
-
     let cli = Cli::parse();
+
+    // Maintenance commands resolve repository paths from the Git root. The
+    // artifact runner resolves supplied paths from the caller's directory.
+    if !matches!(&cli.command, Commands::RunEdictOperation(_)) {
+        let repo_root = find_repo_root()?;
+        std::env::set_current_dir(&repo_root)
+            .with_context(|| format!("failed to chdir to {}", repo_root.display()))?;
+    }
 
     match cli.command {
         Commands::Bench(args) => run_bench(args),
@@ -3984,13 +3985,11 @@ fn is_maintained_shell_path(path: &str) -> bool {
     let extension = path_ref.extension().and_then(|value| value.to_str());
 
     if path.starts_with(".githooks/") {
-        return extension.is_none()
-            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+        return extension.is_none_or(|value| value.eq_ignore_ascii_case("sh"));
     }
 
     if path.starts_with("scripts/hooks/") {
-        return extension.is_none()
-            || extension.is_some_and(|value| value.eq_ignore_ascii_case("sh"));
+        return extension.is_none_or(|value| value.eq_ignore_ascii_case("sh"));
     }
 
     if path.starts_with("scripts/") || path.starts_with("tests/hooks/") {

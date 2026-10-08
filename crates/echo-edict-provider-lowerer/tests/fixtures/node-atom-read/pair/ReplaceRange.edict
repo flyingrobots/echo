@@ -1,0 +1,26 @@
+package jedit.text.replace_range@1;
+use lawpack jedit.text@1 digest "sha256:2ea164293719d2b03231c4904eb75ddcdf55fd29cc31f4fc5a5319d9ae5e60e7" as text;
+type Input = { firstAddress: text.FactAddress, firstExpected: text.FactBytes, secondAddress: text.FactAddress, secondExpected: text.FactBytes };
+intent replaceRange(input: Input) returns text.FactBytes
+  profile text.replaceRange
+  basis input.firstAddress.nodeId
+  budget <= text.replaceRangeBudget
+{
+  let first: text.FactBytes = text.readFact(input.firstAddress)
+    else {
+      missing(address) => text.FactMissing,
+      typeMismatch(address) => text.FactMalformed,
+      notAtom(address) => text.FactMalformed,
+      tooLarge(address) => text.FactMalformed,
+    };
+  require first == input.firstExpected else text.BasisNotCanonical;
+  let second: text.FactBytes = text.readFact(input.secondAddress)
+    else {
+      missing(address) => text.FactMissing,
+      typeMismatch(address) => text.FactMalformed,
+      notAtom(address) => text.FactMalformed,
+      tooLarge(address) => text.FactMalformed,
+    };
+  require second == input.secondExpected else text.BasisNotCanonical;
+  return second;
+}

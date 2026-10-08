@@ -40,7 +40,7 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 use crate::trig;
 
 #[cfg(feature = "det_fixed")]
-use crate::fixed_q32_32;
+use crate::fixed_q32_32::{self, FixedQ32_32};
 
 /// Deterministic scalar arithmetic and basic transcendentals.
 ///
@@ -259,9 +259,15 @@ impl Neg for F32Scalar {
 ///
 /// # Determinism contract
 ///
-/// - All arithmetic is performed in integer space with saturating overflow.
+/// - Bunny owns the integer arithmetic algorithms; this compatibility wrapper
+///   selects its saturating operators. New canonical callers use
+///   [`FixedQ32_32`]'s checked methods instead.
+/// - Division by zero preserves the legacy rule: nonzero numerators saturate
+///   by sign, and `0 / 0` is zero.
 /// - Multiplication/division use round-to-nearest, ties-to-even semantics.
-/// - `from_f32` is deterministic and does not rely on platform transcendentals.
+/// - `from_f32` delegates to Bunny's deterministic saturating conversion.
+/// - Trigonometry retains Echo's existing f32 LUT conversion path; this is not
+///   a fixed-point-only transcendental implementation.
 #[cfg(feature = "det_fixed")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DFix64 {
@@ -270,7 +276,6 @@ pub struct DFix64 {
 
 #[cfg(feature = "det_fixed")]
 impl DFix64 {
-    const FRAC_BITS: u32 = fixed_q32_32::FRAC_BITS;
     const ONE_RAW: i64 = fixed_q32_32::ONE_RAW;
 
     /// The fixed-point zero value.
@@ -291,88 +296,6 @@ impl DFix64 {
     /// Returns the underlying Q32.32 raw storage value.
     pub const fn raw(self) -> i64 {
         self.raw
-    }
-
-    fn saturate_i128_to_i64(value: i128) -> i64 {
-        i64::try_from(value).unwrap_or_else(|_| {
-            if value.is_negative() {
-                i64::MIN
-            } else {
-                i64::MAX
-            }
-        })
-    }
-
-    fn saturating_add_raw(a: i64, b: i64) -> i64 {
-        Self::saturate_i128_to_i64(i128::from(a) + i128::from(b))
-    }
-
-    fn saturating_sub_raw(a: i64, b: i64) -> i64 {
-        Self::saturate_i128_to_i64(i128::from(a) - i128::from(b))
-    }
-
-    fn saturating_neg_raw(a: i64) -> i64 {
-        if a == i64::MIN {
-            i64::MAX
-        } else {
-            -a
-        }
-    }
-
-    fn mul_raw(a: i64, b: i64) -> i64 {
-        let prod = i128::from(a) * i128::from(b);
-        let abs: u128 = prod.unsigned_abs();
-        let q = abs >> Self::FRAC_BITS;
-        let r = abs & ((1_u128 << Self::FRAC_BITS) - 1);
-        let half = 1_u128 << (Self::FRAC_BITS - 1);
-
-        let mut rounded = q;
-        if r > half || (r == half && (q & 1) == 1) {
-            rounded = rounded.saturating_add(1);
-        }
-
-        let rounded_i128 = i128::try_from(rounded).map_or(i128::MAX, |v| v);
-        let signed = if prod.is_negative() {
-            -rounded_i128
-        } else {
-            rounded_i128
-        };
-
-        Self::saturate_i128_to_i64(signed)
-    }
-
-    fn div_raw(a: i64, b: i64) -> i64 {
-        if b == 0 {
-            if a == 0 {
-                // Determinism policy: 0/0 → 0 (not NaN) to preserve integer semantics.
-                return 0;
-            }
-            return if a.is_negative() { i64::MIN } else { i64::MAX };
-        }
-
-        let num = i128::from(a) << Self::FRAC_BITS;
-        let den = i128::from(b);
-
-        let abs_num: u128 = num.unsigned_abs();
-        let abs_den: u128 = den.unsigned_abs();
-
-        let q = abs_num / abs_den;
-        let r = abs_num % abs_den;
-
-        let mut rounded = q;
-        let twice_r = r.saturating_mul(2);
-        if twice_r > abs_den || (twice_r == abs_den && (q & 1) == 1) {
-            rounded = rounded.saturating_add(1);
-        }
-
-        let rounded_i128 = i128::try_from(rounded).map_or(i128::MAX, |v| v);
-        let signed = if (a < 0) ^ (b < 0) {
-            -rounded_i128
-        } else {
-            rounded_i128
-        };
-
-        Self::saturate_i128_to_i64(signed)
     }
 }
 
@@ -415,7 +338,7 @@ impl Add for DFix64 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
-        Self::from_raw(Self::saturating_add_raw(self.raw, rhs.raw))
+        Self::from_raw((FixedQ32_32::from_raw(self.raw) + FixedQ32_32::from_raw(rhs.raw)).raw())
     }
 }
 
@@ -424,7 +347,7 @@ impl Sub for DFix64 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        Self::from_raw(Self::saturating_sub_raw(self.raw, rhs.raw))
+        Self::from_raw((FixedQ32_32::from_raw(self.raw) - FixedQ32_32::from_raw(rhs.raw)).raw())
     }
 }
 
@@ -433,7 +356,7 @@ impl Mul for DFix64 {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
-        Self::from_raw(Self::mul_raw(self.raw, rhs.raw))
+        Self::from_raw((FixedQ32_32::from_raw(self.raw) * FixedQ32_32::from_raw(rhs.raw)).raw())
     }
 }
 
@@ -442,7 +365,7 @@ impl Div for DFix64 {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self {
-        Self::from_raw(Self::div_raw(self.raw, rhs.raw))
+        Self::from_raw((FixedQ32_32::from_raw(self.raw) / FixedQ32_32::from_raw(rhs.raw)).raw())
     }
 }
 
@@ -451,6 +374,6 @@ impl Neg for DFix64 {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self::from_raw(Self::saturating_neg_raw(self.raw))
+        Self::from_raw((-FixedQ32_32::from_raw(self.raw)).raw())
     }
 }

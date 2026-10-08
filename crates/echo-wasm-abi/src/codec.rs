@@ -373,7 +373,12 @@ pub fn fx_from_i64(n: i64) -> i64 {
     }
 }
 
-/// Convert f32 to Q32.32 using truncation toward zero.
+/// Convert f32 to Q32.32 using legacy truncation toward zero.
+///
+/// This wire-compatibility helper intentionally differs from the canonical
+/// Bunny ties-to-even conversion exposed by `warp_math::fixed_q32_32`. For
+/// example, an input equal to 1.5 raw units becomes 1 here and 2 there. Existing
+/// callers retain truncation; new canonical numerical code must use Bunny.
 #[inline]
 #[must_use]
 pub fn fx_from_f32(value: f32) -> i64 {

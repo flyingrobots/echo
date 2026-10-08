@@ -1194,10 +1194,7 @@ fn push_bytes(out: &mut Vec<u8>, value: &[u8]) {
 }
 
 fn push_len(out: &mut Vec<u8>, len: usize) {
-    let encoded = match u64::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
-    };
+    let encoded = u64::try_from(len).unwrap_or(u64::MAX);
     out.extend_from_slice(&encoded.to_le_bytes());
 }
 

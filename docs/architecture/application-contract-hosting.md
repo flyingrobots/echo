@@ -163,6 +163,156 @@ state, frontier, or Receipt publication. The transitional direct
 prepare/commit seam can still return noncommitted evidence to trusted host
 tests, but it is not the application lifecycle.
 
+The create-if-absent profile creates a node and its alpha attachment. It does not create a skeleton edge from the lane root. A detached cell therefore remains outside the reachable-state root hash. Equal roots do not prove equal stores or the absence of a detached write. The retained tick patch and commit identity bind that write; duplicate checks also compare the typed target-value digest. This preserves the [Merkle commit law](../spec/merkle-commit.md).
+
+The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
+
+The external-provider schema additionally admits one exact zero-choice
+`compiler-produced-bounded-pure/v1` target configuration. It contains no
+application operation, target-specific budget override, or mutation authority.
+The checked lowerer emits a distinct generic package retaining the exact
+compiler-produced pure program closure, and the structurally separate verifier
+independently reconstructs that relation. No runtime evaluator, installation,
+graph mutation, Tick settlement, or application-specific Echo branch follows
+from package acceptance.
+
+### Bounded pure evaluation
+
+The trusted-host `warp_core::edict_pure::evaluate` function now computes an
+ordinary value from an exact compiler-produced pure package and canonical
+input. The host supplies the package digest from an independently verified,
+authorized release. The evaluator checks that pin before decoding executable
+meaning. A caller-supplied digest or accepted-report-shaped value does not
+establish authorization. This function has no graph, scheduler, filesystem,
+clock, native callback, or WAL access and produces no Tick or Receipt.
+
+The interpreter implements the generic subset demanded by the first real
+compiler witness: unsigned integer constants, records, locals, field access,
+integer equality and ordering, bounded byte equality, lazy conditionals, and
+zero-argument authored pure helpers, plus `core.integer.subtract<U32/U64>` with
+two operands. Subtraction
+validates both values against the declared unsigned width and refuses underflow
+with `InvalidArtifact`; it never wraps or saturates. Operands and the result
+use the ordinary execution meter. The compiler and target verifier own static
+totality evidence; the interpreter additionally checks runtime values even when
+the supplied package pin matches. Calls resolve opaque lawpack coordinates to retained Edict bodies
+with separate lexical scope. No application coordinate selects a native
+implementation. Unsupported expression forms are rejected during decoding,
+including unselected branches. Authored runtime types constrain input,
+bindings, helper returns, and output. Nominal contracts resolve their declared
+storage representations. Authored input constraints run before bindings, and
+the compiler's result projection must match the selected Target IR result.
+
+The generic `core.bytes.length<OperandType>` operation measures one bounded byte
+value and returns U64. Its retained operand coordinate resolves through the
+ordinary type decoder; the interpreter validates that byte representation and
+its declared bounds before measuring. It counts raw bytes, including non-UTF-8
+bytes, rather than Unicode scalars. Operand evaluation, type validation, and
+result storage use the ordinary meter. This does not introduce String length,
+implicit conversion, or any application-specific text interpretation.
+Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
+`Bytes<min=N,max=M>` coordinates also resolve directly, without a named type
+entry. Noncanonical numbers, inverted bounds, and an interval spelling with
+equal endpoints reject; equal endpoints use `exact=N`.
+
+The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
+raw bytes in the half-open range `[start, end)`. It validates the operand's byte
+bounds and both offsets as U64, then refuses reversed or out-of-bounds ranges
+with `InvalidArtifact`. Authored input constraints still run before bindings.
+Empty and full ranges are valid; slicing inside a UTF-8 codepoint is a raw-byte
+operation. The operand's minimum or exact length does not become a result
+minimum: ordinary binding and output types validate the selected value.
+
+The generic `core.bytes.concat<LeftType, RightType>(left, right)` operation
+appends two bounded byte values in source order. Both coordinates must decode
+to byte types, and their declared maximum sum must fit U64. Each actual operand
+must inhabit its own minimum/maximum bounds. Static expression-coordinate
+proofs remain the compiler/Target verifier's responsibility; the runtime checks
+actual values and the independently declared binding/output bounds.
+
+Concatenation charges one work unit per combined byte, plus the ordinary result
+cell and combined-byte storage, before reserving or copying the output. Empty
+operands still incur ordinary evaluation and result-cell costs. Raw bytes retain
+their order, including invalid UTF-8; no application names select behavior or
+costs.
+
+Host ceilings intersect the package's declared step, allocation, and output
+budgets. Each expression, predicate, runtime type visit, and copied value node
+costs one step. Byte equality additionally charges the larger operand's entire
+byte length before comparison, even when lengths differ or the first byte
+mismatches. This deterministic charge does not claim constant-time machine
+execution. Byte slicing additionally charges one work unit per selected byte,
+and the ordinary value cell plus selected-byte storage, before copying the
+selected range. Empty slices incur ordinary expression and value costs but no
+selected-byte work. Byte ordering and mixed byte/integer predicates remain
+unsupported.
+Storage accounting charges a fixed 64-byte cell per materialized
+value node plus text and byte payload lengths, cumulatively including copies
+and result-encoding scratch. These interpreter units are independent of Rust
+layout and pointer width; they are not a report of physical allocator usage.
+Package and input decoding have separate host byte apertures capped at 16 MiB,
+the canonical decoder's node limit, and a 64-level interpreter depth limit.
+Syntax and type expansion share a 65,536-node decode budget. Decode and code
+storage are bounded by those admission apertures, outside execution accounting.
+
+The executable witness is
+[`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
+It consumes retained exact external compiler output, checks both authored
+branches and a helper result, and proves that a separately compiled source
+mutation changes the runtime result. Its fixture retains separate verifier
+reports and reproduction coordinates. Reversed input ordering, invalid runtime
+representations, package substitution, noncanonical input, and exhausted host
+budgets produce errors without returning an application result.
+
+The paired nominal-ID and variable-payload equality witnesses in
+[`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
+consume separately verified packages built from Jim-owned source using the
+existing compiler/provider pins. They cover differences at every ID byte,
+empty and unequal-length payloads, deterministic work accounting, exact budget
+limits, input bounds, substituted pins, and forged unsupported predicates.
+The target declares `trusted_runtime` as a required Cargo feature; CI and
+the opt-in local full-test routes execute it with that feature, including
+when only its fixture or interpreter source changes.
+Comparing supplied IDs does not establish the current graph head; that requires
+a separate admitted read and application-owned fact decoding.
+
+[`edict_pure_unsigned_subtraction_tests.rs`](../../crates/warp-core/tests/edict_pure_unsigned_subtraction_tests.rs)
+adds a real external compiler package that returns an unsigned difference under
+an ordered input constraint. Literal results cover equal endpoints, nonzero
+differences, and the U64 boundary. Deliberate artifact mutations with matching
+test-host pins exercise U32 bounds, malformed calls, operand types, and
+underflow; these mutated artifacts are not verification or admission evidence.
+The original pure-program fixture still runs unchanged.
+
+[`edict_pure_byte_length_tests.rs`](../../crates/warp-core/tests/edict_pure_byte_length_tests.rs)
+adds the next external compiler artifact and literal empty, Unicode, and raw
+byte-count witnesses. Wrong signatures, non-byte operands, narrowed bounds,
+substituted packages, and exhausted budgets reject with structured errors.
+
+[`edict_byte_slice_tests.rs`](../../crates/warp-core/tests/edict_byte_slice_tests.rs)
+executes a retained compiler-produced slice package against twelve literal
+consumer cases, including raw non-UTF-8 bytes and authored constraint refusals.
+Malformed call, coordinate, operand, range, and budget controls exercise runtime
+defenses. A test-only alpha-renaming control changes application coordinates,
+operation and record names, and input fields while preserving results and costs;
+these names do not select primitive behavior. The mutated controls are not new
+compiler or verifier evidence. The feature-gated suite runs in CI and local
+full-test routes, including changes confined to its fixture or support helper.
+
+[`edict_byte_concat_tests.rs`](../../crates/warp-core/tests/edict_byte_concat_tests.rs)
+executes the exact externally compiled two-fragment program against twelve
+literal consumer expectations. Signature, operand-bound, declared-sum overflow,
+actual result-bound and host/package budget controls exercise runtime defenses.
+Its retained package/report binding and application-name renaming checks follow
+the same distinction between compiler evidence and test-only mutations. CI and
+local full-test routes include its fixture and support-helper changes.
+
+This refines the pure-package boundary above and depends on its independently
+verified artifact closure. It does not extend the installed operation lifecycle
+in [ADR 0023](../adr/0023-admitted-executable-operation-packages.md). Generic
+effectful execution and its settlement evidence remain tracked by
+[issue #684](https://github.com/flyingrobots/echo/issues/684).
+
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a
@@ -243,6 +393,99 @@ introduce a gap into the retained frame sequence.
 
 ### Provider artifact boundary
 
+Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
+publications. The original `admit_provider_contract_pack_v1` entry point remains
+bound to its pure-binding publication. The opt-in
+`admit_provider_contract_pack_for_publication_v1` entry point additionally admits
+the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md).
+The closed selector fixes both byte identities and the input size ceiling before
+parsing; mixed publications reject. This is structural schema authority only.
+It does not prove instruction ordering, select an executable profile, or confer
+support for graph reads or writes. The existing provider generation path still
+selects the original publication.
+
+The native lowerer source additionally recognizes the opt-in
+`compiler-produced-bounded-read/v1` configuration. This separate profile carries
+explicit read-count and aggregate read-byte ceilings; it does not reinterpret
+pure packages as effectful programs. Its current expression subset covers
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Reads select opaque atom bytes by WARP/node/expected-type IDs.
+Core and ordered Target IR must agree on every producer, guard, failure mapping,
+and result, with exact imported read signatures and scoped local identities.
+The package retains source, Core, Target IR, exports, lawpack, adapter,
+configuration, and result projection bytes.
+
+The structurally separate native verifier reconstructs an ordered Core body
+from Target IR and reverses target failure mappings through the declared
+adapter. It checks local availability and types, compares the reconstruction
+with Core, and checks the projection and every embedded artifact independently
+of the lowerer. Coherently rehashed package/target mutations cannot change the
+authored order, read address, guard, failure mapping, or result. Accepted and
+rejected reports bind the exact package, Target IR, and projection; response
+ceilings include their artifact bytes, role/domain strings, and diagnostics.
+
+The checked schema and reproducibly promoted components now support this read
+configuration. The explicit ordered-contract publication compiles the authored
+single and independent-address paired read/guard programs through unmodified
+Edict, including both Wasm components and exact accepted verifier reports.
+Repeated builds reproduce the package/report bytes. The original contract
+publication remains selected by the default generator; callers must explicitly
+select the ordered publication for these ordered read programs.
+
+The [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
+preserves the authored source and also proves the old provider's schema refusal.
+Its success establishes compilation and verification, **not a state observation**.
+
+The `trusted_runtime` feature exposes `edict_read::evaluate` for private
+computation over an immutable borrowed `WorldlineFrontier`. The host supplies
+an independently verified package digest and selects the frontier and sorted,
+unique node aperture. `ReadView::new` checks the expected worldline, tick, and
+actual state root. `ReadView::at` derives the basis from the selected frontier
+with one state hash when no independently selected expected basis is needed.
+Both constructors enforce the same aperture constraints. Node addresses include
+both WARP and node identities. A package
+profile cannot authorize its own aperture. The interpreter is not a substitute
+for independent provider verification of the package's authored semantics.
+Input selection follows the same explicit `arg.0` identity as the provider
+scope checks; local declaration order does not select the application input.
+
+Reads return opaque atom bytes and enforce the requested type and authored byte
+bound. Missing nodes or attachments, descent attachments, type mismatches, and
+oversized atoms map to authored obstructions. Descent is never followed. Guards
+run in authored order and can stop execution before a later read. Host ceilings
+intersect package ceilings for read attempts, aggregate read bytes, expression
+work, allocated value storage, and output. Atom work and storage are charged
+before copying. Parsing has separate byte and expression-shape ceilings.
+
+View preparation hashes the **entire frontier state**, outside the interpreted
+evaluation budget. A small aperture therefore does not imply bounded setup
+cost. Successful results retain the selected basis and a separate opaque
+application basis value; that application value is not proof of a canonical
+application head. Application fact decoding remains outside the generic atom
+primitive.
+
+The runtime witnesses in `crates/warp-core/tests/edict_node_read_tests.rs` use
+retained public-compiler packages with independently recorded pins. A guarded reusable Docker worker can run the public compiler witness with
+copied inputs, then set `EDICT_READ_OUTPUT_ROOT` to its evidence directory when
+running the runtime tests. That route evaluates the **fresh output files**.
+The compiler witness requires `/read-fixtures`, `/old-provider`, `/read-provider`,
+and `EDICT_READ_COMPILER` (default `/edict/target/debug/edict`); it creates
+`/read-evidence` and refuses to reuse existing variant directories. The operator
+must supply an exclusive worker lock, process-tree timeout, and a fail-closed
+continuous guard over shared compiler output, writable layers, temporary data,
+and logs, including host and Docker free-space floors. Before/after measurements
+alone do not enforce those budgets. The supported runner remains separate work
+in [#742](https://github.com/flyingrobots/echo/issues/742).
+These witnesses establish private evaluation without frontier mutation. They do not
+establish installation, public request authorization, a causal Tick, WAL
+retention, a receipt, or an admitted reading. Integration and release evidence are tracked by
+[#740](https://github.com/flyingrobots/echo/issues/740).
+
+Primary artifact generation also compares the supplied pack's exact schema and
+manifest with the source materials bound into its generation input. Admission
+of each pack separately does not establish this relation: crossed publications
+return `ContractPackInputMismatch` before constructing any output or provenance.
+
 Echo also owns the runtime-specific semantics supplied to Edict's generic
 external provider host. That pipeline has a separate source and output boundary:
 
@@ -302,7 +545,7 @@ Edict-owned and landed under Edict #157 in Edict PR #159. Generated resource
 declarations carry no output digests. Standard Edict resources and the
 self-contained provider CDDL are explicit trusted inputs from the Apache-2.0
 contract pack introduced in Edict PR #162 and extended with the
-result-projection contract in Edict PR #174. Echo admits its exact CDDL,
+generic pure-binding contracts in Edict PR #201. Echo admits its exact CDDL,
 manifest, contract/domain inventories, resource bytes, digests, and provenance
 before generation without searching a filesystem, registry, or network. Schema
 instance validation is a separate output-admission step: exact
@@ -345,7 +588,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 38-file package-local carrier tree
+The publishable Rust crate uses a separate 40-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;
@@ -489,10 +732,8 @@ and operation-specific validation of codec-owned EINT variables also remain
 outside this generic provider invocation closure.
 
 Both refreshed components have crossed reproducible checked promotion. The
-lowerer is 230,297 bytes with SHA-256
-`f800df20b95c5a3dbb7682d3dbe545ac0fde29ad67430ab7038954a08b54047b`; the
-verifier is 247,766 bytes with SHA-256
-`edbef0fee8bb8b661b457674ce4d7eeb75e842f39eb823ae121ddb412ad20a56`.
+[component reference](../../schemas/edict-provider/components/v1/README.md)
+owns their current byte lengths, SHA-256 identities, and reproduction procedure.
 The generated envelope crosses pinned-host CDDL admission under its owning
 root, and the isolated host helper witness covers exact binding, codec refusal
 and round trips, EINT packing, the borrowed registry, and the non-installing

@@ -5734,8 +5734,8 @@ impl FilesystemWalStore {
     /// reread. An active epoch left by a terminated process is closed under
     /// that lease before the successor is derived and admitted. A concurrently
     /// live writer retains the lease and prevents takeover.
-    /// An uncommitted or torn tail must be reconciled by writable recovery
-    /// before takeover; refusing it preserves the previous epoch ledger.
+    /// Uncommitted or torn tails require writable recovery before takeover.
+    /// An empty predecessor leaves its starting LSN unused.
     pub fn acquire_fresh_writer_epoch(
         &mut self,
         minimum_started_at_lsn: Lsn,
@@ -5779,13 +5779,12 @@ impl FilesystemWalStore {
             .and_then(|epoch| self.epoch_closures.get(&epoch.epoch_id))
             .copied()
             .unwrap_or_default();
-        let required_started_at_lsn = previous_closure
-            .final_lsn
-            .and_then(Lsn::checked_next)
-            // An empty epoch reserved but never consumed its first LSN.
-            // Advancing it would leave a gap in the retained frame sequence.
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
-            .unwrap_or(minimum_started_at_lsn);
+        let required_started_at_lsn = match previous_closure.final_lsn {
+            Some(final_lsn) => final_lsn
+                .checked_next()
+                .ok_or(WalStoreError::WriterEpochChainGap)?,
+            None => previous_epoch.map_or(minimum_started_at_lsn, |epoch| epoch.started_at_lsn),
+        };
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())
             .map_err(|_| WalStoreError::WriterEpochChainGap)?
@@ -8483,7 +8482,7 @@ struct WriterEpochLock(File);
 impl Drop for WriterEpochLock {
     fn drop(&mut self) {
         // A concurrent fork can retain the open file description until exec.
-        // Relinquish this owner's lock explicitly before closing its descriptor.
+        // Best-effort explicit release must precede closing this descriptor.
         let _ = self.0.unlock();
     }
 }
@@ -8506,28 +8505,50 @@ fn acquire_writer_epoch_lock(root: &Path) -> Result<WriterEpochLock, WalStoreErr
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod writer_lease_tests {
     use super::*;
 
+    fn scratch_root() -> PathBuf {
+        const MAX_DIRECTORY_ATTEMPTS: usize = 1_024;
+        let parent = PathBuf::from("target/warp-core-test-tmp");
+        fs::create_dir_all(&parent).expect("scratch parent");
+        for ordinal in 0..MAX_DIRECTORY_ATTEMPTS {
+            let root = parent.join(format!("retained-writer-lease-{ordinal}"));
+            match fs::create_dir(&root) {
+                Ok(()) => return root,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => panic!("scratch directory: {error}"),
+            }
+        }
+        panic!("no unclaimed scratch directory");
+    }
+
     #[test]
-    fn dropping_writer_releases_lease_with_an_inherited_descriptor_alive() {
-        let root = PathBuf::from("target/warp-core-test-tmp/inherited-writer-lease");
-        fs::create_dir_all(&root).expect("scratch directory");
+    fn owner_drop_releases_retained_descriptor_without_releasing_successor() {
+        let root = scratch_root();
         let lease = acquire_writer_epoch_lock(&root).expect("first writer");
-        // A forked process briefly inherits the same open file description
-        // before exec closes CLOEXEC descriptors. A duplicate models that
-        // lifetime deterministically, without depending on a process race.
-        let inherited = lease.0.try_clone().expect("inherited descriptor");
+        // Model the open-file-description lifetime retained across fork before
+        // exec closes inherited descriptors, without relying on race timing.
+        let retained = lease.0.try_clone().expect("retained descriptor");
         assert!(matches!(
             acquire_writer_epoch_lock(&root),
             Err(WalStoreError::WriterEpochLeaseUnavailable)
         ));
         drop(lease);
-        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner exits");
+        let successor = acquire_writer_epoch_lock(&root).expect("successor after owner drops");
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
+        drop(retained);
+        assert!(matches!(
+            acquire_writer_epoch_lock(&root),
+            Err(WalStoreError::WriterEpochLeaseUnavailable)
+        ));
         drop(successor);
-        drop(inherited);
-        fs::remove_dir_all(root).expect("scratch cleanup");
+        drop(acquire_writer_epoch_lock(&root).expect("next successor"));
+        fs::remove_dir_all(root).expect("remove only this invocation's scratch directory");
     }
 }
 
@@ -9925,7 +9946,7 @@ pub enum WalValidationError {
 /// WAL store errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalStoreError {
-    /// The retained prefix could not establish its recovery indexes.
+    /// Validated recovery indexes could not be reconstructed before takeover.
     #[error(transparent)]
     RecoveryIndex(#[from] WalRecoveryIndexError),
     /// A writer epoch is already active.
@@ -11222,15 +11243,9 @@ fn sync_directory(path: &Path) -> Result<(), WalCheckpointIoError> {
 }
 
 fn len_u64(len: usize) -> u64 {
-    match u64::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
-    }
+    u64::try_from(len).unwrap_or(u64::MAX)
 }
 
 fn len_u32(len: usize) -> u32 {
-    match u32::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u32::MAX,
-    }
+    u32::try_from(len).unwrap_or(u32::MAX)
 }

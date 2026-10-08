@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+# Exact reviewed MSRVs, not an arbitrary <= toolchain exception.
+# Provider WASM libraries keep 1.90; their native runtime-consuming tests use 1.96.
+# See CONTRIBUTING.md: Runtime and provider toolchains.
+toolchain 1.96.0
+workspace 1.90.0
+crates/echo-cas/Cargo.toml 1.90.0
+crates/echo-dind-harness/Cargo.toml 1.96.0
+crates/echo-dind-tests/Cargo.toml 1.96.0
+crates/echo-dry-tests/Cargo.toml 1.96.0
+crates/echo-edict-canonical/Cargo.toml 1.90.0
+crates/echo-edict-provider-lowerer/Cargo.toml 1.90.0
+crates/echo-edict-provider-verifier/Cargo.toml 1.90.0
+crates/echo-file-aperture/Cargo.toml 1.90.0
+crates/echo-graph/Cargo.toml 1.96.0
+crates/echo-registry-api/Cargo.toml 1.90.0
+crates/echo-runtime-schema/Cargo.toml 1.90.0
+crates/echo-scene-codec/Cargo.toml 1.90.0
+crates/echo-scene-port/Cargo.toml 1.90.0
+crates/echo-trace/Cargo.toml 1.90.0
+crates/echo-wasm-abi/Cargo.toml 1.90.0
+crates/echo-wesley-gen/Cargo.toml 1.96.0
+crates/warp-benches/Cargo.toml 1.96.0
+crates/warp-cli/Cargo.toml 1.96.0
+crates/warp-core/Cargo.toml 1.96.0
+crates/warp-geom/Cargo.toml 1.96.0
+crates/warp-math/Cargo.toml 1.96.0
+crates/warp-wasm/Cargo.toml 1.96.0
+tests/edict-provider-host-v1/Cargo.toml 1.96.0
+xtask/Cargo.toml 1.96.0
+experiments/echo-keep/Cargo.toml 1.96.0

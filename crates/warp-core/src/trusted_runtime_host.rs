@@ -636,6 +636,23 @@ impl TrustedRuntimeWalRecovery {
         provenance: &ProvenanceService,
     ) -> Result<usize, TrustedRuntimeWalError> {
         validate_recovered_echo_operation_parent_states(runtime, provenance, self)
+            .map(|work| work.replay_count)
+    }
+
+    /// Measures actual replay applications and peak private retained data for tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn echo_operation_parent_state_work_for_test(
+        &self,
+        runtime: &WorldlineRuntime,
+        provenance: &ProvenanceService,
+    ) -> Result<EchoOperationParentStateWorkForTest, TrustedRuntimeWalError> {
+        validate_recovered_echo_operation_parent_states(runtime, provenance, self).map(|work| {
+            EchoOperationParentStateWorkForTest {
+                replay_count: work.replay_count,
+                replayed_patches: work.replayed_patches,
+                ..work.retained
+            }
+        })
     }
 
     /// Recomputes the certificate's canonical index root from recovered evidence.
@@ -4196,36 +4213,136 @@ fn operation_application_basis_matches_scope_v1(
     }
 }
 
+/// Test-only work and retained-data counters for one Action parent-state validation.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EchoOperationParentStateWorkForTest {
+    /// Complete prefix initializations, preserving the legacy replay-count meaning.
+    pub replay_count: usize,
+    /// Successfully applied and verified provenance replay patches.
+    pub replayed_patches: usize,
+    /// Peak private replay states, including one transient Tick simulation.
+    pub peak_retained_states: usize,
+    /// Peak retained graph node records across those states.
+    pub peak_retained_node_records: usize,
+    /// Peak retained Tick-history records across those states.
+    pub peak_retained_tick_records: usize,
+    /// Peak logical atom bytes across those states, not a process-RSS measurement.
+    pub peak_retained_atom_bytes: usize,
+}
+
+#[derive(Default)]
+struct ParentStateValidationWork {
+    replay_count: usize,
+    replayed_patches: usize,
+    #[cfg(any(test, feature = "host_test"))]
+    retained: EchoOperationParentStateWorkForTest,
+}
+
+impl ParentStateValidationWork {
+    #[cfg(any(test, feature = "host_test"))]
+    fn note_states<'a>(&mut self, states: impl Iterator<Item = &'a crate::WorldlineState>) {
+        #[cfg(any(test, feature = "host_test"))]
+        {
+            let mut state_count = 0;
+            let mut nodes = 0;
+            let mut ticks = 0;
+            let mut atom_bytes = 0;
+            for state in states {
+                state_count += 1;
+                ticks += state.tick_history().len();
+                for store in state.warp_state().stores.values() {
+                    nodes += store.nodes.len();
+                    for attachment in store
+                        .node_attachments
+                        .values()
+                        .chain(store.edge_attachments.values())
+                    {
+                        if let crate::AttachmentValue::Atom(atom) = attachment {
+                            atom_bytes += atom.bytes.len();
+                        }
+                    }
+                }
+            }
+            self.retained.peak_retained_states =
+                self.retained.peak_retained_states.max(state_count);
+            self.retained.peak_retained_node_records =
+                self.retained.peak_retained_node_records.max(nodes);
+            self.retained.peak_retained_tick_records =
+                self.retained.peak_retained_tick_records.max(ticks);
+            self.retained.peak_retained_atom_bytes =
+                self.retained.peak_retained_atom_bytes.max(atom_bytes);
+        }
+    }
+}
+
 fn recovered_worldline_state_at<'a>(
-    cache: &'a mut BTreeMap<(crate::WorldlineId, crate::WorldlineTick), crate::WorldlineState>,
+    cache: &'a mut BTreeMap<crate::WorldlineId, (crate::WorldlineTick, crate::WorldlineState)>,
     recovered_provenance: &ProvenanceService,
     worldline_id: crate::WorldlineId,
     frontier_state: &crate::WorldlineState,
     worldline_tick: crate::WorldlineTick,
     failure_detail: &'static str,
+    work: &mut ParentStateValidationWork,
 ) -> Result<&'a crate::WorldlineState, TrustedRuntimeWalError> {
-    let coordinate = (worldline_id, worldline_tick);
-    if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(coordinate) {
-        let state = recovered_provenance
-            .replay_worldline_state_at(worldline_id, frontier_state, worldline_tick)
-            .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: failure_detail,
-            })?;
-        entry.insert(state);
-    }
-    cache
-        .get(&coordinate)
-        .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+    let initialize = cache
+        .get(&worldline_id)
+        .is_none_or(|(tick, _)| *tick > worldline_tick);
+    if initialize {
+        // Drop the old cursor before constructing a replacement prefix.
+        drop(cache.remove(&worldline_id));
+        let (state, applied) = crate::provenance_store::replay_worldline_state_at_with_work(
+            recovered_provenance,
+            worldline_id,
+            frontier_state,
+            worldline_tick,
+        )
+        .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
             detail: failure_detail,
-        })
+        })?;
+        cache.insert(worldline_id, (worldline_tick, state));
+        work.replay_count += 1;
+        work.replayed_patches += applied;
+    } else {
+        let (tick, state) = cache.get_mut(&worldline_id).ok_or(
+            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                detail: failure_detail,
+            },
+        )?;
+        let applied = crate::provenance_store::advance_replay_state(
+            recovered_provenance,
+            worldline_id,
+            state,
+            *tick,
+            worldline_tick,
+        )
+        .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: failure_detail,
+        })?;
+        *tick = worldline_tick;
+        work.replayed_patches += applied;
+    }
+    #[cfg(any(test, feature = "host_test"))]
+    work.note_states(cache.values().map(|(_, state)| state));
+    cache.get(&worldline_id).map(|(_, state)| state).ok_or(
+        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+            detail: failure_detail,
+        },
+    )
 }
 
 fn validate_recovered_echo_operation_parent_states(
     runtime: &WorldlineRuntime,
     recovered_provenance: &ProvenanceService,
     recovery: &TrustedRuntimeWalRecovery,
-) -> Result<usize, TrustedRuntimeWalError> {
+) -> Result<ParentStateValidationWork, TrustedRuntimeWalError> {
+    #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+    enum BasisObligation {
+        Receipt(usize),
+        Action(usize),
+    }
     let mut recovered_states = BTreeMap::new();
+    let mut work = ParentStateValidationWork::default();
     let installations = recovery
         .installed_echo_operations
         .iter()
@@ -4236,60 +4353,6 @@ fn validate_recovered_echo_operation_parent_states(
         .iter()
         .map(|entry| ((entry.worldline_id, entry.worldline_tick), entry))
         .collect::<BTreeMap<_, _>>();
-
-    for receipt in &recovery.echo_operation_receipts {
-        let basis = receipt.evaluation_basis();
-        let worldline_id = basis.writer_head().worldline_id;
-        let frontier = runtime.worldlines().get(&worldline_id).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "operation receipt names an unavailable recovery worldline",
-            },
-        )?;
-        let parent_state = recovered_worldline_state_at(
-            &mut recovered_states,
-            recovered_provenance,
-            worldline_id,
-            frontier.state(),
-            basis.worldline_tick(),
-            "operation receipt parent state cannot be reconstructed",
-        )?;
-        let entry = entries.get(&(worldline_id, basis.worldline_tick())).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "operation receipt has no recovered state transition",
-            },
-        )?;
-        let installed = installations.get(&receipt.package_id()).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "operation receipt has no recovered installation",
-            },
-        )?;
-        let exact_parent_state_binding = entry
-            .patch
-            .as_ref()
-            .zip(entry.tick_receipt.as_ref())
-            .is_some_and(|(patch, tick_receipt)| {
-                let exact_scope = operation_tick_scope_in_parent_state_v1(
-                    tick_receipt,
-                    patch,
-                    receipt.installed_operation_id().as_hash(),
-                    installed.program(),
-                    parent_state,
-                );
-                let application_basis_matches = exact_scope.is_some_and(|node| {
-                    operation_application_basis_matches_scope_v1(
-                        installed.program(),
-                        node,
-                        basis.application_basis(),
-                    )
-                });
-                parent_state.state_root() == basis.state_root() && application_basis_matches
-            });
-        if !exact_parent_state_binding {
-            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "operation receipt patch disagrees with its reconstructed parent state",
-            });
-        }
-    }
 
     let submissions = recovery
         .witnessed_submissions
@@ -4319,190 +4382,288 @@ fn validate_recovered_echo_operation_parent_states(
         ),
         Vec<(Hash, Hash)>,
     >::new();
-    for (submission_id, ingress_id, outcome) in &recovery.echo_operation_action_outcomes {
+    let mut basis_obligations = Vec::new();
+    for (index, receipt) in recovery.echo_operation_receipts.iter().enumerate() {
+        let basis = receipt.evaluation_basis();
+        basis_obligations.push((
+            basis.writer_head().worldline_id,
+            basis.worldline_tick(),
+            BasisObligation::Receipt(index),
+        ));
+    }
+    let mut action_invocations = Vec::with_capacity(recovery.echo_operation_action_outcomes.len());
+    for (index, (submission_id, _, _)) in recovery.echo_operation_action_outcomes.iter().enumerate()
+    {
         let submission = submissions.get(submission_id).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action outcome has no retained submission",
             },
         )?;
-        let correlation = correlations.get(submission_id).ok_or(
+        let bytes = echo_operation_action_invocation_bytes_v1(&submission.envelope).ok_or(
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome has no retained receipt correlation",
+                detail: "Action outcome has no canonical invocation",
             },
         )?;
-        let invocation_bytes = echo_operation_action_invocation_bytes_v1(&submission.envelope)
-            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome has no canonical invocation",
-            })?;
-        let invocation = inspect_action_invocation_v1(invocation_bytes).map_err(|_| {
+        let invocation = inspect_action_invocation_v1(bytes).map_err(|_| {
             TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                 detail: "Action outcome invocation cannot be inspected",
             }
         })?;
-        action_scopes.insert(*submission_id, invocation.scope);
-        let installed = installations.get(&invocation.package_id).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome has no recovered installation",
-            },
-        )?;
         let basis = invocation.evaluation_basis;
-        let basis_worldline_id = basis.writer_head().worldline_id;
-        let frontier = runtime.worldlines().get(&basis_worldline_id).ok_or(
-            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action basis names an unavailable recovery worldline",
-            },
-        )?;
-        let basis_state = recovered_worldline_state_at(
-            &mut recovered_states,
-            recovered_provenance,
-            basis_worldline_id,
-            frontier.state(),
+        basis_obligations.push((
+            basis.writer_head().worldline_id,
             basis.worldline_tick(),
-            "Action basis state cannot be reconstructed",
-        )?;
-        if basis_state.state_root() != basis.state_root()
-            || !action_application_basis_matches_state_v1(installed, invocation_bytes, basis_state)
-                .unwrap_or(false)
-            || !evaluation_basis_matches_recovered_coordinate(basis, &entries)
-        {
-            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action basis disagrees with reconstructed causal state",
-            });
-        }
-        let tick_before = correlation
-            .worldline_tick_after
-            .as_u64()
-            .checked_sub(1)
-            .map(crate::WorldlineTick::from_raw)
-            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome has an impossible Tick coordinate",
-            })?;
-        let basis_is_current =
-            basis.writer_head() == correlation.head_key && basis.worldline_tick() == tick_before;
-        let basis_changed = matches!(
-            outcome,
-            EchoOperationActionOutcomeV1::Obstructed(obstruction)
-                if obstruction.kind() == crate::EchoOperationObstructionKindV1::BasisChanged
-        );
-        if basis_changed == basis_is_current {
-            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action basis posture disagrees with the scheduler Tick parent",
-            });
-        }
-        let transition = entries
-            .get(&(correlation.head_key.worldline_id, tick_before))
-            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome has no recovered scheduler transition",
-            })?;
-        let policy_id = transition
-            .patch
-            .as_ref()
-            .map(crate::WorldlineTickPatchV1::policy_id)
-            .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                detail: "Action outcome scheduler transition has no retained patch",
-            })?;
-        let reconstructed = match outcome {
-            EchoOperationActionOutcomeV1::Committed(receipt) => {
-                let prepared = reconstruct_action_preparation_v1(
-                    installed,
-                    invocation_bytes,
-                    receipt.retained_invocation_admission_maximum_budget(),
-                    receipt.retained_invocation_admission_policy_id(),
-                    receipt.invocation_admission_id(),
-                    basis_state,
-                    policy_id,
-                )
-                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                    detail: "committed Action preparation cannot be reconstructed",
-                })?;
-                if prepared.package_id() != receipt.package_id()
-                    || prepared.installed_operation_id() != receipt.installed_operation_id()
-                    || prepared.invocation_id() != receipt.invocation_id()
-                    || prepared.evaluation_basis().identity() != receipt.evaluation_basis_id()
-                    || prepared.private_evaluation_id() != receipt.private_evaluation_id()
-                    || prepared.prepared_patch_digest() != receipt.prepared_patch_digest()
-                    || prepared.result_id() != receipt.prepared_result_id()
-                    || prepared.actual_footprint_digest() != receipt.actual_footprint_digest()
-                    || prepared.preparation_id() != receipt.preparation_id()
+            BasisObligation::Action(index),
+        ));
+        action_invocations.push((bytes, invocation));
+    }
+    // Sort verification references; retained WAL/decision order remains unchanged.
+    basis_obligations.sort_unstable();
+    for (_, _, obligation) in basis_obligations {
+        match obligation {
+            BasisObligation::Receipt(index) => {
+                let receipt = &recovery.echo_operation_receipts[index];
+                let basis = receipt.evaluation_basis();
+                let worldline_id = basis.writer_head().worldline_id;
+                let frontier = runtime.worldlines().get(&worldline_id).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "operation receipt names an unavailable recovery worldline",
+                    },
+                )?;
+                let parent_state = recovered_worldline_state_at(
+                    &mut recovered_states,
+                    recovered_provenance,
+                    worldline_id,
+                    frontier.state(),
+                    basis.worldline_tick(),
+                    "operation receipt parent state cannot be reconstructed",
+                    &mut work,
+                )?;
+                let entry = entries.get(&(worldline_id, basis.worldline_tick())).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "operation receipt has no recovered state transition",
+                    },
+                )?;
+                let installed = installations.get(&receipt.package_id()).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "operation receipt has no recovered installation",
+                    },
+                )?;
+                let exact_parent_state_binding = entry
+                    .patch
+                    .as_ref()
+                    .zip(entry.tick_receipt.as_ref())
+                    .is_some_and(|(patch, tick_receipt)| {
+                        let exact_scope = operation_tick_scope_in_parent_state_v1(
+                            tick_receipt,
+                            patch,
+                            receipt.installed_operation_id().as_hash(),
+                            installed.program(),
+                            parent_state,
+                        );
+                        let application_basis_matches = exact_scope.is_some_and(|node| {
+                            operation_application_basis_matches_scope_v1(
+                                installed.program(),
+                                node,
+                                basis.application_basis(),
+                            )
+                        });
+                        parent_state.state_root() == basis.state_root() && application_basis_matches
+                    });
+                if !exact_parent_state_binding {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail:
+                            "operation receipt patch disagrees with its reconstructed parent state",
+                    });
+                }
+            }
+            BasisObligation::Action(index) => {
+                let (submission_id, ingress_id, outcome) =
+                    &recovery.echo_operation_action_outcomes[index];
+                let correlation = correlations.get(submission_id).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome has no retained receipt correlation",
+                    },
+                )?;
+                let (invocation_bytes, invocation) = &action_invocations[index];
+                action_scopes.insert(*submission_id, invocation.scope);
+                let installed = installations.get(&invocation.package_id).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome has no recovered installation",
+                    },
+                )?;
+                let basis = invocation.evaluation_basis;
+                let basis_worldline_id = basis.writer_head().worldline_id;
+                let frontier = runtime.worldlines().get(&basis_worldline_id).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action basis names an unavailable recovery worldline",
+                    },
+                )?;
+                let basis_state = recovered_worldline_state_at(
+                    &mut recovered_states,
+                    recovered_provenance,
+                    basis_worldline_id,
+                    frontier.state(),
+                    basis.worldline_tick(),
+                    "Action basis state cannot be reconstructed",
+                    &mut work,
+                )?;
+                if basis_state.state_root() != basis.state_root()
+                    || !action_application_basis_matches_state_v1(
+                        installed,
+                        invocation_bytes,
+                        basis_state,
+                    )
+                    .unwrap_or(false)
+                    || !evaluation_basis_matches_recovered_coordinate(basis, &entries)
                 {
                     return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action basis disagrees with reconstructed causal state",
+                    });
+                }
+                let tick_before = correlation
+                    .worldline_tick_after
+                    .as_u64()
+                    .checked_sub(1)
+                    .map(crate::WorldlineTick::from_raw)
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome has an impossible Tick coordinate",
+                    })?;
+                let basis_is_current = basis.writer_head() == correlation.head_key
+                    && basis.worldline_tick() == tick_before;
+                let basis_changed = matches!(
+                    outcome,
+                    EchoOperationActionOutcomeV1::Obstructed(obstruction)
+                        if obstruction.kind() == crate::EchoOperationObstructionKindV1::BasisChanged
+                );
+                if basis_changed == basis_is_current {
+                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action basis posture disagrees with the scheduler Tick parent",
+                    });
+                }
+                let transition = entries
+                    .get(&(correlation.head_key.worldline_id, tick_before))
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome has no recovered scheduler transition",
+                    })?;
+                let policy_id = transition
+                    .patch
+                    .as_ref()
+                    .map(crate::WorldlineTickPatchV1::policy_id)
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome scheduler transition has no retained patch",
+                    })?;
+                let reconstructed = match outcome {
+                    EchoOperationActionOutcomeV1::Committed(receipt) => {
+                        let prepared = reconstruct_action_preparation_v1(
+                            installed,
+                            invocation_bytes,
+                            receipt.retained_invocation_admission_maximum_budget(),
+                            receipt.retained_invocation_admission_policy_id(),
+                            receipt.invocation_admission_id(),
+                            basis_state,
+                            policy_id,
+                        )
+                        .ok_or(
+                            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail: "committed Action preparation cannot be reconstructed",
+                            },
+                        )?;
+                        if prepared.package_id() != receipt.package_id()
+                            || prepared.installed_operation_id() != receipt.installed_operation_id()
+                            || prepared.invocation_id() != receipt.invocation_id()
+                            || prepared.evaluation_basis().identity()
+                                != receipt.evaluation_basis_id()
+                            || prepared.private_evaluation_id() != receipt.private_evaluation_id()
+                            || prepared.prepared_patch_digest() != receipt.prepared_patch_digest()
+                            || prepared.result_id() != receipt.prepared_result_id()
+                            || prepared.actual_footprint_digest()
+                                != receipt.actual_footprint_digest()
+                            || prepared.preparation_id() != receipt.preparation_id()
+                        {
+                            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                         detail:
                             "committed Action evidence disagrees with reconstructed preparation",
                     });
-                }
-                reconstructed_evaluations.insert(
-                    *submission_id,
-                    EchoOperationPreparationV1::Prepared(prepared.clone()),
-                );
-                Some(prepared)
-            }
-            EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
-                let prepared = reconstruct_action_preparation_v1(
-                    installed,
-                    invocation_bytes,
-                    conflict.invocation_admission_maximum_budget,
-                    conflict.invocation_admission_policy_id,
-                    conflict.invocation_admission_id,
-                    basis_state,
-                    policy_id,
-                )
-                .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                    detail: "conflicting Action preparation cannot be reconstructed",
-                })?;
-                if prepared.package_id() != conflict.package_id
-                    || prepared.installed_operation_id() != conflict.installed_operation_id
-                    || prepared.invocation_id() != conflict.invocation_id
-                    || prepared.evaluation_basis().identity() != conflict.evaluation_basis_id
-                    || prepared.private_evaluation_id() != conflict.private_evaluation_id
-                    || prepared.prepared_patch_digest() != conflict.prepared_patch_digest
-                    || prepared.result_id() != conflict.prepared_result_id
-                    || prepared.actual_footprint_digest() != conflict.actual_footprint_digest
-                    || prepared.preparation_id() != conflict.preparation_id
-                {
-                    return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                        detail: "conflict evidence disagrees with reconstructed preparation",
-                    });
-                }
-                reconstructed_evaluations.insert(
-                    *submission_id,
-                    EchoOperationPreparationV1::Prepared(prepared.clone()),
-                );
-                Some(prepared)
-            }
-            EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
-                if basis_changed {
-                    if !action_admission_evidence_matches_v1(
-                        installed,
-                        invocation_bytes,
-                        obstruction.invocation_admission_maximum_budget(),
-                        obstruction.invocation_admission_policy_id(),
-                        obstruction.invocation_admission_id(),
-                    ) {
-                        return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        }
+                        reconstructed_evaluations.insert(
+                            *submission_id,
+                            EchoOperationPreparationV1::Prepared(prepared.clone()),
+                        );
+                        Some(prepared)
+                    }
+                    EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict) => {
+                        let prepared = reconstruct_action_preparation_v1(
+                            installed,
+                            invocation_bytes,
+                            conflict.invocation_admission_maximum_budget,
+                            conflict.invocation_admission_policy_id,
+                            conflict.invocation_admission_id,
+                            basis_state,
+                            policy_id,
+                        )
+                        .ok_or(
+                            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail: "conflicting Action preparation cannot be reconstructed",
+                            },
+                        )?;
+                        if prepared.package_id() != conflict.package_id
+                            || prepared.installed_operation_id() != conflict.installed_operation_id
+                            || prepared.invocation_id() != conflict.invocation_id
+                            || prepared.evaluation_basis().identity()
+                                != conflict.evaluation_basis_id
+                            || prepared.private_evaluation_id() != conflict.private_evaluation_id
+                            || prepared.prepared_patch_digest() != conflict.prepared_patch_digest
+                            || prepared.result_id() != conflict.prepared_result_id
+                            || prepared.actual_footprint_digest()
+                                != conflict.actual_footprint_digest
+                            || prepared.preparation_id() != conflict.preparation_id
+                        {
+                            return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail:
+                                    "conflict evidence disagrees with reconstructed preparation",
+                            });
+                        }
+                        reconstructed_evaluations.insert(
+                            *submission_id,
+                            EchoOperationPreparationV1::Prepared(prepared.clone()),
+                        );
+                        Some(prepared)
+                    }
+                    EchoOperationActionOutcomeV1::Obstructed(obstruction) => {
+                        if basis_changed {
+                            if !action_admission_evidence_matches_v1(
+                                installed,
+                                invocation_bytes,
+                                obstruction.invocation_admission_maximum_budget(),
+                                obstruction.invocation_admission_policy_id(),
+                                obstruction.invocation_admission_id(),
+                            ) {
+                                return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                             detail: "basis obstruction has invalid invocation-admission evidence",
                         });
-                    }
-                    reconstructed_evaluations.insert(
-                        *submission_id,
-                        EchoOperationPreparationV1::Obstructed(obstruction.clone()),
-                    );
-                    None
-                } else {
-                    let evaluation = reconstruct_action_evaluation_v1(
-                        installed,
-                        invocation_bytes,
-                        obstruction.invocation_admission_maximum_budget(),
-                        obstruction.invocation_admission_policy_id(),
-                        obstruction.invocation_admission_id(),
-                        basis_state,
-                        policy_id,
-                    )
-                    .ok_or(
-                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                            detail: "obstructed Action evaluation cannot be reconstructed",
-                        },
-                    )?;
-                    match &evaluation {
+                            }
+                            reconstructed_evaluations.insert(
+                                *submission_id,
+                                EchoOperationPreparationV1::Obstructed(obstruction.clone()),
+                            );
+                            None
+                        } else {
+                            let evaluation = reconstruct_action_evaluation_v1(
+                                installed,
+                                invocation_bytes,
+                                obstruction.invocation_admission_maximum_budget(),
+                                obstruction.invocation_admission_policy_id(),
+                                obstruction.invocation_admission_id(),
+                                basis_state,
+                                policy_id,
+                            )
+                            .ok_or(
+                                TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                    detail: "obstructed Action evaluation cannot be reconstructed",
+                                },
+                            )?;
+                            match &evaluation {
                         EchoOperationPreparationV1::Obstructed(reconstructed)
                             if reconstructed.has_same_predecision_evidence(obstruction) => {}
                         EchoOperationPreparationV1::Prepared(_)
@@ -4515,31 +4676,35 @@ fn validate_recovered_echo_operation_parent_states(
                             })
                         }
                     }
-                    let prepared = match &evaluation {
-                        EchoOperationPreparationV1::Prepared(prepared) => Some(prepared.clone()),
-                        EchoOperationPreparationV1::Obstructed(_) => None,
-                    };
-                    reconstructed_evaluations.insert(*submission_id, evaluation);
-                    prepared
+                            let prepared = match &evaluation {
+                                EchoOperationPreparationV1::Prepared(prepared) => {
+                                    Some(prepared.clone())
+                                }
+                                EchoOperationPreparationV1::Obstructed(_) => None,
+                            };
+                            reconstructed_evaluations.insert(*submission_id, evaluation);
+                            prepared
+                        }
+                    }
+                };
+                if let Some(prepared) = reconstructed {
+                    reconstructed_preparations.insert(*submission_id, prepared);
                 }
+                action_tick_members
+                    .entry((
+                        correlation.head_key,
+                        correlation.worldline_tick_after,
+                        correlation.commit_global_tick,
+                        correlation.commit_hash,
+                    ))
+                    .or_default()
+                    .push((*ingress_id, *submission_id));
             }
-        };
-        if let Some(prepared) = reconstructed {
-            reconstructed_preparations.insert(*submission_id, prepared);
         }
-        action_tick_members
-            .entry((
-                correlation.head_key,
-                correlation.worldline_tick_after,
-                correlation.commit_global_tick,
-                correlation.commit_hash,
-            ))
-            .or_default()
-            .push((*ingress_id, *submission_id));
     }
-    for ((head_key, worldline_tick_after, commit_global_tick, _), mut members) in
-        action_tick_members
-    {
+    let mut ordered_ticks = action_tick_members.into_iter().collect::<Vec<_>>();
+    ordered_ticks.sort_by_key(|((head, tick, _, _), _)| (head.worldline_id, *tick, head.head_id));
+    for ((head_key, worldline_tick_after, commit_global_tick, _), mut members) in ordered_ticks {
         members.sort_by_key(|(ingress_id, _)| *ingress_id);
         let tick_before = worldline_tick_after
             .as_u64()
@@ -4572,8 +4737,16 @@ fn validate_recovered_echo_operation_parent_states(
             frontier.state(),
             tick_before,
             "Action Tick parent state cannot be reconstructed",
+            &mut work,
         )?
         .clone();
+        #[cfg(any(test, feature = "host_test"))]
+        work.note_states(
+            recovered_states
+                .values()
+                .map(|(_, state)| state)
+                .chain(std::iter::once(&reconstructed_state)),
+        );
         let candidates = members
             .iter()
             .map(
@@ -4623,6 +4796,13 @@ fn validate_recovered_echo_operation_parent_states(
         .map_err(|_| TrustedRuntimeWalError::EchoOperationExecutionMismatch {
             detail: "Action Tick composition cannot be reconstructed",
         })?;
+        #[cfg(any(test, feature = "host_test"))]
+        work.note_states(
+            recovered_states
+                .values()
+                .map(|(_, state)| state)
+                .chain(std::iter::once(&reconstructed_state)),
+        );
         let reconstructed_outcomes = reconstructed_batch
             .outcomes
             .into_iter()
@@ -4718,7 +4898,7 @@ fn validate_recovered_echo_operation_parent_states(
             }
         }
     }
-    Ok(recovered_states.len())
+    Ok(work)
 }
 
 fn evaluation_basis_matches_recovered_coordinate(

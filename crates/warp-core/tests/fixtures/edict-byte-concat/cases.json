@@ -1,0 +1,78 @@
+{
+  "schema": "jedit.range-fragment-assembly-cases/v1",
+  "operation": "jedit.text.replace_range@1.assembleRange",
+  "cases": [
+    {
+      "name": "both-empty",
+      "firstHex": "",
+      "secondHex": "",
+      "bytesHex": ""
+    },
+    {
+      "name": "first-empty",
+      "firstHex": "",
+      "secondHex": "6162",
+      "bytesHex": "6162"
+    },
+    {
+      "name": "second-empty",
+      "firstHex": "6162",
+      "secondHex": "",
+      "bytesHex": "6162"
+    },
+    {
+      "name": "in-order",
+      "firstHex": "61626364",
+      "secondHex": "65666768",
+      "bytesHex": "6162636465666768"
+    },
+    {
+      "name": "different-order",
+      "firstHex": "65666768",
+      "secondHex": "61626364",
+      "bytesHex": "6566676861626364"
+    },
+    {
+      "name": "binary-octets",
+      "firstHex": "00ff",
+      "secondHex": "807f",
+      "bytesHex": "00ff807f"
+    },
+    {
+      "name": "codepoint-fragments",
+      "firstHex": "f09f",
+      "secondHex": "98ba",
+      "bytesHex": "f09f98ba"
+    },
+    {
+      "name": "incomplete-codepoint-remains-bytes",
+      "firstHex": "f0",
+      "secondHex": "9f",
+      "bytesHex": "f09f"
+    },
+    {
+      "name": "full-apertures",
+      "firstHex": "0001020304050607",
+      "secondHex": "08090a0b0c0d0e0f",
+      "bytesHex": "000102030405060708090a0b0c0d0e0f"
+    },
+    {
+      "name": "repeated-bytes-preserved",
+      "firstHex": "ff00ff",
+      "secondHex": "ff00ff",
+      "bytesHex": "ff00ffff00ff"
+    },
+    {
+      "name": "first-over-bound",
+      "firstHex": "000102030405060708",
+      "secondHex": "",
+      "refusal": "input-type"
+    },
+    {
+      "name": "second-over-bound",
+      "firstHex": "",
+      "secondHex": "000102030405060708",
+      "refusal": "input-type"
+    }
+  ]
+}

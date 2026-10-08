@@ -42,7 +42,7 @@ Apache-2.0 contract pack checked under
 is admitted through
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`. Admission
 requires the pinned Edict contract-pack publication from PR #162 as extended
-with the result-projection contract in PR #174, verifies every
+through the generic pure-binding extension in PR #201, verifies every
 embedded contract resource and provenance record, and performs no discovery or
 mutable coordinate resolution. This authenticates the schema publication; it
 does not by itself claim that a generated artifact is a valid schema instance.
@@ -54,6 +54,14 @@ those exact canonical bytes and then validates the decoded value against the
 named contract's owning root in the authenticated CDDL. Canonical decoding or
 hashing alone is not schema admission, and even successful owning-root
 validation does not install an artifact or confer Echo runtime authority.
+
+`admit_provider_contract_pack_for_publication_v1(...)` also permits explicit
+selection of the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md)
+from Edict #219. Its schema and manifest have separate fixed digests and a
+publication-specific size bound. The original entry point and checked provider
+generation still select the original pure-binding publication. Neither API
+infers a publication from input bytes or treats schema admission as support for
+ordered execution or stateful effects.
 
 `provider_generation::build_provider_generation_input_v1(...)` joins that
 admitted pack with exact Echo semantic-source bytes and the checked versioned
@@ -71,6 +79,9 @@ the exact source artifact.
 `provider_artifacts::generate_provider_primary_artifacts_v1(...)` projects the
 normalized semantic model into five canonical-CBOR primary artifacts, fourteen
 declarative generated resources, and one exact self-contained CDDL artifact.
+Before construction, it requires both contract-pack source artifacts to match
+the exact schema and manifest bound into the generation input. A different
+admitted publication returns `ContractPackInputMismatch` without an output.
 Every canonical value is validated against its generated owning root; the
 Edict-owned lawpack, target-profile, authority-facts, export, intrinsic, and
 operation-profile values are also checked independently against the admitted
@@ -165,7 +176,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 38-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 40-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every
@@ -173,8 +184,10 @@ carrier to match its fixed owner, requires generated artifacts and components
 to match their checked package copies, and can prove that `cargo package --list`
 selects exactly the complete carrier inventory. Explicit `--write` mode copies
 authoritative owners without requiring the temporarily stale package copy,
-allowing the honest staged sequence artifact generation, carrier sync, package
-generation, then final carrier corroboration. Each fixed owner leaf is opened
+allowing the staged sequence owner-carrier sync, artifact generation, carrier
+sync, package generation, then final carrier corroboration. When a source
+manifest, lockfile, or toolchain changes, the first owner-carrier sync is required
+before generation because the generator reads compile-time source carriers. Each fixed owner leaf is opened
 without following its final symbolic link and read twice through the same
 retained descriptor; file-type, length, or byte disagreement refuses a moving
 owner. It never discovers a preferred owner or normalizes authored bytes. The
@@ -191,8 +204,8 @@ verifier resource trees to the ordinary package-carrier operation. Without
 invocation, so no accepted flag is silently skipped.
 
 The isolated `tests/edict-provider-host-v1` gate pins Edict revision
-`c75c3f550d049485ba00eae0dc272c6dd6aca11f` and consumes the exact checked
-package. It constructs the native 24-domain schema registry, validates all 19
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes the exact checked
+package. It constructs the native 31-binding schema registry, validates all 19
 canonical package members under their owning roots, binds every lawpack and
 target-profile resource field to exact packaged bytes, prepares both frozen-WIT
 components, and validates both request kinds without invoking guest code. That
@@ -210,6 +223,35 @@ memory, reads the target tree through the same bounded handles, reports sorted
 missing/changed/unexpected drift, and returns before every directory-creation or
 write path. This boundary does not claim that unrelated ancestors used to locate
 the requested root are symlink-free.
+
+## Refreshing source-bound provider publication
+
+Run these steps in order from the repository root after Cargo has updated the
+workspace lockfile and, when affected, the standalone host witness lockfile.
+Use the guarded shared worker and owned target directories required by the
+workspace resource policy. Each `cargo run` recompiles changed compile-time
+carriers before invoking the next boundary.
+
+```bash
+# Capture current source owners before generating their provenance.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-artifacts --
+
+# Expose the checked corpus to the package assembler.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write --sync-component-resources
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package --
+
+# Capture the final package manifest, then require exact owner agreement.
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --write --sync-component-resources
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-artifacts -- --check
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-package -- --check
+cargo +1.96.0 run --locked -p echo-wesley-gen --bin echo-edict-provider-assets -- --check-package-list --sync-component-resources
+```
+
+Source-bundle changes can alter generation provenance and the package root while
+leaving provider component bytes unchanged. Verify that boundary separately with
+the authenticated component build/check and the standalone package admission
+witness. Do not edit generated files or hash locks manually to bypass drift.
 
 ## Usage
 
@@ -230,19 +272,19 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 cat ir.json | cargo run -p echo-wesley-gen -- --contract-host --out generated.rs
 
 # Rebuild the checked Edict provider artifact corpus from exact inputs
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts --
 
 # Report checked-corpus drift without rewriting anything
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-artifacts -- --check
 
 # Publish the self-contained digest-locked provider package
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package --
 
 # Report package drift without rewriting anything
-cargo +1.90.0 run --locked -p echo-wesley-gen \
+cargo +1.96.0 run --locked -p echo-wesley-gen \
   --bin echo-edict-provider-package -- --check
 ```
 

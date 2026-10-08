@@ -4,7 +4,7 @@
 name = "warp-math"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.90.0"
+rust-version = "1.96.0"
 description = "Echo deterministic math primitives"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
@@ -13,6 +13,7 @@ keywords = ["echo", "deterministic", "math"]
 categories = ["game-engines", "mathematics"]
 
 [dependencies]
+bunny-num = { workspace = true }
 libm = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 

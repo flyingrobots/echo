@@ -4,7 +4,7 @@
 name = "warp-core"
 version = "0.1.1"
 edition = "2021"
-rust-version = "1.90.0"
+rust-version = "1.96.0"
 description = "Echo core: deterministic typed graph rewriting engine"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
@@ -101,6 +101,34 @@ required-features = ["native_rule_bootstrap", "trusted_runtime"]
 [[test]]
 name = "executable_operation_pipeline_tests"
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "edict_pure_evaluation_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_pure_unsigned_subtraction_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_pure_byte_length_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_byte_equality_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_byte_slice_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_node_read_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_byte_concat_tests"
+required-features = ["trusted_runtime"]
 
 [build-dependencies]
 blake3 = "1.0"

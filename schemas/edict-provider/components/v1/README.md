@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 258,787 bytes with SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`.
+The checked component is 381,459 bytes with SHA-256
+`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's
@@ -35,9 +35,9 @@ capability imports.
 `verifier.echo-dpo.component.wasm` implements
 `edict:target-provider/verifier@1.0.0`. It uses the same immutable builder,
 authenticated Rust/Cargo identities, frozen WIT bytes, path-remapping law, and
-`wit-component` version recorded above. Its checked component is 277,836 bytes
+`wit-component` version recorded above. Its checked component is 389,503 bytes
 with SHA-256
-`279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
+`d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/verifier@1.0.0`. Its only imports are the frozen WIT's
@@ -45,15 +45,16 @@ non-callable protocol instance and equality-bounded verification request/result
 type aliases; its only callable world export is `verify`. It has no core, WASI,
 or ambient capability imports.
 
-In the designated immutable `linux/amd64` Rust 1.90.0 builder above, rebuild and
-check the artifact without rewriting it:
+In the designated immutable `linux/amd64` builder above, install Rust 1.96.0
+for the outer `xtask` driver while retaining the authenticated Rust 1.90.0 inner
+compiler and Cargo. Rebuild and check the artifact without rewriting it:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component check \
+cargo +1.96.0 xtask provider-lowerer-component check \
   --target-dir target/provider-lowerer-component \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm
 
-cargo +1.90.0 xtask provider-verifier-component check \
+cargo +1.96.0 xtask provider-verifier-component check \
   --target-dir target/provider-verifier-component \
   --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm
 ```
@@ -75,13 +76,13 @@ After two designated-builder candidates compare exactly, promote either explicit
 candidate through the same structural admission boundary:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component promote \
+cargo +1.96.0 xtask provider-lowerer-component promote \
   --candidate-a /explicit/build-a/lowerer.echo-dpo.component.wasm \
   --candidate-b /explicit/build-b/lowerer.echo-dpo.component.wasm \
   --output schemas/edict-provider/components/v1/lowerer.echo-dpo.component.wasm \
   --write
 
-cargo +1.90.0 xtask provider-verifier-component promote \
+cargo +1.96.0 xtask provider-verifier-component promote \
   --candidate-a /explicit/build-a/verifier.echo-dpo.component.wasm \
   --candidate-b /explicit/build-b/verifier.echo-dpo.component.wasm \
   --output schemas/edict-provider/components/v1/verifier.echo-dpo.component.wasm \

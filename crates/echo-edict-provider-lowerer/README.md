@@ -35,9 +35,30 @@ post-effect scope by their complete identities before cloning expressions into
 Target IR. It accepts only an empty input-constraint set and the reviewed
 zero-argument `domain.WriteRejected` obstruction constructor. Effect inputs and
 intent results admit no call-expression callee in this closure; later
-constraint, constructor, or call semantics require explicit lowering laws. Reads remain
-unsupported and fail closed; the lowerer never represents a read as a synthetic
-mutation.
+constraint, constructor, or call semantics require explicit lowering laws. Reads
+remain unsupported in that checked compatibility closure; the lowerer never
+represents a read as a synthetic mutation.
+
+The native Rust source separately supports the opt-in
+`compiler-produced-bounded-read/v1` configuration, including explicit `maxReads`
+and `maxReadBytes` bounds. It lowers opaque node-atom reads with source-ordered
+guards, validates imported signatures and failure mappings, rejects unavailable
+locals and altered instruction order, and retains every semantic artifact needed
+by subsequent verification and interpretation. The supported expressions are
+locals, record construction/selection, byte equality, and unsigned equality or
+ordering guards. Failure arms currently require zero-argument application
+obstruction constructors; terminal guards require an empty obstruction payload.
+
+The checked schema and component now publish this read configuration. Selecting
+the ordered contract publication lets unmodified Edict compile the authored
+single and independent-address paired reads through this component and the
+independent verifier. The original native fixtures retain their diagnostic
+capture provenance; the separate public compiler witness proves package/report
+publication without instrumentation. A separate trusted-host private evaluator
+consumes pinned packages over real frontier storage; its authority and evidence
+limits are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
+Emitting a package grants no observation or execution authority.
 
 The same component now exposes a separate generic executable-operation route.
 When Edict requests `executable-operation-package.echo`, the lowerer consumes
@@ -117,8 +138,8 @@ proposal constructor supports mutations and refuses a `Query`; authored reads
 remain a separate bounded observer/optic path and must never be represented as
 synthetic mutations.
 
-The refreshed 258,787-byte checked lowerer component has SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd` and has
+The refreshed 381,459-byte checked lowerer component has SHA-256
+`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a` and has
 crossed the reproducible promotion boundary. The pinned Edict host admits its
 generated envelope under the owning `generated-artifact` CDDL root, and the
 isolated host fixture exercises the exact helper binding, typed codecs, EINT
@@ -132,6 +153,15 @@ lawpack import in the supplied source. Lawpack-owned export and adapter
 references retain their coordinate-framed digests independently from the
 provider envelope's schema-domain digests.
 
+The provider schema also admits the exact zero-choice
+`compiler-produced-bounded-pure/v1` target configuration. That admission only
+allows a compiler-produced pure-program request to reach this component. The
+lowerer validates the effect-free compiler relation and emits a separate
+generic package variant that retains the exact Core, lawpack exports, Target
+IR, and result-projection bytes under bounded budget, empty-footprint, and
+no-effect authority identities. It does not evaluate those bytes, install the
+package, mutate a graph, or settle an Echo Tick.
+
 The native Rust model is also the narrow unit-test boundary. A `wasm32` adapter
 generated from [`wit/edict-target-provider.wit`](wit/edict-target-provider.wit)
 exports the exact Component Model function and performs total conversions to
@@ -142,10 +172,11 @@ logging callback, or WASI capability.
 Build and audit local component bytes from the repository root with:
 
 ```sh
-cargo +1.90.0 xtask provider-lowerer-component build \
+cargo +1.96.0 xtask provider-lowerer-component build \
   --target-dir target/provider-lowerer-component
 ```
 
+The outer build driver uses Rust 1.96.0 for its Echo numerical dependencies.
 Local component construction resolves and authenticates absolute Rust 1.90.0
 Cargo and compiler executables, binds the inner Cargo build to that exact
 compiler, disables configured wrappers, and validates the complete module,
@@ -162,9 +193,10 @@ repository-approved SHA-256 identity, complete component admission, and
 provisioned designated builds. Successful refresh uses synchronized temporary
 bytes and atomic replacement, while write failure preserves the prior artifact.
 `designated-build` can emit candidates but refuses the checked repository path.
-Edict-host invocation evidence lives in the isolated Rust 1.94 witness under
+Edict-host invocation evidence lives in the isolated Rust 1.96 witness under
 `tests/edict-provider-host-v1/` so Wasmtime and unpublished Edict host crates do
-not enter Echo's Rust 1.90 workspace dependency graph.
+not enter Echo's workspace dependency graph. The witness retains its frozen
+Edict Git pins and uses Rust 1.96 for its Echo runtime dependency.
 
 These bytes implement a provider translation. They do not install a package,
 admit runtime authority, execute an operation, or attest an Echo consequence.

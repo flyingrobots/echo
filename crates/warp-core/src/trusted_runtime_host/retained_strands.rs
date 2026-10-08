@@ -71,6 +71,79 @@ fn request(record: &StrandForkRecord) -> Result<ForkStrandRequest, TrustedRuntim
     .map_err(|_| invalid())
 }
 
+fn apply_record(
+    runtime: &mut WorldlineRuntime,
+    provenance: &mut ProvenanceService,
+    record: &StrandForkRecord,
+) -> Result<WriterHeadKey, TrustedRuntimeHostError> {
+    let receipt = runtime.fork_strand(provenance, request(record)?)?;
+    if receipt.fork_basis_ref.commit_hash != record.source_commit_hash
+        || receipt.fork_basis_ref.boundary_hash != record.source_boundary_hash
+    {
+        return Err(invalid());
+    }
+    record.writer_heads.first().copied().ok_or_else(invalid)
+}
+
+// Recover committed topology before counting capacity or acknowledging retries.
+// All candidate changes stay private until every retained record validates.
+fn reconcile_pending_forks(
+    host: &mut TrustedRuntimeHost,
+) -> Result<std::collections::BTreeSet<StrandId>, TrustedRuntimeHostError> {
+    let wal = host.runtime_wal.as_mut().ok_or_else(invalid)?;
+    wal.refresh_cursor_from_store_for_writer()?;
+    let scan = wal
+        .store
+        .recover_read_only()
+        .map_err(TrustedRuntimeWalError::from)?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pending = Vec::new();
+    for transaction in scan.transactions {
+        for frame in transaction.frames {
+            if frame.header.record_kind != WalRecordKind::TopologyStrandForkRecorded {
+                continue;
+            }
+            let record = StrandForkRecord::from_payload_bytes(&frame.payload.canonical_bytes)
+                .map_err(|_| invalid())?;
+            if !seen.insert(record.strand_id) || seen.len() > 64 {
+                return Err(invalid());
+            }
+            request(&record)?;
+            if let Some(strand) = host.runtime.strands().get(&record.strand_id) {
+                let basis = strand.fork_basis_ref();
+                let entry = host
+                    .provenance
+                    .entry(record.source_worldline_id, record.fork_tick)?;
+                // ForkBasisRef uses legacy lane terminology for this worldline.
+                let expected_source = record.source_worldline_id;
+                if basis.source_lane_id != expected_source
+                    || basis.fork_tick != record.fork_tick
+                    || basis.commit_hash != record.source_commit_hash
+                    || basis.boundary_hash != record.source_boundary_hash
+                    || strand.child_worldline_id() != record.child_worldline_id
+                    || strand.writer_heads() != record.writer_heads.as_slice()
+                    || entry.expected.commit_hash != record.source_commit_hash
+                    || entry.expected.state_root != record.source_boundary_hash
+                {
+                    return Err(invalid());
+                }
+            } else {
+                pending.push(record);
+            }
+        }
+    }
+    if !pending.is_empty() {
+        let mut runtime = host.runtime.clone();
+        let mut provenance = host.provenance.clone();
+        for record in pending {
+            apply_record(&mut runtime, &mut provenance, &record)?;
+        }
+        host.runtime = runtime;
+        host.provenance = provenance;
+    }
+    Ok(seen)
+}
+
 impl TrustedRuntimeHost {
     /// Forks a retained AuthorOnly strand under the trusted local host's fixed
     /// advisory authority profile. This is not an authenticated admission API.
@@ -88,7 +161,13 @@ impl TrustedRuntimeHost {
         }
         let identity = digest(source.worldline_id.as_bytes(), label.as_bytes());
         let strand_id = StrandId::from_bytes(identity);
+        let retained = reconcile_pending_forks(self)?;
         if let Some(strand) = self.runtime.strands().get(&strand_id) {
+            if !retained.contains(&strand_id)
+                || strand.fork_basis_ref().source_lane_id != source.worldline_id
+            {
+                return Err(invalid());
+            }
             return strand.writer_heads().first().copied().ok_or_else(invalid);
         }
         if self.runtime.strands().len() >= 64 {
@@ -126,9 +205,8 @@ impl TrustedRuntimeHost {
         };
         let mut runtime = self.runtime.clone();
         let mut provenance = self.provenance.clone();
-        runtime.fork_strand(&mut provenance, request(&record)?)?;
+        apply_record(&mut runtime, &mut provenance, &record)?;
         let wal = self.runtime_wal.as_mut().ok_or_else(invalid)?;
-        wal.refresh_cursor_from_store_for_writer()?;
         let mut builder = wal.builder(
             WalTransactionKind::TopologyIntent,
             WalAppendAuthority::TrustedScheduler,
@@ -175,7 +253,6 @@ pub(super) fn restore(
             }
             let record = StrandForkRecord::from_payload_bytes(&frame.payload.canonical_bytes)
                 .map_err(|_| invalid())?;
-            let fork_request = request(&record)?;
             if runtime.strands().contains(&record.strand_id) {
                 return Err(invalid());
             }
@@ -187,12 +264,7 @@ pub(super) fn restore(
                 .collect::<Vec<_>>();
             restore_provenance_entries(&mut provenance, &source_entries)?;
             runtime.restore_causal_runtime_history(&provenance, &source_entries, &[])?;
-            let receipt = runtime.fork_strand(&mut provenance, fork_request)?;
-            if receipt.fork_basis_ref.commit_hash != record.source_commit_hash
-                || receipt.fork_basis_ref.boundary_hash != record.source_boundary_hash
-            {
-                return Err(invalid());
-            }
+            apply_record(&mut runtime, &mut provenance, &record)?;
             // The copied prefix is derived from the validated native fork and
             // retained source entries, not reconstructed from application bytes.
             for tick in 0..=record.fork_tick.as_u64() {

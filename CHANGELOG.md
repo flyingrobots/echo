@@ -27,6 +27,8 @@
 
 ### Fixed
 
+- Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
+
 - Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
 
 - Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.

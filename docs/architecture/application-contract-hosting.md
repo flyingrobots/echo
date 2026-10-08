@@ -1582,6 +1582,14 @@ identity from the strand identity. It allows one writer head per strand, labels
 of 1–64 bytes and at most 64 retained forks. This is an explicit trusted-host
 profile, not caller authentication or a generic authority-policy authoring API.
 Reusing a source-worldline/label pair resolves its original retained strand.
+Before a retry or fresh fork, the host reconciles its writer cursor and all
+pending committed fork records. It validates existing topology bindings and
+applies missing forks at their original coordinates on private clones, exposing
+them only after the complete pending set validates. A reported append error
+therefore cannot cause a second fork record on retry, and pending forks count
+against the capacity limit before another label is admitted. Parent advancement
+does not change a retained fork's basis. Duplicate records remain a refusal;
+this does not migrate an already duplicated history.
 
 Recovery validates the supported profile and source commit/boundary, replays the
 source history, invokes native fork construction at the recorded coordinate, and

@@ -1,0 +1,18 @@
+package examples.cas_echo@1;
+
+use lawpack cas.echo@1 digest "sha256:c5e61ed6aae005531a642287d00ed8bff56754ffec50fe0a2a419f9bc0cb28f9" as cell;
+
+type UpdatedCell = {
+  key: String<max=64>,
+  message: String<max=256>,
+};
+
+intent updateCell(input: cell.CompareAndSetInput) returns UpdatedCell
+  profile cell.compareAndSet
+  basis input.basis
+  budget <= cell.smallUpdateBudget
+{
+  let receipt: cell.UpdateReceipt = cell.compareAndSet({basis: input.basis, key: input.key, expected: input.expected, message: "forced"})
+    else { staleExpected(existing) => cell.StaleExpected };
+  return { key: receipt.key, message: input.message };
+}

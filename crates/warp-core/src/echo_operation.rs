@@ -7652,6 +7652,82 @@ mod tests {
     }
 
     #[test]
+    fn package_admission_rejects_projection_digest_binding_for_the_wrong_program() {
+        let (installed, _, _, _, _, _) = projected_create_fixture(1_024);
+        let create = ExecutableOperationPackageV1::from_canonical_bytes(
+            installed.canonical_package_bytes(),
+        )
+        .expect("valid create package");
+        for cas in [false, true] {
+            let mut package = if cas {
+                ExecutableOperationPackageV1::new(
+                    create.operation_coordinate.clone(),
+                    create.obstruction_coordinate.clone(),
+                    create.semantic_closure.clone(),
+                    echo_operation_target_profile_identity_v1(),
+                    create.authority_profile_identity,
+                    create.budget_ceiling,
+                    EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                        crate::make_type_id("projected-created-node"),
+                        crate::make_type_id("projected-created-atom"),
+                        1_024,
+                    ),
+                )
+            } else {
+                create.clone()
+            };
+            let mut projection = create
+                .application_result_projection
+                .clone()
+                .expect("projection");
+            projection.application_input_expected_value_digest_path =
+                cas.then(|| vec!["expected".to_owned()]);
+            package.application_result_projection = Some(projection);
+            let valid = package.to_canonical_bytes().expect("valid package encodes");
+            let policy_for = |bytes: &[u8]| {
+                EchoOperationAdmissionPolicyV1::exact(
+                    echo_operation_package_id_v1(bytes),
+                    package.operation_coordinate.clone(),
+                    package.authority_profile_identity,
+                    package.budget_ceiling,
+                )
+            };
+            admit_package_v1(&policy_for(&valid), valid.clone())
+                .expect("matching projection admits");
+            let CanonicalValueV1::Map(mut fields) =
+                decode_canonical_cbor_v1(&valid).expect("package")
+            else {
+                panic!("package map")
+            };
+            let (_, CanonicalValueV1::Map(projection)) = fields
+                .iter_mut()
+                .find(|(key, _)| key == &text_value("application_result_projection"))
+                .expect("projection field")
+            else {
+                panic!("projection map")
+            };
+            let key = text_value("application_input_expected_value_digest_path");
+            if cas {
+                projection.retain(|(name, _)| name != &key);
+            } else {
+                projection.push((key, projection_path_value(&["expected".to_owned()])));
+            }
+            let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
+                .expect("invalid package encodes");
+            let error = admit_package_v1(&policy_for(&invalid), invalid)
+                .expect_err("program-incompatible projection must refuse before installation");
+            assert_eq!(
+                error.kind(),
+                EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+            );
+            assert_eq!(
+                error.artifact().expect("artifact failure").kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+    }
+
+    #[test]
     fn projected_cas_admission_requires_an_expected_digest_binding() {
         let (mut installed, _, _, policy, mut invocation, _) = projected_create_fixture(1_024);
         invocation.delegated_budget = EchoOperationBudgetV1::new(8, 1_024, 1_024);

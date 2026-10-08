@@ -9055,4 +9055,109 @@ mod tests {
                 .expect("recovered result reproduces from original invocation");
         }
     }
+    #[test]
+    fn bounded_key_admission_rejects_malformed_missing_and_substituted_inputs() {
+        let (installed, state, basis, policy, invocation, _) = projected_create_fixture_with_key(
+            1_024,
+            "fixture-key",
+            Some(ApplicationInputKeyBound {
+                max_unicode_scalars: 64,
+                max_utf8_bytes: 256,
+            }),
+        );
+        let input = |value| Some(encode_canonical_cbor_v1(&value).expect("test input encodes"));
+        for bytes in [
+            None,
+            input(map_value([("message", text_value("fixture-message"))])),
+            input(map_value([
+                ("key", CanonicalValueV1::Bytes(b"fixture-key".to_vec())),
+                ("message", text_value("fixture-message")),
+            ])),
+            input(map_value([
+                ("key", text_value("substituted-key")),
+                ("message", text_value("fixture-message")),
+            ])),
+            input(map_value([
+                ("key", text_value("fixture-key")),
+                ("message", text_value("substituted-message")),
+            ])),
+        ] {
+            let mut altered = invocation.clone();
+            altered.application_input_bytes = bytes;
+            let encoded = altered
+                .to_canonical_bytes()
+                .expect("outer invocation encodes");
+            let error = admit_invocation_v1(
+                Some(&installed),
+                policy,
+                &encoded,
+                basis,
+                &state,
+                EchoOperationEvaluationAuthorityV1::new(),
+            )
+            .expect_err("malformed or substituted input refuses");
+            assert_eq!(
+                error.kind(),
+                EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            );
+            assert_eq!(state.current_tick(), WorldlineTick::ZERO);
+            let store = state.store(&invocation.node.warp_id).expect("store exists");
+            assert!(store.node(&invocation.node.local_id).is_none());
+            assert!(store.node_attachment(&invocation.node.local_id).is_none());
+        }
+    }
+
+    #[test]
+    fn bounded_key_invalid_utf8_refuses_at_constructor_and_wire_admission() {
+        let (installed, state, basis, policy, mut invocation, _) =
+            projected_create_fixture_with_key(
+                1_024,
+                "fixture-key",
+                Some(ApplicationInputKeyBound {
+                    max_unicode_scalars: 64,
+                    max_utf8_bytes: 256,
+                }),
+            );
+        let bytes = invocation
+            .to_canonical_bytes()
+            .expect("valid invocation encodes");
+        let malformed = vec![0xa1, 0x63, b'k', b'e', b'y', 0x61, 0xff];
+        invocation.application_input_bytes = Some(malformed.clone());
+        assert_eq!(
+            invocation
+                .to_canonical_bytes()
+                .expect_err("safe encoder rejects invalid UTF8")
+                .kind(),
+            EchoOperationArtifactErrorKindV1::MalformedCanonicalBytes
+        );
+        let CanonicalValueV1::Map(mut fields) =
+            decode_canonical_cbor_v1(&bytes).expect("outer map decodes")
+        else {
+            panic!("map");
+        };
+        let (_, input) = fields
+            .iter_mut()
+            .find(|(key, _)| key == &text_value("application_input_bytes"))
+            .expect("input field exists");
+        *input = CanonicalValueV1::Bytes(malformed);
+        let forged = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
+            .expect("outer CBOR remains canonical");
+        let error = admit_invocation_v1(
+            Some(&installed),
+            policy,
+            &forged,
+            basis,
+            &state,
+            EchoOperationEvaluationAuthorityV1::new(),
+        )
+        .expect_err("wire decoder rejects invalid UTF8");
+        assert_eq!(
+            error.kind(),
+            EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation
+        );
+        assert_eq!(state.current_tick(), WorldlineTick::ZERO);
+        let store = state.store(&invocation.node.warp_id).expect("store exists");
+        assert!(store.node(&invocation.node.local_id).is_none());
+        assert!(store.node_attachment(&invocation.node.local_id).is_none());
+    }
 }

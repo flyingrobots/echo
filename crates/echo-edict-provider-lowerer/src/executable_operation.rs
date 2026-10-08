@@ -1828,14 +1828,15 @@ mod key_bound_tests {
     use super::*;
 
     #[test]
-    fn compiler_produced_imported_key_type_resolves_scalar_bound() {
+    fn compiler_produced_imported_key_type_resolves_scalar_bound() -> Result<(), String> {
         let core = echo_edict_canonical::decode_canonical_cbor_v1(include_bytes!(
             "../../echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/create-greeting.core.cbor"
-        )).expect("retained compiler Core decodes");
+        )).map_err(|error| format!("{error:?}"))?;
         assert_eq!(
             derive_key_scalar_limit(&core, "createGreeting", "key")
-                .expect("compiler key type resolves"),
+                .map_err(|error| format!("{error:?}"))?,
             64
         );
+        Ok(())
     }
 }

@@ -1339,18 +1339,15 @@ fn bounded_key_profile_derives_limits_and_independent_verifier_rejects_substitut
     for forged in [None, Some(integer(65))] {
         let mut altered = decoded.clone();
         let mut projection = map_field(&altered, "application_result_projection").clone();
-        match forged {
-            Some(limit) => {
-                let mut bound = map_field(&projection, "application_input_key_bound").clone();
-                set_key_field(&mut bound, "max_unicode_scalars", limit);
-                set_key_field(&mut projection, "application_input_key_bound", bound);
-            }
-            None => {
-                let CanonicalValueV1::Map(fields) = &mut projection else {
-                    panic!("map");
-                };
-                fields.retain(|(key, _)| key != &text("application_input_key_bound"));
-            }
+        if let Some(limit) = forged {
+            let mut bound = map_field(&projection, "application_input_key_bound").clone();
+            set_key_field(&mut bound, "max_unicode_scalars", limit);
+            set_key_field(&mut projection, "application_input_key_bound", bound);
+        } else {
+            let CanonicalValueV1::Map(fields) = &mut projection else {
+                panic!("map");
+            };
+            fields.retain(|(key, _)| key != &text("application_input_key_bound"));
         }
         set_key_field(&mut altered, "application_result_projection", projection);
         let rejected = verifier::verify(verification_request(

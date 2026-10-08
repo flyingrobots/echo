@@ -1484,11 +1484,11 @@ mod tests {
         );
     }
     #[test]
-    fn create_configuration_accepts_only_supported_version_selectors() {
+    fn create_configuration_accepts_only_supported_version_selectors() -> Result<(), String> {
         use echo_edict_canonical::{decode_canonical_cbor_v1, CanonicalValueV1};
         let fixture = decode_canonical_cbor_v1(include_bytes!(
             "../../crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/echo-operation-configuration.cbor"
-        )).expect("retained configuration decodes");
+        )).map_err(|error| error.to_string())?;
         for (version, supported) in [
             ("echo.operation-lowering-configuration/v1", true),
             ("echo.operation-lowering-configuration/v2", true),
@@ -1496,22 +1496,26 @@ mod tests {
         ] {
             let mut value = fixture.clone();
             let CanonicalValueV1::Map(fields) = &mut value else {
-                panic!("configuration map");
+                return Err("configuration must be a map".to_owned());
             };
             let (_, selector) = fields
                 .iter_mut()
                 .find(|(key, _)| key == &CanonicalValueV1::Text("apiVersion".to_owned()))
-                .expect("selector present");
+                .ok_or_else(|| "configuration selector must be present".to_owned())?;
             *selector = CanonicalValueV1::Text(version.to_owned());
             let result = super::parse_target_configuration(&value);
             if supported {
-                assert!(result.is_ok());
+                result.map_err(|error| error.to_string())?;
             } else {
                 assert_eq!(
-                    result.err().expect("unknown selector refuses").to_string(),
+                    result
+                        .err()
+                        .ok_or_else(|| "unknown selector must refuse".to_owned())?
+                        .to_string(),
                     format!("unsupported target configuration.apiVersion: {version}")
                 );
             }
         }
+        Ok(())
     }
 }

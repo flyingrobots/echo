@@ -1111,6 +1111,60 @@ fn projected_result_exceeds_bound() -> EchoOperationArtifactErrorV1 {
     invalid_structure("application result exceeds the compiler-declared output bound")
 }
 
+/// Opt-in, nonempty text-key limits bound into the operation package.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApplicationInputKeyBound {
+    max_unicode_scalars: u64,
+    max_utf8_bytes: u64,
+}
+
+impl ApplicationInputKeyBound {
+    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+        let mut fields =
+            exact_text_map(value, &["schema", "max_unicode_scalars", "max_utf8_bytes"])?;
+        if take_field(&mut fields, "schema")? != text_value("echo.application-input-key-bound/v1") {
+            return Err(invalid_structure(
+                "unsupported application input key-bound schema",
+            ));
+        }
+        let max_unicode_scalars = take_u64(&mut fields, "max_unicode_scalars")?;
+        let max_utf8_bytes = take_u64(&mut fields, "max_utf8_bytes")?;
+        if max_unicode_scalars == 0
+            || max_utf8_bytes == 0
+            || max_unicode_scalars > MAX_APPLICATION_INPUT_BYTES as u64
+            || max_utf8_bytes > MAX_APPLICATION_INPUT_BYTES as u64
+        {
+            return Err(invalid_structure(
+                "application input key limits exceed supported bounds",
+            ));
+        }
+        Ok(Self {
+            max_unicode_scalars,
+            max_utf8_bytes,
+        })
+    }
+
+    fn to_value(&self) -> CanonicalValueV1 {
+        map_value([
+            ("schema", text_value("echo.application-input-key-bound/v1")),
+            ("max_unicode_scalars", uint_value(self.max_unicode_scalars)),
+            ("max_utf8_bytes", uint_value(self.max_utf8_bytes)),
+        ])
+    }
+
+    fn validate(&self, key: &str) -> Result<(), EchoOperationArtifactErrorV1> {
+        if key.is_empty()
+            || key.len() as u64 > self.max_utf8_bytes
+            || key.chars().count() as u64 > self.max_unicode_scalars
+        {
+            return Err(invalid_structure(
+                "application input key exceeds declared text bounds",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Compiler-owned application-result projection plus Echo's verified target plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EchoOperationApplicationResultProjectionV1 {
@@ -1121,21 +1175,32 @@ pub struct EchoOperationApplicationResultProjectionV1 {
     max_output_bytes: u64,
     application_input_node_key_path: Vec<String>,
     application_input_replacement_path: Vec<String>,
+    application_input_key_bound: Option<ApplicationInputKeyBound>,
     runtime_expression: EchoOperationResultExpressionV1,
 }
 
 impl EchoOperationApplicationResultProjectionV1 {
     fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
-        let mut fields = exact_text_map(
-            value,
-            &[
-                "application_input_node_key_path",
-                "application_input_replacement_path",
-                "artifact_bytes",
-                "artifact_identity",
-                "runtime_expression",
-            ],
-        )?;
+        let mut expected = vec![
+            "application_input_node_key_path",
+            "application_input_replacement_path",
+            "artifact_bytes",
+            "artifact_identity",
+            "runtime_expression",
+        ];
+        if let CanonicalValueV1::Map(entries) = &value {
+            if entries
+                .iter()
+                .any(|(key, _)| *key == text_value("application_input_key_bound"))
+            {
+                expected.push("application_input_key_bound");
+            }
+        }
+        let mut fields = exact_text_map(value, &expected)?;
+        let application_input_key_bound = fields
+            .remove("application_input_key_bound")
+            .map(ApplicationInputKeyBound::from_value)
+            .transpose()?;
         let artifact_bytes = take_bytes(&mut fields, "artifact_bytes")?;
         let artifact_identity = take_hash(&mut fields, "artifact_identity")?;
         let node_key_path = take_projection_path(&mut fields, "application_input_node_key_path")?;
@@ -1166,12 +1231,13 @@ impl EchoOperationApplicationResultProjectionV1 {
             max_output_bytes,
             application_input_node_key_path: node_key_path,
             application_input_replacement_path: replacement_path,
+            application_input_key_bound,
             runtime_expression,
         })
     }
 
     fn to_value(&self) -> CanonicalValueV1 {
-        map_value([
+        let mut value = map_value([
             (
                 "application_input_node_key_path",
                 projection_path_value(&self.application_input_node_key_path),
@@ -1186,7 +1252,13 @@ impl EchoOperationApplicationResultProjectionV1 {
             ),
             ("artifact_identity", hash_value(self.artifact_identity)),
             ("runtime_expression", self.runtime_expression.to_value()),
-        ])
+        ]);
+        if let (Some(bound), CanonicalValueV1::Map(fields)) =
+            (&self.application_input_key_bound, &mut value)
+        {
+            fields.push((text_value("application_input_key_bound"), bound.to_value()));
+        }
+        value
     }
 
     /// Returns the exact compiler-owned projection identity.
@@ -1224,6 +1296,9 @@ impl EchoOperationApplicationResultProjectionV1 {
                 "application input node-key binding must resolve to text",
             ));
         };
+        if let Some(bound) = &self.application_input_key_bound {
+            bound.validate(node_key)?;
+        }
         let derived_node_id: Hash = Sha256::digest(node_key.as_bytes()).into();
         if derived_node_id != node.local_id.0 {
             return Err(invalid_structure(
@@ -7321,6 +7396,21 @@ mod tests {
         EchoOperationInvocationV1,
         Vec<u8>,
     ) {
+        projected_create_fixture_with_key(max_output_bytes, "fixture-key", None)
+    }
+
+    fn projected_create_fixture_with_key(
+        max_output_bytes: u64,
+        key: &str,
+        key_bound: Option<ApplicationInputKeyBound>,
+    ) -> (
+        InstalledEchoOperationV1,
+        WorldlineState,
+        EchoOperationEvaluationBasisV1,
+        EchoOperationInvocationAdmissionPolicyV1,
+        EchoOperationInvocationV1,
+        Vec<u8>,
+    ) {
         let operation_coordinate = "echo.fixture.ProjectedCreate.v1";
         let output_type = "echo.fixture.ProjectedCreated/v1";
         let authored_expression = map_value([
@@ -7367,7 +7457,7 @@ mod tests {
         let runtime_expression_bytes =
             encode_canonical_cbor_v1(&runtime_expression).expect("runtime expression encodes");
         let authority_profile = digest(201);
-        let package = ExecutableOperationPackageV1::new(
+        let mut package = ExecutableOperationPackageV1::new(
             operation_coordinate,
             "echo.fixture.ProjectedCreate.Obstruction/v1",
             EchoOperationSemanticClosureV1::new(
@@ -7397,6 +7487,11 @@ mod tests {
             &runtime_expression_bytes,
         )
         .expect("projection attaches");
+        package
+            .application_result_projection
+            .as_mut()
+            .expect("projection attached")
+            .application_input_key_bound = key_bound;
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
@@ -7439,7 +7534,6 @@ mod tests {
             },
         )
         .expect("fixture state is lawful");
-        let key = "fixture-key";
         let node = NodeKey {
             warp_id,
             local_id: crate::NodeId(Sha256::digest(key.as_bytes()).into()),
@@ -8719,5 +8813,351 @@ mod tests {
             EchoOperationInvocationV1::from_canonical_bytes(&widened_bytes).is_err(),
             "null must never gain creation meaning under the legacy invocation schema"
         );
+    }
+
+    #[test]
+    fn legacy_projected_key_binding_has_no_declared_scalar_limit() {
+        let (installed, _, _, policy, original, _) = projected_create_fixture(1_024);
+        for key in [
+            "a".repeat(64),
+            "a".repeat(65),
+            "🦀".repeat(64),
+            "🦀".repeat(65),
+        ] {
+            let mut invocation = original.clone();
+            invocation.node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
+            invocation.application_input_bytes = Some(
+                encode_canonical_cbor_v1(&map_value([
+                    ("key", text_value(&key)),
+                    ("message", text_value("fixture-message")),
+                ]))
+                .expect("canonical legacy input"),
+            );
+            let encoded = invocation
+                .to_canonical_bytes()
+                .expect("legacy invocation encodes");
+            admit_invocation_static_v1(Some(&installed), policy, &encoded)
+                .expect("legacy schema imposes no declared scalar-key limit");
+        }
+    }
+
+    #[test]
+    fn bounded_projection_key_counts_unicode_scalars() {
+        let (installed, _, _, _, invocation, _) = projected_create_fixture(1_024);
+        let projection = installed
+            .application_result_projection
+            .expect("projected fixture");
+        let CanonicalValueV1::Map(mut fields) = projection.to_value() else {
+            panic!("projection is a map");
+        };
+        fields.push((
+            text_value("application_input_key_bound"),
+            map_value([
+                ("schema", text_value("echo.application-input-key-bound/v1")),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(256)),
+            ]),
+        ));
+        let bounded =
+            EchoOperationApplicationResultProjectionV1::from_value(CanonicalValueV1::Map(fields))
+                .expect("versioned bounded projection decodes");
+        let roundtrip = EchoOperationApplicationResultProjectionV1::from_value(bounded.to_value())
+            .expect("bounded projection roundtrips");
+        assert_eq!(roundtrip, bounded);
+        for (key, accepted) in [
+            ("a".repeat(64), true),
+            ("a".repeat(65), false),
+            ("🦀".repeat(64), true),
+            ("🦀".repeat(65), false),
+            (String::new(), false),
+        ] {
+            let mut node = invocation.node;
+            node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
+            let input = encode_canonical_cbor_v1(&map_value([
+                ("key", text_value(&key)),
+                ("message", text_value("fixture-message")),
+            ]))
+            .expect("key input encodes");
+            let result = bounded.validate_application_input_binding(
+                &input,
+                node,
+                &invocation.replacement_bytes,
+            );
+            if accepted {
+                result.expect("key within both limits is accepted");
+            } else {
+                assert_eq!(
+                    result.expect_err("out-of-bound key refuses").kind(),
+                    EchoOperationArtifactErrorKindV1::InvalidStructure
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn projection_key_bound_rejects_invalid_metadata() {
+        for (scalars, bytes) in [
+            (0, 256),
+            (64, 0),
+            (-1, 256),
+            (64, -1),
+            (65_537, 256),
+            (64, 65_537),
+        ] {
+            let value = map_value([
+                ("schema", text_value("echo.application-input-key-bound/v1")),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(scalars)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(bytes)),
+            ]);
+            assert_eq!(
+                ApplicationInputKeyBound::from_value(value)
+                    .expect_err("invalid limits refuse")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+        for schema in ["", "echo.application-input-key-bound/v2"] {
+            let value = map_value([
+                ("schema", text_value(schema)),
+                ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+                ("max_utf8_bytes", CanonicalValueV1::Integer(256)),
+            ]);
+            assert_eq!(
+                ApplicationInputKeyBound::from_value(value)
+                    .expect_err("unknown schema refuses")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+    }
+
+    #[test]
+    fn projection_key_byte_ceiling_is_independent_of_scalar_ceiling() {
+        let bound = ApplicationInputKeyBound::from_value(map_value([
+            ("schema", text_value("echo.application-input-key-bound/v1")),
+            ("max_unicode_scalars", CanonicalValueV1::Integer(64)),
+            ("max_utf8_bytes", CanonicalValueV1::Integer(4)),
+        ]))
+        .expect("independent finite limits decode");
+        bound.validate("🦀").expect("one scalar in four bytes");
+        bound
+            .validate("abcd")
+            .expect("four ASCII scalars in four bytes");
+        for key in ["🦀a", "abcde"] {
+            assert_eq!(
+                bound
+                    .validate(key)
+                    .expect_err("byte ceiling refuses under scalar ceiling")
+                    .kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+    }
+    #[test]
+    fn bounded_projected_keys_admit_commit_and_recover_or_refuse_before_mutation() {
+        for (key, accepted) in [
+            ("a".repeat(64), true),
+            ("🦀".repeat(64), true),
+            ("a".repeat(65), false),
+            ("🦀".repeat(65), false),
+            (String::new(), false),
+        ] {
+            let (installed, mut state, basis, policy, invocation, _) =
+                projected_create_fixture_with_key(
+                    1_024,
+                    &key,
+                    Some(ApplicationInputKeyBound {
+                        max_unicode_scalars: 64,
+                        max_utf8_bytes: 256,
+                    }),
+                );
+            let initial_root = state.state_root();
+            let initial_tick = state.current_tick();
+            assert!(state
+                .store(&invocation.node.warp_id)
+                .expect("store exists")
+                .node(&invocation.node.local_id)
+                .is_none());
+            let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+            let authority = EchoOperationEvaluationAuthorityV1::new();
+            let admitted = admit_invocation_v1(
+                Some(&installed),
+                policy,
+                &invocation_bytes,
+                basis,
+                &state,
+                authority.clone(),
+            );
+            if !accepted {
+                assert_eq!(
+                    admitted
+                        .expect_err("out-of-bounds key refuses at admission")
+                        .kind(),
+                    EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+                );
+                assert_eq!(state.state_root(), initial_root);
+                assert_eq!(state.current_tick(), initial_tick);
+                let store = state.store(&invocation.node.warp_id).expect("store exists");
+                assert!(store.node(&invocation.node.local_id).is_none());
+                assert!(store.node_attachment(&invocation.node.local_id).is_none());
+                continue;
+            }
+            let EchoOperationPreparationV1::Prepared(prepared) = prepare_operation_v1(
+                Some(&installed),
+                admitted.expect("boundary key admits"),
+                basis,
+                &state,
+                crate::POLICY_ID_NO_POLICY_V0,
+                &authority,
+            ) else {
+                panic!("boundary key prepares");
+            };
+            let expected = encode_canonical_cbor_v1(&map_value([
+                ("address", text_value(&key)),
+                ("body", text_value("fixture-message")),
+            ]))
+            .expect("expected result encodes");
+            let committed =
+                commit_prepared_to_state(&prepared, &mut state, GlobalTick::from_raw(1))
+                    .expect("boundary key commits");
+            assert_eq!(state.current_tick().as_u64(), initial_tick.as_u64() + 1);
+            let store = state
+                .store(&invocation.node.warp_id)
+                .expect("committed store exists");
+            assert_eq!(
+                store
+                    .node(&invocation.node.local_id)
+                    .expect("node created")
+                    .ty,
+                crate::make_type_id("projected-created-node")
+            );
+            let Some(AttachmentValue::Atom(atom)) =
+                store.node_attachment(&invocation.node.local_id)
+            else {
+                panic!("created attachment is an atom");
+            };
+            assert_eq!(atom.bytes.as_ref(), b"fixture-message");
+            assert_eq!(atom.type_id, crate::make_type_id("projected-created-atom"));
+            let retained = retain_committed_execution_v1(&committed.evidence)
+                .expect("committed evidence retains");
+            let recovered =
+                recover_committed_execution_receipt_v1(&retained).expect("receipt recovers");
+            assert_eq!(
+                recovered
+                    .committed_application_result()
+                    .expect("result survives recovery")
+                    .canonical_bytes(),
+                expected
+            );
+            validate_receipt_installation_v1(&recovered, &installed)
+                .expect("receipt retains bounded package identity");
+            validate_receipt_application_result_v1(&recovered, &installed, &invocation_bytes)
+                .expect("recovered result reproduces from original invocation");
+        }
+    }
+    #[test]
+    fn bounded_key_admission_rejects_malformed_missing_and_substituted_inputs() {
+        let (installed, state, basis, policy, invocation, _) = projected_create_fixture_with_key(
+            1_024,
+            "fixture-key",
+            Some(ApplicationInputKeyBound {
+                max_unicode_scalars: 64,
+                max_utf8_bytes: 256,
+            }),
+        );
+        let input = |value| Some(encode_canonical_cbor_v1(&value).expect("test input encodes"));
+        for bytes in [
+            None,
+            input(map_value([("message", text_value("fixture-message"))])),
+            input(map_value([
+                ("key", CanonicalValueV1::Bytes(b"fixture-key".to_vec())),
+                ("message", text_value("fixture-message")),
+            ])),
+            input(map_value([
+                ("key", text_value("substituted-key")),
+                ("message", text_value("fixture-message")),
+            ])),
+            input(map_value([
+                ("key", text_value("fixture-key")),
+                ("message", text_value("substituted-message")),
+            ])),
+        ] {
+            let mut altered = invocation.clone();
+            altered.application_input_bytes = bytes;
+            let encoded = altered
+                .to_canonical_bytes()
+                .expect("outer invocation encodes");
+            let error = admit_invocation_v1(
+                Some(&installed),
+                policy,
+                &encoded,
+                basis,
+                &state,
+                EchoOperationEvaluationAuthorityV1::new(),
+            )
+            .expect_err("malformed or substituted input refuses");
+            assert_eq!(
+                error.kind(),
+                EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+            );
+            assert_eq!(state.current_tick(), WorldlineTick::ZERO);
+            let store = state.store(&invocation.node.warp_id).expect("store exists");
+            assert!(store.node(&invocation.node.local_id).is_none());
+            assert!(store.node_attachment(&invocation.node.local_id).is_none());
+        }
+    }
+
+    #[test]
+    fn bounded_key_invalid_utf8_refuses_at_constructor_and_wire_admission() {
+        let (installed, state, basis, policy, mut invocation, _) =
+            projected_create_fixture_with_key(
+                1_024,
+                "fixture-key",
+                Some(ApplicationInputKeyBound {
+                    max_unicode_scalars: 64,
+                    max_utf8_bytes: 256,
+                }),
+            );
+        let bytes = invocation
+            .to_canonical_bytes()
+            .expect("valid invocation encodes");
+        let malformed = vec![0xa1, 0x63, b'k', b'e', b'y', 0x61, 0xff];
+        invocation.application_input_bytes = Some(malformed.clone());
+        assert_eq!(
+            invocation
+                .to_canonical_bytes()
+                .expect_err("safe encoder rejects invalid UTF8")
+                .kind(),
+            EchoOperationArtifactErrorKindV1::MalformedCanonicalBytes
+        );
+        let CanonicalValueV1::Map(mut fields) =
+            decode_canonical_cbor_v1(&bytes).expect("outer map decodes")
+        else {
+            panic!("map");
+        };
+        let (_, input) = fields
+            .iter_mut()
+            .find(|(key, _)| key == &text_value("application_input_bytes"))
+            .expect("input field exists");
+        *input = CanonicalValueV1::Bytes(malformed);
+        let forged = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
+            .expect("outer CBOR remains canonical");
+        let error = admit_invocation_v1(
+            Some(&installed),
+            policy,
+            &forged,
+            basis,
+            &state,
+            EchoOperationEvaluationAuthorityV1::new(),
+        )
+        .expect_err("wire decoder rejects invalid UTF8");
+        assert_eq!(
+            error.kind(),
+            EchoOperationInvocationAdmissionErrorKindV1::MalformedInvocation
+        );
+        assert_eq!(state.current_tick(), WorldlineTick::ZERO);
+        let store = state.store(&invocation.node.warp_id).expect("store exists");
+        assert!(store.node(&invocation.node.local_id).is_none());
+        assert!(store.node_attachment(&invocation.node.local_id).is_none());
     }
 }

@@ -86,6 +86,7 @@ struct ProgramConfiguration<'a> {
     write_bytes: u64,
     node_key_field: &'a str,
     replacement_field: &'a str,
+    key_max_scalars: Option<u64>,
 }
 
 struct ApplicationIntent<'a> {
@@ -180,7 +181,7 @@ pub(super) fn verify(
     )?;
     validate_adapter(&adapter, closure.configuration, &intent, &semantic_effect)?;
     validate_target_ir(&target_ir, request, closure.lawpack, &intent)?;
-    let configuration = validate_configuration(&configuration)?;
+    let configuration = validate_configuration(&configuration, &core, &intent)?;
     let result_projection = validate_result_projection(
         &result_projection,
         closure.result_projection,
@@ -1137,10 +1138,14 @@ fn validate_target_ir(
     Ok(())
 }
 
-fn validate_configuration(
-    value: &CanonicalValueV1,
-) -> Result<ProgramConfiguration<'_>, ProviderRefusalV1> {
-    if text_field(value, "apiVersion") != Some(CONFIGURATION_ABI)
+fn validate_configuration<'a>(
+    value: &'a CanonicalValueV1,
+    core: &CanonicalValueV1,
+    intent: &ApplicationIntent<'_>,
+) -> Result<ProgramConfiguration<'a>, ProviderRefusalV1> {
+    let bounded_keys =
+        text_field(value, "apiVersion") == Some("echo.operation-lowering-configuration/v2");
+    if (!bounded_keys && text_field(value, "apiVersion") != Some(CONFIGURATION_ABI))
         || text_field(value, "programKind") != Some(PROGRAM_KIND)
     {
         return Err(super::unsupported_semantics(
@@ -1203,6 +1208,11 @@ fn validate_configuration(
         write_bytes: required_u64(budget, "writeBytes", "target-configuration.echo-operation")?,
         node_key_field,
         replacement_field,
+        key_max_scalars: if bounded_keys {
+            Some(derive_key_scalar_limit(core, intent.name, node_key_field)?)
+        } else {
+            None
+        },
     };
     if configuration.max_replacement_bytes == 0
         || configuration.steps < 3
@@ -1214,6 +1224,61 @@ fn validate_configuration(
         ));
     }
     Ok(configuration)
+}
+
+fn derive_key_scalar_limit(
+    core: &CanonicalValueV1,
+    intent_name: &str,
+    field: &str,
+) -> Result<u64, ProviderRefusalV1> {
+    let subject = "core.echo-operation.key-bound";
+    let coordinate = required_text(core, "coordinate", subject)?;
+    let prefix = format!("{coordinate}.");
+    let types = required_map(core, "types", subject)?;
+    let intents = required_map(core, "intents", subject)?;
+    let intent = required_map(intents, intent_name, subject)?;
+    let input = required_text(intent, "input", subject)?;
+    let input_name = input.strip_prefix(&prefix).unwrap_or(input);
+    let input = required_map(types, input_name, subject)?;
+    if text_field(input, "kind") != Some("Record") {
+        return Err(super::unsupported_semantics(subject));
+    }
+    let fields = required_map(input, "fields", subject)?;
+    let key_type = required_text(fields, field, subject)?;
+    let max = if let Some(spec) = key_type
+        .strip_prefix("String<max=")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        let (max, canonical) = spec
+            .split_once(",canonical=")
+            .ok_or_else(|| super::unsupported_semantics(subject))?;
+        if !matches!(canonical, "raw-utf8" | "unicode-scalar-nfc") {
+            return Err(super::unsupported_semantics(subject));
+        }
+        let parsed = max
+            .parse::<u64>()
+            .map_err(|_| super::unsupported_semantics(subject))?;
+        if parsed.to_string() != max {
+            return Err(super::unsupported_semantics(subject));
+        }
+        parsed
+    } else {
+        let key_name = key_type.strip_prefix(&prefix).unwrap_or(key_type);
+        let key = required_map(types, key_name, subject)?;
+        if text_field(key, "kind") != Some("String")
+            || !matches!(
+                text_field(key, "canonical"),
+                Some("raw-utf8" | "unicode-scalar-nfc")
+            )
+        {
+            return Err(super::unsupported_semantics(subject));
+        }
+        required_u64(key, "max", subject)?
+    };
+    if max == 0 || max > 65_536 {
+        return Err(super::unsupported_semantics(subject));
+    }
+    Ok(max)
 }
 
 fn validate_result_projection(
@@ -1518,9 +1583,8 @@ fn encode_expected_package(
         ),
     ]);
     let package = canonical_map([
-        (
-            "application_result_projection",
-            canonical_map([
+        ("application_result_projection", {
+            let mut projection = canonical_map([
                 (
                     "application_input_node_key_path",
                     CanonicalValueV1::Array(
@@ -1555,8 +1619,30 @@ fn encode_expected_package(
                     "runtime_expression",
                     result_projection.runtime_expression.clone(),
                 ),
-            ]),
-        ),
+            ]);
+            if let (Some(max), CanonicalValueV1::Map(fields)) =
+                (configuration.key_max_scalars, &mut projection)
+            {
+                fields.push((
+                    canonical_text("application_input_key_bound"),
+                    canonical_map([
+                        (
+                            "schema",
+                            canonical_text("echo.application-input-key-bound/v1"),
+                        ),
+                        (
+                            "max_unicode_scalars",
+                            CanonicalValueV1::Integer(i128::from(max)),
+                        ),
+                        (
+                            "max_utf8_bytes",
+                            CanonicalValueV1::Integer(i128::from((max * 4).min(65_536))),
+                        ),
+                    ]),
+                ));
+            }
+            projection
+        }),
         (
             "application_basis_schema_identity",
             hash_value(profile_digest(APPLICATION_BASIS_SCHEMA)),
@@ -1912,4 +1998,22 @@ fn canonical_map<const N: usize>(entries: [(&str, CanonicalValueV1); N]) -> Cano
             .map(|(key, value)| (canonical_text(key), value))
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod key_bound_tests {
+    use super::*;
+
+    #[test]
+    fn compiler_produced_imported_key_type_resolves_scalar_bound() -> Result<(), String> {
+        let core = echo_edict_canonical::decode_canonical_cbor_v1(include_bytes!(
+            "../../echo-edict-provider-verifier/tests/fixtures/compiler-produced-key-bound/create-greeting.core.cbor"
+        )).map_err(|error| format!("{error:?}"))?;
+        assert_eq!(
+            derive_key_scalar_limit(&core, "createGreeting", "key")
+                .map_err(|error| format!("{error:?}"))?,
+            64
+        );
+        Ok(())
+    }
 }

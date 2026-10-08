@@ -8720,4 +8720,30 @@ mod tests {
             "null must never gain creation meaning under the legacy invocation schema"
         );
     }
+
+    #[test]
+    fn legacy_projected_key_binding_has_no_declared_scalar_limit() {
+        let (installed, _, _, policy, original, _) = projected_create_fixture(1_024);
+        for key in [
+            "a".repeat(64),
+            "a".repeat(65),
+            "🦀".repeat(64),
+            "🦀".repeat(65),
+        ] {
+            let mut invocation = original.clone();
+            invocation.node.local_id = crate::NodeId(Sha256::digest(key.as_bytes()).into());
+            invocation.application_input_bytes = Some(
+                encode_canonical_cbor_v1(&map_value([
+                    ("key", text_value(&key)),
+                    ("message", text_value("fixture-message")),
+                ]))
+                .expect("canonical legacy input"),
+            );
+            let encoded = invocation
+                .to_canonical_bytes()
+                .expect("legacy invocation encodes");
+            admit_invocation_static_v1(Some(&installed), policy, &encoded)
+                .expect("legacy schema imposes no declared scalar-key limit");
+        }
+    }
 }

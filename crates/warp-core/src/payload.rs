@@ -55,7 +55,7 @@ pub fn motion_payload_type_id() -> TypeId {
 #[must_use]
 pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
-    for value in position.into_iter().chain(velocity.into_iter()) {
+    for value in position.into_iter().chain(velocity) {
         let raw = crate::math::fixed_q32_32::from_f32(value);
         buf.extend_from_slice(&raw.to_le_bytes());
     }
@@ -72,7 +72,7 @@ pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
 #[must_use]
 pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V0_BYTES);
-    for value in position.into_iter().chain(velocity.into_iter()) {
+    for value in position.into_iter().chain(velocity) {
         buf.extend_from_slice(&value.to_le_bytes());
     }
     Bytes::from(buf)
@@ -86,7 +86,7 @@ pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes
 #[must_use]
 pub fn encode_motion_payload_q32_32(position_raw: [i64; 3], velocity_raw: [i64; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
-    for raw in position_raw.into_iter().chain(velocity_raw.into_iter()) {
+    for raw in position_raw.into_iter().chain(velocity_raw) {
         buf.extend_from_slice(&raw.to_le_bytes());
     }
     Bytes::from(buf)

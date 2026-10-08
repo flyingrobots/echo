@@ -4016,10 +4016,7 @@ fn validate_self_contained_retained_hashes(
 }
 
 fn len_u64(len: usize) -> u64 {
-    match u64::try_from(len) {
-        Ok(value) => value,
-        Err(_) => u64::MAX,
-    }
+    u64::try_from(len).unwrap_or(u64::MAX)
 }
 
 fn wsc_cas_addressed_wal_references(

@@ -25,19 +25,19 @@ readonly verifier_component
 
 cd "$ROOT"
 
-cargo +1.90.0 xtask provider-lowerer-component build \
+cargo +1.96.0 xtask provider-lowerer-component build \
   --target-dir "$COMPONENT_TARGET_DIR"
-cargo +1.90.0 xtask provider-lowerer-component audit \
+cargo +1.96.0 xtask provider-lowerer-component audit \
   --input "$component"
-cargo +1.90.0 xtask provider-verifier-component build \
+cargo +1.96.0 xtask provider-verifier-component build \
   --target-dir "$VERIFIER_COMPONENT_TARGET_DIR"
-cargo +1.90.0 xtask provider-verifier-component audit \
+cargo +1.96.0 xtask provider-verifier-component audit \
   --input "$verifier_component"
 
-cargo +1.94.0 fmt --manifest-path "$MANIFEST" --all -- --check
+cargo +1.96.0 fmt --manifest-path "$MANIFEST" --all -- --check
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 test \
+  cargo +1.96.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
     --test conformance_contract
@@ -45,31 +45,31 @@ CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
 ECHO_PROVIDER_LOWERER_COMPONENT="$component" \
   ECHO_PROVIDER_VERIFIER_COMPONENT="$verifier_component" \
   CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 test \
+  cargo +1.96.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
     --test host_contract
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 test \
+  cargo +1.96.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
     --test generated_helper_contract
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 test \
+  cargo +1.96.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
     --test package_contract
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 test \
+  cargo +1.96.0 test \
     --manifest-path "$MANIFEST" \
     --locked \
     --test verifier_resource_sync
 
 CARGO_TARGET_DIR="$HOST_TARGET_DIR" \
-  cargo +1.94.0 clippy \
+  cargo +1.96.0 clippy \
     --manifest-path "$MANIFEST" \
     --locked \
     --all-targets \

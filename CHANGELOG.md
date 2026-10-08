@@ -19,6 +19,203 @@
   The generic `run-edict-operation --serve` driver supports repeated operations,
   historical outcome lookup, and derived observation-change discovery.
 
+- A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
+
+- An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
+
+- A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
+
+### Fixed
+
+- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
+
+- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
+
+- Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
+
+- Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.
+
+- The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
+
+- Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
+
+- The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.
+
+- `xtask run-edict-operation` runs outside Git and resolves relative artifact and WAL paths from the caller directory. Repository maintenance commands retain their Git-root behavior.
+
+- `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.
+
+- `ReadView::at` validates the aperture and derives the selected current frontier
+  basis with one state hash. `ReadView::new` still checks an independently
+  selected expected basis. Both retain the same aperture and trust boundaries.
+
+- Public bounded-read compiler timeouts retain partial stdout/stderr and the
+  original timeout as the failure cause.
+
+- Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
+  Named structural types starting with `U` now reach ordinary type lookup, as
+  they already do in independent verification and runtime parsing.
+
+- Private read evaluation identifies the input by its verified `arg.0` identity.
+  Reordering a package's local declarations no longer changes input selection.
+
+- Read-provider lawpack validation remains separate from the pure profile's
+  empty-effect requirement, preserving read acceptance and pure-effect refusal
+  after integration of the strengthened pure-provider checks.
+
+- The bounded-read public compiler witness preserves return status and raw
+  streams when malformed or non-object JSONL prevents structured validation.
+
+- Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
+  in feature-enabled CI and opt-in local routes, including shared parser edits.
+
+- Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
+  compiler and fresh-output runtime witnesses require a continuously guarded
+  reusable worker; pre/post measurements alone are not budget enforcement.
+
+- Generated provider helpers bind the bounded-read schema publication, including
+  its exact schema identity in the helper contract and derivation materials.
+
+- Byte-equality fixture reproduction guidance now requires guarded reusable
+  compiler storage and preserves the limits of its frozen provider evidence.
+
+- Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
+  in the feature-enabled CI and opt-in local test routes. Selecting the target
+  without the feature can no longer produce a zero-test success.
+
+- The ordered-publication compiler witness retains the return code and raw
+  streams when unexpected output violates JSONL, instead of hiding the compiler
+  result behind a JSON decoding or non-object error.
+
+- Removed the unguarded ordered-publication image-build recipe. Its test-only
+  witness requires a guarded reusable worker with copied sources and accounted
+  compiler output; the supported runner remains separate follow-up work.
+
+- Provider artifact generation rejects a contract publication whose exact
+  schema or manifest differs from the generation input. Cross-publication calls
+  can no longer emit artifacts with misleading input provenance.
+
+- The filesystem WAL writer lease now attempts an explicit unlock when its
+  owning guard drops. A retained duplicate descriptor no longer extends a
+  successfully released lease and blocks immediate writer takeover. Live-writer
+  exclusion and the successor's independent lease remain enforced.
+
+- Native pure executable-package providers now enforce the compiler-owned
+  projection artifact, node, path, text, and exact-field bounds. The pure output
+  budget remains Core-declared; the anchored route's fixed output ceiling is
+  not applied to pure programs. Both independently reproduced checked components
+  include these bounds.
+- Native pure executable-package providers now require an adapter profile with
+  empty `semanticEffects` and a nonempty `budgetObligation` before constructing
+  or accepting a no-effects package. Effectful profiles remain unsupported on
+  this route. Both checked components include this validation.
+- The native pure executable-package lowerer and verifier now validate source
+  artifacts before dispatch: the source reference must match Core's coordinate,
+  and its canonical value must be a UTF-8 byte string. Rebinding an invalid
+  source's digest no longer bypasses these checks. Both checked components
+  include this validation.
+- The pure executable-package verifier now compares the application
+  result projection with the authored Core result and its output contract.
+  A digest-bound projection could previously select another field or binding,
+  omit a field, or change its output type or budget and still be accepted.
+  The independently reproduced checked component includes this check.
+- The Edict executable-package verifier now refuses pure-v1 Target IR
+  that changes Core let bindings, results, input constraints, or basis, or
+  introduces extra intents or requirements. Exact package reconstruction alone
+  could accept an independently rebound but semantically inconsistent pair.
+  The native verifier and checked WASM package carry the same relation check.
+
+### Added
+
+- Generic source-owned Edict functions execute through both private pure and
+  bounded-read evaluation with fresh lexical frames, ordered argument evaluation,
+  ordered local bindings, and one cumulative budget. Independent provider
+  judgments validate the complete source/imported closure, supported types,
+  totality, combined runtime depth, and conservative whole-operation costs.
+  Providers and runtime reject source functions that shadow authenticated
+  imported effects, including otherwise valid unused definitions. Bounded-read
+  call lookup distinguishes source and imported functions by exact membership,
+  including disjoint names under one package prefix.
+  Independent provider checks retain nominal type identity for source-function
+  compatibility while deriving runtime costs from the underlying representation.
+
+- Bounded pure evaluation supports generic `core.bytes.concat` with independent
+  operand byte bounds, checked maximum composition, and combined-byte work and
+  result storage charged before allocation/copy. Application names and text
+  encoding do not affect concatenation behavior or costs.
+
+- Bounded pure evaluation supports generic `core.bytes.slice` with half-open
+  U64 ranges, runtime byte/range validation, and deterministic selected-byte
+  work and storage charges before copying. Raw and empty byte slices work
+  without application-specific dispatch or text interpretation.
+
+- Trusted-host private evaluation of pinned bounded-read packages over an
+  immutable frontier and explicit node aperture. Reads and ordered guards
+  enforce typed obstructions and intersected host/package budgets without
+  mutating the frontier. Full-state view preparation is outside the interpreted
+  budget; this API produces no causal admission, receipt, or WAL evidence.
+
+- The native provider lowerer has an explicit `compiler-produced-bounded-read/v1`
+  configuration for opaque node-atom reads and ordered byte guards. It checks
+  the imported signature, local scope, failure mappings, and Core/Target order,
+  and retains the exact semantic artifacts in its output package. This profile
+  is published in the checked schema/components and compiles through the
+  explicit ordered-contract package. Runtime evaluation remains separate.
+
+- The native read-package verifier independently reconstructs Core instructions
+  from ordered Target IR and checks signatures, local scope, obstructions,
+  projection, budgets, and exact embedded artifacts. Accepted and rejected
+  reports bind the exact package, target, and projection. Both native read
+  paths include output metadata and diagnostics in their response-byte limits.
+  Public Edict builds accept single and independent-address paired reads with
+  the promoted lowerer/verifier components; repeated builds reproduce the exact
+  package/report pair. Existing frozen consumer pins remain unchanged.
+
+- The package-pinned pure evaluator now supports equality of bounded byte
+  values, including nominal IDs. It charges the larger operand's byte length
+  before comparing, independent of mismatch position. Byte ordering and mixed
+  operand predicates still refuse; this adds no graph-read or admission API.
+
+- Explicit opt-in admission of Edict's ordered-instruction contract publication,
+  with exact schema/manifest pins and a bounded manifest size. The original
+  admission API retains its original publication. This authenticates schema
+  bytes; it does not add ordered execution or stateful runtime capabilities.
+
+- The pure Edict evaluator measures bounded byte operands through the generic
+  compiler-produced `core.bytes.length` operation, returning U64 byte counts
+  with normal type validation and deterministic resource accounting. Empty,
+  Unicode, and non-UTF-8 inputs are measured as bytes, not characters.
+
+- The pure Edict evaluator supports checked U32/U64 subtraction from
+  compiler-produced packages, preserving operand order, unsigned bounds, and
+  deterministic execution/allocation accounting. Invalid operands and underflow
+  fail closed. This extends pure evaluation, not graph mutation or settlement.
+
+- Trusted Echo hosts can evaluate the first compiler-produced bounded pure
+  Edict subset through a package-pinned interpreter. Runtime type checks,
+  authored constraints, separate helper scope, deterministic cost accounting,
+  and host/package budget intersections guard the result. The external compiler
+  witness includes a separately compiled source mutation. This is ordinary pure
+  evaluation, with no installation, graph effects, Tick, Receipt, or WAL claim.
+
+- The checked Edict provider contract now admits generic nominal Core types as
+  exact contract coordinates over bounded storage representations. The
+  regenerated provider package remains application-neutral and adds no Jim,
+  buffer, head, rope, or range vocabulary to Echo.
+- The checked Edict provider package now admits the exact contract pack from
+  Edict #201, including source-ordered generic pure Target IR bindings and
+  compiler-owned pure-binding result projections. Echo pins the new source and
+  manifest identities, preserves the bounded contract-pack admission boundary,
+  and regenerates every affected provider schema, provenance record, package
+  manifest, and package-local carrier without adding application vocabulary.
+- The provider schema now admits the exact two-field
+  `compiler-produced-bounded-pure/v1` target configuration. The configuration
+  contains no operation coordinate, application vocabulary, budget override,
+  or runtime authority. The checked lowerer now emits a distinct generic pure
+  package containing the exact compiler Core, lawpack exports, Target IR, and
+  result projection; the structurally separate verifier independently
+  reconstructs and accepts that relation. This is executable package
+  construction evidence, not Echo runtime evaluation or settlement evidence.
 - Strict filesystem WAL stores now persist a checksummed writer-epoch ledger
   containing the active epoch, its exact latest closed predecessor, and final
   LSN and commit-digest evidence. Bounded retention keeps ledger writes and
@@ -171,12 +368,12 @@
   coordinate-framed exports and adapter references independently from their
   provider-envelope domains. Its lowerer and verifier components were
   independently reproduced in copy-only, mount-free designated `linux/amd64`
-  containers and promoted at 258,787 bytes /
-  `dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`
-  and 277,836 bytes /
-  `279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`,
+  containers and promoted at 277,694 bytes /
+  `a4758f060122fba8c073841ccaa22bf0b8a742b495b76eb33c914eff3250dcf5`
+  and 308,859 bytes /
+  `174cf8758815bf2b9f2ef575517aa6d144ed3f2d1995fc65d25a211b9dea82d9`,
   respectively. The resulting 25-file package has provider identity
-  `sha256:6685b7c629ae6955515d69158feb1d7db06af2193de7e5d13e1095101670b977`.
+  `sha256:a4e0d9e31ada5c8c14adfce05fdecb228e5b79545f3574a5e21e7db71ab3f307`.
   This package build proves generic compiler/provider lowering and independent
   verification. The separate `run-edict-operation` witness now consumes that
   crossing through Echo-owned runtime execution.
@@ -1502,6 +1699,18 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 ### Changed
 
+- Echo and Edict share exact `bunny-num` 0.6.0 for the canonical signed Q32.32
+  foundation. `warp-math` exposes Bunny's checked type and delegates existing
+  `DFix64` arithmetic and motion conversions while preserving saturation,
+  ties-to-even, raw payload bytes, and the separate legacy ABI truncation policy.
+  This does not add fixed-point language syntax or runtime operation profiles.
+- The general Rust toolchain and numerical consumer MSRVs are 1.96.0. Independent
+  leaves and authenticated provider component producers retain their explicit
+  1.90.0 policy; the outer component driver uses 1.96.0. The MSRV guard also
+  validates a final policy row without a newline and reads package MSRVs only
+  from `[package]`, excluding metadata. The standalone host witness selects
+  Rust 1.96.0 locally, and the guard rejects a missing or stale nested pin.
+
 - Public installed-contract evidence fields on runtime ingress, receipt
   correlation, outcome, and WAL state-delta carriers now use
   `Option<InstalledInvocationEvidence>` instead of
@@ -1664,6 +1873,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 
 - Observed operations reject observations from another writer head even when
   both heads belong to the same worldline.
+
+- Trusted-host operation observations and logical-request bindings now advance a
+  derived index from acknowledged WAL appends instead of reconstructing retained
+  history on each call. Append errors invalidate the fast path; reconciliation
+  still resolves commits that became durable before the caller observed failure.
 
 - Reopening a filesystem WAL through an empty writer epoch no longer consumes an
   unwritten log position. A second reopen followed by append previously left an

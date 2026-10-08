@@ -24,6 +24,7 @@
 
 mod disk;
 mod memory;
+pub mod physical_content;
 mod retention;
 pub use disk::{DiskTier, DiskTierError};
 pub use memory::MemoryTier;

@@ -136,7 +136,7 @@ pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
                     })
                 })
                 .collect();
-            sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+            sorted_edges.sort_by_key(|a| a.id.0);
 
             hasher.update(&from.0);
             hasher.update(&(sorted_edges.len() as u64).to_le_bytes());
@@ -575,7 +575,7 @@ pub fn compute_emissions_digest(channels: &[FinalizedChannel]) -> Hash {
 
     // Sort channels by ChannelId for deterministic ordering
     let mut sorted: Vec<_> = channels.iter().collect();
-    sorted.sort_by(|a, b| a.channel.0.cmp(&b.channel.0));
+    sorted.sort_by_key(|a| a.channel.0);
 
     // Number of channels
     h.update(&(sorted.len() as u64).to_le_bytes());
@@ -646,7 +646,7 @@ pub fn compute_op_emission_index_digest(entries: &[OpEmissionEntry]) -> Hash {
 
     // Sort entries by op_id for deterministic ordering
     let mut sorted: Vec<_> = entries.iter().collect();
-    sorted.sort_by(|a, b| a.op_id.cmp(&b.op_id));
+    sorted.sort_by_key(|a| a.op_id);
 
     // Number of ops
     h.update(&(sorted.len() as u64).to_le_bytes());
@@ -657,7 +657,7 @@ pub fn compute_op_emission_index_digest(entries: &[OpEmissionEntry]) -> Hash {
 
         // Sort channels for this op
         let mut channels: Vec<_> = entry.channels.iter().collect();
-        channels.sort_by(|a, b| a.0.cmp(&b.0));
+        channels.sort_by_key(|a| a.0);
 
         h.update(&(channels.len() as u64).to_le_bytes());
         for ch in channels {

@@ -215,10 +215,16 @@ Duplicate identities, stale or missing predecessor links, reused fencing
 evidence, LSN regression, corrupted ledgers, and commits without their epoch
 ledger fail closed before append.
 
-Orderly owner teardown explicitly unlocks the lease before closing its file.
-This prevents a descriptor temporarily inherited by a concurrent fork from
-extending the departed owner's lock until the child executes its program.
-The live owner's lease still excludes every competing writer.
+The store's internal lease guard explicitly attempts to unlock before its file
+descriptor closes, both when the store drops and when `close_epoch` releases
+the guard after persisting the closed epoch. This avoids extending that owner's
+lease merely because another descriptor retains the same open file description,
+as can happen between fork and exec. Closing only one descriptor is insufficient
+under Rust's [file-lock lifetime contract](https://doc.rust-lang.org/std/fs/struct.File.html#method.unlock).
+Drop is a best-effort fallback: it cannot return an unlock error and does not
+prove release succeeded after an OS error. A contender must still acquire its
+own lock. Explicit fallible release and the broader process-bound ownership
+contract remain in [issue #718](https://github.com/flyingrobots/echo/issues/718).
 
 The operating-system lease is the filesystem adapter's exclusion authority.
 The persisted fencing, process, host, and lease fields are deterministic
@@ -238,6 +244,12 @@ That split matters because an accepted edit is not durable because an editor
 buffer says it is dirty, because a file was written to disk, or because a UI
 event happened. It is durable because Echo recorded the accepted submission and
 later recorded any decided receipt under host-owned WAL authority.
+
+State roots cover reachable WARP state. A detached create-if-absent cell can leave the root unchanged. The retained patch and commit bind that write. Root equality alone is not a complete recovery or no-mutation witness.
+
+Action parent-state validation indexes verification obligations by exact worldline and tick. A first sweep checks receipt and Action basis obligations, including delayed and cross-worldline bases. A second sweep reconstructs composite Tick decisions from their scheduler Tick parents. Ordered cursors reuse verified prefixes within each sweep. Raw retained decision order remains authoritative. Initial-boundary, checkpoint, patch, commit, result, obstruction, and conflict checks remain required.
+
+Each validation call retains one replay cursor per needed worldline and one transient Tick simulation. Replay-patch applications stay within two history sweeps. This bounds repeated prefix work and private snapshot retention; it does not claim linear elapsed time. State hashing and Tick simulation still depend on graph size. Test-only counters measure applied patches and logical retained data without becoming causal authority.
 
 ## Recovery Postures
 
@@ -358,6 +370,8 @@ Release-grade durability requires all of the following executable claims:
 - Corrupt or incomplete evidence is deterministically rejected.
 - Retained evidence survives restart or produces a typed obstruction.
 - Required recovery artifacts are emitted by CI.
+
+Filesystem writer takeover acquires the process lease and checks the recovered tail before closing a predecessor epoch. An uncommitted or torn tail refuses takeover until writable recovery reconciles it. An empty predecessor leaves its starting LSN unused, so a distinct linked successor may start at that same coordinate; a committed predecessor requires the successor to start after its final LSN, with overflow refused.
 
 ## Evidence
 

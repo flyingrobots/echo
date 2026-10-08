@@ -385,7 +385,10 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             .echo_operation_action_outcome_v1(&first_submission_id)
         {
             Some(EchoOperationActionOutcomeV1::Committed(receipt)) => receipt,
-            _ => bail!("scheduler did not publish a committed typed Action outcome"),
+            outcome => bail!(
+                "scheduler did not publish a committed typed Action outcome: {}",
+                action_outcome_summary(outcome)
+            ),
         };
         tick_commit_id = hex::encode(committed_receipt.commit_id());
         receipt_digest = hex::encode(committed_receipt.digest());
@@ -530,7 +533,10 @@ pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {
             {
                 package.obstruction_coordinate.clone()
             }
-            outcome => bail!("duplicate Action produced unexpected outcome: {outcome:?}"),
+            outcome => bail!(
+                "duplicate Action produced unexpected outcome: {}",
+                action_outcome_summary(outcome)
+            ),
         };
         duplicate = duplicate_report(
             duplicate_obstruction,
@@ -960,6 +966,22 @@ fn validate_package_configuration(
         bail!("package meaning does not match the supplied target configuration");
     }
     Ok(())
+}
+
+fn action_outcome_summary(outcome: Option<&EchoOperationActionOutcomeV1>) -> String {
+    match outcome {
+        Some(EchoOperationActionOutcomeV1::Committed(_)) => "committed".to_owned(),
+        Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) => {
+            format!("obstructed: {:?}", obstruction.kind())
+        }
+        Some(EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)) => {
+            format!(
+                "footprint conflict ({} blockers)",
+                conflict.blocked_by().len()
+            )
+        }
+        None => "missing typed Action outcome".to_owned(),
+    }
 }
 
 fn parse_input(bytes: &[u8], configuration: &TargetConfiguration) -> Result<OperationInput> {

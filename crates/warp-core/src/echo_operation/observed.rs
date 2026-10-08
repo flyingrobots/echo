@@ -14,10 +14,61 @@ pub(super) const OBSERVED_SCHEMA: &str = "echo.operation-invocation.observed/v1"
 const MAX_READS: usize = 16;
 const MAX_BYTES: usize = 4096;
 
+// Measure the canonical envelope using empty atom storage, before copying any
+// support bytes. The payload bound also makes CBOR byte-string headers <= 3 bytes.
+fn slot_encoded_len(
+    state: &WorldlineState,
+    node: NodeKey,
+) -> Result<usize, EchoOperationArtifactErrorV1> {
+    let store = state
+        .store(&node.warp_id)
+        .ok_or_else(|| invalid_structure("observation warp unavailable"))?;
+    let node_type = store
+        .node(&node.local_id)
+        .map_or(CanonicalValueV1::Null, |record| hash_value(record.ty.0));
+    let (alpha, payload_len) = match store.node_attachment(&node.local_id) {
+        None => (CanonicalValueV1::Null, None),
+        Some(AttachmentValue::Atom(atom)) => {
+            if atom.bytes.len() > MAX_BYTES {
+                return Err(invalid_structure("observation exceeds retained byte bound"));
+            }
+            (
+                map_value([
+                    ("type", hash_value(atom.type_id.0)),
+                    ("bytes", CanonicalValueV1::Bytes(Vec::new())),
+                ]),
+                Some(atom.bytes.len()),
+            )
+        }
+        Some(_) => {
+            return Err(invalid_structure(
+                "observation requires atom or absent alpha",
+            ))
+        }
+    };
+    let empty_len =
+        encode_canonical_cbor_v1(&map_value([("node_type", node_type), ("alpha", alpha)]))
+            .map_err(canonical_error)?
+            .len();
+    let length = payload_len.map_or(empty_len, |length| {
+        let header_len = match length {
+            0..=23 => 1,
+            24..=255 => 2,
+            _ => 3,
+        };
+        empty_len - 1 + header_len + length
+    });
+    if length > MAX_BYTES {
+        return Err(invalid_structure("observation exceeds retained byte bound"));
+    }
+    Ok(length)
+}
+
 fn slot_bytes(
     state: &WorldlineState,
     node: NodeKey,
 ) -> Result<Vec<u8>, EchoOperationArtifactErrorV1> {
+    slot_encoded_len(state, node)?;
     let store = state
         .store(&node.warp_id)
         .ok_or_else(|| invalid_structure("observation warp unavailable"))?;
@@ -79,20 +130,16 @@ impl EchoOperationObservationV1 {
         if nodes.is_empty() || nodes.len() > MAX_READS {
             return Err(invalid_structure("observation needs one to sixteen slots"));
         }
-        let reads = nodes
-            .into_iter()
-            .map(|node| Ok((node, slot_bytes(state, node)?)))
-            .collect::<Result<Vec<_>, EchoOperationArtifactErrorV1>>()?;
-        let observation = Self { basis, reads };
-        if observation
-            .reads
-            .iter()
-            .map(|(_, bytes)| bytes.len())
-            .sum::<usize>()
-            > MAX_BYTES
-        {
-            return Err(invalid_structure("observation exceeds retained byte bound"));
+        let mut reads = Vec::new();
+        let mut remaining = MAX_BYTES;
+        for node in nodes {
+            let length = slot_encoded_len(state, node)?;
+            remaining = remaining
+                .checked_sub(length)
+                .ok_or_else(|| invalid_structure("observation exceeds retained byte bound"))?;
+            reads.push((node, slot_bytes(state, node)?));
         }
+        let observation = Self { basis, reads };
         Ok(observation)
     }
 
@@ -181,11 +228,13 @@ impl EchoOperationObservationV1 {
                     meter.charge(1, 32, 0)
                 })?;
             let _ = portals;
-            let actual = slot_bytes(state, *node)
+            let length = slot_encoded_len(state, *node)
                 .map_err(|_| EchoOperationObstructionKindV1::ObservationUnavailable)?;
-            if !meter.charge(2, 64 + actual.len() as u64, 0) {
+            if !meter.charge(2, 64 + length as u64, 0) {
                 return Err(EchoOperationObstructionKindV1::BudgetExceeded);
             }
+            let actual = slot_bytes(state, *node)
+                .map_err(|_| EchoOperationObstructionKindV1::ObservationUnavailable)?;
             record_node_read(footprint, *node);
             footprint.a_read.insert(AttachmentKey::node_alpha(*node));
             if actual != *expected {
@@ -275,6 +324,109 @@ mod tests {
             ),
             observed,
         )
+    }
+
+    #[test]
+    fn capture_enforces_aggregate_slots_and_execution_meter_boundaries() {
+        let (_, mut state, mut basis, _, _, _) =
+            super::super::tests::projected_create_fixture(1_024);
+        let first = *state.root();
+        let second = NodeKey {
+            warp_id: first.warp_id,
+            local_id: crate::make_node_id("second-observation"),
+        };
+        for length in [1_900, 2_000] {
+            let store = state.warp_state.store_mut(&first.warp_id).expect("store");
+            store.insert_node(
+                second.local_id,
+                NodeRecord {
+                    ty: crate::make_type_id("node"),
+                },
+            );
+            for node in [first, second] {
+                store.set_node_attachment(
+                    node.local_id,
+                    Some(AttachmentValue::Atom(crate::AtomPayload::new(
+                        crate::make_type_id("observation"),
+                        vec![7; length].into(),
+                    ))),
+                );
+            }
+            basis.state_root = state.state_root();
+            let actual = EchoOperationObservationV1::capture(&state, basis, &[first, second]);
+            if length == 2_000 {
+                assert!(
+                    actual.is_err(),
+                    "individually bounded slots exceed aggregate allowance"
+                );
+                continue;
+            }
+            let observation = actual.expect("two slots fit aggregate allowance");
+            let cost = observation
+                .reads
+                .iter()
+                .map(|(_, bytes)| 64 + bytes.len() as u64)
+                .sum();
+            let mut exact = EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(4, cost, 0));
+            observation
+                .validate_at_execution(&state, basis, &mut Footprint::default(), &mut exact)
+                .expect("exact admitted read budget");
+            let mut short =
+                EchoOperationBudgetMeterV1::new(EchoOperationBudgetV1::new(4, cost - 1, 0));
+            assert_eq!(
+                observation.validate_at_execution(
+                    &state,
+                    basis,
+                    &mut Footprint::default(),
+                    &mut short
+                ),
+                Err(EchoOperationObstructionKindV1::BudgetExceeded)
+            );
+        }
+    }
+
+    #[test]
+    fn slot_preflight_accounts_for_cbor_header_boundaries() {
+        let (_, mut state, _, _, _, _) = super::super::tests::projected_create_fixture(1_024);
+        let node = *state.root();
+        for length in [0, 23, 24, 255, 256, 512] {
+            state
+                .warp_state
+                .store_mut(&node.warp_id)
+                .expect("store")
+                .set_node_attachment(
+                    node.local_id,
+                    Some(AttachmentValue::Atom(crate::AtomPayload::new(
+                        crate::make_type_id("observation"),
+                        vec![7; length].into(),
+                    ))),
+                );
+            assert_eq!(
+                slot_encoded_len(&state, node).expect("bounded size"),
+                slot_bytes(&state, node).expect("bounded wire value").len()
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_atom_slot_is_refused_before_materializing_observation_bytes() {
+        let (_, mut state, _, _, _, _) = super::super::tests::projected_create_fixture(1_024);
+        let node = *state.root();
+        state
+            .warp_state
+            .store_mut(&node.warp_id)
+            .expect("store")
+            .set_node_attachment(
+                node.local_id,
+                Some(AttachmentValue::Atom(crate::AtomPayload::new(
+                    crate::make_type_id("oversized-observation"),
+                    vec![7; MAX_BYTES * 2].into(),
+                ))),
+            );
+        assert!(
+            slot_bytes(&state, node).is_err(),
+            "slot encoding must refuse oversized atom support itself"
+        );
     }
 
     #[test]

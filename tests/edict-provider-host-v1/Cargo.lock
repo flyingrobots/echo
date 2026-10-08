@@ -118,6 +118,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bunny-num"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5c3288a3b7dcf4517c717a864c648777af349a15c86e25db48f86ec099f864"
+
+[[package]]
 name = "bytemuck"
 version = "1.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1330,6 +1336,7 @@ dependencies = [
 name = "warp-math"
 version = "0.1.0"
 dependencies = [
+ "bunny-num",
  "libm",
 ]
 

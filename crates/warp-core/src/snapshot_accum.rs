@@ -810,6 +810,7 @@ impl SnapshotAccumulator {
         use blake3::Hasher;
 
         let mut hasher = Hasher::new();
+        hasher.update(crate::domain::STATE_ROOT_V1);
 
         // Root binding
         hasher.update(&root.warp_id.0);
@@ -983,6 +984,97 @@ fn hash_attachment_value(hasher: &mut blake3::Hasher, value: &AttachmentValue) {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accumulator_root_matches_the_canonical_snapshot_root() {
+        let state = crate::WorldlineState::empty();
+        let accumulator = SnapshotAccumulator::from_warp_state(state.warp_state());
+        let actual = accumulator.build(state.root(), [0; 32], 0);
+        assert_eq!(
+            actual.state_root,
+            crate::snapshot::compute_state_root(state.warp_state(), state.root())
+        );
+    }
+
+    #[test]
+    fn accumulator_root_matches_canonical_reachable_content() {
+        use crate::attachment::AtomPayload;
+        use crate::graph::GraphStore;
+        use crate::warp_state::WarpState;
+
+        let warp = make_warp_id("parity-root");
+        let descended = make_warp_id("parity-descended");
+        let root = make_node_id("root");
+        let child = make_node_id("child");
+        let inner = make_node_id("inner");
+        let edge = make_edge_id("root-child");
+        let root_key = NodeKey {
+            warp_id: warp,
+            local_id: root,
+        };
+        let mut store = GraphStore::new(warp);
+        for node in [root, child] {
+            store.insert_node(
+                node,
+                NodeRecord {
+                    ty: make_type_id("Node"),
+                },
+            );
+        }
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: edge,
+                from: root,
+                to: child,
+                ty: make_type_id("Link"),
+            },
+        );
+        store.set_node_attachment(
+            root,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("Payload"),
+                bytes::Bytes::from_static(b"parity"),
+            ))),
+        );
+        store.set_node_attachment(child, Some(AttachmentValue::Descend(descended)));
+        let parent = AttachmentKey {
+            owner: AttachmentOwner::Node(NodeKey {
+                warp_id: warp,
+                local_id: child,
+            }),
+            plane: AttachmentPlane::Alpha,
+        };
+        let mut inner_store = GraphStore::new(descended);
+        inner_store.insert_node(
+            inner,
+            NodeRecord {
+                ty: make_type_id("Inner"),
+            },
+        );
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: warp,
+                root_node: root,
+                parent: None,
+            },
+            store,
+        );
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: descended,
+                root_node: inner,
+                parent: Some(parent),
+            },
+            inner_store,
+        );
+        let accumulator = SnapshotAccumulator::from_warp_state(&state);
+        assert_eq!(
+            accumulator.build(&root_key, [0; 32], 0).state_root,
+            crate::snapshot::compute_state_root(&state, &root_key)
+        );
+    }
 
     #[test]
     fn test_empty_accumulator() {

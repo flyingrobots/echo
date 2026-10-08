@@ -3303,6 +3303,170 @@ fn wal_enabled_host_rejects_action_submission_without_durable_ack() {
 
 #[cfg(feature = "host_test")]
 #[test]
+fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
+    for (create_count, retain_stale) in [(8_usize, false), (16, true)] {
+        let wal_dir = TempWalDir::new();
+        let mut stale_invocation = None;
+        let mut created_nodes = Vec::new();
+        let head_key;
+        {
+            let (mut host, head, root) = fixture_host();
+            head_key = head;
+            host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+                .expect("the growth fixture WAL opens");
+            let installed = install_fixture_creation_operation(&mut host);
+            host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+            for index in 0..create_count {
+                let node = NodeKey {
+                    warp_id: root.warp_id,
+                    local_id: make_node_id(&format!("recovery-created-{index}")),
+                };
+                let basis = host
+                    .echo_operation_evaluation_basis_v1(
+                        head,
+                        warp_core::echo_operation_anchored_node_absent_application_basis_v1(node),
+                    )
+                    .expect("the exact absent-node basis resolves");
+                let invocation =
+                    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                        installed.package_id(),
+                        installed.operation_coordinate(),
+                        basis,
+                        digest("fixture-authority-grant"),
+                        EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                        node,
+                        b"created".to_vec(),
+                    )
+                    .to_canonical_bytes()
+                    .expect("growth invocation encodes");
+                let envelope = warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head },
+                    invocation,
+                )
+                .expect("growth Action encodes");
+                let id = host
+                    .app()
+                    .submit_intent_with_runtime_wal_ack(envelope)
+                    .expect("growth Action is durable")
+                    .submission_id;
+                host.tick_once().expect("growth Action reaches its Tick");
+                assert!(matches!(
+                    host.echo_operation_action_outcome_v1(&id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ));
+                created_nodes.push(node);
+                if retain_stale && index == 1 {
+                    let late_node = NodeKey {
+                        warp_id: root.warp_id,
+                        local_id: make_node_id("delayed-absent"),
+                    };
+                    let basis = host
+                        .echo_operation_evaluation_basis_v1(
+                            head,
+                            warp_core::echo_operation_anchored_node_absent_application_basis_v1(
+                                late_node,
+                            ),
+                        )
+                        .expect("the delayed basis resolves");
+                    stale_invocation = Some(
+                        EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+                            installed.package_id(),
+                            installed.operation_coordinate(),
+                            basis,
+                            digest("fixture-authority-grant"),
+                            EchoOperationBudgetV1::new(16, 4_096, 4_096),
+                            late_node,
+                            b"late".to_vec(),
+                        )
+                        .to_canonical_bytes()
+                        .expect("delayed invocation encodes"),
+                    );
+                }
+            }
+            if let Some(invocation) = stale_invocation {
+                let envelope = warp_core::echo_operation_action_envelope_v1(
+                    IngressTarget::ExactHead { key: head },
+                    invocation,
+                )
+                .expect("delayed Action encodes");
+                let id = host
+                    .app()
+                    .submit_intent_with_runtime_wal_ack(envelope)
+                    .expect("delayed Action is durable")
+                    .submission_id;
+                host.tick_once()
+                    .expect("delayed Action receives a decision");
+                assert!(matches!(host.echo_operation_action_outcome_v1(&id),
+                    Some(EchoOperationActionOutcomeV1::Obstructed(o))
+                    if o.kind() == EchoOperationObstructionKindV1::BasisChanged));
+            }
+        }
+        let (mut reopened, _, _) = fixture_host();
+        reopened
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("fresh host recovers every honest decision");
+        let recovery = reopened
+            .runtime_wal()
+            .expect("recovered WAL exists")
+            .recover_read_only()
+            .expect("recovered evidence is inspectable");
+        let work = recovery
+            .echo_operation_parent_state_work_for_test(reopened.runtime(), reopened.provenance())
+            .expect("parent-state validation remains lawful");
+        let ticks = create_count + usize::from(retain_stale);
+        assert!(
+            work.replayed_patches <= 2 * ticks,
+            "replay must not reapply every prefix: {work:?}"
+        );
+        assert!(
+            work.peak_retained_states <= 2,
+            "one worldline needs one cursor plus one transient simulation: {work:?}"
+        );
+        assert!(
+            work.peak_retained_node_records <= 2 * (create_count + 1),
+            "{work:?}"
+        );
+        assert!(work.peak_retained_tick_records <= 2 * ticks, "{work:?}");
+        assert!(
+            work.peak_retained_atom_bytes
+                <= 2 * (b"before".len() + create_count * b"created".len()),
+            "{work:?}"
+        );
+        if !retain_stale {
+            // The last composition retains its parent cursor and the larger child.
+            assert_eq!(
+                work.peak_retained_node_records,
+                2 * create_count + 1,
+                "{work:?}"
+            );
+            assert_eq!(
+                work.peak_retained_tick_records,
+                2 * create_count - 1,
+                "{work:?}"
+            );
+            assert_eq!(
+                work.peak_retained_atom_bytes,
+                2 * b"before".len() + (2 * create_count - 1) * b"created".len(),
+                "{work:?}"
+            );
+        }
+        let state = reopened
+            .runtime()
+            .worldlines()
+            .get(&head_key.worldline_id)
+            .expect("recovered worldline exists")
+            .state();
+        for node in created_nodes {
+            assert!(
+                matches!(state.store(&node.warp_id).and_then(|store| store.node_attachment(&node.local_id)),
+                Some(AttachmentValue::Atom(atom)) if atom.bytes.as_ref() == b"created")
+            );
+        }
+    }
+}
+
+#[cfg(feature = "host_test")]
+#[test]
 fn scheduler_action_hot_path_uses_bounded_indexes() {
     let (mut host, head_key, node) = fixture_host();
     host.enable_in_memory_runtime_wal()

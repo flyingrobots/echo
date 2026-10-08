@@ -27,6 +27,8 @@ access to the original process.
 
 The state root is BLAKE3 over canonical encoding of reachable WARP state from a root `NodeKey`. Reachability follows outbound skeleton edges and descended attachment portals from reachable node/edge slots.
 
+Both canonical snapshots and incremental snapshot accumulation prepend the existing `echo:state_root:v1\0` domain separator before the root binding. Incremental accumulation must produce the same state root as canonical snapshot hashing for the same reachable state. Previously emitted accumulator roots that omitted this prefix do not satisfy that law; this correction does not migrate retained artifacts.
+
 ## Decision 2: `commit_id` v2 commits to replay, not narration
 
 Commit header v2 commits to version, parents, state root, patch digest, and policy id. `patch_digest` is the digest of the replayable tick patch.

@@ -32,7 +32,9 @@ use crate::provider_canonical::{
 use crate::provider_contract_pack::{
     AdmittedProviderContractPackV1, ProviderContractValidationErrorKind,
 };
-use crate::provider_generation::ProviderGenerationInputV1;
+use crate::provider_generation::{
+    ProviderGenerationInputV1, EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_COORDINATE_V1,
+};
 use crate::provider_semantics::{
     generated_resource_root, ArtifactResourceDeclaration, ArtifactResourceProvision,
     AuthorityClass, AuthorityFactSourceKind, EffectKindHint, ExecutionClass,
@@ -232,7 +234,12 @@ echo-nonempty-tstr = tstr .regexp "(?s).+"
 
 edict-source-bytes = bstr
 
-echo-operation-package = {
+echo-operation-package =
+  echo-anchored-operation-package /
+  echo-compiler-produced-pure-operation-package /
+  echo-compiler-produced-read-operation-package
+
+echo-anchored-operation-package = {
   "application_result_projection": echo-operation-application-result-projection,
   "application_basis_schema_identity": bstr .size 32,
   "authority_profile_identity": bstr .size 32,
@@ -252,6 +259,38 @@ echo-operation-package = {
   schema: "echo.operation-package/v1",
   "semantic_closure": echo-operation-semantic-closure,
   "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-pure-operation-package = {
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-compiler-produced-pure-budget,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  "package_kind": "compiler-produced-bounded-pure/v1",
+  program: bstr,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-read-operation-package = {
+  "authority_profile_identity": bstr .size 32,
+  "budget_ceiling": echo-compiler-produced-pure-budget,
+  "footprint_contract_identity": bstr .size 32,
+  "interpreter_profile_identity": bstr .size 32,
+  "operation_coordinate": echo-nonempty-tstr,
+  "package_kind": "compiler-produced-bounded-read/v1",
+  program: bstr,
+  schema: "echo.operation-package/v1",
+  "semantic_closure": echo-operation-semantic-closure,
+  "target_profile_identity": bstr .size 32,
+}
+
+echo-compiler-produced-pure-budget = {
+  "max_allocated_bytes": uint,
+  "max_output_bytes": uint,
+  "max_steps": uint,
 }
 
 echo-operation-application-result-projection = {
@@ -293,7 +332,24 @@ echo-operation-semantic-closure = {
   "target_ir_identity": bstr .size 32,
 }
 
-echo-operation-lowering-configuration = {
+echo-operation-lowering-configuration =
+  echo-attachment-create-if-absent-lowering-configuration /
+  echo-compiler-produced-bounded-pure-lowering-configuration /
+  echo-compiler-produced-bounded-read-lowering-configuration
+
+echo-compiler-produced-bounded-pure-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "compiler-produced-bounded-pure/v1",
+}
+
+echo-compiler-produced-bounded-read-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  programKind: "compiler-produced-bounded-read/v1",
+  maxReads: 1..65536,
+  maxReadBytes: 1..67108864,
+}
+
+echo-attachment-create-if-absent-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
   authorityProfile: echo-nonempty-tstr,
   budgetCeiling: {
@@ -316,11 +372,24 @@ echo-operation-lowering-configuration = {
 echo-operation-package-verifier-report = {
   apiVersion: "echo.operation-package-verifier-report/v1",
   applicationResultProjection: resource-ref,
+  executableSubject: echo-bound-executable-subject,
   package: resource-ref,
   targetIr: resource-ref,
   outcome: "accepted" / "rejected",
   diagnosticAbi: resource-ref,
   diagnosticBytes: bstr,
+}
+
+echo-bound-executable-subject = {
+  reference: resource-ref,
+  bytes: bstr,
+}
+
+echo-executable-subject = {
+  apiVersion: "echo.executable-subject/v1",
+  applicationResultProjection: resource-ref,
+  package: resource-ref,
+  targetIr: resource-ref,
 }
 
 generated-artifact = {
@@ -351,6 +420,8 @@ verifier-report = {
 /// Stable failure categories returned by provider artifact construction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderArtifactGenerationErrorKind {
+    /// The admitted contract pack differs from the exact generation input.
+    ContractPackInputMismatch,
     /// Requested primary projection roles differed from the validated source.
     ProjectionClosureMismatch,
     /// A required generated or external resource could not be resolved.
@@ -376,6 +447,7 @@ pub enum ProviderArtifactGenerationErrorKind {
 impl ProviderArtifactGenerationErrorKind {
     const fn label(self) -> &'static str {
         match self {
+            Self::ContractPackInputMismatch => "contract-pack-input-mismatch",
             Self::ProjectionClosureMismatch => "projection-closure-mismatch",
             Self::ResourceClosureMismatch => "resource-closure-mismatch",
             Self::SchemaGenerationFailed => "schema-generation-failed",
@@ -694,7 +766,8 @@ impl ProviderPrimaryArtifactsV1 {
 ///
 /// # Errors
 ///
-/// Returns a structured error if the requested projection closure disagrees
+/// Returns a structured error if the supplied contract pack differs from the exact
+/// schema or manifest bound into the generation input, the requested projection closure disagrees
 /// with the validated semantic source, a required resource cannot be resolved,
 /// schema construction fails, canonical encoding fails, or any emitted value
 /// is rejected by its owning CDDL root.
@@ -702,6 +775,25 @@ pub fn generate_provider_primary_artifacts_v1(
     input: &ProviderGenerationInputV1,
     contract_pack: &AdmittedProviderContractPackV1,
 ) -> Result<ProviderPrimaryArtifactsV1, ProviderArtifactGenerationError> {
+    for (coordinate, bytes) in [
+        (contract_pack.coordinate(), contract_pack.schema_bytes()),
+        (
+            EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_COORDINATE_V1,
+            contract_pack.manifest_bytes(),
+        ),
+    ] {
+        if !input
+            .source_artifacts()
+            .iter()
+            .any(|artifact| artifact.coordinate == coordinate && artifact.bytes.as_slice() == bytes)
+        {
+            return Err(ProviderArtifactGenerationError::new(
+                ProviderArtifactGenerationErrorKind::ContractPackInputMismatch,
+                coordinate,
+                input.digest(),
+            ));
+        }
+    }
     let source = input.semantic_source().source();
     let projection_roles = expected_projection_roles(source);
     if input.wesley_input().projection_roles != projection_roles {

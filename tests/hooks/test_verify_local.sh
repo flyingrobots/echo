@@ -28,6 +28,16 @@ if grep -q -- 'cargo clippy -p warp-math --all-targets -- -D warnings -D missing
 else
   fail "CI clippy should cover all warp-math targets"
 fi
+if grep -q -- 'cargo test -p warp-math --features det_fixed' .github/workflows/ci.yml; then
+  pass "CI runs the fixed warp-math integration tests directly"
+else
+  fail "CI must run warp-math det_fixed tests, not only the dependent warp-core crate"
+fi
+if grep -q -- 'cargo clippy -p warp-math --all-targets --features det_fixed -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
+  pass "CI strictly lints fixed warp-math integration tests"
+else
+  fail "CI must lint warp-math det_fixed tests and adapters directly"
+fi
 if grep -q -- 'cargo +1.90.0 clippy -p echo-edict-provider-lowerer --target wasm32-unknown-unknown --lib -- -D warnings -D missing_docs' .github/workflows/ci.yml; then
   pass "CI clippy covers the wasm-only Edict provider adapter"
 else
@@ -1536,6 +1546,67 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_readme_output"
 fi
 
+# Every feature-gated Edict operation must be selected with its runtime enabled.
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice edict_node_read_tests:edict-node-read edict_byte_concat_tests:edict-byte-concat; do
+  target="${entry%%:*}"
+  fixture="${entry#*:}"
+  for mode in pre-push full; do
+    pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify "$mode" "crates/warp-core/tests/$target.rs")"
+    if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then
+      pass "$mode enables trusted_runtime for $target"
+    else
+      fail "$mode should execute $target with trusted_runtime"
+      printf '%s\n' "$pure_output"
+    fi
+  done
+
+  source_file=ReplaceRange.edict
+  [[ "$target" != edict_byte_slice_tests ]] || source_file=LeafSlice.edict
+  for changed in crates/warp-core/src/edict_pure/syntax.rs "crates/warp-core/tests/fixtures/$fixture/$source_file"; do
+    pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
+    if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then
+      pass "full verification selects $target for $changed"
+    else
+      fail "full verification should select $target for $changed"
+      printf '%s\n' "$pure_output"
+    fi
+  done
+
+  for command in test clippy; do
+    if grep -Eq "cargo $command -p warp-core --features trusted_runtime .*--test $target" .github/workflows/ci.yml; then
+      pass "CI $command enables $target"
+    else
+      fail "CI $command should enable $target"
+    fi
+  done
+done
+
+slice_helper_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full crates/warp-core/tests/support/edict_byte_slice.rs)"
+if printf '%s\n' "$slice_helper_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_byte_slice_tests'; then
+  pass "byte-slice helper changes select the feature-enabled owning test"
+else
+  fail "byte-slice helper changes should select the feature-enabled owning test"
+  printf '%s\n' "$slice_helper_output"
+fi
+
+concat_helper_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full crates/warp-core/tests/support/edict_byte_concat.rs)"
+if printf '%s\n' "$concat_helper_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_byte_concat_tests'; then
+  pass "byte-concat helper changes select the feature-enabled owning test"
+else
+  fail "byte-concat helper changes should select the feature-enabled owning test"
+  printf '%s\n' "$concat_helper_output"
+fi
+
+for changed in crates/warp-core/src/edict_read.rs crates/warp-core/src/edict_read/evaluate.rs; do
+  read_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
+  if printf '%s\n' "$read_output" | grep -q -- 'test -p warp-core --features trusted_runtime --test edict_node_read_tests'; then
+    pass "full verification selects node read tests for $changed"
+  else
+    fail "full verification should select node read tests for $changed"
+    printf '%s\n' "$read_output"
+  fi
+done
+
 fake_pre_push_observation_output="$(run_fake_verify pre-push crates/warp-core/src/observation.rs)"
 fake_pre_push_observation_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_observation_output")"
 if printf '%s\n' "$fake_pre_push_observation_cargo_log" | grep -q 'test -p warp-core --lib observation::tests'; then
@@ -1573,6 +1644,15 @@ if printf '%s\n' "$fake_pre_push_warp_math_fixed_cargo_log" | grep -q -- 'test -
 else
   fail "pre-push should keep required det_fixed feature for dfix64_tests"
   printf '%s\n' "$fake_pre_push_warp_math_fixed_output"
+fi
+
+fake_pre_push_bunny_numeric_output="$(run_fake_verify pre-push crates/warp-math/tests/bunny_numeric_contract.rs)"
+fake_pre_push_bunny_numeric_cargo_log="$(extract_log_section cargo-log "$fake_pre_push_bunny_numeric_output")"
+if printf '%s\n' "$fake_pre_push_bunny_numeric_cargo_log" | grep -q -- 'test -p warp-math --features det_fixed --test bunny_numeric_contract'; then
+  pass "pre-push exercises the Bunny-backed DFix64 compatibility vectors"
+else
+  fail "pre-push must enable det_fixed for bunny_numeric_contract"
+  printf '%s\n' "$fake_pre_push_bunny_numeric_output"
 fi
 
 fake_pre_push_warp_math_serde_output="$(run_fake_verify pre-push crates/warp-math/tests/determinism_policy_tests.rs)"

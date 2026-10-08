@@ -66,6 +66,10 @@ mod dynamic_binding;
     allow(dead_code)
 )]
 mod echo_operation;
+#[cfg(feature = "trusted_runtime")]
+pub mod edict_pure;
+#[cfg(feature = "trusted_runtime")]
+pub mod edict_read;
 mod edict_target_ir;
 mod engine_impl;
 pub mod evidence;
@@ -482,6 +486,13 @@ pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpOpKey, WarpTickPatchV1,
 };
+#[cfg(all(
+    feature = "native_rule_bootstrap",
+    feature = "trusted_runtime",
+    any(test, feature = "host_test")
+))]
+pub use trusted_runtime_host::EchoOperationParentStateWorkForTest;
+
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
     EchoOperationContextErrorV1, EvidenceCatalogPosture, RuntimeWalActivationGap,

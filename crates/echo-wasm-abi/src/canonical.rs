@@ -202,19 +202,19 @@ fn write_major(major: u8, n: u128, out: &mut Vec<u8>) {
     match n {
         0..=23 => out.push((major << 5) | n as u8),
         24..=0xff => {
-            out.push((major << 5) | 24);
+            out.push((major << 5) | 0x18);
             out.push(n as u8);
         }
         0x100..=0xffff => {
-            out.push((major << 5) | 25);
+            out.push((major << 5) | 0x19);
             out.extend_from_slice(&(n as u16).to_be_bytes());
         }
         0x1_0000..=0xffff_ffff => {
-            out.push((major << 5) | 26);
+            out.push((major << 5) | 0x1a);
             out.extend_from_slice(&(n as u32).to_be_bytes());
         }
         _ => {
-            out.push((major << 5) | 27);
+            out.push((major << 5) | 0x1b);
             out.extend_from_slice(&(n as u64).to_be_bytes());
         }
     }

@@ -71,7 +71,7 @@ and checking it from the executable model would create a second shape authority.
 Run:
 
 ```bash
-cargo +1.90.0 test -p echo-wesley-gen --test provider_semantic_source
+cargo +1.96.0 test -p echo-wesley-gen --test provider_semantic_source
 ```
 
 ## No Discovery
@@ -169,16 +169,40 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-258,787 bytes with SHA-256
-`dfd14015705ff555a7efdb3787ddb0f8b4f304168a9a0ebf324fd25d430bf5cd`; the
-promoted verifier is 277,836 bytes with SHA-256
-`279738ffeea40027eb493c15e873b87cf3aa0677a57f9f03fb824698e532322f`.
+457,154 bytes with SHA-256
+`dc3edc7c4f194bd2fdd2b5a1ecc79f8fb7a24a5a31294a1f1fc30369c053b8d4`; the
+promoted verifier is 469,772 bytes with SHA-256
+`23d1d256ec66138697f93babcd2be57a4f56de1eb2d1fb6910e5aef881c4dd0e`.
+
+The checked schema/components also support the explicit
+`compiler-produced-bounded-read/v1` configuration with required `maxReads`
+(1–65,536) and `maxReadBytes` (1–67,108,864) limits. Its package kind is distinct
+from pure computation. Ordered read programs require explicit selection of the
+ordered contract publication; the default generation path preserves the
+original contract selection. The public compiler witness builds a single read
+and a pair with independent addresses, runs both Wasm components, and requires
+repeatable package/report pairs. It proves no runtime read or mutation.
+
+Run the [public compiler witness](../../scripts/consumer-witnesses/bounded-read-publication.py)
+only inside a guarded reusable worker with copied sources. Its required inputs,
+output directory, and resource enforcement prerequisites are documented in
+[application contract hosting](../../docs/architecture/application-contract-hosting.md).
+A supported guarded runner is tracked separately in
+[#742](https://github.com/flyingrobots/echo/issues/742).
+
+The generated provider schema admits both the existing anchored
+create-if-absent configuration and the exact two-field
+`compiler-produced-bounded-pure/v1` configuration. The latter contains no
+application coordinate or policy choice. The checked lowerer now emits the
+distinct generic pure package and the checked independent verifier reconstructs
+that exact compiler relation. The package remains uninstalled and unevaluated;
+it confers no Echo runtime authority or consequence.
 
 External Edict contract inputs come from the checked
 [`contracts/v1/`](contracts/v1/README.md) publication introduced in
 [Edict PR #162](https://github.com/flyingrobots/edict/pull/162) and extended
-with the result-projection contract in
-[Edict PR #174](https://github.com/flyingrobots/edict/pull/174). Echo passes the
+with generic pure binding contracts in
+[Edict PR #201](https://github.com/flyingrobots/edict/pull/201). Echo passes the
 CDDL and manifest bytes explicitly to
 `provider_contract_pack::admit_provider_contract_pack_v1(...)`, which verifies
 the pinned publication identity, exact inventories, resource bytes, digests,
@@ -306,15 +330,24 @@ writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
 
-The isolated Edict c75 host gate then consumes that exact checked package. It
-constructs all 24 native schema bindings, validates the five canonical primaries
+The isolated legacy Edict host gate pins revision
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes that exact checked package.
+It constructs all 31 native schema bindings, validates the five canonical primaries
 and 14 generated resources, proves every owner field names the expected exact
 resource digest, prepares both components, and obtains both opaque request
 proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact 38-file publication carrier for
+The [source-function contract publication](contracts/source-functions-v1/README.md)
+is selected explicitly through `ProviderContractPublicationV1::SourceFunctions`.
+It preserves the existing pure-binding and ordered publication bytes and does
+not change the default checked generation route. Its candidate generator uses
+the same artifact/provenance/package admission libraries with the selected new
+pair and the refreshed checked component carriers. Source-owned call authority
+and runtime capability still require independent provider validation.
+
+The crate-local `assets/v1/` tree is an exact 42-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 20-file source
 closure, including the provider-generic registry implementation. Carrier paths

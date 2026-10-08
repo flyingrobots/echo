@@ -1,0 +1,492 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+checker=${1:-scripts/ensure_spdx.sh}
+# Every selected regression first runs the required valid/missing/wrong/header
+# baseline. Selectors narrow the added regression, not this preflight. A RED
+# assertion is evidence only after the baseline passes.
+case "${SPDX_CASE:-all}" in
+  all|unclosed|header_first|displaced|prose|thematic|malformed|indented_keys|indented_comments|quoted_keys|spaced_keys|duplicate_headers|explicit_keys|unclosed_license|quoted_type|crlf|delimiterless|empty_id|type_comment|sequence_root|comment_id|flow_root|fenced_task|copyright_attempt|empty_yaml_id|spaced_delimiters|legacy_body) ;;
+  *) echo 'unknown SPDX regression case' >&2; exit 2 ;;
+esac
+work=$(mktemp -d "${TMPDIR:-/tmp}/echo-spdx-test.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+cat > "$work/valid.md" <<'DOC'
+---
+id: S01
+type: Feature
+---
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+bash "$checker" --check "$work/valid.md"
+cat > "$work/missing.md" <<'DOC'
+---
+id: S01
+---
+# Task
+DOC
+if bash "$checker" --check "$work/missing.md"; then
+  echo 'missing license passed' >&2
+  exit 1
+fi
+if bash "$checker" "$work/missing.md"; then
+  echo 'repair must report changed files' >&2
+  exit 1
+else
+  test "$?" = 1
+fi
+bash "$checker" --check "$work/missing.md"
+test "$(head -n 1 "$work/missing.md")" = '---'
+test "$(sed -n '2p' "$work/missing.md")" = 'id: S01'
+sed 's/Apache-2.0 OR LicenseRef-MIND-UCAL-1.0/MIT/' "$work/valid.md" > "$work/wrong.md"
+if bash "$checker" "$work/wrong.md"; then
+  echo 'repair must report changed files' >&2
+  exit 1
+else
+  test "$?" = 1
+fi
+cmp "$work/valid.md" "$work/wrong.md"
+cat > "$work/unclosed.md" <<'DOC'
+---
+id: S01
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+DOC
+if bash "$checker" --check "$work/unclosed.md"; then
+  echo 'unclosed frontmatter passed' >&2
+  exit 1
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == unclosed ]]; then
+cp "$work/unclosed.md" "$work/unclosed.original"
+if bash "$checker" "$work/unclosed.md"; then
+  echo 'unclosed repair passed' >&2
+  exit 1
+else
+  test "$?" = 1
+fi
+cmp "$work/unclosed.original" "$work/unclosed.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == header_first ]]; then
+cat > "$work/header-first.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+id: S01
+type: Feature
+---
+# Task
+DOC
+cp "$work/header-first.md" "$work/header-first.original"
+bash "$checker" --check "$work/header-first.md"
+bash "$checker" "$work/header-first.md"
+cmp "$work/header-first.original" "$work/header-first.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == displaced ]]; then
+cat > "$work/displaced.md" <<'DOC'
+---
+id: S01
+---
+
+
+<!-- SPDX-License-Identifier: MIT -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+if bash "$checker" "$work/displaced.md"; then
+  echo 'displaced license must report a change' >&2
+  exit 1
+else
+  test "$?" = 1
+fi
+bash "$checker" --check "$work/displaced.md"
+test "$(grep -c '^<!-- SPDX-License-Identifier:' "$work/displaced.md")" = 1
+if grep -q 'SPDX-License-Identifier: MIT' "$work/displaced.md"; then
+  echo 'conflicting displaced license survived repair' >&2
+  exit 1
+fi
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == prose ]]; then
+for spacer in 0 1; do
+  {
+    printf '%s\n' '---' 'id: S01' '---'
+    if [[ "$spacer" = 1 ]]; then printf '\n'; fi
+    printf '%s\n' 'SPDX-License-Identifier is the field this guide explains.'
+    printf '%s\n' 'James Ross and FLYING ROBOTS appear in this source sentence.'
+  } > "$work/prose-$spacer.md"
+  if bash "$checker" "$work/prose-$spacer.md"; then
+    echo 'body fixture repair must report a change' >&2
+    exit 1
+  else
+    test "$?" = 1
+  fi
+  grep -qx 'SPDX-License-Identifier is the field this guide explains.' "$work/prose-$spacer.md"
+  grep -qx 'James Ross and FLYING ROBOTS appear in this source sentence.' "$work/prose-$spacer.md"
+  bash "$checker" --check "$work/prose-$spacer.md"
+done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == thematic ]]; then
+for separator_count in 1 2; do
+  {
+    printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->'
+    printf '%s\n' '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->'
+    printf '\n---\n# Body heading\nA normal paragraph.\n'
+    if [[ "$separator_count" = 2 ]]; then printf '\n---\nMore body.\n'; fi
+  } > "$work/thematic-$separator_count.md"
+  cp "$work/thematic-$separator_count.md" "$work/thematic-$separator_count.original"
+  bash "$checker" --check "$work/thematic-$separator_count.md"
+  bash "$checker" "$work/thematic-$separator_count.md"
+  cmp "$work/thematic-$separator_count.original" "$work/thematic-$separator_count.md"
+done
+printf '%s\n' '---' '# Body heading' 'A normal paragraph.' > "$work/unlicensed-break.md"
+cp "$work/unlicensed-break.md" "$work/unlicensed-break.original"
+if bash "$checker" --check "$work/unlicensed-break.md"; then exit 1; fi
+if bash "$checker" "$work/unlicensed-break.md"; then exit 1; else test "$?" = 1; fi
+tail -n +3 "$work/unlicensed-break.md" > "$work/unlicensed-break.body"
+cmp "$work/unlicensed-break.original" "$work/unlicensed-break.body"
+bash "$checker" --check "$work/unlicensed-break.md"
+cat > "$work/note-body.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Note: this section explains metadata.
+
+A normal body paragraph.
+---
+DOC
+cp "$work/note-body.md" "$work/note-body.original"
+bash "$checker" --check "$work/note-body.md"
+bash "$checker" "$work/note-body.md"
+cmp "$work/note-body.original" "$work/note-body.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == malformed ]]; then
+cat > "$work/malformed-comment.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier Apache-2.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+if bash "$checker" "$work/malformed-comment.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/malformed-comment.md"
+test "$(grep -c 'SPDX-License-Identifier' "$work/malformed-comment.md")" = 1
+grep -qx '# Task' "$work/malformed-comment.md"
+cat > "$work/equals-comment.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier = MIT -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Task
+DOC
+if bash "$checker" "$work/equals-comment.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/equals-comment.md"
+test "$(grep -c 'SPDX-License-Identifier' "$work/equals-comment.md")" = 1
+grep -qx '# Task' "$work/equals-comment.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == indented_keys ]]; then
+cat > "$work/indented-keys.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Example: a task-card code sample follows.
+
+    id: S01
+    type: Feature
+---
+DOC
+cp "$work/indented-keys.md" "$work/indented-keys.original"
+bash "$checker" --check "$work/indented-keys.md"
+bash "$checker" "$work/indented-keys.md"
+cmp "$work/indented-keys.original" "$work/indented-keys.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == indented_comments ]]; then
+cat > "$work/indented-comments.md" <<'DOC'
+---
+id: S01
+---
+
+    <!-- SPDX-License-Identifier: MIT -->
+    <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+Body.
+DOC
+tail -n +4 "$work/indented-comments.md" > "$work/indented-comments.expected"
+if bash "$checker" "$work/indented-comments.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/indented-comments.md"
+tail -n +6 "$work/indented-comments.md" > "$work/indented-comments.actual"
+cmp "$work/indented-comments.expected" "$work/indented-comments.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == quoted_keys ]]; then
+for key in '"title"' "'title'"; do
+printf -- '---\n%s: Example\n---\n# Body\n' "$key" > "$work/quoted-keys.md"
+head -n 3 "$work/quoted-keys.md" > "$work/quoted-keys.metadata"
+if bash "$checker" "$work/quoted-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/quoted-keys.md"
+cp "$work/quoted-keys.md" "$work/quoted-keys.once"
+bash "$checker" "$work/quoted-keys.md"
+cmp "$work/quoted-keys.once" "$work/quoted-keys.md"
+head -n 3 "$work/quoted-keys.md" > "$work/quoted-keys.actual"
+cmp "$work/quoted-keys.metadata" "$work/quoted-keys.actual"
+done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == spaced_keys ]]; then
+cat > "$work/spaced-keys.md" <<'DOC'
+---
+title : Example
+---
+# Body
+DOC
+head -n 3 "$work/spaced-keys.md" > "$work/spaced-keys.expected"
+if bash "$checker" "$work/spaced-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/spaced-keys.md"
+head -n 3 "$work/spaced-keys.md" > "$work/spaced-keys.actual"
+cmp "$work/spaced-keys.expected" "$work/spaced-keys.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == duplicate_headers ]]; then
+cat > "$work/duplicate-header.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!-- SPDX-License-Identifier: MIT -->
+# Body
+DOC
+if bash "$checker" --check "$work/duplicate-header.md"; then exit 1; else test "$?" = 1; fi
+if bash "$checker" "$work/duplicate-header.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/duplicate-header.md"
+test "$(grep -c SPDX-License-Identifier "$work/duplicate-header.md")" = 1
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == explicit_keys ]]; then
+cat > "$work/explicit-keys.md" <<'DOC'
+---
+? title
+: Example
+---
+# Body
+DOC
+head -n 4 "$work/explicit-keys.md" > "$work/explicit-keys.expected"
+if bash "$checker" "$work/explicit-keys.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/explicit-keys.md"
+head -n 4 "$work/explicit-keys.md" > "$work/explicit-keys.actual"
+cmp "$work/explicit-keys.expected" "$work/explicit-keys.actual"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == unclosed_license ]]; then
+cat > "$work/unclosed-license.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier: MIT
+# Body
+DOC
+cp "$work/unclosed-license.md" "$work/unclosed-license.original"
+if bash "$checker" "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
+cmp "$work/unclosed-license.original" "$work/unclosed-license.md"
+if bash "$checker" --check "$work/unclosed-license.md"; then exit 1; else test "$?" = 1; fi
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == quoted_type ]]; then
+cat > "$work/quoted-type.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: S01
+type: "Feature"
+---
+# Body
+DOC
+cp "$work/quoted-type.md" "$work/quoted-type.original"
+bash "$checker" --check "$work/quoted-type.md"
+bash "$checker" "$work/quoted-type.md"
+cmp "$work/quoted-type.original" "$work/quoted-type.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == crlf ]]; then
+printf -- '---\r\nid: S01\r\n---\r\n# Body\r\n' > "$work/crlf.md"
+head -n 3 "$work/crlf.md" > "$work/crlf.metadata"
+tail -n +4 "$work/crlf.md" > "$work/crlf.body"
+if bash "$checker" "$work/crlf.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/crlf.md"
+head -n 3 "$work/crlf.md" > "$work/crlf.actual-metadata"
+tail -n +6 "$work/crlf.md" > "$work/crlf.actual-body"
+cmp "$work/crlf.metadata" "$work/crlf.actual-metadata"
+cmp "$work/crlf.body" "$work/crlf.actual-body"
+python3 - "$work/crlf.md" <<'CHECK'
+from pathlib import Path
+import sys
+raw=Path(sys.argv[1]).read_bytes()
+assert b"\n" not in raw.replace(b"\r\n", b"")
+CHECK
+cp "$work/crlf.md" "$work/crlf.once"
+bash "$checker" "$work/crlf.md"
+cmp "$work/crlf.once" "$work/crlf.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == delimiterless ]]; then
+cat > "$work/delimiterless.md" <<'DOC'
+---
+id: S01
+---
+<!-- SPDX-License-Identifier -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# Body
+DOC
+if bash "$checker" "$work/delimiterless.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/delimiterless.md"
+test "$(grep -c SPDX-License-Identifier "$work/delimiterless.md")" = 1
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == empty_id ]]; then
+cat > "$work/empty-id.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: ""
+type: Feature
+---
+# Body
+DOC
+cp "$work/empty-id.md" "$work/empty-id.original"
+bash "$checker" --check "$work/empty-id.md"
+bash "$checker" "$work/empty-id.md"
+cmp "$work/empty-id.original" "$work/empty-id.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == type_comment ]]; then
+cat > "$work/type-comment.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+---
+id: S01
+type: Feature # task category
+---
+# Body
+DOC
+cp "$work/type-comment.md" "$work/type-comment.original"
+bash "$checker" --check "$work/type-comment.md"
+bash "$checker" "$work/type-comment.md"
+cmp "$work/type-comment.original" "$work/type-comment.md"
+fi
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == sequence_root ]]; then
+for sequence_item in '- item' '  - item' '-'; do
+  printf '%s\n' '---' "$sequence_item" > "$work/sequence-root.md"
+  cp "$work/sequence-root.md" "$work/sequence-root.original"
+  if bash "$checker" --check "$work/sequence-root.md"; then exit 1; fi
+  if bash "$checker" "$work/sequence-root.md"; then exit 1; else test "$?" = 1; fi
+  cmp "$work/sequence-root.original" "$work/sequence-root.md"
+done
+fi
+
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == comment_id ]]; then
+cat > "$work/comment-id.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+id: # deliberately absent
+type: Feature
+---
+A preserved body paragraph.
+DOC
+cp "$work/comment-id.md" "$work/comment-id.original"
+bash "$checker" --check "$work/comment-id.md"
+bash "$checker" "$work/comment-id.md"
+cmp "$work/comment-id.original" "$work/comment-id.md"
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == flow_root ]]; then
+for flow_root in '[one, two]' '{key: value}'; do
+  printf '%s\n' '---' "$flow_root" > "$work/flow-root.md"
+  cp "$work/flow-root.md" "$work/flow-root.original"
+  if bash "$checker" --check "$work/flow-root.md"; then exit 1; fi
+  if bash "$checker" "$work/flow-root.md"; then exit 1; else test "$?" = 1; fi
+  cmp "$work/flow-root.original" "$work/flow-root.md"
+done
+fi
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == fenced_task ]]; then
+for fence in '```' '````' '~~~' '~~~~'; do
+  {
+    printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->' '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->' '' '---' 'Note: task card example.'
+    printf '%syaml\n' "$fence"
+    printf '%s\n' 'id: S01' 'type: Feature' "$fence" '---' 'Preserved body.'
+  } > "$work/fenced-task.md"
+  cp "$work/fenced-task.md" "$work/fenced-task.original"
+  bash "$checker" --check "$work/fenced-task.md"
+  bash "$checker" "$work/fenced-task.md"
+  cmp "$work/fenced-task.original" "$work/fenced-task.md"
+done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == copyright_attempt ]]; then
+printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->' '<!-- © James Ross -->' '# Preserved body' > "$work/copyright-attempt.md"
+if bash "$checker" "$work/copyright-attempt.md"; then exit 1; else test "$?" = 1; fi
+bash "$checker" --check "$work/copyright-attempt.md"
+test "$(grep -c '© James Ross' "$work/copyright-attempt.md")" = 1
+grep -qx '# Preserved body' "$work/copyright-attempt.md"
+fi
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == empty_yaml_id ]]; then
+for id_value in NULL Null '[]' '{}'; do
+  printf '%s\n' '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->' '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->' '' '---' "id: $id_value" 'type: Feature' '---' 'Preserved body.' > "$work/empty-yaml-id.md"
+  cp "$work/empty-yaml-id.md" "$work/empty-yaml-id.original"
+  bash "$checker" --check "$work/empty-yaml-id.md"
+  bash "$checker" "$work/empty-yaml-id.md"
+  cmp "$work/empty-yaml-id.original" "$work/empty-yaml-id.md"
+done
+fi
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == spaced_delimiters ]]; then
+for shape in opening closing both; do
+  opening='---';closing='---'
+  if [[ "$shape" != closing ]]; then opening='---   '; fi
+  if [[ "$shape" != opening ]]; then closing=$'---\t'; fi
+  printf '%s\n' "$opening" 'id: S01' "$closing" '# Body' > "$work/spaced-delimiters.md"
+  head -n 3 "$work/spaced-delimiters.md" > "$work/spaced-delimiters.original"
+  if bash "$checker" "$work/spaced-delimiters.md"; then exit 1; else test "$?" = 1; fi
+  bash "$checker" --check "$work/spaced-delimiters.md"
+  head -n 3 "$work/spaced-delimiters.md" > "$work/spaced-delimiters.actual"
+  cmp "$work/spaced-delimiters.original" "$work/spaced-delimiters.actual"
+done
+fi
+
+
+# Closed companion controls preserve the deliberate unclosed refusal witnesses.
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == sequence_root || "${SPDX_CASE:-all}" == flow_root ]]; then
+for root_value in '- item' '  - item' '-' '[one, two]' '{key: value}'; do
+  printf '%s\n' '---' "$root_value" '---' > "$work/closed-root.md"
+  cp "$work/closed-root.md" "$work/closed-root.original"
+  if bash "$checker" "$work/closed-root.md"; then exit 1; else test "$?" = 1; fi
+  bash "$checker" --check "$work/closed-root.md"
+  head -n 3 "$work/closed-root.md" > "$work/closed-root.actual"
+  cmp "$work/closed-root.original" "$work/closed-root.actual"
+  test "$(sed -n '4p' "$work/closed-root.md")" = '<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->'
+  test "$(sed -n '5p' "$work/closed-root.md")" = '<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->'
+done
+fi
+
+
+if [[ "${SPDX_CASE:-all}" == all || "${SPDX_CASE:-all}" == legacy_body ]]; then
+cat > "$work/legacy-body.md" <<'DOC'
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+---
+Note: a body section can contain task-like fields.
+id: S01
+type: Feature
+---
+Preserved body.
+DOC
+cp "$work/legacy-body.md" "$work/legacy-body.original"
+bash "$checker" --check "$work/legacy-body.md"
+bash "$checker" "$work/legacy-body.md"
+cmp "$work/legacy-body.original" "$work/legacy-body.md"
+fi
+printf '%s\n' 'PASS: metadata placement, unclosed repair refusal, displaced license removal, and prose preservation'

@@ -15,7 +15,7 @@ VERIFY_REPORT_TIMING="${VERIFY_REPORT_TIMING:-1}"
 cd "$REPO_ROOT"
 
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
-PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
+PINNED="${PINNED:-${PINNED_FROM_FILE:-1.96.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
 # Resolve the real gitdir so stamps work in linked worktrees, where .git is
 # a file pointer rather than a directory.
@@ -1138,6 +1138,9 @@ pre_push_feature_string_for_file() {
   local file="$2"
 
   case "${crate}:${file}" in
+    warp-core:crates/warp-core/src/edict_pure.rs|warp-core:crates/warp-core/src/edict_pure/*.rs)
+      printf '%s\n' "trusted_runtime"
+      ;;
     warp-core:crates/warp-core/src/trusted_runtime_host.rs)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
@@ -1175,13 +1178,13 @@ pre_push_feature_string_for_test_target() {
     warp-core:parallel_parallel_exec)
       printf '%s\n' "delta_validate"
       ;;
-    warp-core:scheduler_fault_recovery_authority)
+    warp-core:scheduler_fault_recovery_authority|warp-core:edict_pure_evaluation_tests|warp-core:edict_pure_unsigned_subtraction_tests|warp-core:edict_pure_byte_length_tests|warp-core:edict_byte_equality_tests|warp-core:edict_byte_slice_tests|warp-core:edict_node_read_tests|warp-core:edict_byte_concat_tests|warp-core:edict_source_functions_tests)
       printf '%s\n' "trusted_runtime"
       ;;
     warp-math:determinism_policy_tests)
       printf '%s\n' "serde"
       ;;
-    warp-math:dfix64_tests)
+    warp-math:dfix64_tests|warp-math:bunny_numeric_contract)
       printf '%s\n' "det_fixed"
       ;;
     warp-math:prng_golden_regression)
@@ -1380,6 +1383,32 @@ prepare_warp_core_scope() {
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
+      crates/warp-core/src/edict_pure.rs|crates/warp-core/src/edict_pure/*.rs|crates/warp-core/tests/fixtures/edict-pure-jedit/*|crates/warp-core/tests/fixtures/edict-pure-subtraction/*|crates/warp-core/tests/fixtures/edict-pure-byte-length/*|crates/warp-core/tests/fixtures/edict-byte-equality/*|crates/warp-core/tests/fixtures/edict-byte-slice/*|crates/warp-core/src/edict_read.rs|crates/warp-core/src/edict_read/*.rs|crates/warp-core/tests/fixtures/edict-node-read/*|crates/warp-core/tests/fixtures/edict-byte-concat/*|crates/warp-core/tests/fixtures/edict-source-functions/*)
+        append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_pure_evaluation_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_pure_unsigned_subtraction_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_pure_unsigned_subtraction_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_pure_byte_length_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_pure_byte_length_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_byte_equality_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_equality_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_byte_slice_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_slice_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_node_read_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_node_read_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_byte_concat_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_concat_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        append_unique "edict_source_functions_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_source_functions_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        ;;
+      crates/warp-core/tests/support/edict_byte_concat.rs)
+        append_unique "edict_byte_concat_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_concat_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        ;;
+      crates/warp-core/tests/support/edict_byte_slice.rs)
+        append_unique "edict_byte_slice_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "edict_byte_slice_tests" FULL_SCOPE_WARP_CORE_CLIPPY_TESTS
+        ;;
       crates/warp-core/tests/*.rs)
         local test_name
         test_name="$(basename "$file" .rs)"

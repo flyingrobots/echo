@@ -7396,6 +7396,21 @@ mod tests {
         EchoOperationInvocationV1,
         Vec<u8>,
     ) {
+        projected_create_fixture_with_key(max_output_bytes, "fixture-key", None)
+    }
+
+    fn projected_create_fixture_with_key(
+        max_output_bytes: u64,
+        key: &str,
+        key_bound: Option<ApplicationInputKeyBound>,
+    ) -> (
+        InstalledEchoOperationV1,
+        WorldlineState,
+        EchoOperationEvaluationBasisV1,
+        EchoOperationInvocationAdmissionPolicyV1,
+        EchoOperationInvocationV1,
+        Vec<u8>,
+    ) {
         let operation_coordinate = "echo.fixture.ProjectedCreate.v1";
         let output_type = "echo.fixture.ProjectedCreated/v1";
         let authored_expression = map_value([
@@ -7442,7 +7457,7 @@ mod tests {
         let runtime_expression_bytes =
             encode_canonical_cbor_v1(&runtime_expression).expect("runtime expression encodes");
         let authority_profile = digest(201);
-        let package = ExecutableOperationPackageV1::new(
+        let mut package = ExecutableOperationPackageV1::new(
             operation_coordinate,
             "echo.fixture.ProjectedCreate.Obstruction/v1",
             EchoOperationSemanticClosureV1::new(
@@ -7472,6 +7487,11 @@ mod tests {
             &runtime_expression_bytes,
         )
         .expect("projection attaches");
+        package
+            .application_result_projection
+            .as_mut()
+            .expect("projection attached")
+            .application_input_key_bound = key_bound;
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
@@ -7514,7 +7534,6 @@ mod tests {
             },
         )
         .expect("fixture state is lawful");
-        let key = "fixture-key";
         let node = NodeKey {
             warp_id,
             local_id: crate::NodeId(Sha256::digest(key.as_bytes()).into()),
@@ -8932,6 +8951,108 @@ mod tests {
                     .kind(),
                 EchoOperationArtifactErrorKindV1::InvalidStructure
             );
+        }
+    }
+    #[test]
+    fn bounded_projected_keys_admit_commit_and_recover_or_refuse_before_mutation() {
+        for (key, accepted) in [
+            ("a".repeat(64), true),
+            ("🦀".repeat(64), true),
+            ("a".repeat(65), false),
+            ("🦀".repeat(65), false),
+            (String::new(), false),
+        ] {
+            let (installed, mut state, basis, policy, invocation, _) =
+                projected_create_fixture_with_key(
+                    1_024,
+                    &key,
+                    Some(ApplicationInputKeyBound {
+                        max_unicode_scalars: 64,
+                        max_utf8_bytes: 256,
+                    }),
+                );
+            let initial_root = state.state_root();
+            let initial_tick = state.current_tick();
+            assert!(state
+                .store(&invocation.node.warp_id)
+                .expect("store exists")
+                .node(&invocation.node.local_id)
+                .is_none());
+            let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
+            let authority = EchoOperationEvaluationAuthorityV1::new();
+            let admitted = admit_invocation_v1(
+                Some(&installed),
+                policy,
+                &invocation_bytes,
+                basis,
+                &state,
+                authority.clone(),
+            );
+            if !accepted {
+                assert_eq!(
+                    admitted
+                        .expect_err("out-of-bounds key refuses at admission")
+                        .kind(),
+                    EchoOperationInvocationAdmissionErrorKindV1::ApplicationInputMismatch
+                );
+                assert_eq!(state.state_root(), initial_root);
+                assert_eq!(state.current_tick(), initial_tick);
+                let store = state.store(&invocation.node.warp_id).expect("store exists");
+                assert!(store.node(&invocation.node.local_id).is_none());
+                assert!(store.node_attachment(&invocation.node.local_id).is_none());
+                continue;
+            }
+            let EchoOperationPreparationV1::Prepared(prepared) = prepare_operation_v1(
+                Some(&installed),
+                admitted.expect("boundary key admits"),
+                basis,
+                &state,
+                crate::POLICY_ID_NO_POLICY_V0,
+                &authority,
+            ) else {
+                panic!("boundary key prepares");
+            };
+            let expected = encode_canonical_cbor_v1(&map_value([
+                ("address", text_value(&key)),
+                ("body", text_value("fixture-message")),
+            ]))
+            .expect("expected result encodes");
+            let committed =
+                commit_prepared_to_state(&prepared, &mut state, GlobalTick::from_raw(1))
+                    .expect("boundary key commits");
+            assert_eq!(state.current_tick().as_u64(), initial_tick.as_u64() + 1);
+            let store = state
+                .store(&invocation.node.warp_id)
+                .expect("committed store exists");
+            assert_eq!(
+                store
+                    .node(&invocation.node.local_id)
+                    .expect("node created")
+                    .ty,
+                crate::make_type_id("projected-created-node")
+            );
+            let Some(AttachmentValue::Atom(atom)) =
+                store.node_attachment(&invocation.node.local_id)
+            else {
+                panic!("created attachment is an atom");
+            };
+            assert_eq!(atom.bytes.as_ref(), b"fixture-message");
+            assert_eq!(atom.type_id, crate::make_type_id("projected-created-atom"));
+            let retained = retain_committed_execution_v1(&committed.evidence)
+                .expect("committed evidence retains");
+            let recovered =
+                recover_committed_execution_receipt_v1(&retained).expect("receipt recovers");
+            assert_eq!(
+                recovered
+                    .committed_application_result()
+                    .expect("result survives recovery")
+                    .canonical_bytes(),
+                expected
+            );
+            validate_receipt_installation_v1(&recovered, &installed)
+                .expect("receipt retains bounded package identity");
+            validate_receipt_application_result_v1(&recovered, &installed, &invocation_bytes)
+                .expect("recovered result reproduces from original invocation");
         }
     }
 }

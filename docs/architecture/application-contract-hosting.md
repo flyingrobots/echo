@@ -165,6 +165,48 @@ tests, but it is not the application lifecycle.
 
 The create-if-absent profile creates a node and its alpha attachment. It does not create a skeleton edge from the lane root. A detached cell therefore remains outside the reachable-state root hash. Equal roots do not prove equal stores or the absence of a detached write. The retained tick patch and commit identity bind that write; duplicate checks also compare the typed target-value digest. This preserves the [Merkle commit law](../spec/merkle-commit.md).
 
+The native invocation codec has a distinct projected compare-and-set form that
+retains canonical application input in the invocation identity. Static admission
+requires an `application_input_expected_value_digest_path` in the installed
+projection and exact equality between its 32-byte input value and the invocation
+precondition. Create projections omit this path. Package admission checks this
+program/path relationship before installation: a projected compare-and-set
+package without the path, or a create package with it, returns `ArtifactInvalid`
+with `InvalidStructure`. Legacy packages without a result projection remain
+supported. Invocation admission also checks the relationship and exact digest.
+Missing or substituted invocation bindings
+return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
+Both mutation profiles require the effect argument to be the declared application
+input directly. The lowerer and independent verifier each check the canonical
+`arg.0` reference, its declared type and alpha name, and its unique local
+declaration. They refuse transformed records and other local references with
+`UnsupportedSemantics`; these bounded profiles do not evaluate arbitrary effect
+arguments. This prevents a package from silently replacing an authored argument
+with the caller's input fields. The compiler fixture retains the previously
+accepted `message: "forced"` counterexample as historical failing evidence; the
+corrected components refuse that source without publishing package artifacts,
+while the direct-input control produces the same package and report bytes.
+
+The native lowerer and independent verifier select the CAS program from an exact
+`continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
+write class. Its configuration requires a distinct `expectedValueDigestField`
+and at least four steps; the package binds the corresponding input path and
+CAS-specific profile identities. The verifier reconstructs these bytes and
+rejects a substituted digest path. Native refusal witnesses use synthetic semantic closures. The generated schema
+and reproducible checked components also admit a real public Edict compiler build;
+its exact source, executable package and accepted report are retained under
+`crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/`.
+`crates/warp-core/tests/edict_projected_cas_tests.rs` exercises those exact package
+bytes through durable Action intake, pending-Action recovery, scheduler-owned
+update, and fresh-host recovery of the committed value and typed result. A fresh
+causal basis with a stale expected digest produces `PreconditionMismatch`; that
+noncommitted outcome also survives recovery without changing the target value.
+Separate witnesses refuse substituted input digests, missing target nodes and
+oversized replacements. The target is detached, so these checks inspect its typed
+atom and receipt rather than treating an unchanged reachable-state root as proof
+of no write. The public CLI runner still selects the create-if-absent profile;
+this CAS lifecycle witness uses the trusted host and Action APIs directly.
+
 The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
 
 The external-provider schema additionally admits one exact zero-choice

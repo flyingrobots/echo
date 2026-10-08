@@ -76,8 +76,85 @@ pub(super) const MAX_RESULT_PROJECTION_TEXT_BYTES: usize = 1_024;
 const MAX_RESULT_PROJECTION_ARTIFACT_BYTES: usize = 64 * 1_024;
 const MAX_APPLICATION_RESULT_BYTES: u64 = 64 * 1_024;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OperationProgram {
+    Create,
+    CompareAndSet,
+}
+
+impl OperationProgram {
+    const fn select(self, create: &'static str, cas: &'static str) -> &'static str {
+        match self {
+            Self::Create => create,
+            Self::CompareAndSet => cas,
+        }
+    }
+    const fn write_class(self) -> &'static str {
+        self.select("create", "replace")
+    }
+    const fn kind(self) -> &'static str {
+        self.select(PROGRAM_KIND, "anchored-node-attachment-compare-and-set/v1")
+    }
+    const fn operation_profile(self) -> &'static str {
+        self.select(OPERATION_PROFILE, "continuum.profile.write/v1")
+    }
+    const fn intrinsic(self) -> &'static str {
+        self.select(
+            TARGET_INTRINSIC,
+            "echo.dpo@1.anchored-node-attachment-compare-and-set",
+        )
+    }
+    const fn input_schema(self) -> &'static str {
+        self.select(
+            INPUT_SCHEMA,
+            "echo.operation.input.anchored-node-alpha-cas/v1",
+        )
+    }
+    const fn result_schema(self) -> &'static str {
+        self.select(
+            RESULT_SCHEMA,
+            "echo.operation.result.anchored-node-alpha-cas/v1",
+        )
+    }
+    const fn obstruction_schema(self) -> &'static str {
+        self.select(
+            OBSTRUCTION_SCHEMA,
+            "echo.operation.obstruction.anchored-node-alpha-cas/v1",
+        )
+    }
+    const fn result_interpretation(self) -> &'static str {
+        self.select(
+            RESULT_INTERPRETATION,
+            "echo.operation.result-interpretation.anchored-node-alpha-cas/v1",
+        )
+    }
+    const fn obstruction_interpretation(self) -> &'static str {
+        self.select(
+            OBSTRUCTION_INTERPRETATION,
+            "echo.operation.obstruction-interpretation.anchored-node-alpha-cas/v1",
+        )
+    }
+    const fn basis_schema(self) -> &'static str {
+        self.select(
+            APPLICATION_BASIS_SCHEMA,
+            "echo.operation.basis.anchored-node-alpha/v1",
+        )
+    }
+    const fn footprint(self) -> &'static str {
+        self.select(FOOTPRINT_CONTRACT, "anchored-node-alpha-exact/v1")
+    }
+    const fn target_profile(self) -> &'static str {
+        self.select(
+            TARGET_PROFILE,
+            "echo.operation-target.anchored-node-alpha-cas/v1",
+        )
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ProgramConfiguration<'a> {
+    program: OperationProgram,
+    expected_value_digest_field: Option<&'a str>,
     authority_profile: &'a str,
     required_node_type_profile: &'a str,
     required_attachment_type_profile: &'a str,
@@ -90,6 +167,7 @@ struct ProgramConfiguration<'a> {
 }
 
 struct ApplicationIntent<'a> {
+    program: OperationProgram,
     name: &'a str,
     operation_coordinate: String,
     obstruction_coordinate: &'a str,
@@ -182,6 +260,11 @@ pub(super) fn verify(
     validate_adapter(&adapter, closure.configuration, &intent, &semantic_effect)?;
     validate_target_ir(&target_ir, request, closure.lawpack, &intent)?;
     let configuration = validate_configuration(&configuration)?;
+    if configuration.program != intent.program {
+        return Err(super::unsupported_semantics(
+            "target-configuration.operation-profile",
+        ));
+    }
     let result_projection = validate_result_projection(
         &result_projection,
         closure.result_projection,
@@ -889,9 +972,11 @@ fn validate_core<'a>(
     let (intent_name, intent) =
         single_text_map_entry(required_map(value, "intents", "core.echo-operation")?)
             .ok_or_else(|| super::unsupported_semantics("core.echo-operation"))?;
-    if text_field(intent, "requiredOperationProfile") != Some(OPERATION_PROFILE) {
-        return Err(super::unsupported_semantics(coordinate));
-    }
+    let program = match text_field(intent, "requiredOperationProfile") {
+        Some(OPERATION_PROFILE) => OperationProgram::Create,
+        Some("continuum.profile.write/v1") => OperationProgram::CompareAndSet,
+        _ => return Err(super::unsupported_semantics(coordinate)),
+    };
     let body = required_map(intent, "body", coordinate)?;
     let [node] = required_array(body, "nodes", coordinate)?.as_slice() else {
         return Err(super::unsupported_semantics(coordinate));
@@ -899,6 +984,7 @@ fn validate_core<'a>(
     if text_field(node, "kind") != Some("effect") {
         return Err(super::unsupported_semantics(coordinate));
     }
+    validate_application_argument(intent, body, node, coordinate)?;
     let effect_coordinate = required_text(node, "effect", coordinate)?;
     let (failure_name, obstruction_arm) =
         single_text_map_entry(required_map(node, "obstructionMap", coordinate)?)
@@ -909,12 +995,61 @@ fn validate_core<'a>(
         return Err(super::unsupported_semantics(coordinate));
     }
     Ok(ApplicationIntent {
+        program,
         name: intent_name,
         operation_coordinate: format!("{coordinate}.{intent_name}"),
         obstruction_coordinate,
         effect_coordinate,
         failure_name,
     })
+}
+
+fn validate_application_argument(
+    intent: &CanonicalValueV1,
+    body: &CanonicalValueV1,
+    effect: &CanonicalValueV1,
+    subject: &str,
+) -> Result<(), ProviderRefusalV1> {
+    // This program binds invocation fields directly to application input. It
+    // cannot evaluate a transformed effect argument; accepting one would bind
+    // a different mutation than the authored program describes.
+    let input_type = required_nonempty_text(intent, "input", subject)?;
+    let argument = required_map(effect, "input", subject)?;
+    if text_field(argument, "kind") != Some("local") {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.effect-input",
+        ));
+    }
+    require_exact_fields(argument, &["kind", "ref"], subject)?;
+    let reference = required_map(argument, "ref", subject)?;
+    require_exact_fields(reference, &["id", "alphaName", "type"], subject)?;
+    if text_field(reference, "id") != Some("arg.0")
+        || text_field(reference, "type") != Some(input_type)
+    {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.effect-input",
+        ));
+    }
+    let alpha_name = required_nonempty_text(reference, "alphaName", subject)?;
+    let locals = required_array(body, "locals", subject)?;
+    let mut inputs = locals
+        .iter()
+        .filter(|local| text_field(local, "id") == Some("arg.0"));
+    let Some(input) = inputs.next() else {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.input-local",
+        ));
+    };
+    if inputs.next().is_some()
+        || text_field(input, "type") != Some(input_type)
+        || text_field(input, "alphaName") != Some(alpha_name)
+    {
+        return Err(super::unsupported_semantics(
+            "core.echo-operation.input-local",
+        ));
+    }
+    require_exact_fields(input, &["id", "alphaName", "type"], subject)?;
+    Ok(())
 }
 
 fn validate_source<'a>(
@@ -1012,8 +1147,8 @@ fn validate_adapter(
         semantic_effect,
         "adapter.echo-operation",
     )?;
-    if text_field(implementation, "targetIntrinsic") != Some(TARGET_INTRINSIC)
-        || text_field(implementation, "writeClass") != Some("create")
+    if text_field(implementation, "targetIntrinsic") != Some(intent.program.intrinsic())
+        || text_field(implementation, "writeClass") != Some(intent.program.write_class())
     {
         return Err(super::unsupported_semantics("adapter.echo-operation"));
     }
@@ -1118,7 +1253,7 @@ fn validate_target_ir(
         single_text_map_entry(required_map(value, "intents", "target-ir.echo-operation")?)
             .ok_or_else(|| super::unsupported_semantics("target-ir.echo-operation"))?;
     if intent_name != intent.name
-        || text_field(target_intent, "operationProfile") != Some(OPERATION_PROFILE)
+        || text_field(target_intent, "operationProfile") != Some(intent.program.operation_profile())
     {
         return Err(super::unsupported_semantics("target-ir.echo-operation"));
     }
@@ -1131,7 +1266,7 @@ fn validate_target_ir(
     else {
         return Err(super::unsupported_semantics("target-ir.echo-operation"));
     };
-    if text_field(step, "targetIntrinsic") != Some(TARGET_INTRINSIC)
+    if text_field(step, "targetIntrinsic") != Some(intent.program.intrinsic())
         || as_text(failure) != Some(PRECONDITION_MISMATCH)
     {
         return Err(super::unsupported_semantics("target-ir.echo-operation"));
@@ -1142,13 +1277,20 @@ fn validate_target_ir(
 fn validate_configuration(
     value: &CanonicalValueV1,
 ) -> Result<ProgramConfiguration<'_>, ProviderRefusalV1> {
-    if text_field(value, "apiVersion") != Some(CONFIGURATION_ABI)
-        || text_field(value, "programKind") != Some(PROGRAM_KIND)
-    {
+    if text_field(value, "apiVersion") != Some(CONFIGURATION_ABI) {
         return Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
         ));
     }
+    let program = match text_field(value, "programKind") {
+        Some(PROGRAM_KIND) => OperationProgram::Create,
+        Some("anchored-node-attachment-compare-and-set/v1") => OperationProgram::CompareAndSet,
+        _ => {
+            return Err(super::unsupported_semantics(
+                "target-configuration.program-kind",
+            ))
+        }
+    };
     let invocation = required_map(
         value,
         "invocationBinding",
@@ -1174,12 +1316,38 @@ fn validate_configuration(
             "target-configuration.echo-operation",
         ));
     }
+    let expected_value_digest_field = match program {
+        OperationProgram::CompareAndSet => {
+            let field = required_nonempty_text(
+                invocation,
+                "expectedValueDigestField",
+                "target-configuration.echo-operation",
+            )?;
+            validate_projection_text(field, "target-configuration.echo-operation")?;
+            if field == node_key_field || field == replacement_field {
+                return Err(super::unsupported_semantics(
+                    "target-configuration.expected-digest-field",
+                ));
+            }
+            Some(field)
+        }
+        OperationProgram::Create => {
+            if map_field(invocation, "expectedValueDigestField").is_some() {
+                return Err(super::unsupported_semantics(
+                    "target-configuration.expected-digest-field",
+                ));
+            }
+            None
+        }
+    };
     let budget = required_map(
         value,
         "budgetCeiling",
         "target-configuration.echo-operation",
     )?;
     let configuration = ProgramConfiguration {
+        program,
+        expected_value_digest_field,
         authority_profile: required_nonempty_text(
             value,
             "authorityProfile",
@@ -1207,7 +1375,12 @@ fn validate_configuration(
         replacement_field,
     };
     if configuration.max_replacement_bytes == 0
-        || configuration.steps < 3
+        || configuration.steps
+            < if program == OperationProgram::CompareAndSet {
+                4
+            } else {
+                3
+            }
         || configuration.read_bytes < 64
         || configuration.write_bytes < 64
     {
@@ -1470,7 +1643,7 @@ fn encode_expected_package(
             "intrinsic_profile_identity",
             hash_value(profile_digest(INTRINSIC_PROFILE)),
         ),
-        ("kind", canonical_text(PROGRAM_KIND)),
+        ("kind", canonical_text(configuration.program.kind())),
         (
             "max_replacement_bytes",
             CanonicalValueV1::Integer(i128::from(configuration.max_replacement_bytes)),
@@ -1519,49 +1692,54 @@ fn encode_expected_package(
             hash_value(hash_from_bound(&request.target_ir)?),
         ),
     ]);
-    let package = canonical_map([
+    let mut projection_value = canonical_map([
         (
-            "application_result_projection",
-            canonical_map([
-                (
-                    "application_input_node_key_path",
-                    CanonicalValueV1::Array(
-                        result_projection
-                            .node_key_path
-                            .iter()
-                            .map(|segment| canonical_text(segment))
-                            .collect(),
-                    ),
-                ),
-                (
-                    "application_input_replacement_path",
-                    CanonicalValueV1::Array(
-                        result_projection
-                            .replacement_path
-                            .iter()
-                            .map(|segment| canonical_text(segment))
-                            .collect(),
-                    ),
-                ),
-                (
-                    "artifact_bytes",
-                    CanonicalValueV1::Bytes(
-                        closure.result_projection.artifact.artifact.bytes.clone(),
-                    ),
-                ),
-                (
-                    "artifact_identity",
-                    hash_value(hash_from_bound(&closure.result_projection.artifact)?),
-                ),
-                (
-                    "runtime_expression",
-                    result_projection.runtime_expression.clone(),
-                ),
-            ]),
+            "application_input_node_key_path",
+            CanonicalValueV1::Array(
+                result_projection
+                    .node_key_path
+                    .iter()
+                    .map(|segment| canonical_text(segment))
+                    .collect(),
+            ),
         ),
         (
+            "application_input_replacement_path",
+            CanonicalValueV1::Array(
+                result_projection
+                    .replacement_path
+                    .iter()
+                    .map(|segment| canonical_text(segment))
+                    .collect(),
+            ),
+        ),
+        (
+            "artifact_bytes",
+            CanonicalValueV1::Bytes(closure.result_projection.artifact.artifact.bytes.clone()),
+        ),
+        (
+            "artifact_identity",
+            hash_value(hash_from_bound(&closure.result_projection.artifact)?),
+        ),
+        (
+            "runtime_expression",
+            result_projection.runtime_expression.clone(),
+        ),
+    ]);
+    if let (Some(field), CanonicalValueV1::Map(fields)) = (
+        configuration.expected_value_digest_field,
+        &mut projection_value,
+    ) {
+        fields.push((
+            canonical_text("application_input_expected_value_digest_path"),
+            CanonicalValueV1::Array(vec![canonical_text(field)]),
+        ));
+    }
+    let package = canonical_map([
+        ("application_result_projection", projection_value),
+        (
             "application_basis_schema_identity",
-            hash_value(profile_digest(APPLICATION_BASIS_SCHEMA)),
+            hash_value(profile_digest(configuration.program.basis_schema())),
         ),
         (
             "authority_profile_identity",
@@ -1590,7 +1768,7 @@ fn encode_expected_package(
         ),
         (
             "footprint_contract_identity",
-            hash_value(profile_digest(FOOTPRINT_CONTRACT)),
+            hash_value(profile_digest(configuration.program.footprint())),
         ),
         (
             "interpreter_profile_identity",
@@ -1598,7 +1776,7 @@ fn encode_expected_package(
         ),
         (
             "input_schema_identity",
-            hash_value(profile_digest(INPUT_SCHEMA)),
+            hash_value(profile_digest(configuration.program.input_schema())),
         ),
         (
             "intrinsic_profile_identity",
@@ -1606,11 +1784,13 @@ fn encode_expected_package(
         ),
         (
             "obstruction_schema_identity",
-            hash_value(profile_digest(OBSTRUCTION_SCHEMA)),
+            hash_value(profile_digest(configuration.program.obstruction_schema())),
         ),
         (
             "obstruction_interpretation_identity",
-            hash_value(profile_digest(OBSTRUCTION_INTERPRETATION)),
+            hash_value(profile_digest(
+                configuration.program.obstruction_interpretation(),
+            )),
         ),
         (
             "obstruction_coordinate",
@@ -1623,17 +1803,19 @@ fn encode_expected_package(
         ("program", CanonicalValueV1::Bytes(program_bytes)),
         (
             "result_schema_identity",
-            hash_value(profile_digest(RESULT_SCHEMA)),
+            hash_value(profile_digest(configuration.program.result_schema())),
         ),
         (
             "result_interpretation_identity",
-            hash_value(profile_digest(RESULT_INTERPRETATION)),
+            hash_value(profile_digest(
+                configuration.program.result_interpretation(),
+            )),
         ),
         ("schema", canonical_text(PACKAGE_SCHEMA)),
         ("semantic_closure", semantic_closure),
         (
             "target_profile_identity",
-            hash_value(profile_digest(TARGET_PROFILE)),
+            hash_value(profile_digest(configuration.program.target_profile())),
         ),
     ]);
     encode_canonical_cbor_v1(&package)

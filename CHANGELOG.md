@@ -7,6 +7,8 @@
 
 ### Added
 
+- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses.
+
 - Bounded executable-operation host sessions retain immutable observations and
   logical-request bindings in the native WAL. Echo evaluates supplied node/atom
   preconditions inside operation preparation, includes their reads in scheduler
@@ -21,6 +23,10 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate.
+
+- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
 
 - Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
 

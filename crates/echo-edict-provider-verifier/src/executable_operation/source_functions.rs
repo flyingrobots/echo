@@ -749,4 +749,55 @@ mod tests {
         ]);
         assert!(validate(&core, &exports, true).is_ok());
     }
+    #[test]
+    fn source_functions_accept_named_unsigned_int_aliases() {
+        let parameter = map([
+            ("id", Value::Text("arg.0".into())),
+            ("type", Value::Text("Count".into())),
+            ("alphaName", Value::Text("count".into())),
+        ]);
+        let core = map([
+            ("coordinate", Value::Text("example@1".into())),
+            (
+                "types",
+                map([(
+                    "Count",
+                    map([
+                        ("kind", Value::Text("Int".into())),
+                        ("width", Value::Text("U64".into())),
+                    ]),
+                )]),
+            ),
+            ("intents", map([])),
+            (
+                "functions",
+                map([(
+                    "identity",
+                    map([
+                        ("params", Value::Array(vec![parameter.clone()])),
+                        ("returnType", Value::Text("Count".into())),
+                        (
+                            "body",
+                            map([
+                                ("locals", Value::Array(vec![])),
+                                ("bindings", Value::Array(vec![])),
+                                (
+                                    "result",
+                                    map([
+                                        ("kind", Value::Text("local".into())),
+                                        ("ref", parameter),
+                                    ]),
+                                ),
+                            ]),
+                        ),
+                    ]),
+                )]),
+            ),
+        ]);
+        let exports = map([
+            ("effects", Value::Array(vec![])),
+            ("pureFunctions", Value::Array(vec![])),
+        ]);
+        assert!(validate(&core, &exports, false).is_ok());
+    }
 }

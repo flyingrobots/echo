@@ -190,6 +190,7 @@ impl<'a> Types<'a> {
         let resolved = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.module, "types")?, resolved)?;
         match string(get(definition, "kind")?)? {
+            "Int" => self.resolve(string(get(definition, "width")?)?, depth + 1),
             "Nominal" => {
                 let identity = string(get(definition, "contract")?)?;
                 if identity != resolved {

@@ -2139,6 +2139,19 @@ impl ExecutableOperationPackageV1 {
                 "unsupported interpreter or intrinsic profile identity",
             ));
         }
+        if let Some(projection) = &self.application_result_projection {
+            let requires_digest = matches!(
+                self.program,
+                EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
+            );
+            if projection.application_input_expected_value_digest_path.is_some()
+                != requires_digest
+            {
+                return Err(invalid_structure(
+                    "expected digest binding does not match the package program",
+                ));
+            }
+        }
         if self
             .application_result_projection
             .as_ref()

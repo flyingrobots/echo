@@ -24,6 +24,8 @@
 
 ### Fixed
 
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate.
+
 - Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
 
 - Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.

@@ -169,7 +169,12 @@ The native invocation codec has a distinct projected compare-and-set form that
 retains canonical application input in the invocation identity. Static admission
 requires an `application_input_expected_value_digest_path` in the installed
 projection and exact equality between its 32-byte input value and the invocation
-precondition. Create projections omit this path. Missing or substituted bindings
+precondition. Create projections omit this path. Package admission checks this
+program/path relationship before installation: a projected compare-and-set
+package without the path, or a create package with it, returns `ArtifactInvalid`
+with `InvalidStructure`. Legacy packages without a result projection remain
+supported. Invocation admission also checks the relationship and exact digest.
+Missing or substituted invocation bindings
 return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
 Both mutation profiles require the effect argument to be the declared application
 input directly. The lowerer and independent verifier each check the canonical

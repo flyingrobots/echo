@@ -1586,7 +1586,7 @@ fn validate_writer_epoch_request(
                 if request.started_at_lsn <= final_lsn {
                     return Err(WalStoreError::WriterEpochLsnRegression);
                 }
-            } else if request.started_at_lsn <= previous_epoch.started_at_lsn {
+            } else if request.started_at_lsn < previous_epoch.started_at_lsn {
                 return Err(WalStoreError::WriterEpochLsnRegression);
             }
             if request.storage_fencing_token == previous_epoch.storage_fencing_token
@@ -5728,6 +5728,8 @@ impl FilesystemWalStore {
     /// reread. An active epoch left by a terminated process is closed under
     /// that lease before the successor is derived and admitted. A concurrently
     /// live writer retains the lease and prevents takeover.
+    /// Uncommitted or torn tails require writable recovery before takeover.
+    /// An empty predecessor leaves its starting LSN unused.
     pub fn acquire_fresh_writer_epoch(
         &mut self,
         minimum_started_at_lsn: Lsn,
@@ -5737,6 +5739,16 @@ impl FilesystemWalStore {
         }
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.reload_writer_epoch_ledger()?;
+        let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
+            |error| match error {
+                WalRecoveryError::Store(error) => error,
+                WalRecoveryError::Validation(error) => WalStoreError::Validation(error),
+                WalRecoveryError::Index(error) => WalStoreError::RecoveryIndex(error),
+            },
+        )?;
+        if !matches!(recovery.tail_posture, RecoveryTailPosture::Clean) {
+            return Err(WalStoreError::SegmentHasUncommittedTail(self.segment_id));
+        }
 
         if self.active_epoch.is_some() {
             let previous_ledger = self.writer_epoch_ledger();
@@ -5761,11 +5773,12 @@ impl FilesystemWalStore {
             .and_then(|epoch| self.epoch_closures.get(&epoch.epoch_id))
             .copied()
             .unwrap_or_default();
-        let required_started_at_lsn = previous_closure
-            .final_lsn
-            .or_else(|| previous_epoch.map(|epoch| epoch.started_at_lsn))
-            .and_then(Lsn::checked_next)
-            .unwrap_or(minimum_started_at_lsn);
+        let required_started_at_lsn = match previous_closure.final_lsn {
+            Some(final_lsn) => final_lsn
+                .checked_next()
+                .ok_or(WalStoreError::WriterEpochChainGap)?,
+            None => previous_epoch.map_or(minimum_started_at_lsn, |epoch| epoch.started_at_lsn),
+        };
         let started_at_lsn = minimum_started_at_lsn.max(required_started_at_lsn);
         let ordinal = u64::try_from(self.closed_epochs.len())
             .map_err(|_| WalStoreError::WriterEpochChainGap)?
@@ -9927,6 +9940,9 @@ pub enum WalValidationError {
 /// WAL store errors.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WalStoreError {
+    /// Validated recovery indexes could not be reconstructed before takeover.
+    #[error(transparent)]
+    RecoveryIndex(#[from] WalRecoveryIndexError),
     /// A writer epoch is already active.
     #[error("WAL writer epoch already active")]
     WriterEpochAlreadyActive,

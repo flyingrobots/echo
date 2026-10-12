@@ -106,4 +106,8 @@ if args.expect_refusal:
  print('EXPECTED_STRUCTURED_REFUSAL',args.expect_refusal,flush=True)
 else:
  assert result.returncode==0,result.returncode
+ if not args.source_template:
+  for name in ('executable-operation-package.cbor','verification-report.cbor'):
+   assert (root/'build'/name).read_bytes().hex()==(fixture/'built'/(name+'.hex')).read_text().strip(),f'{name} differs from retained bytes'
+  print('RETAINED_BYTES_REPRODUCED',flush=True)
 print('OUTPUT_FILES',sorted(str(p.relative_to(root)) for p in (root/'build').rglob('*') if p.is_file()),flush=True)

@@ -39,7 +39,9 @@ python3 crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas
   --output-directory /tmp/echo-726-runtime/cas-direct-input-control
 ```
 
-For the negative control, use another fresh output directory and append:
+The positive control fails unless the emitted package and verification report
+equal the retained `built/` bytes. For the negative control, use another fresh
+output directory and append:
 
 ```sh
   --source-template crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/counterexamples/transformed-replacement/update-cell.edict \

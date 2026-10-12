@@ -23,8 +23,6 @@ mutation profiles support only the declared application input as the effect
 argument. The regression
 `providers_refuse_effect_inputs_not_equal_to_the_declared_application_argument`
 checks lowerer and verifier refusals independently for both mutation profiles.
-Its first run failed because the lowerer accepted a transformed argument; after
-the fix the verifier executable suite passed 70 tests and the lowerer suite 13.
 
 To reproduce the public compiler refusal, run the command in the parent README
 with `--source-template` pointing to this `update-cell.edict` and
@@ -32,4 +30,4 @@ with `--source-template` pointing to this `update-cell.edict` and
 that structured refusal with compiler exit code 2 and no published CBOR outputs.
 The original direct-input positive control still emitted byte-identical package
 and report artifacts. These checks establish production/refusal; they do not
-claim execution of the historical erroneous package or final PR approval.
+claim execution of the historical erroneous package.

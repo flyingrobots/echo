@@ -29,7 +29,7 @@
 
 ### Fixed
 
-- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate.
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted.
 
 - Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
 

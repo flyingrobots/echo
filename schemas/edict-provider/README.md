@@ -169,10 +169,10 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-457,154 bytes with SHA-256
-`dc3edc7c4f194bd2fdd2b5a1ecc79f8fb7a24a5a31294a1f1fc30369c053b8d4`; the
-promoted verifier is 469,772 bytes with SHA-256
-`23d1d256ec66138697f93babcd2be57a4f56de1eb2d1fb6910e5aef881c4dd0e`.
+461,184 bytes with SHA-256
+`80e426cc277a4c5e78eab374b68144c8f3e34b6afb93eb991789ce2e5ee7b9a4`; the
+promoted verifier is 473,642 bytes with SHA-256
+`87649ace3aa1ab21c45cc4ed5c90051583dd08b48518cdca61dacde72783440a`.
 
 The checked schema/components also support the explicit
 `compiler-produced-bounded-read/v1` configuration with required `maxReads`
@@ -190,8 +190,10 @@ output directory, and resource enforcement prerequisites are documented in
 A supported guarded runner is tracked separately in
 [#742](https://github.com/flyingrobots/echo/issues/742).
 
-The generated provider schema admits both the existing anchored
-create-if-absent configuration and the exact two-field
+The generated provider schema admits the existing anchored create-if-absent
+configuration, the anchored compare-and-set configuration with its distinct
+`expectedValueDigestField` (its 64-byte `readBytes` minimum excludes the current
+value's length, which evaluation also charges), and the exact two-field
 `compiler-produced-bounded-pure/v1` configuration. The latter contains no
 application coordinate or policy choice. The checked lowerer now emits the
 distinct generic pure package and the checked independent verifier reconstructs

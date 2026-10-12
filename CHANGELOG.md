@@ -7,6 +7,8 @@
 
 ### Added
 
+- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
+
 - The trusted executable-operation host can retain two native alternative strands,
   continue a losing strand under new observations, and recover its fork ancestry
   and operation outcomes from the WAL. Application selection records do not
@@ -26,6 +28,10 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted. Admission likewise refuses an expected-digest path that is empty or overlaps the key or replacement path.
+
+- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
 
 - Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
 

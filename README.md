@@ -292,6 +292,12 @@ result bytes, and domain-separated result identity. A second fresh host must
 recover byte-identical result evidence from the decided-Tick WAL; Echo does not
 invoke a native application callback or reconstruct the result from target
 state.
+An Edict-authored compare-and-set operation also produces an independently
+accepted package. The [compiler-output integration tests](crates/warp-core/tests/edict_projected_cas_tests.rs)
+exercise that exact package through scheduler updates, stale-digest obstructions,
+and fresh-host pending/completed Action recovery. This path uses the trusted-host
+Action API; the CLI runner above still selects create-if-absent.
+
 Canonical projected invocation input is capped at 65,536 bytes, and the
 compiler-declared maximum result size is capped at 65,536 before private
 scheduler evaluation. Produced canonical result bytes are measured against that

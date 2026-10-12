@@ -28,6 +28,9 @@ std-fs crates/warp-core/tests/bounded_workspace_patch_tests.rs bounded-patch fil
 std-process crates/warp-core/tests/bounded_workspace_patch_tests.rs bounded-patch filesystem fixture temp directory disambiguation only.
 std-fs crates/warp-core/tests/external_consumer_contract_fixture_tests.rs installed-contract restart WAL fixture I/O only.
 std-fs crates/warp-core/tests/executable_operation_pipeline_tests.rs executable-operation restart WAL fixture I/O only.
+std-env crates/warp-core/tests/edict_projected_cas_tests.rs compare-and-set WAL fixture temp directory selection only; no environment value enters semantic history.
+std-fs crates/warp-core/tests/edict_projected_cas_tests.rs compare-and-set WAL fixture owned directory creation and cleanup only.
+std-process crates/warp-core/tests/edict_projected_cas_tests.rs compare-and-set WAL fixture temp directory disambiguation only; process identity never enters operation bytes.
 std-fs crates/warp-core/tests/provider_contract_admission_tests.rs provider invocation restart WAL fixture I/O only.
 std-fs crates/warp-core/tests/trusted_runtime_host_loop_tests.rs trusted runtime filesystem WAL fixture I/O only.
 std-env crates/warp-core/tests/wsc_store_tests.rs WSC filesystem fixture temp directory selection only.

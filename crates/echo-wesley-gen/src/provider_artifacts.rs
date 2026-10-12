@@ -294,6 +294,7 @@ echo-compiler-produced-pure-budget = {
 }
 
 echo-operation-application-result-projection = {
+  ? "application_input_expected_value_digest_path": [* echo-nonempty-tstr],
   "application_input_node_key_path": [* echo-nonempty-tstr],
   "application_input_replacement_path": [* echo-nonempty-tstr],
   "artifact_bytes": bstr,
@@ -334,6 +335,7 @@ echo-operation-semantic-closure = {
 
 echo-operation-lowering-configuration =
   echo-attachment-create-if-absent-lowering-configuration /
+  echo-attachment-compare-and-set-lowering-configuration /
   echo-compiler-produced-bounded-pure-lowering-configuration /
   echo-compiler-produced-bounded-read-lowering-configuration
 
@@ -365,6 +367,27 @@ echo-attachment-create-if-absent-lowering-configuration = {
   },
   maxReplacementBytes: 1..18446744073709551615,
   programKind: "anchored-node-attachment-create-if-absent/v1",
+  requiredAttachmentTypeProfile: echo-nonempty-tstr,
+  requiredNodeTypeProfile: echo-nonempty-tstr,
+}
+
+echo-attachment-compare-and-set-lowering-configuration = {
+  apiVersion: "echo.operation-lowering-configuration/v1",
+  authorityProfile: echo-nonempty-tstr,
+  budgetCeiling: {
+    readBytes: 64..18446744073709551615,
+    steps: 4..18446744073709551615,
+    writeBytes: 64..18446744073709551615,
+  },
+  invocationBinding: {
+    expectedValueDigestField: echo-nonempty-tstr,
+    nodeIdDerivation: "sha256-utf8/v1",
+    nodeKeyField: echo-nonempty-tstr,
+    replacementField: echo-nonempty-tstr,
+    warpIdSource: "action-lane/v1",
+  },
+  maxReplacementBytes: 1..18446744073709551615,
+  programKind: "anchored-node-attachment-compare-and-set/v1",
   requiredAttachmentTypeProfile: echo-nonempty-tstr,
   requiredNodeTypeProfile: echo-nonempty-tstr,
 }

@@ -1163,7 +1163,7 @@ pre_push_feature_string_for_test_target() {
     warp-core:provider_contract_admission_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
-    warp-core:executable_operation_pipeline_tests)
+    warp-core:executable_operation_pipeline_tests|warp-core:edict_projected_cas_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime"
       ;;
     warp-core:installed_contract_registry_tests)

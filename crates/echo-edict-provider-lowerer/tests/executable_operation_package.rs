@@ -14,8 +14,9 @@ use echo_edict_provider_lowerer::{
     SemanticInput, SemanticInputKind,
 };
 use warp_core::{
-    echo_operation_create_if_absent_target_profile_identity_v1, EchoOperationBudgetV1,
-    EchoOperationProgramV1, EchoOperationSemanticClosureV1, ExecutableOperationPackageV1, TypeId,
+    echo_operation_create_if_absent_target_profile_identity_v1,
+    echo_operation_target_profile_identity_v1, EchoOperationBudgetV1, EchoOperationProgramV1,
+    EchoOperationSemanticClosureV1, ExecutableOperationPackageV1, TypeId,
 };
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
@@ -160,6 +161,24 @@ fn generic_lowering_matches_the_independent_warp_core_package_model() {
         assert_eq!(output.kind, LoweringOutputKind::GeneratedArtifact);
         assert_eq!(output.artifact.bytes, expected);
         assert_eq!(output.logical_path, None);
+    }
+}
+
+#[test]
+fn compare_and_set_lowering_matches_the_independent_warp_core_package_model() {
+    for names in [ALPHA, BETA] {
+        let request = fixture_request_with_configuration(names, cas_configuration(names));
+        let expected = expected_package_for(&request, names, true)
+            .to_canonical_bytes()
+            .expect("warp-core encodes the independent compare-and-set package model");
+
+        let success = lower(request).expect("the compare-and-set fixture lowers");
+
+        assert!(success.diagnostics.is_empty());
+        let [output] = success.outputs.as_slice() else {
+            panic!("compare-and-set lowering must emit exactly one package");
+        };
+        assert_eq!(output.artifact.bytes, expected);
     }
 }
 
@@ -637,6 +656,14 @@ fn fixture_request_with_configuration(
         "edict.lawpack-exports/v1",
         canonical_bytes(&exports(names)),
     );
+    let is_cas = is_compare_and_set(&configuration_value);
+    let select_profile = |value| {
+        if is_cas {
+            cas_profile_value(value)
+        } else {
+            value
+        }
+    };
     let configuration = bound(
         names.configuration,
         "echo.operation-lowering-configuration/v1",
@@ -645,7 +672,7 @@ fn fixture_request_with_configuration(
     let adapter = bound(
         names.adapter,
         "edict.lawpack-adapter/v1",
-        canonical_bytes(&adapter(names, &configuration)),
+        canonical_bytes(&select_profile(adapter(names, &configuration))),
     );
     let lawpack = bound(
         names.lawpack,
@@ -655,7 +682,7 @@ fn fixture_request_with_configuration(
     let core = bound(
         names.application,
         "edict.core.module/v1",
-        canonical_bytes(&core(names)),
+        canonical_bytes(&select_profile(core(names))),
     );
     let source = bound(
         names.application,
@@ -676,7 +703,12 @@ fn fixture_request_with_configuration(
     let target_ir = bound(
         "echo.span-ir/v1",
         "edict.target-ir.artifact/v1",
-        canonical_bytes(&target_ir(names, &core, &lawpack, &target_profile)),
+        canonical_bytes(&select_profile(target_ir(
+            names,
+            &core,
+            &lawpack,
+            &target_profile,
+        ))),
     );
     let result_projection = bound(
         &format!("{}.{}", names.application, names.intent),
@@ -853,6 +885,58 @@ fn exports(names: FixtureNames<'_>) -> CanonicalValueV1 {
 
 fn configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
     configuration_with_fields(names, "key", "value")
+}
+
+const CAS_PROGRAM_KIND: &str = "anchored-node-attachment-compare-and-set/v1";
+
+fn cas_configuration(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    let CanonicalValueV1::Map(mut entries) = configuration(names) else {
+        panic!("configuration map");
+    };
+    for (key, value) in &mut entries {
+        if key == &text("programKind") {
+            *value = text(CAS_PROGRAM_KIND);
+        }
+        if key == &text("invocationBinding") {
+            let CanonicalValueV1::Map(bindings) = value else {
+                panic!("binding map");
+            };
+            bindings.push((text("expectedValueDigestField"), text("expected")));
+        }
+    }
+    CanonicalValueV1::Map(entries)
+}
+
+fn is_compare_and_set(configuration: &CanonicalValueV1) -> bool {
+    let CanonicalValueV1::Map(entries) = configuration else {
+        return false;
+    };
+    entries
+        .iter()
+        .any(|(key, value)| key == &text("programKind") && value == &text(CAS_PROGRAM_KIND))
+}
+
+fn cas_profile_value(value: CanonicalValueV1) -> CanonicalValueV1 {
+    match value {
+        CanonicalValueV1::Text(text_value) => text(match text_value.as_str() {
+            "continuum.profile.create/v1" => "continuum.profile.write/v1",
+            "echo.dpo@1.anchored-node-attachment-create-if-absent" => {
+                "echo.dpo@1.anchored-node-attachment-compare-and-set"
+            }
+            "create" => "replace",
+            _ => return CanonicalValueV1::Text(text_value),
+        }),
+        CanonicalValueV1::Map(entries) => CanonicalValueV1::Map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key, cas_profile_value(value)))
+                .collect(),
+        ),
+        CanonicalValueV1::Array(values) => {
+            CanonicalValueV1::Array(values.into_iter().map(cas_profile_value).collect())
+        }
+        other => other,
+    }
 }
 
 fn configuration_with_fields(
@@ -1190,6 +1274,14 @@ fn expected_package(
     request: &LoweringRequestV1,
     names: FixtureNames<'_>,
 ) -> ExecutableOperationPackageV1 {
+    expected_package_for(request, names, false)
+}
+
+fn expected_package_for(
+    request: &LoweringRequestV1,
+    names: FixtureNames<'_>,
+    compare_and_set: bool,
+) -> ExecutableOperationPackageV1 {
     let input = |kind: &SemanticInputKind| {
         &request
             .semantic_inputs
@@ -1206,7 +1298,9 @@ fn expected_package(
         "result-projection".to_owned(),
     ));
     let core_identity = hash(&request.core.reference.digest);
-    ExecutableOperationPackageV1::new(
+    let node_type = TypeId(profile_digest(names.node_type));
+    let attachment_type = TypeId(profile_digest(names.attachment_type));
+    let package = ExecutableOperationPackageV1::new(
         format!("{}.{}", names.application, names.intent),
         names.obstruction,
         EchoOperationSemanticClosureV1::new(
@@ -1219,22 +1313,50 @@ fn expected_package(
             &lawpack.reference.coordinate,
             hash(&lawpack.reference.digest),
         ),
-        echo_operation_create_if_absent_target_profile_identity_v1(),
+        if compare_and_set {
+            echo_operation_target_profile_identity_v1()
+        } else {
+            echo_operation_create_if_absent_target_profile_identity_v1()
+        },
         profile_digest(names.authority),
         EchoOperationBudgetV1::new(16, 64, 320),
-        EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
-            TypeId(profile_digest(names.node_type)),
-            TypeId(profile_digest(names.attachment_type)),
-            256,
-        ),
-    )
-    .with_application_result_projection(
-        result_projection.artifact.bytes.clone(),
-        hash(&result_projection.reference.digest),
-        vec!["key".to_owned()],
-        vec!["value".to_owned()],
-        &canonical_bytes(&runtime_result_expression()),
-    )
+        if compare_and_set {
+            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                node_type,
+                attachment_type,
+                256,
+            )
+        } else {
+            EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+                node_type,
+                attachment_type,
+                256,
+            )
+        },
+    );
+    let artifact_bytes = result_projection.artifact.bytes.clone();
+    let artifact_identity = hash(&result_projection.reference.digest);
+    let key_path = vec!["key".to_owned()];
+    let replacement_path = vec!["value".to_owned()];
+    let expression = canonical_bytes(&runtime_result_expression());
+    if compare_and_set {
+        package.with_compare_and_set_application_result_projection(
+            artifact_bytes,
+            artifact_identity,
+            key_path,
+            replacement_path,
+            vec!["expected".to_owned()],
+            &expression,
+        )
+    } else {
+        package.with_application_result_projection(
+            artifact_bytes,
+            artifact_identity,
+            key_path,
+            replacement_path,
+            &expression,
+        )
+    }
     .expect("the independent package model accepts the fixture projection")
 }
 

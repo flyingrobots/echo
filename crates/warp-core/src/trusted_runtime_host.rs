@@ -15,6 +15,7 @@ use std::{
 use thiserror::Error;
 
 mod observed_context;
+mod retained_strands;
 pub use observed_context::EchoOperationContextErrorV1;
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
@@ -165,6 +166,12 @@ impl From<RuntimeError> for TrustedRuntimeHostError {
 /// Error returned by the trusted runtime WAL adapter.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TrustedRuntimeWalError {
+    /// Retained operation contexts could not be validated.
+    #[error("trusted runtime WAL context error: {0}")]
+    OperationContext(#[from] EchoOperationContextErrorV1),
+    /// An earlier append must be reconciled before another can reach storage.
+    #[error("trusted runtime WAL writer prefix requires reconciliation")]
+    UncertainWriterPrefix,
     /// WAL transaction construction failed before storage append.
     #[error("trusted runtime WAL transaction build error: {0}")]
     Build(#[from] WalBuildError),
@@ -1335,24 +1342,30 @@ impl TrustedRuntimeHost {
         config: TrustedRuntimeWalConfig,
     ) -> Result<(), TrustedRuntimeHostError> {
         let runtime_wal = TrustedRuntimeWal::from_config(config)?;
-        let recovery = runtime_wal.recover_read_only()?;
+        let mut recovery = runtime_wal.recover_read_only()?;
         if let Some(submission_id) = recovery.missing_submission_envelopes.first().copied() {
             return Err(TrustedRuntimeWalError::SubmissionEnvelopeMissing { submission_id }.into());
         }
         if let Some(receipt_digest) = recovery.missing_runtime_state_deltas.first().copied() {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaMissing { receipt_digest }.into());
         }
-        ensure_runtime_authority_is_durable(
+        let (forked_runtime, forked_provenance) = retained_strands::restore(
             &self.runtime,
             &self.provenance,
+            &runtime_wal,
+            &mut recovery,
+        )?;
+        ensure_runtime_authority_is_durable(
+            &forked_runtime,
+            &forked_provenance,
             &self.engine,
             &recovery,
         )?;
         self.engine
             .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
 
-        let mut restored_runtime = self.runtime.clone();
-        let mut restored_provenance = self.provenance.clone();
+        let mut restored_runtime = forked_runtime;
+        let mut restored_provenance = forked_provenance;
         restored_runtime
             .restore_witnessed_submission_persistence(recovery.witnessed_submissions)?;
         restore_provenance_entries(&mut restored_provenance, &recovery.provenance_entries)?;
@@ -2450,6 +2463,8 @@ impl CausalAnchorClaimProjection {
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Debug)]
 pub struct TrustedRuntimeWal {
+    // Derived from a validated committed prefix; None after any uncertain append.
+    operation_context_index: Option<(Hash, observed_context::Contexts)>,
     store: TrustedRuntimeWalStore,
     evidence_catalog: Option<crate::evidence::CausalSegmentCatalog>,
     evidence_catalog_posture: EvidenceCatalogPosture,
@@ -2494,6 +2509,7 @@ impl TrustedRuntimeWal {
         let mut store = TrustedRuntimeWalStore::open(store)?;
         let recovery_report = store.recover_for_writer()?;
         let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
+        let contexts = observed_context::Contexts::from_recovery(&recovery_report)?;
         let durable_submission_acceptances = recover_submission_index(&recovery_report)
             .map_err(WalRecoveryError::from)?
             .entries()
@@ -2513,6 +2529,10 @@ impl TrustedRuntimeWal {
         let writer_epoch = writer_epoch.epoch_id;
         let durability_mode = store.durability_mode();
         Ok(Self {
+            operation_context_index: Some((
+                recovered_cursor.previous_committed_transaction_digest,
+                contexts,
+            )),
             store,
             writer_epoch,
             segment_id: WalSegmentId::from_raw(1),
@@ -2576,6 +2596,7 @@ impl TrustedRuntimeWal {
     fn in_memory_rollback_snapshot(&self) -> Option<Self> {
         Some(Self {
             store: TrustedRuntimeWalStore::InMemory(self.store.cloned_in_memory_store()?),
+            operation_context_index: self.operation_context_index.clone(),
             evidence_catalog: self.evidence_catalog.clone(),
             evidence_catalog_posture: self.evidence_catalog_posture.clone(),
             #[cfg(any(test, feature = "host_test"))]
@@ -2815,7 +2836,9 @@ impl TrustedRuntimeWal {
     }
 
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        self.operation_context_index = None;
         let report = self.store.recover_for_writer()?;
+        let contexts = observed_context::Contexts::from_recovery(&report)?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
         let durable_submission_acceptances = recover_submission_index(&report)
             .map_err(WalRecoveryError::from)?
@@ -2850,6 +2873,7 @@ impl TrustedRuntimeWal {
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
         self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
         self.durable_submission_acceptances = durable_submission_acceptances;
+        self.operation_context_index = Some((self.previous_committed_transaction_digest, contexts));
         Ok(())
     }
 
@@ -3291,7 +3315,19 @@ impl TrustedRuntimeWal {
         let last_good_commit = self.previous_committed_transaction_digest;
         let commit = transaction.commit.clone();
         let frames = transaction.frames.clone();
+        // Take the candidate out of circulation before storage can fail. Apply
+        // only the new records, then publish it after durable acknowledgement.
+        // A transaction built from an uncertain cursor never reaches storage.
+        let (prefix, mut contexts) = self
+            .operation_context_index
+            .take()
+            .ok_or(TrustedRuntimeWalError::UncertainWriterPrefix)?;
+        if prefix != self.previous_committed_transaction_digest {
+            return Err(TrustedRuntimeWalError::UncertainWriterPrefix);
+        }
+        contexts.apply_frames(&frames)?;
         self.store.append_transaction(transaction)?;
+        self.operation_context_index = Some((commit.commit_digest, contexts));
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         self.previous_committed_transaction_digest = commit.commit_digest;
@@ -4922,7 +4958,9 @@ fn evaluation_basis_matches_recovered_coordinate(
             crate::WorldlineTick::from_raw(parent_tick),
         ))
         .is_some_and(|parent| {
-            parent.head_key == Some(basis.writer_head())
+            // A native fork preserves the source writer's head in its copied
+            // prefix. The next writer need not have authored the parent commit.
+            parent.worldline_id == basis.writer_head().worldline_id
                 && parent.expected.state_root == basis.state_root()
                 && parent.expected.commit_hash == basis.commit_id()
                 && basis.commit_global_tick() == Some(parent.commit_global_tick)
@@ -7116,6 +7154,15 @@ mod tests {
         ));
 
         let mut wrong_root = parent.clone();
+        let mut other_writer = parent.clone();
+        other_writer.head_key = Some(crate::WriterHeadKey {
+            worldline_id: parent.worldline_id,
+            head_id: crate::make_head_id("original-fork-writer"),
+        });
+        assert!(evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &BTreeMap::from([(parent_coordinate, &other_writer)])
+        ));
         wrong_root.expected.state_root = [39; 32];
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());

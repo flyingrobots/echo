@@ -1333,6 +1333,165 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
 }
 
 #[test]
+fn healthy_contexts_advance_without_reconstructing_the_wal() {
+    let root = temp_runtime_wal_dir("context-steady-prefix");
+    let (runtime, lane, _) = runtime_pair();
+    let node = *runtime
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    let head = WriterHeadKey {
+        worldline_id: lane,
+        head_id: make_head_id("default-a"),
+    };
+    let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("WAL");
+    let before = warp_core::causal_wal::filesystem_recovery_work();
+    for i in 0..8 {
+        let attempt = format!("attempt-{i}");
+        let observation = host
+            .retain_echo_operation_observation_v1(&attempt, head, &[node])
+            .expect("capture");
+        assert_eq!(
+            host.echo_operation_observation_v1(&attempt)
+                .expect("reading"),
+            observation
+        );
+        let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
+        let original = host
+            .bind_echo_operation_request_v1(&attempt, &attempt, invocation.clone())
+            .expect("bind");
+        assert_eq!(
+            host.bind_echo_operation_request_v1(&attempt, &attempt, invocation)
+                .expect("retry"),
+            original
+        );
+    }
+    let after = warp_core::causal_wal::filesystem_recovery_work();
+    assert_eq!(
+        after, before,
+        "healthy operations rescanned committed records"
+    );
+}
+
+#[test]
+fn context_append_failure_reconciles_the_actual_committed_prefix() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ] {
+        let root = temp_runtime_wal_dir("context-uncertain-prefix");
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("fault");
+        assert!(host
+            .retain_echo_operation_observation_v1("uncertain", head, &[node])
+            .is_err());
+        let committed = target == FilesystemWalFaultTarget::CommitMarkerSynced;
+        assert_eq!(
+            host.echo_operation_observation_v1("uncertain").is_ok(),
+            committed
+        );
+        let retry = host.retain_echo_operation_observation_v1("uncertain", head, &[node]);
+        assert_eq!(
+            retry.is_err(),
+            committed,
+            "durable observation cannot be replaced"
+        );
+        host.retain_echo_operation_observation_v1("next", head, &[node])
+            .expect("reconciled append");
+        let report = host
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("valid retained prefix");
+        assert_eq!(report.certificate.committed_transactions_replayed, 2);
+        assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    }
+}
+
+#[test]
+fn durable_request_error_resolves_original_bytes_before_retrying() {
+    let root = temp_runtime_wal_dir("request-uncertain-prefix");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    let observation = host
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .expect("observation");
+    let invocation = |value: &[u8]| {
+        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, value.to_vec(), vec![0xa0])
+    };
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .is_err());
+    // The caller did not see success, but the semantic identity is already fixed.
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    let scans = warp_core::causal_wal::filesystem_recovery_work();
+    let bytes = host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .expect("resolve durable request");
+    assert_eq!(scans, warp_core::causal_wal::filesystem_recovery_work());
+    assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    drop(host);
+    let (mut recovered, _, _) = reopen();
+    assert_eq!(
+        recovered
+            .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+            .expect("original after reopen"),
+        bytes
+    );
+    assert!(recovered
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    assert_eq!(recovered.runtime_wal().expect("WAL").commits().len(), 2);
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
     let wal_root = temp_runtime_wal_dir("tail-report");
     let (runtime, worldline_id) = runtime();
@@ -2577,4 +2736,307 @@ fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
 
     drop(host);
     fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
+}
+
+#[test]
+fn retained_native_fork_recovers_prefix_and_refuses_missing_source() {
+    let root = temp_runtime_wal_dir("retained-native-fork");
+    let (rt, lane) = runtime();
+    let head = rt.heads().iter().next().expect("head").0.to_owned();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("wal");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .is_err());
+    host.register_contract_package(package()).expect("package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+        .expect("stage");
+    host.run_until_idle(4).expect("commit");
+    let child = host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .expect("native fork");
+    let fork = host
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("strand")
+        .fork_basis_ref();
+    let before = host.runtime_wal().expect("wal").commits().len();
+    assert_eq!(
+        host.fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry"),
+        child
+    );
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before);
+    assert!(host.fork_local_operation_strand_v1(head, "").is_err());
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("native topology replay");
+    let recovered = restored
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("retained strand");
+    assert_eq!(recovered.fork_basis_ref(), fork);
+    assert_eq!(recovered.writer_heads(), &[child]);
+    assert_eq!(
+        restored
+            .provenance()
+            .entry(child.worldline_id, fork.fork_tick)
+            .expect("prefix")
+            .expected
+            .commit_hash,
+        fork.commit_hash
+    );
+}
+
+#[test]
+fn retained_fork_retry_reconciles_uncertain_commit_before_reopening() {
+    for target in [
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let root = temp_runtime_wal_dir("retained-fork-uncertain");
+        let (rt, lane) = runtime();
+        let head = *rt.heads().iter().next().expect("head").0;
+        let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("wal");
+        host.register_contract_package(package()).expect("package");
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+            .expect("submit");
+        host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+            .expect("stage");
+        host.run_until_idle(4).expect("source commit");
+        let before = host.runtime_wal().expect("wal").commits().len();
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("fault");
+        assert!(host
+            .fork_local_operation_strand_v1(head, "candidate")
+            .is_err());
+        let child = host
+            .fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry original retained fork");
+        assert_eq!(
+            host.runtime_wal().expect("wal").commits().len(),
+            before + 1,
+            "retry must retain exactly one fork transaction"
+        );
+        let fork = host
+            .runtime()
+            .strands()
+            .find_by_child_worldline(&child.worldline_id)
+            .expect("fork")
+            .fork_basis_ref();
+        drop(host);
+        let (rt, _) = runtime();
+        let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        restored
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("one retained fork reopens");
+        assert_eq!(
+            restored
+                .fork_local_operation_strand_v1(head, "candidate")
+                .expect("reopened retry"),
+            child
+        );
+        assert_eq!(
+            restored
+                .runtime()
+                .strands()
+                .find_by_child_worldline(&child.worldline_id)
+                .expect("retained fork")
+                .fork_basis_ref(),
+            fork
+        );
+        assert_eq!(
+            restored.runtime_wal().expect("wal").commits().len(),
+            before + 1
+        );
+        drop(restored);
+        fs::remove_dir_all(root).expect("owned fixture cleanup");
+    }
+}
+
+fn retained_fork_source_fixture(
+    root: &std::path::Path,
+) -> (TrustedRuntimeHost, WriterHeadKey, WorldlineId) {
+    let (rt, lane) = runtime();
+    let head = *rt.heads().iter().next().expect("head").0;
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(root))
+        .expect("wal");
+    host.register_contract_package(package()).expect("package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+        .expect("stage");
+    host.run_until_idle(4).expect("source commit");
+    (host, head, lane)
+}
+
+#[test]
+fn retained_fork_pending_basis_survives_parent_advance_and_different_label() {
+    let root = temp_runtime_wal_dir("retained-fork-parent-advance");
+    let (mut host, head, lane) = retained_fork_source_fixture(&root);
+    let original = host
+        .provenance()
+        .tip_ref(lane)
+        .expect("tip")
+        .expect("source");
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "original")
+        .is_err());
+    // A context write reconciles append permission without exposing topology.
+    let node = *host
+        .runtime()
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    host.retain_echo_operation_observation_v1("parent-write-permission", head, &[node])
+        .expect("writer prefix reconciled");
+    assert_eq!(host.runtime().strands().len(), 0);
+    let parent_receipt = host
+        .runtime()
+        .receipt_correlations()
+        .next()
+        .expect("source receipt")
+        .causal_receipt_ref;
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(causal_eint_envelope(lane, vec![parent_receipt]))
+        .expect("advance submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(18))
+        .expect("advance stage");
+    host.run_until_idle(4).expect("parent advance");
+    let latest = host
+        .provenance()
+        .tip_ref(lane)
+        .expect("tip")
+        .expect("advanced source");
+    assert!(latest.worldline_tick > original.worldline_tick);
+    let before = host.runtime_wal().expect("wal").commits().len();
+    let fresh = host
+        .fork_local_operation_strand_v1(head, "fresh")
+        .expect("different label");
+    let old = host
+        .fork_local_operation_strand_v1(head, "original")
+        .expect("original retry");
+    assert_ne!(old, fresh);
+    assert_eq!(host.runtime().strands().len(), 2);
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before + 1);
+    let basis = host
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&old.worldline_id)
+        .expect("old fork")
+        .fork_basis_ref();
+    assert_eq!(
+        (basis.fork_tick, basis.commit_hash),
+        (original.worldline_tick, original.commit_hash)
+    );
+    assert_eq!(
+        host.runtime()
+            .strands()
+            .find_by_child_worldline(&fresh.worldline_id)
+            .expect("fresh fork")
+            .fork_basis_ref()
+            .fork_tick,
+        latest.worldline_tick
+    );
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("both forks reopen");
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "original")
+            .expect("original"),
+        old
+    );
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "fresh")
+            .expect("fresh"),
+        fresh
+    );
+    assert_eq!(
+        restored
+            .runtime()
+            .strands()
+            .find_by_child_worldline(&old.worldline_id)
+            .expect("old")
+            .fork_basis_ref(),
+        basis
+    );
+    drop(restored);
+    fs::remove_dir_all(root).expect("owned fixture cleanup");
+}
+
+#[test]
+fn retained_fork_pending_commit_counts_against_capacity_before_new_label() {
+    let root = temp_runtime_wal_dir("retained-fork-capacity");
+    let (mut host, head, _) = retained_fork_source_fixture(&root);
+    for index in 0..63 {
+        host.fork_local_operation_strand_v1(head, &format!("visible-{index}"))
+            .expect("visible fork");
+    }
+    let before = host.runtime_wal().expect("wal").commits().len();
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "pending")
+        .is_err());
+    assert_eq!(host.runtime().strands().len(), 63);
+    assert!(host
+        .fork_local_operation_strand_v1(head, "sixty-fifth")
+        .is_err());
+    assert_eq!(host.runtime().strands().len(), 64);
+    let pending = host
+        .fork_local_operation_strand_v1(head, "pending")
+        .expect("pending retry");
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before + 1);
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("64 forks reopen");
+    assert_eq!(restored.runtime().strands().len(), 64);
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "pending")
+            .expect("pending"),
+        pending
+    );
+    assert!(restored
+        .fork_local_operation_strand_v1(head, "sixty-fifth")
+        .is_err());
+    drop(restored);
+    fs::remove_dir_all(root).expect("owned fixture cleanup");
 }

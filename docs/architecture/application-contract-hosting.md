@@ -191,7 +191,12 @@ The native lowerer and independent verifier select the CAS program from an exact
 `continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
 write class. Its configuration requires a distinct `expectedValueDigestField`
 and at least four steps; the package binds the corresponding input path and
-CAS-specific profile identities. The verifier reconstructs these bytes and
+CAS-specific profile identities. The 64-byte `readBytes` floor covers only the
+two digest reads: evaluation also charges the current value's length, so a
+ceiling of exactly 64 can update only an empty value. An author sizes the
+ceiling as 64 plus the largest value the operation must replace. Package
+admission refuses an expected-digest path that is empty or that overlaps the
+key or replacement path. The verifier reconstructs these bytes and
 rejects a substituted digest path. Native refusal witnesses use synthetic semantic closures. The generated schema
 and reproducible checked components also admit a real public Edict compiler build;
 its exact source, executable package and accepted report are retained under

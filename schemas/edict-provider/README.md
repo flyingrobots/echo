@@ -192,7 +192,8 @@ A supported guarded runner is tracked separately in
 
 The generated provider schema admits the existing anchored create-if-absent
 configuration, the anchored compare-and-set configuration with its distinct
-`expectedValueDigestField`, and the exact two-field
+`expectedValueDigestField` (its 64-byte `readBytes` minimum excludes the current
+value's length, which evaluation also charges), and the exact two-field
 `compiler-produced-bounded-pure/v1` configuration. The latter contains no
 application coordinate or policy choice. The checked lowerer now emits the
 distinct generic pure package and the checked independent verifier reconstructs

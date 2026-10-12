@@ -1166,6 +1166,17 @@ impl EchoOperationApplicationResultProjectionV1 {
                 "result projection input bindings must be distinct",
             ));
         }
+        if let Some(path) = &expected_digest_path {
+            // Zipping stops at the shorter path, so equality of every pair
+            // means one binding is a prefix of the other.
+            let overlaps =
+                |other: &[String]| path.iter().zip(other).all(|(left, right)| left == right);
+            if path.is_empty() || overlaps(&node_key_path) || overlaps(&replacement_path) {
+                return Err(invalid_structure(
+                    "expected digest binding must be a nonempty path disjoint from the key and replacement bindings",
+                ));
+            }
+        }
         let mut runtime_nodes = 0;
         let runtime_expression = EchoOperationResultExpressionV1::from_runtime_value(
             take_field(&mut fields, "runtime_expression")?,
@@ -1770,28 +1781,90 @@ impl ExecutableOperationPackageV1 {
     /// malformed or mutually inconsistent.
     #[allow(clippy::too_many_arguments)]
     pub fn with_application_result_projection(
-        mut self,
+        self,
         artifact_bytes: Vec<u8>,
         artifact_identity: Hash,
         application_input_node_key_path: Vec<String>,
         application_input_replacement_path: Vec<String>,
         canonical_runtime_expression_bytes: &[u8],
     ) -> Result<Self, EchoOperationArtifactErrorV1> {
+        self.with_projection_bindings(
+            artifact_bytes,
+            artifact_identity,
+            application_input_node_key_path,
+            application_input_replacement_path,
+            None,
+            canonical_runtime_expression_bytes,
+        )
+    }
+
+    /// Adds one compiler-owned application-result projection whose application
+    /// input also carries the compare-and-set expected value digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured artifact failure when either canonical artifact,
+    /// its identity, the bounded input paths, or the runtime expression is
+    /// malformed or mutually inconsistent.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_compare_and_set_application_result_projection(
+        self,
+        artifact_bytes: Vec<u8>,
+        artifact_identity: Hash,
+        application_input_node_key_path: Vec<String>,
+        application_input_replacement_path: Vec<String>,
+        application_input_expected_value_digest_path: Vec<String>,
+        canonical_runtime_expression_bytes: &[u8],
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
+        self.with_projection_bindings(
+            artifact_bytes,
+            artifact_identity,
+            application_input_node_key_path,
+            application_input_replacement_path,
+            Some(application_input_expected_value_digest_path),
+            canonical_runtime_expression_bytes,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn with_projection_bindings(
+        mut self,
+        artifact_bytes: Vec<u8>,
+        artifact_identity: Hash,
+        application_input_node_key_path: Vec<String>,
+        application_input_replacement_path: Vec<String>,
+        application_input_expected_value_digest_path: Option<Vec<String>>,
+        canonical_runtime_expression_bytes: &[u8],
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let runtime_expression = decode_canonical_cbor_v1(canonical_runtime_expression_bytes)
             .map_err(canonical_error)?;
-        let projection = EchoOperationApplicationResultProjectionV1::from_value(map_value([
+        let mut fields = vec![
             (
-                "application_input_node_key_path",
+                text_value("application_input_node_key_path"),
                 projection_path_value(&application_input_node_key_path),
             ),
             (
-                "application_input_replacement_path",
+                text_value("application_input_replacement_path"),
                 projection_path_value(&application_input_replacement_path),
             ),
-            ("artifact_bytes", CanonicalValueV1::Bytes(artifact_bytes)),
-            ("artifact_identity", hash_value(artifact_identity)),
-            ("runtime_expression", runtime_expression),
-        ]))?;
+            (
+                text_value("artifact_bytes"),
+                CanonicalValueV1::Bytes(artifact_bytes),
+            ),
+            (
+                text_value("artifact_identity"),
+                hash_value(artifact_identity),
+            ),
+            (text_value("runtime_expression"), runtime_expression),
+        ];
+        if let Some(path) = &application_input_expected_value_digest_path {
+            fields.push((
+                text_value("application_input_expected_value_digest_path"),
+                projection_path_value(path),
+            ));
+        }
+        let projection =
+            EchoOperationApplicationResultProjectionV1::from_value(CanonicalValueV1::Map(fields))?;
         if projection.operation_coordinate != self.operation_coordinate {
             return Err(invalid_structure(
                 "result projection operation differs from the package operation",
@@ -2894,6 +2967,40 @@ impl EchoOperationInvocationV1 {
             },
             replacement_bytes,
             application_input_bytes: None,
+            observation: None,
+        }
+    }
+
+    /// Creates a projected compare-and-set invocation with exact canonical
+    /// application input retained for scheduler-owned result evaluation.
+    ///
+    /// Static admission requires the package-bound input path to carry the
+    /// same expected value digest.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn anchored_node_attachment_compare_and_set_with_application_input(
+        package_id: EchoOperationPackageIdV1,
+        operation_coordinate: impl Into<String>,
+        evaluation_basis: EchoOperationEvaluationBasisV1,
+        authority_grant_identity: Hash,
+        delegated_budget: EchoOperationBudgetV1,
+        node: NodeKey,
+        expected_value_digest: Hash,
+        replacement_bytes: Vec<u8>,
+        canonical_application_input_bytes: Vec<u8>,
+    ) -> Self {
+        Self {
+            package_id,
+            operation_coordinate: operation_coordinate.into(),
+            evaluation_basis,
+            authority_grant_identity,
+            delegated_budget,
+            node,
+            kind: EchoOperationInvocationKindV1::AnchoredNodeAttachmentCompareAndSet {
+                expected_value_digest,
+            },
+            replacement_bytes,
+            application_input_bytes: Some(canonical_application_input_bytes),
             observation: None,
         }
     }
@@ -7733,6 +7840,83 @@ mod tests {
             assert_eq!(
                 error.kind(),
                 EchoOperationAdmissionErrorKindV1::ArtifactInvalid
+            );
+            assert_eq!(
+                error.artifact().expect("artifact failure").kind(),
+                EchoOperationArtifactErrorKindV1::InvalidStructure
+            );
+        }
+    }
+
+    #[test]
+    fn package_admission_rejects_empty_or_overlapping_expected_digest_paths() {
+        let (installed, _, _, _, _, _) = projected_create_fixture(1_024);
+        let create =
+            ExecutableOperationPackageV1::from_canonical_bytes(installed.canonical_package_bytes())
+                .expect("valid create package");
+        let mut package = ExecutableOperationPackageV1::new(
+            create.operation_coordinate.clone(),
+            create.obstruction_coordinate.clone(),
+            create.semantic_closure.clone(),
+            echo_operation_target_profile_identity_v1(),
+            create.authority_profile_identity,
+            create.budget_ceiling,
+            EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+                crate::make_type_id("projected-created-node"),
+                crate::make_type_id("projected-created-atom"),
+                1_024,
+            ),
+        );
+        let mut projection = create
+            .application_result_projection
+            .clone()
+            .expect("projection");
+        let key_path = projection.application_input_node_key_path.clone();
+        let replacement_path = projection.application_input_replacement_path.clone();
+        projection.application_input_expected_value_digest_path = Some(vec!["expected".to_owned()]);
+        package.application_result_projection = Some(projection);
+        let valid = package.to_canonical_bytes().expect("valid package encodes");
+        let policy_for = |bytes: &[u8]| {
+            EchoOperationAdmissionPolicyV1::exact(
+                echo_operation_package_id_v1(bytes),
+                package.operation_coordinate.clone(),
+                package.authority_profile_identity,
+                package.budget_ceiling,
+            )
+        };
+        admit_package_v1(&policy_for(&valid), valid.clone()).expect("disjoint digest path admits");
+        let inside = |path: &[String]| {
+            let mut extended = path.to_vec();
+            extended.push("inner".to_owned());
+            extended
+        };
+        let digest_key = text_value("application_input_expected_value_digest_path");
+        for path in [Vec::new(), inside(&key_path), inside(&replacement_path)] {
+            let CanonicalValueV1::Map(mut fields) =
+                decode_canonical_cbor_v1(&valid).expect("package")
+            else {
+                panic!("package map")
+            };
+            let (_, CanonicalValueV1::Map(projection)) = fields
+                .iter_mut()
+                .find(|(key, _)| key == &text_value("application_result_projection"))
+                .expect("projection field")
+            else {
+                panic!("projection map")
+            };
+            for (name, value) in projection.iter_mut() {
+                if name == &digest_key {
+                    *value = projection_path_value(&path);
+                }
+            }
+            let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
+                .expect("invalid package encodes");
+            let error = admit_package_v1(&policy_for(&invalid), invalid)
+                .expect_err("an unusable digest path must refuse before installation");
+            assert_eq!(
+                error.kind(),
+                EchoOperationAdmissionErrorKindV1::ArtifactInvalid,
+                "{path:?}"
             );
             assert_eq!(
                 error.artifact().expect("artifact failure").kind(),

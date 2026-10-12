@@ -6,7 +6,8 @@
 
 use bytes::Bytes;
 use echo_edict_canonical::{
-    decode_canonical_cbor_v1, encode_canonical_cbor_v1, CanonicalValueV1 as Value,
+    decode_canonical_cbor_v1, digest_canonical_value_bytes_v1, encode_canonical_cbor_v1,
+    CanonicalValueV1 as Value,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -217,7 +218,16 @@ impl Fixture {
                 ),
             )
             .expect("current causal basis");
-        let legacy = EchoOperationInvocationV1::anchored_node_attachment_compare_and_set(
+        let input = encode_canonical_cbor_v1(&map(&[
+            ("basis", Value::Text("explicit".into())),
+            ("key", Value::Text(KEY.into())),
+            ("expected", Value::Bytes(input_expected.to_vec())),
+            ("message", Value::Text(replacement.into())),
+        ]))
+        .expect("input");
+        // The package itself is the exact compiler output, with no test-side
+        // rewriting; the invocation uses the public projected constructor.
+        EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input(
             echo_operation_package_id_v1(&package()),
             OPERATION,
             basis,
@@ -226,35 +236,10 @@ impl Fixture {
             self.node,
             expected,
             replacement.as_bytes().to_vec(),
+            input,
         )
         .to_canonical_bytes()
-        .expect("invocation");
-        // Encode the public projected wire form as a client would. The package
-        // itself is the exact compiler output, with no test-side rewriting.
-        let Value::Map(mut fields) =
-            decode_canonical_cbor_v1(&legacy).expect("canonical invocation")
-        else {
-            panic!("invocation map")
-        };
-        for (key, value) in &mut fields {
-            if key == &Value::Text("schema".into()) {
-                *value = Value::Text(
-                    "echo.operation-invocation.anchored-node-alpha-cas-projected/v1".into(),
-                );
-            }
-        }
-        let input = encode_canonical_cbor_v1(&map(&[
-            ("basis", Value::Text("explicit".into())),
-            ("key", Value::Text(KEY.into())),
-            ("expected", Value::Bytes(input_expected.to_vec())),
-            ("message", Value::Text(replacement.into())),
-        ]))
-        .expect("input");
-        fields.push((
-            Value::Text("application_input_bytes".into()),
-            Value::Bytes(input),
-        ));
-        encode_canonical_cbor_v1(&Value::Map(fields)).expect("projected invocation")
+        .expect("projected invocation")
     }
 }
 fn map(fields: &[(&str, Value)]) -> Value {
@@ -265,6 +250,39 @@ fn map(fields: &[(&str, Value)]) -> Value {
             .collect(),
     )
 }
+fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
+    let Value::Map(entries) = value else {
+        panic!("{name} must be read from a map")
+    };
+    entries
+        .iter()
+        .find_map(|(key, entry)| (key == &Value::Text(name.into())).then_some(entry))
+        .expect("field exists")
+}
+
+#[test]
+fn compiler_cas_report_accepts_exactly_the_retained_package() {
+    let report = decode_canonical_cbor_v1(
+        &hex::decode(include_str!("../../echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/built/verification-report.cbor.hex").trim())
+            .expect("report hex"),
+    )
+    .expect("report CBOR");
+    let package_digest = digest_canonical_value_bytes_v1(
+        "echo.operation-package/v1",
+        &decode_canonical_cbor_v1(&package()).expect("package CBOR"),
+    )
+    .expect("package digest");
+    assert_eq!(field(&report, "outcome"), &Value::Text("accepted".into()));
+    assert_eq!(field(&report, "diagnosticBytes"), &Value::Bytes(vec![]));
+    assert_eq!(
+        field(field(&report, "package"), "digest"),
+        &Value::Array(vec![
+            Value::Text("sha256".into()),
+            Value::Bytes(package_digest.into())
+        ])
+    );
+}
+
 fn initial_digest() -> [u8; 32] {
     echo_operation_atom_value_digest_v1(attachment_type(), INITIAL)
 }

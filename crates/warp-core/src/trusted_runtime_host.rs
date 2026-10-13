@@ -10,6 +10,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use thiserror::Error;
@@ -2077,6 +2078,9 @@ impl TrustedRuntimeHost {
                 &self.echo_operation_evaluation_authority,
             )?;
         let mut tick_wal_records = Vec::new();
+        // Every correlation of one commit retains the same state delta. Build
+        // and digest it once per commit, not once per admitted Action.
+        let mut shared_state_delta = None;
         if self.runtime_wal.is_some() {
             for correlation in new_correlations {
                 let decision = match wal_tick_decision_from_observation(
@@ -2096,9 +2100,26 @@ impl TrustedRuntimeHost {
                         return Err(error.into());
                     }
                 };
-                let (state_delta, state_delta_digest) =
-                    match retained_state_delta_for_correlation(&self.provenance, &correlation) {
-                        Ok(state_delta) => state_delta,
+                let state_delta_key = (
+                    correlation.head_key,
+                    correlation.worldline_tick_after,
+                    correlation.commit_global_tick,
+                    correlation.commit_hash,
+                    correlation.tick_receipt_digest,
+                    correlation.contract.clone(),
+                );
+                let (state_delta, state_delta_digest) = match &shared_state_delta {
+                    Some((key, state_delta, digest)) if *key == state_delta_key => {
+                        (Rc::clone(state_delta), *digest)
+                    }
+                    _ => match retained_state_delta_for_correlation(&self.provenance, &correlation)
+                    {
+                        Ok((state_delta, digest)) => {
+                            let state_delta = Rc::new(state_delta);
+                            shared_state_delta =
+                                Some((state_delta_key, Rc::clone(&state_delta), digest));
+                            (state_delta, digest)
+                        }
                         Err(error) => {
                             undo_host_tick_v1(
                                 &mut self.runtime,
@@ -2109,7 +2130,8 @@ impl TrustedRuntimeHost {
                             self.admitted_echo_operation_actions = admitted_actions_before;
                             return Err(error);
                         }
-                    };
+                    },
+                };
                 tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }

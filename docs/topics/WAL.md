@@ -197,8 +197,12 @@ opening the workspace again.
 Twelfth, strict filesystem WAL writer authority survives process loss as a
 durable, checksummed epoch ledger rather than process memory. Epoch acquisition
 is persisted before the store returns authority. Every committed transaction
-then advances that epoch's final LSN and commit-digest evidence, and explicit
-closure persists the exact predecessor link. The ledger retains the active
+then advances that epoch's final LSN and commit-digest evidence in the live
+store, and explicit closure persists the exact predecessor link. A commit's
+durability boundary is the sync of its commit record in the segment: the store
+does not rewrite the ledger for each commit. The ledger is written when an
+epoch is acquired, closed, or reconciled, and reopening derives an epoch's
+final commit from the committed records in the segment. The ledger retains the active
 epoch and only its latest closed predecessor; the trusted successor identity
 recursively commits the preceding epoch identity and final commit while older
 transactions remain in the WAL. Reopen cost and ledger size therefore remain

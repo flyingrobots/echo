@@ -29,6 +29,8 @@
 
 ### Fixed
 
+- A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.
+
 - Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted. Admission likewise refuses an expected-digest path that is empty or overlaps the key or replacement path.
 
 - Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.

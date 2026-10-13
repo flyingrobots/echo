@@ -27,10 +27,15 @@ recover.
 ## What a host can do
 
 A host submits several envelopes in one call,
-`submit_intents_with_runtime_wal_ack`. Echo appends the ordinary intake
-transaction of each envelope, in order, and then asks the store to make them
-durable once. Echo acknowledges the batch only after that step succeeds. Until
-then no acceptance of the batch counts as durable and none can be scheduled.
+`submit_intents_with_runtime_wal_ack`. Echo appends one ordinary intake
+transaction for each newly accepted envelope, in order, and then asks the
+store to make them durable once. Echo acknowledges the batch only after that
+step succeeds. Until then no acceptance of the batch counts as durable and
+none can be scheduled.
+
+An envelope that repeats a submission Echo already holds is a duplicate. It
+appends nothing and its handle names the existing submission. An empty batch,
+and a batch of duplicates only, therefore writes nothing and forces no sync.
 
 `submit_intent_with_runtime_wal_ack` still submits one envelope with one
 transaction and one sync.
@@ -60,37 +65,18 @@ acknowledged record will survive a crash.
 No acknowledgement carries its own durability posture or a log position today.
 The mode is a property of the configured store, not of the returned value.
 
-## A batch is not atomic across a crash
+## Crash, refusal and storage failure
 
-Each transaction is atomic through its own commit record, and a torn tail is
-truncated as it is for single submissions. A crash before the sync can
-therefore leave a prefix of the batch. Echo acknowledged none of it, so each
-surviving submission recovers as accepted and pending. That is the same
-posture as a single submission whose process died after its commit and before
-its acknowledgement.
+[WAL](../topics/WAL.md) owns the complete contract for a batch: what a crash
+can leave, what happens when an intent is refused in the middle, what a
+storage failure takes back, and what a host must do when it opens an existing
+log. This page does not restate it. In short:
 
-## Failure inside a batch
-
-An envelope can fail in the middle of a batch. The result depends on where:
-
-- **Before anything is written for it.** The runtime or the WAL refuses the
-  envelope. The envelopes before it are synced and stay accepted. The call
-  returns the refusal and no acknowledgement. A caller that submits an
-  earlier envelope again receives its existing submission.
-- **While it is written, or at the sync.** Storage failed. Echo takes back
-  every submission the call accepted, acknowledges nothing, and refuses
-  further WAL work with `StorageFailed` until the host reopens the WAL.
-
-When the final sync fails, the records may still be readable in the log,
-because the operating system can hold them. A readable record is not a durable
-one, and a later sync cannot vouch for records that an earlier sync failed to
-write. The running host therefore does not retry and does not reconcile itself
-from the log. After the failure it does not answer recovery reads or offer its
-cached causal frontier or evidence catalog.
-
-A host that opens an existing log, and a writer that takes one over, sync its
-segment files before reading them as recovered history. That sync does not
-turn a readable record into a strict acknowledgement.
+- A batch is not atomic across a crash. A prefix can survive, none of it
+  acknowledged.
+- A refusal before anything is written keeps the earlier intents.
+- A storage failure takes back everything the call accepted and stops WAL
+  work until the host reopens the WAL.
 
 ## Limits of the current implementation
 
@@ -114,3 +100,16 @@ Work on these limits is tracked in
 atomic across a crash. It needs a new transaction shape and new recovery
 rules. Batching ordinary transactions gives the same sync count without a
 format change.
+
+## Evidence
+
+- API: `submit_intents_with_runtime_wal_ack` in
+  [`crates/warp-core/src/trusted_runtime_host.rs`](../../crates/warp-core/src/trusted_runtime_host.rs).
+- Witnesses, in
+  [`crates/warp-core/tests/trusted_runtime_host_loop_tests.rs`](../../crates/warp-core/tests/trusted_runtime_host_loop_tests.rs):
+    - `batched_submission_makes_every_acceptance_durable_with_one_sync`
+    - `batched_submission_handles_duplicates_and_an_empty_batch`
+    - `batched_submission_refused_before_storage_keeps_earlier_intents_and_the_wal`
+    - `batched_submission_refused_before_storage_keeps_an_in_memory_wal_usable`
+    - `batched_submission_append_failure_fails_closed_until_the_wal_is_reopened`
+    - `batched_submission_sync_failure_rolls_back_intake_and_fails_closed`

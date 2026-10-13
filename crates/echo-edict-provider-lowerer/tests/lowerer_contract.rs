@@ -45,7 +45,7 @@ const REVIEW_MEDIA_TYPE: &str = "application/json";
 const GENERATED_SOURCE_PATH: &str = "generated/echo_dpo.rs";
 const REVIEW_PATH: &str = "review/echo_dpo.json";
 const EXPECTED_PROVIDER_SCHEMA_SHA256_HEX: &str =
-    "16e8b1aa45f77bf2f69f538e7120cfb398d85525fdc6947a8cdd86d7b317ea2e";
+    "139ac50b29f4a6b524febd37e1735e9de3c905fe4b234779b705d68a19cd29e7";
 const EXPECTED_OPERATION_ID_LAW: &str = "echo.semantic-operation-id.fnv1-32/v1";
 const EXPECTED_OPERATION_ID: u32 = 3_389_142_194;
 

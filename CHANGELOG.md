@@ -25,6 +25,8 @@
   The generic `run-edict-operation --serve` driver supports repeated operations,
   historical outcome lookup, and derived observation-change discovery.
 
+- An opt-in create-operation configuration v2 derives Unicode scalar key bounds in both provider components and binds them into packages. Runtime admission enforces nonempty keys and separate scalar/UTF-8 byte ceilings; legacy configuration v1 is unchanged.
+
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
 
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
@@ -32,6 +34,8 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
 
 - A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
 

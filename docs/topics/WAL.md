@@ -15,9 +15,9 @@ The short rule is:
 Echo may only claim what its WAL can recover.
 ```
 
-A proposed, not yet implemented design for choosing when Echo waits for
-storage is in
-[WAL durability modes and batched submission](../architecture/wal-durability-modes.md).
+[Batched strict submission](../architecture/batched-strict-submission.md)
+states how a host submits several intents behind one storage sync, and what
+an acknowledgement means for each store.
 
 ## What We Found
 

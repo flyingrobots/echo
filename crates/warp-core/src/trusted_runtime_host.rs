@@ -2571,6 +2571,8 @@ pub struct TrustedRuntimeWal {
     /// Set when storage fails while commit syncs are deferred; see
     /// [`TrustedRuntimeWalError::StorageFailed`].
     storage_failed: bool,
+    /// Digest of the last commit that a successful sync is known to cover.
+    last_synced_commit_digest: Hash,
 }
 
 /// Whether an appended commit record is synced before the append returns.
@@ -2651,6 +2653,9 @@ impl TrustedRuntimeWal {
             durable_submission_acceptances,
             unsynced_submission_acceptances: BTreeMap::new(),
             storage_failed: false,
+            // Opening the store synced the log, so the recovered prefix is
+            // durable.
+            last_synced_commit_digest: recovered_cursor.previous_committed_transaction_digest,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
             #[cfg(any(test, feature = "host_test"))]
@@ -2726,6 +2731,7 @@ impl TrustedRuntimeWal {
             durable_submission_acceptances: self.durable_submission_acceptances.clone(),
             unsynced_submission_acceptances: self.unsynced_submission_acceptances.clone(),
             storage_failed: self.storage_failed,
+            last_synced_commit_digest: self.last_synced_commit_digest,
         })
     }
 
@@ -2971,6 +2977,13 @@ impl TrustedRuntimeWal {
     fn fail_storage(&mut self) {
         self.storage_failed = true;
         self.unsynced_submission_acceptances.clear();
+        // The live catalog may describe records that are not durable. It is
+        // dropped, and the posture names the last commit known to be synced.
+        self.evidence_catalog = None;
+        self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+            reason: *blake3::hash(b"storage_failed").as_bytes(),
+            last_good_commit: self.last_synced_commit_digest,
+        };
     }
 
     fn storage_failed(&self) -> bool {
@@ -2983,9 +2996,11 @@ impl TrustedRuntimeWal {
         self.refresh_cursor_from_store_for_writer()
     }
 
+    /// Records that a successful sync covers every record appended so far.
     fn promote_synced_submission_acceptances(&mut self) {
         let synced = std::mem::take(&mut self.unsynced_submission_acceptances);
         self.durable_submission_acceptances.extend(synced);
+        self.last_synced_commit_digest = self.previous_committed_transaction_digest;
     }
 
     /// Returns how many storage syncs have made commit records durable, when
@@ -3541,21 +3556,20 @@ impl TrustedRuntimeWal {
         }
         contexts.apply_frames(&frames)?;
         match sync {
-            CommitSync::Now => {
-                self.store.append_transaction(transaction)?;
-                // A synced commit covers every earlier record in the segment.
-                self.promote_synced_submission_acceptances();
-            }
-            CommitSync::Deferred => {
-                self.store
-                    .append_transaction_deferring_commit_sync(transaction)?;
-            }
+            CommitSync::Now => self.store.append_transaction(transaction)?,
+            CommitSync::Deferred => self
+                .store
+                .append_transaction_deferring_commit_sync(transaction)?,
         }
         self.operation_context_index = Some((commit.commit_digest, contexts));
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         self.previous_committed_transaction_digest = commit.commit_digest;
         self.causal_history_frontier_digest = next_causal_history_frontier;
+        if matches!(sync, CommitSync::Now) {
+            // A synced commit covers every earlier record in the segment.
+            self.promote_synced_submission_acceptances();
+        }
         self.try_update_evidence_catalog_after_commit(&commit, &frames, last_good_commit);
         Ok(commit)
     }

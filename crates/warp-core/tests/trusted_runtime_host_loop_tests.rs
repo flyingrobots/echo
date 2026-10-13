@@ -2243,6 +2243,14 @@ fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
         Err(TrustedRuntimeWalError::StorageFailed)
     ));
     assert!(
+        failed_wal.evidence_catalog().is_none(),
+        "the live catalog must not describe records that are not durable"
+    );
+    assert!(matches!(
+        failed_wal.evidence_catalog_posture(),
+        warp_core::EvidenceCatalogPosture::NeedsRebuild { .. }
+    ));
+    assert!(
         matches!(
             host.app().current_causal_anchor_basis(),
             Err(TrustedRuntimeHostError::Wal(

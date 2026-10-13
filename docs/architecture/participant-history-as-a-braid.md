@@ -47,9 +47,12 @@ arrived, and what an unsettled conflict stops.
 - A **barrier** is the admission rule that an unsettled site imposes.
 - A **settlement** is a recorded act of the receiving authority that answers
   a conflict.
-- Every admission ends in one of four outcomes: **Derived**, **Plural**,
+- Every judgement ends in one of four outcomes: **Derived**, **Plural**,
   **Conflict** or **Obstruction**. Each is lawful and witnessed. Plural is a
   result, not a failure.
+- **Staged** is not a fifth outcome. It is the posture of history that is
+  held and not yet judged. It comes before the four outcomes and is reported
+  as itself, never as Obstruction.
 
 ## Three separate steps
 
@@ -58,7 +61,8 @@ them together. Their meanings stay distinct.
 
 1. **Hold.** The receiving authority weaves the incoming history into a braid
    as a member strand. Braid membership changes. No reading of application
-   state changes, and nothing becomes inadmissible.
+   state changes, and nothing becomes inadmissible. History that is held and
+   not yet judged is Staged.
 2. **Judge.** The receiving authority carries each incoming tick across its
    own history and records an outcome. Judging changes no reading of
    application state. It can raise a barrier.
@@ -110,7 +114,7 @@ the conflict, its basis and its authority, and it is checked against changes
 made since it was planned.
 
 **What happens to later incoming ticks.** An incoming tick that depends on a
-blocked incoming tick is held and not judged. Its dependence must be shown by
+blocked incoming tick is held and not judged. It stays Staged. Its dependence must be shown by
 validated causal evidence in the held strand, not inferred from a footprint
 that a sender merely claimed.
 

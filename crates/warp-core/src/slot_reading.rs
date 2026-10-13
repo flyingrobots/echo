@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentValue};
-use crate::ident::{EdgeKey, NodeKey, WarpId};
+use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::tick_patch::{PortalInit, SlotId, WarpOp, WarpTickPatchV1};
 use crate::warp_state::WarpState;
@@ -40,18 +40,21 @@ pub enum SlotReading {
 /// Reasons a slot reading cannot be produced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SlotReadingError {
-    /// The cursor names more ticks than the index or the patches cover.
+    /// The cursor names more ticks than the index covers.
     #[error("cursor {cursor} lies beyond the {available} available ticks")]
     CursorBeyondHistory {
         /// Requested cursor coordinate.
         cursor: usize,
-        /// Number of ticks covered by both the index and the supplied patches.
+        /// Number of indexed ticks.
         available: usize,
     },
     /// Port slots carry boundary values, not graph values.
     #[error("port slots carry no graph value")]
     UnsupportedSlot,
-    /// The index names an operation that the supplied patches do not contain.
+    /// The attachment key pairs an owner with a plane that owner does not have.
+    #[error("the attachment key's owner and plane disagree")]
+    InvalidAttachmentKey,
+    /// The supplied patches are not the patches the index was built from.
     #[error("the supplied patches do not match the index")]
     PatchMismatch,
 }
@@ -72,7 +75,21 @@ enum InstanceEvent {
 pub struct SlotWriteIndex {
     writes: BTreeMap<SlotId, Vec<OpPosition>>,
     instance_events: BTreeMap<WarpId, Vec<(OpPosition, InstanceEvent)>>,
-    tick_count: usize,
+    /// Digest of each indexed patch, so a reader can be bound to the exact
+    /// history the index was derived from.
+    patch_digests: Vec<Hash>,
+}
+
+/// A [`SlotWriteIndex`] bound to the patches it was built from and the
+/// boundary those patches apply to.
+///
+/// Binding checks every patch digest once. Reads then cost no more than the
+/// index lookup.
+#[derive(Debug, Clone, Copy)]
+pub struct SlotReader<'a> {
+    index: &'a SlotWriteIndex,
+    patches: &'a [WarpTickPatchV1],
+    initial: &'a WarpState,
 }
 
 impl SlotWriteIndex {
@@ -85,12 +102,12 @@ impl SlotWriteIndex {
     /// Returns the number of indexed ticks.
     #[must_use]
     pub fn tick_count(&self) -> usize {
-        self.tick_count
+        self.patch_digests.len()
     }
 
     /// Indexes the next tick's patch.
     pub fn push_patch(&mut self, patch: &WarpTickPatchV1) {
-        let tick = self.tick_count;
+        let tick = self.patch_digests.len();
         for (op_index, op) in patch.ops().iter().enumerate() {
             let position = (tick, op_index);
             for slot in written_slots(op).into_iter().flatten() {
@@ -103,16 +120,31 @@ impl SlotWriteIndex {
                     .push((position, event));
             }
         }
-        self.tick_count += 1;
+        self.patch_digests.push(patch.digest());
     }
 
     /// Removes the ticks at and after `tick_count`.
     ///
     /// `removed` must be the patches of exactly those ticks, in order. The
     /// cost is proportional to the operations removed, not to the index.
-    pub fn truncate(&mut self, tick_count: usize, removed: &[WarpTickPatchV1]) {
-        if tick_count >= self.tick_count {
-            return;
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SlotReadingError::PatchMismatch`], and changes nothing, when
+    /// `removed` is not exactly the indexed patches at and after `tick_count`.
+    pub fn truncate(
+        &mut self,
+        tick_count: usize,
+        removed: &[WarpTickPatchV1],
+    ) -> Result<(), SlotReadingError> {
+        let indexed = self.patch_digests.get(tick_count..).unwrap_or(&[]);
+        let same_suffix = removed.len() == indexed.len()
+            && removed
+                .iter()
+                .zip(indexed)
+                .all(|(patch, digest)| patch.digest() == *digest);
+        if !same_suffix {
+            return Err(SlotReadingError::PatchMismatch);
         }
         for patch in removed {
             for op in patch.ops() {
@@ -138,33 +170,68 @@ impl SlotWriteIndex {
                 }
             }
         }
-        self.tick_count = tick_count;
+        self.patch_digests.truncate(tick_count);
+        Ok(())
     }
 
-    /// Reads `slot` at `cursor`: the boundary after patches `0..cursor`.
+    /// Binds this index to `patches` and the boundary they apply to.
     ///
-    /// `patches` must be the patches this index was built from, in order, and
-    /// `initial` the boundary they apply to.
+    /// `patches` must be exactly the patches this index was built from, in
+    /// order. `initial` must be the boundary they apply to; the index holds no
+    /// commitment to it, so the caller owns that pairing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SlotReadingError::PatchMismatch`] when the patch count or any
+    /// patch digest differs from what was indexed.
+    pub fn reader<'a>(
+        &'a self,
+        patches: &'a [WarpTickPatchV1],
+        initial: &'a WarpState,
+    ) -> Result<SlotReader<'a>, SlotReadingError> {
+        let same_history = patches.len() == self.patch_digests.len()
+            && patches
+                .iter()
+                .zip(&self.patch_digests)
+                .all(|(patch, digest)| patch.digest() == *digest);
+        if !same_history {
+            return Err(SlotReadingError::PatchMismatch);
+        }
+        Ok(SlotReader {
+            index: self,
+            patches,
+            initial,
+        })
+    }
+}
+
+impl SlotReader<'_> {
+    /// Reads `slot` at `cursor`: the boundary after patches `0..cursor`.
     ///
     /// # Errors
     ///
     /// Returns [`SlotReadingError`] when the cursor lies beyond the indexed
-    /// ticks, the slot is a port slot, or the patches do not match the index.
-    pub fn read_slot(
-        &self,
-        patches: &[WarpTickPatchV1],
-        initial: &WarpState,
-        slot: SlotId,
-        cursor: usize,
-    ) -> Result<SlotReading, SlotReadingError> {
-        let available = self.tick_count.min(patches.len());
+    /// ticks, the slot is a port slot, or an attachment key pairs an owner
+    /// with a plane that owner does not have.
+    pub fn read(&self, slot: SlotId, cursor: usize) -> Result<SlotReading, SlotReadingError> {
+        let Self {
+            index,
+            patches,
+            initial,
+        } = *self;
+        let available = index.tick_count();
         if cursor > available {
             return Err(SlotReadingError::CursorBeyondHistory { cursor, available });
+        }
+        if let SlotId::Attachment(key) = slot {
+            if !key.is_plane_valid() {
+                return Err(SlotReadingError::InvalidAttachmentKey);
+            }
         }
         let warp_id = slot_warp(slot).ok_or(SlotReadingError::UnsupportedSlot)?;
         let bound = (cursor, 0);
 
-        let events = self
+        let events = index
             .instance_events
             .get(&warp_id)
             .map_or(&[][..], Vec::as_slice);
@@ -185,7 +252,7 @@ impl SlotWriteIndex {
             .find(|(_, event)| *event == InstanceEvent::Deleted)
             .map(|(position, _)| *position);
 
-        let latest_write = self.writes.get(&slot).and_then(|positions| {
+        let latest_write = index.writes.get(&slot).and_then(|positions| {
             let before = positions.partition_point(|position| *position < bound);
             before
                 .checked_sub(1)
@@ -196,19 +263,20 @@ impl SlotWriteIndex {
             (Some(write), Some(deleted)) if write < deleted => Ok(absent(slot)),
             (Some(write), _) => written_value(patches, write, slot),
             (None, Some(_)) => Ok(absent(slot)),
-            (None, None) => Ok(materialized_slot(initial, slot)),
+            (None, None) => {
+                materialized_slot(initial, slot).ok_or(SlotReadingError::UnsupportedSlot)
+            }
         }
     }
 }
 
 /// Reads `slot` directly from a materialized state.
 ///
-/// # Panics
-///
-/// Never panics. A port slot reads as an absent attachment.
+/// Returns `None` for a slot that names no graph value: a port slot, or an
+/// attachment key whose owner and plane disagree.
 #[must_use]
-pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> SlotReading {
-    match slot {
+pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> Option<SlotReading> {
+    Some(match slot {
         SlotId::Node(node) => SlotReading::Node(
             state
                 .store(&node.warp_id)
@@ -222,6 +290,7 @@ pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> SlotReading 
                 .find(|record| record.id == edge.local_id)
                 .cloned()
         })),
+        SlotId::Attachment(key) if !key.is_plane_valid() => return None,
         SlotId::Attachment(key) => SlotReading::Attachment(match key.owner {
             AttachmentOwner::Node(node) => state
                 .store(&node.warp_id)
@@ -232,8 +301,8 @@ pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> SlotReading 
                 .and_then(|store| store.edge_attachment(&edge.local_id))
                 .cloned(),
         }),
-        SlotId::Port(_) => SlotReading::Attachment(None),
-    }
+        SlotId::Port(_) => return None,
+    })
 }
 
 const fn absent(slot: SlotId) -> SlotReading {
@@ -517,7 +586,7 @@ mod tests {
                 .then(|| atom(u8::try_from(sequence.next() % 251).unwrap()));
             let [_, child] = self.warps;
             let portal_owner = self.portal_owner();
-            match sequence.next() % 12 {
+            match sequence.next() % 15 {
                 0 | 1 => WarpOp::UpsertNode {
                     node,
                     record: NodeRecord { ty },
@@ -553,6 +622,32 @@ mod tests {
                         root_record: NodeRecord {
                             ty: make_type_id("child-root"),
                         },
+                    },
+                },
+                10 => WarpOp::OpenPortal {
+                    key: AttachmentKey::node_alpha(portal_owner),
+                    child_warp: child,
+                    child_root: self.nodes[3],
+                    init: PortalInit::RequireExisting,
+                },
+                11 => WarpOp::OpenPortal {
+                    key: AttachmentKey::edge_beta(EdgeKey {
+                        warp_id: self.warps[0],
+                        local_id: edge_id,
+                    }),
+                    child_warp: child,
+                    child_root: self.nodes[3],
+                    init: PortalInit::Empty {
+                        root_record: NodeRecord {
+                            ty: make_type_id("child-root"),
+                        },
+                    },
+                },
+                12 => WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: child,
+                        root_node: self.nodes[3],
+                        parent: None,
                     },
                 },
                 _ => WarpOp::UpsertWarpInstance {
@@ -649,11 +744,12 @@ mod tests {
                 index.push_patch(patch);
             }
             assert_eq!(index.tick_count(), patches.len());
+            let reader = index.reader(&patches, &initial).unwrap();
             for (cursor, boundary) in boundaries.iter().enumerate() {
                 for slot in &slots {
                     assert_eq!(
-                        index.read_slot(&patches, &initial, *slot, cursor),
-                        Ok(materialized_slot(boundary, *slot)),
+                        reader.read(*slot, cursor),
+                        materialized_slot(boundary, *slot).ok_or(SlotReadingError::UnsupportedSlot),
                         "seed {seed:#x} cursor {cursor} slot {slot:?}"
                     );
                 }
@@ -674,12 +770,69 @@ mod tests {
         let counts = [
             count(|op| matches!(op, WarpOp::DeleteWarpInstance { .. })),
             count(|op| matches!(op, WarpOp::OpenPortal { .. })),
+            count(|op| matches!(op, WarpOp::UpsertWarpInstance { .. })),
             count(|op| matches!(op, WarpOp::DeleteNode { .. })),
             count(|op| matches!(op, WarpOp::DeleteEdge { .. })),
         ];
         assert!(
             counts.iter().all(|count| *count >= 2),
-            "instance deletions, portal openings, node deletions, edge deletions: {counts:?}"
+            "instance deletions, portal openings, instance upserts, node deletions, \
+             edge deletions: {counts:?}"
+        );
+    }
+
+    #[test]
+    fn a_require_existing_portal_reads_match_the_materialized_boundary() {
+        let universe = Universe::new();
+        let initial = universe.initial();
+        let key = AttachmentKey::node_alpha(universe.portal_owner());
+        let [_, child] = universe.warps;
+        let open = |init| WarpOp::OpenPortal {
+            key,
+            child_warp: child,
+            child_root: universe.nodes[3],
+            init,
+        };
+        let patches = vec![
+            patch(vec![open(PortalInit::Empty {
+                root_record: NodeRecord {
+                    ty: make_type_id("child-root"),
+                },
+            })]),
+            patch(vec![WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id: child,
+                    local_id: universe.nodes[1],
+                },
+                record: NodeRecord {
+                    ty: make_type_id("child-other"),
+                },
+            }]),
+            patch(vec![open(PortalInit::RequireExisting)]),
+        ];
+        let mut index = SlotWriteIndex::new();
+        let mut boundary = initial.clone();
+        let mut boundaries = vec![boundary.clone()];
+        for patch in &patches {
+            patch.apply_to_state(&mut boundary).unwrap();
+            boundaries.push(boundary.clone());
+            index.push_patch(patch);
+        }
+        let reader = index.reader(&patches, &initial).unwrap();
+        for (cursor, boundary) in boundaries.iter().enumerate() {
+            for slot in universe.slots() {
+                assert_eq!(
+                    reader.read(slot, cursor),
+                    materialized_slot(boundary, slot).ok_or(SlotReadingError::UnsupportedSlot),
+                    "cursor {cursor} slot {slot:?}"
+                );
+            }
+        }
+        assert_eq!(
+            reader.read(SlotId::Attachment(key), 3),
+            Ok(SlotReading::Attachment(Some(AttachmentValue::Descend(
+                child
+            ))))
         );
     }
 
@@ -691,7 +844,7 @@ mod tests {
             for patch in &patches {
                 truncated.push_patch(patch);
             }
-            truncated.truncate(keep, &patches[keep..]);
+            truncated.truncate(keep, &patches[keep..]).unwrap();
 
             let mut rebuilt = SlotWriteIndex::new();
             for patch in &patches[..keep] {
@@ -702,26 +855,92 @@ mod tests {
     }
 
     #[test]
-    fn a_cursor_beyond_history_and_a_port_slot_are_refused() {
+    fn truncation_with_the_wrong_patches_is_refused_and_changes_nothing() {
+        let (_, patches, _) = history(0xD1B5_4A32_D192_ED03, 10);
+        let mut index = SlotWriteIndex::new();
+        for patch in &patches {
+            index.push_patch(patch);
+        }
+        let untouched = index.clone();
+        for wrong in [&patches[..0], &patches[6..], &patches[4..9], &patches[..5]] {
+            assert_eq!(
+                index.truncate(5, wrong),
+                Err(SlotReadingError::PatchMismatch)
+            );
+            assert_eq!(index, untouched);
+        }
+        assert_eq!(index.truncate(10, &[]), Ok(()));
+        assert_eq!(index.truncate(12, &[]), Ok(()));
+        assert_eq!(index, untouched);
+    }
+
+    #[test]
+    fn a_cursor_beyond_history_and_an_invalid_attachment_key_are_refused() {
         let (initial, patches, _) = history(0x2545_F491_4F6C_DD1D, 4);
         let mut index = SlotWriteIndex::new();
         for patch in &patches {
             index.push_patch(patch);
         }
-        let slot = Universe::new().slots()[0];
+        let reader = index.reader(&patches, &initial).unwrap();
+        let universe = Universe::new();
         assert_eq!(
-            index.read_slot(&patches, &initial, slot, 5),
+            reader.read(universe.slots()[0], 5),
             Err(SlotReadingError::CursorBeyondHistory {
                 cursor: 5,
                 available: 4
             })
         );
+        let node = NodeKey {
+            warp_id: universe.warps[0],
+            local_id: universe.nodes[1],
+        };
+        let mismatched = AttachmentKey {
+            owner: AttachmentOwner::Node(node),
+            plane: crate::attachment::AttachmentPlane::Beta,
+        };
         assert_eq!(
-            index.read_slot(&patches[..2], &initial, slot, 3),
-            Err(SlotReadingError::CursorBeyondHistory {
-                cursor: 3,
-                available: 2
-            })
+            reader.read(SlotId::Attachment(mismatched), 0),
+            Err(SlotReadingError::InvalidAttachmentKey),
+            "a node-owned beta key names no slot and must not read the alpha attachment"
+        );
+        assert!(matches!(
+            reader.read(SlotId::Attachment(AttachmentKey::node_alpha(node)), 0),
+            Ok(SlotReading::Attachment(Some(_)))
+        ));
+    }
+
+    #[test]
+    fn an_index_binds_only_to_the_patches_it_was_built_from() {
+        let (initial, patches, _) = history(0x2545_F491_4F6C_DD1D, 6);
+        let mut index = SlotWriteIndex::new();
+        for patch in &patches {
+            index.push_patch(patch);
+        }
+        assert!(index.reader(&patches, &initial).is_ok());
+        assert_eq!(
+            index.reader(&patches[..5], &initial).err(),
+            Some(SlotReadingError::PatchMismatch),
+            "a shorter history is not the indexed history"
+        );
+
+        // Same length, one different patch: the foreign patch writes a slot the
+        // index knows nothing about, so an unbound read would return a stale
+        // initial value.
+        let universe = Universe::new();
+        let mut foreign = patches.clone();
+        foreign[2] = patch(vec![WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: universe.warps[0],
+                local_id: universe.nodes[2],
+            },
+            record: NodeRecord {
+                ty: make_type_id("foreign"),
+            },
+        }]);
+        assert_ne!(foreign[2].digest(), patches[2].digest());
+        assert_eq!(
+            index.reader(&foreign, &initial).err(),
+            Some(SlotReadingError::PatchMismatch)
         );
     }
 }

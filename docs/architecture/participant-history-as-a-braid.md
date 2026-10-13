@@ -101,8 +101,8 @@ of a collection.
 
 An unsettled conflict covers a site and raises a barrier there.
 
-**What the barrier refuses.** A tick whose use set meets the site is not
-admitted. The refusal is an obstruction that names the conflict.
+**What the barrier refuses.** A tick is not admitted if its use set or its
+deletes meet the site. The refusal is an obstruction that names the conflict.
 
 **Settlement is not refused.** The act that answers the conflict has to
 address the site. It passes the barrier by a narrow path of its own: it names
@@ -155,11 +155,12 @@ act.
 
 What a settlement does to the barrier depends on its result:
 
-| Result               | Admission afterwards                                                             |
-| -------------------- | -------------------------------------------------------------------------------- |
-| Derived value        | The barrier is lifted. Dependent work is judged again, against the new basis.    |
-| Retained plurality   | Only work whose law accepts that plurality is admitted.                          |
-| Retained obstruction | The barrier stays. The obstruction names the conditions under which it can lift. |
+| Result               | Admission afterwards                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| Derived value        | The barrier is lifted. Dependent work is judged again, against the new basis.         |
+| Retained plurality   | Only work whose law accepts that plurality is admitted.                               |
+| Conflict             | The barrier stays, on the site the new conflict names. A later settlement answers it. |
+| Retained obstruction | The barrier stays. The obstruction names the conditions under which it can lift.      |
 
 ## Laws
 
@@ -230,6 +231,8 @@ These must be settled before the design can be implemented.
 - **What a footprint must record.** Whether slot reads and writes are enough,
   or whether deletes, identity anchors, absence, ranges and collection
   membership need their own entries.
+- **A set-valued basis.** The common frontier can be several unordered
+  events. The transport artifact must be able to name all of them.
 - **Overlapping conflicts.** Whether the sites of two conflicts combine or
   keep separate identities, and whether one can be settled without the other.
 - **Partial settlement.** Whether part of a site can be settled when the law
@@ -287,6 +290,9 @@ The runtime does not implement this design. It implements the local half.
   bundle as admitted, staged, plural, conflict or obstructed. They do not
   append provenance or apply patches, and the module states that it is not
   transport, remote synchronization or import execution.
+- A `CausalSuffixBundle` names its base frontier and its target frontier as
+  one provenance coordinate each. It cannot carry a common frontier of
+  several unordered events.
 - Braid events record creation, member weaving, settlement and collapse. No
   code weaves a strand that came from another participant.
 - Within one tick, an executable-operation Action whose footprint conflicts

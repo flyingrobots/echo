@@ -42,6 +42,8 @@ use crate::revelation::{
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
+#[cfg(any(test, feature = "host_test"))]
+use crate::worldline_state::TestCallCount;
 use crate::worldline_state::{WorldlineFrontier, WorldlineFrontierRollback, WorldlineState};
 use crate::CausalTickReceiptRef;
 
@@ -86,6 +88,11 @@ pub(crate) struct EchoOperationFrontierBasisV1 {
 
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 impl EchoOperationFrontierBasisV1 {
+    /// Returns the state root of the frontier this basis was resolved from.
+    pub(crate) fn state_root(self) -> Hash {
+        self.state_root
+    }
+
     /// Binds this frontier to one invocation's application basis.
     pub(crate) fn evaluation_basis(
         self,
@@ -116,13 +123,7 @@ pub(crate) fn resolve_echo_operation_frontier_basis_v1(
         .get(&writer_head.worldline_id)
         .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
     #[cfg(any(test, feature = "host_test"))]
-    runtime.frontier_basis_resolution_count.0.set(
-        runtime
-            .frontier_basis_resolution_count
-            .0
-            .get()
-            .saturating_add(1),
-    );
+    runtime.frontier_basis_resolution_count.increment();
     let state_root = frontier.state().state_root();
     let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
         Some(tip) => {
@@ -1178,21 +1179,6 @@ pub struct ForkStrandReceipt {
 // WorldlineRuntime
 // =============================================================================
 
-/// Test instrumentation that counts calls.
-///
-/// It is not runtime state, so it has a constant debug rendering: two runtimes
-/// that differ only in instrumentation render alike.
-#[cfg(any(test, feature = "host_test"))]
-#[derive(Clone, Default)]
-struct TestCallCount(std::cell::Cell<usize>);
-
-#[cfg(any(test, feature = "host_test"))]
-impl std::fmt::Debug for TestCallCount {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("TestCallCount")
-    }
-}
-
 /// Top-level runtime state for the worldline model.
 ///
 /// Bundles worldline frontiers, writer heads, routing tables, and the global
@@ -1828,7 +1814,7 @@ impl WorldlineRuntime {
     /// Resets test instrumentation for frontier basis resolutions.
     #[cfg(any(test, feature = "host_test"))]
     pub fn reset_frontier_basis_resolution_count_for_test(&self) {
-        self.frontier_basis_resolution_count.0.set(0);
+        self.frontier_basis_resolution_count.reset();
     }
 
     /// Returns the number of frontier basis resolutions since the last
@@ -1836,7 +1822,7 @@ impl WorldlineRuntime {
     #[cfg(any(test, feature = "host_test"))]
     #[must_use]
     pub fn frontier_basis_resolution_count_for_test(&self) -> usize {
-        self.frontier_basis_resolution_count.0.get()
+        self.frontier_basis_resolution_count.get()
     }
 
     /// Resets test instrumentation for full receipt-correlation scans.
@@ -4632,11 +4618,18 @@ impl SchedulerCoordinator {
                             .worldlines
                             .frontier_mut(&key.worldline_id)
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                        // The frontier is as it was when its basis was
+                        // resolved, so that root is the root before commit.
+                        let state_root_before = frontier_basis.map_or_else(
+                            || frontier.state().state_root(),
+                            EchoOperationFrontierBasisV1::state_root,
+                        );
                         crate::echo_operation::commit_scheduler_action_batch_to_state_v1(
                             candidates,
                             *key,
                             frontier.state_mut(),
                             runtime_before.state_journal_mut(key.worldline_id)?,
+                            state_root_before,
                             next_global_tick,
                             engine.echo_operation_policy_id(),
                         )?

@@ -107,6 +107,46 @@ pub struct WorldlineState {
     /// restarts; Phase 3 intentionally keeps lifetime idempotence rather than a
     /// bounded replay horizon.
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
+    /// Counts whole-state root computations for tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub(crate) state_root_computations: TestCallCount,
+}
+
+/// Test instrumentation that counts calls.
+///
+/// It is not runtime state, so it has a constant debug rendering: two values
+/// that differ only in instrumentation render alike.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Default)]
+pub(crate) struct TestCallCount(std::sync::atomic::AtomicUsize);
+
+#[cfg(any(test, feature = "host_test"))]
+impl Clone for TestCallCount {
+    fn clone(&self) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(self.get()))
+    }
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl TestCallCount {
+    pub(crate) fn increment(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn get(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn reset(&self) {
+        self.0.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl std::fmt::Debug for TestCallCount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TestCallCount")
+    }
 }
 
 impl Default for WorldlineState {
@@ -139,6 +179,8 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -256,9 +298,27 @@ impl WorldlineState {
     /// Detached nodes and their attachments are outside this hash boundary.
     /// Equal state roots therefore do not prove equal stores. A committed
     /// detached write remains bound by the tick patch digest and commit identity.
+    ///
+    /// Every call hashes the whole reachable state.
     #[must_use]
     pub fn state_root(&self) -> Hash {
+        #[cfg(any(test, feature = "host_test"))]
+        self.state_root_computations.increment();
         crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+    }
+
+    /// Resets test instrumentation for whole-state root computations.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_state_root_computation_count_for_test(&self) {
+        self.state_root_computations.reset();
+    }
+
+    /// Returns the number of whole-state root computations on this state
+    /// since the last instrumentation reset.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn state_root_computation_count_for_test(&self) -> usize {
+        self.state_root_computations.get()
     }
 
     /// Returns the graph store for a specific warp instance, if present.
@@ -347,6 +407,8 @@ impl WorldlineState {
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -364,6 +426,8 @@ impl WorldlineState {
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -383,6 +447,8 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 

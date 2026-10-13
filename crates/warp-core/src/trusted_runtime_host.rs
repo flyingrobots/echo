@@ -5062,11 +5062,13 @@ fn validate_recovered_echo_operation_parent_states(
                 },
             )
             .collect::<Result<Vec<_>, _>>()?;
+        let state_root_before = reconstructed_state.state_root();
         let reconstructed_batch = commit_scheduler_action_batch_to_state_v1(
             candidates,
             head_key,
             &mut reconstructed_state,
             &mut crate::tick_patch::StateJournal::default(),
+            state_root_before,
             commit_global_tick,
             policy_id,
         )

@@ -35,6 +35,8 @@
 
 - A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
 
+- A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
+
 - A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
 
 - A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.

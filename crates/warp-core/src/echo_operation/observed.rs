@@ -285,7 +285,10 @@ mod tests {
                 local_id: crate::make_node_id("unrelated"),
             }
         };
-        let store = state.warp_state.store_mut(&changed.warp_id).expect("store");
+        let store = state
+            .warp_state_mut()
+            .store_mut(&changed.warp_id)
+            .expect("store");
         store.insert_node(
             changed.local_id,
             NodeRecord {
@@ -336,7 +339,10 @@ mod tests {
             local_id: crate::make_node_id("second-observation"),
         };
         for length in [1_900, 2_000] {
-            let store = state.warp_state.store_mut(&first.warp_id).expect("store");
+            let store = state
+                .warp_state_mut()
+                .store_mut(&first.warp_id)
+                .expect("store");
             store.insert_node(
                 second.local_id,
                 NodeRecord {
@@ -391,7 +397,7 @@ mod tests {
         let node = *state.root();
         for length in [0, 23, 24, 255, 256, 512] {
             state
-                .warp_state
+                .warp_state_mut()
                 .store_mut(&node.warp_id)
                 .expect("store")
                 .set_node_attachment(
@@ -413,7 +419,7 @@ mod tests {
         let (_, mut state, _, _, _, _) = super::super::tests::projected_create_fixture(1_024);
         let node = *state.root();
         state
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("store")
             .set_node_attachment(

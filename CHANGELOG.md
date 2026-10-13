@@ -31,6 +31,8 @@
 
 ### Fixed
 
+- A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
+
 - A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
 
 - A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.

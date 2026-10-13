@@ -555,7 +555,7 @@ struct RuntimeCommitStateGuard<'a> {
 impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
         let saved_engine_state =
-            std::mem::replace(&mut engine.state, std::mem::take(&mut state.warp_state));
+            std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
         let state_before_runtime_commit = engine.state.clone();
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
@@ -614,7 +614,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     }
 
     fn finish_success(&mut self) {
-        *self.state = WorldlineState {
+        *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
                 self.saved_engine_state
@@ -650,9 +650,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
-            #[cfg(any(test, feature = "host_test"))]
-            state_root_computations: crate::worldline_state::TestCallCount::default(),
-        };
+        });
         self.engine.current_root = self.saved_root;
         self.engine.tx_counter = self.saved_tx_counter;
         self.engine.scheduler = self
@@ -670,7 +668,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             return;
         }
 
-        *self.state = WorldlineState {
+        *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: self
                 .state_before_runtime_commit
                 .take("runtime commit guard missing pre-commit state"),
@@ -704,9 +702,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
-            #[cfg(any(test, feature = "host_test"))]
-            state_root_computations: crate::worldline_state::TestCallCount::default(),
-        };
+        });
         self.engine.state = self
             .saved_engine_state
             .take("runtime commit guard missing saved engine state");
@@ -2261,7 +2257,7 @@ impl Engine {
     /// Returns a snapshot view over an external worldline frontier state.
     #[must_use]
     pub fn snapshot_for_state(&self, state: &WorldlineState) -> Snapshot {
-        let state_root = compute_state_root(&state.warp_state, &state.root);
+        let state_root = compute_state_root(state.warp_state(), &state.root);
         let parents: Vec<Hash> = state
             .last_snapshot
             .as_ref()

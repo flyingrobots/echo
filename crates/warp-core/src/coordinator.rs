@@ -7751,7 +7751,10 @@ mod tests {
         {
             let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
             let broken_root = frontier.state.root.warp_id;
-            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+            assert!(frontier
+                .state
+                .warp_state_mut()
+                .delete_instance(&broken_root));
         }
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap_err();
 
@@ -7842,7 +7845,10 @@ mod tests {
         {
             let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
             let broken_root = frontier.state.root.warp_id;
-            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+            assert!(frontier
+                .state
+                .warp_state_mut()
+                .delete_instance(&broken_root));
         }
 
         let mut provenance = mirrored_provenance(&runtime);
@@ -7999,7 +8005,10 @@ mod tests {
         {
             let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
             let broken_root = frontier.state.root.warp_id;
-            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+            assert!(frontier
+                .state
+                .warp_state_mut()
+                .delete_instance(&broken_root));
         }
 
         let mut provenance = mirrored_provenance(&runtime);
@@ -8088,7 +8097,10 @@ mod tests {
         {
             let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
             let broken_root = frontier.state.root.warp_id;
-            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+            assert!(frontier
+                .state
+                .warp_state_mut()
+                .delete_instance(&broken_root));
         }
 
         let mut provenance = mirrored_provenance(&runtime);
@@ -8167,7 +8179,10 @@ mod tests {
         {
             let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
             let broken_root = frontier.state.root.warp_id;
-            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+            assert!(frontier
+                .state
+                .warp_state_mut()
+                .delete_instance(&broken_root));
         }
 
         let mut provenance = mirrored_provenance(&runtime);

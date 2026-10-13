@@ -81,7 +81,9 @@ pub enum WorldlineStateError {
 #[derive(Debug, Clone)]
 pub struct WorldlineState {
     /// The underlying multi-instance warp state.
-    pub(crate) warp_state: WarpState,
+    /// Private to this module: every mutation goes through
+    /// [`Self::warp_state_mut`], which drops the retained state root.
+    warp_state: WarpState,
     /// Root key for snapshot hashing and commit execution.
     pub(crate) root: NodeKey,
     /// Initial worldline state preserved for replay.
@@ -107,9 +109,26 @@ pub struct WorldlineState {
     /// restarts; Phase 3 intentionally keeps lifetime idempotence rather than a
     /// bounded replay horizon.
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
+    /// The state root of `warp_state` under the given root key, when it is
+    /// known without hashing. A commit retains the root it computed; any
+    /// mutable access to the graph drops it.
+    retained_state_root: Option<(NodeKey, Hash)>,
     /// Counts whole-state root computations for tests.
     #[cfg(any(test, feature = "host_test"))]
-    pub(crate) state_root_computations: TestCallCount,
+    state_root_computations: TestCallCount,
+}
+
+/// The fields from which a worldline state is assembled outside this module.
+pub(crate) struct WorldlineStateParts {
+    pub(crate) warp_state: WarpState,
+    pub(crate) root: NodeKey,
+    pub(crate) initial_state: Arc<WarpState>,
+    pub(crate) last_snapshot: Option<Snapshot>,
+    pub(crate) tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    pub(crate) last_materialization: Vec<FinalizedChannel>,
+    pub(crate) last_materialization_errors: Vec<ChannelConflict>,
+    pub(crate) tx_counter: u64,
+    pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
 }
 
 /// Test instrumentation that counts calls.
@@ -179,6 +198,7 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            retained_state_root: None,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -302,9 +322,68 @@ impl WorldlineState {
     /// Every call hashes the whole reachable state.
     #[must_use]
     pub fn state_root(&self) -> Hash {
+        if let Some((root, state_root)) = self.retained_state_root {
+            if root == self.root {
+                debug_assert_eq!(
+                    state_root,
+                    crate::snapshot::compute_state_root_for_warp_state(
+                        &self.warp_state,
+                        &self.root
+                    ),
+                    "the retained state root must be the root of the current graph"
+                );
+                return state_root;
+            }
+        }
         #[cfg(any(test, feature = "host_test"))]
         self.state_root_computations.increment();
         crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+    }
+
+    /// Returns the graph for mutation and drops the retained state root.
+    pub(crate) fn warp_state_mut(&mut self) -> &mut WarpState {
+        self.retained_state_root = None;
+        &mut self.warp_state
+    }
+
+    /// Retains `state_root` as the root of the current graph.
+    ///
+    /// The caller has just computed it from this state. Later calls to
+    /// [`Self::state_root`] return it without hashing until the graph is
+    /// accessed mutably or the root key changes.
+    pub(crate) fn retain_state_root(&mut self, state_root: Hash) {
+        self.retained_state_root = Some((self.root, state_root));
+    }
+
+    /// Applies `patch` to the graph, recording in `journal` what is needed to
+    /// take it back. On error the state, including its retained root, is
+    /// unchanged.
+    pub(crate) fn apply_patch_journaled(
+        &mut self,
+        patch: &WarpTickPatchV1,
+        journal: &mut StateJournal,
+    ) -> Result<(), crate::tick_patch::TickPatchError> {
+        patch.apply_journaled(&mut self.warp_state, journal)?;
+        self.retained_state_root = None;
+        Ok(())
+    }
+
+    /// Assembles a state from parts built outside this module.
+    pub(crate) fn from_parts(parts: WorldlineStateParts) -> Self {
+        Self {
+            warp_state: parts.warp_state,
+            root: parts.root,
+            initial_state: parts.initial_state,
+            last_snapshot: parts.last_snapshot,
+            tick_history: parts.tick_history,
+            last_materialization: parts.last_materialization,
+            last_materialization_errors: parts.last_materialization_errors,
+            tx_counter: parts.tx_counter,
+            committed_ingress: parts.committed_ingress,
+            retained_state_root: None,
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
+        }
     }
 
     /// Resets test instrumentation for whole-state root computations.
@@ -407,6 +486,7 @@ impl WorldlineState {
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
+            retained_state_root: self.retained_state_root,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -426,6 +506,7 @@ impl WorldlineState {
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
+            retained_state_root: self.retained_state_root,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -447,6 +528,7 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            retained_state_root: None,
             #[cfg(any(test, feature = "host_test"))]
             state_root_computations: TestCallCount::default(),
         }
@@ -744,6 +826,57 @@ mod tests {
         let frontier =
             WorldlineFrontier::at_tick(wl(1), WorldlineState::empty(), WorldlineTick::from_raw(42));
         assert_eq!(frontier.frontier_tick(), WorldlineTick::from_raw(42));
+    }
+
+    #[test]
+    fn a_retained_state_root_is_dropped_by_any_mutable_graph_access() {
+        let mut state = WorldlineState::empty();
+        let root = state.state_root();
+        assert_eq!(state.state_root_computation_count_for_test(), 1);
+
+        state.retain_state_root(root);
+        assert_eq!(state.state_root(), root);
+        assert_eq!(
+            state.state_root_computation_count_for_test(),
+            1,
+            "a retained root is returned without hashing"
+        );
+        assert_eq!(state.clone().state_root_computation_count_for_test(), 1);
+
+        let node = *state.root();
+        if let Some(store) = state.warp_state_mut().store_mut(&node.warp_id) {
+            store.insert_node(
+                crate::ident::make_node_id("retained-root-extra"),
+                crate::record::NodeRecord {
+                    ty: crate::ident::make_type_id("retained-root-extra"),
+                },
+            );
+        }
+        let _ = state.state_root();
+        assert_eq!(
+            state.state_root_computation_count_for_test(),
+            2,
+            "mutable access to the graph drops the retained root"
+        );
+    }
+
+    #[test]
+    fn a_retained_state_root_is_bound_to_the_root_key() {
+        let mut state = WorldlineState::empty();
+        let root = state.state_root();
+        state.retain_state_root(root);
+        state.reset_state_root_computation_count_for_test();
+
+        state.root = NodeKey {
+            warp_id: state.root.warp_id,
+            local_id: crate::ident::make_node_id("retained-root-other-key"),
+        };
+        let _ = state.state_root();
+        assert_eq!(
+            state.state_root_computation_count_for_test(),
+            1,
+            "a root retained under another root key is not reused"
+        );
     }
 
     #[test]

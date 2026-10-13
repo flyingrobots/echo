@@ -6810,7 +6810,7 @@ mod tests {
 
         let mut node_occupied_parent = parent_state.clone();
         node_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .insert_node(
@@ -6831,7 +6831,7 @@ mod tests {
 
         let mut attachment_occupied_parent = parent_state.clone();
         attachment_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .set_node_attachment(
@@ -6853,7 +6853,7 @@ mod tests {
 
         let mut fully_occupied_parent = node_occupied_parent;
         fully_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .set_node_attachment(

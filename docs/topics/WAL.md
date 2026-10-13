@@ -200,9 +200,10 @@ is persisted before the store returns authority. Every committed transaction
 then advances that epoch's final LSN and commit-digest evidence in the live
 store, and explicit closure persists the exact predecessor link. A commit's
 durability boundary is the sync of its commit record in the segment: the store
-does not rewrite the ledger for each commit. The ledger is written when an
-epoch is acquired, closed, or reconciled, and reopening derives an epoch's
-final commit from the committed records in the segment. The ledger retains the active
+does not rewrite the ledger for each commit. The ledger file is written when
+an epoch is acquired or closed. Opening a store reads the ledger and derives
+each epoch's final commit from the committed records in the segment; that
+reconciliation updates the live view and does not write the file. The ledger retains the active
 epoch and only its latest closed predecessor; the trusted successor identity
 recursively commits the preceding epoch identity and final commit while older
 transactions remain in the WAL. Reopen cost and ledger size therefore remain

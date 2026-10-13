@@ -7,6 +7,8 @@
 
 ### Added
 
+- `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.
+
 - Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
 
 - The trusted executable-operation host can retain two native alternative strands,
@@ -30,6 +32,8 @@
 ### Fixed
 
 - A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
+
+- A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.
 
 - A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
 

@@ -42,6 +42,11 @@ host reopens the WAL. A record that is readable after a storage failure is not
 treated as durable by the running host; reopening recovers what storage
 holds.
 
+A writer that takes over an existing log syncs its segment files before it
+reads them as recovered history. An earlier writer may have stopped, or failed
+a sync, after writing records; those records are readable and not yet durable.
+If that sync fails, the writer does not take the log over.
+
 Second, failed WAL acceptance is not allowed to leave half-visible runtime
 state. If no runtime WAL is configured, the ACK path returns an explicit
 unavailable error before mutating intake state. If WAL commit fails, Echo rolls

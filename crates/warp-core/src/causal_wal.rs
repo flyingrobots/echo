@@ -5520,6 +5520,9 @@ pub enum FilesystemWalFaultTarget {
     /// Fail the next storage sync that would make deferred commit records
     /// durable.
     DeferredCommitSync,
+    /// Fail the next sync of existing segments by a writer that takes over a
+    /// log.
+    RecoveredSegmentSync,
 }
 
 /// Host-test-only filesystem WAL fault plan.
@@ -5531,6 +5534,7 @@ pub struct FilesystemWalFaultPlan {
     commit_marker_synced: u32,
     publish_manifest: u32,
     deferred_commit_sync: u32,
+    recovered_segment_sync: u32,
     /// Operations of the failing target to let through first.
     skip: u32,
 }
@@ -5555,6 +5559,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                recovered_segment_sync: 0,
                 skip: 0,
             },
             FilesystemWalFaultTarget::FlushCommit => Self {
@@ -5563,6 +5568,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                recovered_segment_sync: 0,
                 skip: 0,
             },
             FilesystemWalFaultTarget::CommitMarkerSynced => Self {
@@ -5571,6 +5577,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 1,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                recovered_segment_sync: 0,
                 skip: 0,
             },
             FilesystemWalFaultTarget::PublishManifest => Self {
@@ -5579,6 +5586,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 1,
                 deferred_commit_sync: 0,
+                recovered_segment_sync: 0,
                 skip: 0,
             },
             FilesystemWalFaultTarget::DeferredCommitSync => Self {
@@ -5587,6 +5595,16 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 1,
+                recovered_segment_sync: 0,
+                skip: 0,
+            },
+            FilesystemWalFaultTarget::RecoveredSegmentSync => Self {
+                append_frame: 0,
+                flush_commit: 0,
+                commit_marker_synced: 0,
+                publish_manifest: 0,
+                deferred_commit_sync: 0,
+                recovered_segment_sync: 1,
                 skip: 0,
             },
         }
@@ -5599,6 +5617,7 @@ impl FilesystemWalFaultPlan {
             FilesystemWalFaultTarget::CommitMarkerSynced => &mut self.commit_marker_synced,
             FilesystemWalFaultTarget::PublishManifest => &mut self.publish_manifest,
             FilesystemWalFaultTarget::DeferredCommitSync => &mut self.deferred_commit_sync,
+            FilesystemWalFaultTarget::RecoveredSegmentSync => &mut self.recovered_segment_sync,
         };
         if *remaining == 0 {
             return false;
@@ -5632,6 +5651,7 @@ pub struct FilesystemWalStore {
     /// Number of storage syncs that made commit records durable.
     #[cfg(any(test, feature = "host_test"))]
     commit_sync_count: u64,
+    recovered_segment_sync_count: u64,
     #[cfg(any(test, feature = "host_test"))]
     fault_plan: FilesystemWalFaultPlan,
 }
@@ -5686,6 +5706,7 @@ impl FilesystemWalStore {
             deferred_commit_sync_failed: false,
             #[cfg(any(test, feature = "host_test"))]
             commit_sync_count: 0,
+            recovered_segment_sync_count: 0,
             #[cfg(any(test, feature = "host_test"))]
             fault_plan: FilesystemWalFaultPlan::default(),
         })
@@ -5793,6 +5814,9 @@ impl FilesystemWalStore {
         }
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.reload_writer_epoch_ledger()?;
+        // Make what the earlier writer left readable durable before it is
+        // read as recovered history.
+        self.sync_existing_segments()?;
         let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
             |error| match error {
                 WalRecoveryError::Store(error) => error,
@@ -6069,6 +6093,59 @@ impl FilesystemWalStore {
         Ok(())
     }
 
+    /// Syncs every segment file under the store root, and the directories
+    /// that name them.
+    fn sync_existing_segments(&mut self) -> Result<(), WalStoreError> {
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::RecoveredSegmentSync)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL recovered_segment_sync failure".to_owned(),
+            ));
+        }
+        let mut synced = 0_u64;
+        for scan_root in segment_scan_roots(&self.root) {
+            if !scan_root.exists() {
+                continue;
+            }
+            let mut paths = Vec::new();
+            for entry in fs::read_dir(&scan_root)? {
+                let path = entry?.path();
+                if path
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("segment-"))
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("ecwal"))
+                {
+                    paths.push(path);
+                }
+            }
+            if paths.is_empty() {
+                continue;
+            }
+            paths.sort();
+            for path in paths {
+                File::options().append(true).open(path)?.sync_all()?;
+                synced += 1;
+            }
+            sync_directory_store(&scan_root)?;
+        }
+        self.recovered_segment_sync_count += synced;
+        Ok(())
+    }
+
+    /// Returns how many existing segment files this store synced when it took
+    /// over the log.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn recovered_segment_sync_count_for_test(&self) -> u64 {
+        self.recovered_segment_sync_count
+    }
+
     fn sync_segment(&self) -> Result<(), WalStoreError> {
         File::options()
             .append(true)
@@ -6153,6 +6230,10 @@ impl WalStorePort for FilesystemWalStore {
         };
         if writer_lock.is_some() {
             self.reload_writer_epoch_ledger()?;
+            // An earlier writer may have stopped, or failed a sync, after
+            // writing records. They are readable. Make them durable before
+            // this writer treats the readable log as recovered history.
+            self.sync_existing_segments()?;
         }
         let epoch = validate_writer_epoch_request(
             self.active_epoch.as_ref(),

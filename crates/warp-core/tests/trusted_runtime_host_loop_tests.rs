@@ -2049,7 +2049,7 @@ fn batched_submission_append_failure_fails_closed_until_the_wal_is_reopened() {
         .expect("a reopened WAL accepts work again");
     assert!(
         single.duplicate,
-        "recovery reports the acceptance that storage holds"
+        "reopening syncs the log before trusting it, so the acceptance it holds is durable"
     );
     drop(reopened);
     fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");

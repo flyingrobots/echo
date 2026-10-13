@@ -1145,6 +1145,50 @@ fn filesystem_failed_deferred_sync_is_never_evidenced_and_closes_the_store() {
     must_ok(fs::remove_dir_all(root));
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_writer_syncs_an_existing_log_before_trusting_it() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    let root = temp_wal_root("recovered-segment-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    // The record is written and its sync never happens, as when a writer
+    // stops between the two.
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "left-unsynced",
+            Lsn::from_raw(0),
+        )),
+    );
+    drop(store);
+
+    let mut refused = must_ok(FilesystemWalStore::open_with_fault_plan_for_test(
+        &root,
+        WalSegmentId::from_raw(1),
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::RecoveredSegmentSync),
+    ));
+    let error = must_err(
+        refused.acquire_fresh_writer_epoch(Lsn::from_raw(2)),
+        "a writer that cannot sync the existing log must not take it over",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::Io(message) if message.contains("recovered_segment_sync")
+    ));
+    assert_eq!(refused.recovered_segment_sync_count_for_test(), 0);
+    drop(refused);
+
+    let mut successor = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(successor.acquire_fresh_writer_epoch(Lsn::from_raw(2)));
+    assert_eq!(
+        successor.recovered_segment_sync_count_for_test(),
+        1,
+        "the unsynced record is made durable before the log is read as history"
+    );
+    drop(successor);
+    must_ok(fs::remove_dir_all(root));
+}
+
 #[test]
 fn filesystem_synced_commit_and_epoch_close_cover_deferred_commits() {
     let root = temp_wal_root("deferred-commit-covered");

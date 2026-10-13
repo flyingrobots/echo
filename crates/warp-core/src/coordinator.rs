@@ -63,6 +63,51 @@ pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
     writer_head: WriterHeadKey,
     application_basis: EchoOperationApplicationBasisV1,
 ) -> Result<EchoOperationEvaluationBasisV1, RuntimeError> {
+    Ok(
+        resolve_echo_operation_frontier_basis_v1(runtime, provenance, writer_head)?
+            .evaluation_basis(application_basis),
+    )
+}
+
+/// The part of an evaluation basis that a writer head's frontier fixes.
+///
+/// It does not depend on the invocation. Resolving it hashes the whole
+/// reachable state, so a caller that evaluates several invocations against one
+/// unchanged frontier resolves it once.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EchoOperationFrontierBasisV1 {
+    writer_head: WriterHeadKey,
+    worldline_tick: WorldlineTick,
+    commit_global_tick: Option<GlobalTick>,
+    state_root: Hash,
+    commit_id: Hash,
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+impl EchoOperationFrontierBasisV1 {
+    /// Binds this frontier to one invocation's application basis.
+    pub(crate) fn evaluation_basis(
+        self,
+        application_basis: EchoOperationApplicationBasisV1,
+    ) -> EchoOperationEvaluationBasisV1 {
+        EchoOperationEvaluationBasisV1::new(
+            self.writer_head,
+            self.worldline_tick,
+            self.commit_global_tick,
+            self.state_root,
+            self.commit_id,
+            application_basis,
+        )
+    }
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn resolve_echo_operation_frontier_basis_v1(
+    runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
+    writer_head: WriterHeadKey,
+) -> Result<EchoOperationFrontierBasisV1, RuntimeError> {
     if runtime.heads().get(&writer_head).is_none() {
         return Err(RuntimeError::UnknownHead(writer_head));
     }
@@ -70,6 +115,14 @@ pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
         .worldlines()
         .get(&writer_head.worldline_id)
         .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
+    #[cfg(any(test, feature = "host_test"))]
+    runtime.frontier_basis_resolution_count.0.set(
+        runtime
+            .frontier_basis_resolution_count
+            .0
+            .get()
+            .saturating_add(1),
+    );
     let state_root = frontier.state().state_root();
     let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
         Some(tip) => {
@@ -81,14 +134,13 @@ pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
             crate::echo_operation::genesis_commit_id(writer_head, state_root),
         ),
     };
-    Ok(EchoOperationEvaluationBasisV1::new(
+    Ok(EchoOperationFrontierBasisV1 {
         writer_head,
-        frontier.frontier_tick(),
+        worldline_tick: frontier.frontier_tick(),
         commit_global_tick,
         state_root,
         commit_id,
-        application_basis,
-    ))
+    })
 }
 
 // =============================================================================
@@ -1126,6 +1178,21 @@ pub struct ForkStrandReceipt {
 // WorldlineRuntime
 // =============================================================================
 
+/// Test instrumentation that counts calls.
+///
+/// It is not runtime state, so it has a constant debug rendering: two runtimes
+/// that differ only in instrumentation render alike.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Clone, Default)]
+struct TestCallCount(std::cell::Cell<usize>);
+
+#[cfg(any(test, feature = "host_test"))]
+impl std::fmt::Debug for TestCallCount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TestCallCount")
+    }
+}
+
 /// Top-level runtime state for the worldline model.
 ///
 /// Bundles worldline frontiers, writer heads, routing tables, and the global
@@ -1179,6 +1246,8 @@ pub struct WorldlineRuntime {
         BTreeMap<(WorldlineId, WorldlineTick, Hash), BTreeSet<Hash>>,
     #[cfg(any(test, feature = "host_test"))]
     receipt_correlation_full_scan_count: std::cell::Cell<usize>,
+    #[cfg(any(test, feature = "host_test"))]
+    frontier_basis_resolution_count: TestCallCount,
     /// Scheduler fault evidence keyed by content-addressed fault id.
     scheduler_faults: BTreeMap<SchedulerFaultId, SchedulerFaultRecord>,
     /// Active scoped scheduler faults by writer head.
@@ -1754,6 +1823,20 @@ impl WorldlineRuntime {
                 .saturating_add(1),
         );
         self.receipt_correlations_by_ticketed_ingress.values()
+    }
+
+    /// Resets test instrumentation for frontier basis resolutions.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_frontier_basis_resolution_count_for_test(&self) {
+        self.frontier_basis_resolution_count.0.set(0);
+    }
+
+    /// Returns the number of frontier basis resolutions since the last
+    /// instrumentation reset. Each one hashes the whole reachable state.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn frontier_basis_resolution_count_for_test(&self) -> usize {
+        self.frontier_basis_resolution_count.0.get()
     }
 
     /// Resets test instrumentation for full receipt-correlation scans.
@@ -4498,6 +4581,9 @@ impl SchedulerCoordinator {
                         ));
                     };
                     let mut candidates = Vec::with_capacity(admitted.len());
+                    // Nothing in this loop changes the frontier, so its basis
+                    // is resolved once, at the first Action that needs it.
+                    let mut frontier_basis = None;
                     for envelope in &admitted {
                         let ingress_id = envelope.ingress_id();
                         let submission_id = runtime
@@ -4508,12 +4594,17 @@ impl SchedulerCoordinator {
                         let admitted_action = admitted_actions.get(&submission_id).ok_or(
                             RuntimeError::EchoOperationActionAdmissionMissing(ingress_id),
                         )?;
-                        let current_basis = resolve_echo_operation_evaluation_basis_v1(
-                            runtime,
-                            provenance,
-                            *key,
+                        let frontier_basis = match frontier_basis {
+                            Some(frontier_basis) => frontier_basis,
+                            None => {
+                                *frontier_basis.insert(resolve_echo_operation_frontier_basis_v1(
+                                    runtime, provenance, *key,
+                                )?)
+                            }
+                        };
+                        let current_basis = frontier_basis.evaluation_basis(
                             admitted_action.evaluation_basis().application_basis(),
-                        )?;
+                        );
                         let state = runtime
                             .worldlines
                             .get(&key.worldline_id)

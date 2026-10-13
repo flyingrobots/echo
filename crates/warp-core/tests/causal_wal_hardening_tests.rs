@@ -1209,6 +1209,56 @@ fn filesystem_writer_syncs_an_existing_log_before_trusting_it() {
     must_ok(fs::remove_dir_all(root));
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_failed_synced_commit_never_evidences_pending_deferred_commits() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    let root = temp_wal_root("deferred-commit-covered-by-failed-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-then-failed",
+            Lsn::from_raw(0),
+        )),
+    );
+    store.replace_fault_plan_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::FlushCommit,
+    ));
+
+    // The synced commit would have covered the deferred record as well.
+    assert!(store
+        .append_transaction(submission_transaction("synced-fails", Lsn::from_raw(2)))
+        .is_err());
+    assert!(store.sync_deferred_commits().is_err());
+    assert_eq!(commit_sync_evidence_count(&store), 0);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_truncation_is_refused_while_a_commit_sync_is_owed() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-truncation");
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(submission_transaction(
+                "before-truncation",
+                Lsn::from_raw(0),
+            )),
+    );
+
+    assert!(
+        fixture.store.truncate_tail_after(Lsn::from_raw(0)).is_err(),
+        "truncation must not remove a record whose sync is still owed"
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(fixture.store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 1);
+    must_ok(fixture.store.truncate_tail_after(Lsn::from_raw(1)));
+}
+
 #[test]
 fn filesystem_manifest_publication_syncs_deferred_commits_first() {
     let mut fixture = WalHardeningFixture::new("deferred-commit-manifest");

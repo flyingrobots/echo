@@ -6243,6 +6243,11 @@ impl TrustedRuntimeApp<'_> {
             .runtime_wal
             .as_ref()
             .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?;
+        // After a storage failure the cached frontier may name records that
+        // are not durable. It is not a basis.
+        if runtime_wal.storage_failed() {
+            return Err(TrustedRuntimeWalError::StorageFailed.into());
+        }
         Ok(runtime_wal.current_causal_anchor_basis())
     }
 

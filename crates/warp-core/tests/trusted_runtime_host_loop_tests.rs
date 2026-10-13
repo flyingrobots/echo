@@ -2242,6 +2242,15 @@ fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
         failed_wal.recover_evidence_catalog_read_only(),
         Err(TrustedRuntimeWalError::StorageFailed)
     ));
+    assert!(
+        matches!(
+            host.app().current_causal_anchor_basis(),
+            Err(TrustedRuntimeHostError::Wal(
+                TrustedRuntimeWalError::StorageFailed
+            ))
+        ),
+        "a frontier over records that are not durable is not a basis"
+    );
 
     // The records were written; only their sync failed. Reopening recovers
     // what storage holds, as it would after a process loss.

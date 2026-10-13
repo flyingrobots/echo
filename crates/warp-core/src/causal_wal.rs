@@ -6002,20 +6002,33 @@ impl FilesystemWalStore {
             external_action_coordinator_capability,
         )?;
         #[cfg(any(test, feature = "host_test"))]
-        if self
+        let injected = self
             .fault_plan
-            .should_fail(FilesystemWalFaultTarget::FlushCommit)
-        {
-            return Err(WalStoreError::Io(
-                "injected filesystem WAL flush_commit failure".to_owned(),
-            ));
-        }
+            .should_fail(FilesystemWalFaultTarget::FlushCommit);
+        #[cfg(not(any(test, feature = "host_test")))]
+        let injected = false;
         let transaction_id = commit.transaction_id;
-        append_segment_record(
-            &self.segment_path(),
-            DiskWalRecord::Commit(&commit),
-            sync_now,
-        )?;
+        let flushed = if injected {
+            Err(WalStoreError::Io(
+                "injected filesystem WAL flush_commit failure".to_owned(),
+            ))
+        } else {
+            append_segment_record(
+                &self.segment_path(),
+                DiskWalRecord::Commit(&commit),
+                sync_now,
+            )
+        };
+        if let Err(error) = flushed {
+            if sync_now && !self.deferred_commits.is_empty() {
+                // This commit's sync would also have covered the deferred
+                // records. It failed, so they are in the same position as
+                // after a failed deferred sync.
+                self.deferred_commit_sync_failed = true;
+                self.deferred_commits.clear();
+            }
+            return Err(error);
+        }
         self.epoch_closures.insert(
             epoch_id,
             WriterEpochClosure {
@@ -6356,6 +6369,14 @@ impl WalStorePort for FilesystemWalStore {
 
     fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
         self.ensure_deferred_commit_sync_has_not_failed()?;
+        if !self.deferred_commits.is_empty() {
+            // Truncation could remove a record whose sync is still owed, and
+            // a later sync would then evidence a record the log no longer
+            // holds.
+            return Err(WalStoreError::Io(
+                "deferred commit records must be synced before truncation".to_owned(),
+            ));
+        }
         rewrite_filesystem_segments_after_truncation(&self.root, after_lsn)
     }
 

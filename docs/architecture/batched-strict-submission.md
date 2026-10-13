@@ -42,13 +42,16 @@ Recovery reads a batch exactly as it reads single submissions.
 
 The batch call is the same for every store. Its durability is not.
 
-| Store      | Reported mode      | What the batch call waits for            | What survives a crash     |
-| ---------- | ------------------ | ---------------------------------------- | ------------------------- |
-| Filesystem | `StrictFilesystem` | One storage sync                         | Every acknowledged record |
-| In-memory  | `Buffered`         | Nothing; no sync exists                  | Nothing                   |
-| No WAL     | not applicable     | The call returns `RuntimeWalUnavailable` | Nothing                   |
+| Store      | Reported mode      | What the batch call waits for                | What survives a crash                                |
+| ---------- | ------------------ | -------------------------------------------- | ---------------------------------------------------- |
+| Filesystem | `StrictFilesystem` | Commitment in memory, then one storage sync  | Every acknowledged record, as far as that sync holds |
+| In-memory  | `Buffered`         | Commitment in memory; no storage sync exists | Nothing                                              |
+| No WAL     | not applicable     | The call returns `RuntimeWalUnavailable`     | Nothing                                              |
 
-An acknowledgement from the filesystem store is a durability claim. An
+An acknowledgement from the filesystem store is a durability claim. It is as
+strong as the sync guarantee of the operating system and the device under the
+store: Echo asks for the sync and waits for it, and cannot promise more than
+that sync delivers. An
 acknowledgement from the in-memory store is not: it says the runtime accepted
 and ordered the records, and nothing more. `Buffered` is not release
 durability. A host must read the reported mode before it tells anyone that an

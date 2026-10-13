@@ -31,6 +31,8 @@
 
 ### Fixed
 
+- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
+
 - A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
 
 - Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.

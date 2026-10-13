@@ -31,11 +31,17 @@ It does not change what Echo may claim.
 
 A host chooses one of three durability modes for a runtime.
 
-| Mode     | An acknowledgement means                                   | The caller waits for |
-| -------- | ---------------------------------------------------------- | -------------------- |
-| None     | Accepted in memory. Nothing is recoverable.                | Nothing              |
-| Deferred | Accepted, ordered, and handed to the WAL writer.           | Nothing              |
-| Strict   | Durable. Recovery will rebuild it.                         | One storage sync     |
+| Mode     | An acknowledgement means                         | The caller waits for                |
+| -------- | ------------------------------------------------ | ----------------------------------- |
+| None     | Accepted in memory. Nothing is recoverable.      | Nothing                             |
+| Deferred | Accepted, ordered, and handed to the WAL writer. | Room in the writer's queue, if full |
+| Strict   | Durable. Recovery will rebuild it.               | One storage sync                    |
+
+A deferred caller normally waits for nothing. When the writer's queue is full
+it waits for room, and that wait ends in one of two ways: room appears, or
+the host declares the writer failed and the caller receives that failure. A
+deferred acknowledgement is therefore not a promise of a bounded wait until
+the limit in [Open decisions](#open-decisions) is set.
 
 Strict mode has batched submission. Deferred mode is new. None is the
 existing behavior of a host that does not enable a WAL.
@@ -55,6 +61,20 @@ the sync can therefore leave a prefix of the batch. Echo acknowledged none of
 it, so each surviving submission recovers as accepted and pending. That is the
 same posture as a single submission whose process died after its commit and
 before its acknowledgement.
+
+A batch has a size the host sets: a limit on envelopes and on encoded bytes.
+Echo checks the whole batch against that limit before it appends anything. A
+batch over the limit is refused as a whole with a typed over-budget result.
+
+An envelope can fail in the middle of a batch. The result depends on where:
+
+- **Before anything is written for it.** The runtime or the WAL refuses the
+  envelope. The envelopes before it are synced and stay accepted. The call
+  returns the refusal and no acknowledgement. A caller that submits an
+  earlier envelope again receives its existing submission.
+- **While it is written, or at the sync.** Storage failed. Echo takes back
+  every submission the call accepted, acknowledges nothing, and refuses
+  further WAL work until the WAL is reopened.
 
 When the final sync fails, Echo acknowledges nothing. The records may be
 readable in the log, because the operating system can still hold them, but a
@@ -106,9 +126,14 @@ durable position as indeterminate until recovery reports it.
 4. **Nothing is dropped silently, and pressure never refuses.** When the
    queue is full, the caller waits. A full queue never refuses an intent,
    because that would let writer timing decide what is admitted and would
-   break law 2. When the writer fails, the runtime stops accepting work that
-   would need the WAL and reports an explicit obstruction that is recorded as
-   a fault. It does not continue in a weaker mode.
+   break law 2. When the writer fails, that is an internal fault: Echo did
+   not uphold its own durability. The runtime records the fault and stops
+   accepting work that would need the WAL. A caller whose work is refused for
+   that reason receives an obstruction that names the fault. The two stay
+   separate typed values, as [Obstructions](../topics/Obstructions.md)
+   requires: the fault needs trusted recovery, and the obstruction tells the
+   caller that support is unavailable. The runtime does not continue in a
+   weaker mode.
 5. **The log is an ordinary Echo WAL.** Every mode that writes a WAL writes
    the same records. One recovery path reads all of them.
 6. **One writer.** In every mode that writes a WAL, exactly one writer holds
@@ -122,8 +147,13 @@ durable position as indeterminate until recovery reports it.
 
 - **An external WAL process on a port.** It gives the same speed as deferred
   mode and adds a wire protocol, a second process to deploy and a second
-  holder of storage authority. A process crash would also lose records that
-  an in-process writer had already handed to the operating system.
+  holder of storage authority. Its failures differ from an in-process
+  writer's. If the Echo host dies after handing a record over, the external
+  writer can still sync it, where an in-process writer dies with the host. If
+  the external writer dies, records it had accepted and not written are lost
+  while the host runs on. Each case needs its own acknowledgement and
+  recovery rule, and an acknowledgement would have to say which process it
+  binds. That is a larger contract than this design needs.
 - **One transaction that carries many acceptances.** It makes a batch atomic
   across a crash. It needs a new transaction shape and new recovery rules.
   Batched submission with ordinary transactions gives the same sync count
@@ -152,13 +182,15 @@ mode or acknowledgement postures.
   of them. Until that sync succeeds no acceptance of the batch counts as
   durable or can be scheduled. [WAL](../topics/WAL.md) states its failure
   rules.
+- A batch has no size limit. Nothing checks envelope count or bytes before
+  the first append.
 - After a storage failure in a batch the adapter refuses further WAL work with
   `StorageFailed` until the host reopens the WAL. It does not reconcile itself
   from the log, answer recovery reads, or offer its cached causal frontier or
   evidence catalog.
 - A host that opens an existing log, and a writer that takes it over, sync its
   segment files before reading them as recovered history.
-- After a failed append or sync of a *single* submission, the host still
+- After a failed append or sync of a _single_ submission, the host still
   re-reads the log and treats a readable acceptance record as accepted. That is
   weaker than the batch rule and than the rule this page states.
 - A scheduler pass that produces receipt correlations writes one tick

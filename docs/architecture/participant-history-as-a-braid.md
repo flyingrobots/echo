@@ -57,7 +57,10 @@ arrived, and what an unsettled conflict stops.
 4. It carries each incoming tick across its own history after that frontier,
    in its own deterministic order.
 5. If the incoming tick and a local tick are independent, the incoming tick
-   moves across. The outcome is Derived.
+   may move across. Independent footprints make that possible; they do not
+   prove it. The governing law and the evidence must also show that the tick
+   still means what its author meant on the new basis. Only then is the
+   outcome Derived.
 6. If they interfere, the outcome at that site is Conflict, or Plural when the
    law allows both claims to stand.
 7. If the evidence or the authority needed to judge is missing, the outcome is
@@ -88,12 +91,16 @@ is refused. A tick whose law accepts plurality may still act.
 
 ## Settlement
 
-- Only the receiving authority settles, and under its own law. A sender does
-  not settle its own history.
-- A settlement names its bases, its participants and the site. It is part of
-  history, and it releases the site.
+- Only the receiving authority settles what it receives, and under its own
+  law. A sender keeps its own authority over its own history. It cannot
+  decide the outcome for another participant.
+- A settlement names its bases, its participants, the site and the conflict
+  it answers. It is new witnessed history, and it releases the site.
 - A settlement may end in a derived value, in retained plurality, or in an
   obstruction that stays on record.
+- Plural needs no later resolution. Nothing queues it for collapse.
+- An obstruction names the evidence or the authority that was missing, so a
+  later crossing can supply it.
 - Collapsing a braid records that plural claims became one, and which law
   decided it.
 - Nothing is settled by arrival order, by host time, or by a hash of visible
@@ -117,6 +124,10 @@ is refused. A tick whose law accepts plurality may still act.
 7. **Footprints must be trusted.** Independence is judged from footprints. A
    footprint that omits something the tick used makes the judgement unsound,
    so an incoming tick whose footprint cannot be trusted is obstructed.
+8. **Carriage grants no authority.** Whatever delivers the history, and
+   whoever sent it, gains no right to settle. Delivery of the bytes,
+   admission of the strand and the outcome at a site are three separate
+   facts, and each is reported as itself.
 
 ## Alternatives not chosen
 

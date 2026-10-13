@@ -19,6 +19,7 @@ mod retained_strands;
 pub use observed_context::EchoOperationContextErrorV1;
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
+use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
 
 use crate::{
     causal_wal::{
@@ -1931,6 +1932,7 @@ impl TrustedRuntimeHost {
 
     fn admit_pending_echo_operation_actions_v1(
         &mut self,
+        staging: &mut TicketedIngressStagingRollback,
     ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
         if self.pending_echo_operation_actions.is_empty() {
             return Ok(self.admitted_echo_operation_actions.clone());
@@ -2031,11 +2033,12 @@ impl TrustedRuntimeHost {
                 }
             };
             let admission_digest = echo_operation_action_admission_digest(&submission, &admitted);
-            self.runtime.ingest_echo_operation_action_v1(
+            self.runtime.ingest_echo_operation_action_with_rollback_v1(
                 &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
                 submission.submission_id,
                 admission_digest,
                 envelope,
+                staging,
             )?;
             self.echo_operation_action_admission_obstructions
                 .remove(&submission.submission_id);
@@ -2051,20 +2054,21 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the scheduler pass fails.
     pub fn tick_once(&mut self) -> Result<Vec<StepRecord>, TrustedRuntimeHostError> {
-        let runtime_before = self.runtime.clone();
-        let provenance_before = self.provenance.clone();
-        let action_outcomes_before = self.echo_operation_action_outcomes.clone();
+        // Rollback uses markers and journals: the admitted-Action map is bounded
+        // by pending work, and nothing here copies committed history.
         let admitted_actions_before = self.admitted_echo_operation_actions.clone();
-        let admitted_actions = match self.admit_pending_echo_operation_actions_v1() {
-            Ok(admitted) => admitted,
-            Err(error) => {
-                self.runtime = runtime_before;
-                self.provenance = provenance_before;
-                self.admitted_echo_operation_actions = admitted_actions_before;
-                return Err(error);
-            }
-        };
-        let (records, action_outcomes, new_correlations) =
+        let mut action_staging = TicketedIngressStagingRollback::default();
+        let admitted_actions =
+            match self.admit_pending_echo_operation_actions_v1(&mut action_staging) {
+                Ok(admitted) => admitted,
+                Err(error) => {
+                    self.runtime
+                        .rollback_ticketed_ingress_staging(action_staging);
+                    self.admitted_echo_operation_actions = admitted_actions_before;
+                    return Err(error);
+                }
+            };
+        let (records, action_outcomes, new_correlations, tick_undo) =
             SchedulerCoordinator::super_tick_with_echo_operation_actions_v1(
                 &mut self.runtime,
                 &mut self.provenance,
@@ -2082,9 +2086,12 @@ impl TrustedRuntimeHost {
                 ) {
                     Ok(decision) => decision,
                     Err(error) => {
-                        self.runtime = runtime_before;
-                        self.provenance = provenance_before;
-                        self.echo_operation_action_outcomes = action_outcomes_before;
+                        undo_host_tick_v1(
+                            &mut self.runtime,
+                            &mut self.provenance,
+                            tick_undo,
+                            action_staging,
+                        );
                         self.admitted_echo_operation_actions = admitted_actions_before;
                         return Err(error.into());
                     }
@@ -2093,9 +2100,12 @@ impl TrustedRuntimeHost {
                     match retained_state_delta_for_correlation(&self.provenance, &correlation) {
                         Ok(state_delta) => state_delta,
                         Err(error) => {
-                            self.runtime = runtime_before;
-                            self.provenance = provenance_before;
-                            self.echo_operation_action_outcomes = action_outcomes_before;
+                            undo_host_tick_v1(
+                                &mut self.runtime,
+                                &mut self.provenance,
+                                tick_undo,
+                                action_staging,
+                            );
                             self.admitted_echo_operation_actions = admitted_actions_before;
                             return Err(error);
                         }
@@ -2123,9 +2133,12 @@ impl TrustedRuntimeHost {
         }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
             if runtime_wal.uses_filesystem_store() && tick_wal_groups.len() > 1 {
-                self.runtime = runtime_before;
-                self.provenance = provenance_before;
-                self.echo_operation_action_outcomes = action_outcomes_before;
+                undo_host_tick_v1(
+                    &mut self.runtime,
+                    &mut self.provenance,
+                    tick_undo,
+                    action_staging,
+                );
                 self.admitted_echo_operation_actions = admitted_actions_before;
                 return Err(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
                     transaction_kind: WalTransactionKind::SchedulerTick,
@@ -2173,9 +2186,12 @@ impl TrustedRuntimeHost {
                     } else {
                         Some(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
                     };
-                    self.runtime = runtime_before;
-                    self.provenance = provenance_before;
-                    self.echo_operation_action_outcomes = action_outcomes_before;
+                    undo_host_tick_v1(
+                        &mut self.runtime,
+                        &mut self.provenance,
+                        tick_undo,
+                        action_staging,
+                    );
                     self.admitted_echo_operation_actions = admitted_actions_before;
                     if let Some(rollback_error) = rollback_error {
                         return Err(rollback_error.into());
@@ -2246,6 +2262,18 @@ impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
             admitted,
         )
     }
+}
+
+/// Restores the runtime and provenance to their state before one host tick:
+/// the completed scheduler pass first, then the Action staging that preceded it.
+fn undo_host_tick_v1(
+    runtime: &mut WorldlineRuntime,
+    provenance: &mut ProvenanceService,
+    tick_undo: SuperTickUndo,
+    action_staging: TicketedIngressStagingRollback,
+) {
+    SchedulerCoordinator::undo_super_tick(runtime, provenance, tick_undo);
+    runtime.rollback_ticketed_ingress_staging(action_staging);
 }
 
 fn ensure_runtime_authority_is_durable(
@@ -6160,7 +6188,7 @@ impl TrustedRuntimeApp<'_> {
 
         let is_echo_operation_action =
             echo_operation_action_invocation_bytes_v1(&envelope).is_some();
-        let before_runtime = self.host.runtime.clone();
+        let submission_rollback = self.host.runtime.intent_submission_rollback_marker();
         let handle = match admission {
             AppIntentAdmission::Ordinary => {
                 self.host.runtime.submit_app_intent(envelope.clone())?
@@ -6171,7 +6199,9 @@ impl TrustedRuntimeApp<'_> {
                 .submit_contract_inverse_intent(envelope.clone())?,
         };
         let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
-            self.host.runtime = before_runtime;
+            self.host
+                .runtime
+                .rollback_intent_submission(submission_rollback, &handle);
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
         if handle.duplicate
@@ -6194,7 +6224,9 @@ impl TrustedRuntimeApp<'_> {
                 );
                 return Ok(handle);
             }
-            self.host.runtime = before_runtime;
+            self.host
+                .runtime
+                .rollback_intent_submission(submission_rollback, &handle);
             return Err(error.into());
         }
         self.host

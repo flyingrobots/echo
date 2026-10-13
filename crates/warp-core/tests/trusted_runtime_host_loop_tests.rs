@@ -1825,6 +1825,91 @@ fn filesystem_runtime_wal_failure_tick_flush_rolls_back_visible_outcome() {
 }
 
 #[test]
+fn filesystem_runtime_wal_failure_tick_restores_exact_runtime_and_provenance() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let wal_root = temp_runtime_wal_dir("failure-tick-exact-state");
+        let (runtime, worldline_id) = runtime();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine())
+            .expect("trusted host should initialize");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+            .expect("host should configure filesystem runtime WAL adapter");
+        host.register_contract_package(package())
+            .expect("host should install package");
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK");
+        host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(109))
+            .expect("trusted host should stage package-supported ticketed ingress");
+        let runtime_before = format!("{:?}", host.runtime());
+        let provenance_before = format!("{:?}", host.provenance());
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("host should inject a filesystem failure");
+
+        host.tick_once()
+            .expect_err("an undurable tick must not remain visible");
+
+        assert_eq!(
+            format!("{:?}", host.runtime()),
+            runtime_before,
+            "{target:?}: a failed tick must restore the exact pre-tick runtime"
+        );
+        assert_eq!(
+            format!("{:?}", host.provenance()),
+            provenance_before,
+            "{target:?}: a failed tick must restore the exact pre-tick provenance"
+        );
+        host.tick_once()
+            .expect("the restored tick must commit once the WAL accepts it");
+        assert_eq!(host.runtime().receipt_correlation_count(), 1);
+        drop(host);
+        fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+    }
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_submission_restores_exact_runtime() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let wal_root = temp_runtime_wal_dir("failure-submission-exact-state");
+        let (runtime, worldline_id) = runtime();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine())
+            .expect("trusted host should initialize");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+            .expect("host should configure filesystem runtime WAL adapter");
+        let runtime_before = format!("{:?}", host.runtime());
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("host should inject a filesystem failure");
+
+        host.app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("an undurable submission must not be acknowledged");
+
+        assert_eq!(
+            format!("{:?}", host.runtime()),
+            runtime_before,
+            "{target:?}: a failed submission must restore the exact pre-call runtime"
+        );
+        let retried = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("the same submission must be acceptable once the WAL accepts it");
+        assert!(!retried.duplicate);
+        drop(host);
+        fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+    }
+}
+
+#[test]
 fn filesystem_runtime_wal_failure_manifest_publish_reports_store_error() {
     let wal_root = temp_runtime_wal_dir("failure-manifest-publish");
     let mut store = FilesystemWalStore::open_with_fault_plan_for_test(

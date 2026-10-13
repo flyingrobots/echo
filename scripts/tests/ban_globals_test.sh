@@ -8,6 +8,17 @@ checker=${1:-scripts/ban-globals.sh}
 # The checker has two search backends. A runner without ripgrep uses the
 # perl one, so every case runs under both. A case that only passes under one
 # backend is a failure of the gate, not of the fixture.
+#
+# Backend 0 means "ripgrep if present". Without ripgrep it silently becomes a
+# second perl run, so the ripgrep path would go untested. CI installs ripgrep
+# and sets BAN_GLOBALS_TEST_REQUIRE_RG=1 to make that a failure.
+if ! command -v rg >/dev/null 2>&1; then
+  if [[ "${BAN_GLOBALS_TEST_REQUIRE_RG:-0}" == "1" ]]; then
+    echo 'ban-globals test: ripgrep is required here and is not installed' >&2
+    exit 1
+  fi
+  echo 'ban-globals test: ripgrep not found; only the perl backend is exercised' >&2
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/echo-ban-globals-test.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 

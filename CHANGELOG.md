@@ -7,6 +7,8 @@
 
 ### Added
 
+- `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. It is a derived reading aid; the runtime does not use it yet.
+
 - Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
 
 - The trusted executable-operation host can retain two native alternative strands,

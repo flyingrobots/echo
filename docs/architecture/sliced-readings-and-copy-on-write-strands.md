@@ -162,7 +162,9 @@ The runtime does not implement this design.
   executable-operation Actions does so once, after its commit: the frontier
   retains that root until its graph is next mutated, and the next tick reads
   it for its basis without hashing. The first tick on a frontier, and a tick
-  that runs native rules through the engine, hash more than once.
+  that runs native rules through the engine, hash more than once. So does
+  every tick of a debug build, which hashes again to check each retained
+  root.
 - A native rule's matcher and footprint function read a view over a complete
   instance.
 - Tick patches record their input and output slots, and

@@ -15,6 +15,11 @@ The short rule is:
 Echo may only claim what its WAL can recover.
 ```
 
+[Batched strict submission](../architecture/batched-strict-submission.md)
+states how a host submits several intents behind one commit step, and what
+an acknowledgement means for each store. Only the filesystem store syncs
+storage in that step; the in-memory store has no storage to sync.
+
 ## What We Found
 
 The current runtime WAL evidence says twelve concrete things.
@@ -32,6 +37,10 @@ recovery reads a batch exactly as it reads single submissions. Until that sync
 succeeds, no acceptance of the batch counts as durable and none can be
 scheduled. A batch is not atomic across a crash: a prefix can survive, none of
 it acknowledged, and each survivor recovers as `AcceptedPending`.
+
+An intent that repeats a submission Echo already holds is a duplicate: it
+writes no transaction and its handle names the existing submission. An empty
+batch, and a batch of duplicates only, writes nothing and forces no sync.
 
 If the runtime or the WAL refuses an intent of a batch before anything is
 written for it, the intents before it are still synced and stay accepted; the
@@ -409,6 +418,11 @@ The runtime ACK and recovery witnesses live in
 
 The core test names to read first are:
 
+- `batched_submission_makes_every_acceptance_durable_with_one_sync`
+- `batched_submission_handles_duplicates_and_an_empty_batch`
+- `batched_submission_refused_before_storage_keeps_earlier_intents_and_the_wal`
+- `batched_submission_append_failure_fails_closed_until_the_wal_is_reopened`
+- `batched_submission_sync_failure_rolls_back_intake_and_fails_closed`
 - `runtime_wal_ack_submit_commits_acceptance_before_returning_handle`
 - `runtime_wal_ack_path_requires_configured_runtime_wal`
 - `runtime_wal_ack_failure_rolls_back_intake_mutation`

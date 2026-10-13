@@ -483,7 +483,7 @@ pub struct Engine {
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
-    initial_state: WarpState,
+    initial_state: Arc<WarpState>,
     /// Materialization bus for tick-scoped channel emissions.
     ///
     /// Rules emit to channels via [`ScopedEmitter`](crate::materialization::ScopedEmitter) during execution. The bus
@@ -539,7 +539,7 @@ struct RuntimeCommitStateGuard<'a> {
     state_before_runtime_commit: SavedField<WarpState>,
     saved_state_root: NodeKey,
     saved_root: NodeKey,
-    saved_initial_state: SavedField<WarpState>,
+    saved_initial_state: SavedField<Arc<WarpState>>,
     saved_last_snapshot: SavedField<Option<Snapshot>>,
     saved_tick_history: SavedField<Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>>,
     saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
@@ -555,7 +555,7 @@ struct RuntimeCommitStateGuard<'a> {
 impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
         let saved_engine_state =
-            std::mem::replace(&mut engine.state, std::mem::take(&mut state.warp_state));
+            std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
         let state_before_runtime_commit = engine.state.clone();
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
@@ -614,7 +614,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     }
 
     fn finish_success(&mut self) {
-        *self.state = WorldlineState {
+        *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
                 self.saved_engine_state
@@ -650,7 +650,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
-        };
+        });
         self.engine.current_root = self.saved_root;
         self.engine.tx_counter = self.saved_tx_counter;
         self.engine.scheduler = self
@@ -668,7 +668,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             return;
         }
 
-        *self.state = WorldlineState {
+        *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: self
                 .state_before_runtime_commit
                 .take("runtime commit guard missing pre-commit state"),
@@ -702,7 +702,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
-        };
+        });
         self.engine.state = self
             .saved_engine_state
             .take("runtime commit guard missing saved engine state");
@@ -879,7 +879,7 @@ impl Engine {
             store,
         );
         // Preserve the initial state (U0) for replay via `jump_to_tick`.
-        let initial_state = state.clone();
+        let initial_state = Arc::new(state.clone());
         Self {
             state,
             rules: BTreeMap::new(),
@@ -1081,7 +1081,7 @@ impl Engine {
         }
 
         // Preserve the initial state (U0) for replay via `jump_to_tick`.
-        let initial_state = state.clone();
+        let initial_state = Arc::new(state.clone());
         Ok(Self {
             state,
             rules: BTreeMap::new(),
@@ -2257,7 +2257,7 @@ impl Engine {
     /// Returns a snapshot view over an external worldline frontier state.
     #[must_use]
     pub fn snapshot_for_state(&self, state: &WorldlineState) -> Snapshot {
-        let state_root = compute_state_root(&state.warp_state, &state.root);
+        let state_root = compute_state_root(state.warp_state(), &state.root);
         let parents: Vec<Hash> = state
             .last_snapshot
             .as_ref()
@@ -2537,7 +2537,7 @@ impl Engine {
         // 1. Restore state to the preserved initial state (U0).
         // This ensures patches are replayed against the exact original base,
         // rather than a fresh WarpState which would discard the original U0.
-        self.state = self.initial_state.clone();
+        self.state = (*self.initial_state).clone();
 
         // 2. Re-apply patches from index 0 to tick_index
         for i in 0..=tick_index {

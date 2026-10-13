@@ -10,11 +10,17 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use thiserror::Error;
 
+mod observed_context;
+mod retained_strands;
+pub use observed_context::EchoOperationContextErrorV1;
+
 use crate::causal_anchor::prepare_causal_anchor_admission;
+use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
 
 use crate::{
     causal_wal::{
@@ -162,6 +168,18 @@ impl From<RuntimeError> for TrustedRuntimeHostError {
 /// Error returned by the trusted runtime WAL adapter.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TrustedRuntimeWalError {
+    /// Retained operation contexts could not be validated.
+    #[error("trusted runtime WAL context error: {0}")]
+    OperationContext(#[from] EchoOperationContextErrorV1),
+    /// An earlier append must be reconciled before another can reach storage.
+    #[error("trusted runtime WAL writer prefix requires reconciliation")]
+    UncertainWriterPrefix,
+    /// Storage failed while commit syncs were deferred. Records written before
+    /// the failure are not known to be durable, so this adapter refuses
+    /// further work until the host reopens the WAL and recovers from what
+    /// storage actually holds.
+    #[error("trusted runtime WAL storage failed; reopen the WAL to recover")]
+    StorageFailed,
     /// WAL transaction construction failed before storage append.
     #[error("trusted runtime WAL transaction build error: {0}")]
     Build(#[from] WalBuildError),
@@ -1332,24 +1350,30 @@ impl TrustedRuntimeHost {
         config: TrustedRuntimeWalConfig,
     ) -> Result<(), TrustedRuntimeHostError> {
         let runtime_wal = TrustedRuntimeWal::from_config(config)?;
-        let recovery = runtime_wal.recover_read_only()?;
+        let mut recovery = runtime_wal.recover_read_only()?;
         if let Some(submission_id) = recovery.missing_submission_envelopes.first().copied() {
             return Err(TrustedRuntimeWalError::SubmissionEnvelopeMissing { submission_id }.into());
         }
         if let Some(receipt_digest) = recovery.missing_runtime_state_deltas.first().copied() {
             return Err(TrustedRuntimeWalError::RuntimeStateDeltaMissing { receipt_digest }.into());
         }
-        ensure_runtime_authority_is_durable(
+        let (forked_runtime, forked_provenance) = retained_strands::restore(
             &self.runtime,
             &self.provenance,
+            &runtime_wal,
+            &mut recovery,
+        )?;
+        ensure_runtime_authority_is_durable(
+            &forked_runtime,
+            &forked_provenance,
             &self.engine,
             &recovery,
         )?;
         self.engine
             .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
 
-        let mut restored_runtime = self.runtime.clone();
-        let mut restored_provenance = self.provenance.clone();
+        let mut restored_runtime = forked_runtime;
+        let mut restored_provenance = forked_provenance;
         restored_runtime
             .restore_witnessed_submission_persistence(recovery.witnessed_submissions)?;
         restore_provenance_entries(&mut restored_provenance, &recovery.provenance_entries)?;
@@ -1399,6 +1423,20 @@ impl TrustedRuntimeHost {
     #[cfg(any(test, feature = "host_test"))]
     pub fn replace_runtime_wal_for_test(&mut self, runtime_wal: TrustedRuntimeWal) {
         self.runtime_wal = Some(runtime_wal);
+    }
+
+    /// Refuses one runtime WAL append before it reaches storage, after letting
+    /// `appends_let_through` appends succeed.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn refuse_runtime_wal_append_before_storage_for_test(
+        &mut self,
+        appends_let_through: u32,
+    ) -> Result<(), TrustedRuntimeHostError> {
+        self.runtime_wal
+            .as_mut()
+            .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?
+            .refuse_append_before_storage_for_test(appends_let_through);
+        Ok(())
     }
 
     /// Replaces the filesystem WAL fault plan for targeted host tests.
@@ -1915,6 +1953,7 @@ impl TrustedRuntimeHost {
 
     fn admit_pending_echo_operation_actions_v1(
         &mut self,
+        staging: &mut TicketedIngressStagingRollback,
     ) -> Result<BTreeMap<Hash, AdmittedEchoOperationInvocationV1>, TrustedRuntimeHostError> {
         if self.pending_echo_operation_actions.is_empty() {
             return Ok(self.admitted_echo_operation_actions.clone());
@@ -2015,11 +2054,12 @@ impl TrustedRuntimeHost {
                 }
             };
             let admission_digest = echo_operation_action_admission_digest(&submission, &admitted);
-            self.runtime.ingest_echo_operation_action_v1(
+            self.runtime.ingest_echo_operation_action_with_rollback_v1(
                 &TicketedRuntimeIngressAuthority::assume_runtime_owner(),
                 submission.submission_id,
                 admission_digest,
                 envelope,
+                staging,
             )?;
             self.echo_operation_action_admission_obstructions
                 .remove(&submission.submission_id);
@@ -2035,20 +2075,21 @@ impl TrustedRuntimeHost {
     ///
     /// Returns a runtime error if the scheduler pass fails.
     pub fn tick_once(&mut self) -> Result<Vec<StepRecord>, TrustedRuntimeHostError> {
-        let runtime_before = self.runtime.clone();
-        let provenance_before = self.provenance.clone();
-        let action_outcomes_before = self.echo_operation_action_outcomes.clone();
+        // Rollback uses markers and journals: the admitted-Action map is bounded
+        // by pending work, and nothing here copies committed history.
         let admitted_actions_before = self.admitted_echo_operation_actions.clone();
-        let admitted_actions = match self.admit_pending_echo_operation_actions_v1() {
-            Ok(admitted) => admitted,
-            Err(error) => {
-                self.runtime = runtime_before;
-                self.provenance = provenance_before;
-                self.admitted_echo_operation_actions = admitted_actions_before;
-                return Err(error);
-            }
-        };
-        let (records, action_outcomes, new_correlations) =
+        let mut action_staging = TicketedIngressStagingRollback::default();
+        let admitted_actions =
+            match self.admit_pending_echo_operation_actions_v1(&mut action_staging) {
+                Ok(admitted) => admitted,
+                Err(error) => {
+                    self.runtime
+                        .rollback_ticketed_ingress_staging(action_staging);
+                    self.admitted_echo_operation_actions = admitted_actions_before;
+                    return Err(error);
+                }
+            };
+        let (records, action_outcomes, new_correlations, tick_undo) =
             SchedulerCoordinator::super_tick_with_echo_operation_actions_v1(
                 &mut self.runtime,
                 &mut self.provenance,
@@ -2057,6 +2098,9 @@ impl TrustedRuntimeHost {
                 &self.echo_operation_evaluation_authority,
             )?;
         let mut tick_wal_records = Vec::new();
+        // Every correlation of one commit retains the same state delta. Build
+        // and digest it once per commit, not once per admitted Action.
+        let mut shared_state_delta = None;
         if self.runtime_wal.is_some() {
             for correlation in new_correlations {
                 let decision = match wal_tick_decision_from_observation(
@@ -2066,24 +2110,48 @@ impl TrustedRuntimeHost {
                 ) {
                     Ok(decision) => decision,
                     Err(error) => {
-                        self.runtime = runtime_before;
-                        self.provenance = provenance_before;
-                        self.echo_operation_action_outcomes = action_outcomes_before;
+                        undo_host_tick_v1(
+                            &mut self.runtime,
+                            &mut self.provenance,
+                            tick_undo,
+                            action_staging,
+                        );
                         self.admitted_echo_operation_actions = admitted_actions_before;
                         return Err(error.into());
                     }
                 };
-                let (state_delta, state_delta_digest) =
-                    match retained_state_delta_for_correlation(&self.provenance, &correlation) {
-                        Ok(state_delta) => state_delta,
+                let state_delta_key = (
+                    correlation.head_key,
+                    correlation.worldline_tick_after,
+                    correlation.commit_global_tick,
+                    correlation.commit_hash,
+                    correlation.tick_receipt_digest,
+                    correlation.contract.clone(),
+                );
+                let (state_delta, state_delta_digest) = match &shared_state_delta {
+                    Some((key, state_delta, digest)) if *key == state_delta_key => {
+                        (Rc::clone(state_delta), *digest)
+                    }
+                    _ => match retained_state_delta_for_correlation(&self.provenance, &correlation)
+                    {
+                        Ok((state_delta, digest)) => {
+                            let state_delta = Rc::new(state_delta);
+                            shared_state_delta =
+                                Some((state_delta_key, Rc::clone(&state_delta), digest));
+                            (state_delta, digest)
+                        }
                         Err(error) => {
-                            self.runtime = runtime_before;
-                            self.provenance = provenance_before;
-                            self.echo_operation_action_outcomes = action_outcomes_before;
+                            undo_host_tick_v1(
+                                &mut self.runtime,
+                                &mut self.provenance,
+                                tick_undo,
+                                action_staging,
+                            );
                             self.admitted_echo_operation_actions = admitted_actions_before;
                             return Err(error);
                         }
-                    };
+                    },
+                };
                 tick_wal_records.push((correlation, decision, state_delta, state_delta_digest));
             }
         }
@@ -2107,9 +2175,12 @@ impl TrustedRuntimeHost {
         }
         if let Some(runtime_wal) = self.runtime_wal.as_mut() {
             if runtime_wal.uses_filesystem_store() && tick_wal_groups.len() > 1 {
-                self.runtime = runtime_before;
-                self.provenance = provenance_before;
-                self.echo_operation_action_outcomes = action_outcomes_before;
+                undo_host_tick_v1(
+                    &mut self.runtime,
+                    &mut self.provenance,
+                    tick_undo,
+                    action_staging,
+                );
                 self.admitted_echo_operation_actions = admitted_actions_before;
                 return Err(TrustedRuntimeWalError::FilesystemAtomicBatchUnsupported {
                     transaction_kind: WalTransactionKind::SchedulerTick,
@@ -2157,9 +2228,12 @@ impl TrustedRuntimeHost {
                     } else {
                         Some(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
                     };
-                    self.runtime = runtime_before;
-                    self.provenance = provenance_before;
-                    self.echo_operation_action_outcomes = action_outcomes_before;
+                    undo_host_tick_v1(
+                        &mut self.runtime,
+                        &mut self.provenance,
+                        tick_undo,
+                        action_staging,
+                    );
                     self.admitted_echo_operation_actions = admitted_actions_before;
                     if let Some(rollback_error) = rollback_error {
                         return Err(rollback_error.into());
@@ -2230,6 +2304,18 @@ impl ProviderContractPackageInstallerV1 for TrustedRuntimeHost {
             admitted,
         )
     }
+}
+
+/// Restores the runtime and provenance to their state before one host tick:
+/// the completed scheduler pass first, then the Action staging that preceded it.
+fn undo_host_tick_v1(
+    runtime: &mut WorldlineRuntime,
+    provenance: &mut ProvenanceService,
+    tick_undo: SuperTickUndo,
+    action_staging: TicketedIngressStagingRollback,
+) {
+    SchedulerCoordinator::undo_super_tick(runtime, provenance, tick_undo);
+    runtime.rollback_ticketed_ingress_staging(action_staging);
 }
 
 fn ensure_runtime_authority_is_durable(
@@ -2447,11 +2533,17 @@ impl CausalAnchorClaimProjection {
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Debug)]
 pub struct TrustedRuntimeWal {
+    // Derived from a validated committed prefix; None after any uncertain append.
+    operation_context_index: Option<(Hash, observed_context::Contexts)>,
     store: TrustedRuntimeWalStore,
     evidence_catalog: Option<crate::evidence::CausalSegmentCatalog>,
     evidence_catalog_posture: EvidenceCatalogPosture,
     #[cfg(any(test, feature = "host_test"))]
     fail_next_evidence_catalog_update: bool,
+    /// Refuses one append before it reaches storage, after letting this many
+    /// appends through.
+    #[cfg(any(test, feature = "host_test"))]
+    refuse_append_before_storage_after: Option<u32>,
     #[cfg(any(test, feature = "host_test"))]
     recover_read_only_call_count: std::cell::Cell<usize>,
     writer_epoch: WriterEpochId,
@@ -2472,6 +2564,24 @@ pub struct TrustedRuntimeWal {
     causal_history_frontier_digest: Hash,
     causal_anchor_claim_projection: CausalAnchorClaimProjection,
     durable_submission_acceptances: BTreeMap<Hash, Hash>,
+    /// Acceptances whose commit records are appended and not yet synced. They
+    /// stop a second append of the same submission and are never treated as
+    /// durable.
+    unsynced_submission_acceptances: BTreeMap<Hash, Hash>,
+    /// Set when storage fails while commit syncs are deferred; see
+    /// [`TrustedRuntimeWalError::StorageFailed`].
+    storage_failed: bool,
+    /// Digest of the last commit that a successful sync is known to cover.
+    last_synced_commit_digest: Hash,
+}
+
+/// Whether an appended commit record is synced before the append returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommitSync {
+    /// Sync the commit record now. The transaction is durable on return.
+    Now,
+    /// Leave the commit record unsynced for a later shared sync.
+    Deferred,
 }
 
 impl TrustedRuntimeWal {
@@ -2491,6 +2601,7 @@ impl TrustedRuntimeWal {
         let mut store = TrustedRuntimeWalStore::open(store)?;
         let recovery_report = store.recover_for_writer()?;
         let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
+        let contexts = observed_context::Contexts::from_recovery(&recovery_report)?;
         let durable_submission_acceptances = recover_submission_index(&recovery_report)
             .map_err(WalRecoveryError::from)?
             .entries()
@@ -2510,6 +2621,10 @@ impl TrustedRuntimeWal {
         let writer_epoch = writer_epoch.epoch_id;
         let durability_mode = store.durability_mode();
         Ok(Self {
+            operation_context_index: Some((
+                recovered_cursor.previous_committed_transaction_digest,
+                contexts,
+            )),
             store,
             writer_epoch,
             segment_id: WalSegmentId::from_raw(1),
@@ -2536,10 +2651,17 @@ impl TrustedRuntimeWal {
             causal_history_frontier_digest: recovered_cursor.causal_history_frontier_digest,
             causal_anchor_claim_projection: recovered_cursor.causal_anchor_claim_projection,
             durable_submission_acceptances,
+            unsynced_submission_acceptances: BTreeMap::new(),
+            storage_failed: false,
+            // Opening the store synced the log, so the recovered prefix is
+            // durable.
+            last_synced_commit_digest: recovered_cursor.previous_committed_transaction_digest,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: false,
+            #[cfg(any(test, feature = "host_test"))]
+            refuse_append_before_storage_after: None,
             #[cfg(any(test, feature = "host_test"))]
             recover_read_only_call_count: std::cell::Cell::new(0),
         })
@@ -2552,6 +2674,9 @@ impl TrustedRuntimeWal {
     }
 
     /// Returns committed WAL markers recorded by the adapter.
+    ///
+    /// This is what the log holds, not what is durable: it includes a commit
+    /// record whose sync is still deferred or has failed.
     #[must_use]
     pub fn commits(&self) -> Vec<WalTransactionCommit> {
         self.store.read_commits()
@@ -2573,10 +2698,13 @@ impl TrustedRuntimeWal {
     fn in_memory_rollback_snapshot(&self) -> Option<Self> {
         Some(Self {
             store: TrustedRuntimeWalStore::InMemory(self.store.cloned_in_memory_store()?),
+            operation_context_index: self.operation_context_index.clone(),
             evidence_catalog: self.evidence_catalog.clone(),
             evidence_catalog_posture: self.evidence_catalog_posture.clone(),
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: self.fail_next_evidence_catalog_update,
+            #[cfg(any(test, feature = "host_test"))]
+            refuse_append_before_storage_after: self.refuse_append_before_storage_after,
             #[cfg(any(test, feature = "host_test"))]
             recover_read_only_call_count: std::cell::Cell::new(
                 self.recover_read_only_call_count.get(),
@@ -2601,6 +2729,9 @@ impl TrustedRuntimeWal {
             causal_history_frontier_digest: self.causal_history_frontier_digest,
             causal_anchor_claim_projection: self.causal_anchor_claim_projection.clone(),
             durable_submission_acceptances: self.durable_submission_acceptances.clone(),
+            unsynced_submission_acceptances: self.unsynced_submission_acceptances.clone(),
+            storage_failed: self.storage_failed,
+            last_synced_commit_digest: self.last_synced_commit_digest,
         })
     }
 
@@ -2634,6 +2765,11 @@ impl TrustedRuntimeWal {
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
+        // After a storage failure the log may hold records that are readable
+        // and not durable. This adapter does not report them as recovered.
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
         #[cfg(any(test, feature = "host_test"))]
         self.recover_read_only_call_count
             .set(self.recover_read_only_call_count.get() + 1);
@@ -2718,6 +2854,9 @@ impl TrustedRuntimeWal {
     pub fn recover_evidence_catalog_read_only(
         &self,
     ) -> Result<crate::evidence::CausalSegmentCatalog, TrustedRuntimeWalError> {
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
         let report = self.store.recover_read_only()?;
         crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report)
             .map_err(TrustedRuntimeWalError::EvidenceCatalog)
@@ -2801,6 +2940,80 @@ impl TrustedRuntimeWal {
         self.store.is_filesystem()
     }
 
+    /// Returns `true` when an acceptance for this submission is in the log,
+    /// whether or not its commit record has been synced. Use this only to
+    /// avoid appending the same acceptance twice.
+    fn has_recorded_submission_acceptance(
+        &self,
+        submission_id: Hash,
+        canonical_envelope_digest: Hash,
+    ) -> bool {
+        self.has_submission_acceptance(submission_id, canonical_envelope_digest)
+            || self.unsynced_submission_acceptances.get(&submission_id)
+                == Some(&canonical_envelope_digest)
+    }
+
+    /// Makes every transaction appended with [`CommitSync::Deferred`] durable
+    /// with one storage sync, and only then counts its acceptances as durable.
+    fn sync_deferred_commits(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
+        if let TrustedRuntimeWalStore::Filesystem(store) = &mut self.store {
+            if let Err(error) = store.sync_deferred_commits() {
+                self.fail_storage();
+                return Err(error.into());
+            }
+        }
+        self.promote_synced_submission_acceptances();
+        Ok(())
+    }
+
+    /// Records that storage failed while commit syncs were deferred.
+    ///
+    /// No unsynced acceptance can become durable after this, and the adapter
+    /// does not reconcile itself from the log: a record that is readable is
+    /// not thereby durable.
+    fn fail_storage(&mut self) {
+        self.storage_failed = true;
+        self.unsynced_submission_acceptances.clear();
+        // The live catalog may describe records that are not durable. It is
+        // dropped, and the posture names the last commit known to be synced.
+        self.evidence_catalog = None;
+        self.evidence_catalog_posture = EvidenceCatalogPosture::NeedsRebuild {
+            reason: *blake3::hash(b"storage_failed").as_bytes(),
+            last_good_commit: self.last_synced_commit_digest,
+        };
+    }
+
+    fn storage_failed(&self) -> bool {
+        self.storage_failed
+    }
+
+    /// Rebuilds the writer cursor after an append that was refused before it
+    /// reached storage. Unsynced acceptances stay unsynced.
+    fn restore_cursor_after_refused_append(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        self.refresh_cursor_from_store_for_writer()
+    }
+
+    /// Records that a successful sync covers every record appended so far.
+    fn promote_synced_submission_acceptances(&mut self) {
+        let synced = std::mem::take(&mut self.unsynced_submission_acceptances);
+        self.durable_submission_acceptances.extend(synced);
+        self.last_synced_commit_digest = self.previous_committed_transaction_digest;
+    }
+
+    /// Returns how many storage syncs have made commit records durable, when
+    /// the adapter is backed by the filesystem store.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn filesystem_commit_sync_count_for_test(&self) -> Option<u64> {
+        match &self.store {
+            TrustedRuntimeWalStore::Filesystem(store) => Some(store.commit_sync_count_for_test()),
+            TrustedRuntimeWalStore::InMemory(_) => None,
+        }
+    }
+
     #[cfg(any(test, feature = "host_test"))]
     fn replace_filesystem_fault_plan_for_test(
         &mut self,
@@ -2812,7 +3025,15 @@ impl TrustedRuntimeWal {
     }
 
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        // After a failed storage sync a readable record is not a durable one,
+        // so the live adapter must not reconcile itself from the log. Only
+        // reopening the WAL recovers.
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
+        self.operation_context_index = None;
         let report = self.store.recover_for_writer()?;
+        let contexts = observed_context::Contexts::from_recovery(&report)?;
         let cursor = TrustedRuntimeWalCursor::from_recovery(&report)?;
         let durable_submission_acceptances = recover_submission_index(&report)
             .map_err(WalRecoveryError::from)?
@@ -2847,6 +3068,12 @@ impl TrustedRuntimeWal {
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
         self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
         self.durable_submission_acceptances = durable_submission_acceptances;
+        // The log is read as written, not as synced. An acceptance whose sync
+        // is still owed stays unsynced however readable its record is.
+        for submission_id in self.unsynced_submission_acceptances.keys() {
+            self.durable_submission_acceptances.remove(submission_id);
+        }
+        self.operation_context_index = Some((self.previous_committed_transaction_digest, contexts));
         Ok(())
     }
 
@@ -2940,6 +3167,7 @@ impl TrustedRuntimeWal {
         &mut self,
         envelope: &IngressEnvelope,
         handle: IntentSubmissionHandle,
+        sync: CommitSync,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
         let record = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,
@@ -2963,10 +3191,18 @@ impl TrustedRuntimeWal {
                 after_digest: next_submission_frontier,
             }],
         )?;
-        let commit = self.append_transaction(transaction)?;
+        let commit = self.append_transaction_with(transaction, sync)?;
         self.submission_frontier_digest = next_submission_frontier;
-        self.durable_submission_acceptances
-            .insert(record.submission_id, record.canonical_envelope_digest);
+        match sync {
+            CommitSync::Now => {
+                self.durable_submission_acceptances
+                    .insert(record.submission_id, record.canonical_envelope_digest);
+            }
+            CommitSync::Deferred => {
+                self.unsynced_submission_acceptances
+                    .insert(record.submission_id, record.canonical_envelope_digest);
+            }
+        }
         Ok(commit)
     }
 
@@ -3271,6 +3507,17 @@ impl TrustedRuntimeWal {
         &mut self,
         transaction: WalCommittedTransaction,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        self.append_transaction_with(transaction, CommitSync::Now)
+    }
+
+    fn append_transaction_with(
+        &mut self,
+        transaction: WalCommittedTransaction,
+        sync: CommitSync,
+    ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
         let next_causal_history_frontier = logical_causal_history_frontier_digest(
             self.causal_history_frontier_digest,
             transaction.commit.transaction_kind,
@@ -3288,11 +3535,41 @@ impl TrustedRuntimeWal {
         let last_good_commit = self.previous_committed_transaction_digest;
         let commit = transaction.commit.clone();
         let frames = transaction.frames.clone();
-        self.store.append_transaction(transaction)?;
+        // Take the candidate out of circulation before storage can fail. Apply
+        // only the new records, then publish it after durable acknowledgement.
+        // A transaction built from an uncertain cursor never reaches storage.
+        let (prefix, mut contexts) = self
+            .operation_context_index
+            .take()
+            .ok_or(TrustedRuntimeWalError::UncertainWriterPrefix)?;
+        if prefix != self.previous_committed_transaction_digest {
+            return Err(TrustedRuntimeWalError::UncertainWriterPrefix);
+        }
+        #[cfg(any(test, feature = "host_test"))]
+        match self.refuse_append_before_storage_after {
+            Some(0) => {
+                self.refuse_append_before_storage_after = None;
+                return Err(TrustedRuntimeWalError::UncertainWriterPrefix);
+            }
+            Some(remaining) => self.refuse_append_before_storage_after = Some(remaining - 1),
+            None => {}
+        }
+        contexts.apply_frames(&frames)?;
+        match sync {
+            CommitSync::Now => self.store.append_transaction(transaction)?,
+            CommitSync::Deferred => self
+                .store
+                .append_transaction_deferring_commit_sync(transaction)?,
+        }
+        self.operation_context_index = Some((commit.commit_digest, contexts));
         self.next_lsn = next_lsn;
         self.previous_frame_digest = last_frame_digest;
         self.previous_committed_transaction_digest = commit.commit_digest;
         self.causal_history_frontier_digest = next_causal_history_frontier;
+        if matches!(sync, CommitSync::Now) {
+            // A synced commit covers every earlier record in the segment.
+            self.promote_synced_submission_acceptances();
+        }
         self.try_update_evidence_catalog_after_commit(&commit, &frames, last_good_commit);
         Ok(commit)
     }
@@ -3391,6 +3668,10 @@ impl TrustedRuntimeWalStore {
                 };
                 #[cfg(not(any(test, feature = "host_test")))]
                 let store = FilesystemWalStore::open(root, segment_id)?;
+                let mut store = store;
+                // Make what an earlier writer left readable durable before
+                // any of it is read as recovered history.
+                store.sync_existing_segments()?;
                 Ok(Self::Filesystem(store))
             }
         }
@@ -3474,6 +3755,18 @@ impl TrustedRuntimeWalStore {
         match self {
             Self::InMemory(store) => store.append_transaction(transaction),
             Self::Filesystem(store) => store.append_transaction(transaction),
+        }
+    }
+
+    /// Appends without syncing the commit record. The in-memory store has no
+    /// sync, so it appends as usual.
+    fn append_transaction_deferring_commit_sync(
+        &mut self,
+        transaction: WalCommittedTransaction,
+    ) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(store) => store.append_transaction(transaction),
+            Self::Filesystem(store) => store.append_transaction_deferring_commit_sync(transaction),
         }
     }
 
@@ -4783,10 +5076,13 @@ fn validate_recovered_echo_operation_parent_states(
                 },
             )
             .collect::<Result<Vec<_>, _>>()?;
+        let state_root_before = reconstructed_state.state_root();
         let reconstructed_batch = commit_scheduler_action_batch_to_state_v1(
             candidates,
             head_key,
             &mut reconstructed_state,
+            &mut crate::tick_patch::StateJournal::default(),
+            state_root_before,
             commit_global_tick,
             policy_id,
         )
@@ -4919,7 +5215,9 @@ fn evaluation_basis_matches_recovered_coordinate(
             crate::WorldlineTick::from_raw(parent_tick),
         ))
         .is_some_and(|parent| {
-            parent.head_key == Some(basis.writer_head())
+            // A native fork preserves the source writer's head in its copied
+            // prefix. The next writer need not have authored the parent commit.
+            parent.worldline_id == basis.writer_head().worldline_id
                 && parent.expected.state_root == basis.state_root()
                 && parent.expected.commit_hash == basis.commit_id()
                 && basis.commit_global_tick() == Some(parent.commit_global_tick)
@@ -5922,6 +6220,12 @@ impl TrustedRuntimeWal {
     pub fn fail_next_evidence_catalog_update_for_test(&mut self) {
         self.fail_next_evidence_catalog_update = true;
     }
+
+    /// Refuses one append before it reaches storage, after letting
+    /// `appends_let_through` appends succeed.
+    pub fn refuse_append_before_storage_for_test(&mut self, appends_let_through: u32) {
+        self.refuse_append_before_storage_after = Some(appends_let_through);
+    }
 }
 
 /// App-facing handle for a trusted local runtime host.
@@ -5955,6 +6259,11 @@ impl TrustedRuntimeApp<'_> {
             .runtime_wal
             .as_ref()
             .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?;
+        // After a storage failure the cached frontier may name records that
+        // are not durable. It is not a basis.
+        if runtime_wal.storage_failed() {
+            return Err(TrustedRuntimeWalError::StorageFailed.into());
+        }
         Ok(runtime_wal.current_causal_anchor_basis())
     }
 
@@ -6105,13 +6414,104 @@ impl TrustedRuntimeApp<'_> {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
-        self.submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::Ordinary)
+        self.submit_intent_with_runtime_wal_ack_inner(
+            envelope,
+            AppIntentAdmission::Ordinary,
+            CommitSync::Now,
+        )
+    }
+
+    /// Submits several canonical intents and returns only after one storage
+    /// sync has made all of their acceptance transactions durable.
+    ///
+    /// Each envelope is accepted exactly as
+    /// [`Self::submit_intent_with_runtime_wal_ack`] accepts it, in order, and
+    /// writes the same acceptance transaction. Only the sync is shared. No
+    /// acceptance of the batch counts as durable, and none can be scheduled,
+    /// before that sync succeeds.
+    ///
+    /// # Errors
+    ///
+    /// No handle is returned on error, so no submission of the batch is
+    /// acknowledged.
+    ///
+    /// - If the runtime refuses an envelope before anything is written for it,
+    ///   the envelopes before it are still synced. They stay accepted and
+    ///   durable, as they would after a process loss between commit and
+    ///   acknowledgement; submitting the same envelope again returns its
+    ///   existing submission. The error of the refused envelope is returned.
+    ///   The same holds if the WAL refuses an append before it reaches
+    ///   storage.
+    /// - If storage fails during an append or the sync, the in-memory intake
+    ///   of every submission this call accepted is rolled back, the storage
+    ///   error is returned, and the WAL refuses further work with
+    ///   [`TrustedRuntimeWalError::StorageFailed`] until the host reopens
+    ///   it. Storage may still hold some of the records; reopening recovers
+    ///   whatever it holds.
+    pub fn submit_intents_with_runtime_wal_ack(
+        &mut self,
+        envelopes: Vec<IngressEnvelope>,
+    ) -> Result<Vec<IntentSubmissionHandle>, TrustedRuntimeHostError> {
+        if self.host.runtime_wal.is_none() {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        }
+        let mut handles = Vec::with_capacity(envelopes.len());
+        let mut accepted = Vec::new();
+        let mut failure = None;
+        for envelope in envelopes {
+            let marker = self.host.runtime.intent_submission_rollback_marker();
+            match self.submit_intent_with_runtime_wal_ack_inner(
+                envelope,
+                AppIntentAdmission::Ordinary,
+                CommitSync::Deferred,
+            ) {
+                Ok(handle) => {
+                    if !handle.duplicate {
+                        accepted.push((marker, handle));
+                    }
+                    handles.push(handle);
+                }
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            }
+        }
+        let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        };
+        let storage_error = if runtime_wal.storage_failed() {
+            // An append failed. Its error is the one to report.
+            failure.take()
+        } else {
+            // Sync whatever was appended: those records are in the log
+            // whether or not the batch is acknowledged.
+            runtime_wal.sync_deferred_commits().err().map(Into::into)
+        };
+        if let Some(error) = storage_error {
+            // Nothing this call appended is known to be durable. Do not leave
+            // it visible as accepted intake.
+            for (marker, handle) in accepted.into_iter().rev() {
+                self.host
+                    .pending_echo_operation_actions
+                    .remove(&handle.submission_id);
+                self.host
+                    .runtime
+                    .rollback_intent_submission(marker, &handle);
+            }
+            return Err(error);
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        Ok(handles)
     }
 
     fn submit_intent_with_runtime_wal_ack_inner(
         &mut self,
         envelope: IngressEnvelope,
         admission: AppIntentAdmission,
+        sync: CommitSync,
     ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
         if self.host.runtime_wal.is_none() {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
@@ -6119,7 +6519,7 @@ impl TrustedRuntimeApp<'_> {
 
         let is_echo_operation_action =
             echo_operation_action_invocation_bytes_v1(&envelope).is_some();
-        let before_runtime = self.host.runtime.clone();
+        let submission_rollback = self.host.runtime.intent_submission_rollback_marker();
         let handle = match admission {
             AppIntentAdmission::Ordinary => {
                 self.host.runtime.submit_app_intent(envelope.clone())?
@@ -6130,11 +6530,14 @@ impl TrustedRuntimeApp<'_> {
                 .submit_contract_inverse_intent(envelope.clone())?,
         };
         let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
-            self.host.runtime = before_runtime;
+            self.host
+                .runtime
+                .rollback_intent_submission(submission_rollback, &handle);
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
         if handle.duplicate
-            && runtime_wal.has_submission_acceptance(handle.submission_id, envelope.ingress_id())
+            && runtime_wal
+                .has_recorded_submission_acceptance(handle.submission_id, envelope.ingress_id())
         {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,
@@ -6142,7 +6545,23 @@ impl TrustedRuntimeApp<'_> {
             );
             return Ok(handle);
         }
-        if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle) {
+        if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle, sync) {
+            if matches!(sync, CommitSync::Deferred) {
+                // Earlier records of this batch are appended and not synced.
+                // A storage error may have left part of this one in the log
+                // as well, and nothing readable there is durable: fail
+                // closed. An append refused before it reached storage wrote
+                // nothing, so only the writer cursor needs rebuilding.
+                if matches!(error, TrustedRuntimeWalError::Store(_))
+                    || runtime_wal.restore_cursor_after_refused_append().is_err()
+                {
+                    runtime_wal.fail_storage();
+                }
+                self.host
+                    .runtime
+                    .rollback_intent_submission(submission_rollback, &handle);
+                return Err(error.into());
+            }
             if runtime_wal.recover_filesystem_submission_acceptance_after_error(
                 handle.submission_id,
                 envelope.ingress_id(),
@@ -6153,7 +6572,9 @@ impl TrustedRuntimeApp<'_> {
                 );
                 return Ok(handle);
             }
-            self.host.runtime = before_runtime;
+            self.host
+                .runtime
+                .rollback_intent_submission(submission_rollback, &handle);
             return Err(error.into());
         }
         self.host
@@ -6183,7 +6604,11 @@ impl TrustedRuntimeApp<'_> {
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         }
         let envelope = self.host.resolve_contract_inverse_envelope(&request)?;
-        self.submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::ContractInverse)
+        self.submit_intent_with_runtime_wal_ack_inner(
+            envelope,
+            AppIntentAdmission::ContractInverse,
+            CommitSync::Now,
+        )
     }
 
     /// Recovers the typed causal derivation for one admitted inverse receipt.
@@ -6712,7 +7137,7 @@ mod tests {
 
         let mut node_occupied_parent = parent_state.clone();
         node_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .insert_node(
@@ -6733,7 +7158,7 @@ mod tests {
 
         let mut attachment_occupied_parent = parent_state.clone();
         attachment_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .set_node_attachment(
@@ -6755,7 +7180,7 @@ mod tests {
 
         let mut fully_occupied_parent = node_occupied_parent;
         fully_occupied_parent
-            .warp_state
+            .warp_state_mut()
             .store_mut(&node.warp_id)
             .expect("the fixture retains its descendant store")
             .set_node_attachment(
@@ -7113,6 +7538,15 @@ mod tests {
         ));
 
         let mut wrong_root = parent.clone();
+        let mut other_writer = parent.clone();
+        other_writer.head_key = Some(crate::WriterHeadKey {
+            worldline_id: parent.worldline_id,
+            head_id: crate::make_head_id("original-fork-writer"),
+        });
+        assert!(evaluation_basis_matches_recovered_coordinate(
+            basis,
+            &BTreeMap::from([(parent_coordinate, &other_writer)])
+        ));
         wrong_root.expected.state_root = [39; 32];
         let provenance = BTreeMap::from([(parent_coordinate, &wrong_root)]);
         assert!(validate_operation_receipt_parent_material(basis, &child, &provenance).is_err());

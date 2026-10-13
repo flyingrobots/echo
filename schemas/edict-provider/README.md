@@ -169,10 +169,10 @@ nor manifest. Independent fresh-store replay and separate host processes
 reproduce all three completed outcomes identically. Both checked components
 remain uninstalled package material; neither they nor the generated
 authority-facts documents are runtime Echo authority. The promoted lowerer is
-381,459 bytes with SHA-256
-`4b594a8165079f0a973741b9e27b468cf041f4ad53108fccae641dc35355bd2a`; the
-promoted verifier is 389,503 bytes with SHA-256
-`d0be4d283399aefc45d75b395b3568f9983521ca5543c9dfd23b9495758050ed`.
+465,247 bytes with SHA-256
+`30d6d8a463877d903a7e52164cd38dc121ff3615bf8e8102b060d776d2a30f7c`; the
+promoted verifier is 477,609 bytes with SHA-256
+`f2c72cd0204287f0acc476308ef09d0b56da380f80ae74ef10192d8718aa07f0`.
 
 The checked schema/components also support the explicit
 `compiler-produced-bounded-read/v1` configuration with required `maxReads`
@@ -190,8 +190,10 @@ output directory, and resource enforcement prerequisites are documented in
 A supported guarded runner is tracked separately in
 [#742](https://github.com/flyingrobots/echo/issues/742).
 
-The generated provider schema admits both the existing anchored
-create-if-absent configuration and the exact two-field
+The generated provider schema admits the existing anchored create-if-absent
+configuration, the anchored compare-and-set configuration with its distinct
+`expectedValueDigestField` (its 64-byte `readBytes` minimum excludes the current
+value's length, which evaluation also charges), and the exact two-field
 `compiler-produced-bounded-pure/v1` configuration. The latter contains no
 application coordinate or policy choice. The checked lowerer now emits the
 distinct generic pure package and the checked independent verifier reconstructs
@@ -330,15 +332,24 @@ writes only the two exact components, those generated members, and the derived
 manifest. Run `echo-edict-provider-package --check` to report drift without
 creating, deleting, or rewriting package files.
 
-The isolated Edict c75 host gate then consumes that exact checked package. It
-constructs all 24 native schema bindings, validates the five canonical primaries
+The isolated legacy Edict host gate pins revision
+`2e3f52f9e6d615f96eb594a40126e223a9253d98` and consumes that exact checked package.
+It constructs all 31 native schema bindings, validates the five canonical primaries
 and 14 generated resources, proves every owner field names the expected exact
 resource digest, prepares both components, and obtains both opaque request
 proofs without guest invocation. Schema-valid resource substitution, reference
 swaps, authority-source disagreement, and malformed contract material fail
 before execution. This does not grant Echo runtime authority.
 
-The crate-local `assets/v1/` tree is an exact 40-file publication carrier for
+The [source-function contract publication](contracts/source-functions-v1/README.md)
+is selected explicitly through `ProviderContractPublicationV1::SourceFunctions`.
+It preserves the existing pure-binding and ordered publication bytes and does
+not change the default checked generation route. Its candidate generator uses
+the same artifact/provenance/package admission libraries with the selected new
+pair and the refreshed checked component carriers. Source-owned call authority
+and runtime capability still require independent provider validation.
+
+The crate-local `assets/v1/` tree is an exact 42-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
 provenance. The compile-time generator identity enumerates a 20-file source
 closure, including the provider-generic registry implementation. Carrier paths

@@ -18,9 +18,9 @@ produced by a fresh public application build using Edict compiler commit
 `3b082d61c8cd23b0f917efb55c4eebd54e75c0df5d31c72f90ad856853678bf5`.
 This compiler pin differs from the provenance of the retained input fixture.
 The lowerer component hash is
-`2e2f4aa5cd63fdec99e62934e18c5590697eaeef9b1bb0253689520bd65d23e9`;
+`30d6d8a463877d903a7e52164cd38dc121ff3615bf8e8102b060d776d2a30f7c`;
 the verifier hash is
-`2d67816b9fa9128cbb0a5da761ce59fdb9c4410b28d7e1793cb5eedde47faeaa`.
+`f2c72cd0204287f0acc476308ef09d0b56da380f80ae74ef10192d8718aa07f0`.
 
 `build.py` retains the preparation and public JSONL invocation. It changes the
 configuration selector to v2, rebinds its adapter reference to the provider's

@@ -14,6 +14,7 @@ mod pure_profile;
 mod pure_projection_bounds;
 mod pure_relation;
 mod pure_source;
+mod source_functions;
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");
 const PACKAGE_ROLE: &str = "executable-operation-package.echo";
@@ -94,6 +95,195 @@ struct RawFixture {
     configuration: Vec<u8>,
     target_ir: Vec<u8>,
     result_projection: Vec<u8>,
+}
+
+#[test]
+fn providers_refuse_effect_inputs_not_equal_to_the_declared_application_argument() {
+    let names = FIXTURES[0];
+    for cas in [false, true] {
+        let mut config = configuration(names);
+        if cas {
+            *map_field_mut(&mut config, "programKind") =
+                text("anchored-node-attachment-compare-and-set/v1");
+            let CanonicalValueV1::Map(fields) = map_field_mut(&mut config, "invocationBinding")
+            else {
+                panic!("binding map")
+            };
+            fields.push((text("expectedValueDigestField"), text("expected")));
+        }
+        let valid = raw_fixture_with_values(names, config.clone(), result_projection(names));
+        let package = lower_package(names, &valid);
+        let accepted = verifier::verify(verification_request(names, &valid, package.clone()))
+            .expect("direct input verifies");
+        let report = decode_canonical_cbor_v1(&accepted.outputs[0].artifact.bytes).expect("report");
+        assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+        for case in [
+            "value",
+            "key",
+            "expected",
+            "local",
+            "type",
+            "missing-local",
+            "duplicate-local",
+        ] {
+            let fixture = raw_fixture_with_core_mutation(
+                names,
+                config.clone(),
+                result_projection(names),
+                |core| {
+                    let intent = map_field_mut(map_field_mut(core, "intents"), names.intent);
+                    let body = map_field_mut(intent, "body");
+                    if case == "missing-local" || case == "duplicate-local" {
+                        let CanonicalValueV1::Array(locals) = map_field_mut(body, "locals") else {
+                            panic!("locals")
+                        };
+                        if case == "missing-local" {
+                            locals.clear();
+                        } else {
+                            locals.push(locals[0].clone());
+                        }
+                        return;
+                    }
+                    let CanonicalValueV1::Array(nodes) = map_field_mut(body, "nodes") else {
+                        panic!("nodes")
+                    };
+                    let input = map_field_mut(&mut nodes[0], "input");
+                    if case == "local" {
+                        *map_field_mut(map_field_mut(input, "ref"), "id") = text("local.99");
+                    } else if case == "type" {
+                        *map_field_mut(map_field_mut(input, "ref"), "type") = text("other.Input");
+                    } else {
+                        *input = map([
+                            ("kind", text("record")),
+                            (
+                                "fields",
+                                dynamic_map([(
+                                    case,
+                                    map([("kind", text("string")), ("value", text("forced"))]),
+                                )]),
+                            ),
+                        ]);
+                    }
+                },
+            );
+            let lower = lowerer::lower(lowering_request(names, &fixture)).expect_err(case);
+            assert_eq!(
+                lower.kind,
+                lowerer::ProviderRefusalKind::UnsupportedSemantics,
+                "cas={cas} case={case}"
+            );
+            let verify = verifier::verify(verification_request(names, &fixture, package.clone()))
+                .expect_err(case);
+            assert_eq!(
+                verify.kind,
+                verifier::ProviderRefusalKind::UnsupportedSemantics,
+                "cas={cas} case={case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cas_providers_refuse_missing_aliased_and_underbudget_digest_bindings() {
+    let names = FIXTURES[0];
+    let mut valid = configuration(names);
+    *map_field_mut(&mut valid, "programKind") = text("anchored-node-attachment-compare-and-set/v1");
+    let CanonicalValueV1::Map(fields) = map_field_mut(&mut valid, "invocationBinding") else {
+        panic!("map");
+    };
+    fields.push((text("expectedValueDigestField"), text("expected")));
+    let valid_fixture = raw_fixture_with_values(names, valid.clone(), result_projection(names));
+    let package = lower_package(names, &valid_fixture);
+    for case in ["missing", "key", "value", "budget"] {
+        let mut config = valid.clone();
+        if case == "budget" {
+            *map_field_mut(map_field_mut(&mut config, "budgetCeiling"), "steps") = integer(3);
+        } else if case == "missing" {
+            let CanonicalValueV1::Map(fields) = map_field_mut(&mut config, "invocationBinding")
+            else {
+                panic!("map");
+            };
+            fields.retain(|(key, _)| key != &text("expectedValueDigestField"));
+        } else {
+            *map_field_mut(
+                map_field_mut(&mut config, "invocationBinding"),
+                "expectedValueDigestField",
+            ) = text(case);
+        }
+        let fixture = raw_fixture_with_values(names, config, result_projection(names));
+        let lower = lowerer::lower(lowering_request(names, &fixture)).expect_err(case);
+        assert_eq!(
+            lower.kind,
+            lowerer::ProviderRefusalKind::UnsupportedSemantics,
+            "{case}"
+        );
+        let verify = verifier::verify(verification_request(names, &fixture, package.clone()))
+            .expect_err(case);
+        assert_eq!(
+            verify.kind,
+            verifier::ProviderRefusalKind::UnsupportedSemantics,
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn verifier_accepts_projected_compare_and_set_and_rejects_rebound_digest_path() {
+    let names = FIXTURES[0];
+    let mut config = configuration(names);
+    *map_field_mut(&mut config, "programKind") =
+        text("anchored-node-attachment-compare-and-set/v1");
+    let CanonicalValueV1::Map(bindings) = map_field_mut(&mut config, "invocationBinding") else {
+        panic!("binding map");
+    };
+    bindings.push((text("expectedValueDigestField"), text("expected")));
+    let fixture = raw_fixture_with_values(names, config, result_projection(names));
+    let package = lower_package(names, &fixture);
+    let mut value = decode_canonical_cbor_v1(&package).expect("package decodes");
+    let projection = map_field_mut(&mut value, "application_result_projection");
+    assert_eq!(
+        map_field(projection, "application_input_expected_value_digest_path"),
+        &CanonicalValueV1::Array(vec![text("expected")])
+    );
+    let accepted = verifier::verify(verification_request(names, &fixture, package))
+        .expect("CAS verification completes");
+    let report =
+        decode_canonical_cbor_v1(&accepted.outputs[0].artifact.bytes).expect("report decodes");
+    assert_eq!(text_field(&report, "outcome"), Some("accepted"));
+    *map_field_mut(projection, "application_input_expected_value_digest_path") =
+        CanonicalValueV1::Array(vec![text("other")]);
+    let rejected = verifier::verify(verification_request(
+        names,
+        &fixture,
+        canonical_bytes(&value),
+    ))
+    .expect("rejection report");
+    let report =
+        decode_canonical_cbor_v1(&rejected.outputs[0].artifact.bytes).expect("report decodes");
+    assert_eq!(text_field(&report, "outcome"), Some("rejected"));
+}
+
+fn cas_profile_value(value: CanonicalValueV1) -> CanonicalValueV1 {
+    match value {
+        CanonicalValueV1::Text(text_value) => text(match text_value.as_str() {
+            "continuum.profile.create/v1" => "continuum.profile.write/v1",
+            "echo.dpo@1.anchored-node-attachment-create-if-absent" => {
+                "echo.dpo@1.anchored-node-attachment-compare-and-set"
+            }
+            "create" => "replace",
+            _ => return CanonicalValueV1::Text(text_value),
+        }),
+        CanonicalValueV1::Map(entries) => CanonicalValueV1::Map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key, cas_profile_value(value)))
+                .collect(),
+        ),
+        CanonicalValueV1::Array(values) => {
+            CanonicalValueV1::Array(values.into_iter().map(cas_profile_value).collect())
+        }
+        other => other,
+    }
 }
 
 #[test]
@@ -750,12 +940,7 @@ fn raw_fixture_with_values(
     configuration_value: CanonicalValueV1,
     result_projection_value: CanonicalValueV1,
 ) -> RawFixture {
-    raw_fixture_with_core(
-        names,
-        configuration_value,
-        result_projection_value,
-        core(names),
-    )
+    raw_fixture_with_core_mutation(names, configuration_value, result_projection_value, |_| {})
 }
 
 fn raw_fixture_with_core(
@@ -764,6 +949,47 @@ fn raw_fixture_with_core(
     result_projection_value: CanonicalValueV1,
     core_value: CanonicalValueV1,
 ) -> RawFixture {
+    raw_fixture_from_core(
+        names,
+        configuration_value,
+        result_projection_value,
+        core_value,
+        |_| {},
+    )
+}
+
+fn raw_fixture_with_core_mutation(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+    result_projection_value: CanonicalValueV1,
+    mutate: impl FnOnce(&mut CanonicalValueV1),
+) -> RawFixture {
+    let base_core = core(names);
+    raw_fixture_from_core(
+        names,
+        configuration_value,
+        result_projection_value,
+        base_core,
+        mutate,
+    )
+}
+
+fn raw_fixture_from_core(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+    result_projection_value: CanonicalValueV1,
+    base_core: CanonicalValueV1,
+    mutate: impl FnOnce(&mut CanonicalValueV1),
+) -> RawFixture {
+    let is_cas = text_field(&configuration_value, "programKind")
+        == Some("anchored-node-attachment-compare-and-set/v1");
+    let select_profile = |value| {
+        if is_cas {
+            cas_profile_value(value)
+        } else {
+            value
+        }
+    };
     let target_profile = TARGET_PROFILE.to_vec();
     let target_profile_ref = raw_ref("echo.dpo@1", "edict.target-profile/v1", &target_profile);
     let exports = canonical_bytes(&exports(names));
@@ -774,7 +1000,7 @@ fn raw_fixture_with_core(
         "echo.operation-lowering-configuration/v1",
         &configuration,
     );
-    let adapter = canonical_bytes(&adapter(names, &configuration_ref));
+    let adapter = canonical_bytes(&select_profile(adapter(names, &configuration_ref)));
     let adapter_ref = raw_ref(names.adapter, "edict.lawpack-adapter/v1", &adapter);
     let lawpack = canonical_bytes(&lawpack(
         names,
@@ -785,6 +1011,8 @@ fn raw_fixture_with_core(
         &target_profile_ref,
     ));
     let lawpack_ref = raw_ref(names.lawpack, "edict.lawpack/v1", &lawpack);
+    let mut core_value = select_profile(base_core);
+    mutate(&mut core_value);
     let core = canonical_bytes(&core_value);
     let core_ref = raw_ref(names.application, "edict.core.module/v1", &core);
     let source = canonical_bytes(&CanonicalValueV1::Bytes(
@@ -798,12 +1026,12 @@ fn raw_fixture_with_core(
         )
         .into_bytes(),
     ));
-    let target_ir = canonical_bytes(&target_ir(
+    let target_ir = canonical_bytes(&select_profile(target_ir(
         names,
         &core_ref,
         &lawpack_ref,
         &target_profile_ref,
-    ));
+    )));
     let result_projection = canonical_bytes(&result_projection_value);
     RawFixture {
         core,
@@ -843,43 +1071,76 @@ fn core(names: FixtureNames<'_>) -> CanonicalValueV1 {
             dynamic_map([(
                 names.intent,
                 map([
+                    ("input", text(format!("{}.Input", names.application))),
                     (
                         "requiredOperationProfile",
                         text("continuum.profile.create/v1"),
                     ),
                     (
                         "body",
-                        map([(
-                            "nodes",
-                            CanonicalValueV1::Array(vec![map([
-                                ("kind", text("effect")),
-                                (
-                                    "effect",
-                                    text(format!("{}.{}", names.alias, names.effect_member)),
-                                ),
-                                (
-                                    "obstructionMap",
-                                    dynamic_map([(
-                                        names.failure,
-                                        map([(
-                                            "value",
+                        map([
+                            (
+                                "locals",
+                                CanonicalValueV1::Array(vec![map([
+                                    ("id", text("arg.0")),
+                                    ("alphaName", text("input")),
+                                    ("type", text(format!("{}.Input", names.application))),
+                                ])]),
+                            ),
+                            (
+                                "nodes",
+                                CanonicalValueV1::Array(vec![map([
+                                    ("kind", text("effect")),
+                                    (
+                                        "input",
+                                        map([
+                                            ("kind", text("local")),
+                                            (
+                                                "ref",
+                                                map([
+                                                    ("id", text("arg.0")),
+                                                    ("alphaName", text("input")),
+                                                    (
+                                                        "type",
+                                                        text(format!(
+                                                            "{}.Input",
+                                                            names.application
+                                                        )),
+                                                    ),
+                                                ]),
+                                            ),
+                                        ]),
+                                    ),
+                                    (
+                                        "effect",
+                                        text(format!("{}.{}", names.alias, names.effect_member)),
+                                    ),
+                                    (
+                                        "obstructionMap",
+                                        dynamic_map([(
+                                            names.failure,
                                             map([(
-                                                "callee",
-                                                text(format!(
-                                                    "{}.{}",
-                                                    names.alias,
-                                                    names
-                                                        .obstruction
-                                                        .rsplit_once('.')
-                                                        .expect("fixture obstruction has a member",)
-                                                        .1
-                                                )),
+                                                "value",
+                                                map([(
+                                                    "callee",
+                                                    text(format!(
+                                                        "{}.{}",
+                                                        names.alias,
+                                                        names
+                                                            .obstruction
+                                                            .rsplit_once('.')
+                                                            .expect(
+                                                                "fixture obstruction has a member",
+                                                            )
+                                                            .1
+                                                    )),
+                                                )]),
                                             )]),
                                         )]),
-                                    )]),
-                                ),
-                            ])]),
-                        )]),
+                                    ),
+                                ])]),
+                            ),
+                        ]),
                     ),
                 ]),
             )]),

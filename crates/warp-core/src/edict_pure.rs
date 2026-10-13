@@ -8,6 +8,7 @@
 
 mod decode;
 pub(crate) mod evaluate;
+pub(crate) mod functions;
 pub(crate) mod model;
 pub(crate) mod syntax;
 pub(crate) mod values;

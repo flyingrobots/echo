@@ -9,7 +9,7 @@
 - **Implementation posture:** `experiments/echo-keep` supplies a bounded dual-identity bridge against Keep revision `3165890e9291cfb5fe10e81a9d7cd151f3e59464` in a separate Rust 1.96 workspace. `echo-cas::physical_content` supplies the fallible complete-object port and MemoryTier/DiskTier adapters. Borrowed views certify no pinned filesystem generation, complete-view absence, retention, synchronization, or crash durability. The disabled-by-default `reference-adapter` feature supplies an in-memory Keep ReferenceStore backend with private identity/layout bindings and explicit payload, object, count and layout-entry limits. Process death loses its store and bindings; no durable Keep adapter is implemented. Echo CAS remains the default.
 - **Refines:** [Retained reading storage and proof boundary](../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - **Depends on:** [Durable external-action settlement](../adr/0026-durable-external-action-settlement.md)
-- **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/architecture/authenticated-reconstruction-contract.md)
+- **Related:** [Keep authenticated reconstruction contract](https://github.com/flyingrobots/keep/blob/3bf7b9179db41e90620e6d1875c2d40222a2330b/docs/invariants/authenticated-reconstruction/README.md)
 
 ## Decision
 

@@ -165,6 +165,53 @@ tests, but it is not the application lifecycle.
 
 The create-if-absent profile creates a node and its alpha attachment. It does not create a skeleton edge from the lane root. A detached cell therefore remains outside the reachable-state root hash. Equal roots do not prove equal stores or the absence of a detached write. The retained tick patch and commit identity bind that write; duplicate checks also compare the typed target-value digest. This preserves the [Merkle commit law](../spec/merkle-commit.md).
 
+The native invocation codec has a distinct projected compare-and-set form that
+retains canonical application input in the invocation identity. Static admission
+requires an `application_input_expected_value_digest_path` in the installed
+projection and exact equality between its 32-byte input value and the invocation
+precondition. Create projections omit this path. Package admission checks this
+program/path relationship before installation: a projected compare-and-set
+package without the path, or a create package with it, returns `ArtifactInvalid`
+with `InvalidStructure`. Legacy packages without a result projection remain
+supported. Invocation admission also checks the relationship and exact digest.
+Missing or substituted invocation bindings
+return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
+Both mutation profiles require the effect argument to be the declared application
+input directly. The lowerer and independent verifier each check the canonical
+`arg.0` reference, its declared type and alpha name, and its unique local
+declaration. They refuse transformed records and other local references with
+`UnsupportedSemantics`; these bounded profiles do not evaluate arbitrary effect
+arguments. This prevents a package from silently replacing an authored argument
+with the caller's input fields. The compiler fixture retains the previously
+accepted `message: "forced"` counterexample as historical failing evidence; the
+corrected components refuse that source without publishing package artifacts,
+while the direct-input control produces the same package and report bytes.
+
+The native lowerer and independent verifier select the CAS program from an exact
+`continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
+write class. Its configuration requires a distinct `expectedValueDigestField`
+and at least four steps; the package binds the corresponding input path and
+CAS-specific profile identities. The 64-byte `readBytes` floor covers only the
+two digest reads: evaluation also charges the current value's length, so a
+ceiling of exactly 64 can update only an empty value. An author sizes the
+ceiling as 64 plus the largest value the operation must replace. Package
+admission refuses an expected-digest path that is empty or that overlaps the
+key or replacement path. The verifier reconstructs these bytes and
+rejects a substituted digest path. Native refusal witnesses use synthetic semantic closures. The generated schema
+and reproducible checked components also admit a real public Edict compiler build;
+its exact source, executable package and accepted report are retained under
+`crates/echo-edict-provider-verifier/tests/fixtures/compiler-produced-cas/`.
+`crates/warp-core/tests/edict_projected_cas_tests.rs` exercises those exact package
+bytes through durable Action intake, pending-Action recovery, scheduler-owned
+update, and fresh-host recovery of the committed value and typed result. A fresh
+causal basis with a stale expected digest produces `PreconditionMismatch`; that
+noncommitted outcome also survives recovery without changing the target value.
+Separate witnesses refuse substituted input digests, missing target nodes and
+oversized replacements. The target is detached, so these checks inspect its typed
+atom and receipt rather than treating an unchanged reachable-state root as proof
+of no write. The public CLI runner still selects the create-if-absent profile;
+this CAS lifecycle witness uses the trusted host and Action APIs directly.
+
 The generic operation runner distinguishes missing Action outcomes, typed obstructions, and footprint conflicts in its error messages. Both the first Action and unexpected duplicate outcomes use bounded summaries and omit invocation data. Opted-in Rust backtraces remain separate diagnostic output. This diagnostic boundary does not change retained obstruction encoding.
 
 The external-provider schema additionally admits one exact zero-choice
@@ -189,14 +236,15 @@ clock, native callback, or WAL access and produces no Tick or Receipt.
 The interpreter implements the generic subset demanded by the first real
 compiler witness: unsigned integer constants, records, locals, field access,
 integer equality and ordering, bounded byte equality, lazy conditionals, and
-zero-argument authored pure helpers, plus `core.integer.subtract<U32/U64>` with
-two operands. Subtraction
+source-owned pure functions with ordered parameters and local bindings,
+separately authenticated zero-argument imported helpers, and
+`core.integer.subtract<U32/U64>` with two operands. Subtraction
 validates both values against the declared unsigned width and refuses underflow
 with `InvalidArtifact`; it never wraps or saturates. Operands and the result
 use the ordinary execution meter. The compiler and target verifier own static
 totality evidence; the interpreter additionally checks runtime values even when
-the supplied package pin matches. Calls resolve opaque lawpack coordinates to retained Edict bodies
-with separate lexical scope. No application coordinate selects a native
+the supplied package pin matches. Calls resolve opaque source or lawpack
+coordinates to retained Edict bodies with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
@@ -255,6 +303,88 @@ the canonical decoder's node limit, and a 64-level interpreter depth limit.
 Syntax and type expansion share a 65,536-node decode budget. Decode and code
 storage are bounded by those admission apertures, outside execution accounting.
 
+Source functions remain authoritative in `Core.functions`; Target IR retains
+calls to their fully qualified coordinates. Both pure and bounded-read providers
+validate the complete source/imported function closure, including unused
+functions. The lowerer derives a forward judgment, while the independent
+verifier audits dependency summaries and lexical frames before checking the
+Core/Target relation. Rebinding artifact hashes does not establish that relation.
+Unknown or colliding function names, wrong argument types or arity, generic
+calls, cycles, undeclared or duplicate locals, forward local references, and
+caller-local captures reject. Source function coordinates must be disjoint from
+both authenticated imported pure-function and effect exports, including unused
+source definitions. Reserving an effect name does not permit calling it from a
+pure helper. Imported functions cannot refer back to source-owned functions.
+The imported subset remains zero-argument bodies without local bindings.
+Source-call ownership requires exact membership in `Core.functions`. A shared
+package prefix alone does not make an imported pure function source-owned.
+Calls must also satisfy the type-resolution aperture: same-prefix named types
+currently resolve through module-relative `Core.types` keys; fully qualified
+imported type keys under that prefix remain a provider/runtime compatibility
+limitation.
+
+Each call evaluates every argument once, from left to right in the caller's
+frame, including unused arguments. Validated argument values move into a fresh
+parameter-only frame. Ordered local bindings and the return value are validated
+there. Parameter reads incur their ordinary copy charges. The operation shares
+one cumulative execution meter across arguments, nested calls, bindings and
+returns; returning from a frame does not refund allocation charges. Conditional
+branches are checked during admission, but only the selected branch executes.
+Read instructions obtain opaque atom bytes before passing ordinary values to a
+pure helper; helpers gain no read or mutation authority.
+
+The pure profile retains an optional authored basis and checks any present
+expression under the input-only scope, including call signatures and combined
+depth. `basis none` omits the canonical field; a present null rejects. Private
+pure evaluation does not resolve, execute or charge that basis, so valid basis
+helpers do not change its result or runtime counters. The bounded-read profile
+executes and charges its basis expression as part of the operation. This is a
+target-profile distinction, not permission to retain malformed basis authority.
+
+The source-function target subset supports unsigned words, bounded bytes,
+records and nominal types, with U32/U64 integer literals. Provider compatibility
+retains each nominal type's contract identity, which must match its resolved
+Core type-table key. Equal representations do not permit assignment, arguments,
+returns or comparisons across distinct nominal identities, or between a nominal
+type and its representation. Same-nominal byte and unsigned-word comparisons
+use the ordinary representation costs. Named `Int` definitions resolve through
+their declared unsigned width in both provider judgments and the shared
+pure/read runtime type parser, under its existing depth and work limits.
+Runtime values carry no additional
+nominal tag; materialization, validation and encoding bounds remain based on
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
+receive provider refusal.
+For modules containing source functions, partial subtraction and slicing need
+literal evidence sufficient for totality: ordered unsigned operands, or ordered
+U64 slice offsets within the operand's guaranteed minimum length. Caller
+`where` constraints are not inherited into helper frames. Function-free legacy
+fixtures retain their existing admission and runtime behavior.
+
+Source-function admission derives conservative bounds for the whole operation:
+input validation and materialization, every argument and call occurrence,
+ordered bindings, parameter and return checks, predicate and byte work,
+bounded reads, output validation, and encoding scratch. Branch bounds take
+the maximum after predicate work. Checked arithmetic rejects overflow, and
+shared dependency summaries do not deduplicate repeated execution. A declared
+step, allocation or output ceiling below the derived bound rejects before
+package acceptance; tighter host ceilings can still refuse an evaluation.
+
+The combined interpreter aperture is 64 levels across surrounding expressions,
+predicates and calls, including nested parameter, binding and return validation.
+Admission checks every source and imported suffix independently of traversal
+order. This is stricter than Edict's separate 128-source-helper compiler limit;
+that compiler limit does not promise 128-frame Echo execution. Syntax and type
+expansion remain bounded separately from runtime value materialization.
+
+The native
+[`edict_source_functions_tests.rs`](../../crates/warp-core/tests/edict_source_functions_tests.rs)
+uses deliberately rebound test-owned packages to check fresh frames, argument
+order and single evaluation, cumulative fixed-cost oracles, lazy branches,
+combined depth, malformed authority, and a real stored atom passed to a helper.
+These synthetic boundary controls establish no public compiler or release
+provenance by themselves. Its Cargo target requires `trusted_runtime`; CI and
+local affected-test routing select the same feature explicitly.
+
 The executable witness is
 [`edict_pure_evaluation_tests.rs`](../../crates/warp-core/tests/edict_pure_evaluation_tests.rs).
 It consumes retained exact external compiler output, checks both authored
@@ -263,6 +393,8 @@ mutation changes the runtime result. Its fixture retains separate verifier
 reports and reproduction coordinates. Reversed input ordering, invalid runtime
 representations, package substitution, noncanonical input, and exhausted host
 budgets produce errors without returning an application result.
+
+The guarded public source-function consumer in `xtask/examples/source_functions_public_runtime.rs` selects the complete compiler evidence by an externally supplied SHA-256. It binds the original literal cases and exact repeated package/report bytes to that selection, checks verifier approval and artifact-domain bindings, and consumes the same owned byte vectors through the public pure and immutable-read interpreters. The read witness selects an explicit frontier and aperture and checks unchanged state. These results establish private computation and reading evidence; they do not claim installation, a decided Tick, a causal Receipt, or physical power-loss durability.
 
 The paired nominal-ID and variable-payload equality witnesses in
 [`edict_byte_equality_tests.rs`](../../crates/warp-core/tests/edict_byte_equality_tests.rs)
@@ -368,6 +500,88 @@ are tracked by [issue #764](https://github.com/flyingrobots/echo/issues/764).
 
 ## External Edict Provider Artifacts
 
+### Observation-bound native host sessions
+
+The bounded `cargo xtask run-edict-operation --serve` driver continues one
+worldline through multiple compiled create-if-absent operations and reopens its
+native WAL. The bootstrap `basis` string selects that worldline once. Each
+submission gets a current runtime evaluation basis; it does not replace the
+observation basis retained for its attempt.
+
+The trusted host captures bounded node/atom readings before returning them to a
+caller. Immutable observation and logical-request bindings are retained as
+`ExecutableOperationContextRetained` WAL records. Request binding precedes
+ordinary durable ingress acceptance. Retrying the same semantic request returns
+its original canonical invocation and resolves its original native disposition;
+different input, package, operation, grant, or observation attempt under that
+identity is refused. A crash between binding and ingress can resume acceptance
+of that exact invocation. Transport rebasing does not alter its meaning.
+
+Observation preconditions execute in Echo's operation preparation, against the
+state the scheduler will commit from. Their resource reads enter the native
+footprint and patch input slots. The operation's admitted budget covers those
+reads. Relevant value changes produce `ObservationChanged`; unavailable support
+produces an obstruction. Unrelated movement does not invalidate the reading.
+The original invocation remains the replay input, including its observation.
+
+The pinned Hello Echo fixture has a 64-byte read budget for an unobserved
+one-shot create; it is not an observation-session profile. `--serve` refuses
+that insufficient budget before creating a WAL. An authored observation profile
+must budget for both the operation and its aperture: each node reading costs two
+steps and 64 bytes plus its encoded value, with additional descent reads where
+applicable. Compile and independently verify that profile before installation;
+the driver never increases a package or grant ceiling. Passing the startup
+minimum does not guarantee that a larger aperture fits. Runtime metering still
+returns `BudgetExceeded` when the actual admitted allowance is exhausted.
+
+Change discovery is a reading over retained observations and native patches.
+It returns aperture keys whose current values differ or which native patches
+wrote after the reading, including a change followed by restoration of the
+original value. Notification evidence therefore differs from the value-based
+admission precondition: an intervening write can merit attention even when the
+original value is valid again. It returns the retained commits that wrote them,
+without persisting a second notification log. It survives loss of the driver's
+caches. Unknown observation identities obstruct rather than silently recapture.
+The combined change-evidence query resolves the observation once and reads the
+host's native provenance index, which is reconstructed during reopening. It does
+not repeatedly recover the WAL to derive keys and commit identities separately.
+
+This is a trusted, locally scripted host profile, not an authenticated agent
+service or the complete public optics boundary. It covers bounded atomic node
+and attachment readings in the caller's granted aperture, not model-internal
+influence, arbitrary subtree observations, or speculative strand settlement.
+The driver accepts at most 1,024 observations and 4,096 request bindings per WAL;
+each observation contains at most 16 nodes and 4,096 retained value bytes.
+Capture preflights each slot against the remaining aggregate canonical byte
+allowance before copying that slot’s Atom bytes.
+Execution checks the slot ceiling and charges its admitted read budget before
+materializing the value; oversized support obstructs rather than allocating it.
+The context index and writer cursor are derived from one validated committed WAL
+prefix on opening or reconciliation. Healthy appends apply only their new context
+records and advance the index's commit binding after durable acknowledgement.
+Reads borrow that index without replaying history. Any append error invalidates
+the binding, including an error reported after the commit marker was synced.
+Reads in that posture resolve retained records; context writes reconcile the
+writer cursor before checking identity or constructing another transaction. No
+transaction from an uncertain cursor can reach storage. Exact retries recover
+the original request rather than replacing its semantic input.
+Retention policy and authenticated aperture delegation remain separate work.
+
+For diagnostic workload accounting, `ECHO_WAL_PROFILE=1` makes the session driver
+emit cumulative thread-local recovery calls and decoded frame counts on stderr
+after each RPC. Counters restart with each process. They count all filesystem
+recovery calls, including required opening and explicit recovery, and do not
+change stdout responses or retained evidence. They are work counts, not CPU-time
+or physical-I/O measurements.
+
+Disconnected create-if-absent cells can leave the root-reachable state hash
+unchanged. Recovery evidence must therefore include native commit identities
+and the recovered cells, not just that root hash. Reopening an empty writer
+epoch reuses its unconsumed first LSN under a fresh fenced epoch; it must not
+introduce a gap into the retained frame sequence.
+
+### Provider artifact boundary
+
 Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
 publications. The original `admit_provider_contract_pack_v1` entry point remains
 bound to its pure-binding publication. The opt-in
@@ -382,9 +596,12 @@ selects the original publication.
 The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
-pure packages as effectful programs. Its current expression subset covers
-locals, record construction/selection, byte equality, and unsigned equality or
-ordering guards. Reads select opaque atom bytes by WARP/node/expected-type IDs.
+pure packages as effectful programs. Its expression subset includes typed
+source/imported helper calls, U32/U64 constants, lazy conditionals, byte length
+and concatenation, locals, record construction/selection, byte equality, and
+unsigned equality or ordering guards. The source-function totality and resource
+rules above also apply to this route. Reads select opaque atom bytes by
+WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,
 and result, with exact imported read signatures and scoped local identities.
 The package retains source, Core, Target IR, exports, lawpack, adapter,
@@ -553,7 +770,7 @@ directory capabilities and reports drift without repair. This distribution
 copy is a release occurrence, not a second semantic authority.
 
 Native readiness is a later, independent crossing pinned to Edict revision
-`c75c3f550d049485ba00eae0dc272c6dd6aca11f`. The exact manifest constructs the
+`2e3f52f9e6d615f96eb594a40126e223a9253d98`. The exact manifest constructs the
 immutable schema registry; all five canonical primaries and 14 generated
 resources validate under their owning roots; every lawpack/target-profile field
 is bound to the expected coordinate and independently recomputed domain-framed
@@ -563,7 +780,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 40-file package-local carrier tree
+The publishable Rust crate uses a separate 42-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;
@@ -1434,3 +1651,43 @@ successful settlement aperture to equal the admitted request, revalidates the
 registry grant before settlement, and retains replay bytes before deterministic
 resumption. This profile adds no application noun, native application callback,
 provider import, shell, or ambient filesystem capability.
+
+### Retained alternatives in the trusted local host
+
+`run-edict-operation --serve --retained-alternatives` starts the parent with one
+retained Edict bootstrap operation and forks two native AuthorOnly strands, `a`
+and `b`, from that committed basis. `use` changes the selected lane for bounded
+observations and operation submission; `ancestry` returns up to 4,096 native
+commit identities for that lane. It does not change canonicality or settle work.
+
+`TrustedRuntimeHost::fork_local_operation_strand_v1` persists Echo's existing
+`TopologyStrandForkRecorded` record before exposing the fork. The fixed local
+profile derives an advisory, locally unbound AuthorOnly authority and retention
+identity from the strand identity. It allows one writer head per strand, labels
+of 1–64 bytes and at most 64 retained forks. This is an explicit trusted-host
+profile, not caller authentication or a generic authority-policy authoring API.
+Reusing a source-worldline/label pair resolves its original retained strand.
+Before a retry or fresh fork, the host reconciles its writer cursor and all
+pending committed fork records. It validates existing topology bindings and
+applies missing forks at their original coordinates on private clones, exposing
+them only after the complete pending set validates. A reported append error
+therefore cannot cause a second fork record on retry, and pending forks count
+against the capacity limit before another label is admitted. Parent advancement
+does not change a retained fork's basis. Duplicate records remain a refusal;
+this does not migrate an already duplicated history.
+
+Recovery validates the supported profile and source commit/boundary, replays the
+source history, invokes native fork construction at the recorded coordinate, and
+then restores child history and Action dispositions. Copied prefix entries are
+derived from retained source history and the fork record; application output is
+never used to recreate ancestry. The next writer may differ from the writer of
+the retained parent commit. Recovery corroborates the parent coordinate, commit,
+state root and global tick without requiring those writer identities to match.
+
+Selection remains an application convention expressed by an Edict operation
+that records a chosen worldline and native commit. This driver does not perform
+merge, promotion, braid settlement, or cross-worldline atomic validation of a
+selection policy. New information on a strand is a new explicit reading; it does
+not replace observations bound to an earlier attempt. Recovering a retained
+alternative does not establish an efficiency advantage over retained branches
+and ordinary artifact retrieval.

@@ -25,6 +25,30 @@ after the runtime WAL has committed the submission-acceptance transaction. That
 acceptance fact recovers as an `AcceptedPending` submission if the scheduler has
 not yet produced a decided outcome.
 
+`submit_intents_with_runtime_wal_ack(...)` accepts several intents in order
+and returns after one storage sync covers all of their acceptance
+transactions. Each intent still writes its own acceptance transaction, so
+recovery reads a batch exactly as it reads single submissions. Until that sync
+succeeds, no acceptance of the batch counts as durable and none can be
+scheduled. A batch is not atomic across a crash: a prefix can survive, none of
+it acknowledged, and each survivor recovers as `AcceptedPending`.
+
+If the runtime or the WAL refuses an intent of a batch before anything is
+written for it, the intents before it are still synced and stay accepted; the
+call returns the refusal and no handles.
+
+If storage fails during an append or the shared sync, Echo rolls back the
+in-memory intake of every submission that call accepted, returns the storage
+error, and refuses further WAL work with `StorageFailed` until the host
+reopens the WAL. A record that is readable after a storage failure is not
+treated as durable by the running host.
+
+A host that opens an existing log, and a writer that takes it over, sync its
+segment files before reading them as recovered history. An earlier writer may
+have stopped, or failed a sync, after writing records; those records are
+readable and not yet durable. If that sync fails, the host does not open the
+log and the writer does not take it over.
+
 Second, failed WAL acceptance is not allowed to leave half-visible runtime
 state. If no runtime WAL is configured, the ACK path returns an explicit
 unavailable error before mutating intake state. If WAL commit fails, Echo rolls
@@ -197,8 +221,13 @@ opening the workspace again.
 Twelfth, strict filesystem WAL writer authority survives process loss as a
 durable, checksummed epoch ledger rather than process memory. Epoch acquisition
 is persisted before the store returns authority. Every committed transaction
-then advances that epoch's final LSN and commit-digest evidence, and explicit
-closure persists the exact predecessor link. The ledger retains the active
+then advances that epoch's final LSN and commit-digest evidence in the live
+store, and explicit closure persists the exact predecessor link. A commit's
+durability boundary is the sync of its commit record in the segment: the store
+does not rewrite the ledger for each commit. The ledger file is written when
+an epoch is acquired or closed. Opening a store reads the ledger and derives
+each epoch's final commit from the committed records in the segment; that
+reconciliation updates the live view and does not write the file. The ledger retains the active
 epoch and only its latest closed predecessor; the trusted successor identity
 recursively commits the preceding epoch identity and final commit while older
 transactions remain in the WAL. Reopen cost and ledger size therefore remain
@@ -370,6 +399,8 @@ Release-grade durability requires all of the following executable claims:
 - Corrupt or incomplete evidence is deterministically rejected.
 - Retained evidence survives restart or produces a typed obstruction.
 - Required recovery artifacts are emitted by CI.
+
+Filesystem writer takeover acquires the process lease and checks the recovered tail before closing a predecessor epoch. An uncommitted or torn tail refuses takeover until writable recovery reconciles it. An empty predecessor leaves its starting LSN unused, so a distinct linked successor may start at that same coordinate; a committed predecessor requires the successor to start after its final LSN, with overflow refused.
 
 ## Evidence
 

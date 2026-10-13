@@ -964,7 +964,8 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
     drop(active);
     let successor = must_ok(contender.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
     assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
-    assert!(successor.started_at_lsn > Lsn::from_raw(0));
+    assert_eq!(successor.started_at_lsn, Lsn::from_raw(0));
+    assert_ne!(successor.epoch_id, epoch_id());
     drop(contender);
     must_ok(fs::remove_dir_all(root));
 }
@@ -1015,6 +1016,408 @@ fn filesystem_commits_without_writer_epoch_ledger_fail_closed() {
         "committed WAL without its writer-epoch ledger must fail closed",
     );
     assert!(matches!(error, WalStoreError::MissingWriterEpochLedger));
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_commit_does_not_rewrite_the_writer_epoch_ledger() {
+    let root = temp_wal_root("commit-leaves-ledger");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let ledger_path = root.join("writer-epochs.ecwal");
+    let ledger_before = must_ok(fs::read(&ledger_path));
+
+    must_ok(store.append_transaction(submission_transaction(
+        "commit-leaves-ledger",
+        Lsn::from_raw(0),
+    )));
+
+    assert_eq!(
+        must_ok(fs::read(&ledger_path)),
+        ledger_before,
+        "the synced commit record is the durability boundary; a commit must not also rewrite the ledger"
+    );
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_takeover_after_process_loss_derives_final_commit_from_the_segment() {
+    let root = temp_wal_root("ledger-lags-segment");
+    let first = submission_transaction("ledger-lags-first", Lsn::from_raw(0));
+    let second = submission_transaction("ledger-lags-second", Lsn::from_raw(2));
+    let final_commit_digest = second.commit.commit_digest;
+    let final_lsn = second.commit.last_lsn;
+    assert_ne!(first.commit.commit_digest, final_commit_digest);
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(first));
+        must_ok(store.append_transaction(second));
+        // Dropped without closing the epoch: the ledger on disk was last
+        // written when the epoch was acquired.
+    }
+
+    let mut reopened = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let successor = must_ok(reopened.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+
+    assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
+    assert_eq!(
+        successor.previous_epoch_final_commit_digest,
+        Some(final_commit_digest),
+        "takeover must bind the last commit that reached its segment sync boundary"
+    );
+    assert!(
+        successor.started_at_lsn > final_lsn,
+        "the successor must start after every committed coordinate"
+    );
+    drop(reopened);
+    must_ok(fs::remove_dir_all(root));
+}
+
+fn commit_sync_evidence_count(store: &FilesystemWalStore) -> usize {
+    store
+        .sync_evidence()
+        .iter()
+        .filter(|entry| entry.boundary == FilesystemSyncBoundary::CommitFileSynced)
+        .count()
+}
+
+#[test]
+fn filesystem_deferred_commits_are_not_evidenced_as_synced_until_one_sync() {
+    let root = temp_wal_root("deferred-commit-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-second",
+            Lsn::from_raw(2),
+        )),
+    );
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        0,
+        "an unsynced commit record must not be evidenced as synced"
+    );
+
+    must_ok(store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    must_ok(store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_failed_deferred_sync_is_never_evidenced_and_closes_the_store() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+
+    let root = temp_wal_root("deferred-commit-sync-failed");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "failed-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    store.replace_fault_plan_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::DeferredCommitSync,
+    ));
+
+    assert!(store.sync_deferred_commits().is_err());
+    // A later sync cannot vouch for what an earlier sync failed to write.
+    assert!(store.sync_deferred_commits().is_err());
+    assert!(store
+        .append_transaction(submission_transaction("failed-second", Lsn::from_raw(2)))
+        .is_err());
+    assert!(store.close_epoch(epoch_id()).is_err());
+    // The lower-level port a coordinator writes through is refused as well.
+    let later = submission_transaction("failed-third", Lsn::from_raw(2));
+    let later_commit = later.commit.clone();
+    assert!(later
+        .frames
+        .into_iter()
+        .all(|frame| store.append_frame(epoch_id(), frame).is_err()));
+    assert!(store.flush_commit(epoch_id(), later_commit).is_err());
+    assert!(store.truncate_tail_after(Lsn::from_raw(0)).is_err());
+    assert!(store
+        .publish_manifest(
+            epoch_id(),
+            WalManifest {
+                manifest_digest: digest("hardening:manifest:after-failed-sync"),
+                last_committed_lsn: None,
+                last_commit_digest: None,
+                sealed_segment_count: 0,
+            },
+        )
+        .is_err());
+    assert_eq!(commit_sync_evidence_count(&store), 0);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_writer_syncs_an_existing_log_before_trusting_it() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    let root = temp_wal_root("recovered-segment-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    // The record is written and its sync never happens, as when a writer
+    // stops between the two.
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "left-unsynced",
+            Lsn::from_raw(0),
+        )),
+    );
+    drop(store);
+
+    let mut refused = must_ok(FilesystemWalStore::open_with_fault_plan_for_test(
+        &root,
+        WalSegmentId::from_raw(1),
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::RecoveredSegmentSync),
+    ));
+    let error = must_err(
+        refused.acquire_fresh_writer_epoch(Lsn::from_raw(2)),
+        "a writer that cannot sync the existing log must not take it over",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::Io(message) if message.contains("recovered_segment_sync")
+    ));
+    assert_eq!(refused.recovered_segment_sync_count_for_test(), 0);
+    drop(refused);
+
+    let mut successor = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(successor.acquire_fresh_writer_epoch(Lsn::from_raw(2)));
+    assert_eq!(
+        successor.recovered_segment_sync_count_for_test(),
+        1,
+        "the unsynced record is made durable before the log is read as history"
+    );
+    drop(successor);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_failed_synced_commit_never_evidences_pending_deferred_commits() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    let root = temp_wal_root("deferred-commit-covered-by-failed-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-then-failed",
+            Lsn::from_raw(0),
+        )),
+    );
+    store.replace_fault_plan_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::FlushCommit,
+    ));
+
+    // The synced commit would have covered the deferred record as well.
+    assert!(store
+        .append_transaction(submission_transaction("synced-fails", Lsn::from_raw(2)))
+        .is_err());
+    assert!(store.sync_deferred_commits().is_err());
+    assert_eq!(commit_sync_evidence_count(&store), 0);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_truncation_is_refused_while_a_commit_sync_is_owed() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-truncation");
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(submission_transaction(
+                "before-truncation",
+                Lsn::from_raw(0),
+            )),
+    );
+
+    assert!(
+        fixture.store.truncate_tail_after(Lsn::from_raw(0)).is_err(),
+        "truncation must not remove a record whose sync is still owed"
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(fixture.store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 1);
+    must_ok(fixture.store.truncate_tail_after(Lsn::from_raw(1)));
+}
+
+#[test]
+fn filesystem_segment_seal_syncs_deferred_commits_first() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-seal");
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(submission_transaction(
+                "before-seal",
+                Lsn::from_raw(0),
+            )),
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(
+        fixture
+            .store
+            .seal_segment(epoch_id(), WalSegmentId::from_raw(1)),
+    );
+
+    assert_eq!(
+        commit_sync_evidence_count(&fixture.store),
+        1,
+        "a seal must not exist before the commits it covers are durable"
+    );
+}
+
+#[test]
+fn filesystem_manifest_publication_syncs_deferred_commits_first() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-manifest");
+    let transaction = submission_transaction("before-manifest", Lsn::from_raw(0));
+    let commit = transaction.commit.clone();
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(transaction),
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(fixture.store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            manifest_digest: digest("hardening:manifest:deferred"),
+            last_committed_lsn: Some(commit.last_lsn),
+            last_commit_digest: Some(commit.commit_digest),
+            sealed_segment_count: 0,
+        },
+    ));
+
+    let boundaries = fixture
+        .store
+        .sync_evidence()
+        .iter()
+        .map(|entry| entry.boundary)
+        .collect::<Vec<_>>();
+    let commit_synced = boundaries
+        .iter()
+        .position(|boundary| *boundary == FilesystemSyncBoundary::CommitFileSynced);
+    let manifest_synced = boundaries
+        .iter()
+        .position(|boundary| *boundary == FilesystemSyncBoundary::ManifestTempFileSynced);
+    assert!(
+        matches!((commit_synced, manifest_synced), (Some(commit), Some(manifest)) if commit < manifest),
+        "a manifest must not become durable before the commit it names: {boundaries:?}"
+    );
+}
+
+#[test]
+fn filesystem_synced_commit_and_epoch_close_cover_deferred_commits() {
+    let root = temp_wal_root("deferred-commit-covered");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "covered-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    must_ok(store.append_transaction(submission_transaction("covered-second", Lsn::from_raw(2))));
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        2,
+        "a synced commit covers every earlier record in the segment"
+    );
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "covered-third",
+            Lsn::from_raw(4),
+        )),
+    );
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    must_ok(store.close_epoch(epoch_id()));
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        3,
+        "an epoch must not close over an unsynced commit record"
+    );
+    drop(store);
+
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.transactions.len(), 3);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_takeover_refuses_unreconciled_tail_before_reusing_its_lsn() {
+    let mut fixture = WalHardeningFixture::new("takeover-uncommitted");
+    fixture.append_uncommitted_submission_frame("uncommitted", Lsn::from_raw(0));
+    let root = fixture.root.clone();
+    drop(fixture);
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let error = must_err(
+        store.acquire_fresh_writer_epoch(Lsn::from_raw(0)),
+        "takeover must not reuse an occupied uncommitted coordinate",
+    );
+    assert!(matches!(error, WalStoreError::SegmentHasUncommittedTail(_)));
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::Writable,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::TruncatedAll);
+    let epoch = must_ok(store.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+    let builder = WalTransactionBuilder::new(
+        epoch.epoch_id,
+        WalSegmentId::from_raw(1),
+        transaction_id("reconciled"),
+        WalTransactionKind::SubmissionIntake,
+        WalAppendAuthority::SubmissionIntake,
+        Lsn::from_raw(0),
+        digest("hardening:previous-frame"),
+        digest("hardening:previous-commit"),
+        WalDurabilityMode::StrictFilesystem,
+        PayloadCodecId::from_hash(digest("hardening:codec")),
+        PayloadSchemaId::from_hash(digest("hardening:schema")),
+        1,
+        1,
+        digest("hardening:domain"),
+    );
+    must_ok(
+        store.append_transaction(must_ok(build_submission_acceptance_transaction(
+            builder,
+            submission_acceptance("reconciled"),
+            vec![frontier(
+                "reconciled",
+                AffectedFrontierKind::SubmissionQueue,
+            )],
+        ))),
+    );
+    drop(store);
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(report.last_committed_lsn(), Some(Lsn::from_raw(1)));
     must_ok(fs::remove_dir_all(root));
 }
 

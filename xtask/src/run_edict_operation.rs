@@ -49,6 +49,7 @@ const WARP_ID_SOURCE: &str = "action-lane/v1";
 
 /// Inputs needed to run one exact compiler-produced package.
 pub struct RunEdictOperationConfig {
+    pub retained_alternatives: bool,
     pub package: PathBuf,
     pub verification_report: PathBuf,
     pub lawpack_manifest: PathBuf,
@@ -192,6 +193,9 @@ struct HostFixture {
     head: WriterHeadKey,
     node: NodeKey,
 }
+
+mod session;
+pub use session::serve;
 
 /// Runs the exact package and returns its durable singleton scheduler witness.
 pub fn run(config: RunEdictOperationConfig) -> Result<RunEdictOperationReport> {

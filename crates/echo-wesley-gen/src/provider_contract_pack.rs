@@ -50,6 +50,8 @@ pub enum ProviderContractPublicationV1 {
     PureBindings,
     /// Ordered-instruction publication from Edict commit `2405a550e93e1e97fff640caa44bbd0f65ffff3c`.
     OrderedInstructions,
+    /// Source-owned pure functions, selected by the exact upstream publication pair.
+    SourceFunctions,
 }
 
 impl ProviderContractPublicationV1 {
@@ -58,6 +60,9 @@ impl ProviderContractPublicationV1 {
             Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_SCHEMA_SHA256,
             Self::OrderedInstructions => {
                 "82273f3ea016a421c881f15b0fd451802205903ac9177bac8accbf3173f66d2c"
+            }
+            Self::SourceFunctions => {
+                "e484eabd615584a38cb57454b52747786f2314c135c13f99da6f6bae619a709f"
             }
         }
     }
@@ -68,6 +73,9 @@ impl ProviderContractPublicationV1 {
             Self::OrderedInstructions => {
                 "6303668861667a30418870ef25e5f169017905ae1f9d261451ba298120afdd9d"
             }
+            Self::SourceFunctions => {
+                "aebc2e4133407ae433c18b55421a89bf15dc5d489368f82ce4874f948d4f9c79"
+            }
         }
     }
 
@@ -75,6 +83,7 @@ impl ProviderContractPublicationV1 {
         match self {
             Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES,
             Self::OrderedInstructions => 75_359,
+            Self::SourceFunctions => 75_989,
         }
     }
 }

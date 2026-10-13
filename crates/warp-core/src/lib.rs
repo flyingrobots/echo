@@ -175,6 +175,7 @@ mod sandbox;
 mod scheduler;
 mod sealed_membership;
 mod settlement;
+mod slot_reading;
 mod snapshot;
 mod snapshot_accum;
 mod telemetry;
@@ -261,13 +262,13 @@ pub use echo_operation::{
     EchoOperationInstallationErrorV1, EchoOperationInvocationAdmissionErrorKindV1,
     EchoOperationInvocationAdmissionErrorV1, EchoOperationInvocationAdmissionIdV1,
     EchoOperationInvocationAdmissionPolicyV1, EchoOperationInvocationIdV1,
-    EchoOperationInvocationV1, EchoOperationObstructionIdV1, EchoOperationObstructionKindV1,
-    EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1, EchoOperationPackageIdV1,
-    EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1, EchoOperationProgramIdV1,
-    EchoOperationProgramV1, EchoOperationReceiptV1, EchoOperationResultIdV1,
-    EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1, ExecutableOperationPackageV1,
-    InstalledEchoOperationIdV1, InstalledEchoOperationV1, PreparedEchoOperationIdV1,
-    PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
+    EchoOperationInvocationV1, EchoOperationObservationV1, EchoOperationObstructionIdV1,
+    EchoOperationObstructionKindV1, EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1,
+    EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
+    EchoOperationProgramIdV1, EchoOperationProgramV1, EchoOperationReceiptV1,
+    EchoOperationResultIdV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
+    ExecutableOperationPackageV1, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    PreparedEchoOperationIdV1, PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 pub use edict_target_ir::{
     accept_edict_echo_target_ir, execute_accepted_edict_echo_target_ir, AcceptedEdictEchoTargetIr,
@@ -471,6 +472,7 @@ pub use settlement::{
     PluralAlternativeDraft, PluralSettlementPolicy, SettlementDecision, SettlementDelta,
     SettlementError, SettlementPlan, SettlementPolicy, SettlementResult, SettlementService,
 };
+pub use slot_reading::{SlotReader, SlotReading, SlotReadingError, SlotWriteIndex};
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
@@ -495,10 +497,11 @@ pub use trusted_runtime_host::EchoOperationParentStateWorkForTest;
 
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub use trusted_runtime_host::{
-    EvidenceCatalogPosture, RuntimeWalActivationGap, TrustedRuntimeApp, TrustedRuntimeHost,
-    TrustedRuntimeHostError, TrustedRuntimeHostParts, TrustedRuntimeHostRunReport,
-    TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError, TrustedRuntimeWalRecovery,
-    TrustedRuntimeWalStoreKind, WitnessedCausalAnchorAdmission,
+    EchoOperationContextErrorV1, EvidenceCatalogPosture, RuntimeWalActivationGap,
+    TrustedRuntimeApp, TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeHostParts,
+    TrustedRuntimeHostRunReport, TrustedRuntimeWal, TrustedRuntimeWalConfig,
+    TrustedRuntimeWalError, TrustedRuntimeWalRecovery, TrustedRuntimeWalStoreKind,
+    WitnessedCausalAnchorAdmission,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

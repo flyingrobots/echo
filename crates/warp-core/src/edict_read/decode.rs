@@ -152,6 +152,17 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
         &projection,
         host.evaluation,
     )?;
+    let helpers = crate::edict_pure::functions::decode(&core, &exports, &mut parser)?;
+    let mut expressions = vec![&basis, &result];
+    let mut predicates: Vec<_> = constraints.iter().map(|(_, predicate)| predicate).collect();
+    for instruction in &ordered.ordered {
+        match instruction {
+            super::model::Instruction::Read(read) => expressions.push(&read.input),
+            super::model::Instruction::Let { value, .. } => expressions.push(value),
+            super::model::Instruction::Require { predicate, .. } => predicates.push(predicate),
+        }
+    }
+    crate::edict_pure::functions::check_roots(&helpers, expressions, predicates)?;
     Ok(Program {
         input_id,
         input_type,
@@ -160,6 +171,7 @@ pub(super) fn package(raw: &[u8], pin: [u8; 32], host: ReadLimits) -> Result<Pro
         constraints,
         instructions: ordered.ordered,
         result,
+        helpers,
         limits: ReadLimits {
             evaluation,
             max_reads: host.max_reads.min(reads),

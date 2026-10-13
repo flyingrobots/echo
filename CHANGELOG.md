@@ -7,6 +7,24 @@
 
 ### Added
 
+- `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.
+
+- `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.
+
+- Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
+
+- The trusted executable-operation host can retain two native alternative strands,
+  continue a losing strand under new observations, and recover its fork ancestry
+  and operation outcomes from the WAL. Application selection records do not
+  imply merge or promotion.
+
+- Bounded executable-operation host sessions retain immutable observations and
+  logical-request bindings in the native WAL. Echo evaluates supplied node/atom
+  preconditions inside operation preparation, includes their reads in scheduler
+  footprints, and retains typed refusal or commitment outcomes across reopening.
+  The generic `run-edict-operation --serve` driver supports repeated operations,
+  historical outcome lookup, and derived observation-change discovery.
+
 - An opt-in create-operation configuration v2 derives Unicode scalar key bounds in both provider components and binds them into packages. Runtime admission enforces nonempty keys and separate scalar/UTF-8 byte ceilings; legacy configuration v1 is unchanged.
 
 - A disabled-by-default experimental Keep ReferenceStore adapter implements the complete-object CAS port with explicit limits, private bindings, sanitized backend errors and atomic output promotion. It preserves existing CAS defaults and claims no restart durability.
@@ -16,6 +34,36 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
+
+- A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
+
+- A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
+
+- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
+
+- A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
+
+- A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.
+
+- A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
+
+- Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.
+
+- A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.
+
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted. Admission likewise refuses an expected-digest path that is empty or overlaps the key or replacement path.
+
+- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the independent verifier enforces the same boundary.
+
+- Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
+
+- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
+
+- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
+
+- Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
 
 - Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.
 
@@ -110,6 +158,18 @@
   The native verifier and checked WASM package carry the same relation check.
 
 ### Added
+
+- Generic source-owned Edict functions execute through both private pure and
+  bounded-read evaluation with fresh lexical frames, ordered argument evaluation,
+  ordered local bindings, and one cumulative budget. Independent provider
+  judgments validate the complete source/imported closure, supported types,
+  totality, combined runtime depth, and conservative whole-operation costs.
+  Providers and runtime reject source functions that shadow authenticated
+  imported effects, including otherwise valid unused definitions. Bounded-read
+  call lookup distinguishes source and imported functions by exact membership,
+  including disjoint names under one package prefix.
+  Independent provider checks retain nominal type identity for source-function
+  compatibility while deriving runtime costs from the underlying representation.
 
 - Bounded pure evaluation supports generic `core.bytes.concat` with independent
   operand byte bounds, checked maximum composition, and combined-byte work and
@@ -1820,6 +1880,40 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   hook regressions.
 
 ### Fixed
+
+- Filesystem writer leases explicitly unlock when their owner leaves scope,
+  so a descriptor briefly inherited by a concurrent child process cannot keep
+  the departed writer's lease alive and spuriously refuse its successor.
+
+- The observed-session driver refuses an obviously insufficient compiled
+  budget before durable setup and explains that observation reads require an
+  authored, verified allowance rather than silently increasing the grant.
+
+- Filesystem writer takeover refuses an unreconciled WAL tail before reusing
+  an empty epoch's log position, preventing duplicate physical LSNs.
+
+- Observation change discovery preserves intervening writes after values are
+  restored, including after reopening. The session driver resolves keys and
+  commit evidence together from native provenance instead of repeatedly
+  reconstructing WAL history.
+
+- Retained observations bind the anchor's actual occupancy instead of claiming
+  that every observed anchor was absent.
+
+- Observation reads now populate the footprint partition mask as well as the
+  exact read sets, keeping retained footprint evidence consistent.
+
+- Observed operations reject observations from another writer head even when
+  both heads belong to the same worldline.
+
+- Trusted-host operation observations and logical-request bindings now advance a
+  derived index from acknowledged WAL appends instead of reconstructing retained
+  history on each call. Append errors invalidate the fast path; reconciliation
+  still resolves commits that became durable before the caller observed failure.
+
+- Reopening a filesystem WAL through an empty writer epoch no longer consumes an
+  unwritten log position. A second reopen followed by append previously left an
+  LSN gap and made subsequent recovery fail.
 
 - Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact

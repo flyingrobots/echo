@@ -1113,6 +1113,385 @@ fn filesystem_runtime_wal_ack_commits_strict_filesystem_durability() {
 }
 
 #[test]
+fn filesystem_runtime_wal_empty_reopen_does_not_consume_a_log_position() {
+    let root = temp_runtime_wal_dir("empty-reopen-continuation");
+    let reopen = || {
+        let (runtime, first, second) = runtime_pair();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("reopen");
+        (host, first, second)
+    };
+    let (mut first, lane, _) = reopen();
+    first
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("first append");
+    drop(first);
+    let (empty, _, _) = reopen();
+    drop(empty);
+    let (mut last, _, lane) = reopen();
+    last.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("second append");
+    let recovered = last
+        .runtime_wal()
+        .expect("WAL")
+        .recover_read_only()
+        .expect("contiguous history");
+    assert_eq!(recovered.certificate.committed_transactions_replayed, 2);
+    let commits = last.runtime_wal().expect("WAL").commits();
+    assert_eq!(commits[1].first_lsn, Lsn::from_raw(3));
+}
+
+#[test]
+fn observation_change_discovery_retains_intervening_writes_after_values_are_restored() {
+    fn toggle_root(view: GraphView<'_>, _: &NodeId, delta: &mut TickDelta) {
+        let root = make_node_id("root");
+        let current = view.node(&root).expect("root").ty;
+        delta.push(WarpOp::UpsertNode {
+            node: warp_core::NodeKey {
+                warp_id: view.warp_id(),
+                local_id: root,
+            },
+            record: NodeRecord {
+                ty: if current == make_type_id("world") {
+                    make_type_id("changed")
+                } else {
+                    make_type_id("world")
+                },
+            },
+        });
+    }
+    fn footprint(view: GraphView<'_>, scope: &NodeId) -> warp_core::Footprint {
+        let mut fp = warp_core::runtime_ingress_eint_read_footprint(view, scope);
+        fp.n_read
+            .insert_with_warp(view.warp_id(), make_node_id("root"));
+        fp.n_write
+            .insert_with_warp(view.warp_id(), make_node_id("root"));
+        fp
+    }
+    fn matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID).is_some()
+    }
+    let path = temp_runtime_wal_dir("observation-aba");
+    let (initial, lane) = runtime();
+    let root = *initial
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    let head = WriterHeadKey {
+        worldline_id: lane,
+        head_id: make_head_id("default"),
+    };
+    let mut host = TrustedRuntimeHost::new(initial, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&path))
+        .expect("WAL");
+    let mut package = package();
+    package.mutation_handlers[0].rule.executor = toggle_root;
+    package.mutation_handlers[0].rule.matcher = matches;
+    package.mutation_handlers[0].rule.compute_footprint = footprint;
+    host.register_contract_package(package).expect("package");
+    host.retain_echo_operation_observation_v1("watch", head, &[root])
+        .expect("observe");
+    let unrelated = warp_core::NodeKey {
+        warp_id: root.warp_id,
+        local_id: make_node_id("unrelated"),
+    };
+    host.retain_echo_operation_observation_v1("control", head, &[unrelated])
+        .expect("control");
+    for index in 0..2 {
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id: lane },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, &[index]).expect("EINT"),
+        );
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("submit");
+        host.stage_installed_contract_submission(
+            submission.submission_id,
+            &admission_ticket(59 + index),
+        )
+        .expect("stage");
+        host.run_until_idle(4).expect("execute");
+    }
+    assert_eq!(
+        host.runtime()
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .store(&root.warp_id)
+            .expect("store")
+            .node(&root.local_id)
+            .expect("root")
+            .ty,
+        make_type_id("world")
+    );
+    drop(host);
+    let (initial, _) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial, empty_engine()).expect("fresh host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&path))
+        .expect("reopen");
+    host.runtime_wal()
+        .expect("WAL")
+        .reset_recover_read_only_call_count_for_test();
+    assert_eq!(
+        host.echo_operation_observation_changes_v1("watch")
+            .expect("changes"),
+        vec![root]
+    );
+    assert_eq!(
+        host.echo_operation_observation_change_commits_v1("watch")
+            .expect("commits")
+            .len(),
+        2
+    );
+    assert!(host
+        .echo_operation_observation_changes_v1("control")
+        .expect("control changes")
+        .is_empty());
+    assert_eq!(
+        host.runtime_wal()
+            .expect("WAL")
+            .recover_read_only_call_count_for_test(),
+        0,
+        "change discovery must reuse the recovered native provenance index"
+    );
+}
+
+#[test]
+fn observed_operation_contexts_recover_without_replacing_original_inputs() {
+    let root = temp_runtime_wal_dir("observed-request-context");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    let observation = host
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .expect("retain reading");
+    assert_eq!(
+        observation.basis().application_basis(),
+        warp_core::echo_operation_anchored_node_creation_application_basis_v1(
+            node,
+            warp_core::EchoOperationAnchoredNodeOccupancyV1::NodeOnly,
+        ),
+        "the canonical root exists without an alpha attachment"
+    );
+    let invocation = |value: &[u8]| {
+        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+        observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320),
+        node, value.to_vec(), vec![0xa0],
+    )
+    };
+    // Binding is durable before ingress. This test does not claim that the
+    // deliberately uninstalled package can be admitted or executed.
+    let original = host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"old"))
+        .expect("bind request");
+    drop(host);
+    let (mut recovered, head, node) = reopen();
+    assert_eq!(
+        recovered
+            .echo_operation_observation_v1("attempt")
+            .expect("original reading"),
+        observation
+    );
+    assert_eq!(
+        recovered
+            .bind_echo_operation_request_v1("request", "attempt", invocation(b"old"))
+            .expect("retry"),
+        original
+    );
+    assert!(recovered
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"changed"))
+        .is_err());
+    assert!(recovered
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .is_err());
+    assert!(recovered.echo_operation_observation_v1("missing").is_err());
+    assert_eq!(recovered.runtime_wal().expect("WAL").commits().len(), 2);
+}
+
+#[test]
+fn healthy_contexts_advance_without_reconstructing_the_wal() {
+    let root = temp_runtime_wal_dir("context-steady-prefix");
+    let (runtime, lane, _) = runtime_pair();
+    let node = *runtime
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    let head = WriterHeadKey {
+        worldline_id: lane,
+        head_id: make_head_id("default-a"),
+    };
+    let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("WAL");
+    let before = warp_core::causal_wal::filesystem_recovery_work();
+    for i in 0..8 {
+        let attempt = format!("attempt-{i}");
+        let observation = host
+            .retain_echo_operation_observation_v1(&attempt, head, &[node])
+            .expect("capture");
+        assert_eq!(
+            host.echo_operation_observation_v1(&attempt)
+                .expect("reading"),
+            observation
+        );
+        let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
+        let original = host
+            .bind_echo_operation_request_v1(&attempt, &attempt, invocation.clone())
+            .expect("bind");
+        assert_eq!(
+            host.bind_echo_operation_request_v1(&attempt, &attempt, invocation)
+                .expect("retry"),
+            original
+        );
+    }
+    let after = warp_core::causal_wal::filesystem_recovery_work();
+    assert_eq!(
+        after, before,
+        "healthy operations rescanned committed records"
+    );
+}
+
+#[test]
+fn context_append_failure_reconciles_the_actual_committed_prefix() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ] {
+        let root = temp_runtime_wal_dir("context-uncertain-prefix");
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("fault");
+        assert!(host
+            .retain_echo_operation_observation_v1("uncertain", head, &[node])
+            .is_err());
+        let committed = target == FilesystemWalFaultTarget::CommitMarkerSynced;
+        assert_eq!(
+            host.echo_operation_observation_v1("uncertain").is_ok(),
+            committed
+        );
+        let retry = host.retain_echo_operation_observation_v1("uncertain", head, &[node]);
+        assert_eq!(
+            retry.is_err(),
+            committed,
+            "durable observation cannot be replaced"
+        );
+        host.retain_echo_operation_observation_v1("next", head, &[node])
+            .expect("reconciled append");
+        let report = host
+            .runtime_wal()
+            .expect("WAL")
+            .recover_read_only()
+            .expect("valid retained prefix");
+        assert_eq!(report.certificate.committed_transactions_replayed, 2);
+        assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    }
+}
+
+#[test]
+fn durable_request_error_resolves_original_bytes_before_retrying() {
+    let root = temp_runtime_wal_dir("request-uncertain-prefix");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    let observation = host
+        .retain_echo_operation_observation_v1("attempt", head, &[node])
+        .expect("observation");
+    let invocation = |value: &[u8]| {
+        warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+            warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+            observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, value.to_vec(), vec![0xa0])
+    };
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .is_err());
+    // The caller did not see success, but the semantic identity is already fixed.
+    assert!(host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    let scans = warp_core::causal_wal::filesystem_recovery_work();
+    let bytes = host
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+        .expect("resolve durable request");
+    assert_eq!(scans, warp_core::causal_wal::filesystem_recovery_work());
+    assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
+    drop(host);
+    let (mut recovered, _, _) = reopen();
+    assert_eq!(
+        recovered
+            .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
+            .expect("original after reopen"),
+        bytes
+    );
+    assert!(recovered
+        .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
+        .is_err());
+    assert_eq!(recovered.runtime_wal().expect("WAL").commits().len(), 2);
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_recovery_reports_uncommitted_tail_from_root() {
     let wal_root = temp_runtime_wal_dir("tail-report");
     let (runtime, worldline_id) = runtime();
@@ -1443,6 +1822,510 @@ fn filesystem_runtime_wal_failure_tick_flush_rolls_back_visible_outcome() {
         RecoveredSubmissionPosture::AcceptedPending
     );
     assert!(recovery.receipts.receipt_by_submission.is_empty());
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_tick_restores_exact_runtime_and_provenance() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let wal_root = temp_runtime_wal_dir("failure-tick-exact-state");
+        let (runtime, worldline_id) = runtime();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine())
+            .expect("trusted host should initialize");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+            .expect("host should configure filesystem runtime WAL adapter");
+        host.register_contract_package(package())
+            .expect("host should install package");
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("submission acceptance should commit before ACK");
+        host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(109))
+            .expect("trusted host should stage package-supported ticketed ingress");
+        let runtime_before = format!("{:?}", host.runtime());
+        let provenance_before = format!("{:?}", host.provenance());
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("host should inject a filesystem failure");
+
+        host.tick_once()
+            .expect_err("an undurable tick must not remain visible");
+
+        assert_eq!(
+            format!("{:?}", host.runtime()),
+            runtime_before,
+            "{target:?}: a failed tick must restore the exact pre-tick runtime"
+        );
+        assert_eq!(
+            format!("{:?}", host.provenance()),
+            provenance_before,
+            "{target:?}: a failed tick must restore the exact pre-tick provenance"
+        );
+        host.tick_once()
+            .expect("the restored tick must commit once the WAL accepts it");
+        assert_eq!(host.runtime().receipt_correlation_count(), 1);
+        drop(host);
+        fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+    }
+}
+
+#[test]
+fn filesystem_runtime_wal_failure_submission_restores_exact_runtime() {
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let wal_root = temp_runtime_wal_dir("failure-submission-exact-state");
+        let (runtime, worldline_id) = runtime();
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine())
+            .expect("trusted host should initialize");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+            .expect("host should configure filesystem runtime WAL adapter");
+        let runtime_before = format!("{:?}", host.runtime());
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("host should inject a filesystem failure");
+
+        host.app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect_err("an undurable submission must not be acknowledged");
+
+        assert_eq!(
+            format!("{:?}", host.runtime()),
+            runtime_before,
+            "{target:?}: a failed submission must restore the exact pre-call runtime"
+        );
+        let retried = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("the same submission must be acceptable once the WAL accepts it");
+        assert!(!retried.duplicate);
+        drop(host);
+        fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+    }
+}
+
+fn distinct_intents(worldline_id: WorldlineId, count: u8) -> Vec<IngressEnvelope> {
+    (0..count)
+        .map(|index| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                vec![index; 4],
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn batched_submission_makes_every_acceptance_durable_with_one_sync() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-one-sync");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs = |host: &TrustedRuntimeHost| {
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+    };
+
+    let single_before = syncs(&host);
+    let mut envelopes = distinct_intents(worldline_id, 8);
+    let batch = envelopes.split_off(3);
+    for envelope in envelopes {
+        host.app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("single submission should be acknowledged");
+    }
+    assert_eq!(
+        syncs(&host) - single_before,
+        3,
+        "each single submission waits for its own sync"
+    );
+
+    let batch_before = syncs(&host);
+    let handles = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(batch)
+        .expect("batched submission should be acknowledged");
+    assert_eq!(handles.len(), 5);
+    assert!(handles.iter().all(|handle| !handle.duplicate));
+    assert_eq!(
+        syncs(&host) - batch_before,
+        1,
+        "a batch waits for one sync, not one per submission"
+    );
+
+    let submission_ids = handles
+        .iter()
+        .map(|handle| handle.submission_id)
+        .collect::<Vec<_>>();
+    drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover the batch");
+    let recovery = reopened
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("batched acceptances should recover");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 8);
+    for submission_id in submission_ids {
+        assert_eq!(
+            recovery
+                .submissions
+                .get(&submission_id)
+                .expect("every batched submission should recover")
+                .posture,
+            RecoveredSubmissionPosture::AcceptedPending
+        );
+    }
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_append_failure_fails_closed_until_the_wal_is_reopened() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let runtime_before = format!("{:?}", host.runtime());
+    // Let the first acceptance commit, unsynced, and fail the second.
+    host.inject_runtime_wal_filesystem_fault_for_test(
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::FlushCommit).after(1),
+    )
+    .expect("host should inject a filesystem failure");
+
+    let error = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
+        .expect_err("a batch whose append fails must not be acknowledged");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL flush_commit failure")
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "the acceptance appended before the failure must not stay visible"
+    );
+    // The first acceptance is readable in the log and was never synced. The
+    // host must not treat it as an existing durable submission.
+    let refused = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect_err("the WAL must refuse work after a failed append in a batch");
+    assert!(matches!(
+        refused,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+    ));
+    assert_eq!(format!("{:?}", host.runtime()), runtime_before);
+
+    drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover what storage holds");
+    let single = reopened
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect("a reopened WAL accepts work again");
+    assert!(
+        single.duplicate,
+        "reopening syncs the log before trusting it, so the acceptance it holds is durable"
+    );
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_refused_before_storage_keeps_earlier_intents_and_the_wal() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-refused");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs_before = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .filesystem_commit_sync_count_for_test()
+        .expect("filesystem store");
+    // The first acceptance commits, unsynced. The second is refused before
+    // anything is written for it.
+    host.refuse_runtime_wal_append_before_storage_for_test(1)
+        .expect("host should arm the refusal");
+
+    let error = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 3))
+        .expect_err("a batch with a refused intent returns no handles");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::UncertainWriterPrefix)
+    ));
+    assert_eq!(
+        host.runtime().witnessed_submission_count(),
+        1,
+        "the intent before the refusal stays accepted"
+    );
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(
+        runtime_wal
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+            - syncs_before,
+        1,
+        "the intent before the refusal is synced"
+    );
+    assert_eq!(runtime_wal.submission_acceptance_count(), 1);
+
+    // Nothing failed in storage, so the WAL keeps working.
+    let mut intents = distinct_intents(worldline_id, 3);
+    let first = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(intents.remove(0))
+        .expect("the accepted intent is returned as its existing submission");
+    assert!(first.duplicate);
+    let rest = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(intents)
+        .expect("the refused intent and its successor are accepted on retry");
+    assert_eq!(rest.len(), 2);
+    assert!(rest.iter().all(|handle| !handle.duplicate));
+    assert_eq!(host.runtime().witnessed_submission_count(), 3);
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_refused_before_storage_keeps_an_in_memory_wal_usable() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("host should configure in-memory runtime WAL adapter");
+    host.refuse_runtime_wal_append_before_storage_for_test(1)
+        .expect("host should arm the refusal");
+
+    host.app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 3))
+        .expect_err("a batch with a refused intent returns no handles");
+    assert_eq!(host.runtime().witnessed_submission_count(), 1);
+
+    let mut intents = distinct_intents(worldline_id, 3);
+    let first = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(intents.remove(0))
+        .expect("the accepted intent is returned as its existing submission");
+    assert!(first.duplicate);
+    let rest = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(intents)
+        .expect("the writer cursor is rebuilt, so later appends are accepted");
+    assert_eq!(rest.len(), 2);
+    assert!(rest.iter().all(|handle| !handle.duplicate));
+}
+
+#[test]
+fn a_host_does_not_open_a_log_it_cannot_sync() {
+    let wal_root = temp_runtime_wal_dir("open-sync-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect("the first host accepts a submission");
+    drop(host);
+
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    let error = reopened
+        .enable_runtime_wal(
+            TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+                &wal_root,
+                FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::RecoveredSegmentSync),
+            ),
+        )
+        .expect_err("a log that cannot be synced must not be read as recovered history");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("recovered_segment_sync")
+    ));
+    assert!(reopened.runtime_wal().is_none());
+    assert_eq!(reopened.runtime().witnessed_submission_count(), 0);
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-sync-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let runtime_before = format!("{:?}", host.runtime());
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::DeferredCommitSync,
+    ))
+    .expect("host should inject a sync failure");
+
+    let error = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
+        .expect_err("a batch whose sync fails must not be acknowledged");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL deferred_commit_sync failure")
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "a failed sync must not leave the batch visible as accepted intake"
+    );
+    let refused = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect_err("the WAL must refuse work after a failed sync");
+    assert!(matches!(
+        refused,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "a refused submission must not stay visible either"
+    );
+    assert!(
+        matches!(host.tick_once(), Ok(steps) if steps.is_empty()),
+        "nothing from the failed batch may be scheduled"
+    );
+    let failed_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert!(
+        matches!(
+            failed_wal.recover_read_only(),
+            Err(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "the running host must not report readable records as recovered"
+    );
+    assert!(matches!(
+        failed_wal.recover_evidence_catalog_read_only(),
+        Err(TrustedRuntimeWalError::StorageFailed)
+    ));
+    assert!(
+        failed_wal.evidence_catalog().is_none(),
+        "the live catalog must not describe records that are not durable"
+    );
+    assert!(matches!(
+        failed_wal.evidence_catalog_posture(),
+        warp_core::EvidenceCatalogPosture::NeedsRebuild { .. }
+    ));
+    assert!(
+        matches!(
+            host.app().current_causal_anchor_basis(),
+            Err(TrustedRuntimeHostError::Wal(
+                TrustedRuntimeWalError::StorageFailed
+            ))
+        ),
+        "a frontier over records that are not durable is not a basis"
+    );
+
+    // The records were written; only their sync failed. Reopening recovers
+    // what storage holds, as it would after a process loss.
+    drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover what storage holds");
+    let recovery = reopened
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("the written prefix should recover");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 4);
+    assert!(recovery.receipts.receipt_by_submission.is_empty());
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_handles_duplicates_and_an_empty_batch() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-duplicates");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs = |host: &TrustedRuntimeHost| {
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+    };
+
+    let before = syncs(&host);
+    let empty = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(Vec::new())
+        .expect("an empty batch is acknowledged without work");
+    assert!(empty.is_empty());
+    assert_eq!(syncs(&host), before, "an empty batch forces no sync");
+
+    let mut envelopes = distinct_intents(worldline_id, 2);
+    envelopes.insert(1, envelopes[0].clone());
+    let handles = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(envelopes)
+        .expect("a batch that repeats an envelope should be acknowledged");
+    assert_eq!(handles.len(), 3);
+    assert!(!handles[0].duplicate);
+    assert!(handles[1].duplicate);
+    assert_eq!(handles[1].submission_id, handles[0].submission_id);
+    assert!(!handles[2].duplicate);
+    assert_eq!(syncs(&host) - before, 1);
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(
+        runtime_wal.submission_acceptance_count(),
+        2,
+        "a repeated envelope must not append a second acceptance"
+    );
+    assert_eq!(runtime_wal.commits().len(), 2);
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
 }
 
 #[test]
@@ -2357,4 +3240,307 @@ fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
 
     drop(host);
     fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
+}
+
+#[test]
+fn retained_native_fork_recovers_prefix_and_refuses_missing_source() {
+    let root = temp_runtime_wal_dir("retained-native-fork");
+    let (rt, lane) = runtime();
+    let head = rt.heads().iter().next().expect("head").0.to_owned();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("wal");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .is_err());
+    host.register_contract_package(package()).expect("package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+        .expect("stage");
+    host.run_until_idle(4).expect("commit");
+    let child = host
+        .fork_local_operation_strand_v1(head, "candidate")
+        .expect("native fork");
+    let fork = host
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("strand")
+        .fork_basis_ref();
+    let before = host.runtime_wal().expect("wal").commits().len();
+    assert_eq!(
+        host.fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry"),
+        child
+    );
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before);
+    assert!(host.fork_local_operation_strand_v1(head, "").is_err());
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("native topology replay");
+    let recovered = restored
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("retained strand");
+    assert_eq!(recovered.fork_basis_ref(), fork);
+    assert_eq!(recovered.writer_heads(), &[child]);
+    assert_eq!(
+        restored
+            .provenance()
+            .entry(child.worldline_id, fork.fork_tick)
+            .expect("prefix")
+            .expected
+            .commit_hash,
+        fork.commit_hash
+    );
+}
+
+#[test]
+fn retained_fork_retry_reconciles_uncertain_commit_before_reopening() {
+    for target in [
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let root = temp_runtime_wal_dir("retained-fork-uncertain");
+        let (rt, lane) = runtime();
+        let head = *rt.heads().iter().next().expect("head").0;
+        let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("wal");
+        host.register_contract_package(package()).expect("package");
+        let submission = host
+            .app()
+            .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+            .expect("submit");
+        host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+            .expect("stage");
+        host.run_until_idle(4).expect("source commit");
+        let before = host.runtime_wal().expect("wal").commits().len();
+        host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            target,
+        ))
+        .expect("fault");
+        assert!(host
+            .fork_local_operation_strand_v1(head, "candidate")
+            .is_err());
+        let child = host
+            .fork_local_operation_strand_v1(head, "candidate")
+            .expect("retry original retained fork");
+        assert_eq!(
+            host.runtime_wal().expect("wal").commits().len(),
+            before + 1,
+            "retry must retain exactly one fork transaction"
+        );
+        let fork = host
+            .runtime()
+            .strands()
+            .find_by_child_worldline(&child.worldline_id)
+            .expect("fork")
+            .fork_basis_ref();
+        drop(host);
+        let (rt, _) = runtime();
+        let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+        restored
+            .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("one retained fork reopens");
+        assert_eq!(
+            restored
+                .fork_local_operation_strand_v1(head, "candidate")
+                .expect("reopened retry"),
+            child
+        );
+        assert_eq!(
+            restored
+                .runtime()
+                .strands()
+                .find_by_child_worldline(&child.worldline_id)
+                .expect("retained fork")
+                .fork_basis_ref(),
+            fork
+        );
+        assert_eq!(
+            restored.runtime_wal().expect("wal").commits().len(),
+            before + 1
+        );
+        drop(restored);
+        fs::remove_dir_all(root).expect("owned fixture cleanup");
+    }
+}
+
+fn retained_fork_source_fixture(
+    root: &std::path::Path,
+) -> (TrustedRuntimeHost, WriterHeadKey, WorldlineId) {
+    let (rt, lane) = runtime();
+    let head = *rt.heads().iter().next().expect("head").0;
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(root))
+        .expect("wal");
+    host.register_contract_package(package()).expect("package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(lane))
+        .expect("submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(17))
+        .expect("stage");
+    host.run_until_idle(4).expect("source commit");
+    (host, head, lane)
+}
+
+#[test]
+fn retained_fork_pending_basis_survives_parent_advance_and_different_label() {
+    let root = temp_runtime_wal_dir("retained-fork-parent-advance");
+    let (mut host, head, lane) = retained_fork_source_fixture(&root);
+    let original = host
+        .provenance()
+        .tip_ref(lane)
+        .expect("tip")
+        .expect("source");
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "original")
+        .is_err());
+    // A context write reconciles append permission without exposing topology.
+    let node = *host
+        .runtime()
+        .worldlines()
+        .get(&lane)
+        .expect("lane")
+        .state()
+        .root();
+    host.retain_echo_operation_observation_v1("parent-write-permission", head, &[node])
+        .expect("writer prefix reconciled");
+    assert_eq!(host.runtime().strands().len(), 0);
+    let parent_receipt = host
+        .runtime()
+        .receipt_correlations()
+        .next()
+        .expect("source receipt")
+        .causal_receipt_ref;
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(causal_eint_envelope(lane, vec![parent_receipt]))
+        .expect("advance submit");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(18))
+        .expect("advance stage");
+    host.run_until_idle(4).expect("parent advance");
+    let latest = host
+        .provenance()
+        .tip_ref(lane)
+        .expect("tip")
+        .expect("advanced source");
+    assert!(latest.worldline_tick > original.worldline_tick);
+    let before = host.runtime_wal().expect("wal").commits().len();
+    let fresh = host
+        .fork_local_operation_strand_v1(head, "fresh")
+        .expect("different label");
+    let old = host
+        .fork_local_operation_strand_v1(head, "original")
+        .expect("original retry");
+    assert_ne!(old, fresh);
+    assert_eq!(host.runtime().strands().len(), 2);
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before + 1);
+    let basis = host
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&old.worldline_id)
+        .expect("old fork")
+        .fork_basis_ref();
+    assert_eq!(
+        (basis.fork_tick, basis.commit_hash),
+        (original.worldline_tick, original.commit_hash)
+    );
+    assert_eq!(
+        host.runtime()
+            .strands()
+            .find_by_child_worldline(&fresh.worldline_id)
+            .expect("fresh fork")
+            .fork_basis_ref()
+            .fork_tick,
+        latest.worldline_tick
+    );
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("both forks reopen");
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "original")
+            .expect("original"),
+        old
+    );
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "fresh")
+            .expect("fresh"),
+        fresh
+    );
+    assert_eq!(
+        restored
+            .runtime()
+            .strands()
+            .find_by_child_worldline(&old.worldline_id)
+            .expect("old")
+            .fork_basis_ref(),
+        basis
+    );
+    drop(restored);
+    fs::remove_dir_all(root).expect("owned fixture cleanup");
+}
+
+#[test]
+fn retained_fork_pending_commit_counts_against_capacity_before_new_label() {
+    let root = temp_runtime_wal_dir("retained-fork-capacity");
+    let (mut host, head, _) = retained_fork_source_fixture(&root);
+    for index in 0..63 {
+        host.fork_local_operation_strand_v1(head, &format!("visible-{index}"))
+            .expect("visible fork");
+    }
+    let before = host.runtime_wal().expect("wal").commits().len();
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSynced,
+    ))
+    .expect("fault");
+    assert!(host
+        .fork_local_operation_strand_v1(head, "pending")
+        .is_err());
+    assert_eq!(host.runtime().strands().len(), 63);
+    assert!(host
+        .fork_local_operation_strand_v1(head, "sixty-fifth")
+        .is_err());
+    assert_eq!(host.runtime().strands().len(), 64);
+    let pending = host
+        .fork_local_operation_strand_v1(head, "pending")
+        .expect("pending retry");
+    assert_eq!(host.runtime_wal().expect("wal").commits().len(), before + 1);
+    drop(host);
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("64 forks reopen");
+    assert_eq!(restored.runtime().strands().len(), 64);
+    assert_eq!(
+        restored
+            .fork_local_operation_strand_v1(head, "pending")
+            .expect("pending"),
+        pending
+    );
+    assert!(restored
+        .fork_local_operation_strand_v1(head, "sixty-fifth")
+        .is_err());
+    drop(restored);
+    fs::remove_dir_all(root).expect("owned fixture cleanup");
 }

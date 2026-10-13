@@ -12,6 +12,7 @@
 //! this frontier state.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use thiserror::Error;
 
@@ -84,7 +85,10 @@ pub struct WorldlineState {
     /// Root key for snapshot hashing and commit execution.
     pub(crate) root: NodeKey,
     /// Initial worldline state preserved for replay.
-    pub(crate) initial_state: WarpState,
+    ///
+    /// The boundary never changes after construction, so clones of this state
+    /// share it instead of copying it.
+    pub(crate) initial_state: Arc<WarpState>,
     /// Most recent snapshot committed for this worldline.
     pub(crate) last_snapshot: Option<Snapshot>,
     /// Sequential history of committed ticks for this worldline.
@@ -126,7 +130,7 @@ impl WorldlineState {
 
     fn build_validated(warp_state: WarpState, root: NodeKey) -> Self {
         Self {
-            initial_state: warp_state.clone(),
+            initial_state: Arc::new(warp_state.clone()),
             warp_state,
             root,
             last_snapshot: None,
@@ -367,9 +371,9 @@ impl WorldlineState {
     /// This preserves the deterministic initial boundary and root coordinate
     /// while dropping frontier-only materialization and replay metadata.
     pub(crate) fn replay_base_from_initial(&self) -> Self {
-        let initial_state = self.initial_state.clone();
+        let initial_state = Arc::clone(&self.initial_state);
         Self {
-            warp_state: initial_state.clone(),
+            warp_state: (*initial_state).clone(),
             root: self.root,
             initial_state,
             last_snapshot: None,

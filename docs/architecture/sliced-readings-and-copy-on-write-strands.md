@@ -147,8 +147,13 @@ The runtime does not implement this design.
 
 - Every worldline holds one complete materialized graph (`WorldlineState`,
   `GraphStore`) in memory. Ticks run against it and mutate it in place.
-- A scheduler pass clones that graph for each worldline it touches so that it
-  can restore it after a failure.
+- A scheduler pass that commits executable-operation Actions writes their
+  patch to that graph in place and journals each replaced value, so that it
+  can restore the graph after a failure without having copied it. This holds
+  for patches of node upserts and non-portal attachment writes. A patch that
+  changes graph structure, and every pass that runs native rules through the
+  engine, still copies the whole graph first. Debug builds also keep a copy,
+  to check the journal.
 - `WorldlineRuntime::fork_strand` rebuilds the source graph at the fork tick by
   replay and registers the child with an independent copy.
 - `ReplayCheckpoint` stores a complete materialized graph for one tick.

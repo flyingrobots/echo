@@ -24,7 +24,7 @@ use crate::materialization::{ChannelConflict, FinalizedChannel};
 use crate::receipt::TickReceipt;
 use crate::record::NodeRecord;
 use crate::snapshot::Snapshot;
-use crate::tick_patch::WarpTickPatchV1;
+use crate::tick_patch::{StateJournal, WarpTickPatchV1};
 use crate::warp_state::WarpInstance;
 use crate::warp_state::WarpState;
 use crate::worldline::WorldlineId;
@@ -350,11 +350,12 @@ impl WorldlineState {
         }
     }
 
-    /// Clones every field except the append-only commit history and ingress
-    /// ledger, which a rollback marker restores from the live frontier.
-    fn clone_without_append_only_history(&self) -> Self {
+    /// Clones every field except the graph, the append-only commit history and
+    /// the ingress ledger, which a rollback marker restores from the live
+    /// frontier.
+    fn clone_without_graph_or_append_only_history(&self) -> Self {
         Self {
-            warp_state: self.warp_state.clone(),
+            warp_state: WarpState::new(),
             root: self.root,
             initial_state: self.initial_state.clone(),
             last_snapshot: self.last_snapshot.clone(),
@@ -446,30 +447,66 @@ pub struct WorldlineFrontier {
 /// instead of copying either container, so its cost does not grow with the
 /// number of committed ticks. Restoring truncates the live history and removes
 /// the ingress ids that the failed attempt journaled.
+///
+/// The marker does not copy the graph either. It restores the graph from its
+/// [`StateJournal`], so every mutation of the frontier's graph made after the
+/// marker was captured must be recorded there: apply patches with
+/// [`WarpTickPatchV1::apply_journaled`], and call
+/// [`StateJournal::retain_copy`] before any other mutation.
 #[derive(Debug, Clone)]
 pub(crate) struct WorldlineFrontierRollback {
+    /// The frontier at capture, with an empty graph and no history.
     frontier: WorldlineFrontier,
     tick_history_len: usize,
+    state_journal: StateJournal,
+    /// The graph at capture, kept only to check the journal in debug builds.
+    #[cfg(debug_assertions)]
+    graph_at_capture: WarpState,
 }
 
 impl WorldlineFrontierRollback {
+    /// Returns the journal that must record every graph mutation made after
+    /// this marker was captured.
+    pub(crate) fn state_journal_mut(&mut self) -> &mut StateJournal {
+        &mut self.state_journal
+    }
+
     /// Counts append-only history elements copied into this marker.
     #[cfg(test)]
     pub(crate) fn retained_history_entries(&self) -> usize {
         self.frontier.state.tick_history.len() + self.frontier.state.committed_ingress.len()
     }
+
+    /// Returns whether this marker holds a copy of the graph for rollback.
+    ///
+    /// The copy that debug builds keep to check the journal does not count.
+    #[cfg(test)]
+    pub(crate) fn retains_graph_copy(&self) -> bool {
+        self.state_journal.holds_state_copy()
+            || self
+                .frontier
+                .state
+                .warp_state
+                .iter_instances()
+                .next()
+                .is_some()
+    }
 }
 
 impl WorldlineFrontier {
-    /// Captures a rollback marker without copying append-only history.
+    /// Captures a rollback marker without copying the graph or append-only
+    /// history.
     pub(crate) fn rollback_marker(&self) -> WorldlineFrontierRollback {
         WorldlineFrontierRollback {
             frontier: Self {
                 worldline_id: self.worldline_id,
-                state: self.state.clone_without_append_only_history(),
+                state: self.state.clone_without_graph_or_append_only_history(),
                 frontier_tick: self.frontier_tick,
             },
             tick_history_len: self.state.tick_history.len(),
+            state_journal: StateJournal::default(),
+            #[cfg(debug_assertions)]
+            graph_at_capture: self.state.warp_state.clone(),
         }
     }
 
@@ -495,7 +532,16 @@ impl WorldlineFrontier {
         for entry in attempted_ingress {
             committed_ingress.remove(&entry);
         }
+        let mut warp_state = std::mem::take(&mut self.state.warp_state);
+        marker.state_journal.restore(&mut warp_state);
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            format!("{warp_state:?}"),
+            format!("{:?}", marker.graph_at_capture),
+            "a graph mutation after the rollback marker was not journaled"
+        );
         *self = marker.frontier;
+        self.state.warp_state = warp_state;
         self.state.tick_history = tick_history;
         self.state.committed_ingress = committed_ingress;
     }

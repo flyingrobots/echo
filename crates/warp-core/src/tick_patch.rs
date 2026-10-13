@@ -448,6 +448,18 @@ impl WarpTickPatchV1 {
     pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
         apply_ops_to_state(state, &self.ops)
     }
+
+    /// Applies the patch to `state`, recording in `journal` what is needed to
+    /// take it back.
+    ///
+    /// On error `state` is unchanged. See [`apply_ops_journaled`].
+    pub(crate) fn apply_journaled(
+        &self,
+        state: &mut WarpState,
+        journal: &mut StateJournal,
+    ) -> Result<(), TickPatchError> {
+        apply_ops_journaled(state, &self.ops, journal)
+    }
 }
 
 pub(crate) fn apply_ops_to_state(
@@ -461,6 +473,156 @@ pub(crate) fn apply_ops_to_state(
     }
     if touches_portal_topology {
         validate_portal_invariants(state)?;
+    }
+    Ok(())
+}
+
+/// Journal that can take patch applications back.
+///
+/// A scheduler pass owns one journal per worldline. Each replaced value is
+/// recorded before the write that replaces it, so the journal is complete even
+/// if a write unwinds. Dropping the journal keeps the applied patches.
+///
+/// A patch of node upserts and non-portal attachment writes is journaled slot
+/// by slot: its cost is proportional to the patch, not to the state. Anything
+/// else is covered by one retained copy of the whole state.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct StateJournal {
+    /// Replaced slot values, in write order.
+    replaced: Vec<ReplacedSlot>,
+    /// A whole prior state, and the number of `replaced` entries that were
+    /// recorded before it was retained. Entries after that count describe
+    /// writes the copy already covers.
+    prior_state: Option<(usize, Box<WarpState>)>,
+}
+
+/// One slot value that a patch replaced.
+#[derive(Debug, Clone)]
+enum ReplacedSlot {
+    /// The node record before a node upsert; `None` if the upsert created it.
+    Node(NodeKey, Option<NodeRecord>),
+    /// The attachment value before an attachment write.
+    Attachment(AttachmentKey, Option<AttachmentValue>),
+}
+
+impl StateJournal {
+    /// Retains a copy of `state` unless the journal already holds one.
+    ///
+    /// Call this before a mutation that does not go through
+    /// [`apply_ops_journaled`].
+    pub(crate) fn retain_copy(&mut self, state: &WarpState) {
+        if self.prior_state.is_none() {
+            self.prior_state = Some((self.replaced.len(), Box::new(state.clone())));
+        }
+    }
+
+    /// Restores the state that existed when the journal was empty.
+    pub(crate) fn restore(mut self, state: &mut WarpState) {
+        if let Some((recorded_before_copy, prior)) = self.prior_state.take() {
+            *state = *prior;
+            self.replaced.truncate(recorded_before_copy);
+        }
+        self.undo_to(state, 0);
+    }
+
+    /// Takes back the slot writes recorded after the first `mark` entries.
+    fn undo_to(&mut self, state: &mut WarpState, mark: usize) {
+        while self.replaced.len() > mark {
+            match self.replaced.pop() {
+                Some(ReplacedSlot::Node(node, prior)) => {
+                    if let Some(store) = state.store_mut(&node.warp_id) {
+                        match prior {
+                            Some(record) => store.insert_node(node.local_id, record),
+                            None => {
+                                store.nodes.remove(&node.local_id);
+                            }
+                        }
+                    }
+                }
+                Some(ReplacedSlot::Attachment(key, prior)) => match key.owner {
+                    AttachmentOwner::Node(node) => {
+                        if let Some(store) = state.store_mut(&node.warp_id) {
+                            store.set_node_attachment(node.local_id, prior);
+                        }
+                    }
+                    AttachmentOwner::Edge(edge) => {
+                        if let Some(store) = state.store_mut(&edge.warp_id) {
+                            store.set_edge_attachment(edge.local_id, prior);
+                        }
+                    }
+                },
+                None => return,
+            }
+        }
+    }
+
+    /// Returns whether the journal holds a copy of a whole state.
+    #[cfg(test)]
+    pub(crate) fn holds_state_copy(&self) -> bool {
+        self.prior_state.is_some()
+    }
+}
+
+/// Returns the journal entry for a slot write, or `None` for an op that
+/// changes graph structure.
+///
+/// A node upsert and an attachment write that neither sets nor replaces a
+/// portal change no structure, so restoring the replaced value restores the
+/// state exactly.
+fn replaced_slot(state: &WarpState, op: &WarpOp) -> Option<ReplacedSlot> {
+    match op {
+        WarpOp::UpsertNode { node, .. } => Some(ReplacedSlot::Node(
+            *node,
+            state
+                .store(&node.warp_id)
+                .and_then(|store| store.node(&node.local_id))
+                .cloned(),
+        )),
+        WarpOp::SetAttachment { key, .. } if !warp_op_touches_portal_topology(state, op) => Some(
+            ReplacedSlot::Attachment(*key, attachment_value_for_key(state, key).cloned()),
+        ),
+        WarpOp::SetAttachment { .. }
+        | WarpOp::OpenPortal { .. }
+        | WarpOp::UpsertWarpInstance { .. }
+        | WarpOp::DeleteWarpInstance { .. }
+        | WarpOp::DeleteNode { .. }
+        | WarpOp::UpsertEdge { .. }
+        | WarpOp::DeleteEdge { .. } => None,
+    }
+}
+
+/// Applies `ops` to `state`, recording in `journal` what is needed to take
+/// them back.
+///
+/// The result state is the one [`apply_ops_to_state`] produces. On error
+/// `state` and `journal` are as they were before the call.
+pub(crate) fn apply_ops_journaled(
+    state: &mut WarpState,
+    ops: &[WarpOp],
+    journal: &mut StateJournal,
+) -> Result<(), TickPatchError> {
+    let mark = journal.replaced.len();
+    for op in ops {
+        let Some(slot) = replaced_slot(state, op) else {
+            // A structural op: take back the slot writes of this call and
+            // apply the whole patch to a copy instead. The live state is
+            // replaced only after every op has succeeded.
+            journal.undo_to(state, mark);
+            let mut next = state.clone();
+            apply_ops_to_state(&mut next, ops)?;
+            let prior = std::mem::replace(state, next);
+            if journal.prior_state.is_none() {
+                journal.prior_state = Some((mark, Box::new(prior)));
+            }
+            return Ok(());
+        };
+        // Journal before writing: an unwind inside the write then leaves an
+        // entry that restores a value which is already in place.
+        journal.replaced.push(slot);
+        if let Err(error) = apply_op_to_state(state, op) {
+            journal.undo_to(state, mark);
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -1380,6 +1542,215 @@ mod tests {
 
     use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
     use crate::worldline_state::WorldlineState;
+
+    fn reversible_fixture() -> (WarpState, NodeKey, NodeKey) {
+        let warp_id = make_warp_id("reversible");
+        let first = make_node_id("reversible-first");
+        let second = make_node_id("reversible-second");
+        let mut store = GraphStore::new(warp_id);
+        store.insert_node(
+            first,
+            NodeRecord {
+                ty: make_type_id("first"),
+            },
+        );
+        store.insert_node(
+            second,
+            NodeRecord {
+                ty: make_type_id("second"),
+            },
+        );
+        store.set_node_attachment(first, Some(reversible_atom(b"before")));
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id,
+                root_node: first,
+                parent: None,
+            },
+            store,
+        );
+        let key = |local_id| NodeKey { warp_id, local_id };
+        (state, key(first), key(second))
+    }
+
+    fn reversible_atom(bytes: &'static [u8]) -> AttachmentValue {
+        AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("reversible-atom"),
+            Bytes::from_static(bytes),
+        ))
+    }
+
+    fn set_attachment(node: NodeKey, value: Option<AttachmentValue>) -> WarpOp {
+        WarpOp::SetAttachment {
+            key: AttachmentKey::node_alpha(node),
+            value,
+        }
+    }
+
+    fn copy_applied(state: &WarpState, ops: &[WarpOp]) -> String {
+        let mut copy = state.clone();
+        assert!(apply_ops_to_state(&mut copy, ops).is_ok());
+        format!("{copy:?}")
+    }
+
+    #[test]
+    fn slot_writes_are_journaled_and_restore_the_exact_prior_state() {
+        let (mut state, first, second) = reversible_fixture();
+        let before = format!("{state:?}");
+        let created = NodeKey {
+            warp_id: first.warp_id,
+            local_id: make_node_id("reversible-created"),
+        };
+        let ops = vec![
+            set_attachment(first, Some(reversible_atom(b"after"))),
+            set_attachment(second, Some(reversible_atom(b"new"))),
+            WarpOp::UpsertNode {
+                node: second,
+                record: NodeRecord {
+                    ty: make_type_id("second-retyped"),
+                },
+            },
+            WarpOp::UpsertNode {
+                node: created,
+                record: NodeRecord {
+                    ty: make_type_id("created"),
+                },
+            },
+            set_attachment(created, Some(reversible_atom(b"created"))),
+            set_attachment(first, None),
+        ];
+        let expected = copy_applied(&state, &ops);
+        let mut journal = StateJournal::default();
+
+        assert!(apply_ops_journaled(&mut state, &ops, &mut journal).is_ok());
+        assert!(
+            !journal.holds_state_copy(),
+            "slot writes must not copy the state"
+        );
+        assert_eq!(format!("{state:?}"), expected);
+
+        // A second patch over the same slots is taken back together with the
+        // first.
+        let again = vec![set_attachment(first, Some(reversible_atom(b"again")))];
+        assert!(apply_ops_journaled(&mut state, &again, &mut journal).is_ok());
+        journal.restore(&mut state);
+        assert_eq!(format!("{state:?}"), before);
+    }
+
+    #[test]
+    fn a_failing_slot_write_leaves_state_and_journal_unchanged() {
+        let (mut state, first, second) = reversible_fixture();
+        let before = format!("{state:?}");
+        let mut journal = StateJournal::default();
+        let earlier = vec![set_attachment(second, Some(reversible_atom(b"earlier")))];
+        assert!(apply_ops_journaled(&mut state, &earlier, &mut journal).is_ok());
+        let after_earlier = format!("{state:?}");
+        let missing = NodeKey {
+            warp_id: first.warp_id,
+            local_id: make_node_id("reversible-missing"),
+        };
+        let ops = vec![
+            set_attachment(first, Some(reversible_atom(b"after"))),
+            set_attachment(missing, Some(reversible_atom(b"orphan"))),
+        ];
+
+        let result = apply_ops_journaled(&mut state, &ops, &mut journal);
+
+        assert!(matches!(result, Err(TickPatchError::MissingNode(node)) if node == missing));
+        assert_eq!(
+            format!("{state:?}"),
+            after_earlier,
+            "a failed patch must not undo an earlier one"
+        );
+        journal.restore(&mut state);
+        assert_eq!(format!("{state:?}"), before);
+    }
+
+    #[test]
+    fn structural_ops_are_covered_by_one_copy_between_slot_writes() {
+        let (mut state, first, second) = reversible_fixture();
+        let before = format!("{state:?}");
+        let mut journal = StateJournal::default();
+        let earlier = vec![set_attachment(second, Some(reversible_atom(b"earlier")))];
+        assert!(apply_ops_journaled(&mut state, &earlier, &mut journal).is_ok());
+
+        let edge = EdgeRecord {
+            id: make_edge_id("reversible-edge"),
+            from: first.local_id,
+            to: second.local_id,
+            ty: make_type_id("reversible-edge"),
+        };
+        let structural = vec![
+            set_attachment(first, Some(reversible_atom(b"with-edge"))),
+            WarpOp::UpsertEdge {
+                warp_id: first.warp_id,
+                record: edge,
+            },
+        ];
+        let expected = copy_applied(&state, &structural);
+        assert!(apply_ops_journaled(&mut state, &structural, &mut journal).is_ok());
+        assert!(journal.holds_state_copy());
+        assert_eq!(format!("{state:?}"), expected);
+
+        let later = vec![set_attachment(second, Some(reversible_atom(b"later")))];
+        assert!(apply_ops_journaled(&mut state, &later, &mut journal).is_ok());
+        let after_later = format!("{state:?}");
+
+        let failing = vec![
+            set_attachment(second, Some(reversible_atom(b"discarded"))),
+            WarpOp::DeleteNode { node: second },
+        ];
+        assert!(
+            apply_ops_journaled(&mut state, &failing, &mut journal).is_err(),
+            "a node with an incoming edge is not isolated"
+        );
+        assert_eq!(format!("{state:?}"), after_later);
+
+        journal.restore(&mut state);
+        assert_eq!(format!("{state:?}"), before);
+    }
+
+    #[test]
+    fn a_retained_copy_covers_writes_made_outside_the_journal() {
+        let (mut state, first, second) = reversible_fixture();
+        let before = format!("{state:?}");
+        let mut journal = StateJournal::default();
+        let earlier = vec![set_attachment(second, Some(reversible_atom(b"earlier")))];
+        assert!(apply_ops_journaled(&mut state, &earlier, &mut journal).is_ok());
+
+        journal.retain_copy(&state);
+        if let Some(store) = state.store_mut(&first.warp_id) {
+            store.set_node_attachment(first.local_id, None);
+        }
+        let later = vec![set_attachment(second, Some(reversible_atom(b"later")))];
+        assert!(apply_ops_journaled(&mut state, &later, &mut journal).is_ok());
+
+        journal.restore(&mut state);
+        assert_eq!(format!("{state:?}"), before);
+    }
+
+    #[test]
+    fn a_portal_write_is_not_journaled_as_a_slot_write() {
+        let (mut state, first, second) = reversible_fixture();
+        let before = format!("{state:?}");
+        let child = make_warp_id("reversible-child");
+        let portal = set_attachment(second, Some(AttachmentValue::Descend(child)));
+        assert!(replaced_slot(&state, &portal).is_none());
+        assert!(replaced_slot(
+            &state,
+            &set_attachment(first, Some(reversible_atom(b"plain")))
+        )
+        .is_some());
+
+        let mut journal = StateJournal::default();
+        assert!(
+            apply_ops_journaled(&mut state, &[portal], &mut journal).is_err(),
+            "a dangling portal must still be refused"
+        );
+        assert_eq!(format!("{state:?}"), before);
+        assert!(!journal.holds_state_copy());
+    }
 
     #[test]
     fn new_dedupes_duplicate_ops_by_sort_key_last_wins() {

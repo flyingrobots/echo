@@ -4854,6 +4854,7 @@ fn validate_recovered_echo_operation_parent_states(
             candidates,
             head_key,
             &mut reconstructed_state,
+            &mut crate::tick_patch::StateJournal::default(),
             commit_global_tick,
             policy_id,
         )

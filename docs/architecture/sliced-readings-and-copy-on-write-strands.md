@@ -33,7 +33,12 @@ the one in the lane's initial boundary. Echo resolves a slot through an index
 of its producers. It does not replay ticks that the slot does not depend on.
 
 A materialized reading may be retained and reused. It stays valid only for the
-coordinate, aperture and law it names. It is a cache. It is not the runtime.
+question it answers, as [There Is No Graph](there-is-no-graph.md) scopes a
+graph-shaped reading. It is a cache. It is not the runtime.
+
+This page does not change the
+[strand contract](../invariants/STRAND-CONTRACT.md). Where the two meet, the
+strand contract governs.
 
 ## What each concept becomes
 
@@ -43,7 +48,7 @@ coordinate, aperture and law it names. It is a cache. It is not the runtime.
 | Footprint  | The aperture of a tick: the slots it may read and write.                                 |
 | Slice      | The part of history that is enough to build and justify a demanded reading.              |
 | Rollback   | Does not admit the suffix. No reading has to be restored, because none was overwritten.  |
-| Strand     | A lane that shares history up to its fork basis. It is copy-on-write.                    |
+| Strand     | A lane that shares history with its source lane and owns what it appends. Copy-on-write. |
 | Checkpoint | A retained reading at a tick boundary, with its coordinate and identity.                 |
 | Wormhole   | A compressed range of ticks, with the receipts and witness that the range stands for.    |
 
@@ -55,10 +60,15 @@ coordinate, aperture and law it names. It is a cache. It is not the runtime.
 2. **A tick pays for what it changes.** The cost of admitting a tick does not
    grow with the amount of history or with the size of any reading that the
    tick did not demand.
-3. **A fork copies nothing.** A strand shares the history before its fork
-   basis, because history is append-only. A reading on the strand resolves a
-   slot from the strand's own producers, and otherwise from its source lane at
-   the fork basis. A strand costs in proportion to what it appends.
+3. **A fork copies nothing.** A strand shares history with its source lane,
+   because history is append-only. A reading on the strand resolves a slot
+   from the strand's own producers. A slot that the strand has not produced is
+   read through the source lane under the basis posture that strand invariant
+   INV-S10 requires: the parent remains at the anchor, the parent advanced
+   outside the strand-owned footprint, or the parent advanced inside it and
+   revalidation is required. The reading states its posture. A strand is never
+   treated as a frozen copy of its anchor. A strand costs in proportion to what
+   it appends.
 4. **Rollback does not copy.** An abandoned tick or an undurable commit is not
    admitted. Echo does not copy a reading in advance so that it can put it
    back.
@@ -70,9 +80,12 @@ coordinate, aperture and law it names. It is a cache. It is not the runtime.
 6. **Missing support is a posture, not a fallback.** When a demanded part is
    not retained, the result is an explicit obstruction or a rehydration
    requirement. Echo does not substitute another materialization silently.
-7. **A cached reading is scoped.** A retained reading is valid for the
-   coordinate, aperture, law and witness basis it names. Reusing it for another
-   question is a defect.
+7. **A cached reading is scoped.** A retained reading is valid for the causal
+   coordinate, the optic or observer law, the aperture, the witness basis, the
+   rights posture, the budget posture, the projection and reducer versions, and
+   the residual, plurality or obstruction posture it names. Its identity
+   includes all of them. Reusing it for a question that differs in any of them
+   is a defect, and reuse never bypasses an obstruction.
 8. **Sharing is not identity.** Two strands that share history or retained
    parts are still distinct causal lanes with distinct ancestry, authority and
    evidence. Sharing grants no authority and proves no relationship.
@@ -101,13 +114,32 @@ The design has four parts. Sliced readings are the foundation.
    Admitting a tick appends its patch and updates the index for the slots it
    wrote. No step compares one whole reading with another.
 3. **Copy-on-write strands.** Forking records the basis. The strand resolves
-   through its own producers and then through its source lane at the basis.
+   through its own producers and then through its source lane, with the basis
+   posture of INV-S10.
 4. **Content identity.** A retained part is referenced by the hash of its
    content. A part may be absent from memory while references to it stay
    valid, and the physical content port can hold it.
 
-Whether the existing canonical state-root definition changes is a separate
-decision. Parts 1, 2 and 3 do not change any committed hash.
+Parts 1, 2 and 3 do not change any committed hash.
+
+## Open decisions that bound these laws
+
+Two existing mechanisms prevent laws 1 and 2 from holding in full. Until each
+is decided, no change may claim the law it blocks.
+
+- **State root.** Every admitted tick commits a state root, and the current
+  definition hashes a canonical stream of the whole reachable state. While
+  that definition stands, admitting a tick costs in proportion to the
+  reachable state, so law 2 is not met. Meeting it needs a decision that this
+  page does not make: an incremental commitment that provably yields the same
+  roots, or a migration of the root definition.
+- **Footprint discovery for native rules.** A native `RewriteRule` computes
+  its match and its footprint from a view over a complete instance, so its
+  footprint is not known before the instance is materialized. Law 1 therefore
+  applies first to Echo-interpreted operations, whose footprint is fixed by
+  the admitted invocation. The native rule path stays outside these laws until
+  it has a bounded discovery aperture or a footprint contract that does not
+  depend on state.
 
 ## Current implementation
 
@@ -120,7 +152,10 @@ The runtime does not implement this design.
 - `WorldlineRuntime::fork_strand` rebuilds the source graph at the fork tick by
   replay and registers the child with an independent copy.
 - `ReplayCheckpoint` stores a complete materialized graph for one tick.
-- Canonical state hashing and state comparison visit the graph.
+- Canonical state hashing and state comparison visit the graph. Each admitted
+  tick computes a state root over the whole reachable state.
+- A native rule's matcher and footprint function read a view over a complete
+  instance.
 - Tick patches record their input and output slots, and
   `slice_worldline_indices` computes the tick indices in a slot's dependency
   cone. Only tests call it.

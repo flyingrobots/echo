@@ -320,9 +320,9 @@ impl WorldlineState {
     /// detached write remains bound by the tick patch digest and commit identity.
     ///
     /// A call hashes the whole reachable state, unless the state holds a root
-    /// retained by its last commit (see [`Self::retain_state_root`]): then
-    /// the retained root is returned without hashing. Debug builds hash in
-    /// that case as well, to check the retained root.
+    /// retained by its last commit: then the retained root is returned
+    /// without hashing. Debug builds hash in that case as well, to check the
+    /// retained root.
     #[must_use]
     pub fn state_root(&self) -> Hash {
         if let Some((root, state_root)) = self.retained_state_root {

@@ -31,6 +31,11 @@ basis, Echo needs the slice for them: the patches in their dependency cone,
 with the portal chain that makes them reachable. Echo does not need the rest of
 the state. A fully materialized state is a cache. It is never a prerequisite.
 
+Echo does not assume that a state fits in memory. The parts held in memory are
+a bounded working set. Echo loads a part when something demands it and may
+release a part that content storage retains. No operation may require the whole
+state in memory, and no operation may require two copies of it.
+
 This page does not change what witnessed causal history is. History stays the
 territory. A materialized state stays a reading of that history. Sharing is a
 fact about how readings are represented.
@@ -58,17 +63,21 @@ fact about how readings are represented.
    materializes the entities in its footprint and what they depend on. Work
    that is proportional to the whole state is an optional cache fill, not a
    step that correctness requires.
-5. **Sharing is not identity.** Two strands that share parts are still distinct
+5. **Memory holds a working set.** Correctness never depends on holding a
+   whole state in memory. Hashing, comparison, checkpointing, forking and
+   recovery work on the parts they touch. An operation that must visit every
+   part streams them and does not hold them all.
+6. **Sharing is not identity.** Two strands that share parts are still distinct
    causal lanes with distinct ancestry, authority and evidence. Sharing grants
    no authority and proves no relationship.
-6. **Representation is deterministic.** The structure, its iteration order and
+7. **Representation is deterministic.** The structure, its iteration order and
    its part identities depend only on content. They do not depend on memory
    addresses, insertion order or the path by which a state was reached.
-7. **A wormhole keeps its obligations.** Compressing a tick range may drop or
+8. **A wormhole keeps its obligations.** Compressing a tick range may drop or
    move the patches inside it. It may not drop the receipts and witness that
    the range stands for. A read that needs evidence that is not retained fails
    closed.
-8. **History is not rewritten.** Rollback, stepping to an earlier tick and
+9. **History is not rewritten.** Rollback, stepping to an earlier tick and
    forking select roots. They never alter admitted history.
 
 ## Design decomposition
@@ -86,7 +95,8 @@ The design has four separable parts. Each can land without the next.
 4. **Sliced materialization.** A demanded entity is resolved from the parts
    under the current root, then from content storage, then by replaying its
    slice from the nearest retained root. Parts that nothing demands are never
-   built.
+   built. A reference to a part is its content identity, so a part may be
+   absent from memory while the state that refers to it stays valid.
 
 Whether the existing canonical state-root definition changes is a separate
 decision. Parts 1, 3 and 4 do not change any committed hash.
@@ -108,5 +118,8 @@ The runtime does not implement this design.
   `slice_worldline_indices` computes the tick indices in a slot's dependency
   cone. Only tests call it. The runtime keeps a complete materialized state for
   every worldline and runs each tick against that state.
+- Every worldline's whole state is held in memory, and a scheduler pass holds
+  more than one copy of it. Canonical state hashing and state comparison visit
+  every reachable element.
 
 Implementation state is owned by GitHub, not by this page.

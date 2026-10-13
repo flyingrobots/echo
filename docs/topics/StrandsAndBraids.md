@@ -13,6 +13,11 @@ binds to causal ancestry and law, not a display label or collection position.
 Appending to a strand creates new witnessed history; it does not mutate the
 fork basis.
 
+A strand is copy-on-write by design: it shares the history before its fork
+basis and pays only for what it appends. This is an accepted design that the
+runtime does not yet implement; see
+[Sliced readings and copy-on-write strands](../architecture/sliced-readings-and-copy-on-write-strands.md).
+
 Privacy and revelation posture are evidence-bearing properties of how a strand
 may be observed or promoted. They are not UI visibility flags.
 

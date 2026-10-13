@@ -414,7 +414,8 @@ fn compiler_cas_tick_hashes_the_state_once_after_the_first_commit() {
         root_computations(&fixture),
         1,
         "the frontier basis reuses the root the previous commit computed; \
-         only the root after this commit is hashed"
+         only the root after this commit is hashed (the count excludes the \
+         hash by which a debug build checks the retained root)"
     );
 
     submit(&mut fixture, b"second", "third");

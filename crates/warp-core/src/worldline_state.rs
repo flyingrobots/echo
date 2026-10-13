@@ -113,7 +113,8 @@ pub struct WorldlineState {
     /// known without hashing. A commit retains the root it computed; any
     /// mutable access to the graph drops it.
     retained_state_root: Option<(NodeKey, Hash)>,
-    /// Counts whole-state root computations for tests.
+    /// Counts whole-state root computations for tests, excluding the hash by
+    /// which a debug build checks a retained root.
     #[cfg(any(test, feature = "host_test"))]
     state_root_computations: TestCallCount,
 }
@@ -397,6 +398,10 @@ impl WorldlineState {
 
     /// Returns the number of whole-state root computations on this state
     /// since the last instrumentation reset.
+    ///
+    /// It counts the computations that every build performs. It does not
+    /// count the extra hash by which a debug build checks a retained root, so
+    /// the count is the same in debug and release builds.
     #[cfg(any(test, feature = "host_test"))]
     #[must_use]
     pub fn state_root_computation_count_for_test(&self) -> usize {

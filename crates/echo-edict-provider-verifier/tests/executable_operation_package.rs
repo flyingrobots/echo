@@ -943,10 +943,42 @@ fn raw_fixture_with_values(
     raw_fixture_with_core_mutation(names, configuration_value, result_projection_value, |_| {})
 }
 
+fn raw_fixture_with_core(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+    result_projection_value: CanonicalValueV1,
+    core_value: CanonicalValueV1,
+) -> RawFixture {
+    raw_fixture_from_core(
+        names,
+        configuration_value,
+        result_projection_value,
+        core_value,
+        |_| {},
+    )
+}
+
 fn raw_fixture_with_core_mutation(
     names: FixtureNames<'_>,
     configuration_value: CanonicalValueV1,
     result_projection_value: CanonicalValueV1,
+    mutate: impl FnOnce(&mut CanonicalValueV1),
+) -> RawFixture {
+    let base_core = core(names);
+    raw_fixture_from_core(
+        names,
+        configuration_value,
+        result_projection_value,
+        base_core,
+        mutate,
+    )
+}
+
+fn raw_fixture_from_core(
+    names: FixtureNames<'_>,
+    configuration_value: CanonicalValueV1,
+    result_projection_value: CanonicalValueV1,
+    base_core: CanonicalValueV1,
     mutate: impl FnOnce(&mut CanonicalValueV1),
 ) -> RawFixture {
     let is_cas = text_field(&configuration_value, "programKind")
@@ -979,7 +1011,7 @@ fn raw_fixture_with_core_mutation(
         &target_profile_ref,
     ));
     let lawpack_ref = raw_ref(names.lawpack, "edict.lawpack/v1", &lawpack);
-    let mut core_value = select_profile(core(names));
+    let mut core_value = select_profile(base_core);
     mutate(&mut core_value);
     let core = canonical_bytes(&core_value);
     let core_ref = raw_ref(names.application, "edict.core.module/v1", &core);
@@ -1510,4 +1542,252 @@ fn text_field<'a>(value: &'a CanonicalValueV1, field: &str) -> Option<&'a str> {
             None
         }
     })
+}
+
+#[test]
+fn bounded_key_profile_derives_limits_and_independent_verifier_rejects_substitution() {
+    let names = FIXTURES[0];
+    let mut config = configuration(names);
+    set_key_field(
+        &mut config,
+        "apiVersion",
+        text("echo.operation-lowering-configuration/v2"),
+    );
+    let core_value = bounded_key_core(names);
+    let fixture = raw_fixture_with_core(names, config, result_projection(names), core_value);
+    let package = lower_package(names, &fixture);
+    let decoded = decode_canonical_cbor_v1(&package).expect("package decodes");
+    let projection = map_field(&decoded, "application_result_projection");
+    let bound = map_field(projection, "application_input_key_bound");
+    assert_eq!(map_field(bound, "max_unicode_scalars"), &integer(64));
+    assert_eq!(map_field(bound, "max_utf8_bytes"), &integer(256));
+    let accepted =
+        verifier::verify(verification_request(names, &fixture, package)).expect("verify completes");
+    assert!(accepted.diagnostics.is_empty());
+    for forged in [None, Some(integer(65))] {
+        let mut altered = decoded.clone();
+        let mut projection = map_field(&altered, "application_result_projection").clone();
+        if let Some(limit) = forged {
+            let mut bound = map_field(&projection, "application_input_key_bound").clone();
+            set_key_field(&mut bound, "max_unicode_scalars", limit);
+            set_key_field(&mut projection, "application_input_key_bound", bound);
+        } else {
+            let CanonicalValueV1::Map(fields) = &mut projection else {
+                panic!("map");
+            };
+            fields.retain(|(key, _)| key != &text("application_input_key_bound"));
+        }
+        set_key_field(&mut altered, "application_result_projection", projection);
+        let rejected = verifier::verify(verification_request(
+            names,
+            &fixture,
+            canonical_bytes(&altered),
+        ))
+        .expect("verify refuses via report");
+        assert_eq!(
+            rejected.diagnostics[0].code,
+            "echo.verifier.executable-operation-package-mismatch"
+        );
+    }
+}
+
+#[test]
+fn bounded_key_profile_refuses_compare_and_set_in_both_providers() {
+    let names = FIXTURES[0];
+    let core_value = bounded_key_core(names);
+    let mut create = configuration(names);
+    set_key_field(
+        &mut create,
+        "apiVersion",
+        text("echo.operation-lowering-configuration/v2"),
+    );
+    // The same Core and v2 selector lower as a create operation, so the
+    // refusal below is caused by the program kind alone.
+    let accepted = raw_fixture_with_core(
+        names,
+        create.clone(),
+        result_projection(names),
+        core_value.clone(),
+    );
+    let package = lower_package(names, &accepted);
+    let mut config = create;
+    set_key_field(
+        &mut config,
+        "programKind",
+        text("anchored-node-attachment-compare-and-set/v1"),
+    );
+    let CanonicalValueV1::Map(bindings) = map_field_mut(&mut config, "invocationBinding") else {
+        panic!("binding map");
+    };
+    bindings.push((text("expectedValueDigestField"), text("expected")));
+    let fixture = raw_fixture_with_core(names, config, result_projection(names), core_value);
+    let lower_refusal = lowerer::lower(lowering_request(names, &fixture))
+        .expect_err("v2 compare-and-set refuses in the lowerer");
+    assert_eq!(
+        lower_refusal.kind,
+        lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+    let verifier_refusal = verifier::verify(verification_request(names, &fixture, package))
+        .expect_err("verifier independently refuses v2 compare-and-set");
+    assert_eq!(
+        verifier_refusal.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
+fn bounded_key_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
+    let mut core_value = core(names);
+    let mut intents = map_field(&core_value, "intents").clone();
+    let mut intent = map_field(&intents, names.intent).clone();
+    set_key_field(
+        &mut intent,
+        "input",
+        text(format!("{}.Input", names.application)),
+    );
+    set_key_field(&mut intents, names.intent, intent);
+    set_key_field(&mut core_value, "intents", intents);
+    set_key_field(
+        &mut core_value,
+        "types",
+        owned_map([
+            (
+                "Input",
+                owned_map([
+                    ("kind", text("Record")),
+                    (
+                        "fields",
+                        owned_map([("key", text(format!("{}.Key", names.application)))]),
+                    ),
+                ]),
+            ),
+            (
+                "Key",
+                owned_map([
+                    ("kind", text("String")),
+                    ("max", integer(64)),
+                    ("canonical", text("unicode-scalar-nfc")),
+                ]),
+            ),
+        ]),
+    );
+    core_value
+}
+
+fn set_key_field(value: &mut CanonicalValueV1, name: &str, replacement: CanonicalValueV1) {
+    let CanonicalValueV1::Map(fields) = value else {
+        panic!("map");
+    };
+    if let Some((_, current)) = fields.iter_mut().find(|(key, _)| key == &text(name)) {
+        *current = replacement;
+    } else {
+        fields.push((text(name), replacement));
+    }
+}
+
+#[test]
+fn bounded_key_profile_refuses_missing_core_key_type_in_both_providers() {
+    let names = FIXTURES[0];
+    let legacy = raw_fixture(names);
+    let legacy_package = lower_package(names, &legacy);
+    let mut config = configuration(names);
+    set_key_field(
+        &mut config,
+        "apiVersion",
+        text("echo.operation-lowering-configuration/v2"),
+    );
+    let fixture = raw_fixture_with_values(names, config, result_projection(names));
+    let lower_refusal =
+        lowerer::lower(lowering_request(names, &fixture)).expect_err("missing Core type refuses");
+    assert_eq!(
+        lower_refusal.kind,
+        lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+    let verifier_refusal = verifier::verify(verification_request(names, &fixture, legacy_package))
+        .expect_err("verifier independently refuses missing Core type");
+    assert_eq!(
+        verifier_refusal.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+}
+
+#[test]
+fn bounded_key_providers_agree_on_adversarial_core_limits() {
+    let names = FIXTURES[0];
+    let legacy = raw_fixture(names);
+    let legacy_package = lower_package(names, &legacy);
+    let mut config = configuration(names);
+    set_key_field(
+        &mut config,
+        "apiVersion",
+        text("echo.operation-lowering-configuration/v2"),
+    );
+    for (label, reference, definition) in [
+        (
+            "noncanonical decimal",
+            "String<max=064,canonical=raw-utf8>".to_owned(),
+            None,
+        ),
+        ("missing inline policy", "String<max=64>".to_owned(), None),
+        (
+            "inline maximum overflow",
+            "String<max=65537,canonical=raw-utf8>".to_owned(),
+            None,
+        ),
+        (
+            "missing named policy",
+            format!("{}.Key", names.application),
+            Some(owned_map([("kind", text("String")), ("max", integer(64))])),
+        ),
+        (
+            "named maximum overflow",
+            format!("{}.Key", names.application),
+            Some(owned_map([
+                ("kind", text("String")),
+                ("max", integer(65_537)),
+                ("canonical", text("raw-utf8")),
+            ])),
+        ),
+    ] {
+        let mut core_value = core(names);
+        let mut intents = map_field(&core_value, "intents").clone();
+        let mut intent = map_field(&intents, names.intent).clone();
+        set_key_field(
+            &mut intent,
+            "input",
+            text(format!("{}.Input", names.application)),
+        );
+        set_key_field(&mut intents, names.intent, intent);
+        set_key_field(&mut core_value, "intents", intents);
+        let mut types = owned_map([(
+            "Input",
+            owned_map([
+                ("kind", text("Record")),
+                ("fields", owned_map([("key", text(reference))])),
+            ]),
+        )]);
+        if let Some(definition) = definition {
+            set_key_field(&mut types, "Key", definition);
+        }
+        set_key_field(&mut core_value, "types", types);
+        let fixture =
+            raw_fixture_with_core(names, config.clone(), result_projection(names), core_value);
+        let lower_refusal = lowerer::lower(lowering_request(names, &fixture))
+            .expect_err("malformed key type must refuse in lowerer");
+        assert_eq!(
+            lower_refusal.kind,
+            lowerer::ProviderRefusalKind::UnsupportedSemantics,
+            "{label}"
+        );
+        let verify_refusal = verifier::verify(verification_request(
+            names,
+            &fixture,
+            legacy_package.clone(),
+        ))
+        .expect_err("malformed key type must independently refuse in verifier");
+        assert_eq!(
+            verify_refusal.kind,
+            verifier::ProviderRefusalKind::UnsupportedSemantics,
+            "{label}"
+        );
+    }
 }

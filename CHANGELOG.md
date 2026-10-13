@@ -7,8 +7,6 @@
 
 ### Added
 
-- `docs/architecture/participant-history-as-a-braid.md` records an accepted design that is not implemented: history from another participant is held as a strand in a braid, and a conflict must be settled before anything acts on the site it covers, while work elsewhere continues. The page states what local strand settlement does today, including that it blocks by suffix and that an unsettled conflict stops nothing.
-
 - `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.
 
 - `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.

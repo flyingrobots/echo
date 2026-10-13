@@ -132,6 +132,10 @@ Wormholes are a history/payload artifact (worldline compression), not a state-st
 
 Law: do not use “wormhole” to refer to instance zoom, portals, or descended attachments.
 
+The accepted, not yet implemented relation between wormholes, checkpoints and
+state roots is stated in
+[Copy-on-write worldline state](copy-on-write-worldline-state.md).
+
 ---
 
 ## Views / projections

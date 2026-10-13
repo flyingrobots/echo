@@ -19,6 +19,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 ## Current Architecture
 
 - [There Is No Graph](architecture/there-is-no-graph.md)
+- [Copy-on-write worldline state](architecture/copy-on-write-worldline-state.md) (accepted design, not implemented)
 - [Continuum transport](architecture/continuum-transport.md)
 - [Echo optics adapter notes](architecture/echo-optics-adapter-notes.md)
 - [Echo × Keep physical content boundary](architecture/echo-keep-physical-content-boundary.md)

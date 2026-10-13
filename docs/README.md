@@ -20,6 +20,7 @@ causal history. Git history is the archive; GitHub owns live work and status.
 
 - [There Is No Graph](architecture/there-is-no-graph.md)
 - [Sliced readings and copy-on-write strands](architecture/sliced-readings-and-copy-on-write-strands.md) (accepted design, not implemented)
+- [WAL durability modes and batched submission](architecture/wal-durability-modes.md) (proposed design, not implemented)
 - [Continuum transport](architecture/continuum-transport.md)
 - [Echo optics adapter notes](architecture/echo-optics-adapter-notes.md)
 - [Echo × Keep physical content boundary](architecture/echo-keep-physical-content-boundary.md)

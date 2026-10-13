@@ -1,0 +1,144 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# WAL Durability Modes and Batched Submission
+
+- **Status:** Proposed design. **Not implemented.** The section
+  [Current implementation](#current-implementation) states what the runtime
+  does today.
+- **Proposal date:** 2026-10-12
+- **Refines:** [WAL](../topics/WAL.md)
+- **Related:** [Sliced readings and copy-on-write strands](sliced-readings-and-copy-on-write-strands.md),
+  [Fixed timestep invariant](../invariants/FIXED-TIMESTEP.md)
+
+## Problem
+
+A host that runs Echo at a fixed frame rate has a fixed time for each frame.
+At 60 frames per second that time is 16.67 ms.
+
+A strict WAL acknowledgement waits for a storage sync. Today each submission
+is one transaction with one sync, and each scheduler pass is another. A frame
+with many submissions therefore waits for many syncs, one after another. The
+count of syncs, not the work of the tick, decides whether the frame fits.
+
+The rule of the WAL topic stays in force: Echo may only claim what its WAL can
+recover. This page changes when Echo waits and what an acknowledgement says.
+It does not change what Echo may claim.
+
+## Decision
+
+A host chooses one of three durability modes for a runtime.
+
+| Mode     | An acknowledgement means                                   | The caller waits for |
+| -------- | ---------------------------------------------------------- | -------------------- |
+| None     | Accepted in memory. Nothing is recoverable.                | Nothing              |
+| Deferred | Accepted, ordered, and handed to the WAL writer.           | Nothing              |
+| Strict   | Durable. Recovery will rebuild it.                         | One storage sync     |
+
+Strict mode gains batched submission. Deferred mode is new. None is the
+existing behavior of a host that does not enable a WAL.
+
+### Batched submission
+
+A host submits several envelopes in one call. Echo appends the ordinary intake
+transaction of each envelope, in order, and then syncs storage once. Echo
+acknowledges the batch only after that sync.
+
+The bytes on disk are the same transactions that single submission writes
+today. Recovery does not change.
+
+A batch is not atomic across a crash. Each transaction is atomic through its
+own commit record, and a torn tail is truncated as it is today. A crash before
+the sync can therefore leave a prefix of the batch. Echo acknowledged none of
+it, so each surviving submission recovers as accepted and pending. That is the
+same posture as a single submission whose process died after its commit and
+before its acknowledgement.
+
+When the final sync fails, every submission in the batch is uncertain. Echo
+reconciles each one against the log, as it already does after a failed single
+append, and does not report an unreconciled submission as accepted.
+
+### Deferred mode
+
+In deferred mode a writer thread inside the Echo process owns the WAL store
+and its writer-epoch lease. The runtime hands it records through a bounded
+queue and does not touch storage itself.
+
+An acknowledgement carries the log position of the record. It states that the
+record is accepted and not yet durable.
+
+The writer appends queued records in order and syncs them in groups. After
+each sync it publishes the durable position: every record at or before that
+position will be rebuilt by recovery. A host may read the durable position, or
+wait until it passes a given acknowledgement.
+
+A crash in deferred mode loses the records after the durable position.
+Recovery rebuilds a valid prefix of what the runtime accepted. It never
+rebuilds a gap.
+
+## Laws
+
+1. **An acknowledgement states its posture.** Strict and deferred
+   acknowledgements are different values. A caller cannot mistake accepted for
+   durable.
+2. **Durability reports are observations.** The durable position, queue depth
+   and writer timing never influence which intents are admitted, how a tick
+   is scheduled, or what a tick computes. Two runs that accept the same
+   intents in the same order produce the same history in every mode.
+3. **Order is fixed at acceptance.** The log order is the order in which the
+   runtime accepted records. The writer never reorders, merges or drops.
+4. **Nothing is dropped silently.** When the queue is full, the caller waits
+   or receives an explicit obstruction. When the writer fails, the runtime
+   stops accepting work that would need the WAL and reports an obstruction.
+   It does not continue in a weaker mode.
+5. **The log is an ordinary Echo WAL.** Every mode that writes a WAL writes
+   the same records. One recovery path reads all of them.
+6. **One writer.** In every mode exactly one writer holds the epoch lease.
+   Deferred mode moves that writer to a thread. It does not add a second one.
+7. **A mode is declared.** The mode is part of host configuration and is
+   visible in evidence. A receipt produced without a WAL, or before its
+   record was durable, does not claim strict durability.
+
+## Alternatives not chosen
+
+- **An external WAL process on a port.** It gives the same speed as deferred
+  mode and adds a wire protocol, a second process to deploy and a second
+  holder of storage authority. A process crash would also lose records that
+  an in-process writer had already handed to the operating system.
+- **One transaction that carries many acceptances.** It makes a batch atomic
+  across a crash. It needs a new transaction shape and new recovery rules.
+  Batched submission with ordinary transactions gives the same sync count
+  without a format change. This remains an open decision if a host needs
+  all-or-nothing batches.
+
+## Open decisions
+
+- Whether a strict frame should cover its submissions and its tick with one
+  sync instead of two.
+- The policy when the deferred queue is full: block the caller, or refuse
+  with an obstruction.
+- Whether a host may change mode while a runtime is live, and what evidence
+  the change leaves.
+
+## Current implementation
+
+The runtime does not implement this design.
+
+- A host without a WAL runs and recovers nothing. This is mode None.
+- `submit_intent_with_runtime_wal_ack` writes one submission-intake
+  transaction and returns after that transaction's commit record is synced.
+  There is no call that accepts several envelopes.
+- A scheduler pass writes one tick transaction and syncs it before outcomes
+  become visible. The filesystem store refuses a pass that would need more
+  than one tick transaction.
+- A strict filesystem commit forces one sync: the commit record.
+- `WalDurabilityMode` names `StrictFilesystem`, `StrictObjectStore`,
+  `Buffered`, `ReadOnlyRecovery` and `Disabled`. The trusted host reports
+  `Buffered` for its in-memory store and `StrictFilesystem` for its filesystem
+  store. No mode defers a sync, and no acknowledgement carries a durability
+  posture or a log position.
+- All WAL writes happen on the caller's thread.
+
+Implementation state is owned by
+[issue #787](https://github.com/flyingrobots/echo/issues/787), not by this
+page.

@@ -483,7 +483,7 @@ pub struct Engine {
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
-    initial_state: WarpState,
+    initial_state: Arc<WarpState>,
     /// Materialization bus for tick-scoped channel emissions.
     ///
     /// Rules emit to channels via [`ScopedEmitter`](crate::materialization::ScopedEmitter) during execution. The bus
@@ -539,7 +539,7 @@ struct RuntimeCommitStateGuard<'a> {
     state_before_runtime_commit: SavedField<WarpState>,
     saved_state_root: NodeKey,
     saved_root: NodeKey,
-    saved_initial_state: SavedField<WarpState>,
+    saved_initial_state: SavedField<Arc<WarpState>>,
     saved_last_snapshot: SavedField<Option<Snapshot>>,
     saved_tick_history: SavedField<Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>>,
     saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
@@ -879,7 +879,7 @@ impl Engine {
             store,
         );
         // Preserve the initial state (U0) for replay via `jump_to_tick`.
-        let initial_state = state.clone();
+        let initial_state = Arc::new(state.clone());
         Self {
             state,
             rules: BTreeMap::new(),
@@ -1081,7 +1081,7 @@ impl Engine {
         }
 
         // Preserve the initial state (U0) for replay via `jump_to_tick`.
-        let initial_state = state.clone();
+        let initial_state = Arc::new(state.clone());
         Ok(Self {
             state,
             rules: BTreeMap::new(),
@@ -2537,7 +2537,7 @@ impl Engine {
         // 1. Restore state to the preserved initial state (U0).
         // This ensures patches are replayed against the exact original base,
         // rather than a fresh WarpState which would discard the original U0.
-        self.state = self.initial_state.clone();
+        self.state = (*self.initial_state).clone();
 
         // 2. Re-apply patches from index 0 to tick_index
         for i in 0..=tick_index {

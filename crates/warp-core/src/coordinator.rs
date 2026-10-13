@@ -1220,8 +1220,12 @@ pub(crate) struct SuperTickUndo {
     runtime_before: RuntimeCheckpoint,
     provenance_before: ProvenanceCheckpoint,
     receipt_correlations: ReceiptCorrelationRollback,
-    attempted_ingress: Vec<(WriterHeadKey, Hash)>,
+    attempted_ingress: AttemptedIngress,
 }
+
+/// Ingress ids an attempt inserted into frontier ledgers, grouped by worldline
+/// so rollback visits each id once.
+type AttemptedIngress = BTreeMap<WorldlineId, Vec<(WriterHeadKey, Hash)>>;
 
 /// Journal of executable-Action staging performed before one scheduler pass.
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -1325,11 +1329,7 @@ impl WorldlineRuntime {
     ///
     /// `attempted_ingress` is the abandoned attempt's journal of ingress ids it
     /// inserted into frontier ledgers after the checkpoint.
-    fn restore(
-        &mut self,
-        checkpoint: RuntimeCheckpoint,
-        attempted_ingress: &[(WriterHeadKey, Hash)],
-    ) {
+    fn restore(&mut self, checkpoint: RuntimeCheckpoint, attempted_ingress: &AttemptedIngress) {
         self.global_tick = checkpoint.global_tick;
         for head in checkpoint.heads.into_values() {
             self.heads.insert(head);
@@ -1341,9 +1341,10 @@ impl WorldlineRuntime {
                 frontier.restore_rollback_marker(
                     marker,
                     attempted_ingress
-                        .iter()
-                        .copied()
-                        .filter(|(head_key, _)| head_key.worldline_id == worldline_id),
+                        .get(&worldline_id)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
                 );
             }
         }
@@ -4423,7 +4424,7 @@ impl SchedulerCoordinator {
         }
 
         let runtime_before = runtime.checkpoint_for(&keys)?;
-        let mut attempted_ingress: Vec<(WriterHeadKey, Hash)> = Vec::new();
+        let mut attempted_ingress = AttemptedIngress::new();
         let mut receipt_correlation_rollback = ReceiptCorrelationRollback::default();
         let provenance_before: ProvenanceCheckpoint =
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
@@ -4620,11 +4621,14 @@ impl SchedulerCoordinator {
                         .collect();
                     // Journal before inserting: an unwind between the two steps
                     // can then name only ids that were absent at the checkpoint.
-                    attempted_ingress.extend(
-                        newly_committed_ingress
-                            .iter()
-                            .map(|ingress_id| (*key, *ingress_id)),
-                    );
+                    attempted_ingress
+                        .entry(key.worldline_id)
+                        .or_default()
+                        .extend(
+                            newly_committed_ingress
+                                .iter()
+                                .map(|ingress_id| (*key, *ingress_id)),
+                        );
                     frontier
                         .state_mut()
                         .record_committed_ingress(*key, newly_committed_ingress);

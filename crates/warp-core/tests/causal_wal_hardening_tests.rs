@@ -1020,6 +1020,62 @@ fn filesystem_commits_without_writer_epoch_ledger_fail_closed() {
 }
 
 #[test]
+fn filesystem_commit_does_not_rewrite_the_writer_epoch_ledger() {
+    let root = temp_wal_root("commit-leaves-ledger");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    let ledger_path = root.join("writer-epochs.ecwal");
+    let ledger_before = must_ok(fs::read(&ledger_path));
+
+    must_ok(store.append_transaction(submission_transaction(
+        "commit-leaves-ledger",
+        Lsn::from_raw(0),
+    )));
+
+    assert_eq!(
+        must_ok(fs::read(&ledger_path)),
+        ledger_before,
+        "the synced commit record is the durability boundary; a commit must not also rewrite the ledger"
+    );
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_takeover_after_process_loss_derives_final_commit_from_the_segment() {
+    let root = temp_wal_root("ledger-lags-segment");
+    let first = submission_transaction("ledger-lags-first", Lsn::from_raw(0));
+    let second = submission_transaction("ledger-lags-second", Lsn::from_raw(2));
+    let final_commit_digest = second.commit.commit_digest;
+    let final_lsn = second.commit.last_lsn;
+    assert_ne!(first.commit.commit_digest, final_commit_digest);
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(first));
+        must_ok(store.append_transaction(second));
+        // Dropped without closing the epoch: the ledger on disk was last
+        // written when the epoch was acquired.
+    }
+
+    let mut reopened = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let successor = must_ok(reopened.acquire_fresh_writer_epoch(Lsn::from_raw(0)));
+
+    assert_eq!(successor.previous_epoch_id, Some(epoch_id()));
+    assert_eq!(
+        successor.previous_epoch_final_commit_digest,
+        Some(final_commit_digest),
+        "takeover must bind the last commit that reached its segment sync boundary"
+    );
+    assert!(
+        successor.started_at_lsn > final_lsn,
+        "the successor must start after every committed coordinate"
+    );
+    drop(reopened);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
 fn filesystem_takeover_refuses_unreconciled_tail_before_reusing_its_lsn() {
     let mut fixture = WalHardeningFixture::new("takeover-uncommitted");
     fixture.append_uncommitted_submission_frame("uncommitted", Lsn::from_raw(0));

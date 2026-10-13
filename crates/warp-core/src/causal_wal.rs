@@ -5919,7 +5919,6 @@ impl FilesystemWalStore {
                 final_commit_digest: Some(commit.commit_digest),
             },
         );
-        self.persist_writer_epoch_ledger()?;
         self.sync_evidence.push(FilesystemSyncEvidence::transaction(
             FilesystemSyncBoundary::CommitFileSynced,
             transaction_id,

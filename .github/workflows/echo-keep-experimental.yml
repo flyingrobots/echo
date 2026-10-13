@@ -21,6 +21,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
+            components: rustfmt, clippy
           components: rustfmt, clippy
       - run: cargo test --manifest-path experiments/echo-keep/Cargo.toml --locked
       - run: cargo test --manifest-path experiments/echo-keep/Cargo.toml --locked --features reference-adapter

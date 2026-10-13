@@ -6104,10 +6104,16 @@ struct EchoOperationTerminalMaterialV1 {
     worldline_tick_after: WorldlineTick,
 }
 
+/// Decides one scheduler Action batch and commits its patch to `state`.
+///
+/// The patch is written to `state` in place. `journal` receives what is needed
+/// to take it back, so a caller that abandons the commit later can restore the
+/// state without having copied it. On error `state` is unchanged.
 pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     mut candidates: Vec<SchedulerEchoOperationCandidateV1>,
     writer_head: WriterHeadKey,
     state: &mut WorldlineState,
+    journal: &mut crate::tick_patch::StateJournal,
     commit_global_tick: GlobalTick,
     policy_id: u32,
 ) -> Result<EchoOperationActionBatchCommitMaterialV1, EchoOperationCommitErrorV1> {
@@ -6278,10 +6284,15 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     let rewrites_digest = action_batch_rewrites_digest(&applied);
     let composition_digest = action_batch_composition_digest(&applied, patch.digest());
 
-    let mut next_state = state.warp_state.clone();
-    patch.apply_to_state(&mut next_state)?;
+    // The patch is written to the caller's state, so every fallible step
+    // comes first: nothing after this application may fail.
+    let member_indexes = (0..decisions.len())
+        .map(u32::try_from)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)?;
+    patch.apply_journaled(&mut state.warp_state, journal)?;
     let state_root_after =
-        crate::snapshot::compute_state_root_for_warp_state(&next_state, state.root());
+        crate::snapshot::compute_state_root_for_warp_state(&state.warp_state, state.root());
     let parents = state
         .last_snapshot
         .as_ref()
@@ -6309,54 +6320,49 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     debug_assert_action_member_alignment_v1(decisions.len(), tick_receipt.entries().len());
     let outcomes = decisions
         .into_iter()
-        .enumerate()
-        .map(
-            |(member_index, (submission_id, decision))| -> Result<_, EchoOperationCommitErrorV1> {
-                let member_index = u32::try_from(member_index)
-                    .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)?;
-                let decision_coordinate = EchoOperationActionDecisionCoordinateV1 {
-                    writer_head,
-                    worldline_tick_after: WorldlineTick::from_raw(tx_raw),
-                    commit_global_tick,
-                    commit_id,
-                    tick_receipt_digest: tick_receipt.digest(),
-                    member_index,
-                };
-                let outcome = match decision {
-                    SchedulerEchoOperationDecisionV1::Applied(prepared) => {
-                        let mut receipt = build_receipt(
-                            &prepared,
-                            EchoOperationTerminalMaterialV1 {
-                                posture: EchoOperationTerminalPostureV1::Committed,
-                                state_root_before,
-                                state_root_after,
-                                commit_id,
-                                tick_receipt_digest: tick_receipt.digest(),
-                                commit_global_tick: Some(commit_global_tick),
-                                worldline_tick_after: WorldlineTick::from_raw(tx_raw),
-                            },
-                        );
-                        receipt.committed_patch_digest = Some(patch.digest());
-                        receipt.composition_digest = Some(composition_digest);
-                        receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
-                        receipt.receipt_digest = receipt_digest(&receipt);
-                        EchoOperationActionOutcomeV1::Committed(Box::new(receipt))
-                    }
-                    SchedulerEchoOperationDecisionV1::Obstructed(mut obstruction) => {
-                        obstruction.decision_coordinate = Some(Box::new(decision_coordinate));
-                        EchoOperationActionOutcomeV1::Obstructed(obstruction)
-                    }
-                    SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(mut conflict) => {
-                        conflict.decision_coordinate = Some(Box::new(decision_coordinate));
-                        EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)
-                    }
-                };
-                Ok((submission_id, outcome))
-            },
-        )
-        .collect::<Result<Vec<_>, _>>()?;
+        .zip(member_indexes)
+        .map(|((submission_id, decision), member_index)| {
+            let decision_coordinate = EchoOperationActionDecisionCoordinateV1 {
+                writer_head,
+                worldline_tick_after: WorldlineTick::from_raw(tx_raw),
+                commit_global_tick,
+                commit_id,
+                tick_receipt_digest: tick_receipt.digest(),
+                member_index,
+            };
+            let outcome = match decision {
+                SchedulerEchoOperationDecisionV1::Applied(prepared) => {
+                    let mut receipt = build_receipt(
+                        &prepared,
+                        EchoOperationTerminalMaterialV1 {
+                            posture: EchoOperationTerminalPostureV1::Committed,
+                            state_root_before,
+                            state_root_after,
+                            commit_id,
+                            tick_receipt_digest: tick_receipt.digest(),
+                            commit_global_tick: Some(commit_global_tick),
+                            worldline_tick_after: WorldlineTick::from_raw(tx_raw),
+                        },
+                    );
+                    receipt.committed_patch_digest = Some(patch.digest());
+                    receipt.composition_digest = Some(composition_digest);
+                    receipt.terminal_outcome_digest = terminal_outcome_digest(&receipt);
+                    receipt.receipt_digest = receipt_digest(&receipt);
+                    EchoOperationActionOutcomeV1::Committed(Box::new(receipt))
+                }
+                SchedulerEchoOperationDecisionV1::Obstructed(mut obstruction) => {
+                    obstruction.decision_coordinate = Some(Box::new(decision_coordinate));
+                    EchoOperationActionOutcomeV1::Obstructed(obstruction)
+                }
+                SchedulerEchoOperationDecisionV1::RejectedFootprintConflict(mut conflict) => {
+                    conflict.decision_coordinate = Some(Box::new(decision_coordinate));
+                    EchoOperationActionOutcomeV1::RejectedFootprintConflict(conflict)
+                }
+            };
+            (submission_id, outcome)
+        })
+        .collect::<Vec<_>>();
 
-    state.warp_state = next_state;
     state.last_snapshot = Some(snapshot.clone());
     state
         .tick_history
@@ -6603,10 +6609,13 @@ pub(crate) fn commit_prepared_to_state(
         }],
         vec![Vec::new()],
     );
-    let mut next_state = state.warp_state.clone();
-    prepared.patch.apply_to_state(&mut next_state)?;
+    // Nothing after this application can fail, so the journal is not kept.
+    prepared.patch.apply_journaled(
+        &mut state.warp_state,
+        &mut crate::tick_patch::StateJournal::default(),
+    )?;
     let state_root_after =
-        crate::snapshot::compute_state_root_for_warp_state(&next_state, state.root());
+        crate::snapshot::compute_state_root_for_warp_state(&state.warp_state, state.root());
     let parents = state
         .last_snapshot
         .as_ref()
@@ -6643,7 +6652,6 @@ pub(crate) fn commit_prepared_to_state(
             worldline_tick_after: WorldlineTick::from_raw(tx_raw),
         },
     );
-    state.warp_state = next_state;
     state.last_snapshot = Some(snapshot.clone());
     state.tick_history.push((
         snapshot.clone(),

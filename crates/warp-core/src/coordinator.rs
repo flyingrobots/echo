@@ -1286,6 +1286,20 @@ pub(crate) struct IntentSubmissionRollback {
     next_submission_generation: IngressSubmissionGeneration,
 }
 
+impl RuntimeCheckpoint {
+    /// Returns the journal that records graph mutations of `worldline_id`
+    /// made after this checkpoint.
+    fn state_journal_mut(
+        &mut self,
+        worldline_id: WorldlineId,
+    ) -> Result<&mut crate::tick_patch::StateJournal, RuntimeError> {
+        self.frontiers
+            .get_mut(&worldline_id)
+            .map(WorldlineFrontierRollback::state_journal_mut)
+            .ok_or(RuntimeError::UnknownWorldline(worldline_id))
+    }
+}
+
 #[cfg(test)]
 impl RuntimeCheckpoint {
     /// Counts append-only history elements held by this checkpoint.
@@ -4467,7 +4481,7 @@ impl SchedulerCoordinator {
             }
         }
 
-        let runtime_before = runtime.checkpoint_for(&keys)?;
+        let mut runtime_before = runtime.checkpoint_for(&keys)?;
         let mut attempted_ingress = AttemptedIngress::new();
         let mut receipt_correlation_rollback = ReceiptCorrelationRollback::default();
         let provenance_before: ProvenanceCheckpoint =
@@ -4583,6 +4597,7 @@ impl SchedulerCoordinator {
                             candidates,
                             *key,
                             frontier.state_mut(),
+                            runtime_before.state_journal_mut(key.worldline_id)?,
                             next_global_tick,
                             engine.echo_operation_policy_id(),
                         )?
@@ -4599,6 +4614,10 @@ impl SchedulerCoordinator {
                             .worldlines
                             .frontier_mut(&key.worldline_id)
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                        // The engine rewrites the graph outside the journal.
+                        runtime_before
+                            .state_journal_mut(key.worldline_id)?
+                            .retain_copy(frontier.state().warp_state());
                         engine
                             .commit_with_state(frontier.state_mut(), &admitted)
                             .map_err(RuntimeError::from)?
@@ -4615,6 +4634,10 @@ impl SchedulerCoordinator {
                         .worldlines
                         .frontier_mut(&key.worldline_id)
                         .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                    // The engine rewrites the graph outside the journal.
+                    runtime_before
+                        .state_journal_mut(key.worldline_id)?
+                        .retain_copy(frontier.state().warp_state());
                     engine
                         .commit_with_state(frontier.state_mut(), &admitted)
                         .map_err(RuntimeError::from)?
@@ -7624,6 +7647,13 @@ mod tests {
             checkpoint.retained_history_entries(),
             0,
             "a rollback checkpoint must mark append-only history, not copy it"
+        );
+        assert!(
+            !checkpoint
+                .frontiers
+                .values()
+                .any(WorldlineFrontierRollback::retains_graph_copy),
+            "a rollback checkpoint must journal graph writes, not copy the graph"
         );
     }
 

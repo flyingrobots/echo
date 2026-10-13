@@ -74,8 +74,9 @@ fact about how readings are represented.
    step that correctness requires.
 5. **Memory holds a working set.** Correctness never depends on holding a
    whole state in memory. Hashing, comparison, checkpointing, forking and
-   recovery work on the parts they touch. An operation that must visit every
-   part streams them and does not hold them all.
+   recovery work on the parts they touch. An operation works on slices
+   wherever a slice is enough. An operation that must visit every part streams
+   them and does not hold them all.
 6. **Sharing is not identity.** Two strands that share parts are still distinct
    causal lanes with distinct ancestry, authority and evidence. Sharing grants
    no authority and proves no relationship.
@@ -133,4 +134,6 @@ The runtime does not implement this design.
   more than one copy of it. Canonical state hashing and state comparison visit
   every reachable element.
 
-Implementation state is owned by GitHub, not by this page.
+Implementation state is owned by
+[issue #782](https://github.com/flyingrobots/echo/issues/782), not by this
+page.

@@ -2056,6 +2056,68 @@ fn batched_submission_append_failure_fails_closed_until_the_wal_is_reopened() {
 }
 
 #[test]
+fn batched_submission_refused_before_storage_keeps_earlier_intents_and_the_wal() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-refused");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs_before = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .filesystem_commit_sync_count_for_test()
+        .expect("filesystem store");
+    // The first acceptance commits, unsynced. The second is refused before
+    // anything is written for it.
+    host.refuse_runtime_wal_append_before_storage_for_test(1)
+        .expect("host should arm the refusal");
+
+    let error = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 3))
+        .expect_err("a batch with a refused intent returns no handles");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::UncertainWriterPrefix)
+    ));
+    assert_eq!(
+        host.runtime().witnessed_submission_count(),
+        1,
+        "the intent before the refusal stays accepted"
+    );
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(
+        runtime_wal
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+            - syncs_before,
+        1,
+        "the intent before the refusal is synced"
+    );
+    assert_eq!(runtime_wal.submission_acceptance_count(), 1);
+
+    // Nothing failed in storage, so the WAL keeps working.
+    let mut intents = distinct_intents(worldline_id, 3);
+    let first = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(intents.remove(0))
+        .expect("the accepted intent is returned as its existing submission");
+    assert!(first.duplicate);
+    let rest = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(intents)
+        .expect("the refused intent and its successor are accepted on retry");
+    assert_eq!(rest.len(), 2);
+    assert!(rest.iter().all(|handle| !handle.duplicate));
+    assert_eq!(host.runtime().witnessed_submission_count(), 3);
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
 fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
     let wal_root = temp_runtime_wal_dir("batched-submission-sync-failure");
     let (runtime, worldline_id) = runtime();

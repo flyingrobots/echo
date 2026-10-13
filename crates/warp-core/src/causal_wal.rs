@@ -5987,6 +5987,7 @@ impl FilesystemWalStore {
         external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
         sync_now: bool,
     ) -> Result<(), WalStoreError> {
+        self.ensure_deferred_commit_sync_has_not_failed()?;
         self.ensure_writer_lock()?;
         let active_epoch = self
             .active_epoch
@@ -6257,6 +6258,7 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         frame: WalFrame,
     ) -> Result<(), WalStoreError> {
+        self.ensure_deferred_commit_sync_has_not_failed()?;
         self.ensure_writer_lock()?;
         let active_epoch = self
             .active_epoch

@@ -1424,6 +1424,20 @@ impl TrustedRuntimeHost {
         self.runtime_wal = Some(runtime_wal);
     }
 
+    /// Refuses one runtime WAL append before it reaches storage, after letting
+    /// `appends_let_through` appends succeed.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn refuse_runtime_wal_append_before_storage_for_test(
+        &mut self,
+        appends_let_through: u32,
+    ) -> Result<(), TrustedRuntimeHostError> {
+        self.runtime_wal
+            .as_mut()
+            .ok_or(TrustedRuntimeHostError::RuntimeWalUnavailable)?
+            .refuse_append_before_storage_for_test(appends_let_through);
+        Ok(())
+    }
+
     /// Replaces the filesystem WAL fault plan for targeted host tests.
     #[cfg(any(test, feature = "host_test"))]
     pub fn inject_runtime_wal_filesystem_fault_for_test(
@@ -2504,6 +2518,10 @@ pub struct TrustedRuntimeWal {
     evidence_catalog_posture: EvidenceCatalogPosture,
     #[cfg(any(test, feature = "host_test"))]
     fail_next_evidence_catalog_update: bool,
+    /// Refuses one append before it reaches storage, after letting this many
+    /// appends through.
+    #[cfg(any(test, feature = "host_test"))]
+    refuse_append_before_storage_after: Option<u32>,
     #[cfg(any(test, feature = "host_test"))]
     recover_read_only_call_count: std::cell::Cell<usize>,
     writer_epoch: WriterEpochId,
@@ -2616,6 +2634,8 @@ impl TrustedRuntimeWal {
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: false,
             #[cfg(any(test, feature = "host_test"))]
+            refuse_append_before_storage_after: None,
+            #[cfg(any(test, feature = "host_test"))]
             recover_read_only_call_count: std::cell::Cell::new(0),
         })
     }
@@ -2656,6 +2676,8 @@ impl TrustedRuntimeWal {
             evidence_catalog_posture: self.evidence_catalog_posture.clone(),
             #[cfg(any(test, feature = "host_test"))]
             fail_next_evidence_catalog_update: self.fail_next_evidence_catalog_update,
+            #[cfg(any(test, feature = "host_test"))]
+            refuse_append_before_storage_after: self.refuse_append_before_storage_after,
             #[cfg(any(test, feature = "host_test"))]
             recover_read_only_call_count: std::cell::Cell::new(
                 self.recover_read_only_call_count.get(),
@@ -2925,6 +2947,15 @@ impl TrustedRuntimeWal {
         self.storage_failed
     }
 
+    /// Rebuilds the writer cursor after an append that was refused before it
+    /// reached storage. Unsynced acceptances stay unsynced.
+    fn restore_cursor_after_refused_append(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        if !self.uses_filesystem_store() {
+            return Ok(());
+        }
+        self.refresh_cursor_from_store_for_writer()
+    }
+
     fn promote_synced_submission_acceptances(&mut self) {
         let synced = std::mem::take(&mut self.unsynced_submission_acceptances);
         self.durable_submission_acceptances.extend(synced);
@@ -2995,6 +3026,11 @@ impl TrustedRuntimeWal {
         self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
         self.causal_anchor_claim_projection = cursor.causal_anchor_claim_projection;
         self.durable_submission_acceptances = durable_submission_acceptances;
+        // The log is read as written, not as synced. An acceptance whose sync
+        // is still owed stays unsynced however readable its record is.
+        for submission_id in self.unsynced_submission_acceptances.keys() {
+            self.durable_submission_acceptances.remove(submission_id);
+        }
         self.operation_context_index = Some((self.previous_committed_transaction_digest, contexts));
         Ok(())
     }
@@ -3466,6 +3502,15 @@ impl TrustedRuntimeWal {
             .ok_or(TrustedRuntimeWalError::UncertainWriterPrefix)?;
         if prefix != self.previous_committed_transaction_digest {
             return Err(TrustedRuntimeWalError::UncertainWriterPrefix);
+        }
+        #[cfg(any(test, feature = "host_test"))]
+        match self.refuse_append_before_storage_after {
+            Some(0) => {
+                self.refuse_append_before_storage_after = None;
+                return Err(TrustedRuntimeWalError::UncertainWriterPrefix);
+            }
+            Some(remaining) => self.refuse_append_before_storage_after = Some(remaining - 1),
+            None => {}
         }
         contexts.apply_frames(&frames)?;
         match sync {
@@ -6127,6 +6172,12 @@ impl TrustedRuntimeWal {
     pub fn fail_next_evidence_catalog_update_for_test(&mut self) {
         self.fail_next_evidence_catalog_update = true;
     }
+
+    /// Refuses one append before it reaches storage, after letting
+    /// `appends_let_through` appends succeed.
+    pub fn refuse_append_before_storage_for_test(&mut self, appends_let_through: u32) {
+        self.refuse_append_before_storage_after = Some(appends_let_through);
+    }
 }
 
 /// App-facing handle for a trusted local runtime host.
@@ -6336,9 +6387,11 @@ impl TrustedRuntimeApp<'_> {
     ///   durable, as they would after a process loss between commit and
     ///   acknowledgement; submitting the same envelope again returns its
     ///   existing submission. The error of the refused envelope is returned.
-    /// - If an append or the storage sync fails, the in-memory intake of every
-    ///   submission this call accepted is rolled back, the storage error is
-    ///   returned, and the WAL refuses further work with
+    ///   The same holds if the WAL refuses an append before it reaches
+    ///   storage.
+    /// - If storage fails during an append or the sync, the in-memory intake
+    ///   of every submission this call accepted is rolled back, the storage
+    ///   error is returned, and the WAL refuses further work with
     ///   [`TrustedRuntimeWalError::StorageFailed`] until the host reopens
     ///   it. Storage may still hold some of the records; reopening recovers
     ///   whatever it holds.
@@ -6442,9 +6495,15 @@ impl TrustedRuntimeApp<'_> {
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle, sync) {
             if matches!(sync, CommitSync::Deferred) {
                 // Earlier records of this batch are appended and not synced.
-                // Reconciling from the log here would count them, and this
-                // one, as durable because they are readable. Fail closed.
-                runtime_wal.fail_storage();
+                // A storage error may have left part of this one in the log
+                // as well, and nothing readable there is durable: fail
+                // closed. An append refused before it reached storage wrote
+                // nothing, so only the writer cursor needs rebuilding.
+                if matches!(error, TrustedRuntimeWalError::Store(_))
+                    || runtime_wal.restore_cursor_after_refused_append().is_err()
+                {
+                    runtime_wal.fail_storage();
+                }
                 self.host
                     .runtime
                     .rollback_intent_submission(submission_rollback, &handle);

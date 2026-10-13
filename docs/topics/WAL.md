@@ -33,14 +33,15 @@ succeeds, no acceptance of the batch counts as durable and none can be
 scheduled. A batch is not atomic across a crash: a prefix can survive, none of
 it acknowledged, and each survivor recovers as `AcceptedPending`.
 
-If the runtime refuses an intent of a batch before anything is written for
-it, the intents before it are still synced and stay accepted; the call returns
-the refusal and no handles. If an append or the shared sync fails, Echo rolls
-back the in-memory intake of every submission that call accepted, returns the
-storage error, and refuses further WAL work with `StorageFailed` until the
-host reopens the WAL. A record that is readable after a storage failure is not
-treated as durable by the running host; reopening recovers what storage
-holds.
+If the runtime or the WAL refuses an intent of a batch before anything is
+written for it, the intents before it are still synced and stay accepted; the
+call returns the refusal and no handles.
+
+If storage fails during an append or the shared sync, Echo rolls back the
+in-memory intake of every submission that call accepted, returns the storage
+error, and refuses further WAL work with `StorageFailed` until the host
+reopens the WAL. A record that is readable after a storage failure is not
+treated as durable by the running host.
 
 A writer that takes over an existing log syncs its segment files before it
 reads them as recovered history. An earlier writer may have stopped, or failed

@@ -1140,6 +1140,14 @@ fn filesystem_failed_deferred_sync_is_never_evidenced_and_closes_the_store() {
         .append_transaction(submission_transaction("failed-second", Lsn::from_raw(2)))
         .is_err());
     assert!(store.close_epoch(epoch_id()).is_err());
+    // The lower-level port a coordinator writes through is refused as well.
+    let later = submission_transaction("failed-third", Lsn::from_raw(2));
+    let later_commit = later.commit.clone();
+    assert!(later
+        .frames
+        .into_iter()
+        .all(|frame| store.append_frame(epoch_id(), frame).is_err()));
+    assert!(store.flush_commit(epoch_id(), later_commit).is_err());
     assert_eq!(commit_sync_evidence_count(&store), 0);
     drop(store);
     must_ok(fs::remove_dir_all(root));

@@ -12,6 +12,7 @@
 //! this frontier state.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use thiserror::Error;
 
@@ -23,7 +24,7 @@ use crate::materialization::{ChannelConflict, FinalizedChannel};
 use crate::receipt::TickReceipt;
 use crate::record::NodeRecord;
 use crate::snapshot::Snapshot;
-use crate::tick_patch::WarpTickPatchV1;
+use crate::tick_patch::{StateJournal, WarpTickPatchV1};
 use crate::warp_state::WarpInstance;
 use crate::warp_state::WarpState;
 use crate::worldline::WorldlineId;
@@ -84,7 +85,10 @@ pub struct WorldlineState {
     /// Root key for snapshot hashing and commit execution.
     pub(crate) root: NodeKey,
     /// Initial worldline state preserved for replay.
-    pub(crate) initial_state: WarpState,
+    ///
+    /// The boundary never changes after construction, so clones of this state
+    /// share it instead of copying it.
+    pub(crate) initial_state: Arc<WarpState>,
     /// Most recent snapshot committed for this worldline.
     pub(crate) last_snapshot: Option<Snapshot>,
     /// Sequential history of committed ticks for this worldline.
@@ -103,6 +107,46 @@ pub struct WorldlineState {
     /// restarts; Phase 3 intentionally keeps lifetime idempotence rather than a
     /// bounded replay horizon.
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
+    /// Counts whole-state root computations for tests.
+    #[cfg(any(test, feature = "host_test"))]
+    pub(crate) state_root_computations: TestCallCount,
+}
+
+/// Test instrumentation that counts calls.
+///
+/// It is not runtime state, so it has a constant debug rendering: two values
+/// that differ only in instrumentation render alike.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Default)]
+pub(crate) struct TestCallCount(std::sync::atomic::AtomicUsize);
+
+#[cfg(any(test, feature = "host_test"))]
+impl Clone for TestCallCount {
+    fn clone(&self) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(self.get()))
+    }
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl TestCallCount {
+    pub(crate) fn increment(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn get(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn reset(&self) {
+        self.0.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(any(test, feature = "host_test"))]
+impl std::fmt::Debug for TestCallCount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TestCallCount")
+    }
 }
 
 impl Default for WorldlineState {
@@ -126,7 +170,7 @@ impl WorldlineState {
 
     fn build_validated(warp_state: WarpState, root: NodeKey) -> Self {
         Self {
-            initial_state: warp_state.clone(),
+            initial_state: Arc::new(warp_state.clone()),
             warp_state,
             root,
             last_snapshot: None,
@@ -135,6 +179,8 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -252,9 +298,27 @@ impl WorldlineState {
     /// Detached nodes and their attachments are outside this hash boundary.
     /// Equal state roots therefore do not prove equal stores. A committed
     /// detached write remains bound by the tick patch digest and commit identity.
+    ///
+    /// Every call hashes the whole reachable state.
     #[must_use]
     pub fn state_root(&self) -> Hash {
+        #[cfg(any(test, feature = "host_test"))]
+        self.state_root_computations.increment();
         crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+    }
+
+    /// Resets test instrumentation for whole-state root computations.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_state_root_computation_count_for_test(&self) {
+        self.state_root_computations.reset();
+    }
+
+    /// Returns the number of whole-state root computations on this state
+    /// since the last instrumentation reset.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn state_root_computation_count_for_test(&self) -> usize {
+        self.state_root_computations.get()
     }
 
     /// Returns the graph store for a specific warp instance, if present.
@@ -343,6 +407,27 @@ impl WorldlineState {
             last_materialization_errors: self.last_materialization_errors.clone(),
             tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
+        }
+    }
+
+    /// Clones every field except the graph, the append-only commit history and
+    /// the ingress ledger, which a rollback marker restores from the live
+    /// frontier.
+    fn clone_without_graph_or_append_only_history(&self) -> Self {
+        Self {
+            warp_state: WarpState::new(),
+            root: self.root,
+            initial_state: self.initial_state.clone(),
+            last_snapshot: self.last_snapshot.clone(),
+            tick_history: Vec::new(),
+            last_materialization: self.last_materialization.clone(),
+            last_materialization_errors: self.last_materialization_errors.clone(),
+            tx_counter: self.tx_counter,
+            committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -351,9 +436,9 @@ impl WorldlineState {
     /// This preserves the deterministic initial boundary and root coordinate
     /// while dropping frontier-only materialization and replay metadata.
     pub(crate) fn replay_base_from_initial(&self) -> Self {
-        let initial_state = self.initial_state.clone();
+        let initial_state = Arc::clone(&self.initial_state);
         Self {
-            warp_state: initial_state.clone(),
+            warp_state: (*initial_state).clone(),
             root: self.root,
             initial_state,
             last_snapshot: None,
@@ -362,6 +447,8 @@ impl WorldlineState {
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: TestCallCount::default(),
         }
     }
 
@@ -419,7 +506,112 @@ pub struct WorldlineFrontier {
     pub(crate) frontier_tick: WorldlineTick,
 }
 
+/// Rollback marker for one worldline frontier.
+///
+/// A committing frontier only appends to `tick_history` and only inserts into
+/// `committed_ingress`. The marker therefore records the history length
+/// instead of copying either container, so its cost does not grow with the
+/// number of committed ticks. Restoring truncates the live history and removes
+/// the ingress ids that the failed attempt journaled.
+///
+/// The marker does not copy the graph either. It restores the graph from its
+/// [`StateJournal`], so every mutation of the frontier's graph made after the
+/// marker was captured must be recorded there: apply patches with
+/// [`WarpTickPatchV1::apply_journaled`], and call
+/// [`StateJournal::retain_copy`] before any other mutation.
+#[derive(Debug, Clone)]
+pub(crate) struct WorldlineFrontierRollback {
+    /// The frontier at capture, with an empty graph and no history.
+    frontier: WorldlineFrontier,
+    tick_history_len: usize,
+    state_journal: StateJournal,
+    /// The graph at capture, kept only to check the journal in debug builds.
+    #[cfg(debug_assertions)]
+    graph_at_capture: WarpState,
+}
+
+impl WorldlineFrontierRollback {
+    /// Returns the journal that must record every graph mutation made after
+    /// this marker was captured.
+    pub(crate) fn state_journal_mut(&mut self) -> &mut StateJournal {
+        &mut self.state_journal
+    }
+
+    /// Counts append-only history elements copied into this marker.
+    #[cfg(test)]
+    pub(crate) fn retained_history_entries(&self) -> usize {
+        self.frontier.state.tick_history.len() + self.frontier.state.committed_ingress.len()
+    }
+
+    /// Returns whether this marker holds a copy of the graph for rollback.
+    ///
+    /// The copy that debug builds keep to check the journal does not count.
+    #[cfg(test)]
+    pub(crate) fn retains_graph_copy(&self) -> bool {
+        self.state_journal.holds_state_copy()
+            || self
+                .frontier
+                .state
+                .warp_state
+                .iter_instances()
+                .next()
+                .is_some()
+    }
+}
+
 impl WorldlineFrontier {
+    /// Captures a rollback marker without copying the graph or append-only
+    /// history.
+    pub(crate) fn rollback_marker(&self) -> WorldlineFrontierRollback {
+        WorldlineFrontierRollback {
+            frontier: Self {
+                worldline_id: self.worldline_id,
+                state: self.state.clone_without_graph_or_append_only_history(),
+                frontier_tick: self.frontier_tick,
+            },
+            tick_history_len: self.state.tick_history.len(),
+            state_journal: StateJournal::default(),
+            #[cfg(debug_assertions)]
+            graph_at_capture: self.state.warp_state.clone(),
+        }
+    }
+
+    /// Restores this frontier to `marker`.
+    ///
+    /// `attempted_ingress` names every ingress id the abandoned attempt
+    /// inserted into this frontier's ledger. Each id must have been absent
+    /// when the marker was captured.
+    pub(crate) fn restore_rollback_marker<I>(
+        &mut self,
+        marker: WorldlineFrontierRollback,
+        attempted_ingress: I,
+    ) where
+        I: IntoIterator<Item = (WriterHeadKey, Hash)>,
+    {
+        let mut tick_history = std::mem::take(&mut self.state.tick_history);
+        debug_assert!(
+            tick_history.len() >= marker.tick_history_len,
+            "committed history must not shrink below its rollback marker"
+        );
+        tick_history.truncate(marker.tick_history_len);
+        let mut committed_ingress = std::mem::take(&mut self.state.committed_ingress);
+        for entry in attempted_ingress {
+            committed_ingress.remove(&entry);
+        }
+        let mut warp_state = std::mem::take(&mut self.state.warp_state);
+        marker.state_journal.restore(&mut warp_state);
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            format!("{warp_state:?}"),
+            format!("{:?}", marker.graph_at_capture),
+            "a graph mutation after the rollback marker was not journaled"
+        );
+        *self = marker.frontier;
+        self.state.warp_state = warp_state;
+        self.state.tick_history = tick_history;
+        self.state.committed_ingress = committed_ingress;
+    }
+
     /// Creates a new frontier for the given worldline.
     #[must_use]
     pub fn new(worldline_id: WorldlineId, state: WorldlineState) -> Self {

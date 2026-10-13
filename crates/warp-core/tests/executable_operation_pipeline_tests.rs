@@ -2844,9 +2844,38 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             "submission and runtime admission cannot evaluate the Action"
         );
 
+        #[cfg(feature = "host_test")]
+        {
+            host.runtime()
+                .reset_frontier_basis_resolution_count_for_test();
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the worldline remains live")
+                .state()
+                .reset_state_root_computation_count_for_test();
+        }
         let steps = host
             .tick_once()
             .expect("the scheduler privately evaluates and commits both Actions");
+        #[cfg(feature = "host_test")]
+        assert_eq!(
+            host.runtime().frontier_basis_resolution_count_for_test(),
+            1,
+            "one head's frontier basis is resolved once, not once per Action"
+        );
+        #[cfg(feature = "host_test")]
+        assert_eq!(
+            host.runtime()
+                .worldlines()
+                .get(&head_key.worldline_id)
+                .expect("the worldline remains live")
+                .state()
+                .state_root_computation_count_for_test(),
+            2,
+            "a tick hashes the state for the frontier basis and after the commit; \
+             the commit reuses the basis root as the root before it"
+        );
         let host = TrustedRuntimeHost::from_parts(host.into_parts());
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].admitted_count, 2);

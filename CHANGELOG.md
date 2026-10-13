@@ -7,6 +7,10 @@
 
 ### Added
 
+- `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.
+
+- `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.
+
 - Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
 
 - The trusted executable-operation host can retain two native alternative strands,
@@ -28,6 +32,20 @@
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
 
 ### Fixed
+
+- A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
+
+- A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
+
+- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
+
+- A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
+
+- A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.
+
+- A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
+
+- Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.
 
 - A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.
 

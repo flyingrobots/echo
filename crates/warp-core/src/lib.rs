@@ -175,6 +175,7 @@ mod sandbox;
 mod scheduler;
 mod sealed_membership;
 mod settlement;
+mod slot_reading;
 mod snapshot;
 mod snapshot_accum;
 mod telemetry;
@@ -471,6 +472,7 @@ pub use settlement::{
     PluralAlternativeDraft, PluralSettlementPolicy, SettlementDecision, SettlementDelta,
     SettlementError, SettlementPlan, SettlementPolicy, SettlementResult, SettlementService,
 };
+pub use slot_reading::{SlotReader, SlotReading, SlotReadingError, SlotWriteIndex};
 pub use snapshot::{
     compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
     compute_state_root_for_warp_store, compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,

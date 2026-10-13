@@ -103,7 +103,9 @@ of a collection.
 
 ## The barrier
 
-An unsettled conflict covers a site and raises a barrier there.
+An unsettled conflict covers a site and raises a barrier there. The barrier
+exists from the moment the conflict is judged. Holding a tick raises none;
+judging it as Conflict raises one at once.
 
 **What the barrier refuses.** A tick is not admitted if its use set or its
 deletes meet the site. The refusal is an obstruction that names the conflict.
@@ -148,8 +150,10 @@ act.
   it answers. It is new witnessed history. It changes neither participant's
   past: each author's claim stays on record as that author made it.
 - A settlement is planned against a basis. If that basis has moved when the
-  settlement is committed, the commit is refused with an obstruction, and the
-  settlement is planned again.
+  settlement is committed, the commit is refused with an obstruction that
+  records the stale basis as its reason. A new plan is a new settlement and
+  needs its own authorization. An authorized settlement is never altered to
+  fit a basis it was not planned on.
 - Dependent work never resumes on its old readings. It is judged again.
 - Plural needs no later resolution. Nothing queues it for collapse.
 - Collapsing a braid records that plural claims became one, and which law
@@ -188,7 +192,8 @@ What a settlement does to the barrier depends on its result:
    hold; and every budget or limit that can change a classification.
 8. **Footprints must be trusted.** A footprint that omits something the tick
    used makes the judgement unsound, so an incoming tick whose footprint
-   cannot be trusted is obstructed.
+   cannot be trusted is obstructed. Authentic causal history does not prove
+   a footprint complete. Completeness is checked separately.
 9. **Carriage grants no authority.** Whatever delivers the history, and
    whoever sent it, gains no right to settle. Delivery of the bytes,
    admission of the strand and the outcome at a site are three separate

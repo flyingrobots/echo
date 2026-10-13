@@ -7,6 +7,8 @@
 
 ### Added
 
+- `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.
+
 - `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.
 
 - Native projected compare-and-set invocation encoding retains canonical application input and statically binds the expected attachment-value digest. The native lowerer and independent verifier reconstruct CAS-specific profiles and reject rebound digest paths or under-budget configurations. Generated schema, reproducible components and a retained public Edict compiler build establish package production. The retained compiler package now has scheduler execution, pending/committed Action recovery, stale-digest noncommit recovery and typed refusal witnesses. `EchoOperationInvocationV1::anchored_node_attachment_compare_and_set_with_application_input` and `ExecutableOperationPackageV1::with_compare_and_set_application_result_projection` construct the projected forms without byte editing.
@@ -32,6 +34,8 @@
 ### Fixed
 
 - A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
+
+- A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
 
 - A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
 

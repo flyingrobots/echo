@@ -545,6 +545,9 @@ jobs:
                     exit 1
                   fi
                   "$script"
+            - name: Ban globals regression test
+              shell: bash
+              run: bash scripts/tests/ban_globals_test.sh
             - name: Ban nondeterminism
               shell: bash
               run: |

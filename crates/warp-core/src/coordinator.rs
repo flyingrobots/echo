@@ -115,6 +115,14 @@ pub(crate) fn resolve_echo_operation_frontier_basis_v1(
         .worldlines()
         .get(&writer_head.worldline_id)
         .ok_or(RuntimeError::UnknownWorldline(writer_head.worldline_id))?;
+    #[cfg(any(test, feature = "host_test"))]
+    runtime.frontier_basis_resolution_count.0.set(
+        runtime
+            .frontier_basis_resolution_count
+            .0
+            .get()
+            .saturating_add(1),
+    );
     let state_root = frontier.state().state_root();
     let (commit_global_tick, commit_id) = match provenance.tip_ref(writer_head.worldline_id)? {
         Some(tip) => {
@@ -1170,6 +1178,21 @@ pub struct ForkStrandReceipt {
 // WorldlineRuntime
 // =============================================================================
 
+/// Test instrumentation that counts calls.
+///
+/// It is not runtime state, so it has a constant debug rendering: two runtimes
+/// that differ only in instrumentation render alike.
+#[cfg(any(test, feature = "host_test"))]
+#[derive(Clone, Default)]
+struct TestCallCount(std::cell::Cell<usize>);
+
+#[cfg(any(test, feature = "host_test"))]
+impl std::fmt::Debug for TestCallCount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("TestCallCount")
+    }
+}
+
 /// Top-level runtime state for the worldline model.
 ///
 /// Bundles worldline frontiers, writer heads, routing tables, and the global
@@ -1223,6 +1246,8 @@ pub struct WorldlineRuntime {
         BTreeMap<(WorldlineId, WorldlineTick, Hash), BTreeSet<Hash>>,
     #[cfg(any(test, feature = "host_test"))]
     receipt_correlation_full_scan_count: std::cell::Cell<usize>,
+    #[cfg(any(test, feature = "host_test"))]
+    frontier_basis_resolution_count: TestCallCount,
     /// Scheduler fault evidence keyed by content-addressed fault id.
     scheduler_faults: BTreeMap<SchedulerFaultId, SchedulerFaultRecord>,
     /// Active scoped scheduler faults by writer head.
@@ -1798,6 +1823,20 @@ impl WorldlineRuntime {
                 .saturating_add(1),
         );
         self.receipt_correlations_by_ticketed_ingress.values()
+    }
+
+    /// Resets test instrumentation for frontier basis resolutions.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn reset_frontier_basis_resolution_count_for_test(&self) {
+        self.frontier_basis_resolution_count.0.set(0);
+    }
+
+    /// Returns the number of frontier basis resolutions since the last
+    /// instrumentation reset. Each one hashes the whole reachable state.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn frontier_basis_resolution_count_for_test(&self) -> usize {
+        self.frontier_basis_resolution_count.0.get()
     }
 
     /// Resets test instrumentation for full receipt-correlation scans.

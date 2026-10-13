@@ -31,6 +31,8 @@
 
 ### Fixed
 
+- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
+
 - A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
 
 - A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.

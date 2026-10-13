@@ -2844,9 +2844,18 @@ fn scheduler_commits_two_independent_executable_actions_in_one_durable_tick() {
             "submission and runtime admission cannot evaluate the Action"
         );
 
+        #[cfg(feature = "host_test")]
+        host.runtime()
+            .reset_frontier_basis_resolution_count_for_test();
         let steps = host
             .tick_once()
             .expect("the scheduler privately evaluates and commits both Actions");
+        #[cfg(feature = "host_test")]
+        assert_eq!(
+            host.runtime().frontier_basis_resolution_count_for_test(),
+            1,
+            "one head's frontier basis is resolved once, not once per Action"
+        );
         let host = TrustedRuntimeHost::from_parts(host.into_parts());
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].admitted_count, 2);

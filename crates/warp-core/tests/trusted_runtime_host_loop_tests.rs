@@ -2118,6 +2118,71 @@ fn batched_submission_refused_before_storage_keeps_earlier_intents_and_the_wal()
 }
 
 #[test]
+fn batched_submission_refused_before_storage_keeps_an_in_memory_wal_usable() {
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("host should configure in-memory runtime WAL adapter");
+    host.refuse_runtime_wal_append_before_storage_for_test(1)
+        .expect("host should arm the refusal");
+
+    host.app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 3))
+        .expect_err("a batch with a refused intent returns no handles");
+    assert_eq!(host.runtime().witnessed_submission_count(), 1);
+
+    let mut intents = distinct_intents(worldline_id, 3);
+    let first = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(intents.remove(0))
+        .expect("the accepted intent is returned as its existing submission");
+    assert!(first.duplicate);
+    let rest = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(intents)
+        .expect("the writer cursor is rebuilt, so later appends are accepted");
+    assert_eq!(rest.len(), 2);
+    assert!(rest.iter().all(|handle| !handle.duplicate));
+}
+
+#[test]
+fn a_host_does_not_open_a_log_it_cannot_sync() {
+    let wal_root = temp_runtime_wal_dir("open-sync-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect("the first host accepts a submission");
+    drop(host);
+
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    let error = reopened
+        .enable_runtime_wal(
+            TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+                &wal_root,
+                FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::RecoveredSegmentSync),
+            ),
+        )
+        .expect_err("a log that cannot be synced must not be read as recovered history");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("recovered_segment_sync")
+    ));
+    assert!(reopened.runtime_wal().is_none());
+    assert_eq!(reopened.runtime().witnessed_submission_count(), 0);
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
 fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
     let wal_root = temp_runtime_wal_dir("batched-submission-sync-failure");
     let (runtime, worldline_id) = runtime();

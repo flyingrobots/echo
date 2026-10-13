@@ -2958,9 +2958,6 @@ impl TrustedRuntimeWal {
     /// Rebuilds the writer cursor after an append that was refused before it
     /// reached storage. Unsynced acceptances stay unsynced.
     fn restore_cursor_after_refused_append(&mut self) -> Result<(), TrustedRuntimeWalError> {
-        if !self.uses_filesystem_store() {
-            return Ok(());
-        }
         self.refresh_cursor_from_store_for_writer()
     }
 
@@ -3635,6 +3632,10 @@ impl TrustedRuntimeWalStore {
                 };
                 #[cfg(not(any(test, feature = "host_test")))]
                 let store = FilesystemWalStore::open(root, segment_id)?;
+                let mut store = store;
+                // Make what an earlier writer left readable durable before
+                // any of it is read as recovered history.
+                store.sync_existing_segments()?;
                 Ok(Self::Filesystem(store))
             }
         }

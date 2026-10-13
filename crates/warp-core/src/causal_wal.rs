@@ -6096,7 +6096,17 @@ impl FilesystemWalStore {
 
     /// Syncs every segment file under the store root, and the directories
     /// that name them.
-    fn sync_existing_segments(&mut self) -> Result<(), WalStoreError> {
+    ///
+    /// An earlier writer may have stopped, or failed a sync, after writing
+    /// records. They are readable and not yet durable. Call this before
+    /// reading an existing log as recovered history; taking the writer lock
+    /// does it as well.
+    ///
+    /// # Errors
+    ///
+    /// Returns the storage error if a segment or its directory cannot be
+    /// synced. The log must then not be treated as recovered.
+    pub fn sync_existing_segments(&mut self) -> Result<(), WalStoreError> {
         #[cfg(any(test, feature = "host_test"))]
         if self
             .fault_plan
@@ -6345,6 +6355,7 @@ impl WalStorePort for FilesystemWalStore {
     }
 
     fn truncate_tail_after(&mut self, after_lsn: Lsn) -> Result<(), WalStoreError> {
+        self.ensure_deferred_commit_sync_has_not_failed()?;
         rewrite_filesystem_segments_after_truncation(&self.root, after_lsn)
     }
 

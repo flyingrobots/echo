@@ -1148,6 +1148,18 @@ fn filesystem_failed_deferred_sync_is_never_evidenced_and_closes_the_store() {
         .into_iter()
         .all(|frame| store.append_frame(epoch_id(), frame).is_err()));
     assert!(store.flush_commit(epoch_id(), later_commit).is_err());
+    assert!(store.truncate_tail_after(Lsn::from_raw(0)).is_err());
+    assert!(store
+        .publish_manifest(
+            epoch_id(),
+            WalManifest {
+                manifest_digest: digest("hardening:manifest:after-failed-sync"),
+                last_committed_lsn: None,
+                last_commit_digest: None,
+                sealed_segment_count: 0,
+            },
+        )
+        .is_err());
     assert_eq!(commit_sync_evidence_count(&store), 0);
     drop(store);
     must_ok(fs::remove_dir_all(root));

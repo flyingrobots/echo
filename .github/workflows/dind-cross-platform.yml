@@ -31,7 +31,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
-            components: rustfmt, clippy
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -25,6 +25,13 @@ after the runtime WAL has committed the submission-acceptance transaction. That
 acceptance fact recovers as an `AcceptedPending` submission if the scheduler has
 not yet produced a decided outcome.
 
+`submit_intents_with_runtime_wal_ack(...)` accepts several intents in order
+and returns after one storage sync covers all of their acceptance
+transactions. Each intent still writes its own acceptance transaction, so
+recovery reads a batch exactly as it reads single submissions. A batch is not
+atomic across a crash: a prefix can survive, none of it acknowledged, and each
+survivor recovers as `AcceptedPending`.
+
 Second, failed WAL acceptance is not allowed to leave half-visible runtime
 state. If no runtime WAL is configured, the ACK path returns an explicit
 unavailable error before mutating intake state. If WAL commit fails, Echo rolls

@@ -1909,6 +1909,127 @@ fn filesystem_runtime_wal_failure_submission_restores_exact_runtime() {
     }
 }
 
+fn distinct_intents(worldline_id: WorldlineId, count: u8) -> Vec<IngressEnvelope> {
+    (0..count)
+        .map(|index| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                vec![index; 4],
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn batched_submission_makes_every_acceptance_durable_with_one_sync() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-one-sync");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs = |host: &TrustedRuntimeHost| {
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+    };
+
+    let single_before = syncs(&host);
+    let mut envelopes = distinct_intents(worldline_id, 8);
+    let batch = envelopes.split_off(3);
+    for envelope in envelopes {
+        host.app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("single submission should be acknowledged");
+    }
+    assert_eq!(
+        syncs(&host) - single_before,
+        3,
+        "each single submission waits for its own sync"
+    );
+
+    let batch_before = syncs(&host);
+    let handles = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(batch)
+        .expect("batched submission should be acknowledged");
+    assert_eq!(handles.len(), 5);
+    assert!(handles.iter().all(|handle| !handle.duplicate));
+    assert_eq!(
+        syncs(&host) - batch_before,
+        1,
+        "a batch waits for one sync, not one per submission"
+    );
+
+    let submission_ids = handles
+        .iter()
+        .map(|handle| handle.submission_id)
+        .collect::<Vec<_>>();
+    drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover the batch");
+    let recovery = reopened
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("batched acceptances should recover");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 8);
+    for submission_id in submission_ids {
+        assert_eq!(
+            recovery
+                .submissions
+                .get(&submission_id)
+                .expect("every batched submission should recover")
+                .posture,
+            RecoveredSubmissionPosture::AcceptedPending
+        );
+    }
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_failure_acknowledges_nothing_and_can_be_retried() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::AppendFrame,
+    ))
+    .expect("host should inject a filesystem failure");
+
+    host.app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
+        .expect_err("a batch whose first append fails must not be acknowledged");
+    assert_eq!(host.runtime().witnessed_submission_count(), 0);
+
+    let handles = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
+        .expect("the same batch must be acceptable once the WAL accepts it");
+    assert_eq!(handles.len(), 4);
+    assert!(handles.iter().all(|handle| !handle.duplicate));
+    assert_eq!(host.runtime().witnessed_submission_count(), 4);
+
+    let single = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect("resubmitting a batched envelope returns its submission");
+    assert!(single.duplicate);
+    assert_eq!(single.submission_id, handles[0].submission_id);
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
 #[test]
 fn filesystem_runtime_wal_failure_manifest_publish_reports_store_error() {
     let wal_root = temp_runtime_wal_dir("failure-manifest-publish");

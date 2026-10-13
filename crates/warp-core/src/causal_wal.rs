@@ -5588,6 +5588,13 @@ pub struct FilesystemWalStore {
     writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
+    /// While set, a commit record is appended without its own storage sync.
+    defer_commit_sync: bool,
+    /// Transactions whose commit records are appended and not yet synced.
+    deferred_commits: Vec<WalTransactionId>,
+    /// Number of storage syncs that made commit records durable.
+    #[cfg(any(test, feature = "host_test"))]
+    commit_sync_count: u64,
     #[cfg(any(test, feature = "host_test"))]
     fault_plan: FilesystemWalFaultPlan,
 }
@@ -5638,6 +5645,10 @@ impl FilesystemWalStore {
             writer_lock: None,
             manifests: Vec::new(),
             sync_evidence,
+            defer_commit_sync: false,
+            deferred_commits: Vec::new(),
+            #[cfg(any(test, feature = "host_test"))]
+            commit_sync_count: 0,
             #[cfg(any(test, feature = "host_test"))]
             fault_plan: FilesystemWalFaultPlan::default(),
         })
@@ -5911,7 +5922,12 @@ impl FilesystemWalStore {
             ));
         }
         let transaction_id = commit.transaction_id;
-        append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), true)?;
+        let sync_now = !self.defer_commit_sync;
+        append_segment_record(
+            &self.segment_path(),
+            DiskWalRecord::Commit(&commit),
+            sync_now,
+        )?;
         self.epoch_closures.insert(
             epoch_id,
             WriterEpochClosure {
@@ -5919,10 +5935,12 @@ impl FilesystemWalStore {
                 final_commit_digest: Some(commit.commit_digest),
             },
         );
-        self.sync_evidence.push(FilesystemSyncEvidence::transaction(
-            FilesystemSyncBoundary::CommitFileSynced,
-            transaction_id,
-        ));
+        self.deferred_commits.push(transaction_id);
+        if sync_now {
+            // One sync of the segment file covers this commit record and any
+            // earlier record that was appended without its own sync.
+            self.record_commit_records_synced();
+        }
         #[cfg(any(test, feature = "host_test"))]
         if self
             .fault_plan
@@ -5933,6 +5951,54 @@ impl FilesystemWalStore {
             ));
         }
         Ok(())
+    }
+
+    fn record_commit_records_synced(&mut self) {
+        #[cfg(any(test, feature = "host_test"))]
+        {
+            self.commit_sync_count += 1;
+        }
+        for transaction_id in self.deferred_commits.drain(..) {
+            self.sync_evidence.push(FilesystemSyncEvidence::transaction(
+                FilesystemSyncBoundary::CommitFileSynced,
+                transaction_id,
+            ));
+        }
+    }
+
+    /// Starts appending commit records without a storage sync for each one.
+    ///
+    /// The caller must not report any transaction appended in this state as
+    /// durable until [`Self::finish_deferred_commit_sync`] returns `Ok`.
+    pub fn begin_deferred_commit_sync(&mut self) {
+        self.defer_commit_sync = true;
+    }
+
+    /// Ends deferral and makes every commit record appended since
+    /// [`Self::begin_deferred_commit_sync`] durable with one storage sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error if the segment cannot be synced. The records stay
+    /// appended; a later successful commit sync also covers them.
+    pub fn finish_deferred_commit_sync(&mut self) -> Result<(), WalStoreError> {
+        self.defer_commit_sync = false;
+        if self.deferred_commits.is_empty() {
+            return Ok(());
+        }
+        File::options()
+            .append(true)
+            .open(self.segment_path())?
+            .sync_all()?;
+        self.record_commit_records_synced();
+        Ok(())
+    }
+
+    /// Returns how many storage syncs have made commit records durable.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn commit_sync_count_for_test(&self) -> u64 {
+        self.commit_sync_count
     }
 
     /// Appends an uncommitted frame to simulate a torn transaction tail.
@@ -5950,6 +6016,8 @@ impl FilesystemWalStore {
         epoch_id: WriterEpochId,
     ) -> Result<WalSegmentSeal, WalStoreError> {
         self.ensure_writer_lock()?;
+        // A sealed segment must not hold a commit record that was never synced.
+        self.finish_deferred_commit_sync()?;
         let active_epoch = self
             .active_epoch
             .as_ref()

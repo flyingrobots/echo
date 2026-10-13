@@ -2853,6 +2853,30 @@ impl TrustedRuntimeWal {
         self.store.is_filesystem()
     }
 
+    fn begin_deferred_commit_sync(&mut self) {
+        if let TrustedRuntimeWalStore::Filesystem(store) = &mut self.store {
+            store.begin_deferred_commit_sync();
+        }
+    }
+
+    fn finish_deferred_commit_sync(&mut self) -> Result<(), TrustedRuntimeWalError> {
+        if let TrustedRuntimeWalStore::Filesystem(store) = &mut self.store {
+            store.finish_deferred_commit_sync()?;
+        }
+        Ok(())
+    }
+
+    /// Returns how many storage syncs have made commit records durable, when
+    /// the adapter is backed by the filesystem store.
+    #[cfg(any(test, feature = "host_test"))]
+    #[must_use]
+    pub fn filesystem_commit_sync_count_for_test(&self) -> Option<u64> {
+        match &self.store {
+            TrustedRuntimeWalStore::Filesystem(store) => Some(store.commit_sync_count_for_test()),
+            TrustedRuntimeWalStore::InMemory(_) => None,
+        }
+    }
+
     #[cfg(any(test, feature = "host_test"))]
     fn replace_filesystem_fault_plan_for_test(
         &mut self,
@@ -6175,6 +6199,56 @@ impl TrustedRuntimeApp<'_> {
         envelope: IngressEnvelope,
     ) -> Result<IntentSubmissionHandle, TrustedRuntimeHostError> {
         self.submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::Ordinary)
+    }
+
+    /// Submits several canonical intents and returns only after one storage
+    /// sync has made all of their acceptance transactions durable.
+    ///
+    /// Each envelope is accepted exactly as
+    /// [`Self::submit_intent_with_runtime_wal_ack`] accepts it, in order, and
+    /// writes the same acceptance transaction. Only the sync is shared.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first intake or WAL error, or the error of the final sync.
+    /// No handle is returned on error, so no submission of the batch is
+    /// acknowledged. Submissions before the failing one stay accepted and
+    /// pending, as they would after a process loss between commit and
+    /// acknowledgement; submitting the same envelope again returns its
+    /// existing submission.
+    pub fn submit_intents_with_runtime_wal_ack(
+        &mut self,
+        envelopes: Vec<IngressEnvelope>,
+    ) -> Result<Vec<IntentSubmissionHandle>, TrustedRuntimeHostError> {
+        let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        };
+        runtime_wal.begin_deferred_commit_sync();
+        let mut handles = Vec::with_capacity(envelopes.len());
+        let mut failure = None;
+        for envelope in envelopes {
+            match self
+                .submit_intent_with_runtime_wal_ack_inner(envelope, AppIntentAdmission::Ordinary)
+            {
+                Ok(handle) => handles.push(handle),
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            }
+        }
+        // Always leave deferral, and sync whatever was appended: those records
+        // are in the log whether or not the batch is acknowledged.
+        let synced = self
+            .host
+            .runtime_wal
+            .as_mut()
+            .map_or(Ok(()), TrustedRuntimeWal::finish_deferred_commit_sync);
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        synced?;
+        Ok(handles)
     }
 
     fn submit_intent_with_runtime_wal_ack_inner(

@@ -1205,6 +1205,39 @@ struct RuntimeCheckpoint {
     frontiers: BTreeMap<WorldlineId, WorldlineFrontierRollback>,
 }
 
+/// Undo handle for one completed SuperTick.
+///
+/// A host that commits a tick before making it durable keeps this handle until
+/// durability is established. Applying it restores heads, frontiers,
+/// provenance, and receipt correlations to their pre-SuperTick state. It holds
+/// markers and journals, never a copy of committed history.
+#[derive(Debug)]
+#[cfg_attr(
+    not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+    allow(dead_code)
+)]
+pub(crate) struct SuperTickUndo {
+    runtime_before: RuntimeCheckpoint,
+    provenance_before: ProvenanceCheckpoint,
+    receipt_correlations: ReceiptCorrelationRollback,
+    attempted_ingress: Vec<(WriterHeadKey, Hash)>,
+}
+
+/// Journal of executable-Action staging performed before one scheduler pass.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Debug, Default)]
+pub(crate) struct TicketedIngressStagingRollback {
+    heads: BTreeMap<WriterHeadKey, WriterHead>,
+    staged: Vec<(Hash, Hash, (WriterHeadKey, Hash))>,
+}
+
+/// Rollback marker for one witnessed-submission attempt.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct IntentSubmissionRollback {
+    next_submission_generation: IngressSubmissionGeneration,
+}
+
 #[cfg(test)]
 impl RuntimeCheckpoint {
     /// Counts append-only history elements held by this checkpoint.
@@ -1315,6 +1348,91 @@ impl WorldlineRuntime {
             }
         }
         self.refresh_runnable();
+    }
+
+    /// Stages one runtime-admitted executable-operation Action and journals
+    /// the staging so an abandoned scheduler pass can retract it exactly.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn ingest_echo_operation_action_with_rollback_v1(
+        &mut self,
+        authority: &TicketedRuntimeIngressAuthority,
+        submission_id: Hash,
+        admission_digest: Hash,
+        envelope: IngressEnvelope,
+        rollback: &mut TicketedIngressStagingRollback,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let head_key = self.resolve_target(envelope.target())?;
+        if let Some(head) = self.heads.get(&head_key) {
+            rollback
+                .heads
+                .entry(head_key)
+                .or_insert_with(|| head.clone());
+        }
+        let disposition = self.ingest_echo_operation_action_v1(
+            authority,
+            submission_id,
+            admission_digest,
+            envelope,
+        )?;
+        if let TicketedRuntimeIngressDisposition::Staged { record, .. } = &disposition {
+            rollback.staged.push((
+                record.ticketed_ingress_id,
+                record.submission_id,
+                (record.head_key, record.ingress_id),
+            ));
+        }
+        Ok(disposition)
+    }
+
+    /// Retracts every staging recorded in `rollback` and restores the inboxes
+    /// it touched.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn rollback_ticketed_ingress_staging(
+        &mut self,
+        rollback: TicketedIngressStagingRollback,
+    ) {
+        for (ticketed_ingress_id, submission_id, target) in rollback.staged.into_iter().rev() {
+            self.ticketed_runtime_ingress.remove(&ticketed_ingress_id);
+            self.ticketed_runtime_ingress_by_submission
+                .remove(&submission_id);
+            self.ticketed_runtime_ingress_by_target.remove(&target);
+        }
+        for head in rollback.heads.into_values() {
+            self.heads.insert(head);
+        }
+        self.refresh_runnable();
+    }
+
+    /// Captures the marker needed to retract one witnessed-submission attempt.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn intent_submission_rollback_marker(&self) -> IntentSubmissionRollback {
+        IntentSubmissionRollback {
+            next_submission_generation: self.next_submission_generation,
+        }
+    }
+
+    /// Retracts the submission `handle` witnessed after `marker` was captured.
+    ///
+    /// A duplicate handle names a submission witnessed before the marker, so
+    /// nothing is retracted for it.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn rollback_intent_submission(
+        &mut self,
+        marker: IntentSubmissionRollback,
+        handle: &IntentSubmissionHandle,
+    ) {
+        if handle.duplicate {
+            return;
+        }
+        if let Some(record) = self.witnessed_submissions.remove(&handle.submission_id) {
+            self.submission_by_target
+                .remove(&(record.head_key, record.ingress_id));
+        }
+        self.pending_witnessed_submission_ids
+            .remove(&handle.submission_id);
+        self.witnessed_submission_envelopes
+            .remove(&handle.submission_id);
+        self.next_submission_generation = marker.next_submission_generation;
     }
 
     fn rollback_receipt_correlations(&mut self, rollback: &mut ReceiptCorrelationRollback) {
@@ -4198,11 +4316,25 @@ impl SchedulerCoordinator {
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
         Self::super_tick_inner(runtime, provenance, engine, None)
-            .map(|(records, _operation_outcomes, _correlations)| records)
+            .map(|(records, _operation_outcomes, _correlations, _undo)| records)
+    }
+
+    /// Restores the runtime and provenance to their state before a completed
+    /// SuperTick.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn undo_super_tick(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        mut undo: SuperTickUndo,
+    ) {
+        runtime.rollback_receipt_correlations(&mut undo.receipt_correlations);
+        runtime.restore(undo.runtime_before, &undo.attempted_ingress);
+        provenance.restore(&undo.provenance_before);
     }
 
     /// Executes one scheduler pass with runtime-admitted executable-operation
-    /// Actions available to Tick construction.
+    /// Actions available to Tick construction. The returned undo handle
+    /// retracts the pass if the caller cannot make it durable.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn super_tick_with_echo_operation_actions_v1(
         runtime: &mut WorldlineRuntime,
@@ -4215,6 +4347,7 @@ impl SchedulerCoordinator {
             Vec<StepRecord>,
             SchedulerOperationOutcomesV1,
             Vec<ReceiptCorrelationRecord>,
+            SuperTickUndo,
         ),
         RuntimeError,
     > {
@@ -4242,6 +4375,7 @@ impl SchedulerCoordinator {
             Vec<StepRecord>,
             SchedulerOperationOutcomesV1,
             Vec<ReceiptCorrelationRecord>,
+            SuperTickUndo,
         ),
         RuntimeError,
     > {
@@ -4553,7 +4687,17 @@ impl SchedulerCoordinator {
         }
 
         runtime.global_tick = next_global_tick;
-        Ok((records, operation_outcomes, committed_correlations))
+        Ok((
+            records,
+            operation_outcomes,
+            committed_correlations,
+            SuperTickUndo {
+                runtime_before,
+                provenance_before,
+                receipt_correlations: receipt_correlation_rollback,
+                attempted_ingress,
+            },
+        ))
     }
 
     /// Returns the canonical ordering of runnable heads without mutating state.

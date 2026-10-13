@@ -2031,6 +2031,121 @@ fn batched_submission_failure_acknowledges_nothing_and_can_be_retried() {
 }
 
 #[test]
+fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-sync-failure");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let runtime_before = format!("{:?}", host.runtime());
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::DeferredCommitSync,
+    ))
+    .expect("host should inject a sync failure");
+
+    let error = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
+        .expect_err("a batch whose sync fails must not be acknowledged");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL deferred_commit_sync failure")
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "a failed sync must not leave the batch visible as accepted intake"
+    );
+    let refused = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect_err("the WAL must refuse work after a failed sync");
+    assert!(matches!(
+        refused,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageSyncFailed)
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "a refused submission must not stay visible either"
+    );
+    assert!(
+        matches!(host.tick_once(), Ok(steps) if steps.is_empty()),
+        "nothing from the failed batch may be scheduled"
+    );
+
+    // The records were written; only their sync failed. Reopening recovers
+    // what storage holds, as it would after a process loss.
+    drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover what storage holds");
+    let recovery = reopened
+        .runtime_wal()
+        .expect("runtime WAL should stay configured")
+        .recover_read_only()
+        .expect("the written prefix should recover");
+    assert_eq!(recovery.certificate.committed_transactions_replayed, 4);
+    assert!(recovery.receipts.receipt_by_submission.is_empty());
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn batched_submission_handles_duplicates_and_an_empty_batch() {
+    let wal_root = temp_runtime_wal_dir("batched-submission-duplicates");
+    let (runtime, worldline_id) = runtime();
+    let mut host =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let syncs = |host: &TrustedRuntimeHost| {
+        host.runtime_wal()
+            .expect("runtime WAL should stay configured")
+            .filesystem_commit_sync_count_for_test()
+            .expect("filesystem store")
+    };
+
+    let before = syncs(&host);
+    let empty = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(Vec::new())
+        .expect("an empty batch is acknowledged without work");
+    assert!(empty.is_empty());
+    assert_eq!(syncs(&host), before, "an empty batch forces no sync");
+
+    let mut envelopes = distinct_intents(worldline_id, 2);
+    envelopes.insert(1, envelopes[0].clone());
+    let handles = host
+        .app()
+        .submit_intents_with_runtime_wal_ack(envelopes)
+        .expect("a batch that repeats an envelope should be acknowledged");
+    assert_eq!(handles.len(), 3);
+    assert!(!handles[0].duplicate);
+    assert!(handles[1].duplicate);
+    assert_eq!(handles[1].submission_id, handles[0].submission_id);
+    assert!(!handles[2].duplicate);
+    assert_eq!(syncs(&host) - before, 1);
+    let runtime_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert_eq!(
+        runtime_wal.submission_acceptance_count(),
+        2,
+        "a repeated envelope must not append a second acceptance"
+    );
+    assert_eq!(runtime_wal.commits().len(), 2);
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
 fn filesystem_runtime_wal_failure_manifest_publish_reports_store_error() {
     let wal_root = temp_runtime_wal_dir("failure-manifest-publish");
     let mut store = FilesystemWalStore::open_with_fault_plan_for_test(

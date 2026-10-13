@@ -1075,6 +1075,88 @@ fn filesystem_takeover_after_process_loss_derives_final_commit_from_the_segment(
     must_ok(fs::remove_dir_all(root));
 }
 
+fn commit_sync_evidence_count(store: &FilesystemWalStore) -> usize {
+    store
+        .sync_evidence()
+        .iter()
+        .filter(|entry| entry.boundary == FilesystemSyncBoundary::CommitFileSynced)
+        .count()
+}
+
+#[test]
+fn filesystem_deferred_commits_are_not_evidenced_as_synced_until_one_sync() {
+    let root = temp_wal_root("deferred-commit-sync");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "deferred-second",
+            Lsn::from_raw(2),
+        )),
+    );
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        0,
+        "an unsynced commit record must not be evidenced as synced"
+    );
+
+    must_ok(store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    must_ok(store.sync_deferred_commits());
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
+#[test]
+fn filesystem_synced_commit_and_epoch_close_cover_deferred_commits() {
+    let root = temp_wal_root("deferred-commit-covered");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "covered-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    must_ok(store.append_transaction(submission_transaction("covered-second", Lsn::from_raw(2))));
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        2,
+        "a synced commit covers every earlier record in the segment"
+    );
+
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "covered-third",
+            Lsn::from_raw(4),
+        )),
+    );
+    assert_eq!(commit_sync_evidence_count(&store), 2);
+    must_ok(store.close_epoch(epoch_id()));
+    assert_eq!(
+        commit_sync_evidence_count(&store),
+        3,
+        "an epoch must not close over an unsynced commit record"
+    );
+    drop(store);
+
+    let report = must_ok(recover_filesystem_store(
+        &root,
+        RecoveryAccessMode::ReadOnly,
+    ));
+    assert_eq!(report.transactions.len(), 3);
+    must_ok(fs::remove_dir_all(root));
+}
+
 #[test]
 fn filesystem_takeover_refuses_unreconciled_tail_before_reusing_its_lsn() {
     let mut fixture = WalHardeningFixture::new("takeover-uncommitted");

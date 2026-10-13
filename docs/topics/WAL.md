@@ -28,9 +28,17 @@ not yet produced a decided outcome.
 `submit_intents_with_runtime_wal_ack(...)` accepts several intents in order
 and returns after one storage sync covers all of their acceptance
 transactions. Each intent still writes its own acceptance transaction, so
-recovery reads a batch exactly as it reads single submissions. A batch is not
-atomic across a crash: a prefix can survive, none of it acknowledged, and each
-survivor recovers as `AcceptedPending`.
+recovery reads a batch exactly as it reads single submissions. Until that sync
+succeeds, no acceptance of the batch counts as durable and none can be
+scheduled. A batch is not atomic across a crash: a prefix can survive, none of
+it acknowledged, and each survivor recovers as `AcceptedPending`.
+
+If an intent of a batch is refused, the intents before it are still synced and
+stay accepted; the call returns the refusal and no handles. If the shared sync
+fails, Echo rolls back the in-memory intake of every submission that call
+accepted, returns the sync error, and refuses further WAL work with
+`StorageSyncFailed` until the host reopens the WAL. A record that is readable
+after a failed sync is not treated as durable.
 
 Second, failed WAL acceptance is not allowed to leave half-visible runtime
 state. If no runtime WAL is configured, the ACK path returns an explicit

@@ -5517,6 +5517,9 @@ pub enum FilesystemWalFaultTarget {
     CommitMarkerSynced,
     /// Fail the next manifest publish before writing manifest material.
     PublishManifest,
+    /// Fail the next storage sync that would make deferred commit records
+    /// durable.
+    DeferredCommitSync,
 }
 
 /// Host-test-only filesystem WAL fault plan.
@@ -5527,6 +5530,7 @@ pub struct FilesystemWalFaultPlan {
     flush_commit: u32,
     commit_marker_synced: u32,
     publish_manifest: u32,
+    deferred_commit_sync: u32,
 }
 
 #[cfg(any(test, feature = "host_test"))]
@@ -5540,24 +5544,35 @@ impl FilesystemWalFaultPlan {
                 flush_commit: 0,
                 commit_marker_synced: 0,
                 publish_manifest: 0,
+                deferred_commit_sync: 0,
             },
             FilesystemWalFaultTarget::FlushCommit => Self {
                 append_frame: 0,
                 flush_commit: 1,
                 commit_marker_synced: 0,
                 publish_manifest: 0,
+                deferred_commit_sync: 0,
             },
             FilesystemWalFaultTarget::CommitMarkerSynced => Self {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 1,
                 publish_manifest: 0,
+                deferred_commit_sync: 0,
             },
             FilesystemWalFaultTarget::PublishManifest => Self {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 0,
                 publish_manifest: 1,
+                deferred_commit_sync: 0,
+            },
+            FilesystemWalFaultTarget::DeferredCommitSync => Self {
+                append_frame: 0,
+                flush_commit: 0,
+                commit_marker_synced: 0,
+                publish_manifest: 0,
+                deferred_commit_sync: 1,
             },
         }
     }
@@ -5568,6 +5583,7 @@ impl FilesystemWalFaultPlan {
             FilesystemWalFaultTarget::FlushCommit => &mut self.flush_commit,
             FilesystemWalFaultTarget::CommitMarkerSynced => &mut self.commit_marker_synced,
             FilesystemWalFaultTarget::PublishManifest => &mut self.publish_manifest,
+            FilesystemWalFaultTarget::DeferredCommitSync => &mut self.deferred_commit_sync,
         };
         if *remaining == 0 {
             return false;
@@ -5588,8 +5604,6 @@ pub struct FilesystemWalStore {
     writer_lock: Option<WriterEpochLock>,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
-    /// While set, a commit record is appended without its own storage sync.
-    defer_commit_sync: bool,
     /// Transactions whose commit records are appended and not yet synced.
     deferred_commits: Vec<WalTransactionId>,
     /// Number of storage syncs that made commit records durable.
@@ -5645,7 +5659,6 @@ impl FilesystemWalStore {
             writer_lock: None,
             manifests: Vec::new(),
             sync_evidence,
-            defer_commit_sync: false,
             deferred_commits: Vec::new(),
             #[cfg(any(test, feature = "host_test"))]
             commit_sync_count: 0,
@@ -5876,6 +5889,30 @@ impl FilesystemWalStore {
         &mut self,
         transaction: WalCommittedTransaction,
     ) -> Result<(), WalStoreError> {
+        self.append_transaction_with_commit_sync(transaction, true)
+    }
+
+    /// Appends a transaction without syncing its commit record.
+    ///
+    /// The transaction is not durable until [`Self::sync_deferred_commits`]
+    /// or a later synced commit on the same segment succeeds. The caller must
+    /// not report it as durable before then.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::append_transaction`].
+    pub fn append_transaction_deferring_commit_sync(
+        &mut self,
+        transaction: WalCommittedTransaction,
+    ) -> Result<(), WalStoreError> {
+        self.append_transaction_with_commit_sync(transaction, false)
+    }
+
+    fn append_transaction_with_commit_sync(
+        &mut self,
+        transaction: WalCommittedTransaction,
+        sync_now: bool,
+    ) -> Result<(), WalStoreError> {
         transaction.validate()?;
         let admission_kernel_capability = transaction.admission_kernel_capability;
         let external_action_coordinator_capability =
@@ -5889,6 +5926,7 @@ impl FilesystemWalStore {
             transaction.commit,
             admission_kernel_capability,
             external_action_coordinator_capability,
+            sync_now,
         )
     }
 
@@ -5898,6 +5936,7 @@ impl FilesystemWalStore {
         commit: WalTransactionCommit,
         admission_kernel_capability: Option<AdmissionKernelCapability>,
         external_action_coordinator_capability: Option<ExternalActionCoordinatorCapability>,
+        sync_now: bool,
     ) -> Result<(), WalStoreError> {
         self.ensure_writer_lock()?;
         let active_epoch = self
@@ -5922,7 +5961,6 @@ impl FilesystemWalStore {
             ));
         }
         let transaction_id = commit.transaction_id;
-        let sync_now = !self.defer_commit_sync;
         append_segment_record(
             &self.segment_path(),
             DiskWalRecord::Commit(&commit),
@@ -5941,10 +5979,13 @@ impl FilesystemWalStore {
             // earlier record that was appended without its own sync.
             self.record_commit_records_synced();
         }
+        // The marker-synced fault models a failure after this commit's own
+        // sync. A deferred commit has no sync of its own to fail after.
         #[cfg(any(test, feature = "host_test"))]
-        if self
-            .fault_plan
-            .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
+        if sync_now
+            && self
+                .fault_plan
+                .should_fail(FilesystemWalFaultTarget::CommitMarkerSynced)
         {
             return Err(WalStoreError::Io(
                 "injected filesystem WAL commit_marker_synced failure".to_owned(),
@@ -5966,25 +6007,25 @@ impl FilesystemWalStore {
         }
     }
 
-    /// Starts appending commit records without a storage sync for each one.
-    ///
-    /// The caller must not report any transaction appended in this state as
-    /// durable until [`Self::finish_deferred_commit_sync`] returns `Ok`.
-    pub fn begin_deferred_commit_sync(&mut self) {
-        self.defer_commit_sync = true;
-    }
-
-    /// Ends deferral and makes every commit record appended since
-    /// [`Self::begin_deferred_commit_sync`] durable with one storage sync.
+    /// Makes every commit record that was appended without its own sync
+    /// durable with one storage sync.
     ///
     /// # Errors
     ///
-    /// Returns a store error if the segment cannot be synced. The records stay
-    /// appended; a later successful commit sync also covers them.
-    pub fn finish_deferred_commit_sync(&mut self) -> Result<(), WalStoreError> {
-        self.defer_commit_sync = false;
+    /// Returns a store error if the segment cannot be synced. Nothing appended
+    /// without a sync may be reported as durable after such an error.
+    pub fn sync_deferred_commits(&mut self) -> Result<(), WalStoreError> {
         if self.deferred_commits.is_empty() {
             return Ok(());
+        }
+        #[cfg(any(test, feature = "host_test"))]
+        if self
+            .fault_plan
+            .should_fail(FilesystemWalFaultTarget::DeferredCommitSync)
+        {
+            return Err(WalStoreError::Io(
+                "injected filesystem WAL deferred_commit_sync failure".to_owned(),
+            ));
         }
         File::options()
             .append(true)
@@ -6017,7 +6058,7 @@ impl FilesystemWalStore {
     ) -> Result<WalSegmentSeal, WalStoreError> {
         self.ensure_writer_lock()?;
         // A sealed segment must not hold a commit record that was never synced.
-        self.finish_deferred_commit_sync()?;
+        self.sync_deferred_commits()?;
         let active_epoch = self
             .active_epoch
             .as_ref()
@@ -6116,7 +6157,7 @@ impl WalStorePort for FilesystemWalStore {
         epoch_id: WriterEpochId,
         commit: WalTransactionCommit,
     ) -> Result<(), WalStoreError> {
-        self.flush_commit_with_capabilities(epoch_id, commit, None, None)
+        self.flush_commit_with_capabilities(epoch_id, commit, None, None, true)
     }
 
     fn flush_external_action_commit(
@@ -6125,7 +6166,7 @@ impl WalStorePort for FilesystemWalStore {
         commit: WalTransactionCommit,
         capability: ExternalActionCoordinatorCapability,
     ) -> Result<(), WalStoreError> {
-        self.flush_commit_with_capabilities(epoch_id, commit, None, Some(capability))
+        self.flush_commit_with_capabilities(epoch_id, commit, None, Some(capability), true)
     }
 
     fn read_frames(&self) -> Vec<WalFrame> {
@@ -6208,6 +6249,8 @@ impl WalStorePort for FilesystemWalStore {
 
     fn close_epoch(&mut self, epoch_id: WriterEpochId) -> Result<(), WalStoreError> {
         self.ensure_writer_lock()?;
+        // An epoch must not close over a commit record that was never synced.
+        self.sync_deferred_commits()?;
         let previous_ledger = self.writer_epoch_ledger();
         let epoch = self
             .active_epoch

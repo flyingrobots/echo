@@ -42,7 +42,7 @@ use crate::revelation::{
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
-use crate::worldline_state::{WorldlineFrontier, WorldlineState};
+use crate::worldline_state::{WorldlineFrontier, WorldlineFrontierRollback, WorldlineState};
 use crate::CausalTickReceiptRef;
 
 #[cfg(feature = "native_rule_bootstrap")]
@@ -1202,7 +1202,18 @@ pub struct WorldlineRuntime {
 struct RuntimeCheckpoint {
     global_tick: GlobalTick,
     heads: BTreeMap<WriterHeadKey, WriterHead>,
-    frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
+    frontiers: BTreeMap<WorldlineId, WorldlineFrontierRollback>,
+}
+
+#[cfg(test)]
+impl RuntimeCheckpoint {
+    /// Counts append-only history elements held by this checkpoint.
+    fn retained_history_entries(&self) -> usize {
+        self.frontiers
+            .values()
+            .map(WorldlineFrontierRollback::retained_history_entries)
+            .sum()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1266,7 +1277,7 @@ impl WorldlineRuntime {
                     .worldlines
                     .get(&key.worldline_id)
                     .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-                slot.insert(frontier.clone());
+                slot.insert(frontier.rollback_marker());
             }
         }
 
@@ -1277,13 +1288,31 @@ impl WorldlineRuntime {
         })
     }
 
-    fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
+    /// Restores the heads and frontiers captured by `checkpoint`.
+    ///
+    /// `attempted_ingress` is the abandoned attempt's journal of ingress ids it
+    /// inserted into frontier ledgers after the checkpoint.
+    fn restore(
+        &mut self,
+        checkpoint: RuntimeCheckpoint,
+        attempted_ingress: &[(WriterHeadKey, Hash)],
+    ) {
         self.global_tick = checkpoint.global_tick;
         for head in checkpoint.heads.into_values() {
             self.heads.insert(head);
         }
-        for frontier in checkpoint.frontiers.into_values() {
-            self.worldlines.replace_frontier(frontier);
+        for (worldline_id, marker) in checkpoint.frontiers {
+            // A SuperTick never unregisters a worldline, so the live frontier
+            // that still owns the append-only history is always present.
+            if let Some(frontier) = self.worldlines.frontier_mut(&worldline_id) {
+                frontier.restore_rollback_marker(
+                    marker,
+                    attempted_ingress
+                        .iter()
+                        .copied()
+                        .filter(|(head_key, _)| head_key.worldline_id == worldline_id),
+                );
+            }
         }
         self.refresh_runnable();
     }
@@ -4260,6 +4289,7 @@ impl SchedulerCoordinator {
         }
 
         let runtime_before = runtime.checkpoint_for(&keys)?;
+        let mut attempted_ingress: Vec<(WriterHeadKey, Hash)> = Vec::new();
         let mut receipt_correlation_rollback = ReceiptCorrelationRollback::default();
         let provenance_before: ProvenanceCheckpoint =
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
@@ -4447,10 +4477,23 @@ impl SchedulerCoordinator {
                     )
                     .with_tick_receipt(receipt);
                     provenance.append_local_commit(entry)?;
-                    frontier.state_mut().record_committed_ingress(
-                        *key,
-                        admitted.iter().map(IngressEnvelope::ingress_id),
+                    let newly_committed_ingress: Vec<Hash> = admitted
+                        .iter()
+                        .map(IngressEnvelope::ingress_id)
+                        .filter(|ingress_id| {
+                            !frontier.state().contains_committed_ingress(key, ingress_id)
+                        })
+                        .collect();
+                    // Journal before inserting: an unwind between the two steps
+                    // can then name only ids that were absent at the checkpoint.
+                    attempted_ingress.extend(
+                        newly_committed_ingress
+                            .iter()
+                            .map(|ingress_id| (*key, *ingress_id)),
                     );
+                    frontier
+                        .state_mut()
+                        .record_committed_ingress(*key, newly_committed_ingress);
                     let worldline_tick_after = frontier
                         .advance_tick()
                         .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
@@ -4484,7 +4527,7 @@ impl SchedulerCoordinator {
                     let scope = scheduler_fault_scope_for_error(*key, &err);
                     let cause_digest = scheduler_error_cause_digest(&err);
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
-                    runtime.restore(runtime_before);
+                    runtime.restore(runtime_before, &attempted_ingress);
                     provenance.restore(&provenance_before);
                     match scope {
                         SchedulerFaultScope::Head(head_key) => {
@@ -4499,7 +4542,7 @@ impl SchedulerCoordinator {
                 Err(payload) => {
                     let cause_digest = scheduler_panic_cause_digest(payload.as_ref());
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
-                    runtime.restore(runtime_before);
+                    runtime.restore(runtime_before, &attempted_ingress);
                     provenance.restore(&provenance_before);
                     let _ = runtime.record_scheduler_runtime_fault(run_id, cause_digest);
                     resume_unwind(payload);
@@ -7340,6 +7383,152 @@ mod tests {
             blocked,
             RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
         ));
+    }
+
+    #[test]
+    fn scheduler_rollback_checkpoint_does_not_copy_committed_history() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline = wl(1);
+        runtime
+            .register_worldline(worldline, WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            worldline,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        for index in 0_u8..4 {
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: worldline,
+                    },
+                    make_intent_kind("test"),
+                    vec![index],
+                ))
+                .unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        }
+        let state = runtime.worldlines.get(&worldline).unwrap().state();
+        assert_eq!(state.tick_history().len(), 4);
+        assert_eq!(state.committed_ingress.len(), 4);
+
+        let checkpoint = runtime.checkpoint_for(&[head]).unwrap();
+
+        assert_eq!(
+            checkpoint.retained_history_entries(),
+            0,
+            "a rollback checkpoint must mark append-only history, not copy it"
+        );
+    }
+
+    #[test]
+    fn super_tick_rollback_preserves_prior_history_and_ingress_dedupe() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let _head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let intent = |worldline_id, bytes: &[u8]| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                bytes.to_vec(),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        let mut prior_ingress = Vec::new();
+        for bytes in [b"prior-1".as_slice(), b"prior-2".as_slice()] {
+            let envelope = intent(worldline_a, bytes);
+            prior_ingress.push(envelope.ingress_id());
+            runtime.ingest(envelope).unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        }
+        let history_before: Vec<Hash> = runtime
+            .worldlines
+            .get(&worldline_a)
+            .unwrap()
+            .state()
+            .tick_history()
+            .iter()
+            .map(|(snapshot, _, _)| snapshot.hash)
+            .collect();
+        assert_eq!(history_before.len(), 2);
+        let global_tick_before = runtime.global_tick();
+
+        let rolled_back = intent(worldline_a, b"rolled-back");
+        let rolled_back_ingress = rolled_back.ingress_id();
+        runtime.ingest(rolled_back).unwrap();
+        runtime.ingest(intent(worldline_b, b"fails")).unwrap();
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap_err();
+
+        let state = runtime.worldlines.get(&worldline_a).unwrap().state();
+        let history_after: Vec<Hash> = state
+            .tick_history()
+            .iter()
+            .map(|(snapshot, _, _)| snapshot.hash)
+            .collect();
+        assert_eq!(
+            history_after, history_before,
+            "rollback must keep exactly the previously committed ticks"
+        );
+        assert_eq!(state.current_tick(), wt(2));
+        assert_eq!(
+            runtime
+                .worldlines
+                .get(&worldline_a)
+                .unwrap()
+                .frontier_tick(),
+            wt(2)
+        );
+        assert_eq!(runtime.global_tick(), global_tick_before);
+        for ingress_id in &prior_ingress {
+            assert!(
+                state.contains_committed_ingress(&head_a, ingress_id),
+                "rollback must keep earlier committed ingress deduplicated"
+            );
+        }
+        assert!(
+            !state.contains_committed_ingress(&head_a, &rolled_back_ingress),
+            "rollback must forget ingress committed only by the failed tick"
+        );
+        assert_eq!(state.committed_ingress.len(), 2);
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "the rolled-back intent must be pending again"
+        );
     }
 
     #[test]

@@ -650,6 +650,8 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: crate::worldline_state::TestCallCount::default(),
         };
         self.engine.current_root = self.saved_root;
         self.engine.tx_counter = self.saved_tx_counter;
@@ -702,6 +704,8 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             committed_ingress: self
                 .committed_ingress
                 .take("runtime commit guard missing committed ingress"),
+            #[cfg(any(test, feature = "host_test"))]
+            state_root_computations: crate::worldline_state::TestCallCount::default(),
         };
         self.engine.state = self
             .saved_engine_state

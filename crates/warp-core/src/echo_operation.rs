@@ -6299,8 +6299,11 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         .map(u32::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)?;
-    patch.apply_journaled(&mut state.warp_state, journal)?;
+    state.apply_patch_journaled(&patch, journal)?;
     let state_root_after = state.state_root();
+    // The next reading of this frontier's root, for example the basis of the
+    // next tick, does not hash the state again.
+    state.retain_state_root(state_root_after);
     let parents = state
         .last_snapshot
         .as_ref()
@@ -6618,12 +6621,12 @@ pub(crate) fn commit_prepared_to_state(
         vec![Vec::new()],
     );
     // Nothing after this application can fail, so the journal is not kept.
-    prepared.patch.apply_journaled(
-        &mut state.warp_state,
+    state.apply_patch_journaled(
+        &prepared.patch,
         &mut crate::tick_patch::StateJournal::default(),
     )?;
-    let state_root_after =
-        crate::snapshot::compute_state_root_for_warp_state(&state.warp_state, state.root());
+    let state_root_after = state.state_root();
+    state.retain_state_root(state_root_after);
     let parents = state
         .last_snapshot
         .as_ref()
@@ -8618,7 +8621,7 @@ mod tests {
         );
 
         state
-            .warp_state
+            .warp_state_mut()
             .store_mut(&root_warp)
             .expect("the fixture retains its root store")
             .set_node_attachment(

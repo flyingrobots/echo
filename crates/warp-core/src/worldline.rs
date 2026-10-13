@@ -127,7 +127,7 @@ impl WorldlineTickPatchV1 {
             });
         }
 
-        apply_ops_to_state(&mut state.warp_state, &self.ops)?;
+        apply_ops_to_state(state.warp_state_mut(), &self.ops)?;
         Ok(())
     }
 }
@@ -408,7 +408,7 @@ mod tests {
         };
 
         state
-            .warp_state
+            .warp_state_mut()
             .store_mut(&warp_id)
             .expect("root store missing")
             .insert_node(
@@ -466,7 +466,7 @@ mod tests {
         let ty = make_type_id("EdgeType");
 
         let store = state
-            .warp_state
+            .warp_state_mut()
             .store_mut(&warp_id)
             .expect("root store missing");
         store.insert_node(from_id, NodeRecord { ty });
@@ -589,7 +589,7 @@ mod tests {
         let ty = make_type_id("TestType");
 
         state
-            .warp_state
+            .warp_state_mut()
             .store_mut(&warp_id)
             .expect("root store missing")
             .insert_node(node_id, NodeRecord { ty });

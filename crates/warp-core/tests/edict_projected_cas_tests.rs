@@ -363,6 +363,66 @@ fn compiler_cas_tick_wal_failure_restores_exact_runtime_and_provenance() {
     }
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn compiler_cas_tick_hashes_the_state_once_after_the_first_commit() {
+    let dir = WalDir::new();
+    let mut fixture = Fixture::new(true);
+    fixture.enable_wal(&dir);
+    fixture.install();
+    fixture
+        .host
+        .install_echo_operation_action_admission_policy_v1(policy());
+    let submit = |fixture: &mut Fixture, current: &[u8], next: &str| {
+        let digest = echo_operation_atom_value_digest_v1(attachment_type(), current);
+        let envelope = echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: fixture.head },
+            fixture.invocation(current, digest, digest, next),
+        )
+        .expect("Action envelope");
+        fixture
+            .host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("durable Action acknowledgement");
+    };
+    let root_computations = |fixture: &Fixture| {
+        fixture
+            .host
+            .runtime()
+            .worldlines()
+            .get(&fixture.head.worldline_id)
+            .expect("the worldline remains live")
+            .state()
+            .state_root_computation_count_for_test()
+    };
+    submit(&mut fixture, INITIAL, "first");
+    fixture.host.tick_once().expect("first Action commits");
+    fixture
+        .host
+        .runtime()
+        .worldlines()
+        .get(&fixture.head.worldline_id)
+        .expect("the worldline remains live")
+        .state()
+        .reset_state_root_computation_count_for_test();
+
+    submit(&mut fixture, b"first", "second");
+    fixture.host.tick_once().expect("second Action commits");
+    assert_eq!(fixture.value(), b"second");
+    assert_eq!(
+        root_computations(&fixture),
+        1,
+        "the frontier basis reuses the root the previous commit computed; \
+         only the root after this commit is hashed (the count excludes the \
+         hash by which a debug build checks the retained root)"
+    );
+
+    submit(&mut fixture, b"second", "third");
+    fixture.host.tick_once().expect("third Action commits");
+    assert_eq!(root_computations(&fixture), 2);
+}
+
 fn initial_digest() -> [u8; 32] {
     echo_operation_atom_value_digest_v1(attachment_type(), INITIAL)
 }

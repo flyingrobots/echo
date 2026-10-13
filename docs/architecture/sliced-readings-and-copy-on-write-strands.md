@@ -158,12 +158,19 @@ The runtime does not implement this design.
   replay and registers the child with an independent copy.
 - `ReplayCheckpoint` stores a complete materialized graph for one tick.
 - Canonical state hashing and state comparison visit the graph. Each admitted
-  tick computes a state root over the whole reachable state.
+  tick computes a state root over the whole reachable state. A tick of
+  executable-operation Actions does so once, after its commit: the frontier
+  retains that root until its graph is next mutated, and the next tick reads
+  it for its basis without hashing. The first tick on a frontier, and a tick
+  that runs native rules through the engine, hash more than once.
 - A native rule's matcher and footprint function read a view over a complete
   instance.
 - Tick patches record their input and output slots, and
   `slice_worldline_indices` computes the tick indices in a slot's dependency
   cone. Only tests call it.
+- `SlotWriteIndex` and `SlotReader` resolve the value of one slot at a tick
+  cursor from the patch history, without replay. The runtime does not
+  maintain or use them yet.
 - Wormhole remains a reserved term for tick-range compression.
 
 Implementation state is owned by

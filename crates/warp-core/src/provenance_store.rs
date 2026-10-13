@@ -3760,8 +3760,7 @@ mod tests {
         let mut wrong_base = WorldlineState::empty();
         let wrong_root_warp = wrong_base.root().warp_id;
         let wrong_root_node = wrong_base.root().local_id;
-        wrong_base
-            .initial_state
+        std::sync::Arc::make_mut(&mut wrong_base.initial_state)
             .store_mut(&wrong_root_warp)
             .expect("root store missing")
             .insert_node(

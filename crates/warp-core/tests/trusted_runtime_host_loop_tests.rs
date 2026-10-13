@@ -1995,38 +1995,63 @@ fn batched_submission_makes_every_acceptance_durable_with_one_sync() {
 }
 
 #[test]
-fn batched_submission_failure_acknowledges_nothing_and_can_be_retried() {
+fn batched_submission_append_failure_fails_closed_until_the_wal_is_reopened() {
     let wal_root = temp_runtime_wal_dir("batched-submission-failure");
     let (runtime, worldline_id) = runtime();
     let mut host =
         TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
     host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
         .expect("host should configure filesystem runtime WAL adapter");
-    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
-        FilesystemWalFaultTarget::AppendFrame,
-    ))
+    let runtime_before = format!("{:?}", host.runtime());
+    // Let the first acceptance commit, unsynced, and fail the second.
+    host.inject_runtime_wal_filesystem_fault_for_test(
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::FlushCommit).after(1),
+    )
     .expect("host should inject a filesystem failure");
 
-    host.app()
-        .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
-        .expect_err("a batch whose first append fails must not be acknowledged");
-    assert_eq!(host.runtime().witnessed_submission_count(), 0);
-
-    let handles = host
+    let error = host
         .app()
         .submit_intents_with_runtime_wal_ack(distinct_intents(worldline_id, 4))
-        .expect("the same batch must be acceptable once the WAL accepts it");
-    assert_eq!(handles.len(), 4);
-    assert!(handles.iter().all(|handle| !handle.duplicate));
-    assert_eq!(host.runtime().witnessed_submission_count(), 4);
-
-    let single = host
+        .expect_err("a batch whose append fails must not be acknowledged");
+    assert!(matches!(
+        error,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(WalStoreError::Io(
+            message
+        ))) if message.contains("injected filesystem WAL flush_commit failure")
+    ));
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "the acceptance appended before the failure must not stay visible"
+    );
+    // The first acceptance is readable in the log and was never synced. The
+    // host must not treat it as an existing durable submission.
+    let refused = host
         .app()
         .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
-        .expect("resubmitting a batched envelope returns its submission");
-    assert!(single.duplicate);
-    assert_eq!(single.submission_id, handles[0].submission_id);
+        .expect_err("the WAL must refuse work after a failed append in a batch");
+    assert!(matches!(
+        refused,
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+    ));
+    assert_eq!(format!("{:?}", host.runtime()), runtime_before);
+
     drop(host);
+    let (runtime, _) = crate::runtime();
+    let mut reopened =
+        TrustedRuntimeHost::new(runtime, empty_engine()).expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("a fresh host should recover what storage holds");
+    let single = reopened
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect("a reopened WAL accepts work again");
+    assert!(
+        single.duplicate,
+        "recovery reports the acceptance that storage holds"
+    );
+    drop(reopened);
     fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
 }
 
@@ -2065,7 +2090,7 @@ fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
         .expect_err("the WAL must refuse work after a failed sync");
     assert!(matches!(
         refused,
-        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageSyncFailed)
+        TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
     ));
     assert_eq!(
         format!("{:?}", host.runtime()),

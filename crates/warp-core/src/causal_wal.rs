@@ -5531,10 +5531,20 @@ pub struct FilesystemWalFaultPlan {
     commit_marker_synced: u32,
     publish_manifest: u32,
     deferred_commit_sync: u32,
+    /// Operations of the failing target to let through first.
+    skip: u32,
 }
 
 #[cfg(any(test, feature = "host_test"))]
 impl FilesystemWalFaultPlan {
+    /// Lets `skipped` operations of the failing target succeed before the
+    /// failure.
+    #[must_use]
+    pub const fn after(mut self, skipped: u32) -> Self {
+        self.skip = skipped;
+        self
+    }
+
     /// Builds a plan that fails the next operation for `target`.
     #[must_use]
     pub const fn fail_next(target: FilesystemWalFaultTarget) -> Self {
@@ -5545,6 +5555,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                skip: 0,
             },
             FilesystemWalFaultTarget::FlushCommit => Self {
                 append_frame: 0,
@@ -5552,6 +5563,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                skip: 0,
             },
             FilesystemWalFaultTarget::CommitMarkerSynced => Self {
                 append_frame: 0,
@@ -5559,6 +5571,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 1,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
+                skip: 0,
             },
             FilesystemWalFaultTarget::PublishManifest => Self {
                 append_frame: 0,
@@ -5566,6 +5579,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 1,
                 deferred_commit_sync: 0,
+                skip: 0,
             },
             FilesystemWalFaultTarget::DeferredCommitSync => Self {
                 append_frame: 0,
@@ -5573,6 +5587,7 @@ impl FilesystemWalFaultPlan {
                 commit_marker_synced: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 1,
+                skip: 0,
             },
         }
     }
@@ -5586,6 +5601,10 @@ impl FilesystemWalFaultPlan {
             FilesystemWalFaultTarget::DeferredCommitSync => &mut self.deferred_commit_sync,
         };
         if *remaining == 0 {
+            return false;
+        }
+        if self.skip > 0 {
+            self.skip -= 1;
             return false;
         }
         *remaining -= 1;
@@ -5606,6 +5625,10 @@ pub struct FilesystemWalStore {
     sync_evidence: Vec<FilesystemSyncEvidence>,
     /// Transactions whose commit records are appended and not yet synced.
     deferred_commits: Vec<WalTransactionId>,
+    /// Set when a sync of deferred commit records fails. A later sync cannot
+    /// vouch for records an earlier sync failed to write, so the store then
+    /// refuses to append, sync, rotate or close until it is reopened.
+    deferred_commit_sync_failed: bool,
     /// Number of storage syncs that made commit records durable.
     #[cfg(any(test, feature = "host_test"))]
     commit_sync_count: u64,
@@ -5660,6 +5683,7 @@ impl FilesystemWalStore {
             manifests: Vec::new(),
             sync_evidence,
             deferred_commits: Vec::new(),
+            deferred_commit_sync_failed: false,
             #[cfg(any(test, feature = "host_test"))]
             commit_sync_count: 0,
             #[cfg(any(test, feature = "host_test"))]
@@ -5913,6 +5937,7 @@ impl FilesystemWalStore {
         transaction: WalCommittedTransaction,
         sync_now: bool,
     ) -> Result<(), WalStoreError> {
+        self.ensure_deferred_commit_sync_has_not_failed()?;
         transaction.validate()?;
         let admission_kernel_capability = transaction.admission_kernel_capability;
         let external_action_coordinator_capability =
@@ -6014,24 +6039,50 @@ impl FilesystemWalStore {
     ///
     /// Returns a store error if the segment cannot be synced. Nothing appended
     /// without a sync may be reported as durable after such an error.
+    ///
+    /// If the sync fails, the deferred records are never evidenced as synced
+    /// and the store refuses further writes until it is reopened.
     pub fn sync_deferred_commits(&mut self) -> Result<(), WalStoreError> {
+        self.ensure_deferred_commit_sync_has_not_failed()?;
         if self.deferred_commits.is_empty() {
             return Ok(());
         }
         #[cfg(any(test, feature = "host_test"))]
-        if self
+        let injected = self
             .fault_plan
-            .should_fail(FilesystemWalFaultTarget::DeferredCommitSync)
-        {
-            return Err(WalStoreError::Io(
+            .should_fail(FilesystemWalFaultTarget::DeferredCommitSync);
+        #[cfg(not(any(test, feature = "host_test")))]
+        let injected = false;
+        let synced = if injected {
+            Err(WalStoreError::Io(
                 "injected filesystem WAL deferred_commit_sync failure".to_owned(),
-            ));
+            ))
+        } else {
+            self.sync_segment()
+        };
+        if let Err(error) = synced {
+            self.deferred_commit_sync_failed = true;
+            self.deferred_commits.clear();
+            return Err(error);
         }
+        self.record_commit_records_synced();
+        Ok(())
+    }
+
+    fn sync_segment(&self) -> Result<(), WalStoreError> {
         File::options()
             .append(true)
             .open(self.segment_path())?
             .sync_all()?;
-        self.record_commit_records_synced();
+        Ok(())
+    }
+
+    fn ensure_deferred_commit_sync_has_not_failed(&self) -> Result<(), WalStoreError> {
+        if self.deferred_commit_sync_failed {
+            return Err(WalStoreError::Io(
+                "a deferred commit sync failed; reopen the WAL store".to_owned(),
+            ));
+        }
         Ok(())
     }
 

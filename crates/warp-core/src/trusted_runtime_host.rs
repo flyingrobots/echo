@@ -173,11 +173,12 @@ pub enum TrustedRuntimeWalError {
     /// An earlier append must be reconciled before another can reach storage.
     #[error("trusted runtime WAL writer prefix requires reconciliation")]
     UncertainWriterPrefix,
-    /// A storage sync failed. Records written before it are not known to be
-    /// durable, so this adapter refuses further work until the host reopens
-    /// the WAL and recovers from what storage actually holds.
-    #[error("trusted runtime WAL storage sync failed; reopen the WAL to recover")]
-    StorageSyncFailed,
+    /// Storage failed while commit syncs were deferred. Records written before
+    /// the failure are not known to be durable, so this adapter refuses
+    /// further work until the host reopens the WAL and recovers from what
+    /// storage actually holds.
+    #[error("trusted runtime WAL storage failed; reopen the WAL to recover")]
+    StorageFailed,
     /// WAL transaction construction failed before storage append.
     #[error("trusted runtime WAL transaction build error: {0}")]
     Build(#[from] WalBuildError),
@@ -2527,9 +2528,9 @@ pub struct TrustedRuntimeWal {
     /// stop a second append of the same submission and are never treated as
     /// durable.
     unsynced_submission_acceptances: BTreeMap<Hash, Hash>,
-    /// Set when a storage sync fails; see
-    /// [`TrustedRuntimeWalError::StorageSyncFailed`].
-    storage_sync_failed: bool,
+    /// Set when storage fails while commit syncs are deferred; see
+    /// [`TrustedRuntimeWalError::StorageFailed`].
+    storage_failed: bool,
 }
 
 /// Whether an appended commit record is synced before the append returns.
@@ -2609,7 +2610,7 @@ impl TrustedRuntimeWal {
             causal_anchor_claim_projection: recovered_cursor.causal_anchor_claim_projection,
             durable_submission_acceptances,
             unsynced_submission_acceptances: BTreeMap::new(),
-            storage_sync_failed: false,
+            storage_failed: false,
             evidence_catalog: Some(evidence_catalog),
             evidence_catalog_posture: EvidenceCatalogPosture::Fresh,
             #[cfg(any(test, feature = "host_test"))]
@@ -2626,6 +2627,9 @@ impl TrustedRuntimeWal {
     }
 
     /// Returns committed WAL markers recorded by the adapter.
+    ///
+    /// This is what the log holds, not what is durable: it includes a commit
+    /// record whose sync is still deferred or has failed.
     #[must_use]
     pub fn commits(&self) -> Vec<WalTransactionCommit> {
         self.store.read_commits()
@@ -2677,7 +2681,7 @@ impl TrustedRuntimeWal {
             causal_anchor_claim_projection: self.causal_anchor_claim_projection.clone(),
             durable_submission_acceptances: self.durable_submission_acceptances.clone(),
             unsynced_submission_acceptances: self.unsynced_submission_acceptances.clone(),
-            storage_sync_failed: self.storage_sync_failed,
+            storage_failed: self.storage_failed,
         })
     }
 
@@ -2894,12 +2898,12 @@ impl TrustedRuntimeWal {
     /// Makes every transaction appended with [`CommitSync::Deferred`] durable
     /// with one storage sync, and only then counts its acceptances as durable.
     fn sync_deferred_commits(&mut self) -> Result<(), TrustedRuntimeWalError> {
-        if self.storage_sync_failed {
-            return Err(TrustedRuntimeWalError::StorageSyncFailed);
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
         }
         if let TrustedRuntimeWalStore::Filesystem(store) = &mut self.store {
             if let Err(error) = store.sync_deferred_commits() {
-                self.storage_sync_failed = true;
+                self.fail_storage();
                 return Err(error.into());
             }
         }
@@ -2907,14 +2911,23 @@ impl TrustedRuntimeWal {
         Ok(())
     }
 
+    /// Records that storage failed while commit syncs were deferred.
+    ///
+    /// No unsynced acceptance can become durable after this, and the adapter
+    /// does not reconcile itself from the log: a record that is readable is
+    /// not thereby durable.
+    fn fail_storage(&mut self) {
+        self.storage_failed = true;
+        self.unsynced_submission_acceptances.clear();
+    }
+
+    fn storage_failed(&self) -> bool {
+        self.storage_failed
+    }
+
     fn promote_synced_submission_acceptances(&mut self) {
         let synced = std::mem::take(&mut self.unsynced_submission_acceptances);
         self.durable_submission_acceptances.extend(synced);
-    }
-
-    /// Forgets unsynced acceptances that the host is not going to acknowledge.
-    fn forget_unsynced_submission_acceptances(&mut self) {
-        self.unsynced_submission_acceptances.clear();
     }
 
     /// Returns how many storage syncs have made commit records durable, when
@@ -2942,8 +2955,8 @@ impl TrustedRuntimeWal {
         // After a failed storage sync a readable record is not a durable one,
         // so the live adapter must not reconcile itself from the log. Only
         // reopening the WAL recovers.
-        if self.storage_sync_failed {
-            return Err(TrustedRuntimeWalError::StorageSyncFailed);
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
         }
         self.operation_context_index = None;
         let report = self.store.recover_for_writer()?;
@@ -3424,8 +3437,8 @@ impl TrustedRuntimeWal {
         transaction: WalCommittedTransaction,
         sync: CommitSync,
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
-        if self.storage_sync_failed {
-            return Err(TrustedRuntimeWalError::StorageSyncFailed);
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
         }
         let next_causal_history_frontier = logical_causal_history_frontier_digest(
             self.causal_history_frontier_digest,
@@ -6318,15 +6331,15 @@ impl TrustedRuntimeApp<'_> {
     /// No handle is returned on error, so no submission of the batch is
     /// acknowledged.
     ///
-    /// - If an envelope is refused, or its append fails, the envelopes before
-    ///   it are still synced. They stay accepted and durable, as they would
-    ///   after a process loss between commit and acknowledgement; submitting
-    ///   the same envelope again returns its existing submission. The error of
-    ///   the refused envelope is returned.
-    /// - If the storage sync fails, the in-memory intake of every submission
-    ///   this call accepted is rolled back, the sync error is returned, and
-    ///   the WAL refuses further work with
-    ///   [`TrustedRuntimeWalError::StorageSyncFailed`] until the host reopens
+    /// - If the runtime refuses an envelope before anything is written for it,
+    ///   the envelopes before it are still synced. They stay accepted and
+    ///   durable, as they would after a process loss between commit and
+    ///   acknowledgement; submitting the same envelope again returns its
+    ///   existing submission. The error of the refused envelope is returned.
+    /// - If an append or the storage sync fails, the in-memory intake of every
+    ///   submission this call accepted is rolled back, the storage error is
+    ///   returned, and the WAL refuses further work with
+    ///   [`TrustedRuntimeWalError::StorageFailed`] until the host reopens
     ///   it. Storage may still hold some of the records; reopening recovers
     ///   whatever it holds.
     pub fn submit_intents_with_runtime_wal_ack(
@@ -6358,14 +6371,18 @@ impl TrustedRuntimeApp<'_> {
                 }
             }
         }
-        // Sync whatever was appended: those records are in the log whether or
-        // not the batch is acknowledged.
-        let synced = self
-            .host
-            .runtime_wal
-            .as_mut()
-            .map_or(Ok(()), TrustedRuntimeWal::sync_deferred_commits);
-        if let Err(error) = synced {
+        let Some(runtime_wal) = self.host.runtime_wal.as_mut() else {
+            return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
+        };
+        let storage_error = if runtime_wal.storage_failed() {
+            // An append failed. Its error is the one to report.
+            failure.take()
+        } else {
+            // Sync whatever was appended: those records are in the log
+            // whether or not the batch is acknowledged.
+            runtime_wal.sync_deferred_commits().err().map(Into::into)
+        };
+        if let Some(error) = storage_error {
             // Nothing this call appended is known to be durable. Do not leave
             // it visible as accepted intake.
             for (marker, handle) in accepted.into_iter().rev() {
@@ -6376,10 +6393,7 @@ impl TrustedRuntimeApp<'_> {
                     .runtime
                     .rollback_intent_submission(marker, &handle);
             }
-            if let Some(runtime_wal) = self.host.runtime_wal.as_mut() {
-                runtime_wal.forget_unsynced_submission_acceptances();
-            }
-            return Err(error.into());
+            return Err(error);
         }
         if let Some(error) = failure {
             return Err(error);
@@ -6426,6 +6440,16 @@ impl TrustedRuntimeApp<'_> {
             return Ok(handle);
         }
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle, sync) {
+            if matches!(sync, CommitSync::Deferred) {
+                // Earlier records of this batch are appended and not synced.
+                // Reconciling from the log here would count them, and this
+                // one, as durable because they are readable. Fail closed.
+                runtime_wal.fail_storage();
+                self.host
+                    .runtime
+                    .rollback_intent_submission(submission_rollback, &handle);
+                return Err(error.into());
+            }
             if runtime_wal.recover_filesystem_submission_acceptance_after_error(
                 handle.submission_id,
                 envelope.ingress_id(),

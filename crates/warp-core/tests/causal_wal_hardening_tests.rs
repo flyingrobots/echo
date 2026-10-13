@@ -1115,6 +1115,36 @@ fn filesystem_deferred_commits_are_not_evidenced_as_synced_until_one_sync() {
     must_ok(fs::remove_dir_all(root));
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn filesystem_failed_deferred_sync_is_never_evidenced_and_closes_the_store() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+
+    let root = temp_wal_root("deferred-commit-sync-failed");
+    let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(
+        store.append_transaction_deferring_commit_sync(submission_transaction(
+            "failed-first",
+            Lsn::from_raw(0),
+        )),
+    );
+    store.replace_fault_plan_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::DeferredCommitSync,
+    ));
+
+    assert!(store.sync_deferred_commits().is_err());
+    // A later sync cannot vouch for what an earlier sync failed to write.
+    assert!(store.sync_deferred_commits().is_err());
+    assert!(store
+        .append_transaction(submission_transaction("failed-second", Lsn::from_raw(2)))
+        .is_err());
+    assert!(store.close_epoch(epoch_id()).is_err());
+    assert_eq!(commit_sync_evidence_count(&store), 0);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
 #[test]
 fn filesystem_synced_commit_and_epoch_close_cover_deferred_commits() {
     let root = temp_wal_root("deferred-commit-covered");

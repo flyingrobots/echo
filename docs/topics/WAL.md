@@ -33,12 +33,14 @@ succeeds, no acceptance of the batch counts as durable and none can be
 scheduled. A batch is not atomic across a crash: a prefix can survive, none of
 it acknowledged, and each survivor recovers as `AcceptedPending`.
 
-If an intent of a batch is refused, the intents before it are still synced and
-stay accepted; the call returns the refusal and no handles. If the shared sync
-fails, Echo rolls back the in-memory intake of every submission that call
-accepted, returns the sync error, and refuses further WAL work with
-`StorageSyncFailed` until the host reopens the WAL. A record that is readable
-after a failed sync is not treated as durable.
+If the runtime refuses an intent of a batch before anything is written for
+it, the intents before it are still synced and stay accepted; the call returns
+the refusal and no handles. If an append or the shared sync fails, Echo rolls
+back the in-memory intake of every submission that call accepted, returns the
+storage error, and refuses further WAL work with `StorageFailed` until the
+host reopens the WAL. A record that is readable after a storage failure is not
+treated as durable by the running host; reopening recovers what storage
+holds.
 
 Second, failed WAL acceptance is not allowed to leave half-visible runtime
 state. If no runtime WAL is configured, the ACK path returns an explicit

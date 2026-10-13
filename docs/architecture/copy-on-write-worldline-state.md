@@ -16,6 +16,15 @@
 
 ## Decision
 
+Echo materializes slices, not graphs. This is the primary rule of this design.
+The other rules say how materialized parts are named, shared and retained.
+
+The value of a slot at a basis is the value that its latest producing tick at
+or before that basis wrote. If no tick produced it, the value is the one in the
+worldline's initial state. Echo resolves a slot from an index of its producers.
+It does not replay ticks that the slot does not depend on, and it does not
+build entities that nothing demanded.
+
 Materialized worldline state is a persistent structure. Two versions of a
 state share every part that did not change between them.
 
@@ -82,24 +91,26 @@ fact about how readings are represented.
 
 ## Design decomposition
 
-The design has four separable parts. Each can land without the next.
+The design has four parts. Sliced materialization is the foundation. The
+others build on it.
 
-1. **Structural sharing in memory.** The graph store keeps its present
-   interface and stores its maps as shared trees. Copying a state becomes
-   copying a root.
-2. **Content identity.** Each tree part carries the hash of its content. A
-   state root can then be updated along the changed path only, and a part has
-   an identity that the physical content port can hold.
-3. **Emitted deltas.** A tick records the changes it makes as it makes them.
-   No step compares one whole state with another.
-4. **Sliced materialization.** A demanded entity is resolved from the parts
-   under the current root, then from content storage, then by replaying its
-   slice from the nearest retained root. Parts that nothing demands are never
-   built. A reference to a part is its content identity, so a part may be
-   absent from memory while the state that refers to it stays valid.
+1. **Sliced materialization.** Each worldline keeps an index from a slot to the
+   ticks that produced it. A demanded slot is resolved through that index to
+   the value its latest producer wrote. A tick is prepared from the slots in
+   its footprint. Parts that nothing demands are never built.
+2. **Emitted deltas.** A tick records the changes it makes as it makes them.
+   Committing a tick appends its patch and updates the index for the slots it
+   wrote. No step compares one whole state with another.
+3. **Copy-on-write strands.** A strand resolves a slot from its own producers
+   first, and otherwise from its source lane at the fork basis. Forking records
+   the basis and copies nothing.
+4. **Content identity.** Each retained part carries the hash of its content. A
+   reference to a part is its content identity, so a part may be absent from
+   memory while the state that refers to it stays valid, and the physical
+   content port can hold it.
 
 Whether the existing canonical state-root definition changes is a separate
-decision. Parts 1, 3 and 4 do not change any committed hash.
+decision. Parts 1, 2 and 3 do not change any committed hash.
 
 ## Current implementation
 

@@ -1247,6 +1247,12 @@ fn validate_configuration<'a>(
             ))
         }
     };
+    // The v2 selector derives a key bound for the create operation only.
+    if bounded_keys && !matches!(program, OperationProgram::Create) {
+        return Err(super::unsupported_semantics(
+            "target-configuration.echo-operation",
+        ));
+    }
     let invocation = required_map(
         value,
         "invocationBinding",

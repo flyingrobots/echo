@@ -29,6 +29,8 @@
 
 ### Fixed
 
+- A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
+
 - Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.
 
 - A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.

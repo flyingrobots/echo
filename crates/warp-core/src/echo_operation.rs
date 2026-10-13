@@ -6109,11 +6109,16 @@ struct EchoOperationTerminalMaterialV1 {
 /// The patch is written to `state` in place. `journal` receives what is needed
 /// to take it back, so a caller that abandons the commit later can restore the
 /// state without having copied it. On error `state` is unchanged.
+///
+/// `state_root_before` is the state root of `state` on entry. A caller that
+/// has already hashed this unchanged state passes that root, so the commit
+/// hashes the state once, after applying the patch.
 pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     mut candidates: Vec<SchedulerEchoOperationCandidateV1>,
     writer_head: WriterHeadKey,
     state: &mut WorldlineState,
     journal: &mut crate::tick_patch::StateJournal,
+    state_root_before: Hash,
     commit_global_tick: GlobalTick,
     policy_id: u32,
 ) -> Result<EchoOperationActionBatchCommitMaterialV1, EchoOperationCommitErrorV1> {
@@ -6130,7 +6135,11 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     {
         return Err(EchoOperationCommitErrorV1::DuplicateCandidateIngress);
     }
-    let state_root_before = state.state_root();
+    debug_assert_eq!(
+        state_root_before,
+        crate::snapshot::compute_state_root_for_warp_state(state.warp_state(), state.root()),
+        "the caller's state root must be the root of the state being committed"
+    );
     let tx_raw = state
         .current_tick()
         .as_u64()
@@ -6291,8 +6300,7 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)?;
     patch.apply_journaled(&mut state.warp_state, journal)?;
-    let state_root_after =
-        crate::snapshot::compute_state_root_for_warp_state(&state.warp_state, state.root());
+    let state_root_after = state.state_root();
     let parents = state
         .last_snapshot
         .as_ref()

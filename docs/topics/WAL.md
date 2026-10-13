@@ -16,8 +16,9 @@ Echo may only claim what its WAL can recover.
 ```
 
 [Batched strict submission](../architecture/batched-strict-submission.md)
-states how a host submits several intents behind one storage sync, and what
-an acknowledgement means for each store.
+states how a host submits several intents behind one commit step, and what
+an acknowledgement means for each store. Only the filesystem store syncs
+storage in that step; the in-memory store has no storage to sync.
 
 ## What We Found
 

@@ -37,8 +37,10 @@ An envelope that repeats a submission Echo already holds is a duplicate. It
 appends nothing and its handle names the existing submission. An empty batch,
 and a batch of duplicates only, therefore writes nothing and forces no sync.
 
-`submit_intent_with_runtime_wal_ack` still submits one envelope with one
-transaction and one sync.
+`submit_intent_with_runtime_wal_ack` still submits one envelope. A newly
+accepted envelope writes one transaction and, on the filesystem store, waits
+for one sync. A duplicate returns the existing handle, writes nothing and
+syncs nothing.
 
 The bytes in the log are the same transactions that single submission writes.
 Recovery reads a batch exactly as it reads single submissions.
@@ -82,9 +84,11 @@ log. This page does not restate it. In short:
 
 - **A batch has no size limit.** Nothing checks envelope count or encoded
   bytes before the first append.
-- **Single submission is weaker after a failure.** After a failed append or
-  sync of a single submission, the host still re-reads the log and treats a
-  readable acceptance record as accepted. The batch path does not.
+- **Single submission on the filesystem store is weaker after a failure.**
+  After a failed append or sync of a single submission, a host on the
+  filesystem store re-reads the log and treats a readable acceptance record
+  as accepted. The batch path does not. A host on the in-memory store has no
+  log to re-read: it takes the submission back.
 - **A tick is a separate sync.** A scheduler pass that produces receipt
   correlations writes one tick transaction and syncs it before outcomes
   become visible. A pass that produces none writes nothing. A strict frame

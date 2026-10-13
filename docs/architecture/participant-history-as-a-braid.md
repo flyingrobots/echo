@@ -62,7 +62,9 @@ them together. Their meanings stay distinct.
 1. **Hold.** The receiving authority weaves the incoming history into a braid
    as a member strand. Braid membership changes. No reading of application
    state changes, and nothing becomes inadmissible. History that is held and
-   not yet judged is Staged.
+   not yet judged is Staged. Held history and its evidence are retained for
+   as long as a claim or a conflict depends on them. They do not end with the
+   session that received them.
 2. **Judge.** The receiving authority carries each incoming tick across its
    own history and records an outcome. Judging changes no reading of
    application state. It can raise a barrier.
@@ -81,13 +83,14 @@ them together. Their meanings stay distinct.
    Obstruction.
 3. It carries each incoming tick across its own history after that frontier,
    in its own deterministic order.
-4. If the incoming tick and a local tick do not interfere, the incoming tick
-   may move across. Independent footprints make that possible; they do not
+4. If the incoming tick interferes with no local tick it is carried across,
+   it may move across. Independent footprints make that possible; they do not
    prove it. The governing law and the evidence must also show that the tick
    still means what its author meant on the new basis. Only then is the
    outcome Derived.
-5. If they interfere, the outcome at that site is Conflict, or Plural when the
-   law lets both claims stand.
+5. If it interferes with any of them, the outcome at that site is Conflict, or
+   Plural when the law lets both claims stand. A tick is never both Derived
+   and in conflict.
 6. If the evidence or the authority needed to judge is missing, the outcome is
    Obstruction. It names what was missing.
 
@@ -246,9 +249,17 @@ These must be settled before the design can be implemented.
   keep separate identities, and whether one can be settled without the other.
 - **Partial settlement.** Whether part of a site can be settled when the law
   proves that part independent.
-- **Retries.** How a repeated delivery is recognized so that it creates no
-  second claim, and how newly supplied evidence is linked to the obstruction
-  it answers.
+- **A durable carrier for held history.** A strand is scoped to a session
+  today. Held history needs a retained carrier that outlives the session, or
+  the strand lifecycle must be refined.
+- **Outcomes for part of a bundle.** One bundle can hold ticks that end
+  Derived, in Conflict and Staged. The boundary needs an artifact that
+  reports an outcome for each.
+- **Retries with new evidence.** An exact repeat of a bundle is the same
+  question again: it is recognized by the bundle's identity, it weaves no
+  second member, and it returns the retained outcome.
+  [Continuum Transport](continuum-transport.md) already requires that. Open
+  is how newly supplied evidence is linked to the obstruction it answers.
 - **Accepting plurality.** How a tick's law states that it accepts a plural
   site, and how its effects are shown safe under each claim. An effect that
   leaves Echo is not made safe by plurality alone.
@@ -302,6 +313,11 @@ The runtime does not implement this design. It implements the local half.
 - A `CausalSuffixBundle` names its base frontier and its target frontier as
   one provenance coordinate each. It cannot carry a common frontier of
   several unordered events.
+- An admission response carries one outcome for the whole bundle. It cannot
+  report different outcomes for different ticks.
+- A strand is scoped to its session (INV-S3), and dropping it removes its
+  worldline and provenance (INV-S11). Nothing retains a received strand
+  beyond the session.
 - Braid events record creation, member weaving, settlement and collapse. No
   code weaves a strand that came from another participant.
 - Within one tick, an executable-operation Action whose footprint conflicts

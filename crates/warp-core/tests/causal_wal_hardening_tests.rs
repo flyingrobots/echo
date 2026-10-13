@@ -1198,6 +1198,46 @@ fn filesystem_writer_syncs_an_existing_log_before_trusting_it() {
 }
 
 #[test]
+fn filesystem_manifest_publication_syncs_deferred_commits_first() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-manifest");
+    let transaction = submission_transaction("before-manifest", Lsn::from_raw(0));
+    let commit = transaction.commit.clone();
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(transaction),
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(fixture.store.publish_manifest(
+        epoch_id(),
+        WalManifest {
+            manifest_digest: digest("hardening:manifest:deferred"),
+            last_committed_lsn: Some(commit.last_lsn),
+            last_commit_digest: Some(commit.commit_digest),
+            sealed_segment_count: 0,
+        },
+    ));
+
+    let boundaries = fixture
+        .store
+        .sync_evidence()
+        .iter()
+        .map(|entry| entry.boundary)
+        .collect::<Vec<_>>();
+    let commit_synced = boundaries
+        .iter()
+        .position(|boundary| *boundary == FilesystemSyncBoundary::CommitFileSynced);
+    let manifest_synced = boundaries
+        .iter()
+        .position(|boundary| *boundary == FilesystemSyncBoundary::ManifestTempFileSynced);
+    assert!(
+        matches!((commit_synced, manifest_synced), (Some(commit), Some(manifest)) if commit < manifest),
+        "a manifest must not become durable before the commit it names: {boundaries:?}"
+    );
+}
+
+#[test]
 fn filesystem_synced_commit_and_epoch_close_cover_deferred_commits() {
     let root = temp_wal_root("deferred-commit-covered");
     let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));

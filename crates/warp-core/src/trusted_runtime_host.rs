@@ -2737,6 +2737,11 @@ impl TrustedRuntimeWal {
     /// Recovers submission and receipt indexes from committed WAL transactions
     /// without scheduler callbacks.
     pub fn recover_read_only(&self) -> Result<TrustedRuntimeWalRecovery, TrustedRuntimeWalError> {
+        // After a storage failure the log may hold records that are readable
+        // and not durable. This adapter does not report them as recovered.
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
         #[cfg(any(test, feature = "host_test"))]
         self.recover_read_only_call_count
             .set(self.recover_read_only_call_count.get() + 1);
@@ -2821,6 +2826,9 @@ impl TrustedRuntimeWal {
     pub fn recover_evidence_catalog_read_only(
         &self,
     ) -> Result<crate::evidence::CausalSegmentCatalog, TrustedRuntimeWalError> {
+        if self.storage_failed {
+            return Err(TrustedRuntimeWalError::StorageFailed);
+        }
         let report = self.store.recover_read_only()?;
         crate::evidence::CausalSegmentCatalog::from_recovery_scan(&report)
             .map_err(TrustedRuntimeWalError::EvidenceCatalog)

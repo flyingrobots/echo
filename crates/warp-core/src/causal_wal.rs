@@ -6361,6 +6361,9 @@ impl WalStorePort for FilesystemWalStore {
         if active_epoch.epoch_id != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        // A manifest names committed records. It must not become durable
+        // before they are.
+        self.sync_deferred_commits()?;
         #[cfg(any(test, feature = "host_test"))]
         if self
             .fault_plan

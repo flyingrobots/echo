@@ -2163,6 +2163,20 @@ fn batched_submission_sync_failure_rolls_back_intake_and_fails_closed() {
         matches!(host.tick_once(), Ok(steps) if steps.is_empty()),
         "nothing from the failed batch may be scheduled"
     );
+    let failed_wal = host
+        .runtime_wal()
+        .expect("runtime WAL should stay configured");
+    assert!(
+        matches!(
+            failed_wal.recover_read_only(),
+            Err(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "the running host must not report readable records as recovered"
+    );
+    assert!(matches!(
+        failed_wal.recover_evidence_catalog_read_only(),
+        Err(TrustedRuntimeWalError::StorageFailed)
+    ));
 
     // The records were written; only their sync failed. Reopening recovers
     // what storage holds, as it would after a process loss.

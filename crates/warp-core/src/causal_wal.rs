@@ -6357,6 +6357,9 @@ impl WalStorePort for FilesystemWalStore {
         if active_epoch.epoch_id != epoch_id {
             return Err(WalStoreError::WriterEpochMismatch);
         }
+        // A seal names committed transactions. It must not exist before
+        // their commit records are durable.
+        self.sync_deferred_commits()?;
         let (frames, _, _) = read_segment_file(&segment_path(&self.root, segment_id))?;
         let frame_refs = frames.iter().collect::<Vec<_>>();
         let seal = WalSegmentSeal {

@@ -1260,6 +1260,32 @@ fn filesystem_truncation_is_refused_while_a_commit_sync_is_owed() {
 }
 
 #[test]
+fn filesystem_segment_seal_syncs_deferred_commits_first() {
+    let mut fixture = WalHardeningFixture::new("deferred-commit-seal");
+    must_ok(
+        fixture
+            .store
+            .append_transaction_deferring_commit_sync(submission_transaction(
+                "before-seal",
+                Lsn::from_raw(0),
+            )),
+    );
+    assert_eq!(commit_sync_evidence_count(&fixture.store), 0);
+
+    must_ok(
+        fixture
+            .store
+            .seal_segment(epoch_id(), WalSegmentId::from_raw(1)),
+    );
+
+    assert_eq!(
+        commit_sync_evidence_count(&fixture.store),
+        1,
+        "a seal must not exist before the commits it covers are durable"
+    );
+}
+
+#[test]
 fn filesystem_manifest_publication_syncs_deferred_commits_first() {
     let mut fixture = WalHardeningFixture::new("deferred-commit-manifest");
     let transaction = submission_transaction("before-manifest", Lsn::from_raw(0));

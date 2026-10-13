@@ -20,6 +20,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -58,7 +60,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -86,7 +88,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -112,7 +114,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -134,7 +136,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -170,7 +172,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -188,6 +190,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -214,6 +218,8 @@ jobs:
             # Outer xtask uses Bunny through warp-core; the inner producer
             # still authenticates the exact Rust/Cargo 1.90 identities.
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: dtolnay/rust-toolchain@1.90.0
               with:
                   components: clippy
@@ -244,6 +250,8 @@ jobs:
             # Outer xtask uses Bunny through warp-core; the inner producer
             # still authenticates the exact Rust/Cargo 1.90 identities.
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: dtolnay/rust-toolchain@1.90.0
               with:
                   components: clippy
@@ -272,7 +280,7 @@ jobs:
                   targets: wasm32-unknown-unknown
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
-                  components: clippy
+                  components: clippy, rustfmt
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -290,6 +298,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
+                  components: rustfmt, clippy
                   targets: wasm32-unknown-unknown
             - uses: Swatinem/rust-cache@v2
               with:
@@ -306,6 +315,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -378,6 +389,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
+                  components: rustfmt, clippy
                   targets: x86_64-unknown-linux-musl
             - name: Install musl tools
               run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -398,6 +410,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -416,6 +430,7 @@ jobs:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
               with:
+                  components: rustfmt, clippy
                   targets: x86_64-unknown-linux-musl
             - name: Install musl tools
               run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -434,6 +449,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - name: Check workspace rust-version declarations
               shell: bash
               run: |
@@ -459,6 +476,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -484,6 +503,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -553,6 +574,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: actions/setup-node@v4
               with:
                   node-version: "20"
@@ -567,6 +590,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
               with:
                   workspaces: |
@@ -584,6 +609,8 @@ jobs:
               with:
                   submodules: false
             - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
             - name: rustdoc warnings gate (warp-core)
               run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps

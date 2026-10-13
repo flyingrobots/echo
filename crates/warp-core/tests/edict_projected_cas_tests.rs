@@ -283,6 +283,86 @@ fn compiler_cas_report_accepts_exactly_the_retained_package() {
     );
 }
 
+/// Exercises the Action staging journal and the scheduler undo handle: a WAL
+/// refusal after an executable-operation Action committed in memory must leave
+/// no trace of that tick.
+#[cfg(feature = "host_test")]
+#[test]
+fn compiler_cas_tick_wal_failure_restores_exact_runtime_and_provenance() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+
+    for target in [
+        FilesystemWalFaultTarget::AppendFrame,
+        FilesystemWalFaultTarget::FlushCommit,
+    ] {
+        let dir = WalDir::new();
+        let mut fixture = Fixture::new(true);
+        fixture.enable_wal(&dir);
+        fixture.install();
+        fixture
+            .host
+            .install_echo_operation_action_admission_policy_v1(policy());
+        let submit = |fixture: &mut Fixture, current: &[u8], next: &str| {
+            let digest = echo_operation_atom_value_digest_v1(attachment_type(), current);
+            let envelope = echo_operation_action_envelope_v1(
+                IngressTarget::ExactHead { key: fixture.head },
+                fixture.invocation(current, digest, digest, next),
+            )
+            .expect("Action envelope");
+            fixture
+                .host
+                .app()
+                .submit_intent_with_runtime_wal_ack(envelope)
+                .expect("durable Action acknowledgement")
+                .submission_id
+        };
+        submit(&mut fixture, INITIAL, "first");
+        fixture.host.tick_once().expect("first Action commits");
+        assert_eq!(fixture.value(), b"first");
+
+        let submission = submit(&mut fixture, b"first", "second");
+        let runtime_before = format!("{:?}", fixture.host.runtime());
+        let provenance_before = format!("{:?}", fixture.host.provenance());
+        fixture
+            .host
+            .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(target))
+            .expect("inject a filesystem failure");
+
+        fixture
+            .host
+            .tick_once()
+            .expect_err("an undurable Action tick must not remain visible");
+
+        assert_eq!(
+            format!("{:?}", fixture.host.runtime()),
+            runtime_before,
+            "{target:?}: a failed Action tick must restore the exact pre-tick runtime"
+        );
+        assert_eq!(
+            format!("{:?}", fixture.host.provenance()),
+            provenance_before,
+            "{target:?}: a failed Action tick must restore the exact pre-tick provenance"
+        );
+        assert_eq!(fixture.value(), b"first");
+        assert!(fixture
+            .host
+            .echo_operation_action_outcome_v1(&submission)
+            .is_none());
+
+        let steps = fixture
+            .host
+            .tick_once()
+            .expect("the restored Action must commit once the WAL accepts it");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].admitted_count, 1);
+        assert_eq!(fixture.value(), b"second");
+        assert!(matches!(
+            fixture.host.echo_operation_action_outcome_v1(&submission),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ));
+    }
+}
+
 fn initial_digest() -> [u8; 32] {
     echo_operation_atom_value_digest_v1(attachment_type(), INITIAL)
 }

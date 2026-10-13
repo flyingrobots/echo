@@ -346,6 +346,22 @@ impl WorldlineState {
         }
     }
 
+    /// Clones every field except the append-only commit history and ingress
+    /// ledger, which a rollback marker restores from the live frontier.
+    fn clone_without_append_only_history(&self) -> Self {
+        Self {
+            warp_state: self.warp_state.clone(),
+            root: self.root,
+            initial_state: self.initial_state.clone(),
+            last_snapshot: self.last_snapshot.clone(),
+            tick_history: Vec::new(),
+            last_materialization: self.last_materialization.clone(),
+            last_materialization_errors: self.last_materialization_errors.clone(),
+            tx_counter: self.tx_counter,
+            committed_ingress: BTreeSet::new(),
+        }
+    }
+
     /// Clones the canonical `U0` replay base used for suffix replay.
     ///
     /// This preserves the deterministic initial boundary and root coordinate
@@ -419,7 +435,67 @@ pub struct WorldlineFrontier {
     pub(crate) frontier_tick: WorldlineTick,
 }
 
+/// Rollback marker for one worldline frontier.
+///
+/// A committing frontier only appends to `tick_history` and only inserts into
+/// `committed_ingress`. The marker therefore records the history length
+/// instead of copying either container, so its cost does not grow with the
+/// number of committed ticks. Restoring truncates the live history and removes
+/// the ingress ids that the failed attempt journaled.
+#[derive(Debug, Clone)]
+pub(crate) struct WorldlineFrontierRollback {
+    frontier: WorldlineFrontier,
+    tick_history_len: usize,
+}
+
+impl WorldlineFrontierRollback {
+    /// Counts append-only history elements copied into this marker.
+    #[cfg(test)]
+    pub(crate) fn retained_history_entries(&self) -> usize {
+        self.frontier.state.tick_history.len() + self.frontier.state.committed_ingress.len()
+    }
+}
+
 impl WorldlineFrontier {
+    /// Captures a rollback marker without copying append-only history.
+    pub(crate) fn rollback_marker(&self) -> WorldlineFrontierRollback {
+        WorldlineFrontierRollback {
+            frontier: Self {
+                worldline_id: self.worldline_id,
+                state: self.state.clone_without_append_only_history(),
+                frontier_tick: self.frontier_tick,
+            },
+            tick_history_len: self.state.tick_history.len(),
+        }
+    }
+
+    /// Restores this frontier to `marker`.
+    ///
+    /// `attempted_ingress` names every ingress id the abandoned attempt
+    /// inserted into this frontier's ledger. Each id must have been absent
+    /// when the marker was captured.
+    pub(crate) fn restore_rollback_marker<I>(
+        &mut self,
+        marker: WorldlineFrontierRollback,
+        attempted_ingress: I,
+    ) where
+        I: IntoIterator<Item = (WriterHeadKey, Hash)>,
+    {
+        let mut tick_history = std::mem::take(&mut self.state.tick_history);
+        debug_assert!(
+            tick_history.len() >= marker.tick_history_len,
+            "committed history must not shrink below its rollback marker"
+        );
+        tick_history.truncate(marker.tick_history_len);
+        let mut committed_ingress = std::mem::take(&mut self.state.committed_ingress);
+        for entry in attempted_ingress {
+            committed_ingress.remove(&entry);
+        }
+        *self = marker.frontier;
+        self.state.tick_history = tick_history;
+        self.state.committed_ingress = committed_ingress;
+    }
+
     /// Creates a new frontier for the given worldline.
     #[must_use]
     pub fn new(worldline_id: WorldlineId, state: WorldlineState) -> Self {

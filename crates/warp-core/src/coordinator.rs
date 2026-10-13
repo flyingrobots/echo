@@ -42,7 +42,7 @@ use crate::revelation::{
 use crate::strand::{ForkBasisRef, Strand, StrandError, StrandId, StrandRegistry, SupportPin};
 use crate::worldline::{ApplyError, WorldlineId};
 use crate::worldline_registry::WorldlineRegistry;
-use crate::worldline_state::{WorldlineFrontier, WorldlineState};
+use crate::worldline_state::{WorldlineFrontier, WorldlineFrontierRollback, WorldlineState};
 use crate::CausalTickReceiptRef;
 
 #[cfg(feature = "native_rule_bootstrap")]
@@ -1202,7 +1202,55 @@ pub struct WorldlineRuntime {
 struct RuntimeCheckpoint {
     global_tick: GlobalTick,
     heads: BTreeMap<WriterHeadKey, WriterHead>,
-    frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
+    frontiers: BTreeMap<WorldlineId, WorldlineFrontierRollback>,
+}
+
+/// Undo handle for one completed SuperTick.
+///
+/// A host that commits a tick before making it durable keeps this handle until
+/// durability is established. Applying it restores heads, frontiers,
+/// provenance, and receipt correlations to their pre-SuperTick state. It holds
+/// markers and journals, never a copy of committed history.
+#[derive(Debug)]
+#[cfg_attr(
+    not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
+    allow(dead_code)
+)]
+pub(crate) struct SuperTickUndo {
+    runtime_before: RuntimeCheckpoint,
+    provenance_before: ProvenanceCheckpoint,
+    receipt_correlations: ReceiptCorrelationRollback,
+    attempted_ingress: AttemptedIngress,
+}
+
+/// Ingress ids an attempt inserted into frontier ledgers, grouped by worldline
+/// so rollback visits each id once.
+type AttemptedIngress = BTreeMap<WorldlineId, Vec<(WriterHeadKey, Hash)>>;
+
+/// Journal of executable-Action staging performed before one scheduler pass.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Debug, Default)]
+pub(crate) struct TicketedIngressStagingRollback {
+    heads: BTreeMap<WriterHeadKey, WriterHead>,
+    staged: Vec<(Hash, Hash, (WriterHeadKey, Hash))>,
+}
+
+/// Rollback marker for one witnessed-submission attempt.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct IntentSubmissionRollback {
+    next_submission_generation: IngressSubmissionGeneration,
+}
+
+#[cfg(test)]
+impl RuntimeCheckpoint {
+    /// Counts append-only history elements held by this checkpoint.
+    fn retained_history_entries(&self) -> usize {
+        self.frontiers
+            .values()
+            .map(WorldlineFrontierRollback::retained_history_entries)
+            .sum()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1266,7 +1314,7 @@ impl WorldlineRuntime {
                     .worldlines
                     .get(&key.worldline_id)
                     .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-                slot.insert(frontier.clone());
+                slot.insert(frontier.rollback_marker());
             }
         }
 
@@ -1277,15 +1325,115 @@ impl WorldlineRuntime {
         })
     }
 
-    fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
+    /// Restores the heads and frontiers captured by `checkpoint`.
+    ///
+    /// `attempted_ingress` is the abandoned attempt's journal of ingress ids it
+    /// inserted into frontier ledgers after the checkpoint.
+    fn restore(&mut self, checkpoint: RuntimeCheckpoint, attempted_ingress: &AttemptedIngress) {
         self.global_tick = checkpoint.global_tick;
         for head in checkpoint.heads.into_values() {
             self.heads.insert(head);
         }
-        for frontier in checkpoint.frontiers.into_values() {
-            self.worldlines.replace_frontier(frontier);
+        for (worldline_id, marker) in checkpoint.frontiers {
+            // A SuperTick never unregisters a worldline, so the live frontier
+            // that still owns the append-only history is always present.
+            if let Some(frontier) = self.worldlines.frontier_mut(&worldline_id) {
+                frontier.restore_rollback_marker(
+                    marker,
+                    attempted_ingress
+                        .get(&worldline_id)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
+            }
         }
         self.refresh_runnable();
+    }
+
+    /// Stages one runtime-admitted executable-operation Action and journals
+    /// the staging so an abandoned scheduler pass can retract it exactly.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn ingest_echo_operation_action_with_rollback_v1(
+        &mut self,
+        authority: &TicketedRuntimeIngressAuthority,
+        submission_id: Hash,
+        admission_digest: Hash,
+        envelope: IngressEnvelope,
+        rollback: &mut TicketedIngressStagingRollback,
+    ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let head_key = self.resolve_target(envelope.target())?;
+        if let Some(head) = self.heads.get(&head_key) {
+            rollback
+                .heads
+                .entry(head_key)
+                .or_insert_with(|| head.clone());
+        }
+        let disposition = self.ingest_echo_operation_action_v1(
+            authority,
+            submission_id,
+            admission_digest,
+            envelope,
+        )?;
+        if let TicketedRuntimeIngressDisposition::Staged { record, .. } = &disposition {
+            rollback.staged.push((
+                record.ticketed_ingress_id,
+                record.submission_id,
+                (record.head_key, record.ingress_id),
+            ));
+        }
+        Ok(disposition)
+    }
+
+    /// Retracts every staging recorded in `rollback` and restores the inboxes
+    /// it touched.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn rollback_ticketed_ingress_staging(
+        &mut self,
+        rollback: TicketedIngressStagingRollback,
+    ) {
+        for (ticketed_ingress_id, submission_id, target) in rollback.staged.into_iter().rev() {
+            self.ticketed_runtime_ingress.remove(&ticketed_ingress_id);
+            self.ticketed_runtime_ingress_by_submission
+                .remove(&submission_id);
+            self.ticketed_runtime_ingress_by_target.remove(&target);
+        }
+        for head in rollback.heads.into_values() {
+            self.heads.insert(head);
+        }
+        self.refresh_runnable();
+    }
+
+    /// Captures the marker needed to retract one witnessed-submission attempt.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn intent_submission_rollback_marker(&self) -> IntentSubmissionRollback {
+        IntentSubmissionRollback {
+            next_submission_generation: self.next_submission_generation,
+        }
+    }
+
+    /// Retracts the submission `handle` witnessed after `marker` was captured.
+    ///
+    /// A duplicate handle names a submission witnessed before the marker, so
+    /// nothing is retracted for it.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn rollback_intent_submission(
+        &mut self,
+        marker: IntentSubmissionRollback,
+        handle: &IntentSubmissionHandle,
+    ) {
+        if handle.duplicate {
+            return;
+        }
+        if let Some(record) = self.witnessed_submissions.remove(&handle.submission_id) {
+            self.submission_by_target
+                .remove(&(record.head_key, record.ingress_id));
+        }
+        self.pending_witnessed_submission_ids
+            .remove(&handle.submission_id);
+        self.witnessed_submission_envelopes
+            .remove(&handle.submission_id);
+        self.next_submission_generation = marker.next_submission_generation;
     }
 
     fn rollback_receipt_correlations(&mut self, rollback: &mut ReceiptCorrelationRollback) {
@@ -4169,11 +4317,25 @@ impl SchedulerCoordinator {
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
         Self::super_tick_inner(runtime, provenance, engine, None)
-            .map(|(records, _operation_outcomes, _correlations)| records)
+            .map(|(records, _operation_outcomes, _correlations, _undo)| records)
+    }
+
+    /// Restores the runtime and provenance to their state before a completed
+    /// SuperTick.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn undo_super_tick(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        mut undo: SuperTickUndo,
+    ) {
+        runtime.rollback_receipt_correlations(&mut undo.receipt_correlations);
+        runtime.restore(undo.runtime_before, &undo.attempted_ingress);
+        provenance.restore(&undo.provenance_before);
     }
 
     /// Executes one scheduler pass with runtime-admitted executable-operation
-    /// Actions available to Tick construction.
+    /// Actions available to Tick construction. The returned undo handle
+    /// retracts the pass if the caller cannot make it durable.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn super_tick_with_echo_operation_actions_v1(
         runtime: &mut WorldlineRuntime,
@@ -4186,6 +4348,7 @@ impl SchedulerCoordinator {
             Vec<StepRecord>,
             SchedulerOperationOutcomesV1,
             Vec<ReceiptCorrelationRecord>,
+            SuperTickUndo,
         ),
         RuntimeError,
     > {
@@ -4213,6 +4376,7 @@ impl SchedulerCoordinator {
             Vec<StepRecord>,
             SchedulerOperationOutcomesV1,
             Vec<ReceiptCorrelationRecord>,
+            SuperTickUndo,
         ),
         RuntimeError,
     > {
@@ -4260,6 +4424,7 @@ impl SchedulerCoordinator {
         }
 
         let runtime_before = runtime.checkpoint_for(&keys)?;
+        let mut attempted_ingress = AttemptedIngress::new();
         let mut receipt_correlation_rollback = ReceiptCorrelationRollback::default();
         let provenance_before: ProvenanceCheckpoint =
             provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
@@ -4447,10 +4612,26 @@ impl SchedulerCoordinator {
                     )
                     .with_tick_receipt(receipt);
                     provenance.append_local_commit(entry)?;
-                    frontier.state_mut().record_committed_ingress(
-                        *key,
-                        admitted.iter().map(IngressEnvelope::ingress_id),
-                    );
+                    let newly_committed_ingress: Vec<Hash> = admitted
+                        .iter()
+                        .map(IngressEnvelope::ingress_id)
+                        .filter(|ingress_id| {
+                            !frontier.state().contains_committed_ingress(key, ingress_id)
+                        })
+                        .collect();
+                    // Journal before inserting: an unwind between the two steps
+                    // can then name only ids that were absent at the checkpoint.
+                    attempted_ingress
+                        .entry(key.worldline_id)
+                        .or_default()
+                        .extend(
+                            newly_committed_ingress
+                                .iter()
+                                .map(|ingress_id| (*key, *ingress_id)),
+                        );
+                    frontier
+                        .state_mut()
+                        .record_committed_ingress(*key, newly_committed_ingress);
                     let worldline_tick_after = frontier
                         .advance_tick()
                         .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
@@ -4484,7 +4665,7 @@ impl SchedulerCoordinator {
                     let scope = scheduler_fault_scope_for_error(*key, &err);
                     let cause_digest = scheduler_error_cause_digest(&err);
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
-                    runtime.restore(runtime_before);
+                    runtime.restore(runtime_before, &attempted_ingress);
                     provenance.restore(&provenance_before);
                     match scope {
                         SchedulerFaultScope::Head(head_key) => {
@@ -4499,7 +4680,7 @@ impl SchedulerCoordinator {
                 Err(payload) => {
                     let cause_digest = scheduler_panic_cause_digest(payload.as_ref());
                     runtime.rollback_receipt_correlations(&mut receipt_correlation_rollback);
-                    runtime.restore(runtime_before);
+                    runtime.restore(runtime_before, &attempted_ingress);
                     provenance.restore(&provenance_before);
                     let _ = runtime.record_scheduler_runtime_fault(run_id, cause_digest);
                     resume_unwind(payload);
@@ -4510,7 +4691,17 @@ impl SchedulerCoordinator {
         }
 
         runtime.global_tick = next_global_tick;
-        Ok((records, operation_outcomes, committed_correlations))
+        Ok((
+            records,
+            operation_outcomes,
+            committed_correlations,
+            SuperTickUndo {
+                runtime_before,
+                provenance_before,
+                receipt_correlations: receipt_correlation_rollback,
+                attempted_ingress,
+            },
+        ))
     }
 
     /// Returns the canonical ordering of runnable heads without mutating state.
@@ -7340,6 +7531,152 @@ mod tests {
             blocked,
             RuntimeError::SchedulerRuntimeFaultActive(id) if id == fault_id
         ));
+    }
+
+    #[test]
+    fn scheduler_rollback_checkpoint_does_not_copy_committed_history() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline = wl(1);
+        runtime
+            .register_worldline(worldline, WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            worldline,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        for index in 0_u8..4 {
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: worldline,
+                    },
+                    make_intent_kind("test"),
+                    vec![index],
+                ))
+                .unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        }
+        let state = runtime.worldlines.get(&worldline).unwrap().state();
+        assert_eq!(state.tick_history().len(), 4);
+        assert_eq!(state.committed_ingress.len(), 4);
+
+        let checkpoint = runtime.checkpoint_for(&[head]).unwrap();
+
+        assert_eq!(
+            checkpoint.retained_history_entries(),
+            0,
+            "a rollback checkpoint must mark append-only history, not copy it"
+        );
+    }
+
+    #[test]
+    fn super_tick_rollback_preserves_prior_history_and_ingress_dedupe() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let _head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let intent = |worldline_id, bytes: &[u8]| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                bytes.to_vec(),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        let mut prior_ingress = Vec::new();
+        for bytes in [b"prior-1".as_slice(), b"prior-2".as_slice()] {
+            let envelope = intent(worldline_a, bytes);
+            prior_ingress.push(envelope.ingress_id());
+            runtime.ingest(envelope).unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        }
+        let history_before: Vec<Hash> = runtime
+            .worldlines
+            .get(&worldline_a)
+            .unwrap()
+            .state()
+            .tick_history()
+            .iter()
+            .map(|(snapshot, _, _)| snapshot.hash)
+            .collect();
+        assert_eq!(history_before.len(), 2);
+        let global_tick_before = runtime.global_tick();
+
+        let rolled_back = intent(worldline_a, b"rolled-back");
+        let rolled_back_ingress = rolled_back.ingress_id();
+        runtime.ingest(rolled_back).unwrap();
+        runtime.ingest(intent(worldline_b, b"fails")).unwrap();
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap_err();
+
+        let state = runtime.worldlines.get(&worldline_a).unwrap().state();
+        let history_after: Vec<Hash> = state
+            .tick_history()
+            .iter()
+            .map(|(snapshot, _, _)| snapshot.hash)
+            .collect();
+        assert_eq!(
+            history_after, history_before,
+            "rollback must keep exactly the previously committed ticks"
+        );
+        assert_eq!(state.current_tick(), wt(2));
+        assert_eq!(
+            runtime
+                .worldlines
+                .get(&worldline_a)
+                .unwrap()
+                .frontier_tick(),
+            wt(2)
+        );
+        assert_eq!(runtime.global_tick(), global_tick_before);
+        for ingress_id in &prior_ingress {
+            assert!(
+                state.contains_committed_ingress(&head_a, ingress_id),
+                "rollback must keep earlier committed ingress deduplicated"
+            );
+        }
+        assert!(
+            !state.contains_committed_ingress(&head_a, &rolled_back_ingress),
+            "rollback must forget ingress committed only by the failed tick"
+        );
+        assert_eq!(state.committed_ingress.len(), 2);
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "the rolled-back intent must be pending again"
+        );
     }
 
     #[test]

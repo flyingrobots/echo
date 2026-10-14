@@ -551,8 +551,13 @@ This is a trusted, locally scripted host profile, not an authenticated agent
 service or the complete public optics boundary. It covers bounded atomic node
 and attachment readings in the caller's granted aperture, not model-internal
 influence, arbitrary subtree observations, or speculative strand settlement.
-The driver accepts at most 1,024 observations and 4,096 request bindings per WAL;
-each observation contains at most 16 nodes and 4,096 retained value bytes.
+The driver accepts at most 1,024 observations and 4,096 request bindings per WAL
+root over the root's whole lifetime. Contexts are never retired, because a
+retained observation must keep resolving for every later retry of a request
+bound to it. A root that reaches either limit refuses new contexts permanently,
+including after reopening; a host that needs more starts a new WAL root. A
+retirement rule is an open design question (#854). Each observation contains at
+most 16 nodes and 4,096 retained value bytes.
 Capture preflights each slot against the remaining aggregate canonical byte
 allowance before copying that slot’s Atom bytes.
 Execution checks the slot ceiling and charges its admitted read budget before

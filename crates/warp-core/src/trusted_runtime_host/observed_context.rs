@@ -25,6 +25,18 @@ fn error(value: impl std::fmt::Display) -> EchoOperationContextErrorV1 {
 type Result<T> = std::result::Result<T, EchoOperationContextErrorV1>;
 const SCHEMA: &str = "echo.operation-context/v1";
 
+/// Observations one WAL root retains over its whole lifetime.
+///
+/// Contexts are never retired: a retained observation must keep resolving for
+/// every later retry of a request bound to it, and no retirement rule exists
+/// yet (#854). Once a root holds this many, it refuses every new observation,
+/// including after reopening. A host that needs more starts a new WAL root.
+pub(super) const MAX_OBSERVATIONS_PER_WAL_ROOT: usize = 1024;
+
+/// Logical request bindings one WAL root retains over its whole lifetime,
+/// under the same rule as [`MAX_OBSERVATIONS_PER_WAL_ROOT`].
+pub(super) const MAX_REQUESTS_PER_WAL_ROOT: usize = 4096;
+
 fn field_text(value: &V) -> Result<&str> {
     if let V::Text(value) = value {
         Ok(value)
@@ -186,8 +198,11 @@ impl TrustedRuntimeHost {
         if contexts.observations.contains_key(attempt) {
             return Err(error("attempt observation is immutable"));
         }
-        if contexts.observations.len() >= 1024 {
-            return Err(error("context admission limit reached"));
+        if contexts.observations.len() >= MAX_OBSERVATIONS_PER_WAL_ROOT {
+            return Err(error(format!(
+                "context admission limit reached: this WAL root has retained \
+                 {MAX_OBSERVATIONS_PER_WAL_ROOT} observations, and contexts are never retired"
+            )));
         }
         let first = nodes
             .first()
@@ -341,8 +356,11 @@ impl TrustedRuntimeHost {
             }
             return Ok(original_bytes.clone());
         }
-        if contexts.requests.len() >= 4096 {
-            return Err(error("request admission limit reached"));
+        if contexts.requests.len() >= MAX_REQUESTS_PER_WAL_ROOT {
+            return Err(error(format!(
+                "request admission limit reached: this WAL root has retained \
+                 {MAX_REQUESTS_PER_WAL_ROOT} request bindings, and contexts are never retired"
+            )));
         }
         let bytes = invocation
             .with_observation(observation.clone())

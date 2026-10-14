@@ -1394,6 +1394,51 @@ fn observed_operation_contexts_recover_without_replacing_original_inputs() {
 }
 
 #[test]
+fn a_wal_root_refuses_observations_beyond_its_lifetime_limit_even_after_reopening() {
+    const LIMIT: usize = 1024;
+    let root = temp_runtime_wal_dir("context-lifetime-limit");
+    let reopen = || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+            .expect("WAL");
+        (host, head, node)
+    };
+    let (mut host, head, node) = reopen();
+    for i in 0..LIMIT {
+        host.retain_echo_operation_observation_v1(&format!("attempt-{i}"), head, &[node])
+            .expect("within the lifetime limit");
+    }
+    let refused = host
+        .retain_echo_operation_observation_v1("one-more", head, &[node])
+        .expect_err("the root has retained its lifetime limit");
+    assert!(refused.to_string().contains("never retired"), "{refused}");
+    drop(host);
+
+    let (mut reopened, head, node) = reopen();
+    assert!(
+        reopened
+            .retain_echo_operation_observation_v1("one-more", head, &[node])
+            .is_err(),
+        "reopening does not reset the lifetime limit"
+    );
+    assert!(
+        reopened.echo_operation_observation_v1("attempt-0").is_ok(),
+        "retained observations still resolve"
+    );
+}
+
+#[test]
 fn healthy_contexts_advance_without_reconstructing_the_wal() {
     let root = temp_runtime_wal_dir("context-steady-prefix");
     let (runtime, lane, _) = runtime_pair();

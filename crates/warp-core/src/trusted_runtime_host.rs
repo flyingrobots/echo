@@ -4962,12 +4962,27 @@ fn validate_recovered_echo_operation_parent_states(
                 detail: "Action outcome invocation cannot be inspected",
             }
         })?;
+        // An Action is checked at the parent of the Tick that decided it,
+        // which is later than its basis when dependency-scoped validity
+        // (#837) let it commit after its origin. Ordering by that parent
+        // keeps the replay cursor moving forward.
         let basis = invocation.evaluation_basis;
-        basis_obligations.push((
-            basis.writer_head().worldline_id,
-            basis.worldline_tick(),
-            BasisObligation::Action(index),
-        ));
+        let (worldline_id, worldline_tick) = correlations
+            .get(submission_id)
+            .and_then(|correlation| {
+                correlation
+                    .worldline_tick_after
+                    .as_u64()
+                    .checked_sub(1)
+                    .map(|tick| {
+                        (
+                            correlation.head_key.worldline_id,
+                            crate::WorldlineTick::from_raw(tick),
+                        )
+                    })
+            })
+            .unwrap_or_else(|| (basis.writer_head().worldline_id, basis.worldline_tick()));
+        basis_obligations.push((worldline_id, worldline_tick, BasisObligation::Action(index)));
         action_invocations.push((bytes, invocation));
     }
     // Sort verification references; retained WAL/decision order remains unchanged.
@@ -5052,15 +5067,61 @@ fn validate_recovered_echo_operation_parent_states(
                         detail: "Action basis names an unavailable recovery worldline",
                     },
                 )?;
-                let basis_state = recovered_worldline_state_at(
+                let tick_before = correlation
+                    .worldline_tick_after
+                    .as_u64()
+                    .checked_sub(1)
+                    .map(crate::WorldlineTick::from_raw)
+                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome has an impossible Tick coordinate",
+                    })?;
+                // Every Action of a Tick was evaluated against the deciding
+                // head's parent state, so its preparation is reconstructed
+                // there. The cursor only moves forward through that worldline.
+                let parent_worldline_id = correlation.head_key.worldline_id;
+                let parent_frontier = runtime.worldlines().get(&parent_worldline_id).ok_or(
+                    TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                        detail: "Action outcome names an unavailable recovery worldline",
+                    },
+                )?;
+                let parent_state = recovered_worldline_state_at(
                     &mut recovered_states,
                     recovered_provenance,
-                    basis_worldline_id,
-                    frontier.state(),
-                    basis.worldline_tick(),
-                    "Action basis state cannot be reconstructed",
+                    parent_worldline_id,
+                    parent_frontier.state(),
+                    tick_before,
+                    "Action parent state cannot be reconstructed",
                     &mut work,
                 )?;
+                // The origin basis is the parent unless the Action was
+                // decided after its origin, or on another worldline. Then
+                // the origin state is a transient replay, so that a stale
+                // basis never rewinds the cursor (#837).
+                let transient_basis_state;
+                let basis_state = if basis_worldline_id == parent_worldline_id
+                    && basis.worldline_tick() == tick_before
+                {
+                    parent_state
+                } else {
+                    let (state, applied) =
+                        crate::provenance_store::replay_worldline_state_at_with_work(
+                            recovered_provenance,
+                            basis_worldline_id,
+                            frontier.state(),
+                            basis.worldline_tick(),
+                        )
+                        .map_err(|_| {
+                            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                detail: "Action basis state cannot be reconstructed",
+                            }
+                        })?;
+                    work.replay_count += 1;
+                    work.replayed_patches += applied;
+                    transient_basis_state = state;
+                    #[cfg(any(test, feature = "host_test"))]
+                    work.note_states([parent_state, &transient_basis_state].into_iter());
+                    &transient_basis_state
+                };
                 if basis_state.state_root() != basis.state_root()
                     || !action_application_basis_matches_state_v1(
                         installed,
@@ -5074,14 +5135,6 @@ fn validate_recovered_echo_operation_parent_states(
                         detail: "Action basis disagrees with reconstructed causal state",
                     });
                 }
-                let tick_before = correlation
-                    .worldline_tick_after
-                    .as_u64()
-                    .checked_sub(1)
-                    .map(crate::WorldlineTick::from_raw)
-                    .ok_or(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                        detail: "Action outcome has an impossible Tick coordinate",
-                    })?;
                 let basis_is_current = basis.writer_head() == correlation.head_key
                     && basis.worldline_tick() == tick_before;
                 let basis_changed = matches!(
@@ -5089,7 +5142,19 @@ fn validate_recovered_echo_operation_parent_states(
                     EchoOperationActionOutcomeV1::Obstructed(obstruction)
                         if obstruction.kind() == crate::EchoOperationObstructionKindV1::BasisChanged
                 );
-                if basis_changed == basis_is_current {
+                // An Action decided after its origin tick commits only under
+                // dependency-scoped validity (#837). Recovery recomputes that
+                // rule at the reconstructed parent state; it does not trust
+                // the recorded outcome.
+                let scoped = !basis_is_current
+                    && crate::echo_operation::scoped_action_basis_holds_for_bytes_v1(
+                        installed,
+                        invocation_bytes,
+                        correlation.head_key,
+                        tick_before,
+                        parent_state,
+                    );
+                if basis_changed == (basis_is_current || scoped) {
                     return Err(TrustedRuntimeWalError::EchoOperationExecutionMismatch {
                         detail: "Action basis posture disagrees with the scheduler Tick parent",
                     });
@@ -5114,7 +5179,7 @@ fn validate_recovered_echo_operation_parent_states(
                             receipt.retained_invocation_admission_maximum_budget(),
                             receipt.retained_invocation_admission_policy_id(),
                             receipt.invocation_admission_id(),
-                            basis_state,
+                            parent_state,
                             policy_id,
                         )
                         .ok_or(
@@ -5152,7 +5217,7 @@ fn validate_recovered_echo_operation_parent_states(
                             conflict.invocation_admission_maximum_budget,
                             conflict.invocation_admission_policy_id,
                             conflict.invocation_admission_id,
-                            basis_state,
+                            parent_state,
                             policy_id,
                         )
                         .ok_or(
@@ -5208,7 +5273,7 @@ fn validate_recovered_echo_operation_parent_states(
                                 obstruction.invocation_admission_maximum_budget(),
                                 obstruction.invocation_admission_policy_id(),
                                 obstruction.invocation_admission_id(),
-                                basis_state,
+                                parent_state,
                                 policy_id,
                             )
                             .ok_or(

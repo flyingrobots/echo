@@ -3801,6 +3801,59 @@ fn current_application_basis(
     }
 }
 
+/// Whether an Action evaluated against an earlier basis may still commit on
+/// `current_head` at `current_tick` under dependency-scoped validity (#837).
+///
+/// The Action keeps its origin basis; nothing here re-stamps it. Scoped
+/// validity applies only where the evaluator establishes the Action's complete
+/// dependency set:
+///
+/// - the same writer head, and an origin tick strictly before `current_tick`;
+/// - a program whose reads are exactly its target node and alpha attachment,
+///   with the target in the worldline's root warp, so that no portal on a
+///   descent path is read;
+/// - the application basis recomputed from `state` equals the one the Action
+///   carries: the same value digest for compare-and-set, the same occupancy for
+///   create-if-absent. The comparison is by value.
+///
+/// Anything else keeps the whole-frontier rule, and the caller obstructs it
+/// with `BasisChanged`. `state` must be the state the Action commits onto.
+pub(crate) fn scoped_action_basis_holds_v1(
+    installed: &InstalledEchoOperationV1,
+    invocation: &EchoOperationInvocationV1,
+    current_head: WriterHeadKey,
+    current_tick: WorldlineTick,
+    state: &WorldlineState,
+) -> bool {
+    let origin = &invocation.evaluation_basis;
+    let supported = matches!(
+        installed.program,
+        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
+            | EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+    );
+    supported
+        && origin.writer_head == current_head
+        && origin.worldline_tick < current_tick
+        && invocation.node.warp_id == state.root().warp_id
+        && current_application_basis(installed, invocation, state)
+            .is_ok_and(|basis| basis == origin.application_basis)
+}
+
+/// [`scoped_action_basis_holds_v1`] for a recovered canonical invocation.
+pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    current_head: WriterHeadKey,
+    current_tick: WorldlineTick,
+    state: &WorldlineState,
+) -> bool {
+    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+        |invocation| {
+            scoped_action_basis_holds_v1(installed, &invocation, current_head, current_tick, state)
+        },
+    )
+}
+
 pub(crate) fn action_application_basis_matches_state_v1(
     installed: &InstalledEchoOperationV1,
     canonical_invocation_bytes: &[u8],
@@ -4902,7 +4955,15 @@ pub(crate) fn prepare_operation_v1(
     {
         return obstruction(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch);
     }
-    if admitted.invocation.evaluation_basis != current_basis {
+    if admitted.invocation.evaluation_basis != current_basis
+        && !scoped_action_basis_holds_v1(
+            installed,
+            &admitted.invocation,
+            current_basis.writer_head,
+            current_basis.worldline_tick,
+            state,
+        )
+    {
         return obstruction(EchoOperationObstructionKindV1::BasisChanged);
     }
 
@@ -5135,7 +5196,9 @@ pub(crate) fn prepare_operation_v1(
         installed.program_id,
         admitted.admission_id,
         admitted.invocation_id,
-        current_basis.identity(),
+        // The origin basis, as everywhere in the preparation (#837). The
+        // receipt binds the parent it committed onto separately.
+        admitted.invocation.evaluation_basis.identity(),
         declared_footprint_digest,
         actual_footprint_digest,
         consumed_budget,
@@ -5146,6 +5209,10 @@ pub(crate) fn prepare_operation_v1(
             .map(EchoOperationApplicationResultV1::identity),
     );
     let preparation_id = preparation_id(private_evaluation_id, patch.digest(), result_id);
+    // The Action keeps its origin basis, even when dependency-scoped validity
+    // (#837) lets it commit onto a later parent; it is never re-stamped. The
+    // receipt records that parent in its Tick fields.
+    let origin_basis = admitted.invocation.evaluation_basis;
     EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
         installed: installed.clone(),
         invocation: admitted.invocation,
@@ -5154,7 +5221,7 @@ pub(crate) fn prepare_operation_v1(
         invocation_admission_policy_id: admitted.admission_policy_id,
         invocation_admission_maximum_budget: admitted.admission_policy.maximum_delegated_budget,
         invocation_admission_id: admitted.admission_id,
-        evaluation_basis: current_basis,
+        evaluation_basis: origin_basis,
         declared_footprint,
         actual_footprint,
         declared_footprint_digest,
@@ -5889,12 +5956,6 @@ impl EchoOperationReceiptV1 {
         if retained_digest != expected_digest {
             return Err(invalid_structure("operation receipt digest mismatch"));
         }
-        let committed_worldline_tick_after = receipt
-            .evaluation_basis
-            .worldline_tick
-            .as_u64()
-            .checked_add(1)
-            .map(WorldlineTick::from_raw);
         let expected_composition_digest = singleton_composition_digest_from_parts(
             receipt.preparation_id,
             receipt.prepared_patch_digest,
@@ -5916,8 +5977,13 @@ impl EchoOperationReceiptV1 {
                         && !allow_composite_context)
                     || (receipt.committed_patch_digest == Some(receipt.prepared_patch_digest)
                         && receipt.composition_digest != Some(expected_composition_digest))
-                    || receipt.state_root_before != receipt.evaluation_basis.state_root
-                    || committed_worldline_tick_after != Some(receipt.worldline_tick_after) =>
+                    // The basis is the Tick parent, or an earlier origin
+                    // committed under dependency-scoped validity (#837),
+                    // which recovery recomputes; it is never later.
+                    || receipt.evaluation_basis.worldline_tick >= receipt.worldline_tick_after
+                    || (receipt.evaluation_basis.worldline_tick.as_u64().checked_add(1)
+                        == Some(receipt.worldline_tick_after.as_u64())
+                        && receipt.state_root_before != receipt.evaluation_basis.state_root) =>
             {
                 return Err(invalid_structure(
                     "committed receipt is missing commit or tick evidence",

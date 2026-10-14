@@ -270,15 +270,31 @@ pub struct Footprint {
     /// Boundary output ports touched (warp-scoped).
     pub b_out: PortSet,
     /// Coarse partition mask; used as an O(1) prefilter.
+    ///
+    /// Zero means "not populated" and never short-circuits
+    /// [`Footprint::independent`].
     pub factor_mask: u64,
 }
 
 impl Footprint {
     /// Add every resource claim from `other` to this footprint.
     ///
-    /// Set membership is unioned and the coarse factor mask is combined with
-    /// bitwise OR. This operation never removes or weakens an existing claim.
+    /// Set membership is unioned. The coarse factor mask is combined with
+    /// bitwise OR only when both sides populated it: a zero (unpopulated) mask
+    /// on a side that has claims makes the result zero, so the union never
+    /// looks populated while carrying claims the mask does not cover. A
+    /// footprint with no claims and a zero mask is neutral. This operation
+    /// never removes or weakens an existing claim.
     pub fn union_assign(&mut self, other: &Self) {
+        self.factor_mask = if self.has_no_claims() {
+            other.factor_mask
+        } else if other.has_no_claims() {
+            self.factor_mask
+        } else if self.factor_mask == 0 || other.factor_mask == 0 {
+            0
+        } else {
+            self.factor_mask | other.factor_mask
+        };
         self.n_read.0.extend(other.n_read.0.iter().copied());
         self.n_write.0.extend(other.n_write.0.iter().copied());
         self.e_read.0.extend(other.e_read.0.iter().copied());
@@ -287,7 +303,19 @@ impl Footprint {
         self.a_write.0.extend(other.a_write.0.iter().copied());
         self.b_in.0.extend(other.b_in.0.iter().copied());
         self.b_out.0.extend(other.b_out.0.iter().copied());
-        self.factor_mask |= other.factor_mask;
+    }
+
+    /// Whether this footprint claims no resource and carries no mask.
+    fn has_no_claims(&self) -> bool {
+        self.factor_mask == 0
+            && self.n_read.is_empty()
+            && self.n_write.is_empty()
+            && self.e_read.is_empty()
+            && self.e_write.is_empty()
+            && self.a_read.is_empty()
+            && self.a_write.is_empty()
+            && self.b_in.is_empty()
+            && self.b_out.is_empty()
     }
 
     /// Derives the admission-side bounded site for this footprint.
@@ -304,13 +332,20 @@ impl Footprint {
     ///
     /// Fast path checks the factor mask; then boundary ports; then edges and
     /// nodes. The check is symmetric but implemented with early exits.
-    /// Disjoint `factor_mask` values guarantee independence by construction
-    /// (the mask is a coarse superset of touched partitions).
+    /// Disjoint populated `factor_mask` values guarantee independence by
+    /// construction (the mask is a coarse superset of touched partitions).
+    ///
+    /// A zero `factor_mask` is the unpopulated placeholder. It carries no
+    /// partition evidence, so the fast path applies only when both masks are
+    /// non-zero; otherwise the full set checks decide.
     ///
     /// All comparisons are warp-scoped, so resources in different warps
     /// never conflict (even if they share the same local identifier).
     pub fn independent(&self, other: &Self) -> bool {
-        if (self.factor_mask & other.factor_mask) == 0 {
+        if self.factor_mask != 0
+            && other.factor_mask != 0
+            && (self.factor_mask & other.factor_mask) == 0
+        {
             return true;
         }
         if self.b_in.intersects(&other.b_in)
@@ -595,5 +630,72 @@ mod tests {
             !fp_a.independent(&fp_same_warp),
             "footprints writing same node in same warp should conflict"
         );
+    }
+
+    #[test]
+    fn unpopulated_factor_masks_do_not_short_circuit_independence() {
+        let warp = make_warp_id("warp-a");
+        let node_id = NodeId(blake3::hash(b"contended-node").into());
+
+        // `factor_mask: 0` is the placeholder for "mask not populated". It
+        // carries no partition evidence, so it must not grant independence.
+        let mut fp_a = Footprint::default();
+        fp_a.n_write.insert_with_warp(warp, node_id);
+        let mut fp_b = Footprint::default();
+        fp_b.n_write.insert_with_warp(warp, node_id);
+        assert_eq!(fp_a.factor_mask, 0);
+        assert_eq!(fp_b.factor_mask, 0);
+
+        assert!(
+            !fp_a.independent(&fp_b),
+            "two zero-mask footprints writing the same node must conflict"
+        );
+
+        // One populated mask is not evidence about the other footprint either.
+        let mut fp_masked = Footprint {
+            factor_mask: 0b0100,
+            ..Default::default()
+        };
+        fp_masked.n_write.insert_with_warp(warp, node_id);
+        assert!(
+            !fp_a.independent(&fp_masked),
+            "a zero mask against a populated mask must fall through to set checks"
+        );
+        assert!(
+            !fp_masked.independent(&fp_a),
+            "the check must stay symmetric"
+        );
+
+        // A union of a populated and an unpopulated footprint stays
+        // unpopulated, so it cannot claim independence on its mask alone.
+        let mut union = Footprint {
+            factor_mask: 0b0001,
+            ..Default::default()
+        };
+        union.union_assign(&fp_a);
+        assert_eq!(
+            union.factor_mask, 0,
+            "an unpopulated member makes the union unknown"
+        );
+        let disjoint_mask = Footprint {
+            factor_mask: 0b0100,
+            n_write: fp_a.n_write.clone(),
+            ..Default::default()
+        };
+        assert!(
+            !union.independent(&disjoint_mask),
+            "the zero-mask member's write must still conflict"
+        );
+        // An empty footprint is neutral in a union.
+        let mut accumulated = Footprint::default();
+        accumulated.union_assign(&fp_masked);
+        assert_eq!(accumulated.factor_mask, 0b0100);
+
+        // Zero masks with disjoint claims remain independent.
+        let mut fp_other = Footprint::default();
+        fp_other
+            .n_write
+            .insert_with_warp(warp, NodeId(blake3::hash(b"other-node").into()));
+        assert!(fp_a.independent(&fp_other));
     }
 }

@@ -42,7 +42,9 @@ mod action_scene;
 
 use std::time::{Duration, Instant};
 
-use action_scene::{log_parent, percentile_us, setting, setting_list, Durability, Scene};
+use action_scene::{
+    log_parent, percentile_us, reachability_label, setting, setting_list, Durability, Scene,
+};
 use warp_core::{EchoOperationActionOutcomeV1, EchoOperationObstructionKindV1};
 
 struct Row {
@@ -150,7 +152,10 @@ fn main() {
     let action_counts = setting_list("ECHO_BENCH_ACTIONS", &[64, 256]);
     let overlaps = setting_list("ECHO_BENCH_OVERLAP", &[0, 10, 25, 50, 90]);
 
-    println!("action_footprint_overlap: {cells} cells, {frames} frames per row, no log");
+    println!(
+        "action_footprint_overlap: {cells} cells ({}), {frames} frames per row, no log",
+        reachability_label()
+    );
     println!(
         "{:>8} {:>8} {:>10} {:>10} {:>7} {:>10} {:>9} {:>10} {:>14} {:>14}",
         "actions",

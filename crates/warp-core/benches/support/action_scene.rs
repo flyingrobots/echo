@@ -140,7 +140,7 @@ fn cell_node(cell: usize) -> NodeKey {
 impl Scene {
     /// Builds a scene. `log_parent` is used only for the filesystem log.
     pub fn new(cells: usize, durability: Durability, log_parent: &Path) -> Self {
-        let unlinked = std::env::var_os("ECHO_BENCH_UNLINKED").is_some();
+        let unlinked = cells_unlinked();
         let warp_id = make_warp_id("edict-cas-public-witness");
         let root = make_node_id("edict-cas-public-witness-root");
         let mut store = GraphStore::new(warp_id);
@@ -362,4 +362,20 @@ pub fn setting_list(name: &str, default: &[usize]) -> Vec<usize> {
 /// The directory benchmark logs are written under.
 pub fn log_parent() -> PathBuf {
     std::env::var_os("ECHO_BENCH_LOG_DIR").map_or_else(std::env::temp_dir, PathBuf::from)
+}
+
+/// Whether `ECHO_BENCH_UNLINKED` asks for cells outside the state root.
+pub fn cells_unlinked() -> bool {
+    std::env::var_os("ECHO_BENCH_UNLINKED").is_some()
+}
+
+/// How the scene's cells relate to the state root, for a results header.
+/// Linked and unlinked runs differ by orders of magnitude, so every table
+/// says which it is.
+pub fn reachability_label() -> &'static str {
+    if cells_unlinked() {
+        "cells UNLINKED: outside the state root, not a realistic scene"
+    } else {
+        "cells linked to the root"
+    }
 }

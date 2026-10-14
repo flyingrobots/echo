@@ -36,7 +36,9 @@ mod action_scene;
 
 use std::time::{Duration, Instant};
 
-use action_scene::{log_parent, percentile_us, setting, setting_list, Durability, Scene};
+use action_scene::{
+    log_parent, percentile_us, reachability_label, setting, setting_list, Durability, Scene,
+};
 
 fn durabilities() -> Vec<Durability> {
     let all = [
@@ -75,7 +77,8 @@ fn main() {
     );
 
     println!(
-        "wal_record_cost: {cells} cell(s), one Action and one tick per update, window {window}, log directory {}",
+        "wal_record_cost: {cells} cell(s) ({}), one Action and one tick per update, window {window}, log directory {}",
+        reachability_label(),
         log_parent().display()
     );
     println!(

@@ -1533,21 +1533,23 @@ mod tests {
         let child_head = register_head(&mut runtime, child_worldline, "child-head");
         let strand_id = make_strand_id("kernel-settlement-strand");
         runtime
-            .register_strand(Strand {
-                strand_id,
-                fork_basis_ref: ForkBasisRef {
-                    source_lane_id: base_worldline,
-                    fork_tick: wt(0),
-                    commit_hash: base_entry.expected.commit_hash,
-                    boundary_hash: base_entry.expected.state_root,
-                    provenance_ref: base_entry.as_ref(),
-                },
-                child_worldline_id: child_worldline,
-                writer_heads: vec![child_head],
-                support_pins: Vec::new(),
-                retention_posture: retention_posture.clone(),
-                _marker: std::marker::PhantomData,
-            })
+            .register_strand(
+                Strand::new(
+                    strand_id,
+                    ForkBasisRef {
+                        source_lane_id: base_worldline,
+                        fork_tick: wt(0),
+                        commit_hash: base_entry.expected.commit_hash,
+                        boundary_hash: base_entry.expected.state_root,
+                        provenance_ref: base_entry.as_ref(),
+                    },
+                    child_worldline,
+                    vec![child_head],
+                    Vec::new(),
+                    retention_posture.clone(),
+                )
+                .unwrap(),
+            )
             .unwrap();
 
         let parent_drift_patch = match parent_drift {
@@ -1596,21 +1598,23 @@ mod tests {
             .unwrap();
         register_head(&mut runtime, child_worldline, "child-head");
         runtime
-            .register_strand(Strand {
-                strand_id,
-                fork_basis_ref: ForkBasisRef {
-                    source_lane_id: base_worldline,
-                    fork_tick: wt(0),
-                    commit_hash: base_entry.expected.commit_hash,
-                    boundary_hash: base_entry.expected.state_root,
-                    provenance_ref: base_entry.as_ref(),
-                },
-                child_worldline_id: child_worldline,
-                writer_heads: vec![child_head],
-                support_pins: Vec::new(),
-                retention_posture,
-                _marker: std::marker::PhantomData,
-            })
+            .register_strand(
+                Strand::new(
+                    strand_id,
+                    ForkBasisRef {
+                        source_lane_id: base_worldline,
+                        fork_tick: wt(0),
+                        commit_hash: base_entry.expected.commit_hash,
+                        boundary_hash: base_entry.expected.state_root,
+                        provenance_ref: base_entry.as_ref(),
+                    },
+                    child_worldline,
+                    vec![child_head],
+                    Vec::new(),
+                    retention_posture,
+                )
+                .unwrap(),
+            )
             .unwrap();
         (
             runtime,
@@ -1907,7 +1911,13 @@ mod tests {
         let mut kernel = WarpKernel::new().unwrap();
         let head_before = kernel.current_head().unwrap();
         let provenance_len_before = kernel.provenance.len(kernel.default_worldline).unwrap();
-        let intent = pack_intent_v1(IMPORT_SUFFIX_INTENT_V1_OP_ID, &[0xff]).unwrap();
+        // `pack_intent_v1` refuses reserved operation ids, so a malformed
+        // protocol envelope has to be written by hand: magic, op id, length,
+        // payload.
+        let mut intent = b"EINT".to_vec();
+        intent.extend_from_slice(&IMPORT_SUFFIX_INTENT_V1_OP_ID.to_le_bytes());
+        intent.extend_from_slice(&1_u32.to_le_bytes());
+        intent.push(0xff);
 
         let error = kernel.dispatch_intent(&intent).unwrap_err();
 

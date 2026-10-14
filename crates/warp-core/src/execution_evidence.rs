@@ -2,6 +2,21 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Per-Action evidence retained from scheduler-owned execution.
 //!
+//! # What a record does not claim
+//!
+//! These records are a foundation, not admitted evidence. Until the admission
+//! design in issue #842 is accepted and built:
+//!
+//! - A record is not bound to the commit that produced it. It carries a
+//!   batch-local sequence and the scheduler origin, not a worldline tick,
+//!   commit hash or basis; its meaning comes from where it is held.
+//! - A record does not carry the footprint the rule declared, so
+//!   `Actual ⊆ Declared` cannot be evaluated from the record alone.
+//! - In a build without footprint enforcement, an observed execution reports
+//!   `UnavailableBuildProfile` even though its reads were recorded.
+//!
+//! Nothing in Echo admits a witness from these records yet.
+//!
 //! Worker completion order is not semantic: workers race to claim work units.
 //! [`ExecutionEvidenceKey`] therefore binds each record to identity available
 //! before execution and supplies the canonical order used when worker-local

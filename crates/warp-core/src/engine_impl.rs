@@ -482,8 +482,12 @@ pub struct Engine {
     last_snapshot: Option<Snapshot>,
     /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
-    /// Canonically ordered per-Action footprints from the latest execution.
-    last_execution_footprints: Vec<ExecutionFootprintEvidence>,
+    /// Canonically ordered per-Action footprints from the latest execution
+    /// whose changes merged. Part of the worldline's retained state.
+    last_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
+    /// Per-Action footprints from the latest execution attempt that unwound.
+    /// It committed nothing; this is a failure artifact, never history.
+    last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
     initial_state: Arc<WarpState>,
@@ -545,7 +549,7 @@ struct RuntimeCommitStateGuard<'a> {
     saved_initial_state: SavedField<Arc<WarpState>>,
     saved_last_snapshot: SavedField<Option<Snapshot>>,
     saved_tick_history: SavedField<Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>>,
-    saved_last_execution_footprints: SavedField<Vec<ExecutionFootprintEvidence>>,
+    saved_last_execution_footprints: SavedField<std::sync::Arc<[ExecutionFootprintEvidence]>>,
     saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
     saved_last_materialization_errors: SavedField<Vec<ChannelConflict>>,
     committed_ingress: SavedField<BTreeSet<(crate::head::WriterHeadKey, Hash)>>,
@@ -932,7 +936,8 @@ impl Engine {
             },
             last_snapshot: None,
             tick_history: Vec::new(),
-            last_execution_footprints: Vec::new(),
+            last_execution_footprints: std::sync::Arc::default(),
+            last_aborted_execution_footprints: std::sync::Arc::default(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1132,7 +1137,8 @@ impl Engine {
             current_root: root,
             last_snapshot: None,
             tick_history: Vec::new(),
-            last_execution_footprints: Vec::new(),
+            last_execution_footprints: std::sync::Arc::default(),
+            last_aborted_execution_footprints: std::sync::Arc::default(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1899,7 +1905,8 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
-        self.last_execution_footprints.clear();
+        self.last_execution_footprints = std::sync::Arc::default();
+        self.last_aborted_execution_footprints = std::sync::Arc::default();
         let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
@@ -2023,7 +2030,8 @@ impl Engine {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
         self.bus.clear();
-        self.last_execution_footprints.clear();
+        self.last_execution_footprints = std::sync::Arc::default();
+        self.last_aborted_execution_footprints = std::sync::Arc::default();
         self.last_materialization.clear();
         self.last_materialization_errors.clear();
     }
@@ -2222,7 +2230,11 @@ impl Engine {
             execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id));
 
         // 3. Merge deltas into canonical op sequence
-        let ops = merge_parallel_deltas(worker_results, &mut self.last_execution_footprints)?;
+        let ops = merge_parallel_deltas(
+            worker_results,
+            &mut self.last_execution_footprints,
+            &mut self.last_aborted_execution_footprints,
+        )?;
 
         // 4. Apply the merged ops to the state
         let patch = WarpTickPatchV1::new(
@@ -2564,15 +2576,26 @@ impl Engine {
     }
 
     /// Returns canonically ordered per-Action footprints from the latest
-    /// scheduler execution attempt.
+    /// scheduler execution whose changes merged.
     ///
-    /// This record is populated before a retained executor or enforcement
-    /// panic is resumed, so callers that deliberately catch the ordinary panic
-    /// can inspect the exact access that caused it. Posture remains part of
-    /// every record and decides whether it may ground a falsification witness.
+    /// An execution that unwinds publishes nothing here; see
+    /// [`Self::last_aborted_execution_footprints`]. Posture remains part of
+    /// every record and decides what it may claim.
     #[must_use]
     pub fn last_execution_footprints(&self) -> &[ExecutionFootprintEvidence] {
         &self.last_execution_footprints
+    }
+
+    /// Returns per-Action footprints from the latest execution attempt that
+    /// unwound, for a caller that deliberately catches the ordinary panic and
+    /// needs the exact access that caused it.
+    ///
+    /// The attempt committed nothing. These records are a failure artifact:
+    /// they are not part of worldline state, checkpoints or history, and are
+    /// cleared when the next execution starts.
+    #[must_use]
+    pub fn last_aborted_execution_footprints(&self) -> &[ExecutionFootprintEvidence] {
+        &self.last_aborted_execution_footprints
     }
 
     /// Resets the engine state to the beginning of time (U0) and re-applies all patches
@@ -2907,7 +2930,8 @@ impl Engine {
 /// Panics (via `resume_unwind`) if any delta was poisoned by an executor or enforcement panic.
 fn merge_parallel_deltas(
     worker_results: Vec<WorkerResult>,
-    retained_evidence: &mut Vec<ExecutionFootprintEvidence>,
+    retained_evidence: &mut std::sync::Arc<[ExecutionFootprintEvidence]>,
+    aborted_evidence: &mut std::sync::Arc<[ExecutionFootprintEvidence]>,
 ) -> Result<Vec<WarpOp>, EngineError> {
     // Convert WorkerResult to the format expected by merge paths
     let mut all_deltas = Vec::with_capacity(worker_results.len());
@@ -2930,11 +2954,23 @@ fn merge_parallel_deltas(
         }
     }
     evidence.sort_by_key(ExecutionFootprintEvidence::key);
-    *retained_evidence = evidence;
+    // Retained evidence describes an execution whose changes merged. An
+    // attempt that unwinds or fails is published separately, as a failure
+    // artifact that is never part of worldline state.
+    *retained_evidence = std::sync::Arc::default();
+    *aborted_evidence = evidence.clone().into();
     if let Some(warp_id) = missing_store {
         return Err(EngineError::UnknownWarp(warp_id));
     }
+    let ops = merge_worker_deltas(all_deltas)?;
+    *aborted_evidence = std::sync::Arc::default();
+    *retained_evidence = evidence.into();
+    Ok(ops)
+}
 
+fn merge_worker_deltas(
+    all_deltas: Vec<Result<crate::TickDelta, crate::parallel::PoisonedDelta>>,
+) -> Result<Vec<WarpOp>, EngineError> {
     #[cfg(any(test, feature = "delta_validate"))]
     {
         merge_deltas(all_deltas).map_err(|conflict| {

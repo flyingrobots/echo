@@ -97,7 +97,7 @@ pub struct WorldlineState {
     /// Sequential history of committed ticks for this worldline.
     pub(crate) tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
     /// Canonically ordered per-Action footprints from the latest execution.
-    pub(crate) last_execution_footprints: Vec<ExecutionFootprintEvidence>,
+    pub(crate) last_execution_footprints: Arc<[ExecutionFootprintEvidence]>,
     /// Last finalized materialization channels for this worldline.
     pub(crate) last_materialization: Vec<FinalizedChannel>,
     /// Last materialization errors for this worldline.
@@ -133,7 +133,7 @@ pub(crate) struct WorldlineStateParts {
     pub(crate) last_materialization_errors: Vec<ChannelConflict>,
     pub(crate) tx_counter: u64,
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
-    pub(crate) last_execution_footprints: Vec<ExecutionFootprintEvidence>,
+    pub(crate) last_execution_footprints: Arc<[ExecutionFootprintEvidence]>,
 }
 
 /// Test instrumentation that counts calls.
@@ -199,7 +199,7 @@ impl WorldlineState {
             root,
             last_snapshot: None,
             tick_history: Vec::new(),
-            last_execution_footprints: Vec::new(),
+            last_execution_footprints: Arc::default(),
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
@@ -547,7 +547,7 @@ impl WorldlineState {
             initial_state,
             last_snapshot: None,
             tick_history: Vec::new(),
-            last_execution_footprints: Vec::new(),
+            last_execution_footprints: Arc::default(),
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
             tx_counter: 0,
@@ -1045,7 +1045,7 @@ mod tests {
     #[test]
     fn replay_checkpoint_clone_preserves_replay_artifacts_but_clears_ingress_ledger() {
         let mut state = WorldlineState::empty();
-        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())];
+        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())].into();
         state.last_snapshot = Some(Snapshot {
             root: *state.root(),
             hash: [3u8; 32],
@@ -1159,7 +1159,7 @@ mod tests {
     #[test]
     fn replay_base_from_initial_resets_frontier_metadata() {
         let mut state = WorldlineState::empty();
-        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())];
+        state.last_execution_footprints = vec![sample_execution_evidence(*state.root())].into();
         let snapshot = Snapshot {
             root: *state.root(),
             hash: [1u8; 32],

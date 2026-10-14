@@ -233,7 +233,10 @@ mod enforcement {
             "undeclared read must retain the ordinary panic"
         );
 
-        let evidence = engine.last_execution_footprints();
+        // The attempt committed nothing, so it is not retained evidence. The
+        // access that caused the unwind is kept as a failure artifact.
+        assert!(engine.last_execution_footprints().is_empty());
+        let evidence = engine.last_aborted_execution_footprints();
         assert_eq!(evidence.len(), 1);
         let record = &evidence[0];
         assert_eq!(record.scope(), scope);

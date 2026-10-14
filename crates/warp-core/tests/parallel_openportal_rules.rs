@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 // The four ignored placeholder tests at the end of this file have
 // `unimplemented!` bodies. Issue #814 removes them.
 #![allow(
@@ -6,8 +8,6 @@
     clippy::panic,
     clippy::unimplemented
 )]
-// SPDX-License-Identifier: Apache-2.0
-// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! OpenPortal rule tests for parallel execution.
 //!
 //! These tests verify the "no same-tick new warp writes" rule - rewrites cannot

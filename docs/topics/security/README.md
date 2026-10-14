@@ -37,13 +37,13 @@ ignored test is not an implemented security boundary.
 
 Security claims in this topic set use these labels:
 
-| Label         | Meaning                                                                 |
-| ------------- | ----------------------------------------------------------------------- |
-| Implemented   | Current code and an executable witness enforce the claim.               |
-| Partial       | A typed boundary or isolated control exists, but the end-to-end path is incomplete. |
-| Required      | The architecture requires the control, but current code does not prove it. |
-| Assumption    | Echo relies on the host, operating system, dependency, or cryptographic premise. |
-| Non-goal      | Echo deliberately does not claim this property at the named boundary.   |
+| Label       | Meaning                                                                             |
+| ----------- | ----------------------------------------------------------------------------------- |
+| Implemented | Current code and an executable witness enforce the claim.                           |
+| Partial     | A typed boundary or isolated control exists, but the end-to-end path is incomplete. |
+| Required    | The architecture requires the control, but current code does not prove it.          |
+| Assumption  | Echo relies on the host, operating system, dependency, or cryptographic premise.    |
+| Non-goal    | Echo deliberately does not claim this property at the named boundary.               |
 
 The status applies to the exact proposition in its row. An implemented digest
 check does not make authentication implemented. An implemented recovery test
@@ -209,23 +209,23 @@ failure is still an availability failure.
 
 ## Current Posture Matrix
 
-| Boundary or property                  | Status       | Current posture |
-| ------------------------------------- | ------------ | --------------- |
-| Canonical causal-anchor claims        | Implemented  | Canonical roots, schema checks, claim digests, and value/admission separation have executable witnesses. |
-| Causal-anchor trusted admission       | Implemented  | Current basis and host-owned exact root support are required before atomic WAL fact/receipt commit. |
-| Trusted runtime WAL commit/recovery   | Implemented  | Commit-before-return, crash-tail exclusion, corruption refusal, and read-only index rebuild are witnessed. |
-| Same-process API authority split      | Implemented  | App handles cannot install policies, append WAL facts, tick, or recover; this is not process isolation. |
-| Generated package compatibility       | Implemented  | Registry, schema, artifact, codec, and operation bindings reject incompatible packages. |
-| Production intent authentication      | Required     | Current canonical intent acceptance does not prove an authenticated session or principal. |
+| Boundary or property                  | Status       | Current posture                                                                                                                            |
+| ------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical causal-anchor claims        | Implemented  | Canonical roots, schema checks, claim digests, and value/admission separation have executable witnesses.                                   |
+| Causal-anchor trusted admission       | Implemented  | Current basis and host-owned exact root support are required before atomic WAL fact/receipt commit.                                        |
+| Trusted runtime WAL commit/recovery   | Implemented  | Commit-before-return, crash-tail exclusion, corruption refusal, and read-only index rebuild are witnessed.                                 |
+| Same-process API authority split      | Implemented  | App handles cannot install policies, append WAL facts, tick, or recover; this is not process isolation.                                    |
+| Generated package compatibility       | Implemented  | Registry, schema, artifact, codec, and operation bindings reject incompatible packages.                                                    |
+| Production intent authentication      | Required     | Current canonical intent acceptance does not prove an authenticated session or principal.                                                  |
 | End-to-end target authorization       | Partial      | Capability grant and obstruction machinery exists; all public app paths and trusted expiry/revocation policy are not yet wired through it. |
-| Product optic authorization           | Partial      | Basis, aperture, attachment, and budget checks exist; trusted capability and law binding is incomplete. |
-| WAL payload confidentiality           | Non-goal now | Current writes retain full plaintext payload bytes. |
-| Secure deletion from causal history   | Non-goal     | Append-only evidence and replicated/CAS material cannot promise erasure without a separate design. |
-| Continuum peer/channel authentication | Required     | Transport arrival is non-authoritative, but production peer identity and channel security need separate proof. |
-| Whole-store rollback detection        | Required     | Internal chains detect inconsistency; a valid older store needs an external freshness anchor to be distinguishable. |
-| Comprehensive hostile-input DoS       | Partial      | Local budgets and checked codecs exist; no system-wide adversarial resource envelope is proven. |
-| Compromised trusted host resistance   | Non-goal     | A host that owns admission keys, policy, scheduler, and storage can violate Echo's local trust assumptions. |
-| Side-channel resistance               | Non-goal now | Timing, access-pattern, memory-remanence, and speculative-execution leakage are not presently claimed. |
+| Product optic authorization           | Partial      | Basis, aperture, attachment, and budget checks exist; trusted capability and law binding is incomplete.                                    |
+| WAL payload confidentiality           | Non-goal now | Current writes retain full plaintext payload bytes.                                                                                        |
+| Secure deletion from causal history   | Non-goal     | Append-only evidence and replicated/CAS material cannot promise erasure without a separate design.                                         |
+| Continuum peer/channel authentication | Required     | Transport arrival is non-authoritative, but production peer identity and channel security need separate proof.                             |
+| Whole-store rollback detection        | Required     | Internal chains detect inconsistency; a valid older store needs an external freshness anchor to be distinguishable.                        |
+| Comprehensive hostile-input DoS       | Partial      | Local budgets and checked codecs exist; no system-wide adversarial resource envelope is proven.                                            |
+| Compromised trusted host resistance   | Non-goal     | A host that owns admission keys, policy, scheduler, and storage can violate Echo's local trust assumptions.                                |
+| Side-channel resistance               | Non-goal now | Timing, access-pattern, memory-remanence, and speculative-execution leakage are not presently claimed.                                     |
 
 ## Trusted Computing Base
 

@@ -8335,43 +8335,195 @@ fn rewrite_filesystem_segments_after_truncation(
     root: &Path,
     after_lsn: Lsn,
 ) -> Result<(), WalStoreError> {
-    let (frames, commits, _) = read_filesystem_segments(root)?;
-    let kept_frames = frames
-        .into_iter()
-        .filter(|frame| frame.header.lsn <= after_lsn)
-        .collect::<Vec<_>>();
-    let kept_commits = commits
-        .into_iter()
-        .filter(|commit| commit.last_lsn <= after_lsn)
-        .collect::<Vec<_>>();
-    rewrite_segment_records(root, &kept_frames, &kept_commits)
+    truncate_filesystem_segments(root, Some(after_lsn), &mut |_| Ok(()))
 }
 
 fn clear_filesystem_segments(root: &Path) -> Result<(), WalStoreError> {
-    rewrite_segment_records(root, &[], &[])
+    truncate_filesystem_segments(root, None, &mut |_| Ok(()))
 }
 
-fn rewrite_segment_records(
+/// Runs a truncation and fails it at the `fail_at`-th step boundary.
+///
+/// Returns the number of step boundaries the truncation passed. A test stops
+/// the truncation at each boundary in turn and then recovers the log, which
+/// is what a crash at that boundary would leave for recovery to read.
+#[cfg(test)]
+pub(crate) fn truncate_filesystem_segments_failing_at_for_test(
     root: &Path,
-    frames: &[WalFrame],
-    commits: &[WalTransactionCommit],
+    keep_through: Option<Lsn>,
+    fail_at: usize,
+) -> (usize, Result<(), WalStoreError>) {
+    let mut steps = 0usize;
+    let result = truncate_filesystem_segments(root, keep_through, &mut |_| {
+        steps += 1;
+        if steps == fail_at {
+            return Err(WalStoreError::Io("injected truncation fault".to_owned()));
+        }
+        Ok(())
+    });
+    (steps, result)
+}
+
+/// A point in a truncation where a crash can interrupt it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TruncationStep {
+    /// A segment's kept records are in a synced scratch file beside it.
+    ScratchWritten,
+    /// The scratch file has replaced the segment.
+    SegmentReplaced,
+    /// A segment that kept no record has been removed.
+    SegmentRemoved,
+    /// The directory entry changes above are synced.
+    DirectorySynced,
+}
+
+const WAL_SEGMENT_REWRITE_SUFFIX: &str = "rewrite-tmp";
+
+/// What one segment keeps after a truncation.
+struct SegmentTruncationPlan {
+    path: PathBuf,
+    frames: Vec<WalFrame>,
+    commits: Vec<WalTransactionCommit>,
+    /// Whether the segment loses a record or a torn tail.
+    changed: bool,
+}
+
+/// Drops every record after `keep_through`, or every record when it is
+/// `None`, without ever removing a committed record first.
+///
+/// Each segment is handled on its own. A segment with nothing to drop is not
+/// touched. A segment that loses records is rebuilt in a scratch file beside
+/// it, the scratch file is synced, and a rename replaces the segment in one
+/// step, so a crash leaves either the old segment or the new one. A trailing
+/// segment that keeps nothing is removed, highest first, so a crash never
+/// leaves a gap in the segment sequence; rotation refuses a next segment that
+/// already exists, so an emptied one cannot stay. Records stay in the segment
+/// they were written to.
+///
+/// A crash at any step leaves a log that recovery reads as the same committed
+/// history, possibly with the tail still present. Running the truncation
+/// again finishes it.
+fn truncate_filesystem_segments(
+    root: &Path,
+    keep_through: Option<Lsn>,
+    on_step: &mut dyn FnMut(TruncationStep) -> Result<(), WalStoreError>,
 ) -> Result<(), WalStoreError> {
     fs::create_dir_all(root)?;
     fs::create_dir_all(segments_dir(root))?;
+    remove_stale_rewrite_scratch_files(root)?;
+
+    let mut plans = Vec::new();
     for path in segment_paths(root)? {
-        fs::remove_file(path)?;
+        let (frames, commits, torn_tail) = read_segment_file(&path)?;
+        let before = frames.len() + commits.len();
+        let frames = frames
+            .into_iter()
+            .filter(|frame| keep_through.is_some_and(|lsn| frame.header.lsn <= lsn))
+            .collect::<Vec<_>>();
+        let commits = commits
+            .into_iter()
+            .filter(|commit| keep_through.is_some_and(|lsn| commit.last_lsn <= lsn))
+            .collect::<Vec<_>>();
+        let changed = torn_tail || frames.len() + commits.len() != before;
+        plans.push(SegmentTruncationPlan {
+            path,
+            frames,
+            commits,
+            changed,
+        });
     }
-    let path = segment_path(root, WalSegmentId::from_raw(1));
-    File::create(&path)?.sync_all()?;
-    for frame in frames {
-        append_segment_record(&path, DiskWalRecord::Frame(frame), false)?;
+
+    // The first segment always stays. Later segments that keep nothing are
+    // removed only as a suffix of the sequence.
+    let mut first_removed = plans.len();
+    while first_removed > 1 {
+        let plan = &plans[first_removed - 1];
+        if plan.frames.is_empty() && plan.commits.is_empty() {
+            first_removed -= 1;
+        } else {
+            break;
+        }
     }
-    for commit in commits {
-        append_segment_record(&path, DiskWalRecord::Commit(commit), false)?;
+
+    for plan in &plans[..first_removed] {
+        if !plan.changed {
+            continue;
+        }
+        let scratch = rewrite_scratch_path(&plan.path);
+        File::create(&scratch)?;
+        for frame in &plan.frames {
+            append_segment_record(&scratch, DiskWalRecord::Frame(frame), false)?;
+        }
+        for commit in &plan.commits {
+            append_segment_record(&scratch, DiskWalRecord::Commit(commit), false)?;
+        }
+        File::options().append(true).open(&scratch)?.sync_all()?;
+        on_step(TruncationStep::ScratchWritten)?;
+        fs::rename(&scratch, &plan.path)?;
+        on_step(TruncationStep::SegmentReplaced)?;
+        sync_containing_directory(&plan.path)?;
+        on_step(TruncationStep::DirectorySynced)?;
     }
-    File::options().append(true).open(&path)?.sync_all()?;
-    sync_directory_store(root)?;
+
+    for plan in plans[first_removed..].iter().rev() {
+        fs::remove_file(&plan.path)?;
+        on_step(TruncationStep::SegmentRemoved)?;
+        sync_containing_directory(&plan.path)?;
+        on_step(TruncationStep::DirectorySynced)?;
+    }
+
+    if plans.is_empty() {
+        let path = segment_path(root, WalSegmentId::from_raw(1));
+        File::create(&path)?.sync_all()?;
+        sync_containing_directory(&path)?;
+    }
     Ok(())
+}
+
+fn rewrite_scratch_path(segment: &Path) -> PathBuf {
+    let mut name = segment
+        .file_name()
+        .map(std::ffi::OsStr::to_os_string)
+        .unwrap_or_default();
+    name.push(".");
+    name.push(WAL_SEGMENT_REWRITE_SUFFIX);
+    segment.with_file_name(name)
+}
+
+/// Removes scratch files a crashed truncation left behind.
+///
+/// Segment discovery ignores them, because their extension is not the segment
+/// extension, so they never count as history.
+fn remove_stale_rewrite_scratch_files(root: &Path) -> Result<(), WalStoreError> {
+    for scan_root in segment_scan_roots(root) {
+        if !scan_root.exists() {
+            continue;
+        }
+        let mut removed = false;
+        for entry in fs::read_dir(&scan_root)? {
+            let path = entry?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == WAL_SEGMENT_REWRITE_SUFFIX)
+            {
+                fs::remove_file(&path)?;
+                removed = true;
+            }
+        }
+        if removed {
+            sync_directory_store(&scan_root)?;
+        }
+    }
+    Ok(())
+}
+
+/// Syncs the directory that holds `path`, so a rename, create or remove of
+/// that entry is durable.
+fn sync_containing_directory(path: &Path) -> Result<(), WalStoreError> {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => sync_directory_store(parent),
+        _ => Ok(()),
+    }
 }
 
 fn segment_paths(root: &Path) -> Result<Vec<PathBuf>, WalStoreError> {

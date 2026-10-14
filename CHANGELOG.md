@@ -41,6 +41,16 @@
   writer's in-progress tail by rewriting its segment files, and only then be
   refused. The second host is now refused at the lease and modifies nothing.
 
+- Writable WAL recovery no longer removes committed records in order to drop
+  an uncommitted tail. It rebuilt the whole log by deleting every segment
+  file and re-appending what it kept, so a crash in between lost all
+  committed history; it also synced the WAL root instead of the directory
+  that holds the segments, and collapsed rotated segments into the first.
+  Each segment that loses records is now rebuilt in a scratch file and
+  swapped in by one rename, a segment with nothing to drop is not touched,
+  an emptied trailing segment is removed, and the containing directory is
+  synced. A crash at any step leaves the same committed history.
+
 - A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
 
 - A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.

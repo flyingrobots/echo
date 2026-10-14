@@ -3,9 +3,12 @@
 
 # ADR 0025: Scheduler-Owned Executable-Operation Actions
 
-- **Status:** Accepted
+- **Status:** Partially superseded
 - **Date:** 2026-07-24
 - **Amends:** ADR 0023
+- **Superseded in part by:** the [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+  decision of 2026-10-14 (#837), for the shared parent basis of Actions in one
+  Tick
 
 ## Context
 
@@ -98,6 +101,13 @@ stable across restart, and makes it impossible for an executable Action to fall
 through to a native callback engine.
 
 ### One exact parent basis, per-Action application propositions
+
+> **Superseded in part (2026-10-14, #837):** Actions in one Tick still share
+> one commit parent, but an Action that meets the conditions of
+> [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+> keeps its own earlier origin basis; its worldline tick, global-tick
+> predecessor, state root and commit identity may differ from the parent's. The
+> original text is preserved and still governs every other case.
 
 Actions selected into one Tick share the exact Echo parent coordinate:
 

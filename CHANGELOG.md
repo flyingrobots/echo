@@ -41,6 +41,18 @@
   writer's in-progress tail by rewriting its segment files, and only then be
   refused. The second host is now refused at the lease and modifies nothing.
 
+- The canonical CBOR decoder in `echo-wasm-abi` no longer reserves memory in
+  proportion to a length its input claims, and no longer recurses without
+  bound. A header that claims more array elements, map entries or string
+  bytes than the input has left is refused with `Incomplete`, and the
+  comparison is made before the length is narrowed, so 32-bit and 64-bit
+  targets refuse the same inputs. A container reserves at most a few slots
+  before its elements are decoded, so nested headers cannot multiply the
+  memory a request asks for. Nesting deeper than
+  `MAX_CANONICAL_NESTING_DEPTH` (128) is refused, by the encoder as well, so
+  bytes it returns always decode. Before, a nine-byte request could abort the
+  process.
+
 - Writable WAL recovery no longer removes committed records in order to drop
   an uncommitted tail. It rebuilt the whole log by deleting every segment
   file and re-appending what it kept, so a crash in between lost all

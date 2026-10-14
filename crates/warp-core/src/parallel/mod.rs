@@ -19,9 +19,9 @@ pub use exec::{
     ParallelExecutionPolicy, PoisonedDelta, ShardAssignmentPolicy, WorkUnit, WorkerExecution,
     WorkerResult,
 };
-#[cfg(not(any(test, feature = "delta_validate")))]
-pub(crate) use merge::check_write_to_new_warp;
 pub use merge::MergeConflict;
+#[cfg(not(any(test, feature = "delta_validate")))]
+pub(crate) use merge::{merge_canonical, MergeFault};
 #[cfg(any(test, feature = "delta_validate"))]
 pub use merge::{merge_deltas, merge_deltas_ok, MergeError};
 pub use shard::{shard_of, NUM_SHARDS};

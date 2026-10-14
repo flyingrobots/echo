@@ -11,6 +11,15 @@
   them. `echo-trace`'s null sink returned successful receipts with all-zero
   hashes. `echo-graph` served only `echo-dry-tests`' `SnapshotBuilder` and
   `DiffBuilder`, which nothing used and which are removed with it.
+- `Engine::jump_to_tick`. It rewound the engine state without touching tick
+  history or the last snapshot, so the engine contradicted its own ledger
+  afterwards, and nothing called it. ADR-0010 already called for retiring
+  generic global rewind helpers.
+- `compute_state_root_for_warp_store`. Its documentation said
+  `PlaybackCursor::seek_to` used it; nothing did, and it hashed a store
+  without the reachability rule the state root applies.
+- The crate-private `RetentionPolicy`, which nothing constructed and one of
+  whose variants was documented to panic.
 
 ### Added
 

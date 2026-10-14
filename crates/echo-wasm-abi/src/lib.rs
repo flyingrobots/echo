@@ -56,7 +56,7 @@ mod query_vars_digest_tests {
 }
 
 pub mod canonical;
-pub use canonical::{CanonError, decode_value, encode_value};
+pub use canonical::{CanonError, MAX_CANONICAL_NESTING_DEPTH, decode_value, encode_value};
 
 #[cfg(feature = "std")]
 pub mod eintlog;

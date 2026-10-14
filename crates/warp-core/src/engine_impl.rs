@@ -2923,8 +2923,8 @@ impl Engine {
 
 /// Merges parallel execution deltas into a canonical op sequence.
 ///
-/// With `delta_validate`: uses `merge_deltas` for conflict detection.
-/// Without: flattens, sorts by `sort_key`, deduplicates, and rejects conflicts.
+/// Every build runs the canonical merge in `parallel::merge`. Builds with
+/// `test` or `delta_validate` reach it through `merge_deltas`, which also names the writers.
 ///
 /// # Errors
 ///
@@ -2974,6 +2974,8 @@ fn merge_parallel_deltas(
 fn merge_worker_deltas(
     all_deltas: Vec<Result<crate::TickDelta, crate::parallel::PoisonedDelta>>,
 ) -> Result<Vec<WarpOp>, EngineError> {
+    // Builds that record origins merge through `merge_deltas`, which keeps the
+    // writers for diagnostics. Both paths run the same canonical merge.
     #[cfg(any(test, feature = "delta_validate"))]
     {
         merge_deltas(all_deltas).map_err(|conflict| {
@@ -2987,42 +2989,23 @@ fn merge_worker_deltas(
 
     #[cfg(not(any(test, feature = "delta_validate")))]
     {
-        // Without delta_validate, flatten and sort by sort_key for determinism.
-        // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
-        let mut flat: Vec<_> = all_deltas
+        let flat: Vec<_> = all_deltas
             .into_iter()
             .map(|delta| match delta {
                 Ok(delta) => delta,
                 Err(poisoned) => std::panic::resume_unwind(poisoned.into_panic()),
             })
             .flat_map(crate::TickDelta::into_ops_unsorted)
-            .map(|op| (op.sort_key(), op))
+            .map(|op| (op.sort_key(), (), op))
             .collect();
-
-        // Sort by sort_key for canonical order.
-        // Use unstable sort for efficiency; equal keys become consecutive for dedup.
-        flat.sort_unstable_by_key(|a| a.0);
-
-        // Reject conflicting ops with same sort_key.
-        for w in flat.windows(2) {
-            if w[0].0 == w[1].0 && w[0].1 != w[1].1 {
-                return Err(EngineError::InternalCorruption(
-                    "merge_parallel_deltas: conflicting ops share sort_key",
-                ));
+        crate::parallel::merge_canonical(flat).map_err(|fault| match fault {
+            crate::parallel::MergeFault::Conflict { .. } => EngineError::InternalCorruption(
+                "merge_parallel_deltas: conflicting ops share sort_key",
+            ),
+            crate::parallel::MergeFault::WriteToNewWarp { .. } => {
+                EngineError::InternalCorruption("merge_parallel_deltas: write to new warp")
             }
-        }
-
-        flat.dedup_by(|a, b| a.0 == b.0);
-        let ops: Vec<_> = flat.into_iter().map(|(_, op)| op).collect();
-
-        // Validate no writes to warps created in the same tick.
-        if crate::parallel::check_write_to_new_warp(&ops).is_some() {
-            return Err(EngineError::InternalCorruption(
-                "merge_parallel_deltas: write to new warp",
-            ));
-        }
-
-        Ok(ops)
+        })
     }
 }
 

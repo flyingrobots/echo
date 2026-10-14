@@ -34,7 +34,22 @@ runtime expression and application-input paths, binds their identity into the
 expected package, and names that exact projection in the accepted report.
 Application vocabulary is treated only as opaque authored data.
 
-For `compiler-produced-bounded-pure/v1`, the verifier independently enforces
+**What this independence covers.** The mutation, compare-and-set and bounded
+pure packages are rebuilt in `src/executable_operation.rs`. That file does not
+import the lowerer, but most of it is a copy of the lowerer's file of the same
+name: on 2026-10-14, 91% of the lowerer's distinct code lines appeared
+verbatim. The byte comparison therefore rejects any package that differs from
+what this copy produces. That covers tampering after lowering and a defect
+introduced in the lowerer alone, as the rebound-coordinate and tamper tests in
+`tests/executable_operation_package.rs` show. It does not catch a mistake
+present in both copies: such a package lowers and then verifies. Commit
+`d121758b` is an example, where one missing refusal had to be added to both
+files. For these packages, acceptance shows that two copies agree; it is not
+an independent semantic check (#809). The bounded-read route below is
+different: `src/executable_operation/bounded_read.rs` rebuilds Core from the
+Target IR instead of repeating the lowering.
+
+For `compiler-produced-bounded-pure/v1`, the verifier separately enforces
 the zero-choice configuration, effect-free Core and Target IR shapes, exact
 budget and closure bindings, pure-binding result projection, and embedded
 compiler artifact bytes. It reconstructs the distinct generic pure package

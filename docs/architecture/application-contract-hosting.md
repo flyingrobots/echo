@@ -177,7 +177,7 @@ supported. Invocation admission also checks the relationship and exact digest.
 Missing or substituted invocation bindings
 return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
 Both mutation profiles require the effect argument to be the declared application
-input directly. The lowerer and independent verifier each check the canonical
+input directly. The lowerer and the structurally separate verifier each check the canonical
 `arg.0` reference, its declared type and alpha name, and its unique local
 declaration. They refuse transformed records and other local references with
 `UnsupportedSemantics`; these bounded profiles do not evaluate arbitrary effect
@@ -187,7 +187,8 @@ accepted `message: "forced"` counterexample as historical failing evidence; the
 corrected components refuse that source without publishing package artifacts,
 while the direct-input control produces the same package and report bytes.
 
-The native lowerer and independent verifier select the CAS program from an exact
+The native lowerer and the structurally separate verifier select the CAS program
+from an exact
 `continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
 write class. Its configuration requires a distinct `expectedValueDigestField`
 and at least four steps; the package binds the corresponding input path and
@@ -219,7 +220,7 @@ The external-provider schema additionally admits one exact zero-choice
 application operation, target-specific budget override, or mutation authority.
 The checked lowerer emits a distinct generic package retaining the exact
 compiler-produced pure program closure, and the structurally separate verifier
-independently reconstructs that relation. No runtime evaluator, installation,
+reconstructs that relation with code that largely repeats the lowerer's. No runtime evaluator, installation,
 graph mutation, Tick settlement, or application-specific Echo branch follows
 from package acceptance.
 
@@ -448,8 +449,8 @@ effectful execution and its settlement evidence remain tracked by
 The slice exposes no application matcher, executor, or footprint callback. A
 generic provider lowerer now emits the package from exact Edict source, Core,
 lawpack, exports, adapter, target-configuration, and Target IR artifacts, and a
-structurally separate provider verifier independently reconstructs that
-relation. Edict's public application-build command assembles those inputs end
+structurally separate provider verifier reconstructs that relation with code
+that largely repeats the lowerer's, so a mistake made in both is not caught. Edict's public application-build command assembles those inputs end
 to end and invokes the checked Echo lowerer and structurally separate
 verifier. The slice does not implement Jedit `ReplaceRange`, any Graft
 operation, or cross-head atomic filesystem-WAL persistence. Provider v1 remains
@@ -485,7 +486,7 @@ reconstructs the entire expected package, including those limits, so changing
 or removing them fails the package relation.
 
 This native profile does not normalize input text or establish NFC validity. The runtime checks alone do not
-prove the Core relation; the independent provider verification supplies that
+prove the Core relation; the structurally separate provider verification supplies that
 separate evidence. The checked provider component distribution includes this
 profile, built reproducibly with the pinned component toolchain and corroborated
 by its regenerated manifest. A retained fresh public application build with

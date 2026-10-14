@@ -42,7 +42,7 @@ not graph mutation, installed invocation, a Tick, a Receipt, or WAL evidence.
 The `mutated-*.hex` carriers came from a separate copy of the same application.
 The only authored change was `then 1u32` to `then 2u32` in
 `src/ReplaceRange.edict`. Edict's public JSONL application build generated the
-new executable package and accepted independent verification report. No emitted
+new executable package and accepted verification report. No emitted
 Core, Target IR, package, or report bytes were edited.
 
 The deliberate source change makes the original expected value of 1 false at

@@ -196,8 +196,9 @@ configuration, the anchored compare-and-set configuration with its distinct
 value's length, which evaluation also charges), and the exact two-field
 `compiler-produced-bounded-pure/v1` configuration. The latter contains no
 application coordinate or policy choice. The checked lowerer now emits the
-distinct generic pure package and the checked independent verifier reconstructs
-that exact compiler relation. The package remains uninstalled and unevaluated;
+distinct generic pure package and the checked, structurally separate verifier
+reconstructs that exact compiler relation (its reconstruction largely repeats
+the lowerer's code; see the verifier README). The package remains uninstalled and unevaluated;
 it confers no Echo runtime authority or consequence.
 
 External Edict contract inputs come from the checked

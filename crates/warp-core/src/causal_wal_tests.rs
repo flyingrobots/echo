@@ -5117,3 +5117,53 @@ fn filesystem_truncation_removes_a_segment_that_held_only_uncommitted_records() 
     assert_eq!(after.tail_posture, RecoveryTailPosture::Clean);
     assert_eq!(after.transactions.len(), 1);
 }
+
+#[test]
+fn in_memory_rewind_refuses_a_mark_that_no_longer_names_the_prefix() {
+    let mut log = InMemoryWalStore::new();
+    must_ok(log.acquire_writer_epoch(writer_epoch_request()));
+    let empty = log.mark();
+    must_ok(log.append_transaction(durable_submission_transaction(
+        "rewind-first",
+        Lsn::from_raw(0),
+    )));
+    let after_first = log.mark();
+    must_ok(log.append_transaction(durable_submission_transaction(
+        "rewind-second",
+        Lsn::from_raw(2),
+    )));
+
+    // Another log of the same length is not the marked prefix.
+    let mut other = InMemoryWalStore::new();
+    must_ok(other.acquire_writer_epoch(writer_epoch_request()));
+    for (label, lsn) in [("other-first", 0), ("other-second", 2)] {
+        must_ok(
+            other.append_transaction(durable_submission_transaction(label, Lsn::from_raw(lsn))),
+        );
+    }
+    assert!(other.rewind_to(after_first.clone()).is_err());
+    assert_eq!(
+        other.read_commits().len(),
+        2,
+        "a refused rewind changes nothing"
+    );
+
+    // The marked log rewinds to exactly the mark.
+    must_ok(log.rewind_to(after_first.clone()));
+    assert_eq!(log.read_commits().len(), 1);
+
+    // Rewound past the mark and grown again with a different record, the
+    // log has the mark's length but not its prefix.
+    must_ok(log.rewind_to(empty));
+    must_ok(log.append_transaction(durable_submission_transaction(
+        "rewind-replacement",
+        Lsn::from_raw(0),
+    )));
+    assert_eq!(log.read_commits().len(), 1);
+    assert!(log.rewind_to(after_first).is_err());
+    assert_eq!(
+        log.read_commits().len(),
+        1,
+        "a refused rewind changes nothing"
+    );
+}

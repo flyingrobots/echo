@@ -4666,7 +4666,10 @@ fn an_action_whose_read_changed_is_obstructed_in_a_later_tick() {
 }
 
 #[test]
-fn an_action_commits_when_its_read_value_was_restored_and_recovery_agrees() {
+/// A value that changed and was restored cannot be corroborated at the origin
+/// without replaying history, so the origin-built Action keeps the
+/// whole-frontier rule (#837 review). Live and recovery agree on that.
+fn a_restored_value_does_not_corroborate_its_origin_and_recovery_agrees() {
     let wal_dir = TempWalDir::new();
     let late;
     {
@@ -4693,15 +4696,15 @@ fn an_action_commits_when_its_read_value_was_restored_and_recovery_agrees() {
         host.tick_once()
             .expect("the origin-built Action is decided");
         assert!(
-            outcome_is_committed(&host, &late),
-            "value-based validity accepts a value that changed and was restored"
+            outcome_is_basis_changed(&host, &late),
+            "intervening writes to the target leave the origin uncorroborated"
         );
     }
     let (mut recovered, _, _) = fixture_host();
     recovered
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
         .expect("recovery recomputes scoped validity at the reconstructed parent");
-    assert!(outcome_is_committed(&recovered, &late));
+    assert!(outcome_is_basis_changed(&recovered, &late));
 }
 
 #[test]

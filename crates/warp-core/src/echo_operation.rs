@@ -3851,6 +3851,91 @@ pub(crate) fn scoped_action_basis_holds_v1(
             .is_ok_and(|basis| basis == origin.application_basis)
 }
 
+/// Whether the origin an Action claims is corroborated by retained history,
+/// as dependency-scoped validity (#837) requires before it compares values at
+/// the parent.
+///
+/// - The origin names a coordinate history actually holds: the entry before
+///   its tick (commit id, global tick, state root), or the initial boundary at
+///   genesis.
+/// - No entry between the origin and `parent_tick` wrote the node or alpha slot
+///   of the target or of any observed node. A claim that holds at the parent
+///   then held at the origin too. An entry without a replay patch counts as a
+///   write.
+///
+/// A value that changed and was restored therefore does not corroborate; such
+/// an Action keeps the whole-frontier rule.
+pub(crate) fn echo_operation_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    invocation: &EchoOperationInvocationV1,
+    parent_tick: WorldlineTick,
+) -> bool {
+    use crate::provenance_store::ProvenanceStore as _;
+
+    let origin = invocation.evaluation_basis;
+    let worldline_id = origin.writer_head.worldline_id;
+    let retained = match origin.worldline_tick.as_u64().checked_sub(1) {
+        None => {
+            origin.commit_global_tick.is_none()
+                && provenance
+                    .initial_boundary_hash(worldline_id)
+                    .is_ok_and(|root| root == origin.state_root)
+                && origin.commit_id == genesis_commit_id(origin.writer_head, origin.state_root)
+        }
+        Some(tip) => provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tip))
+            .is_ok_and(|entry| {
+                Some(entry.commit_global_tick) == origin.commit_global_tick
+                    && entry.expected.commit_hash == origin.commit_id
+                    && entry.expected.state_root == origin.state_root
+            }),
+    };
+    if !retained {
+        return false;
+    }
+    let mut nodes = vec![invocation.node];
+    if let Some(observation) = &invocation.observation {
+        nodes.extend(observation.readings().map(|(node, _)| node));
+    }
+    let watched = nodes
+        .iter()
+        .flat_map(|node| {
+            [
+                crate::tick_patch::SlotId::Node(*node),
+                crate::tick_patch::SlotId::Attachment(AttachmentKey::node_alpha(*node)),
+            ]
+        })
+        .collect::<Vec<_>>();
+    (origin.worldline_tick.as_u64()..parent_tick.as_u64()).all(|tick| {
+        provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tick))
+            .ok()
+            .and_then(|entry| entry.patch)
+            .is_some_and(|patch| !patch.out_slots.iter().any(|slot| watched.contains(slot)))
+    })
+}
+
+/// [`echo_operation_origin_corroborated_v1`] for an admitted Action.
+pub(crate) fn admitted_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    admitted: &AdmittedEchoOperationInvocationV1,
+    parent_tick: WorldlineTick,
+) -> bool {
+    echo_operation_origin_corroborated_v1(provenance, &admitted.invocation, parent_tick)
+}
+
+/// [`echo_operation_origin_corroborated_v1`] for a recovered canonical
+/// invocation.
+pub(crate) fn recovered_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    canonical_invocation_bytes: &[u8],
+    parent_tick: WorldlineTick,
+) -> bool {
+    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+        |invocation| echo_operation_origin_corroborated_v1(provenance, &invocation, parent_tick),
+    )
+}
+
 /// [`scoped_action_basis_holds_v1`] for a recovered canonical invocation.
 pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
     installed: &InstalledEchoOperationV1,
@@ -4935,7 +5020,7 @@ pub(crate) fn prepare_operation_v1(
     state: &WorldlineState,
     policy_id: u32,
     evaluation_authority: &EchoOperationEvaluationAuthorityV1,
-    origin_retained: bool,
+    origin_corroborated: bool,
 ) -> EchoOperationPreparationV1 {
     let package_id = admitted.invocation.package_id;
     let invocation_id = admitted.invocation_id;
@@ -4970,7 +5055,7 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch);
     }
     if admitted.invocation.evaluation_basis != current_basis
-        && !(origin_retained
+        && !(origin_corroborated
             && scoped_action_basis_holds_v1(
                 installed,
                 &admitted.invocation,

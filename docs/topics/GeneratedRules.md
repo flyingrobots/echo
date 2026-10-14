@@ -191,11 +191,26 @@ standalone application-owned Edict source
 **Decision 2026-10-14 ([#837](https://github.com/flyingrobots/echo/issues/837)),
 superseding in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)'s
 exact-basis requirements and [ADR 0025](../adr/0025-scheduler-owned-executable-operation-actions.md)'s
-shared parent basis, for Actions that meet its conditions.** It is
-implemented for compare-and-set and create-if-absent Actions whose target is in
-the worldline's root warp, with value-based payload and single-key absence
-dependencies. Every other Action, including any target reached through a
-portal, still follows the whole-frontier rule below.
+shared parent basis, for Actions that meet its conditions.**
+
+What is implemented today is a conservative subset:
+
+- **Programs.** Compare-and-set and create-if-absent Actions, with the target
+  and any observed nodes in the worldline's root warp, and any observation
+  captured no later than the origin.
+- **Corroborated origin.** The origin must be a coordinate retained in history,
+  and no tick between origin and parent may have written the node or alpha slot
+  of the target or of an observed node. A claim that holds at the parent then
+  held at the origin too. Because of this, a value that changed and was restored
+  is not yet accepted: it falls back to the whole-frontier rule.
+- **Within one tick.** Overlapping Actions are still rejected as footprint
+  conflicts rather than validated against earlier accepted writes, so no Action
+  commits on a state an earlier write in its tick changed.
+- **Evidence.** The receipt keeps the origin basis and records the parent in its
+  Tick fields, and recovery recomputes the rule from retained history. A failed
+  dependency is reported as `BasisChanged`.
+
+Every other Action follows the whole-frontier rule below.
 
 Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head
 (worldline and head identities), worldline tick, optional commit global tick,

@@ -5165,6 +5165,11 @@ fn validate_recovered_echo_operation_parent_states(
                 // rule at the reconstructed parent state; it does not trust
                 // the recorded outcome.
                 let scoped = !basis_is_current
+                    && crate::echo_operation::recovered_origin_corroborated_v1(
+                        recovered_provenance,
+                        invocation_bytes,
+                        tick_before,
+                    )
                     && crate::echo_operation::scoped_action_basis_holds_for_bytes_v1(
                         installed,
                         invocation_bytes,

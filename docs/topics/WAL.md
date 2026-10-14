@@ -63,6 +63,19 @@ state. If no runtime WAL is configured, the ACK path returns an explicit
 unavailable error before mutating intake state. If WAL commit fails, Echo rolls
 back the in-memory intake mutation before returning the error.
 
+A commit record can reach the log and then fail its storage sync. The record
+is readable and is not durable, and a readable record is not a durable one.
+When that happens for any transaction, whether a submission, a scheduler tick,
+a causal anchor, an operation installation or an operation tick, Echo takes
+back the in-memory effect, acknowledges nothing, and refuses further WAL work
+with `StorageFailed` until the host reopens the WAL. It does not re-read the
+log to see whether the record is there. A host that reopens the log syncs it
+first, so a record that did reach storage recovers then.
+
+An error that arrives after a commit record was written and synced is a
+different case: the record is durable, so the host re-reads the log and
+acknowledges what it finds.
+
 Third, tick receipts are published only after scheduler-tick WAL evidence is
 committed. Recovery can rebuild both the submission posture and the receipt
 index from committed WAL facts. If tick WAL recording fails, Echo rolls back the

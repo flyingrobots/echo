@@ -84,11 +84,6 @@ log. This page does not restate it. In short:
 
 - **A batch has no size limit.** Nothing checks envelope count or encoded
   bytes before the first append.
-- **Single submission on the filesystem store is weaker after a failure.**
-  After a failed append or sync of a single submission, a host on the
-  filesystem store re-reads the log and treats a readable acceptance record
-  as accepted. The batch path does not. A host on the in-memory store has no
-  log to re-read: it takes the submission back.
 - **A tick is a separate sync.** A scheduler pass that produces receipt
   correlations writes one tick transaction and syncs it before outcomes
   become visible. A pass that produces none writes nothing. A strict frame

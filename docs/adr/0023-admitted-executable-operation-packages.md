@@ -6,7 +6,9 @@
 - **Status:** Accepted
 - **Date:** 2026-07-18
 - **Partially supersedes:** ADR 0015 for newly authored executable operations
-- **Amended by:** ADR 0025 for scheduler-owned Action execution
+- **Amended by:** ADR 0025 for scheduler-owned Action execution; the
+  [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+  decision of 2026-10-14 (#837) for the basis-freshness rule
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -250,6 +252,12 @@ identity. The scheduler law must verify that every member has identical
 `EchoOperationEvaluationBasisV1` bytes and that the composite patch is the
 canonical result of that exact ordered membership. A singleton commit uses the
 same evidence shape with a one-member list.
+
+> **Superseded in part (2026-10-14, #837):** for Actions whose dependencies the
+> evaluator can establish completely, the rule in this paragraph is replaced by
+> dependency-scoped validity; see
+> [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks).
+> The original text below is preserved and still governs every other case.
 
 If the parent basis changed, the prepared operation is ineligible to commit and
 must yield a typed basis-changed posture without applying any patch. Echo must

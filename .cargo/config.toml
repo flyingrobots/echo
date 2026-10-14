@@ -3,3 +3,10 @@
 
 [alias]
 xtask = "run -p xtask --"
+
+# Cargo retries network failures it classes as spurious (refused connections,
+# timeouts, HTTP/2 errors) with growing, capped backoff. Its default of 3
+# retries gave up during short crates.io outages in CI (#843). Ten retries
+# wait on the order of a minute in total, so a real outage still fails.
+[net]
+retry = 10

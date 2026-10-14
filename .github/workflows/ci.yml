@@ -76,7 +76,6 @@ jobs:
                     -p echo-edict-provider-lowerer \
                     -p echo-runtime-schema \
                     -p echo-dry-tests \
-                    -p echo-graph \
                     --lib -- -D warnings -D missing_docs
 
     clippy-libs-support:

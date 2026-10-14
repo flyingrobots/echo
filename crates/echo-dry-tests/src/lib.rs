@@ -12,7 +12,6 @@
 //! - [`demo_rules`] - Demo rules (motion, port) for integration tests
 //! - [`engine`] - Engine and GraphStore builder utilities
 //! - [`footprint`] - Ergonomic footprint construction via builder pattern
-//! - [`frames`] - WarpSnapshot and WarpDiff builders
 //! - [`hashes`] - Hash ID generation helpers (rule_id, intent_id, etc.)
 //! - [`motion`] - Motion payload encoding helpers
 //! - [`rules`] - Synthetic rule builders (noop matchers/executors)
@@ -20,7 +19,6 @@
 pub mod demo_rules;
 pub mod engine;
 pub mod footprint;
-pub mod frames;
 pub mod hashes;
 pub mod motion;
 pub mod rules;
@@ -32,7 +30,6 @@ pub use demo_rules::{
 };
 pub use engine::{build_engine_with_root, build_engine_with_typed_root, EngineTestBuilder};
 pub use footprint::FootprintBuilder;
-pub use frames::{DiffBuilder, SnapshotBuilder};
 pub use hashes::{make_intent_id, make_rule_id};
 pub use motion::{MotionPayloadBuilder, DEFAULT_MOTION_POSITION, DEFAULT_MOTION_VELOCITY};
 pub use rules::{NoOpRule, SyntheticRuleBuilder};

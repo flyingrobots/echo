@@ -11,7 +11,6 @@ members = [
     "crates/warp-geom",
     "crates/warp-benches",
     "crates/echo-file-aperture",
-    "crates/echo-graph",
     "crates/echo-dind-harness",
     "crates/echo-dind-tests",
     "crates/echo-wasm-abi",
@@ -25,7 +24,6 @@ members = [
     "crates/echo-scene-port",
     "crates/echo-scene-codec",
     "xtask",
-    "crates/echo-trace",
 ]
 resolver = "2"
 
@@ -40,7 +38,6 @@ echo-cas = { version = "0.1.0", path = "crates/echo-cas" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }
 echo-file-aperture = { version = "0.1.0", path = "crates/echo-file-aperture" }
-echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
 echo-runtime-schema = { version = "0.1.0", path = "crates/echo-runtime-schema", default-features = false }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
 echo-edict-canonical = { version = "0.1.0", path = "crates/echo-edict-canonical" }

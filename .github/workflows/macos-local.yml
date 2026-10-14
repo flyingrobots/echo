@@ -31,7 +31,6 @@ jobs:
             -p echo-wasm-abi \
             -p echo-runtime-schema \
             -p echo-dry-tests \
-            -p echo-graph \
             -p echo-registry-api \
             -p echo-wesley-gen \
             -p echo-cas \

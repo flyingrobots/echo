@@ -1076,6 +1076,129 @@ mod tests {
         );
     }
 
+    /// Builds `root -> child` in one warp, plus whatever `extra` adds, and
+    /// checks the accumulator root against the engine root.
+    fn assert_root_parity(name: &str, extra: impl FnOnce(&mut crate::graph::GraphStore)) {
+        use crate::graph::GraphStore;
+        use crate::warp_state::WarpState;
+
+        let warp = make_warp_id(name);
+        let root = make_node_id("root");
+        let child = make_node_id("child");
+        let mut store = GraphStore::new(warp);
+        for node in [root, child] {
+            store.insert_node(
+                node,
+                NodeRecord {
+                    ty: make_type_id("Node"),
+                },
+            );
+        }
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: make_edge_id("root-child"),
+                from: root,
+                to: child,
+                ty: make_type_id("Link"),
+            },
+        );
+        extra(&mut store);
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: warp,
+                root_node: root,
+                parent: None,
+            },
+            store,
+        );
+        let root_key = NodeKey {
+            warp_id: warp,
+            local_id: root,
+        };
+        assert_eq!(
+            SnapshotAccumulator::from_warp_state(&state)
+                .build(&root_key, [0; 32], 0)
+                .state_root,
+            crate::snapshot::compute_state_root(&state, &root_key),
+            "{name}"
+        );
+    }
+
+    #[test]
+    fn accumulator_root_matches_with_unreachable_content() {
+        assert_root_parity("parity-unreachable", |store| {
+            let island = make_node_id("island");
+            let other = make_node_id("island-other");
+            for node in [island, other] {
+                store.insert_node(
+                    node,
+                    NodeRecord {
+                        ty: make_type_id("Island"),
+                    },
+                );
+            }
+            store.insert_edge(
+                island,
+                EdgeRecord {
+                    id: make_edge_id("island-edge"),
+                    from: island,
+                    to: other,
+                    ty: make_type_id("Link"),
+                },
+            );
+            // An unreachable source pointing at a reachable node.
+            store.insert_edge(
+                island,
+                EdgeRecord {
+                    id: make_edge_id("island-to-child"),
+                    from: island,
+                    to: make_node_id("child"),
+                    ty: make_type_id("Link"),
+                },
+            );
+            store.set_node_attachment(
+                island,
+                Some(AttachmentValue::Atom(crate::attachment::AtomPayload::new(
+                    make_type_id("Payload"),
+                    bytes::Bytes::from_static(b"unreachable"),
+                ))),
+            );
+        });
+    }
+
+    #[test]
+    fn accumulator_root_matches_after_a_source_loses_its_last_edge() {
+        assert_root_parity("parity-last-edge", |store| {
+            assert!(store.delete_edge_exact(make_node_id("root"), make_edge_id("root-child")));
+        });
+    }
+
+    #[test]
+    fn accumulator_root_matches_after_cascade_removes_a_sources_only_target() {
+        assert_root_parity("parity-cascade", |store| {
+            // `root`'s only edge points at `child`; cascading `child` empties
+            // `root`'s bucket.
+            assert!(store.delete_node_cascade(make_node_id("child")));
+        });
+    }
+
+    #[test]
+    fn accumulator_root_matches_with_an_edge_to_a_missing_node() {
+        assert_root_parity("parity-dangling", |store| {
+            store.insert_edge(
+                make_node_id("root"),
+                EdgeRecord {
+                    id: make_edge_id("root-missing"),
+                    from: make_node_id("root"),
+                    to: make_node_id("never-inserted"),
+                    ty: make_type_id("Link"),
+                },
+            );
+        });
+    }
+
     #[test]
     fn test_empty_accumulator() {
         let acc = SnapshotAccumulator::new();

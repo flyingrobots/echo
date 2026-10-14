@@ -70,6 +70,20 @@ footprint_enforce_release = []
 # Mutually exclusive with `footprint_enforce_release`.
 unsafe_graph = []
 
+# Action-path benchmarks. They drive a trusted host through its public calls,
+# so they live in this crate, which already has every dependency they need;
+# adding those to `warp-benches` would change `Cargo.lock`, which the provider
+# package binds. Each prints a table; none uses a benchmark harness.
+[[bench]]
+name = "action_footprint_overlap"
+harness = false
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[bench]]
+name = "wal_record_cost"
+harness = false
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
 [[test]]
 name = "parallel_parallel_exec"
 required-features = ["delta_validate"]

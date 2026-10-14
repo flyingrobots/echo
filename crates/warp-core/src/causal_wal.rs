@@ -1944,10 +1944,20 @@ pub struct InMemoryWalStore {
 /// Frames, commits, seals and manifests are only ever appended, so their
 /// lengths are enough to remove what came after. Epoch bookkeeping is small
 /// and is kept whole.
+/// Used only by the trusted host and tests.
+#[cfg(any(
+    test,
+    all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+))]
 #[derive(Clone, Debug)]
-pub struct InMemoryWalStoreMark {
+pub(crate) struct InMemoryWalStoreMark {
     frames: usize,
     commits: usize,
+    /// The last frame and commit at the mark. A rewind checks that the store
+    /// still holds them at the same positions, so a mark cannot cut a
+    /// different log, or this log after it was rewound and grew again.
+    last_frame: Option<WalFrame>,
+    last_commit_digest: Option<Hash>,
     sealed_segments: usize,
     manifests: usize,
     active_epoch: Option<WriterEpoch>,
@@ -1963,11 +1973,17 @@ impl InMemoryWalStore {
 
     /// Marks the current end of the store. Costs nothing in proportion to
     /// what the store holds, unlike a clone.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
     #[must_use]
-    pub fn mark(&self) -> InMemoryWalStoreMark {
+    pub(crate) fn mark(&self) -> InMemoryWalStoreMark {
         InMemoryWalStoreMark {
             frames: self.frames.len(),
             commits: self.commits.len(),
+            last_frame: self.frames.last().cloned(),
+            last_commit_digest: self.commits.last().map(|commit| commit.commit_digest),
             sealed_segments: self.sealed_segments.len(),
             manifests: self.manifests.len(),
             active_epoch: self.active_epoch.clone(),
@@ -1981,16 +1997,32 @@ impl InMemoryWalStore {
     ///
     /// # Errors
     ///
-    /// Returns [`WalStoreError::Io`] if the store is shorter than the mark,
-    /// which means it was rewound or replaced since the mark was taken.
-    pub fn rewind_to(&mut self, mark: InMemoryWalStoreMark) -> Result<(), WalStoreError> {
-        if self.frames.len() < mark.frames
-            || self.commits.len() < mark.commits
-            || self.sealed_segments.len() < mark.sealed_segments
-            || self.manifests.len() < mark.manifests
-        {
+    /// Returns [`WalStoreError::Io`] and changes nothing if the store does
+    /// not still begin with the marked prefix: it is shorter than the mark,
+    /// or the record at the end of the mark is not the one the mark saw.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    pub(crate) fn rewind_to(&mut self, mark: InMemoryWalStoreMark) -> Result<(), WalStoreError> {
+        let frame_at_mark = mark
+            .frames
+            .checked_sub(1)
+            .and_then(|index| self.frames.get(index));
+        let commit_at_mark = mark
+            .commits
+            .checked_sub(1)
+            .and_then(|index| self.commits.get(index))
+            .map(|commit| commit.commit_digest);
+        let holds_prefix = self.frames.len() >= mark.frames
+            && self.commits.len() >= mark.commits
+            && self.sealed_segments.len() >= mark.sealed_segments
+            && self.manifests.len() >= mark.manifests
+            && frame_at_mark == mark.last_frame.as_ref()
+            && commit_at_mark == mark.last_commit_digest;
+        if !holds_prefix {
             return Err(WalStoreError::Io(
-                "in-memory WAL store is shorter than the rewind mark".to_owned(),
+                "in-memory WAL store does not hold the marked prefix".to_owned(),
             ));
         }
         self.frames.truncate(mark.frames);

@@ -326,7 +326,12 @@ pub fn verify(request: VerificationRequestV1) -> VerificationResultV1 {
         &request.semantic_inputs,
         map_field(&target_ir, "semanticClosure").is_some(),
     )
-    .map_err(|()| unsupported_semantics(OPERATION_COORDINATE))?;
+    .map_err(|()| {
+        unsupported_semantics(
+            OPERATION_COORDINATE,
+            "the expected target IR could not be derived from the Core",
+        )
+    })?;
     let failure = relation_failure(&target_ir, &expected);
     let (outcome, diagnostics) = match failure {
         None => ("accepted", Vec::new()),
@@ -406,11 +411,17 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
         ),
     ];
     if inputs.len() != 4 {
-        return Err(unsupported_semantics("semantic-inputs"));
+        return Err(unsupported_semantics(
+            "semantic-inputs",
+            "the DPO lowering closure requires exactly four semantic inputs",
+        ));
     }
     for ((role, kind, coordinate, domain, bytes), input) in EXPECTED.into_iter().zip(inputs) {
         if input.role != role || input.kind != kind {
-            return Err(unsupported_semantics(&input.role));
+            return Err(unsupported_semantics(
+                &input.role,
+                "semantic input role or kind differs from the checked DPO closure order",
+            ));
         }
         validate_binding(&input.artifact)
             .map_err(|()| invalid_artifact(&input.role, "artifact binding is invalid"))?;
@@ -430,12 +441,24 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
         || lowerability.artifact.reference.coordinate != LOWERABILITY_COORDINATE
         || lowerability.artifact.artifact.domain != LOWERABILITY_DOMAIN
     {
-        return Err(unsupported_semantics(&lowerability.role));
+        return Err(unsupported_semantics(
+            &lowerability.role,
+            "lowerability input role, kind, coordinate, or domain differs from the checked closure",
+        ));
     }
     let value = validate_binding(&lowerability.artifact)
         .map_err(|()| invalid_artifact(&lowerability.role, "artifact binding is invalid"))?;
-    if value != expected_lowerability().map_err(|()| unsupported_semantics(&lowerability.role))? {
-        return Err(unsupported_semantics(&lowerability.role));
+    let expected = expected_lowerability().map_err(|()| {
+        unsupported_semantics(
+            &lowerability.role,
+            "the checked DPO lowerability facts could not be constructed",
+        )
+    })?;
+    if value != expected {
+        return Err(unsupported_semantics(
+            &lowerability.role,
+            "lowerability facts differ from the checked DPO lowerability facts",
+        ));
     }
     Ok(())
 }
@@ -503,7 +526,10 @@ fn validate_core(core: &BoundArtifact) -> Result<CanonicalValueV1, ProviderRefus
             "requiredCoreCapabilities",
         ],
     ) {
-        return Err(unsupported_semantics("core.echo-provider"));
+        return Err(unsupported_semantics(
+            "core.echo-provider",
+            "Core top-level fields differ from the reviewed Core field set",
+        ));
     }
     let coordinate = text_field(&value, "coordinate")
         .filter(|coordinate| !coordinate.is_empty())
@@ -515,13 +541,19 @@ fn validate_core(core: &BoundArtifact) -> Result<CanonicalValueV1, ProviderRefus
         ));
     }
     if coordinate != CORE_COORDINATE {
-        return Err(unsupported_semantics(coordinate));
+        return Err(unsupported_semantics(
+            coordinate,
+            "Core coordinate is not the reviewed DPO Core coordinate",
+        ));
     }
     if !matches!(array_field(&value, "imports"), Some(values) if values.is_empty())
         || map_field(&value, "types") != expected_core_types().ok().as_ref()
         || !matches!(array_field(&value, "requiredCoreCapabilities"), Some(values) if values.is_empty())
     {
-        return Err(unsupported_semantics(coordinate));
+        return Err(unsupported_semantics(
+            coordinate,
+            "Core imports, types, or required capabilities differ from the reviewed Core",
+        ));
     }
     validate_core_intent(&value)?;
     Ok(value)
@@ -532,7 +564,10 @@ fn validate_core_intent(core: &CanonicalValueV1) -> Result<(), ProviderRefusalV1
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact("core.echo-provider", "Core intents are invalid"))?;
     let [(key, intent)] = intents.as_slice() else {
-        return Err(unsupported_semantics(CORE_COORDINATE));
+        return Err(unsupported_semantics(
+            CORE_COORDINATE,
+            "Core must declare exactly one intent",
+        ));
     };
     if as_text(key) != Some("t")
         || !has_exact_fields(
@@ -552,11 +587,19 @@ fn validate_core_intent(core: &CanonicalValueV1) -> Result<(), ProviderRefusalV1
         || !matches!(array_field(intent, "inputConstraints"), Some(values) if values.is_empty())
         || map_field(intent, "coreEvaluationBudget") != expected_core_budget().ok().as_ref()
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "Core intent signature, profile, constraints, or budget is not the reviewed intent",
+        ));
     }
     let body = map_field(intent, "body")
         .filter(|body| has_exact_fields(body, &["locals", "nodes", "result"]))
-        .ok_or_else(|| unsupported_semantics(OPERATION_COORDINATE))?;
+        .ok_or_else(|| {
+            unsupported_semantics(
+                OPERATION_COORDINATE,
+                "Core body fields differ from locals, nodes, and result",
+            )
+        })?;
     let locals = array_field(body, "locals")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core locals are invalid"))?;
     let expected_input = reviewed_input_local();
@@ -569,12 +612,18 @@ fn validate_core_intent(core: &CanonicalValueV1) -> Result<(), ProviderRefusalV1
             expected_reason.clone(),
         ]
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "Core locals differ from the reviewed input, receipt, and reason locals",
+        ));
     }
     let nodes = array_field(body, "nodes")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "Core nodes are invalid"))?;
     let [node] = nodes.as_slice() else {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "Core body must contain exactly one node",
+        ));
     };
     validate_core_effect(node, &expected_input, &expected_receipt, &expected_reason)?;
     let result = map_field(body, "result")
@@ -584,6 +633,7 @@ fn validate_core_intent(core: &CanonicalValueV1) -> Result<(), ProviderRefusalV1
         &[&expected_input, &expected_receipt],
         &[],
         MAX_EXPRESSION_DEPTH,
+        "Core result",
     )?;
     if reviewed_expr_shape(
         result,
@@ -591,7 +641,10 @@ fn validate_core_intent(core: &CanonicalValueV1) -> Result<(), ProviderRefusalV1
         MAX_EXPRESSION_DEPTH,
     ) != Some(ReviewedValueShape::RecordLiteralWithId)
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "Core result is not a record literal with an id field",
+        ));
     }
     Ok(())
 }
@@ -609,27 +662,45 @@ fn validate_core_effect(
         || map_field(node, "binding") != Some(receipt_local)
         || text_field(node, "effect") != Some(SEMANTIC_EFFECT)
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "body node is not the reviewed semantic effect",
+        ));
     }
     let input = map_field(node, "input")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "effect input is absent"))?;
-    validate_supported_expr(input, &[input_local], &[], MAX_EXPRESSION_DEPTH)?;
+    validate_supported_expr(
+        input,
+        &[input_local],
+        &[],
+        MAX_EXPRESSION_DEPTH,
+        "effect input",
+    )?;
     if reviewed_expr_shape(input, &[input_local], MAX_EXPRESSION_DEPTH)
         != Some(ReviewedValueShape::StringScalar)
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "effect input is not a string scalar",
+        ));
     }
     let obstruction_map = map_field(node, "obstructionMap")
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction map is invalid"))?;
     let [(failure, arm)] = obstruction_map.as_slice() else {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "effect obstruction map must contain exactly one arm",
+        ));
     };
     if as_text(failure) != Some(FAILURE_COORDINATE)
         || !has_exact_fields(arm, &["binder", "value"])
         || map_field(arm, "binder") != Some(reason_local)
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "obstruction arm failure, fields, or binder differs from the reviewed arm",
+        ));
     }
     let value = map_field(arm, "value")
         .ok_or_else(|| invalid_artifact(OPERATION_COORDINATE, "obstruction value is absent"))?;
@@ -638,12 +709,16 @@ fn validate_core_effect(
         &[input_local, reason_local],
         &[DOMAIN_OBSTRUCTION],
         MAX_EXPRESSION_DEPTH,
+        "obstruction value",
     )?;
     if text_field(value, "callee") != Some(DOMAIN_OBSTRUCTION)
         || !matches!(array_field(value, "typeArgs"), Some(values) if values.is_empty())
         || !matches!(array_field(value, "args"), Some(values) if values.is_empty())
     {
-        return Err(unsupported_semantics(OPERATION_COORDINATE));
+        return Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            "obstruction value is not a call without type or value arguments",
+        ));
     }
     Ok(())
 }
@@ -1203,12 +1278,17 @@ fn validate_supported_expr(
     scope: &[&CanonicalValueV1],
     allowed_callees: &[&str],
     remaining_depth: usize,
+    context: &str,
 ) -> Result<(), ProviderRefusalV1> {
-    preflight_expr(value, remaining_depth).map_err(expression_preflight_refusal)?;
+    preflight_expr(value, remaining_depth)
+        .map_err(|error| expression_preflight_refusal(error, context))?;
     if validate_expr(value, scope, allowed_callees, remaining_depth) {
         Ok(())
     } else {
-        Err(unsupported_semantics(OPERATION_COORDINATE))
+        Err(unsupported_semantics(
+            OPERATION_COORDINATE,
+            &format!("{context}: expression exceeds the reviewed scope, callees, or value bounds"),
+        ))
     }
 }
 
@@ -1643,7 +1723,10 @@ fn preflight_core_value(
     }
 }
 
-fn expression_preflight_refusal(error: ExpressionPreflightError) -> ProviderRefusalV1 {
+fn expression_preflight_refusal(
+    error: ExpressionPreflightError,
+    context: &str,
+) -> ProviderRefusalV1 {
     match error {
         ExpressionPreflightError::InvalidDiscriminator => refusal(
             ProviderRefusalKind::InvalidSemanticArtifact,
@@ -1663,7 +1746,10 @@ fn expression_preflight_refusal(error: ExpressionPreflightError) -> ProviderRefu
             "echo.verifier.expression-depth-exceeded",
             "Core expression exceeds the verifier recursion bound",
         ),
-        ExpressionPreflightError::Unsupported => unsupported_semantics(OPERATION_COORDINATE),
+        ExpressionPreflightError::Unsupported => unsupported_semantics(
+            OPERATION_COORDINATE,
+            &format!("{context}: expression kind is outside the reviewed expression set"),
+        ),
     }
 }
 
@@ -1907,11 +1993,15 @@ fn invalid_artifact(subject: &str, message: &str) -> ProviderRefusalV1 {
     )
 }
 
-fn unsupported_semantics(subject: &str) -> ProviderRefusalV1 {
+/// Refuse semantics outside the verifier boundary, naming the check that fired.
+///
+/// `check` is a short, deterministic phrase unique to one refusal site, so a
+/// diagnostic identifies which check refused rather than only the refusal kind.
+fn unsupported_semantics(subject: &str, check: &str) -> ProviderRefusalV1 {
     refusal(
         ProviderRefusalKind::UnsupportedSemantics,
         subject,
         "echo.verifier.unsupported-semantics",
-        "the semantic closure is outside the first reviewed Echo verifier boundary",
+        &format!("unsupported semantics: {check}"),
     )
 }

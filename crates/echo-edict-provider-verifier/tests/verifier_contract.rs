@@ -8,9 +8,9 @@ use echo_edict_canonical::{
 };
 use echo_edict_provider_verifier::{
     verify, Artifact, BoundArtifact, DiagnosticSeverity, Digest, DigestAlgorithm,
-    ProtocolVersionV1, ProviderRefusalKind, ResourceRef, ResponseLimitsV1, SemanticInput,
-    SemanticInputKind, VerificationOutputKind, VerificationOutputRequest, VerificationRequestV1,
-    VerificationSuccessV1,
+    ProtocolVersionV1, ProviderRefusalKind, ProviderRefusalV1, ResourceRef, ResponseLimitsV1,
+    SemanticInput, SemanticInputKind, VerificationOutputKind, VerificationOutputRequest,
+    VerificationRequestV1, VerificationSuccessV1,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -924,6 +924,10 @@ fn semantic_guard_and_footprint_declarations_are_pinned() {
         refusal.diagnostics[0].code,
         "echo.verifier.unsupported-semantics"
     );
+    assert_unsupported_check(
+        &refusal,
+        "lowerability facts differ from the checked DPO lowerability facts",
+    );
 
     let mut changed_footprint = lowerability_value();
     *map_field_mut(&mut changed_footprint, "footprintObligations") =
@@ -939,6 +943,21 @@ fn semantic_guard_and_footprint_declarations_are_pinned() {
     assert_eq!(
         refusal.diagnostics[0].code,
         "echo.verifier.unsupported-semantics"
+    );
+    assert_unsupported_check(
+        &refusal,
+        "lowerability facts differ from the checked DPO lowerability facts",
+    );
+}
+
+/// Assert that exactly the named unsupported-semantics check refused.
+fn assert_unsupported_check(refusal: &ProviderRefusalV1, check: &str) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(
+        diagnostic.message,
+        format!("unsupported semantics: {check}")
     );
 }
 
@@ -1011,6 +1030,10 @@ fn string_bound_counts_unicode_scalar_values() {
         refusal.diagnostics[0].code,
         "echo.verifier.unsupported-semantics"
     );
+    assert_unsupported_check(
+        &refusal,
+        "effect input: expression exceeds the reviewed scope, callees, or value bounds",
+    );
 }
 
 #[test]
@@ -1033,6 +1056,7 @@ fn type_wrong_correlated_artifacts_refuse_instead_of_agreeing() {
     bind_target_ir(&mut wrong_effect, &wrong_effect_target);
     let refusal = verify(wrong_effect).expect_err("a record cannot become an effect scalar");
     assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(&refusal, "effect input is not a string scalar");
 
     let scalar_result = map([
         ("kind", text("const")),
@@ -1050,6 +1074,10 @@ fn type_wrong_correlated_artifacts_refuse_instead_of_agreeing() {
     bind_target_ir(&mut wrong_result, &wrong_result_target);
     let refusal = verify(wrong_result).expect_err("a scalar cannot become the output record");
     assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(
+        &refusal,
+        "Core result is not a record literal with an id field",
+    );
 
     for local_index in [0, 1] {
         let mut wrong_nominal_core = core_value();
@@ -1070,6 +1098,10 @@ fn type_wrong_correlated_artifacts_refuse_instead_of_agreeing() {
         bind_target_ir(&mut case, &wrong_nominal_target);
         let refusal = verify(case).expect_err("Input and Receipt are not Output records");
         assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+        assert_unsupported_check(
+            &refusal,
+            "Core result is not a record literal with an id field",
+        );
     }
 }
 

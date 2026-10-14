@@ -312,6 +312,7 @@ fn bounded_read_source_helper_refuses_the_original_insufficient_step_ceiling() {
         refusal.kind,
         echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_source_functions_refusal(&refusal);
     // Build only the valid positive through the lowerer, then independently
     // replace every affected budget/authority carrier from the rejected request.
     let mut verification = request(read_helper());
@@ -561,6 +562,18 @@ fn lowerer_source_function_names_cannot_shadow_imported_read_effects() {
     assert_eq!(
         refusal.kind,
         echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+    assert_source_functions_refusal(&refusal);
+}
+
+/// Assert that the lowerer's source-function judgment, not another check, refused.
+fn assert_source_functions_refusal(refusal: &echo_edict_provider_lowerer::ProviderRefusalV1) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(
+        diagnostic.message.strip_prefix("unsupported semantics: "),
+        Some("Core source functions are outside the checked pure-function profile")
     );
 }
 

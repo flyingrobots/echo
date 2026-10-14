@@ -66,8 +66,12 @@ impl<'a> Frame<'a> {
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    audit(core, exports, read)
-        .map_err(|()| super::super::unsupported_semantics("core.source-functions-verification"))
+    audit(core, exports, read).map_err(|()| {
+        super::super::unsupported_semantics(
+            "core.source-functions-verification",
+            "Core source functions are outside the checked pure-function profile",
+        )
+    })
 }
 fn audit(core: &Value, exports: &Value, read: bool) -> Check<()> {
     let mut types = Types::new(core);

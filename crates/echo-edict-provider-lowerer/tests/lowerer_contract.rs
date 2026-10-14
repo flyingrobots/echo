@@ -9,7 +9,8 @@ use echo_edict_canonical::{
 use echo_edict_provider_lowerer::{
     lower, Artifact, BoundArtifact, Digest, DigestAlgorithm, LoweringOutputArtifact,
     LoweringOutputKind, LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1,
-    ProviderRefusalKind, ResourceRef, ResponseLimitsV1, SemanticInput, SemanticInputKind,
+    ProviderRefusalKind, ProviderRefusalV1, ResourceRef, ResponseLimitsV1, SemanticInput,
+    SemanticInputKind,
 };
 use sha2::{Digest as ShaDigest, Sha256};
 
@@ -1168,6 +1169,10 @@ fn unrecognized_lowerability_obligation_refuses_instead_of_being_ignored() {
     let refusal = lower(request).expect_err("unrecognized obligations cannot be discharged");
     assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
     assert_eq!(refusal.subject.as_deref(), Some("lowerability.echo-dpo"));
+    assert_unsupported_check(
+        &refusal,
+        "lowerability facts differ from the checked DPO lowerability facts",
+    );
 }
 
 #[test]
@@ -1242,9 +1247,11 @@ fn malformed_or_incomplete_semantic_closure_refuses() {
     missing
         .semantic_inputs
         .retain(|input| input.role != "authority-facts.echo-lawpack");
-    assert_eq!(
-        lower(missing).expect_err("incomplete closure refuses").kind,
-        ProviderRefusalKind::UnsupportedSemantics
+    let refusal = lower(missing).expect_err("incomplete closure refuses");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(
+        &refusal,
+        "the DPO lowering closure requires exactly four semantic inputs",
     );
 }
 
@@ -1260,12 +1267,10 @@ fn unsupported_core_abi_and_semantics_refuse_without_artifacts() {
     );
 
     let read = core_value(ordinary_result(), None);
-    assert_eq!(
-        lower(request_with_core(read))
-            .expect_err("effect-free reads are not synthetic mutations")
-            .kind,
-        ProviderRefusalKind::UnsupportedSemantics
-    );
+    let refusal =
+        lower(request_with_core(read)).expect_err("effect-free reads are not synthetic mutations");
+    assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
+    assert_unsupported_check(&refusal, "Core body must contain exactly one node");
 }
 
 #[test]
@@ -1349,6 +1354,7 @@ fn authored_core_optic_refuses_instead_of_being_silently_discarded() {
         .expect_err("an authored optic cannot disappear across lowering");
     assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
     assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
+    assert_unsupported_check(&refusal, "intent declares an optic");
 }
 
 #[test]
@@ -1445,6 +1451,7 @@ fn nonempty_input_constraints_refuse_instead_of_crossing_unchecked() {
     assert_unsupported_semantics(
         core,
         "input constraints need explicit lowering and scope validation",
+        "intent declares input constraints",
     );
 }
 
@@ -1456,6 +1463,7 @@ fn unreviewed_effect_input_call_refuses_as_unsupported_semantics() {
     assert_unsupported_semantics(
         core,
         "an unreviewed effect-input call cannot cross lowering",
+        "effect input is invalid: expression calls an unsupported callee",
     );
 }
 
@@ -1468,6 +1476,7 @@ fn unreviewed_intent_result_call_refuses_as_unsupported_semantics() {
     assert_unsupported_semantics(
         core,
         "an unreviewed intent-result call cannot cross lowering",
+        "Core result is invalid: expression calls an unsupported callee",
     );
 }
 
@@ -1615,6 +1624,7 @@ fn obstruction_constructor_name_is_authored_but_arguments_remain_closed() {
         assert_unsupported_semantics(
             core,
             "an unreviewed obstruction constructor cannot cross lowering",
+            "obstruction value is not a call without type or value arguments",
         );
     }
 }
@@ -1724,7 +1734,7 @@ fn assert_invalid_local_declarations(core: CanonicalValueV1) {
     );
 }
 
-fn assert_unsupported_semantics(core: CanonicalValueV1, message: &str) {
+fn assert_unsupported_semantics(core: CanonicalValueV1, message: &str, check: &str) {
     let refusal = lower(request_with_core(core)).expect_err(message);
     assert_eq!(refusal.kind, ProviderRefusalKind::UnsupportedSemantics);
     assert_eq!(refusal.subject.as_deref(), Some("a.b@1.t"));
@@ -1732,5 +1742,17 @@ fn assert_unsupported_semantics(core: CanonicalValueV1, message: &str) {
     assert_eq!(
         refusal.diagnostics[0].code,
         "echo.provider.unsupported-semantics"
+    );
+    assert_unsupported_check(&refusal, check);
+}
+
+/// Assert that exactly the named unsupported-semantics check refused.
+fn assert_unsupported_check(refusal: &ProviderRefusalV1, check: &str) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(
+        diagnostic.message,
+        format!("unsupported semantics: {check}")
     );
 }

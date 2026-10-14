@@ -66,8 +66,12 @@ struct Judgment<'a> {
 }
 
 pub(super) fn validate(core: &Value, exports: &Value, read: bool) -> Result<(), ProviderRefusalV1> {
-    run(core, exports, read)
-        .map_err(|()| super::super::unsupported_semantics("core.source-functions"))
+    run(core, exports, read).map_err(|()| {
+        super::super::unsupported_semantics(
+            "core.source-functions",
+            "Core source functions are outside the checked pure-function profile",
+        )
+    })
 }
 fn run(core: &Value, exports: &Value, read: bool) -> Check<()> {
     let mut functions = BTreeMap::new();

@@ -304,5 +304,6 @@ fn an_unknown_qualified_pure_call_remains_rejected_by_both_judgments() {
         refusal.kind,
         echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_source_functions_refusal(&refusal);
     assert_rejected(independently_rebound_request(source));
 }

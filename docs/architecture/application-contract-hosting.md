@@ -516,7 +516,11 @@ ordinary durable ingress acceptance. Retrying the same semantic request returns
 its original canonical invocation and resolves its original native disposition;
 different input, package, operation, grant, or observation attempt under that
 identity is refused. A crash between binding and ingress can resume acceptance
-of that exact invocation. Transport rebasing does not alter its meaning.
+of that exact invocation. Transport rebasing does not alter its meaning. Submitting a bound request through
+`submit_bound_echo_operation_request_v1` also retains a durable link from the
+request to its submission, after acceptance; a retry completes a missing link,
+and `echo_operation_request_outcome_v1` reads the request's outcome through it.
+This link is the prerequisite for retiring contexts (#854).
 
 Observation preconditions execute in Echo's operation preparation, against the
 state the scheduler will commit from. Their resource reads enter the native

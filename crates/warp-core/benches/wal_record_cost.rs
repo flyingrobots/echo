@@ -24,7 +24,9 @@
 //! Settings (environment):
 //! - `ECHO_BENCH_HISTORY`: history lengths to report (default 250,500,1000,2000)
 //! - `ECHO_BENCH_WINDOW`: updates in each measured window (default 100)
-//! - `ECHO_BENCH_CELLS`: cells in the scene (default 1)
+//! - `ECHO_BENCH_CELLS`: cells in the scene, each reachable from the root
+//!   (default 1)
+//! - `ECHO_BENCH_UNLINKED`: leave the cells unreachable, outside the state root
 //! - `ECHO_BENCH_DURABILITY`: none, in-memory, filesystem (default: all three)
 //! - `ECHO_BENCH_LOG_DIR`: where the filesystem log is written (default: the
 //!   system temporary directory). The numbers depend on this device.
@@ -34,7 +36,9 @@ mod action_scene;
 
 use std::time::{Duration, Instant};
 
-use action_scene::{log_parent, percentile_us, setting, setting_list, Durability, Scene};
+use action_scene::{
+    log_parent, percentile_us, reachability_label, setting, setting_list, Durability, Scene,
+};
 
 fn durabilities() -> Vec<Durability> {
     let all = [
@@ -73,7 +77,8 @@ fn main() {
     );
 
     println!(
-        "wal_record_cost: {cells} cell(s), one Action and one tick per update, window {window}, log directory {}",
+        "wal_record_cost: {cells} cell(s) ({}), one Action and one tick per update, window {window}, log directory {}",
+        reachability_label(),
         log_parent().display()
     );
     println!(

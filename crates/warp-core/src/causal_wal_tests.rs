@@ -87,7 +87,7 @@ use echo_cas::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2637,9 +2637,25 @@ fn builder(
     authority: WalAppendAuthority,
     kind: WalTransactionKind,
 ) -> WalTransactionBuilder {
+    builder_in_segment(
+        WalSegmentId::from_raw(1),
+        transaction_id,
+        first_lsn,
+        authority,
+        kind,
+    )
+}
+
+fn builder_in_segment(
+    segment_id: WalSegmentId,
+    transaction_id: WalTransactionId,
+    first_lsn: Lsn,
+    authority: WalAppendAuthority,
+    kind: WalTransactionKind,
+) -> WalTransactionBuilder {
     WalTransactionBuilder::new(
         epoch_id(),
-        WalSegmentId::from_raw(1),
+        segment_id,
         transaction_id,
         kind,
         authority,
@@ -4915,4 +4931,189 @@ fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
     });
     assert!(ready.ready);
     assert!(ready.blocked_gates.is_empty());
+}
+
+fn submission_transaction_in_segment(
+    segment_id: WalSegmentId,
+    label: &str,
+    first_lsn: Lsn,
+) -> WalCommittedTransaction {
+    let builder = builder_in_segment(
+        segment_id,
+        transaction_id(&format!("tx:submission:{label}")),
+        first_lsn,
+        WalAppendAuthority::SubmissionIntake,
+        WalTransactionKind::SubmissionIntake,
+    );
+    must_ok(build_submission_acceptance_transaction(
+        builder,
+        submission_acceptance(label),
+        vec![frontier(
+            AffectedFrontierKind::SubmissionQueue,
+            &format!("queue:{label}:before"),
+            &format!("queue:{label}:after"),
+        )],
+    ))
+}
+
+/// The first frame of a tick transaction that is never committed.
+fn uncommitted_tick_frame_in_segment(
+    segment_id: WalSegmentId,
+    label: &str,
+    first_lsn: Lsn,
+) -> crate::causal_wal::WalFrame {
+    let builder = builder_in_segment(
+        segment_id,
+        transaction_id(&format!("tx:tick:{label}")),
+        first_lsn,
+        WalAppendAuthority::TrustedScheduler,
+        WalTransactionKind::SchedulerTick,
+    );
+    let transaction = must_ok(build_tick_transaction(
+        builder,
+        receipt_record(label, WalTickDecision::Applied),
+        correlation_record(label),
+        digest(&format!("state-delta:{label}")),
+        vec![
+            frontier(
+                AffectedFrontierKind::RuntimeState,
+                &format!("state:{label}:before"),
+                &format!("state:{label}:after"),
+            ),
+            frontier(
+                AffectedFrontierKind::ReceiptIndex,
+                &format!("receipt:{label}:before"),
+                &format!("receipt:{label}:after"),
+            ),
+        ],
+    ));
+    transaction.frames[0].clone()
+}
+
+/// Two committed transactions in two segments, then an uncommitted frame
+/// whose final record is torn. Returns the path of each segment.
+fn rotated_log_with_torn_uncommitted_tail(dir: &Path) -> (PathBuf, PathBuf) {
+    let mut store = must_ok(FilesystemWalStore::open(dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "truncation-first",
+        Lsn::from_raw(0),
+    )));
+    let first_segment = store.segment_path();
+    must_ok(store.rotate_segment(epoch_id()));
+    let second = WalSegmentId::from_raw(2);
+    must_ok(store.append_transaction(submission_transaction_in_segment(
+        second,
+        "truncation-second",
+        Lsn::from_raw(2),
+    )));
+    must_ok(store.append_uncommitted_frame(
+        epoch_id(),
+        uncommitted_tick_frame_in_segment(second, "truncation-tail", Lsn::from_raw(4)),
+    ));
+    let second_segment = store.segment_path();
+    let len = must_ok(fs::metadata(&second_segment)).len();
+    let file = must_ok(OpenOptions::new().write(true).open(&second_segment));
+    must_ok(file.set_len(len.saturating_sub(13)));
+    (first_segment, second_segment)
+}
+
+#[test]
+fn filesystem_truncation_stopped_at_any_step_loses_no_committed_transaction() {
+    // Find how many step boundaries one complete truncation passes.
+    let probe = temp_wal_dir("filesystem-truncation-steps-probe");
+    rotated_log_with_torn_uncommitted_tail(&probe);
+    let (steps, result) = crate::causal_wal::truncate_filesystem_segments_failing_at_for_test(
+        &probe,
+        Some(Lsn::from_raw(3)),
+        usize::MAX,
+    );
+    must_ok(result);
+    assert!(steps > 0, "a truncation has step boundaries");
+
+    for fail_at in 1..=steps {
+        let dir = temp_wal_dir(&format!("filesystem-truncation-stop-{fail_at}"));
+        rotated_log_with_torn_uncommitted_tail(&dir);
+
+        let (_, result) = crate::causal_wal::truncate_filesystem_segments_failing_at_for_test(
+            &dir,
+            Some(Lsn::from_raw(3)),
+            fail_at,
+        );
+        assert!(result.is_err(), "the injected fault stops step {fail_at}");
+
+        // What a crash at this boundary leaves must still hold both
+        // committed transactions.
+        let stopped = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+        assert_eq!(
+            stopped.transactions.len(),
+            2,
+            "committed history survives a stop at step {fail_at}"
+        );
+
+        // And a later writable recovery finishes the job.
+        must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::Writable));
+        let finished = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+        assert_eq!(finished.tail_posture, RecoveryTailPosture::Clean);
+        assert_eq!(finished.transactions.len(), 2);
+    }
+}
+
+#[test]
+fn filesystem_truncation_keeps_committed_records_in_their_segments() {
+    let dir = temp_wal_dir("filesystem-truncation-layout");
+    let (first_segment, second_segment) = rotated_log_with_torn_uncommitted_tail(&dir);
+    let first_before = must_ok(fs::read(&first_segment));
+
+    let report = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::Writable));
+
+    assert_eq!(
+        report.tail_posture,
+        RecoveryTailPosture::TruncatedAfter(Lsn::from_raw(3))
+    );
+    // A segment with nothing to drop is not rewritten.
+    assert_eq!(must_ok(fs::read(&first_segment)), first_before);
+    // The second transaction stays in the segment it was committed to.
+    assert!(second_segment.exists());
+    assert!(must_ok(fs::metadata(&second_segment)).len() > 0);
+    let after = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    assert_eq!(after.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(after.transactions.len(), 2);
+    // No rewrite scratch file is left behind.
+    for entry in must_ok(fs::read_dir(must_some(first_segment.parent()))) {
+        let name = must_ok(entry).file_name();
+        assert!(
+            name.to_string_lossy().ends_with(".ecwal"),
+            "unexpected file after truncation: {name:?}"
+        );
+    }
+}
+
+#[test]
+fn filesystem_truncation_removes_a_segment_that_held_only_uncommitted_records() {
+    let dir = temp_wal_dir("filesystem-truncation-empty-segment");
+    let mut store = must_ok(FilesystemWalStore::open(&dir, WalSegmentId::from_raw(1)));
+    must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+    must_ok(store.append_transaction(durable_submission_transaction(
+        "truncation-only",
+        Lsn::from_raw(0),
+    )));
+    must_ok(store.rotate_segment(epoch_id()));
+    must_ok(store.append_uncommitted_frame(
+        epoch_id(),
+        uncommitted_tick_frame_in_segment(
+            WalSegmentId::from_raw(2),
+            "truncation-only-tail",
+            Lsn::from_raw(2),
+        ),
+    ));
+    let second_segment = store.segment_path();
+
+    must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::Writable));
+
+    // Rotation refuses an existing next segment, so an emptied one must go.
+    assert!(!second_segment.exists());
+    let after = must_ok(recover_filesystem_store(&dir, RecoveryAccessMode::ReadOnly));
+    assert_eq!(after.tail_posture, RecoveryTailPosture::Clean);
+    assert_eq!(after.transactions.len(), 1);
 }

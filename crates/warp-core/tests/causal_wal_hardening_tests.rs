@@ -1018,6 +1018,44 @@ fn a_contender_refused_the_lease_syncs_nothing_in_the_live_log() {
     must_ok(fs::remove_dir_all(root));
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn a_lease_whose_log_could_not_be_synced_is_not_held() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    let root = temp_wal_root("writer-lease-sync-failure");
+    {
+        let mut store = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+        must_ok(store.acquire_writer_epoch(writer_epoch_request()));
+        must_ok(store.append_transaction(submission_transaction(
+            "before-lease-sync-failure",
+            Lsn::from_raw(0),
+        )));
+    }
+
+    let mut store = must_ok(FilesystemWalStore::open_with_fault_plan_for_test(
+        &root,
+        WalSegmentId::from_raw(1),
+        FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::RecoveredSegmentSync),
+    ));
+    let error = must_err(
+        store.acquire_writer_lease(),
+        "a lease is not granted over a log that could not be synced",
+    );
+    assert!(matches!(
+        error,
+        WalStoreError::Io(message) if message.contains("recovered_segment_sync")
+    ));
+    assert!(!store.holds_writer_lease());
+    assert_eq!(store.recovered_segment_sync_count_for_test(), 0);
+
+    // A retry takes the lease again and repeats the sync.
+    must_ok(store.acquire_writer_lease());
+    assert!(store.holds_writer_lease());
+    assert_eq!(store.recovered_segment_sync_count_for_test(), 1);
+    drop(store);
+    must_ok(fs::remove_dir_all(root));
+}
+
 #[test]
 fn filesystem_writer_epoch_ledger_digest_mismatch_fails_closed() {
     let root = temp_wal_root("writer-epoch-ledger-digest");

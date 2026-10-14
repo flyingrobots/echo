@@ -5967,7 +5967,8 @@ impl FilesystemWalStore {
     /// Returns [`WalStoreError::WriterEpochLeaseUnavailable`] when another
     /// writer holds the lease. Nothing in the log directory is modified or
     /// synced in that case. Returns a store error if the existing segments
-    /// cannot be synced once the lease is held.
+    /// cannot be synced once the lease is held; the lease is released, so a
+    /// retry syncs again.
     pub fn acquire_writer_lease(&mut self) -> Result<(), WalStoreError> {
         if self.writer_lock.is_some() {
             return Ok(());
@@ -5975,12 +5976,21 @@ impl FilesystemWalStore {
         let writer_lock = acquire_writer_epoch_lock(&self.root)?;
         self.writer_lock = Some(writer_lock);
         self.lease_awaits_epoch = true;
-        self.reload_writer_epoch_ledger()?;
         // An earlier writer may have stopped, or failed a sync, after
         // writing records. Make them durable before recovery reads them as
         // history. This is a change to the log, so it happens under the
         // lease and never for a contender that was refused.
-        self.sync_existing_segments()?;
+        let prepared = self
+            .reload_writer_epoch_ledger()
+            .and_then(|()| self.sync_existing_segments());
+        if let Err(error) = prepared {
+            // The lease is only useful with a synced log behind it. Give it
+            // up, so a later call takes it again and repeats the sync
+            // instead of reporting a lease whose log was never synced.
+            self.writer_lock = None;
+            self.lease_awaits_epoch = false;
+            return Err(error);
+        }
         Ok(())
     }
 

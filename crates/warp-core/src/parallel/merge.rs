@@ -73,7 +73,7 @@ pub struct MergeConflict {
 pub fn merge_deltas(
     deltas: Vec<Result<TickDelta, PoisonedDelta>>,
 ) -> Result<Vec<WarpOp>, MergeError> {
-    let mut flat: Vec<(crate::tick_patch::WarpOpKey, OpOrigin, WarpOp)> = Vec::new();
+    let mut flat: Vec<(WarpOpKey, OpOrigin, WarpOp)> = Vec::new();
 
     for d in deltas {
         let d = match d {
@@ -87,17 +87,67 @@ pub fn merge_deltas(
         }
     }
 
-    // Sort by (WarpOpKey, OpOrigin) - both are Ord
-    flat.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    merge_canonical(flat).map_err(|fault| match fault {
+        MergeFault::Conflict { key, writers } => {
+            MergeError::Conflict(Box::new(MergeConflict { key, writers }))
+        }
+        MergeFault::WriteToNewWarp {
+            warp_id,
+            origin,
+            op_kind,
+        } => MergeError::WriteToNewWarp {
+            warp_id,
+            op_origin: origin,
+            op_kind,
+        },
+    })
+}
 
-    // Collect newly created warps and validate no same-tick writes to them.
+/// Why [`merge_canonical`] refused a set of operations.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum MergeFault<O> {
+    /// Operations that share a key differ.
+    Conflict {
+        /// The shared key.
+        key: WarpOpKey,
+        /// Every writer of that key, in canonical order.
+        writers: Vec<O>,
+    },
+    /// An operation targets a warp that an `OpenPortal` creates in the same tick.
+    WriteToNewWarp {
+        /// The newly created warp.
+        warp_id: WarpId,
+        /// The writer of the violating operation.
+        origin: O,
+        /// The kind of the violating operation.
+        op_kind: &'static str,
+    },
+}
+
+/// The canonical merge, shared by the engine and [`merge_deltas`].
+///
+/// `O` identifies an operation's writer. Builds that record origins
+/// (`test` or `delta_validate`) pass [`OpOrigin`]; other builds pass `()`.
+/// The origin orders operations that share a key and names the writers in a
+/// refusal; it never changes which operations are accepted or their output
+/// order, because only identical operations survive under one key.
+///
+/// 1. Sort by (key, origin).
+/// 2. Refuse any write to a warp created in the same tick by
+///    `OpenPortal { init: Empty { .. }, .. }`.
+/// 3. Keep one operation per key when all are identical; refuse otherwise.
+pub(crate) fn merge_canonical<O: Ord + Copy>(
+    mut flat: Vec<(WarpOpKey, O, WarpOp)>,
+) -> Result<Vec<WarpOp>, MergeFault<O>> {
+    flat.sort_unstable_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+
     let new_warps = collect_new_warps(flat.iter().map(|(_, _, op)| op));
     for (_, origin, op) in &flat {
-        if let Some((target_warp, op_kind)) = extract_target_warp(op) {
-            if new_warps.contains(&target_warp) {
-                return Err(MergeError::WriteToNewWarp {
-                    warp_id: target_warp,
-                    op_origin: *origin,
+        if let Some((warp_id, op_kind)) = extract_target_warp(op) {
+            if new_warps.contains(&warp_id) {
+                return Err(MergeFault::WriteToNewWarp {
+                    warp_id,
+                    origin: *origin,
                     op_kind,
                 });
             }
@@ -106,31 +156,22 @@ pub fn merge_deltas(
 
     let mut out = Vec::with_capacity(flat.len());
     let mut i = 0;
-
     while i < flat.len() {
         let key = flat[i].0;
         let start = i;
-
-        // Find all ops with same WarpOpKey
         while i < flat.len() && flat[i].0 == key {
             i += 1;
         }
-
-        // Check if all ops in group are identical
         let first = &flat[start].2;
-        let all_same = flat[start + 1..i].iter().all(|(_, _, op)| op == first);
-
-        if all_same {
+        if flat[start + 1..i].iter().all(|(_, _, op)| op == first) {
             out.push(first.clone());
         } else {
-            let writers = flat[start..i].iter().map(|(_, o, _)| *o).collect();
-            return Err(MergeError::Conflict(Box::new(MergeConflict {
+            return Err(MergeFault::Conflict {
                 key,
-                writers,
-            })));
+                writers: flat[start..i].iter().map(|(_, o, _)| *o).collect(),
+            });
         }
     }
-
     Ok(out)
 }
 
@@ -161,24 +202,6 @@ pub(crate) fn collect_new_warps<'a>(ops: impl IntoIterator<Item = &'a WarpOp>) -
         .collect()
 }
 
-/// Finds the first operation that writes to a newly created warp.
-///
-/// Returns `Some((warp_id, op_kind))` on the first violation found, `None` if valid.
-#[cfg(not(any(test, feature = "delta_validate")))]
-pub(crate) fn find_write_to_new_warp<'a>(
-    ops: impl IntoIterator<Item = &'a WarpOp>,
-    new_warps: &BTreeSet<WarpId>,
-) -> Option<(WarpId, &'static str)> {
-    for op in ops {
-        if let Some((target_warp, op_kind)) = extract_target_warp(op) {
-            if new_warps.contains(&target_warp) {
-                return Some((target_warp, op_kind));
-            }
-        }
-    }
-    None
-}
-
 /// Extracts the target warp from an operation, if applicable.
 ///
 /// Returns `None` for `OpenPortal` (which creates the warp, not writes to it).
@@ -206,39 +229,139 @@ pub(crate) fn extract_target_warp(op: &WarpOp) -> Option<(WarpId, &'static str)>
     }
 }
 
-/// Validates that no operation writes to a warp created in the same tick.
-///
-/// This function provides a lightweight, non-`delta_validate` check for the same-tick
-/// write invariant that [`merge_deltas`] enforces in test/validation builds. Use this
-/// when you have a finalized op slice and need to verify the new-warp write rule without
-/// the full merge machinery.
-///
-/// # Preconditions
-///
-/// - `ops` should be a complete set of operations for a single tick.
-/// - Operations are not required to be sorted; the function scans linearly.
-///
-/// # Postconditions
-///
-/// Returns `None` if all operations respect the new-warp write rule (i.e., no op
-/// targets a warp that is being created via `OpenPortal` with `PortalInit::Empty`
-/// in the same tick).
-///
-/// Returns `Some((warp_id, op_kind))` on the first violation found, identifying
-/// the offending warp and operation type.
-///
-/// # When to use this vs [`merge_deltas`]
-///
-/// - Use `check_write_to_new_warp` for fast validation of a finalized op slice in
-///   release builds where `delta_validate` is disabled.
-/// - Use [`merge_deltas`] when you need full conflict detection, origin tracking,
-///   and canonical merge ordering (test/validation builds).
-///
-/// # Panics
-///
-/// This function does not panic.
-#[cfg(not(any(test, feature = "delta_validate")))]
-pub(crate) fn check_write_to_new_warp(ops: &[WarpOp]) -> Option<(WarpId, &'static str)> {
-    let new_warps = collect_new_warps(ops);
-    find_write_to_new_warp(ops, &new_warps)
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::{merge_canonical, MergeFault};
+    use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
+    use crate::ident::{make_node_id, make_type_id, make_warp_id, NodeKey};
+    use crate::record::NodeRecord;
+    use crate::tick_delta::OpOrigin;
+    use crate::tick_patch::{PortalInit, WarpOp};
+
+    fn origin(intent_id: u64) -> OpOrigin {
+        OpOrigin {
+            intent_id,
+            rule_id: 0,
+            match_ix: 0,
+            op_ix: 0,
+        }
+    }
+
+    fn set(node: &str, value: &[u8]) -> WarpOp {
+        WarpOp::SetAttachment {
+            key: AttachmentKey::node_alpha(NodeKey {
+                warp_id: make_warp_id("merge/w"),
+                local_id: make_node_id(node),
+            }),
+            value: Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("merge/atom"),
+                value.to_vec().into(),
+            ))),
+        }
+    }
+
+    fn open_child() -> WarpOp {
+        WarpOp::OpenPortal {
+            key: AttachmentKey::node_alpha(NodeKey {
+                warp_id: make_warp_id("merge/w"),
+                local_id: make_node_id("merge/parent"),
+            }),
+            child_warp: make_warp_id("merge/child"),
+            child_root: make_node_id("merge/child-root"),
+            init: PortalInit::Empty {
+                root_record: NodeRecord {
+                    ty: make_type_id("merge/root"),
+                },
+            },
+        }
+    }
+
+    fn upsert_in_child() -> WarpOp {
+        WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: make_warp_id("merge/child"),
+                local_id: make_node_id("merge/new"),
+            },
+            record: NodeRecord {
+                ty: make_type_id("merge/node"),
+            },
+        }
+    }
+
+    /// Runs the merge as the shipped build does (no origins) and as a
+    /// validation build does (with origins), and checks they agree.
+    fn both(ops: &[WarpOp]) -> Result<Vec<WarpOp>, MergeFault<()>> {
+        let shipped = merge_canonical(
+            ops.iter()
+                .map(|op| (op.sort_key(), (), op.clone()))
+                .collect(),
+        );
+        let validated = merge_canonical(
+            ops.iter()
+                .enumerate()
+                .map(|(i, op)| (op.sort_key(), origin(i as u64), op.clone()))
+                .collect(),
+        );
+        match (&shipped, validated) {
+            (Ok(a), Ok(b)) => assert_eq!(a, &b, "shipped and validated outputs differ"),
+            (
+                Err(MergeFault::Conflict { key: a, .. }),
+                Err(MergeFault::Conflict { key: b, .. }),
+            ) => {
+                assert_eq!(a, &b);
+            }
+            (
+                Err(MergeFault::WriteToNewWarp {
+                    warp_id: a,
+                    op_kind: ka,
+                    ..
+                }),
+                Err(MergeFault::WriteToNewWarp {
+                    warp_id: b,
+                    op_kind: kb,
+                    ..
+                }),
+            ) => assert_eq!((a, ka), (&b, &kb)),
+            (a, b) => panic!("shipped {a:?} and validated {b:?} disagree"),
+        }
+        shipped
+    }
+
+    #[test]
+    fn identical_writes_collapse_in_canonical_order() {
+        let ops = [
+            set("b", b"2"),
+            set("a", b"1"),
+            set("b", b"2"),
+            set("a", b"1"),
+        ];
+        let merged = both(&ops).expect("identical writes merge");
+        let mut expected = vec![set("a", b"1"), set("b", b"2")];
+        expected.sort_by_key(WarpOp::sort_key);
+        assert_eq!(merged, expected);
+    }
+
+    #[test]
+    fn divergent_writes_to_one_key_are_refused() {
+        let ops = [set("a", b"1"), set("c", b"3"), set("a", b"other")];
+        assert!(matches!(both(&ops), Err(MergeFault::Conflict { .. })));
+    }
+
+    #[test]
+    fn a_write_to_a_warp_opened_in_the_same_tick_is_refused() {
+        let ops = [upsert_in_child(), open_child()];
+        assert!(matches!(
+            both(&ops),
+            Err(MergeFault::WriteToNewWarp {
+                op_kind: "UpsertNode",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn opening_a_warp_alone_merges() {
+        assert_eq!(both(&[open_child()]).expect("merge"), vec![open_child()]);
+    }
 }

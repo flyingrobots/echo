@@ -11,6 +11,10 @@ results. This README summarizes how to run them and read the output.
 
 ## What’s Here
 
+Two Action-path benchmarks live in `warp-core`, not here:
+`action_footprint_overlap` and `wal_record_cost`. See
+[the benchmark guide](../../../docs/benchmarks/BENCHMARK_GUIDE.md#action-path-benchmarks-in-warp-core).
+
 - `snapshot_hash.rs`
     - Builds a linear chain of `n` entities reachable from `root` and measures
       the snapshot (state_root) hash of the reachable subgraph.

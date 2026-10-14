@@ -595,6 +595,17 @@ jobs:
                     exit 1
                   fi
                   "$script"
+            - name: Ban globals regression test
+              shell: bash
+              env:
+                  BAN_GLOBALS_TEST_REQUIRE_RG: "1"
+              run: |
+                  set -euo pipefail
+                  # The guard above ran without ripgrep, as a minimal runner
+                  # does. The regression test must cover both backends.
+                  sudo apt-get update -qq
+                  sudo apt-get install -y -qq ripgrep
+                  bash scripts/tests/ban_globals_test.sh
             - name: Ban nondeterminism
               shell: bash
               run: |

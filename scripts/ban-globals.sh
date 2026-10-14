@@ -12,7 +12,19 @@ set -euo pipefail
 #
 # Forbidden:
 #   - OnceLock/LazyLock/lazy_static/once_cell/thread_local/static mut
-#   - "install_*" global init patterns (heuristic)
+#   - any static whose declared type does not begin, on the same line, with a
+#     shared reference. That admits `static T: &[u8]` and refuses a Mutex, an
+#     atomic, a cell, an array (which can hold atomics), a struct that could
+#     hold one, and a type wrapped onto the next line. The rule fails closed:
+#     it does not try to recognise which types are mutable.
+#   - a reference-typed static that names a mutable type on its line
+#   - a call to `module::install_*(...)`: an installer reached through a
+#     module path, whose backing static may live outside the scanned crates
+#
+# Known limits of a line scanner: a reference-typed static whose mutable type
+# wraps onto the next line, and an installer imported by `use` and then
+# called by its bare name. Methods and helpers named install_* that take
+# their state as an argument are not global and are not matched.
 #
 # Usage:
 #   ./scripts/ban-globals.sh
@@ -20,138 +32,57 @@ set -euo pipefail
 # Optional env:
 #   BAN_GLOBALS_PATHS="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer crates/echo-edict-provider-verifier"
 #   BAN_GLOBALS_ALLOWLIST=".ban-globals-allowlist"
+#   DETERMINISM_FORCE_NO_RG=1   use the perl/find backend even when rg exists
+#
+# Every waiver is rule-scoped to an exact path and must explain why the
+# global cannot carry hidden state between runs.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source scripts/lib/determinism-scan.sh
 
 PATHS_DEFAULT="crates/warp-core crates/warp-math crates/warp-wasm crates/echo-wasm-abi crates/echo-edict-canonical crates/echo-edict-provider-lowerer crates/echo-edict-provider-verifier"
 PATHS="${BAN_GLOBALS_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${BAN_GLOBALS_ALLOWLIST:-.ban-globals-allowlist}"
+det_load_waivers "$ALLOWLIST"
 
 # Patterns are conservative on purpose.
-# If you truly need an exception, add an allowlist line with a justification.
+# If you truly need an exception, add a rule-scoped waiver with a justification.
 PATTERNS=(
-  '\bOnceLock\b'
-  '\bLazyLock\b'
-  '\blazy_static\!'
-  '\bonce_cell\b'
-  '\bthread_local\!'
-  '\bstatic mut\b'
-  '\binstall_[a-zA-Z0-9_]*\b'
+  'once-lock	\bOnceLock\b'
+  'lazy-lock	\bLazyLock\b'
+  'lazy-static	\blazy_static!'
+  'once-cell	\bonce_cell\b'
+  'thread-local	\bthread_local!'
+  'static-mut	\bstatic[[:space:]]+mut\b'
+  'static-non-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*([^&[:space:]]|$)'
+  'static-interior-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*&.*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell|OnceLock|LazyLock|OnceCell)\b'
+  'external-install	(^|[^A-Za-z0-9_])[a-z_][a-z0-9_]*::install_[A-Za-z0-9_]*[[:space:]]*\('
 )
 
 echo "ban-globals: scanning paths:"
 for p in $PATHS; do echo "  - $p"; done
 echo
 
-RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/node_modules/*')
-
-# Apply allowlist as inverted matches (each line is a regex or fixed substring)
-# Allowlist format:
-#   <pattern>\t<justification>
-# or:
-#   <pattern>
-ALLOW_RG_EXCLUDES=()
-ALLOW_PATH_PATTERNS=()
-if [[ -f "$ALLOWLIST" ]]; then
-  # Read first column (pattern) per line, ignore comments
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    [[ "$line" =~ ^# ]] && continue
-    pat="${line%%$'\t'*}"
-    pat="${pat%% *}"
-    [[ -z "$pat" ]] && continue
-    # Exclude lines matching allowlisted pattern
-    ALLOW_RG_EXCLUDES+=(--glob "!$pat")
-    ALLOW_PATH_PATTERNS+=("$pat")
-  done < "$ALLOWLIST"
-fi
-
 violations=0
-
-is_allowlisted_path() {
-  local file="$1"
-
-  for pat in "${ALLOW_PATH_PATTERNS[@]}"; do
-    if [[ "$file" == $pat ]]; then
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-search_pattern_with_perl() {
-  local pat="$1"
-  local found=1
-  local status=0
-
-  if ! command -v perl >/dev/null 2>&1; then
-    echo "ERROR: ripgrep (rg) or perl is required." >&2
-    return 2
-  fi
-
-  while IFS= read -r -d '' file; do
-    if is_allowlisted_path "$file"; then
-      continue
-    fi
-
-    if SEARCH_PATTERN="$pat" perl -ne '
-      BEGIN { $found = 0; $pattern = $ENV{"SEARCH_PATTERN"}; }
-      if (/$pattern/) { print "$ARGV:$.:$_"; $found = 1; }
-      END { exit($found ? 0 : 1); }
-    ' "$file"; then
-      found=0
-    else
-      status=$?
-      if [[ $status -gt 1 ]]; then
-        return "$status"
-      fi
-    fi
-  done < <(find $PATHS -type f \
-    \( -name '*.rs' \
-      -o -name '*.toml' \
-      -o -name '*.sh' \
-      -o -name '*.mjs' \
-      -o -name '*.js' \
-      -o -name '*.ts' \
-      -o -name '*.md' \
-      -o -name '*.graphql' \
-      -o -name '*.json' \
-      -o -name '*.yaml' \
-      -o -name '*.yml' \) \
-    -not -path '*/.git/*' \
-    -not -path '*/target/*' \
-    -not -path '*/node_modules/*' \
-    -print0)
-
-  return "$found"
-}
-
-search_pattern() {
-  local pat="$1"
-
-  if command -v rg >/dev/null 2>&1; then
-    rg "${RG_ARGS[@]}" "${ALLOW_RG_EXCLUDES[@]}" -n -S "$pat" $PATHS
-    return $?
-  fi
-
-  search_pattern_with_perl "$pat"
-}
-
-for pat in "${PATTERNS[@]}"; do
-  echo "Checking: $pat"
-  # We can't "glob exclude by line"; allowlist is file-level. Keep it simple:
-  # If you need surgical exceptions, prefer moving code or refactoring.
-  if search_pattern "$pat"; then
+for entry in "${PATTERNS[@]}"; do
+  rule="${entry%%$'\t'*}"
+  pat="${entry#*$'\t'}"
+  echo "Checking [$rule]: $pat"
+  status=0
+  det_scan_line "$rule" "$pat" $PATHS || status=$?
+  if [[ $status -eq 0 ]]; then
     echo
     violations=$((violations+1))
-  else
+  elif [[ $status -eq 1 ]]; then
     echo "  OK"
+  else
+    echo "ban-globals: scanner failed for [$rule] (status $status)." >&2
+    exit "$status"
   fi
   echo
- done
+done
 
 if [[ $violations -ne 0 ]]; then
   echo "ban-globals: FAILED ($violations pattern group(s) matched)."

@@ -88,6 +88,14 @@
 
 ### Fixed
 
+- A tick with the in-memory WAL no longer costs time in proportion to the
+  whole log. The host copied the in-memory log, its catalog and its indexes
+  before every tick so it could undo a failed one; at 8,000 updates a tick
+  took 13.5 ms. It now marks the log's end and, only if a tick fails,
+  truncates back to the mark and rebuilds what is derived from the log. In
+  `wal_record_cost` the in-memory update now costs about 0.22 ms at 500 and at
+  8,000 updates of history.
+
 - A commit record whose storage sync failed is no longer acknowledged. The
   record can be readable without being durable; a trusted host used to
   re-read the log after the error and treat what it found as committed, for

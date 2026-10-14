@@ -20,6 +20,26 @@ Benchmarks in Echo are not just about measuring performance—they're about:
 - Understanding of the component you're benchmarking
 - Clear hypothesis about expected complexity (O(1), O(n), O(n log n), etc.)
 
+## Action-Path Benchmarks in `warp-core`
+
+Two benchmarks are an exception to the steps below.
+`action_footprint_overlap` and `wal_record_cost` drive a trusted host with real
+compare-and-set Actions, so they need dependencies that `warp-benches` does
+not have. Adding those would change `Cargo.lock`, which the Edict provider
+package binds. They are therefore bench targets of `warp-core`, behind the
+features a trusted host needs, and they print tables instead of using
+Criterion:
+
+```bash
+cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime \
+  --bench action_footprint_overlap
+cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime \
+  --bench wal_record_cost
+```
+
+Each file's header lists its settings. They produce no JSON artifacts and no
+dashboard entry, and no regression gate reads them. CI only compiles them.
+
 ## Step-by-Step Guide
 
 ### 1. Create the Benchmark File

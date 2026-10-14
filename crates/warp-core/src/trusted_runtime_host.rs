@@ -2188,7 +2188,10 @@ impl TrustedRuntimeHost {
                 }
                 .into());
             }
-            let runtime_wal_before = runtime_wal.in_memory_rollback_snapshot();
+            // An in-memory log is rewound to this mark if the tick fails. A
+            // mark costs nothing in proportion to the log; a full copy of the
+            // log here made every tick slower as the log grew (#838).
+            let runtime_wal_mark = runtime_wal.in_memory_tick_mark();
             for group in tick_wal_groups.values() {
                 let Some((first_correlation, _, state_delta, state_delta_digest)) = group.first()
                 else {
@@ -2222,9 +2225,11 @@ impl TrustedRuntimeHost {
                     }
                     let rollback_error = if runtime_wal.uses_filesystem_store() {
                         None
-                    } else if let Some(snapshot) = runtime_wal_before {
-                        *runtime_wal = snapshot;
-                        None
+                    } else if let Some(mark) = runtime_wal_mark {
+                        runtime_wal
+                            .rewind_in_memory_to(mark)
+                            .err()
+                            .map(|_| TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
                     } else {
                         Some(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable)
                     };
@@ -2530,6 +2535,46 @@ impl CausalAnchorClaimProjection {
     }
 }
 
+/// The adapter's position in its log. Each field is a single value, so it is
+/// kept as it was rather than derived again: an empty log does not determine
+/// its next LSN, which comes from the writer epoch.
+#[derive(Clone, Copy, Debug)]
+struct InMemoryCursorMark {
+    next_lsn: Lsn,
+    previous_frame_digest: Hash,
+    previous_committed_transaction_digest: Hash,
+    submission_frontier_digest: Hash,
+    receipt_frontier_digest: Hash,
+    runtime_state_frontier_digest: Hash,
+    executable_operation_catalog_frontier_digest: Hash,
+    executable_operation_receipt_frontier_digest: Hash,
+    causal_anchor_frontier_digest: Hash,
+    causal_history_frontier_digest: Hash,
+}
+
+/// A catalog that is not a function of the log, kept whole for a rewind.
+#[derive(Debug)]
+struct StaleEvidenceCatalog(Option<crate::evidence::CausalSegmentCatalog>);
+
+/// What a failed tick needs to rewind an in-memory log.
+#[derive(Debug)]
+struct InMemoryTickMark {
+    store: crate::causal_wal::InMemoryWalStoreMark,
+    cursor: InMemoryCursorMark,
+    /// The catalog as it was, kept only when it was not fresh.
+    stale_evidence_catalog: Option<StaleEvidenceCatalog>,
+    evidence_catalog_posture: EvidenceCatalogPosture,
+    #[cfg(any(test, feature = "host_test"))]
+    fail_next_evidence_catalog_update: bool,
+    #[cfg(any(test, feature = "host_test"))]
+    refuse_append_before_storage_after: Option<u32>,
+    #[cfg(any(test, feature = "host_test"))]
+    recover_read_only_call_count: usize,
+    /// Debug builds also keep a full copy and check the rewind against it.
+    #[cfg(debug_assertions)]
+    debug_copy: Box<Option<TrustedRuntimeWal>>,
+}
+
 /// Minimal trusted-runtime WAL adapter for ACK-boundary integration tests.
 #[derive(Debug)]
 pub struct TrustedRuntimeWal {
@@ -2699,6 +2744,185 @@ impl TrustedRuntimeWal {
         self.store.cloned_in_memory_store()
     }
 
+    /// Marks an in-memory log so a failed tick can rewind it.
+    ///
+    /// The log and everything derived from it are rebuilt from the rewound
+    /// log, so the mark keeps only what is not derived from the log.
+    fn in_memory_tick_mark(&self) -> Option<InMemoryTickMark> {
+        let TrustedRuntimeWalStore::InMemory(store) = &self.store else {
+            return None;
+        };
+        Some(InMemoryTickMark {
+            store: store.mark(),
+            cursor: InMemoryCursorMark {
+                next_lsn: self.next_lsn,
+                previous_frame_digest: self.previous_frame_digest,
+                previous_committed_transaction_digest: self.previous_committed_transaction_digest,
+                submission_frontier_digest: self.submission_frontier_digest,
+                receipt_frontier_digest: self.receipt_frontier_digest,
+                runtime_state_frontier_digest: self.runtime_state_frontier_digest,
+                executable_operation_catalog_frontier_digest: self
+                    .executable_operation_catalog_frontier_digest,
+                executable_operation_receipt_frontier_digest: self
+                    .executable_operation_receipt_frontier_digest,
+                causal_anchor_frontier_digest: self.causal_anchor_frontier_digest,
+                causal_history_frontier_digest: self.causal_history_frontier_digest,
+            },
+            // A catalog that is not fresh is not a function of the log, so
+            // only then is it kept whole.
+            stale_evidence_catalog: match self.evidence_catalog_posture {
+                EvidenceCatalogPosture::Fresh => None,
+                EvidenceCatalogPosture::NeedsRebuild { .. } => {
+                    Some(StaleEvidenceCatalog(self.evidence_catalog.clone()))
+                }
+            },
+            evidence_catalog_posture: self.evidence_catalog_posture.clone(),
+            #[cfg(any(test, feature = "host_test"))]
+            fail_next_evidence_catalog_update: self.fail_next_evidence_catalog_update,
+            #[cfg(any(test, feature = "host_test"))]
+            refuse_append_before_storage_after: self.refuse_append_before_storage_after,
+            #[cfg(any(test, feature = "host_test"))]
+            recover_read_only_call_count: self.recover_read_only_call_count.get(),
+            #[cfg(debug_assertions)]
+            debug_copy: Box::new(self.in_memory_rollback_snapshot()),
+        })
+    }
+
+    /// Rewinds an in-memory log to `mark` and rebuilds the adapter state that
+    /// is derived from the log.
+    fn rewind_in_memory_to(
+        &mut self,
+        mark: InMemoryTickMark,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        let TrustedRuntimeWalStore::InMemory(store) = &mut self.store else {
+            return Err(TrustedRuntimeWalError::InMemoryRollbackSnapshotUnavailable);
+        };
+        store.rewind_to(mark.store)?;
+        // Rebuild what is derived from the log, then put the cursor back as
+        // it was.
+        self.refresh_cursor_from_store_for_writer()?;
+        let cursor = mark.cursor;
+        self.next_lsn = cursor.next_lsn;
+        self.previous_frame_digest = cursor.previous_frame_digest;
+        self.previous_committed_transaction_digest = cursor.previous_committed_transaction_digest;
+        self.submission_frontier_digest = cursor.submission_frontier_digest;
+        self.receipt_frontier_digest = cursor.receipt_frontier_digest;
+        self.runtime_state_frontier_digest = cursor.runtime_state_frontier_digest;
+        self.executable_operation_catalog_frontier_digest =
+            cursor.executable_operation_catalog_frontier_digest;
+        self.executable_operation_receipt_frontier_digest =
+            cursor.executable_operation_receipt_frontier_digest;
+        self.causal_anchor_frontier_digest = cursor.causal_anchor_frontier_digest;
+        self.causal_history_frontier_digest = cursor.causal_history_frontier_digest;
+
+        if let Some(StaleEvidenceCatalog(catalog)) = mark.stale_evidence_catalog {
+            self.evidence_catalog = catalog;
+        }
+        self.evidence_catalog_posture = mark.evidence_catalog_posture;
+        #[cfg(any(test, feature = "host_test"))]
+        {
+            self.fail_next_evidence_catalog_update = mark.fail_next_evidence_catalog_update;
+            self.refuse_append_before_storage_after = mark.refuse_append_before_storage_after;
+            self.recover_read_only_call_count
+                .set(mark.recover_read_only_call_count);
+        }
+        #[cfg(debug_assertions)]
+        if let Some(expected) = mark.debug_copy.as_ref() {
+            let differing = self
+                .in_memory_rewind_witness()
+                .into_iter()
+                .zip(expected.in_memory_rewind_witness())
+                .filter(|(actual, expected)| actual.1 != expected.1)
+                .map(|(actual, expected)| {
+                    format!(
+                        "{}:\n  rewound: {}\n  copy:    {}",
+                        actual.0, actual.1, expected.1
+                    )
+                })
+                .collect::<Vec<_>>();
+            debug_assert!(
+                differing.is_empty(),
+                "rewinding the in-memory log must restore what a full copy restores:\n{}",
+                differing.join("\n")
+            );
+        }
+        Ok(())
+    }
+
+    /// The parts of an in-memory adapter that a rewind must restore, by
+    /// name, for the debug cross-check against a full copy.
+    #[cfg(debug_assertions)]
+    fn in_memory_rewind_witness(&self) -> Vec<(&'static str, String)> {
+        let (frames, commits) = match &self.store {
+            TrustedRuntimeWalStore::InMemory(store) => (
+                format!("{:?}", store.read_frames()),
+                format!("{:?}", store.read_commits()),
+            ),
+            TrustedRuntimeWalStore::Filesystem(_) => (String::new(), String::new()),
+        };
+        vec![
+            ("frames", frames),
+            ("commits", commits),
+            ("next_lsn", format!("{:?}", self.next_lsn)),
+            (
+                "previous_frame_digest",
+                format!("{:?}", self.previous_frame_digest),
+            ),
+            (
+                "previous_committed_transaction_digest",
+                format!("{:?}", self.previous_committed_transaction_digest),
+            ),
+            (
+                "submission_frontier_digest",
+                format!("{:?}", self.submission_frontier_digest),
+            ),
+            (
+                "receipt_frontier_digest",
+                format!("{:?}", self.receipt_frontier_digest),
+            ),
+            (
+                "runtime_state_frontier_digest",
+                format!("{:?}", self.runtime_state_frontier_digest),
+            ),
+            (
+                "executable_operation_catalog_frontier_digest",
+                format!("{:?}", self.executable_operation_catalog_frontier_digest),
+            ),
+            (
+                "executable_operation_receipt_frontier_digest",
+                format!("{:?}", self.executable_operation_receipt_frontier_digest),
+            ),
+            (
+                "causal_anchor_frontier_digest",
+                format!("{:?}", self.causal_anchor_frontier_digest),
+            ),
+            (
+                "causal_history_frontier_digest",
+                format!("{:?}", self.causal_history_frontier_digest),
+            ),
+            (
+                "causal_anchor_claim_projection",
+                format!("{:?}", self.causal_anchor_claim_projection),
+            ),
+            (
+                "durable_submission_acceptances",
+                format!("{:?}", self.durable_submission_acceptances),
+            ),
+            (
+                "unsynced_submission_acceptances",
+                format!("{:?}", self.unsynced_submission_acceptances),
+            ),
+            (
+                "evidence_catalog_posture",
+                format!("{:?}", self.evidence_catalog_posture),
+            ),
+            ("evidence_catalog", format!("{:?}", self.evidence_catalog)),
+        ]
+    }
+
+    /// A full copy of an in-memory adapter. Debug builds use it to check
+    /// every rewind; host tests use it directly.
+    #[cfg(any(debug_assertions, test, feature = "host_test"))]
     fn in_memory_rollback_snapshot(&self) -> Option<Self> {
         Some(Self {
             store: TrustedRuntimeWalStore::InMemory(self.store.cloned_in_memory_store()?),

@@ -486,7 +486,7 @@ reconstructs the entire expected package, including those limits, so changing
 or removing them fails the package relation.
 
 This native profile does not normalize input text or establish NFC validity. The runtime checks alone do not
-prove the Core relation; the independent provider verification supplies that
+prove the Core relation; the structurally separate provider verification supplies that
 separate evidence. The checked provider component distribution includes this
 profile, built reproducibly with the pinned component toolchain and corroborated
 by its regenerated manifest. A retained fresh public application build with

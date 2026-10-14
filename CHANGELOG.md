@@ -448,7 +448,7 @@
   recovers this evidence without a native application callback or
   application-specific reconstruction. Runtime admission caps canonical
   application input at 65,536 bytes and the compiler-declared result ceiling at
-  65,536 before private scheduler evaluation. Both independent provider
+  65,536 before private scheduler evaluation. Both provider
   components reject result ceilings above that runtime maximum and ambiguous
   input bindings. Configuration-derived node-key and replacement field names
   share the projection path-segment text ceiling. Package admission preserves
@@ -2026,7 +2026,7 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   unwritten log position. A second reopen followed by append previously left an
   LSN gap and made subsequent recovery fail.
 
-- Generic executable-operation lowering and independent verification now
+- Generic executable-operation lowering and verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.
   Runtime duplicate outcomes therefore retain the capability-owned obstruction

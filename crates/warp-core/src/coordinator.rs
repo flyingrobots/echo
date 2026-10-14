@@ -4570,6 +4570,9 @@ impl SchedulerCoordinator {
                     // Nothing in this loop changes the frontier, so its basis
                     // is resolved once, at the first Action that needs it.
                     let mut frontier_basis = None;
+                    // Slots written since each stale origin, computed once per
+                    // origin in this Tick and shared by its Actions (#837).
+                    let mut written_since = BTreeMap::new();
                     for envelope in &admitted {
                         let ingress_id = envelope.ingress_id();
                         let submission_id = runtime
@@ -4609,7 +4612,17 @@ impl SchedulerCoordinator {
                                 && crate::echo_operation::admitted_origin_corroborated_v1(
                                     provenance,
                                     admitted_action,
-                                    current_basis.worldline_tick(),
+                                    written_since
+                                        .entry(admitted_action.evaluation_basis().worldline_tick())
+                                        .or_insert_with_key(|origin| {
+                                            crate::echo_operation::echo_operation_written_slots_v1(
+                                                provenance,
+                                                key.worldline_id,
+                                                *origin,
+                                                current_basis.worldline_tick(),
+                                            )
+                                        })
+                                        .as_ref(),
                                 ),
                         );
                         candidates.push(SchedulerEchoOperationCandidateV1 {

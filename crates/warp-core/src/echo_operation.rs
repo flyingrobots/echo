@@ -3851,6 +3851,46 @@ pub(crate) fn scoped_action_basis_holds_v1(
             .is_ok_and(|basis| basis == origin.application_basis)
 }
 
+/// Slots written by a worldline's entries from `from` (inclusive) to `to`
+/// (exclusive), or `None` when one of those entries has no replay patch and its
+/// writes are therefore unknown.
+pub(crate) fn echo_operation_written_slots_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    worldline_id: crate::WorldlineId,
+    from: WorldlineTick,
+    to: WorldlineTick,
+) -> Option<BTreeSet<crate::tick_patch::SlotId>> {
+    let mut written = Some(BTreeSet::new());
+    extend_echo_operation_written_slots_v1(provenance, worldline_id, &mut written, from, to);
+    written
+}
+
+/// Adds the slots written by entries `from..to` to `written`, which becomes
+/// `None` once any entry's writes are unknown.
+pub(crate) fn extend_echo_operation_written_slots_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    worldline_id: crate::WorldlineId,
+    written: &mut Option<BTreeSet<crate::tick_patch::SlotId>>,
+    from: WorldlineTick,
+    to: WorldlineTick,
+) {
+    use crate::provenance_store::ProvenanceStore as _;
+
+    for tick in from.as_u64()..to.as_u64() {
+        let Some(slots) = written.as_mut() else {
+            return;
+        };
+        match provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tick))
+            .ok()
+            .and_then(|entry| entry.patch)
+        {
+            Some(patch) => slots.extend(patch.out_slots),
+            None => *written = None,
+        }
+    }
+}
+
 /// Whether the origin an Action claims is corroborated by retained history,
 /// as dependency-scoped validity (#837) requires before it compares values at
 /// the parent.
@@ -3858,20 +3898,26 @@ pub(crate) fn scoped_action_basis_holds_v1(
 /// - The origin names a coordinate history actually holds: the entry before
 ///   its tick (commit id, global tick, state root), or the initial boundary at
 ///   genesis.
-/// - No entry between the origin and `parent_tick` wrote the node or alpha slot
-///   of the target or of any observed node. A claim that holds at the parent
-///   then held at the origin too. An entry without a replay patch counts as a
-///   write.
+/// - `written`, the slots written between the origin and the parent (from
+///   [`echo_operation_written_slots_v1`]), contains neither the node nor the
+///   alpha slot of the target or of any observed node. A claim that holds at the
+///   parent then held at the origin too. `None`, unknown writes, corroborates
+///   nothing.
 ///
 /// A value that changed and was restored therefore does not corroborate; such
-/// an Action keeps the whole-frontier rule.
+/// an Action keeps the whole-frontier rule. Callers compute `written` once per
+/// origin and share it, so a queue of Actions from one origin does not rescan
+/// history per Action.
 pub(crate) fn echo_operation_origin_corroborated_v1(
     provenance: &crate::provenance_store::ProvenanceService,
     invocation: &EchoOperationInvocationV1,
-    parent_tick: WorldlineTick,
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
     use crate::provenance_store::ProvenanceStore as _;
 
+    let Some(written) = written else {
+        return false;
+    };
     let origin = invocation.evaluation_basis;
     let worldline_id = origin.writer_head.worldline_id;
     let retained = match origin.worldline_tick.as_u64().checked_sub(1) {
@@ -3890,38 +3936,27 @@ pub(crate) fn echo_operation_origin_corroborated_v1(
                     && entry.expected.state_root == origin.state_root
             }),
     };
-    if !retained {
-        return false;
-    }
-    let mut nodes = vec![invocation.node];
-    if let Some(observation) = &invocation.observation {
-        nodes.extend(observation.readings().map(|(node, _)| node));
-    }
-    let watched = nodes
-        .iter()
-        .flat_map(|node| {
-            [
-                crate::tick_patch::SlotId::Node(*node),
-                crate::tick_patch::SlotId::Attachment(AttachmentKey::node_alpha(*node)),
-            ]
-        })
-        .collect::<Vec<_>>();
-    (origin.worldline_tick.as_u64()..parent_tick.as_u64()).all(|tick| {
-        provenance
-            .entry(worldline_id, WorldlineTick::from_raw(tick))
-            .ok()
-            .and_then(|entry| entry.patch)
-            .is_some_and(|patch| !patch.out_slots.iter().any(|slot| watched.contains(slot)))
-    })
+    let untouched = |node: NodeKey| {
+        !written.contains(&crate::tick_patch::SlotId::Node(node))
+            && !written.contains(&crate::tick_patch::SlotId::Attachment(
+                AttachmentKey::node_alpha(node),
+            ))
+    };
+    retained
+        && untouched(invocation.node)
+        && invocation
+            .observation
+            .as_ref()
+            .is_none_or(|observation| observation.readings().all(|(node, _)| untouched(node)))
 }
 
 /// [`echo_operation_origin_corroborated_v1`] for an admitted Action.
 pub(crate) fn admitted_origin_corroborated_v1(
     provenance: &crate::provenance_store::ProvenanceService,
     admitted: &AdmittedEchoOperationInvocationV1,
-    parent_tick: WorldlineTick,
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
-    echo_operation_origin_corroborated_v1(provenance, &admitted.invocation, parent_tick)
+    echo_operation_origin_corroborated_v1(provenance, &admitted.invocation, written)
 }
 
 /// [`echo_operation_origin_corroborated_v1`] for a recovered canonical
@@ -3929,10 +3964,10 @@ pub(crate) fn admitted_origin_corroborated_v1(
 pub(crate) fn recovered_origin_corroborated_v1(
     provenance: &crate::provenance_store::ProvenanceService,
     canonical_invocation_bytes: &[u8],
-    parent_tick: WorldlineTick,
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
 ) -> bool {
     EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
-        |invocation| echo_operation_origin_corroborated_v1(provenance, &invocation, parent_tick),
+        |invocation| echo_operation_origin_corroborated_v1(provenance, &invocation, written),
     )
 }
 

@@ -4831,6 +4831,10 @@ impl ParentStateValidationWork {
     }
 }
 
+/// Slots written over a range of entries, or `None` when some entry's writes
+/// are unknown.
+type WrittenSlots = Option<BTreeSet<crate::tick_patch::SlotId>>;
+
 fn recovered_worldline_state_at<'a>(
     cache: &'a mut BTreeMap<crate::WorldlineId, (crate::WorldlineTick, crate::WorldlineState)>,
     recovered_provenance: &ProvenanceService,
@@ -4995,6 +4999,12 @@ fn validate_recovered_echo_operation_parent_states(
         (crate::WorldlineId, crate::WorldlineTick),
         crate::WorldlineState,
     )> = None;
+    // Slots written since each stale origin, extended forward as parent ticks
+    // advance, so corroborating a queue of Actions from one origin is linear.
+    let mut written_since: BTreeMap<
+        (crate::WorldlineId, crate::WorldlineTick),
+        (crate::WorldlineTick, WrittenSlots),
+    > = BTreeMap::new();
     for (_, _, obligation) in basis_obligations {
         match obligation {
             BasisObligation::Receipt(index) => {
@@ -5165,11 +5175,30 @@ fn validate_recovered_echo_operation_parent_states(
                 // rule at the reconstructed parent state; it does not trust
                 // the recorded outcome.
                 let scoped = !basis_is_current
-                    && crate::echo_operation::recovered_origin_corroborated_v1(
-                        recovered_provenance,
-                        invocation_bytes,
-                        tick_before,
-                    )
+                    && basis.writer_head() == correlation.head_key
+                    && basis.worldline_tick() < tick_before
+                    && {
+                        let (scanned_to, written) = written_since
+                            .entry((basis_worldline_id, basis.worldline_tick()))
+                            .or_insert_with(|| (basis.worldline_tick(), Some(BTreeSet::new())));
+                        if *scanned_to > tick_before {
+                            *scanned_to = basis.worldline_tick();
+                            *written = Some(BTreeSet::new());
+                        }
+                        crate::echo_operation::extend_echo_operation_written_slots_v1(
+                            recovered_provenance,
+                            basis_worldline_id,
+                            written,
+                            *scanned_to,
+                            tick_before,
+                        );
+                        *scanned_to = tick_before;
+                        crate::echo_operation::recovered_origin_corroborated_v1(
+                            recovered_provenance,
+                            invocation_bytes,
+                            written.as_ref(),
+                        )
+                    }
                     && crate::echo_operation::scoped_action_basis_holds_for_bytes_v1(
                         installed,
                         invocation_bytes,

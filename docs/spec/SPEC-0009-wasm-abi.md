@@ -106,4 +106,10 @@ The ABI names worldline ticks for append position, global ticks for runtime-cycl
 
 Byte-returning exports use CBOR result envelopes: `{ "ok": true, ... }` or `{ "ok": false, "code": u32, "message": string }`.
 
+The canonical decoder treats every request as untrusted. It refuses a value
+nested more than 128 arrays or maps deep, and it refuses a header whose
+claimed element, entry or byte count exceeds the bytes that remain, before it
+allocates for that count. A caller that encodes deeper values receives a
+decode error. Evidence: `crates/echo-wasm-abi/tests/canonical_bounds.rs`.
+
 Implementation evidence: `crates/warp-wasm/src/lib.rs`, `crates/warp-wasm/src/kernel.rs`, `crates/echo-wasm-abi/src/*`, and `crates/echo-wasm-abi/tests/*`.

@@ -55,24 +55,56 @@ pub enum CanonError {
 
 type Result<T> = result::Result<T, CanonError>;
 
+/// Deepest nesting of arrays and maps the decoder accepts.
+///
+/// The decoder is recursive, so an input chooses how much stack it uses
+/// unless nesting is bounded. Echo's canonical values are shallow; this limit
+/// matches the one `echo-edict-canonical` applies to its own values.
+pub const MAX_CANONICAL_NESTING_DEPTH: usize = 128;
+
+/// Most element slots the decoder reserves for a container before it has
+/// decoded any of them.
+///
+/// A header's count is checked against the bytes that remain, but nested
+/// containers can each point at the same remaining bytes. Reserving the full
+/// count at every level would let a small input ask for memory in proportion
+/// to its size times its depth. With this cap a container grows only as its
+/// elements are actually decoded, so memory follows the input size.
+const MAX_EAGER_CONTAINER_RESERVATION: usize = 16;
+
+fn nesting_too_deep() -> String {
+    format!("nesting exceeds the maximum depth of {MAX_CANONICAL_NESTING_DEPTH}")
+}
+
 /// Encode a `ciborium::value::Value` to deterministic CBOR bytes.
 pub fn encode_value(val: &Value) -> Result<Vec<u8>> {
     let mut out = Vec::new();
-    enc_value(val, &mut out)?;
+    enc_value(val, &mut out, 0)?;
     Ok(out)
 }
 
 /// Decode deterministic CBOR bytes into a `ciborium::value::Value`.
 pub fn decode_value(bytes: &[u8]) -> Result<Value> {
     let mut idx = 0usize;
-    let v = dec_value(bytes, &mut idx)?;
+    let v = dec_value(bytes, &mut idx, 0)?;
     if idx != bytes.len() {
         return Err(CanonError::Trailing);
     }
     Ok(v)
 }
 
-fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
+fn enc_value(v: &Value, out: &mut Vec<u8>, depth: usize) -> Result<()> {
+    // The encoder refuses what the decoder would refuse, so bytes it returns
+    // always decode. `depth` counts the arrays and maps around this value.
+    let inner = match v {
+        Value::Array(_) | Value::Map(_) => {
+            if depth >= MAX_CANONICAL_NESTING_DEPTH {
+                return Err(CanonError::Encode(nesting_too_deep()));
+            }
+            depth + 1
+        }
+        _ => depth,
+    };
     match v {
         Value::Bool(b) => {
             out.push(if *b { 0xf5 } else { 0xf4 });
@@ -85,29 +117,31 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
         Value::Array(items) => {
             enc_len(4, items.len() as u64, out);
             for it in items {
-                enc_value(it, out)?;
+                enc_value(it, out, inner)?;
             }
         }
         Value::Map(entries) => {
-            let mut buf: Vec<(Value, Value, Vec<u8>)> = Vec::with_capacity(entries.len());
+            // Entries are sorted by borrowed reference. Cloning a value here
+            // would recurse through it before its depth has been checked.
+            let mut buf: Vec<(Vec<u8>, &Value)> = Vec::with_capacity(entries.len());
             for (k, v) in entries {
                 let mut kb = Vec::new();
-                enc_value(k, &mut kb)?;
-                buf.push((k.clone(), v.clone(), kb));
+                enc_value(k, &mut kb, inner)?;
+                buf.push((kb, v));
             }
 
-            buf.sort_by(|a, b| a.2.cmp(&b.2));
+            buf.sort_by(|a, b| a.0.cmp(&b.0));
 
             for win in buf.windows(2) {
-                if win[0].2 == win[1].2 {
+                if win[0].0 == win[1].0 {
                     return Err(CanonError::MapKeyDuplicate);
                 }
             }
 
             enc_len(5, buf.len() as u64, out);
-            for (_k, v, kb) in buf {
+            for (kb, v) in buf {
                 out.extend_from_slice(&kb);
-                enc_value(&v, out)?;
+                enc_value(v, out, inner)?;
             }
         }
         Value::Tag(_, _) => return Err(CanonError::Tag),
@@ -220,13 +254,39 @@ fn write_major(major: u8, n: u128, out: &mut Vec<u8>) {
     }
 }
 
-fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
+/// Checks a length the input claims against the bytes the input still has.
+///
+/// `min_bytes_each` is the smallest encoding of one counted item: one byte
+/// for a byte of a string or an element of an array, two for a map entry.
+/// The comparison is made in `u64`, before the length is narrowed, so a
+/// 32-bit target refuses exactly what a 64-bit target refuses. A length that
+/// passes is at most the remaining input. The decoder still does not reserve
+/// that much up front; see [`MAX_EAGER_CONTAINER_RESERVATION`].
+fn claimed_len(bytes: &[u8], idx: usize, claimed: u64, min_bytes_each: u64) -> Result<usize> {
+    let remaining = bytes.len().saturating_sub(idx) as u64;
+    match claimed.checked_mul(min_bytes_each) {
+        Some(needed) if needed <= remaining => {
+            usize::try_from(claimed).map_err(|_| CanonError::Incomplete)
+        }
+        _ => Err(CanonError::Incomplete),
+    }
+}
+
+fn dec_value(bytes: &[u8], idx: &mut usize, depth: usize) -> Result<Value> {
     fn need(bytes: &[u8], idx: usize, n: usize) -> Result<()> {
         if bytes.len().saturating_sub(idx) < n {
             Err(CanonError::Incomplete)
         } else {
             Ok(())
         }
+    }
+
+    // `depth` counts the arrays and maps that enclose this value.
+    fn enter(depth: usize) -> Result<usize> {
+        if depth >= MAX_CANONICAL_NESTING_DEPTH {
+            return Err(CanonError::Decode(nesting_too_deep()));
+        }
+        Ok(depth + 1)
     }
 
     need(bytes, *idx, 1)?;
@@ -306,8 +366,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
         }
         2 | 3 => {
             let len = read_len(bytes, idx, info)?;
-            let len = len as usize;
-            need(bytes, *idx, len)?;
+            let len = claimed_len(bytes, *idx, len, 1)?;
             let data = &bytes[*idx..*idx + len];
             *idx += len;
             if major == 2 {
@@ -319,20 +378,24 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
             }
         }
         4 => {
-            let len = read_len(bytes, idx, info)? as usize;
-            let mut items = Vec::with_capacity(len);
+            let inner = enter(depth)?;
+            let len = read_len(bytes, idx, info)?;
+            let len = claimed_len(bytes, *idx, len, 1)?;
+            let mut items = Vec::with_capacity(len.min(MAX_EAGER_CONTAINER_RESERVATION));
             for _ in 0..len {
-                items.push(dec_value(bytes, idx)?);
+                items.push(dec_value(bytes, idx, inner)?);
             }
             Ok(Value::Array(items))
         }
         5 => {
-            let len = read_len(bytes, idx, info)? as usize;
-            let mut entries = Vec::with_capacity(len);
+            let inner = enter(depth)?;
+            let len = read_len(bytes, idx, info)?;
+            let len = claimed_len(bytes, *idx, len, 2)?;
+            let mut entries = Vec::with_capacity(len.min(MAX_EAGER_CONTAINER_RESERVATION));
             let mut last_key: Option<Vec<u8>> = None;
             for _ in 0..len {
                 let key_start = *idx;
-                let k = dec_value(bytes, idx)?;
+                let k = dec_value(bytes, idx, inner)?;
                 let key_end = *idx;
                 let kb = &bytes[key_start..key_end];
                 if let Some(prev) = &last_key {
@@ -343,7 +406,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
                     }
                 }
                 last_key = Some(kb.to_vec());
-                let v = dec_value(bytes, idx)?;
+                let v = dec_value(bytes, idx, inner)?;
                 entries.push((k, v));
             }
             Ok(Value::Map(entries))

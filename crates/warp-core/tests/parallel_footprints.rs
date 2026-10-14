@@ -79,9 +79,10 @@ mod enforcement {
     use warp_core::{
         make_edge_id, make_node_id, make_type_id, make_warp_id, ActualFootprintPosture,
         ApplyResult, AtomPayload, AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy,
-        EdgeRecord, EdgeSet, Engine, Footprint, FootprintViolation, FootprintViolationWithPanic,
-        GraphStore, GraphView, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet,
-        RewriteRule, RuleExecutor, TickDelta, ViolationKind, WarpInstance, WarpOp,
+        EdgeRecord, EdgeSet, Engine, ExecutionGraphView, Footprint, FootprintViolation,
+        FootprintViolationWithPanic, GraphStore, GraphView, NodeId, NodeKey, NodeRecord, NodeSet,
+        PatternGraph, PortSet, RewriteRule, RuleExecutor, TickDelta, ViolationKind, WarpInstance,
+        WarpOp,
     };
 
     // =============================================================================
@@ -846,6 +847,94 @@ mod enforcement {
             .downcast_ref::<&str>()
             .expect("original panic payload must be &str");
         assert_eq!(*msg, "deliberate-12b");
+    }
+
+    // Evidence is retained only once a tick seals
+    // =============================================================================
+
+    const UNSEALED_NAME: &str = "test/observed-evidence-unsealed";
+
+    fn unsealed_executor(
+        view: &mut ExecutionGraphView<'_, '_>,
+        scope: &NodeId,
+        delta: &mut TickDelta,
+    ) {
+        let _ = view.node(scope);
+        // Footprint-valid but state-invalid: the node does not exist, so the
+        // merged patch cannot apply and the tick never seals.
+        delta.push(WarpOp::DeleteNode {
+            node: NodeKey {
+                warp_id: view.warp_id(),
+                local_id: make_node_id("observed-evidence-missing"),
+            },
+        });
+    }
+
+    fn unsealed_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+        let wid = view.warp_id();
+        let missing = make_node_id("observed-evidence-missing");
+        let mut n_read = NodeSet::default();
+        let mut n_write = NodeSet::default();
+        let mut a_write = AttachmentSet::default();
+        n_read.insert_with_warp(wid, *scope);
+        n_write.insert_with_warp(wid, missing);
+        a_write.insert(AttachmentKey::node_alpha(NodeKey {
+            warp_id: wid,
+            local_id: missing,
+        }));
+        Footprint {
+            n_read,
+            n_write,
+            e_read: EdgeSet::default(),
+            e_write: EdgeSet::default(),
+            a_read: AttachmentSet::default(),
+            a_write,
+            b_in: PortSet::default(),
+            b_out: PortSet::default(),
+            factor_mask: 0,
+        }
+    }
+
+    #[test]
+    fn evidence_from_a_tick_that_fails_after_merge_is_not_retained() {
+        let scope = make_node_id("observed-evidence-unsealed-scope");
+        let mut store = GraphStore::default();
+        store.insert_node(
+            scope,
+            NodeRecord {
+                ty: make_type_id("scope"),
+            },
+        );
+        let mut engine = Engine::new(store, scope);
+        engine
+            .register_rule(RewriteRule {
+                id: test_rule_id(UNSEALED_NAME),
+                name: UNSEALED_NAME,
+                left: PatternGraph { nodes: vec![] },
+                matcher: always_match,
+                executor: RuleExecutor::observed(unsealed_executor),
+                compute_footprint: unsealed_footprint,
+                factor_mask: 0,
+                conflict_policy: ConflictPolicy::Abort,
+                join_fn: None,
+            })
+            .expect("register");
+        let tx = engine.begin();
+        assert!(matches!(
+            engine.apply(tx, UNSEALED_NAME, &scope),
+            Ok(ApplyResult::Applied)
+        ));
+
+        let result = catch_unwind(AssertUnwindSafe(|| engine.commit(tx)));
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "deleting a missing node fails when the patch applies"
+        );
+        assert!(
+            engine.last_execution_footprints().is_empty(),
+            "a tick that did not seal leaves no retained evidence"
+        );
+        assert_eq!(engine.last_aborted_execution_footprints().len(), 1);
     }
 
     // =============================================================================

@@ -2014,6 +2014,11 @@ impl Engine {
         self.last_snapshot = Some(snapshot.clone());
         self.tick_history
             .push((snapshot.clone(), receipt.clone(), patch.clone()));
+        // The tick is sealed: its patch applied and its snapshot, receipt and
+        // history entry exist. Only now does its execution evidence become
+        // retained evidence.
+        self.last_execution_footprints =
+            std::mem::take(&mut self.last_aborted_execution_footprints);
         // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
@@ -2954,18 +2959,16 @@ fn merge_parallel_deltas(
         }
     }
     evidence.sort_by_key(ExecutionFootprintEvidence::key);
-    // Retained evidence describes an execution whose changes merged. An
-    // attempt that unwinds or fails is published separately, as a failure
-    // artifact that is never part of worldline state.
+    // Evidence waits in the aborted slot until the tick seals. The commit
+    // promotes it to retained evidence only after the patch applied and the
+    // snapshot, receipt and history entry exist; an attempt that unwinds or
+    // fails anywhere before that leaves it as a failure artifact.
     *retained_evidence = std::sync::Arc::default();
-    *aborted_evidence = evidence.clone().into();
+    *aborted_evidence = evidence.into();
     if let Some(warp_id) = missing_store {
         return Err(EngineError::UnknownWarp(warp_id));
     }
-    let ops = merge_worker_deltas(all_deltas)?;
-    *aborted_evidence = std::sync::Arc::default();
-    *retained_evidence = evidence.into();
-    Ok(ops)
+    merge_worker_deltas(all_deltas)
 }
 
 fn merge_worker_deltas(

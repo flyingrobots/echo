@@ -5768,6 +5768,10 @@ pub struct FilesystemWalStore {
     recovered_segment_sync_count: u64,
     #[cfg(any(test, feature = "host_test"))]
     fault_plan: FilesystemWalFaultPlan,
+    /// Recovery scans run through this store, for [`Self::recovery_work`].
+    recovery_scans: std::sync::atomic::AtomicU64,
+    /// Frames those scans decoded.
+    recovery_frames: std::sync::atomic::AtomicU64,
 }
 
 impl FilesystemWalStore {
@@ -5824,7 +5828,33 @@ impl FilesystemWalStore {
             recovered_segment_sync_count: 0,
             #[cfg(any(test, feature = "host_test"))]
             fault_plan: FilesystemWalFaultPlan::default(),
+            recovery_scans: std::sync::atomic::AtomicU64::new(0),
+            recovery_frames: std::sync::atomic::AtomicU64::new(0),
         })
+    }
+
+    /// Recovers committed transactions from this store's segments, counting
+    /// the scan in [`Self::recovery_work`].
+    pub fn recover(
+        &self,
+        mode: RecoveryAccessMode,
+    ) -> Result<RecoveryScanReport, WalRecoveryError> {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.recovery_scans.fetch_add(1, Relaxed);
+        recover_filesystem_segments(&self.root, mode, &mut |frames| {
+            self.recovery_frames.fetch_add(frames, Relaxed);
+        })
+    }
+
+    /// Returns the recovery scans this store has run and the frames they
+    /// decoded.
+    #[must_use]
+    pub fn recovery_work(&self) -> FilesystemRecoveryWork {
+        use std::sync::atomic::Ordering::Relaxed;
+        FilesystemRecoveryWork {
+            scans: self.recovery_scans.load(Relaxed),
+            frames: self.recovery_frames.load(Relaxed),
+        }
     }
 
     /// Opens a filesystem WAL store with an injected host-test fault plan.
@@ -5938,13 +5968,13 @@ impl FilesystemWalStore {
         // Make what the earlier writer left readable durable before it is
         // read as recovered history.
         self.sync_existing_segments()?;
-        let recovery = recover_filesystem_store(&self.root, RecoveryAccessMode::ReadOnly).map_err(
-            |error| match error {
+        let recovery = self
+            .recover(RecoveryAccessMode::ReadOnly)
+            .map_err(|error| match error {
                 WalRecoveryError::Store(error) => error,
                 WalRecoveryError::Validation(error) => WalStoreError::Validation(error),
                 WalRecoveryError::Index(error) => WalStoreError::RecoveryIndex(error),
-            },
-        )?;
+            })?;
         if !matches!(recovery.tail_posture, RecoveryTailPosture::Clean) {
             return Err(WalStoreError::SegmentHasUncommittedTail(self.segment_id));
         }
@@ -6645,33 +6675,40 @@ impl WalStorePort for FilesystemWalStore {
     }
 }
 
-thread_local! {
-    static FILESYSTEM_RECOVERY_WORK: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
-}
-
-/// Cumulative filesystem recovery calls and decoded frames on the calling thread.
-/// Failed scans count as calls; frames count after segment decoding succeeds.
-/// Diagnostic work counters are not retained evidence or admission authority.
-#[must_use]
-pub fn filesystem_recovery_work() -> (u64, u64) {
-    FILESYSTEM_RECOVERY_WORK.get()
+/// Recovery scans one [`FilesystemWalStore`] has run, and the frames they
+/// decoded.
+///
+/// Failed scans count as scans; frames count after segment decoding succeeds.
+/// These are diagnostic work counters, not retained evidence or admission
+/// authority.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FilesystemRecoveryWork {
+    /// Recovery scans started.
+    pub scans: u64,
+    /// WAL frames decoded by those scans.
+    pub frames: u64,
 }
 
 /// Recovers committed transactions from filesystem WAL segments.
+///
+/// This free function counts no work. [`FilesystemWalStore::recover`] runs the
+/// same scan and counts it on the store.
 pub fn recover_filesystem_store(
     root: impl AsRef<Path>,
     mode: RecoveryAccessMode,
 ) -> Result<RecoveryScanReport, WalRecoveryError> {
-    FILESYSTEM_RECOVERY_WORK.set((
-        filesystem_recovery_work().0 + 1,
-        filesystem_recovery_work().1,
-    ));
-    let root = root.as_ref();
+    recover_filesystem_segments(root.as_ref(), mode, &mut |_| {})
+}
+
+/// Scans `root`, reporting the number of decoded frames through `decoded`
+/// once segment decoding succeeds.
+fn recover_filesystem_segments(
+    root: &Path,
+    mode: RecoveryAccessMode,
+    decoded: &mut dyn FnMut(u64),
+) -> Result<RecoveryScanReport, WalRecoveryError> {
     let (frames, commits, torn_tail) = read_filesystem_segments(root)?;
-    FILESYSTEM_RECOVERY_WORK.set((
-        filesystem_recovery_work().0,
-        filesystem_recovery_work().1 + frames.len() as u64,
-    ));
+    decoded(frames.len() as u64);
     let mut report = recover_from_frames_and_commits(&frames, &commits, mode)?;
     if torn_tail && matches!(report.tail_posture, RecoveryTailPosture::Clean) {
         report.tail_posture = match mode {

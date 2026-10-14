@@ -149,7 +149,13 @@ pub fn serve(config: RunEdictOperationConfig) -> Result<()> {
         println!("{}", serde_json::to_string(&response)?);
         std::io::stdout().flush()?;
         if std::env::var_os("ECHO_WAL_PROFILE").is_some() {
-            let (scans, frames) = warp_core::causal_wal::filesystem_recovery_work();
+            let work = session
+                .fixture
+                .host
+                .runtime_wal()
+                .and_then(warp_core::TrustedRuntimeWal::filesystem_recovery_work)
+                .unwrap_or_default();
+            let (scans, frames) = (work.scans, work.frames);
             eprintln!("{}", json!({"wal_profile":{"scans":scans,"frames":frames}}));
         }
     }

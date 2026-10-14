@@ -1939,10 +1939,68 @@ pub struct InMemoryWalStore {
     manifests: Vec<WalManifest>,
 }
 
+/// A point an in-memory WAL store can be rewound to.
+///
+/// Frames, commits, seals and manifests are only ever appended, so their
+/// lengths are enough to remove what came after. Epoch bookkeeping is small
+/// and is kept whole.
+#[derive(Clone, Debug)]
+pub struct InMemoryWalStoreMark {
+    frames: usize,
+    commits: usize,
+    sealed_segments: usize,
+    manifests: usize,
+    active_epoch: Option<WriterEpoch>,
+    closed_epochs: Vec<WriterEpoch>,
+    epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
+}
+
 impl InMemoryWalStore {
     /// Creates an empty in-memory WAL store.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Marks the current end of the store. Costs nothing in proportion to
+    /// what the store holds, unlike a clone.
+    #[must_use]
+    pub fn mark(&self) -> InMemoryWalStoreMark {
+        InMemoryWalStoreMark {
+            frames: self.frames.len(),
+            commits: self.commits.len(),
+            sealed_segments: self.sealed_segments.len(),
+            manifests: self.manifests.len(),
+            active_epoch: self.active_epoch.clone(),
+            closed_epochs: self.closed_epochs.clone(),
+            epoch_closures: self.epoch_closures.clone(),
+        }
+    }
+
+    /// Removes everything appended after `mark` and restores the epoch
+    /// bookkeeping it recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalStoreError::Io`] if the store is shorter than the mark,
+    /// which means it was rewound or replaced since the mark was taken.
+    pub fn rewind_to(&mut self, mark: InMemoryWalStoreMark) -> Result<(), WalStoreError> {
+        if self.frames.len() < mark.frames
+            || self.commits.len() < mark.commits
+            || self.sealed_segments.len() < mark.sealed_segments
+            || self.manifests.len() < mark.manifests
+        {
+            return Err(WalStoreError::Io(
+                "in-memory WAL store is shorter than the rewind mark".to_owned(),
+            ));
+        }
+        self.frames.truncate(mark.frames);
+        self.commits.truncate(mark.commits);
+        self.sealed_segments.truncate(mark.sealed_segments);
+        self.manifests.truncate(mark.manifests);
+        self.active_epoch = mark.active_epoch;
+        self.closed_epochs = mark.closed_epochs;
+        self.epoch_closures = mark.epoch_closures;
+        Ok(())
     }
 
     /// Appends and flushes a committed transaction.

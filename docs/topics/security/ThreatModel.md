@@ -438,7 +438,7 @@ Use these questions in security-sensitive code review:
 - [Optic invocation admission tests](../../../crates/warp-core/tests/optic_invocation_admission_tests.rs)
 - [Optic attachment tests](../../../crates/warp-core/tests/optic_attachment_tests.rs)
 - [WSC storage tests](../../../crates/warp-core/tests/wsc_store_tests.rs)
-- [Explicitly unimplemented privacy tests](../../../crates/warp-core/tests/parallel_privacy.rs)
+- [Unimplemented privacy plans (issue #814)](https://github.com/flyingrobots/echo/issues/814#issuecomment-6160885917): ledger-mode atoms, claim merging, commitment peppers and atom-type declarations have no tests
 - [Continuum authority decision](../../adr/0013-echo-continuum-authority-boundary.md)
 - [Application admission security ramp](../../architecture/application-contract-hosting.md#admission-security-ramp)
 - [Echo 1.0 release integrity requirements](../../releases/echo-1.0-contract.md)

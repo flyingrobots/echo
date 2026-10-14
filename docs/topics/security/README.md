@@ -273,7 +273,7 @@ process without that compromise being outside the local model.
 - [Capability validation witnesses](../../../crates/warp-core/tests/capability_grant_validation_tests.rs)
 - [Optic admission witnesses](../../../crates/warp-core/tests/optic_invocation_admission_tests.rs)
 - [Attachment boundary witnesses](../../../crates/warp-core/tests/optic_attachment_tests.rs)
-- [Privacy tests and explicit gaps](../../../crates/warp-core/tests/parallel_privacy.rs)
+- [Privacy gaps (issue #814)](https://github.com/flyingrobots/echo/issues/814#issuecomment-6160885917): the planned privacy tests were never implemented
 - [Application admission security ramp](../../architecture/application-contract-hosting.md#admission-security-ramp)
 - [Retained reading proof boundary](../../adr/0020-retained-reading-storage-and-proof-boundary.md)
 - [Public optic boundary](../../adr/0021-public-optic-observation-boundary.md)

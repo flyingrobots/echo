@@ -279,9 +279,22 @@ pub struct Footprint {
 impl Footprint {
     /// Add every resource claim from `other` to this footprint.
     ///
-    /// Set membership is unioned and the coarse factor mask is combined with
-    /// bitwise OR. This operation never removes or weakens an existing claim.
+    /// Set membership is unioned. The coarse factor mask is combined with
+    /// bitwise OR only when both sides populated it: a zero (unpopulated) mask
+    /// on a side that has claims makes the result zero, so the union never
+    /// looks populated while carrying claims the mask does not cover. A
+    /// footprint with no claims and a zero mask is neutral. This operation
+    /// never removes or weakens an existing claim.
     pub fn union_assign(&mut self, other: &Self) {
+        self.factor_mask = if self.has_no_claims() {
+            other.factor_mask
+        } else if other.has_no_claims() {
+            self.factor_mask
+        } else if self.factor_mask == 0 || other.factor_mask == 0 {
+            0
+        } else {
+            self.factor_mask | other.factor_mask
+        };
         self.n_read.0.extend(other.n_read.0.iter().copied());
         self.n_write.0.extend(other.n_write.0.iter().copied());
         self.e_read.0.extend(other.e_read.0.iter().copied());
@@ -290,7 +303,19 @@ impl Footprint {
         self.a_write.0.extend(other.a_write.0.iter().copied());
         self.b_in.0.extend(other.b_in.0.iter().copied());
         self.b_out.0.extend(other.b_out.0.iter().copied());
-        self.factor_mask |= other.factor_mask;
+    }
+
+    /// Whether this footprint claims no resource and carries no mask.
+    fn has_no_claims(&self) -> bool {
+        self.factor_mask == 0
+            && self.n_read.is_empty()
+            && self.n_write.is_empty()
+            && self.e_read.is_empty()
+            && self.e_write.is_empty()
+            && self.a_read.is_empty()
+            && self.a_write.is_empty()
+            && self.b_in.is_empty()
+            && self.b_out.is_empty()
     }
 
     /// Derives the admission-side bounded site for this footprint.
@@ -640,6 +665,31 @@ mod tests {
             !fp_masked.independent(&fp_a),
             "the check must stay symmetric"
         );
+
+        // A union of a populated and an unpopulated footprint stays
+        // unpopulated, so it cannot claim independence on its mask alone.
+        let mut union = Footprint {
+            factor_mask: 0b0001,
+            ..Default::default()
+        };
+        union.union_assign(&fp_a);
+        assert_eq!(
+            union.factor_mask, 0,
+            "an unpopulated member makes the union unknown"
+        );
+        let disjoint_mask = Footprint {
+            factor_mask: 0b0100,
+            n_write: fp_a.n_write.clone(),
+            ..Default::default()
+        };
+        assert!(
+            !union.independent(&disjoint_mask),
+            "the zero-mask member's write must still conflict"
+        );
+        // An empty footprint is neutral in a union.
+        let mut accumulated = Footprint::default();
+        accumulated.union_assign(&fp_masked);
+        assert_eq!(accumulated.factor_mask, 0b0100);
 
         // Zero masks with disjoint claims remain independent.
         let mut fp_other = Footprint::default();

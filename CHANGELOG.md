@@ -158,7 +158,9 @@
   non-zero; a zero placeholder on either side falls through to the node, edge,
   attachment, and port set checks. Previously two zero-mask footprints with
   conflicting writes compared as independent. Nothing in the engine calls it
-  today (the scheduler never consults the mask), but it is public API.
+  today (the scheduler never consults the mask), but it is public API. A
+  union of footprints (`union_assign`) also stays unpopulated when either side
+  with claims is unpopulated, so a composite cannot look fully masked.
 - A tick with the in-memory WAL no longer costs time in proportion to the
   whole log. The host copied the in-memory log, its catalog and its indexes
   before every tick so it could undo a failed one; at 8,000 updates a tick

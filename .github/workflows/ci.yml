@@ -658,6 +658,8 @@ jobs:
                       .
             - name: cargo check (benches)
               run: cargo check --benches -p warp-benches
+            - name: cargo check (warp-core Action-path benches)
+              run: cargo check --benches -p warp-core --features native_rule_bootstrap,trusted_runtime
 
     # MSRV job removed per policy: use @stable everywhere
 

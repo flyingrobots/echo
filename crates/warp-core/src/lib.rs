@@ -61,7 +61,6 @@ mod contract_obstruction;
 mod contract_registry;
 /// Domain separation prefixes for hashing.
 pub mod domain;
-mod dynamic_binding;
 #[cfg_attr(
     not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
     allow(dead_code)
@@ -212,7 +211,7 @@ pub use admission::{
 };
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
-    CodecRegistry, DecodeError, ErasedCodec, RegistryError,
+    DecodeError,
 };
 pub use causal_facts::{
     digest_invocation_request_bytes, ArtifactRegistrationObstructionKind,
@@ -240,12 +239,6 @@ pub use contract_registry::{
     ContractEvidenceIdentity, ContractMutationHandler, ContractOperationKind,
     ContractPackageIdentity, InstalledContractPackage, InstalledContractPackageError,
     InstalledContractPackageId, InstalledContractPackageRecord, InstalledInvocationEvidence,
-};
-pub use dynamic_binding::{
-    BoundNodeRef, ClosureMemberBinding, DirectSlotBinding, DynamicBindingError,
-    DynamicBindingRuntimeError, RangeClosureBindingRequest, RelationSlotBinding,
-    ResolvedClosureBinding, ResolvedSlotBinding, StructuredBindingResolver,
-    StructuredBindingRuntime, StructuredRuntimeBindings,
 };
 pub use echo_operation::{
     echo_operation_action_envelope_v1, echo_operation_action_intent_kind_v1,

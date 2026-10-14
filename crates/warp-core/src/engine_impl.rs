@@ -791,7 +791,7 @@ impl Engine {
     ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
     ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     pub fn with_scheduler_and_policy_id(
         store: GraphStore,
@@ -811,7 +811,7 @@ impl Engine {
     ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
     ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     pub fn with_telemetry(
@@ -841,7 +841,7 @@ impl Engine {
     ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
     ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.
@@ -873,7 +873,7 @@ impl Engine {
     ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
     ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.
@@ -961,7 +961,7 @@ impl Engine {
     /// # Parameters
     /// - `state`: pre-constructed multi-instance state.
     /// - `root`: the root node for snapshot hashing and commits. This must refer to the root instance.
-    /// - `kind`: scheduler variant (Radix vs Legacy).
+    /// - `kind`: scheduler variant (currently only `Radix`).
     /// - `policy_id`: policy identifier committed into `patch_digest` and `commit_id` v2.
     ///
     /// # Errors
@@ -1031,7 +1031,7 @@ impl Engine {
     /// # Parameters
     /// - `state`: Pre-constructed multi-instance state.
     /// - `root`: The root node for snapshot hashing and commits.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.
@@ -1068,7 +1068,7 @@ impl Engine {
     /// # Parameters
     /// - `state`: Pre-constructed multi-instance state.
     /// - `root`: The root node for snapshot hashing and commits.
-    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `kind`: Scheduler variant (currently only `Radix`).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     /// - `telemetry`: Telemetry sink for observability events.
     /// - `bus`: Pre-configured materialization bus for dependency injection.

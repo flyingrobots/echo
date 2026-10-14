@@ -12,11 +12,10 @@
 mod child_process;
 
 use warp_core::causal_wal::{
-    apply_committed_transaction, audit_wal_release_readiness,
-    build_materialization_outbox_transaction, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_tick_transaction,
-    canonical_segment_relative_path, doctor_filesystem_store, doctor_in_memory_store,
-    doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
+    apply_committed_transaction, build_materialization_outbox_transaction,
+    build_retained_reading_transaction, build_submission_acceptance_transaction,
+    build_tick_transaction, canonical_segment_relative_path, doctor_filesystem_store,
+    doctor_in_memory_store, doctor_in_memory_store_with_materials, evaluate_checkpoint_publication,
     inspect_evidence_material_posture, next_segment_id, project_absent_causal_commit_evidence,
     project_causal_commit_evidence, project_obstructed_causal_commit_evidence,
     read_checkpoint_record, read_filesystem_manifest, recover_filesystem_store,
@@ -40,11 +39,11 @@ use warp_core::causal_wal::{
     ShadowReplayMismatch, SubmissionAcceptanceRecord, SubmissionRetryPosture, TickReceiptRecord,
     WalAppendAuthority, WalBuildError, WalCommittedTransaction, WalCrashpointBoundary,
     WalCrashpointExecution, WalDoctorPosture, WalDoctorReport, WalDurabilityMode, WalManifest,
-    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReleaseReadinessGates,
-    WalReplayError, WalSegmentId, WalSegmentIdError, WalSegmentPlacementKind,
-    WalSegmentPlacementPolicy, WalSegmentPlacementPolicyError, WalStoreError, WalStorePort,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind,
-    WalValidationError, WriterEpochId, WriterEpochRequest,
+    WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalReplayError, WalSegmentId,
+    WalSegmentIdError, WalSegmentPlacementKind, WalSegmentPlacementPolicy,
+    WalSegmentPlacementPolicyError, WalStoreError, WalStorePort, WalTickDecision,
+    WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalValidationError, WriterEpochId,
+    WriterEpochRequest,
 };
 use warp_core::{CausalTickReceiptRef, GlobalTick, Hash, WorldlineId, WorldlineTick};
 
@@ -2938,48 +2937,6 @@ fn inspector_reports_redaction_posture_explicitly() {
 }
 
 #[test]
-fn wal_hardening_gate_reports_blocked_categories() {
-    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        segment_repair: true,
-        ..WalReleaseReadinessGates::default()
-    });
-
-    assert!(!report.ready);
-    assert!(report.blocked_gates.contains(&"crashpoint_manifest"));
-    assert!(report.blocked_gates.contains(&"wal_doctor"));
-    assert!(report.blocked_gates.contains(&"app_noun_guard"));
-}
-
-#[test]
-fn wal_hardening_gate_passes_when_all_categories_are_green() {
-    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        segment_repair: true,
-        segment_layout_policy: true,
-        segment_manifest_validation: true,
-        crash_matrix: true,
-        crashpoint_manifest: true,
-        shadow_replay: true,
-        outbox: true,
-        commit_evidence: true,
-        wal_doctor: true,
-        semantic_validator: true,
-        topology_recovery: true,
-        filesystem_sync_evidence: true,
-        object_store_manifest_negatives: true,
-        security_redaction: true,
-        app_noun_guard: true,
-        external_consumer_gate: true,
-    });
-
-    assert!(report.ready);
-    assert!(report.blocked_gates.is_empty());
-}
-
-#[test]
 fn canonical_segment_path_uses_logical_segments_directory() {
     assert_eq!(
         canonical_segment_relative_path(WalSegmentId::from_raw(1)),
@@ -3133,33 +3090,6 @@ fn segment_manifest_entry_binds_logical_id_not_wall_clock_path() {
     assert!(!entry.relative_path.to_string_lossy().contains("2026/"));
     assert_eq!(entry.first_lsn, Some(Lsn::from_raw(0)));
     assert_eq!(entry.last_lsn, Some(Lsn::from_raw(1)));
-}
-
-#[test]
-fn segment_layout_gate_is_part_of_wal_release_readiness() {
-    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        segment_repair: true,
-        crash_matrix: true,
-        crashpoint_manifest: true,
-        shadow_replay: true,
-        outbox: true,
-        commit_evidence: true,
-        wal_doctor: true,
-        semantic_validator: true,
-        filesystem_sync_evidence: true,
-        object_store_manifest_negatives: true,
-        security_redaction: true,
-        app_noun_guard: true,
-        external_consumer_gate: true,
-        ..WalReleaseReadinessGates::default()
-    });
-
-    assert!(
-        report.blocked_gates.contains(&"segment_layout_policy"),
-        "layout policy should be an explicit WAL release gate"
-    );
 }
 
 #[test]
@@ -3415,34 +3345,4 @@ fn filesystem_manifest_validation_rejects_uncommitted_tail() {
     );
 
     assert_eq!(error, WalStoreError::ManifestCannotValidateUncommittedTail);
-}
-
-#[test]
-fn segment_manifest_validation_gate_is_part_of_wal_release_readiness() {
-    let report = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        segment_repair: true,
-        segment_layout_policy: true,
-        crash_matrix: true,
-        crashpoint_manifest: true,
-        shadow_replay: true,
-        outbox: true,
-        commit_evidence: true,
-        wal_doctor: true,
-        semantic_validator: true,
-        filesystem_sync_evidence: true,
-        object_store_manifest_negatives: true,
-        security_redaction: true,
-        app_noun_guard: true,
-        external_consumer_gate: true,
-        ..WalReleaseReadinessGates::default()
-    });
-
-    assert!(
-        report
-            .blocked_gates
-            .contains(&"segment_manifest_validation"),
-        "manifest validation should be an explicit WAL release gate"
-    );
 }

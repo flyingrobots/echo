@@ -93,6 +93,10 @@ name = "causal_fact_publication_tests"
 required-features = ["host_test"]
 
 [[test]]
+name = "causal_wal_hardening_tests"
+required-features = ["host_test"]
+
+[[test]]
 name = "optic_invocation_admission_tests"
 required-features = ["host_test"]
 

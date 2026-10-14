@@ -20,7 +20,7 @@ use crate::snapshot::Snapshot;
 /// and rule table without sharing state.
 #[derive(Clone)]
 pub struct EchoConfig {
-    /// Which scheduler implementation to use (Radix default, Legacy for comparison).
+    /// Which scheduler implementation to use (currently only `Radix`).
     pub scheduler: SchedulerKind,
     /// Whether the caller intends to run this Echo on its own thread (advisory only).
     pub threaded: bool,

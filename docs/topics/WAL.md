@@ -565,3 +565,14 @@ WSC, reveals retained reading material, and requires all paths to agree on the
 same app-facing receipt and bounded reading. Missing CAS support material and
 corrupt embedded retained bytes must surface as typed obstruction evidence
 rather than a divergent success.
+
+### Release readiness
+
+The WAL's release readiness is tracked on GitHub (#858), not here. No code
+checks the readiness gates together; an earlier aggregator only combined
+booleans its caller supplied and was removed (#820).
+
+The builders for topology-intent, checkpoint-publication and
+materialization-outbox transactions and the strict object-store validators exist only under `test` or `host_test`. They are
+fixtures for the hardening tests that prove recovery understands those record
+kinds. No production path writes those transactions or uses an object store.

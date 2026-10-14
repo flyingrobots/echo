@@ -489,7 +489,7 @@ pub struct Engine {
     /// It committed nothing; this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
-    /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
+    /// Initial state (U0) snapshot preserved for replay.
     initial_state: Arc<WarpState>,
     /// Materialization bus for tick-scoped channel emissions.
     ///
@@ -901,7 +901,7 @@ impl Engine {
             },
             store,
         );
-        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        // Preserve the initial state (U0) for replay.
         let initial_state = Arc::new(state.clone());
         Self {
             state,
@@ -1105,7 +1105,7 @@ impl Engine {
             return Err(EngineError::UnknownWarp(root.warp_id));
         }
 
-        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        // Preserve the initial state (U0) for replay.
         let initial_state = Arc::new(state.clone());
         Ok(Self {
             state,
@@ -2601,34 +2601,6 @@ impl Engine {
     #[must_use]
     pub fn last_aborted_execution_footprints(&self) -> &[ExecutionFootprintEvidence] {
         &self.last_aborted_execution_footprints
-    }
-
-    /// Resets the engine state to the beginning of time (U0) and re-applies all patches
-    /// up to and including the specified tick index.
-    ///
-    /// # Errors
-    /// - Returns [`EngineError::InvalidTickIndex`] if `tick_index` exceeds ledger length.
-    /// - Returns [`EngineError::InternalCorruption`] if a patch fails to apply.
-    pub fn jump_to_tick(&mut self, tick_index: usize) -> Result<(), EngineError> {
-        let ledger_len = self.tick_history.len();
-        if tick_index >= ledger_len {
-            return Err(EngineError::InvalidTickIndex(tick_index, ledger_len));
-        }
-
-        // 1. Restore state to the preserved initial state (U0).
-        // This ensures patches are replayed against the exact original base,
-        // rather than a fresh WarpState which would discard the original U0.
-        self.state = (*self.initial_state).clone();
-
-        // 2. Re-apply patches from index 0 to tick_index
-        for i in 0..=tick_index {
-            let (_, _, patch) = &self.tick_history[i];
-            patch.apply_to_state(&mut self.state).map_err(|_| {
-                EngineError::InternalCorruption("failed to replay patch during jump")
-            })?;
-        }
-
-        Ok(())
     }
 
     /// Returns a shared view of the current warp state.

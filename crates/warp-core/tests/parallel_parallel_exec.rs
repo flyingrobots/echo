@@ -10,6 +10,7 @@
 //! These tests require the `delta_validate` feature to be enabled:
 //! ```sh
 //! cargo test --package warp-core --test parallel_parallel_exec --features delta_validate
+#![allow(clippy::expect_used)]
 //! ```
 
 // This test file only compiles when the delta_validate feature is enabled.
@@ -63,6 +64,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                u32::try_from(i).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {

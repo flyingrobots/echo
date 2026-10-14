@@ -14,6 +14,59 @@
 
 ### Added
 
+- `ActualFootprint` records the graph resources an execution actually touched
+  and compares them against a declared `Footprint`, returning the existing
+  `ViolationKind` vocabulary in a deterministic axis order. Footprint
+  enforcement previously answered "was this access declared?" and forgot, so
+  the soundness relation `Actual ⊆ Declared` could only be observed as a panic
+  and never evaluated as a value. `ActualFootprint::from_ops` derives the write
+  axis from an emitted op sequence using the same extraction as enforcement, so
+  a recorded write set and an enforced write check cannot disagree. Cross-warp
+  and instance-level concerns are deliberately excluded: they are scope and
+  authority questions the guard already reports, not footprint-subset
+  questions. The read axis is recorded as accesses happen through
+  `ExecutionGraphView`; it cannot be reconstructed from emitted ops.
+- `ExecutionGraphView` is the executor-only capability that records what an
+  execution actually read. `GraphView` could not grow a recorder: its accessors
+  take `&self`, so mutating a borrowed accumulator would need interior
+  mutability, which its contract forbids and which would cost it `Sync` — and
+  `WorkUnit: Sync` is required for workers to borrow the shared unit slice.
+  Moving the mutable execution frame rather than the declared guard into
+  exclusive worker ownership makes `&mut self` sufficient, so no lock, no
+  `UnsafeCell`, and no manual `Sync` are involved, and `GraphView` and
+  `WorkUnit` are untouched. Accessors record before consulting the guard, so
+  the access that trips enforcement is already in the transcript when the panic
+  unwinds; recording afterwards would retain an actual footprint missing its own
+  counterexample. The recorded axis mirrors enforcement exactly — `edges_from`
+  records a node read, because declaring a node grants its outbound adjacency —
+  and an absent resource is still a recorded coordinate, so a rule cannot probe
+  undeclared coordinates for free by picking empty ones.
+- `ActualFootprintPosture` states what a footprint record is entitled to claim.
+  An empty violation set means "the declaration covered the execution" only when
+  the lane both recorded and enforced; from an unobserved lane it means only
+  that nothing was compared. `read_axis_is_complete` keeps that difference
+  legible, so an empty read axis from an unobserved lane reads as _unknown_
+  rather than as _this execution read nothing_, and only `RecordedAndEnforced`
+  may ground an admitted falsification witness. `build_footprint_posture` caps
+  every lane by the enforcement the binary actually compiled.
+- `ObservedExecuteFn` and `RuleExecutor` route native scheduler execution through
+  one worker-local evidence core. Native and generated contract-host executors
+  receive `ExecutionGraphView`; the frozen provider-v1 callback remains an
+  explicit legacy `GraphView` ABI and can never manufacture a complete read
+  axis. `ExecutionFootprintEvidence` retains one canonical record per executed
+  Action on `Engine` and `WorldlineState`, including the emitted write set when
+  the executor or read guard unwinds. Records are keyed before worker dispatch
+  and sorted independently of worker claim or completion order. Successful,
+  panicking, legacy, generated-consumer, provider-v1, and worker-count-invariant
+  witnesses complete stage 2 of the falsification roadmap without exporting
+  `FootprintGuard` or weakening its ordinary panic path.
+- Differential tests run the recorded write set and the enforced write check
+  against the same ops and the same declaration, closing an assumption the
+  design had only asserted. They also pin the two deliberate disagreements:
+  cross-warp emission and unauthorized instance ops are scope and authority
+  failures that the recorder declines to report as footprint-subset failures,
+  so a reducer cannot hop between bug classes by conflating them.
+
 - `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.
 
 - `SlotWriteIndex` resolves the value of one node, edge or attachment slot at a tick cursor from tick patches and the initial boundary, without materializing a graph or replaying unrelated ticks. It indexes the operations that wrote each slot, including values cleared by node, edge and instance deletion, and truncates in proportion to the ticks removed. A reader is bound to the exact patches the index was built from by patch digest, and truncation refuses patches that are not the indexed suffix. It is a derived reading aid; the runtime does not use it yet.
@@ -1783,6 +1836,11 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   downstream code that depended on the C FFI surface.
 
 ### Changed
+
+- `ExecItem` constructors require an explicit canonical evidence sequence.
+  Manually assembled work units no longer silently reuse a per-rule match
+  index as the execution sequence. Engine callers pass the existing batch-wide
+  enumeration directly, preserving scheduler order.
 
 - Echo and Edict share exact `bunny-num` 0.6.0 for the canonical signed Q32.32
   foundation. `warp-math` exposes Bunny's checked type and delegates existing

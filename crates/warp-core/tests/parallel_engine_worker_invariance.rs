@@ -384,6 +384,62 @@ fn worker_count_invariance_for_writer_advance() {
     }
 }
 
+/// Per-Action evidence uses canonical pre-dispatch identity, not worker order.
+#[test]
+fn execution_evidence_order_is_worker_count_invariant() {
+    use warp_core::{ApplyResult, EngineBuilder, ExecutionFootprintEvidence, NodeRecord};
+
+    const TOUCH_RULE_NAME: &str = "t16e/touch";
+    let make_touch_rule = || make_touch_rule!("t16e/touch", "t16e/marker", b"touched-t16e");
+    let node_ty = warp_core::make_type_id("t16e/node");
+    let mut base_store = warp_core::GraphStore::default();
+    let root = warp_core::make_node_id("t16e/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+
+    let mut scopes = vec![root];
+    for i in 1..20 {
+        let scope = warp_core::make_node_id(&format!("t16e/node{i}"));
+        base_store.insert_node(scope, NodeRecord { ty: node_ty });
+        scopes.push(scope);
+    }
+
+    let execute = |workers| -> Vec<ExecutionFootprintEvidence> {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(workers)
+            .build();
+        engine
+            .register_rule(make_touch_rule())
+            .expect("failed to register rule");
+        let tx = engine.begin();
+        for scope in &scopes {
+            assert!(matches!(
+                engine.apply(tx, TOUCH_RULE_NAME, scope),
+                Ok(ApplyResult::Applied)
+            ));
+        }
+        engine.commit(tx).expect("commit failed");
+        engine.last_execution_footprints().to_vec()
+    };
+
+    let baseline = execute(1);
+    assert_eq!(baseline.len(), scopes.len());
+    assert_eq!(
+        baseline
+            .iter()
+            .map(ExecutionFootprintEvidence::sequence)
+            .collect::<Vec<_>>(),
+        (0..u32::try_from(scopes.len()).expect("scope count fits u32")).collect::<Vec<_>>()
+    );
+
+    for &workers in WORKER_COUNTS {
+        assert_eq!(
+            execute(workers),
+            baseline,
+            "execution evidence changed with {workers} workers"
+        );
+    }
+}
+
 /// T16 variant: Worker count invariance with shuffled ingress order.
 ///
 /// This test combines worker count invariance with permutation invariance.

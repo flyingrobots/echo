@@ -168,7 +168,7 @@ fn mutation_rule(name: &'static str) -> RewriteRule {
         name,
         left: PatternGraph { nodes: vec![] },
         matcher: matches,
-        executor: execute,
+        executor: warp_core::RuleExecutor::legacy(execute),
         compute_footprint: footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

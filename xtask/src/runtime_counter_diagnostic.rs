@@ -13,11 +13,11 @@ use warp_core::wsc::{build_one_warp_input, validate_wsc, write_wsc_one_warp, Wsc
 use warp_core::{
     derive_witnessed_suffix_shell_digest, export_suffix, import_suffix, make_edge_id,
     make_intent_kind, make_node_id, make_type_id, AtomPayload, AttachmentKey, AttachmentValue,
-    CausalSuffixBundle, ConflictPolicy, EdgeRecord, ExportSuffixRequest, Footprint, GraphStore,
-    GraphView, Hash, ImportSuffixRequest, IngressEnvelope, IngressTarget, NodeId, NodeKey,
-    NodeRecord, PatternGraph, ProvenanceRef, RewriteRule, TickDelta, TickReceipt,
-    TickReceiptDisposition, TickReceiptRejection, WarpOp, WitnessedSuffixAdmissionContext,
-    WitnessedSuffixAdmissionOutcome, WitnessedSuffixExportContext,
+    CausalSuffixBundle, ConflictPolicy, EdgeRecord, ExecutionGraphView, ExportSuffixRequest,
+    Footprint, GraphStore, GraphView, Hash, ImportSuffixRequest, IngressEnvelope, IngressTarget,
+    NodeId, NodeKey, NodeRecord, PatternGraph, ProvenanceRef, RewriteRule, RuleExecutor, TickDelta,
+    TickReceipt, TickReceiptDisposition, TickReceiptRejection, WarpOp,
+    WitnessedSuffixAdmissionContext, WitnessedSuffixAdmissionOutcome, WitnessedSuffixExportContext,
     WitnessedSuffixLocalAdmissionPosture, WorldlineId, WorldlineState, WorldlineTick,
 };
 
@@ -408,7 +408,7 @@ fn counter_rule() -> RewriteRule {
         name: COUNTER_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: counter_matcher,
-        executor: counter_executor,
+        executor: RuleExecutor::observed(counter_executor),
         compute_footprint: counter_footprint,
         factor_mask: 1,
         conflict_policy: ConflictPolicy::Abort,
@@ -420,8 +420,8 @@ fn counter_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     read_intent_amount(&view, scope).is_some()
 }
 
-fn counter_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
-    let Some(amount) = read_intent_amount(&view, scope) else {
+fn counter_executor(view: &mut ExecutionGraphView<'_, '_>, scope: &NodeId, delta: &mut TickDelta) {
+    let Some(amount) = read_observed_intent_amount(view, scope) else {
         return;
     };
     let current = view
@@ -439,6 +439,20 @@ fn counter_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) 
         key,
         value: Some(counter_attachment(next)),
     });
+}
+
+fn read_observed_intent_amount(
+    view: &mut ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+) -> Option<u64> {
+    let attachment = view.node_attachment(scope)?;
+    let AttachmentValue::Atom(atom) = attachment else {
+        return None;
+    };
+    if atom.type_id != make_type_id(INTENT_ATTACHMENT_TYPE) {
+        return None;
+    }
+    parse_amount(atom.bytes.as_ref())
 }
 
 fn counter_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {

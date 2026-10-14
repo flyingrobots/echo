@@ -22,8 +22,8 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use echo_dry_tests::build_motion_demo_engine;
 use std::time::Duration;
 use warp_core::{
-    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, GraphView, Hash,
-    NodeId, NodeRecord, PatternGraph, RewriteRule, TickDelta,
+    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, ExecutionGraphView, Footprint,
+    GraphView, Hash, NodeId, NodeRecord, PatternGraph, RewriteRule, RuleExecutor, TickDelta,
 };
 
 // Bench constants to avoid magic strings.
@@ -43,7 +43,7 @@ fn bench_noop_rule() -> RewriteRule {
     fn matcher(_view: GraphView<'_>, _n: &NodeId) -> bool {
         true
     }
-    fn executor(_view: GraphView<'_>, _n: &NodeId, _delta: &mut TickDelta) {}
+    fn executor(_view: &mut ExecutionGraphView<'_, '_>, _n: &NodeId, _delta: &mut TickDelta) {}
     fn footprint(_view: GraphView<'_>, _n: &NodeId) -> Footprint {
         Footprint::default()
     }
@@ -52,7 +52,7 @@ fn bench_noop_rule() -> RewriteRule {
         name: BENCH_NOOP_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher,
-        executor,
+        executor: RuleExecutor::observed(executor),
         compute_footprint: footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,

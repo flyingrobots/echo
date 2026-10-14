@@ -12,6 +12,15 @@
   hashes. `echo-graph` served only `echo-dry-tests`' `SnapshotBuilder` and
   `DiffBuilder`, which nothing used and which are removed with it.
 
+### Changed
+
+- Operation-context refusals name the lifetime limit. A WAL root retains at
+  most 1,024 observations and 4,096 request bindings over its whole life,
+  because contexts are never retired; each limit refuses only its own kind,
+  including after reopening. The refusals now say so instead of "context
+  admission limit reached", and the limits are named constants. Retirement
+  is a design question (#854).
+
 ### Added
 
 - `ActualFootprint` records the graph resources an execution actually touched

@@ -65,6 +65,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                u32::try_from(i).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -85,6 +86,7 @@ fn make_exec_items_for_warp(nodes: &[NodeId], warp_index: usize) -> Vec<ExecItem
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                u32::try_from(warp_index * 10000 + i).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -347,6 +349,7 @@ fn stress_many_small_items_multiwarp() {
     for round in 0..4 {
         for (i, &node) in nodes.iter().enumerate() {
             all_items.push(ExecItem::new(
+                u32::try_from(round * 1000 + i).expect("the test sequence fits in u32"),
                 touch_executor,
                 node,
                 OpOrigin {

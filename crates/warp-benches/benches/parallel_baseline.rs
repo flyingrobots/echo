@@ -3,7 +3,12 @@
 // criterion_group!/criterion_main! expand to undocumented functions that cannot
 // carry #[allow] (attributes on macro invocations are ignored). Crate-level
 // suppress is required for benchmark binaries using Criterion.
-#![allow(missing_docs, clippy::panic, clippy::items_after_statements)]
+#![allow(
+    missing_docs,
+    clippy::panic,
+    clippy::expect_used,
+    clippy::items_after_statements
+)]
 //! Parallel execution performance baseline benchmarks.
 //!
 //! Measures parallel vs serial execution across different workload sizes
@@ -94,6 +99,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                u32::try_from(i).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -217,6 +223,7 @@ fn make_multi_warp_setup(
             let id = make_node_id(&format!("bench/w{w}/n{i}"));
             store.insert_node(id, NodeRecord { ty: node_ty });
             items.push(ExecItem::new(
+                u32::try_from(w * items_per_warp + i).expect("the test sequence fits in u32"),
                 touch_executor,
                 id,
                 OpOrigin {

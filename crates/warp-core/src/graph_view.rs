@@ -110,6 +110,16 @@ impl<'a> GraphView<'a> {
         }
     }
 
+    /// Returns the immutable store behind this compatibility view.
+    ///
+    /// Kept crate-private so public callers cannot bypass the capability split.
+    /// The serial comparison lane uses it only to invoke an observed callback
+    /// with a throwaway transcript; verification-grade execution uses the
+    /// evidence-producing per-item core instead.
+    pub(crate) const fn store(self) -> &'a GraphStore {
+        self.store
+    }
+
     /// Creates a new read-only view with a footprint guard attached.
     ///
     /// Every read accessor will validate against the guard's declared read set.

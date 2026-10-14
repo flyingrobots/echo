@@ -1468,6 +1468,8 @@ mod tests {
         setup_runtime_with_strand_posture(parent_drift, shared_retention_posture())
     }
 
+    // A fixture takes its posture by value so call sites read as data.
+    #[allow(clippy::large_types_passed_by_value)]
     fn setup_runtime_with_strand_posture(
         parent_drift: ParentDrift,
         retention_posture: RetentionPosture,
@@ -1546,7 +1548,7 @@ mod tests {
                     child_worldline,
                     vec![child_head],
                     Vec::new(),
-                    retention_posture.clone(),
+                    retention_posture,
                 )
                 .unwrap(),
             )

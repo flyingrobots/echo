@@ -146,6 +146,10 @@ jobs:
             # as a function that lost its #[test] attribute, fails here.
             - name: cargo clippy (workspace, all targets)
               run: cargo clippy --workspace --exclude warp-core --exclude warp-wasm --all-targets -- -D warnings
+            - name: cargo clippy (warp-wasm, all targets, default and engine)
+              run: |
+                  cargo clippy -p warp-wasm --all-targets -- -D warnings
+                  cargo clippy -p warp-wasm --features engine --all-targets -- -D warnings
             - name: cargo clippy (warp-core, all targets, default features)
               run: cargo clippy -p warp-core --all-targets -- -D warnings
             - name: cargo clippy (warp-core, all targets, det_fixed)

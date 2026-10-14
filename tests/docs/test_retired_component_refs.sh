@@ -139,7 +139,6 @@ check_absent \
 
 for map_file in \
   docs/README.md \
-  crates/echo-graph/README.md \
   crates/warp-wasm/README.md; do
   check_absent \
     "live docs must not advertise the retired WARP view protocol" \
@@ -159,7 +158,6 @@ check_absent \
 
 for architecture_file in \
   ARCHITECTURE.md \
-  crates/echo-graph/README.md \
   crates/echo-wasm-abi/README.md; do
   check_absent \
     "live architecture docs must not name deleted crates as active peers" \

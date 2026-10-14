@@ -5,6 +5,13 @@
 
 ## Unreleased
 
+### Removed
+
+- The `echo-trace` and `echo-graph` crates. Nothing in the workspace used
+  them. `echo-trace`'s null sink returned successful receipts with all-zero
+  hashes. `echo-graph` served only `echo-dry-tests`' `SnapshotBuilder` and
+  `DiffBuilder`, which nothing used and which are removed with it.
+
 ### Added
 
 - `ActualFootprint` records the graph resources an execution actually touched

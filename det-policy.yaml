@@ -67,10 +67,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "Security Engineer"
     paths: ["crates/echo-scene-codec/**"]
-  echo-graph:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/echo-graph/**"]
   echo-dind-harness:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
@@ -104,10 +100,6 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/echo-file-aperture/**"]
-  echo-trace:
-    class: DET_IMPORTANT
-    owner_role: "Architect"
-    paths: ["crates/echo-trace/**"]
   echo-registry-api:
     class: DET_IMPORTANT
     owner_role: "Architect"

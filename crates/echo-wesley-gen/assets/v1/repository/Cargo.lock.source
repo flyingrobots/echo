@@ -650,7 +650,6 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "bytes",
- "echo-graph",
  "warp-core",
 ]
 
@@ -695,17 +694,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "echo-graph"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "ciborium",
- "serde",
- "warp-core",
-]
-
-[[package]]
 name = "echo-registry-api"
 version = "0.1.0"
 
@@ -736,10 +724,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
 ]
-
-[[package]]
-name = "echo-trace"
-version = "0.1.0"
 
 [[package]]
 name = "echo-wasm-abi"

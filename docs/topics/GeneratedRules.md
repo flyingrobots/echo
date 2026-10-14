@@ -189,13 +189,15 @@ standalone application-owned Edict source
 #### Action validity across ticks
 
 **Decision 2026-10-14 ([#837](https://github.com/flyingrobots/echo/issues/837)),
-superseding [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)'s
-basis-freshness rule for Actions that meet its conditions.** Implementation is
+superseding in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)'s
+exact-basis requirements and [ADR 0025](../adr/0025-scheduler-owned-executable-operation-actions.md)'s
+shared parent basis, for Actions that meet its conditions.** Implementation is
 tracked on #837. Until it lands, the whole-frontier rule below still governs
 every Action.
 
-Today an Action carries its whole evaluation basis: worldline tick, state root,
-commit id and application basis. It commits only if that basis equals the
+Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head
+(worldline and head identities), worldline tick, optional commit global tick,
+state root, commit id and application basis. It commits only if that basis equals the
 current one, so any commit between evaluation and decision obstructs it with
 `BasisChanged`, even when it touched nothing the Action depends on.
 
@@ -224,8 +226,9 @@ all of the following hold:
 
 An Action is never re-stamped as if evaluated against its commit parent. A
 dependency failure names the dependency that changed. The per-tick limit of 64
-Actions per head is unchanged: Actions beyond it commit in later ticks instead
-of being obstructed.
+Actions per head is unchanged. Actions beyond it remain pending for later ticks
+and are not obstructed merely because of the limit; each is then validated as
+above, and still obstructs if an earlier tick changed one of its dependencies.
 
 `xtask run-edict-operation` owns that local host witness.
 `xtask/tests/run_edict_operation.rs` exercises exact external compiler bytes,

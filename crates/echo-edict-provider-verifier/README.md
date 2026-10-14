@@ -34,6 +34,19 @@ runtime expression and application-input paths, binds their identity into the
 expected package, and names that exact projection in the accepted report.
 Application vocabulary is treated only as opaque authored data.
 
+**What this independence covers.** The executable-operation route does not
+import the lowerer, but most of its reconstruction in
+`src/executable_operation.rs` is a copy of the lowerer's file of the same
+name: on 2026-10-14, 91% of the lowerer's distinct code lines appeared
+verbatim. The byte comparison therefore rejects any package that differs from
+what this copy produces. That covers tampering after lowering and a defect
+introduced in the lowerer alone, as the rebound-coordinate and tamper tests in
+`tests/executable_operation_package.rs` show. It does not catch a mistake
+present in both copies: such a package lowers and then verifies. Commit
+`d121758b` is an example, where one missing refusal had to be added to both
+files. On this route, acceptance shows that two copies agree; it is not an
+independent semantic check (#809).
+
 For `compiler-produced-bounded-pure/v1`, the verifier independently enforces
 the zero-choice configuration, effect-free Core and Target IR shapes, exact
 budget and closure bindings, pure-binding result projection, and embedded

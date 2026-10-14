@@ -41,6 +41,19 @@ Run:
 cargo bench -p warp-benches
 ```
 
+### Footprint overlap between Actions
+
+Bench:
+
+- `crates/warp-core/benches/action_footprint_overlap.rs`
+
+Submits a frame of compare-and-set Actions in which a chosen share target a
+cell another Action of the frame also targets, and reports frame time with
+how many Actions commit, are rejected for a footprint conflict, or are
+obstructed. It runs with
+`cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime --bench action_footprint_overlap`
+and prints a table; see the benchmark guide for why it lives in `warp-core`.
+
 ### Adversarial hashing (collision behavior)
 
 Bench file:

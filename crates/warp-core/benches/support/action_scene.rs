@@ -291,36 +291,53 @@ impl Scene {
     }
 }
 
-/// The value at `percent` of the sorted samples, in microseconds.
+/// The nearest-rank percentile of the samples, in microseconds: the smallest
+/// sample with at least `percent` of the samples at or below it. For 100
+/// samples, p50 is the 50th smallest and p95 the 95th.
 pub fn percentile_us(samples: &[Duration], percent: usize) -> f64 {
+    assert!(
+        !samples.is_empty(),
+        "a percentile needs at least one sample"
+    );
+    assert!(
+        (1..=100).contains(&percent),
+        "a percentile is between 1 and 100"
+    );
     let mut sorted: Vec<f64> = samples
         .iter()
         .map(|sample| sample.as_secs_f64() * 1e6)
         .collect();
     sorted.sort_by(f64::total_cmp);
-    let index = (sorted.len() * percent / 100).min(sorted.len().saturating_sub(1));
-    sorted.get(index).copied().unwrap_or(0.0)
+    let rank = (sorted.len() * percent).div_ceil(100);
+    sorted[rank - 1]
 }
 
-/// Reads a positive integer setting from the environment.
+fn parse_setting(name: &str, text: &str) -> usize {
+    text.trim()
+        .parse()
+        .unwrap_or_else(|_| panic!("{name}: `{text}` is not a non-negative integer"))
+}
+
+/// Reads an integer setting from the environment. A value that is set and
+/// does not parse stops the benchmark and names the setting.
 pub fn setting(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(default)
+    std::env::var(name).map_or(default, |value| parse_setting(name, &value))
 }
 
-/// Reads a comma-separated list of integers from the environment.
+/// Reads a non-empty, comma-separated list of integers from the
+/// environment. Any entry that does not parse stops the benchmark.
 pub fn setting_list(name: &str, default: &[usize]) -> Vec<usize> {
-    std::env::var(name).map_or_else(
+    let values: Vec<usize> = std::env::var(name).map_or_else(
         |_| default.to_vec(),
         |value| {
             value
                 .split(',')
-                .filter_map(|part| part.trim().parse().ok())
+                .map(|part| parse_setting(name, part))
                 .collect()
         },
-    )
+    );
+    assert!(!values.is_empty(), "{name} lists no values");
+    values
 }
 
 /// The directory benchmark logs are written under.

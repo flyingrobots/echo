@@ -42,17 +42,19 @@ fn durabilities() -> Vec<Durability> {
         Durability::InMemory,
         Durability::Filesystem,
     ];
-    match std::env::var("ECHO_BENCH_DURABILITY") {
-        Ok(wanted) => all
-            .into_iter()
-            .filter(|durability| {
-                wanted
-                    .split(',')
-                    .any(|name| name.trim() == durability.label())
-            })
-            .collect(),
-        Err(_) => all.to_vec(),
+    let Ok(wanted) = std::env::var("ECHO_BENCH_DURABILITY") else {
+        return all.to_vec();
+    };
+    let names: Vec<&str> = wanted.split(',').map(str::trim).collect();
+    for name in &names {
+        assert!(
+            all.iter().any(|durability| durability.label() == *name),
+            "ECHO_BENCH_DURABILITY: unknown label `{name}` (none, in-memory, filesystem)"
+        );
     }
+    all.into_iter()
+        .filter(|durability| names.contains(&durability.label()))
+        .collect()
 }
 
 fn main() {
@@ -64,6 +66,7 @@ fn main() {
         .last()
         .copied()
         .expect("at least one history length");
+    assert!(window > 0, "ECHO_BENCH_WINDOW must be positive");
     assert!(
         history.first().is_some_and(|first| *first >= window),
         "the first history length must be at least one window"
@@ -81,6 +84,9 @@ fn main() {
         let mut scene = Scene::new(cells, durability, &log_parent());
         let mut submit: Vec<Duration> = Vec::with_capacity(last);
         let mut tick: Vec<Duration> = Vec::with_capacity(last);
+        // Each update's submission and tick together, so the update median
+        // is the median of real updates, not a sum of two medians.
+        let mut update_total: Vec<Duration> = Vec::with_capacity(last);
         let mut first_update = None;
         for update in 0..last {
             let next = format!("u{update:08}");
@@ -99,10 +105,13 @@ fn main() {
                     .submit_intent_with_runtime_wal_ack(envelope)
                     .expect("an Action is acknowledged by the log");
             }
-            submit.push(submit_started.elapsed());
+            let submit_elapsed = submit_started.elapsed();
+            submit.push(submit_elapsed);
             let tick_started = Instant::now();
             let steps = scene.host.tick_once().expect("a tick commits");
-            tick.push(tick_started.elapsed());
+            let tick_elapsed = tick_started.elapsed();
+            tick.push(tick_elapsed);
+            update_total.push(submit_elapsed + tick_elapsed);
             assert_eq!(
                 steps.iter().map(|step| step.admitted_count).sum::<usize>(),
                 1,
@@ -114,7 +123,7 @@ fn main() {
             if history.contains(&done) {
                 let submit_p50 = percentile_us(&submit[done - window..], 50);
                 let tick_p50 = percentile_us(&tick[done - window..], 50);
-                let total = submit_p50 + tick_p50;
+                let total = percentile_us(&update_total[done - window..], 50);
                 let first = *first_update.get_or_insert(total);
                 println!(
                     "{:>11} {:>9} {:>14.1} {:>12.1} {:>13.1}  ({:.2}x the first row)",

@@ -31,7 +31,8 @@
 //! Settings (environment):
 //! - `ECHO_BENCH_CELLS`: cells in the scene (default 10000)
 //! - `ECHO_BENCH_ACTIONS`: Actions per frame, comma-separated (default 64,256)
-//! - `ECHO_BENCH_OVERLAP`: percent of Actions that collide (default 0,10,25,50,90)
+//! - `ECHO_BENCH_OVERLAP`: percent of Actions that collide, each below 100
+//!   (default 0,10,25,50,90)
 //! - `ECHO_BENCH_FRAMES`: frames measured per row (default 30)
 
 #[path = "support/action_scene.rs"]
@@ -55,6 +56,12 @@ struct Row {
 }
 
 fn run(cells: usize, actions: usize, overlap_percent: usize, frames: usize) -> Row {
+    assert!(
+        overlap_percent < 100,
+        "ECHO_BENCH_OVERLAP values must be below 100: at least one Action needs its own cell"
+    );
+    assert!(actions > 0, "ECHO_BENCH_ACTIONS values must be positive");
+    assert!(frames > 0, "ECHO_BENCH_FRAMES must be positive");
     let colliding = actions * overlap_percent / 100;
     let distinct = actions - colliding;
     assert!(distinct > 0, "at least one Action must have its own cell");

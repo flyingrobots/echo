@@ -101,6 +101,45 @@ fn the_encoder_refuses_what_the_decoder_would_refuse() {
 }
 
 #[test]
+fn the_encoder_refuses_a_deep_value_inside_a_map_without_exhausting_the_stack() {
+    // Far past any stack a recursive walk could survive. The encoder must
+    // reach its depth check before anything walks the whole value.
+    // Each deep value is built on its own: cloning one would recurse too.
+    const DEPTH: usize = 200_000;
+
+    let as_map_value = Value::Map(vec![(Value::Integer(0.into()), nested_array_value(DEPTH))]);
+    let error = encode_value(&as_map_value).expect_err("a deep map value does not encode");
+    assert!(matches!(error, CanonError::Encode(ref detail) if detail.contains("nesting")));
+
+    let as_map_key = Value::Map(vec![(nested_array_value(DEPTH), Value::Null)]);
+    let error = encode_value(&as_map_key).expect_err("a deep map key does not encode");
+    assert!(matches!(error, CanonError::Encode(ref detail) if detail.contains("nesting")));
+
+    // Dropping a value this deep recurses as well. The test owns the values,
+    // so it takes them apart one level at a time.
+    for value in [as_map_value, as_map_key] {
+        unnest(value);
+    }
+}
+
+/// Drops a deeply nested value without recursing through it.
+fn unnest(value: Value) {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(items) => pending.extend(items),
+            Value::Map(entries) => {
+                for (key, value) in entries {
+                    pending.push(key);
+                    pending.push(value);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
 fn deep_nesting_is_refused_without_exhausting_the_stack() {
     // Arrays and maps, far past any stack a recursive decoder could survive.
     let error = decode_value(&nested_arrays(2_000_000)).expect_err("refused");

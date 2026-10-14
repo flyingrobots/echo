@@ -121,25 +121,27 @@ fn enc_value(v: &Value, out: &mut Vec<u8>, depth: usize) -> Result<()> {
             }
         }
         Value::Map(entries) => {
-            let mut buf: Vec<(Value, Value, Vec<u8>)> = Vec::with_capacity(entries.len());
+            // Entries are sorted by borrowed reference. Cloning a value here
+            // would recurse through it before its depth has been checked.
+            let mut buf: Vec<(Vec<u8>, &Value)> = Vec::with_capacity(entries.len());
             for (k, v) in entries {
                 let mut kb = Vec::new();
                 enc_value(k, &mut kb, inner)?;
-                buf.push((k.clone(), v.clone(), kb));
+                buf.push((kb, v));
             }
 
-            buf.sort_by(|a, b| a.2.cmp(&b.2));
+            buf.sort_by(|a, b| a.0.cmp(&b.0));
 
             for win in buf.windows(2) {
-                if win[0].2 == win[1].2 {
+                if win[0].0 == win[1].0 {
                     return Err(CanonError::MapKeyDuplicate);
                 }
             }
 
             enc_len(5, buf.len() as u64, out);
-            for (_k, v, kb) in buf {
+            for (kb, v) in buf {
                 out.extend_from_slice(&kb);
-                enc_value(&v, out, inner)?;
+                enc_value(v, out, inner)?;
             }
         }
         Value::Tag(_, _) => return Err(CanonError::Tag),

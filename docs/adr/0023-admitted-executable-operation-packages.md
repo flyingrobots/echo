@@ -3,10 +3,13 @@
 
 # ADR 0023: Admitted Executable Operation Packages
 
-- **Status:** Accepted
+- **Status:** Partially superseded
 - **Date:** 2026-07-18
 - **Partially supersedes:** ADR 0015 for newly authored executable operations
 - **Amended by:** ADR 0025 for scheduler-owned Action execution
+- **Superseded in part by:** the [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+  decision of 2026-10-14 (#837), for every exact-basis requirement below as it
+  applies to Actions that meet that decision's conditions
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -217,6 +220,11 @@ An `Obstructed` outcome never enters parent commit or scheduler composition and
 never carries a patch digest. It may produce retained typed execution evidence,
 but it does not claim a committed consequence.
 
+> **Superseded in part (2026-10-14, #837):** for Actions that meet the
+> conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),
+> the exact-basis requirement here is replaced by dependency-scoped validity.
+> The original text is preserved and still governs every other case.
+
 Before any `Committable` outcome can commit, Echo must establish all of the
 following:
 
@@ -250,6 +258,11 @@ identity. The scheduler law must verify that every member has identical
 `EchoOperationEvaluationBasisV1` bytes and that the composite patch is the
 canonical result of that exact ordered membership. A singleton commit uses the
 same evidence shape with a one-member list.
+
+> **Superseded in part (2026-10-14, #837):** for Actions that meet the
+> conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),
+> the exact-basis requirement here is replaced by dependency-scoped validity.
+> The original text is preserved and still governs every other case.
 
 If the parent basis changed, the prepared operation is ineligible to commit and
 must yield a typed basis-changed posture without applying any patch. Echo must
@@ -424,6 +437,11 @@ by comparing two wrappers around the same algorithm.
   typed input, and external capabilities. It may not provide semantic execution
   or Echo authority.
 
+> **Superseded in part (2026-10-14, #837):** for Actions that meet the
+> conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),
+> the exact-basis requirement here is replaced by dependency-scoped validity.
+> The original text is preserved and still governs every other case.
+
 ## Rejected Alternatives
 
 - Mutate provider v1 and describe it as provider v2.
@@ -436,7 +454,8 @@ by comparing two wrappers around the same algorithm.
 - Install a host-supplied `MutationPlan` or parent patch.
 - Implement Jedit rope replacement as an Echo native intrinsic.
 - Call Target IR executable merely because it names a target intrinsic.
-- Commit a preparation after its exact evaluation basis changed.
+- Commit a preparation after its exact evaluation basis changed. (Superseded in
+  part on 2026-10-14, #837: see [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks).)
 - Describe a separate verifier crate as independently implemented without
   examining shared algorithms and dependencies.
 - Build the general Cyber Kitten runtime before the operation seam works.

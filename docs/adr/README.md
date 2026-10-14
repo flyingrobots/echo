@@ -53,9 +53,9 @@ without rewriting its original reasoning.
 | [0020](0020-retained-reading-storage-and-proof-boundary.md)      | Accepted             | Retained reading storage and proof boundary                    |
 | [0021](0021-public-optic-observation-boundary.md)                | Accepted             | Public WARP optic over internal observation                    |
 | [0022](0022-application-requested-causal-anchor-admission.md)    | Accepted             | Application-requested, Echo-owned anchor admission             |
-| [0023](0023-admitted-executable-operation-packages.md)           | Accepted             | Admitted executable operation packages                         |
+| [0023](0023-admitted-executable-operation-packages.md)           | Partially superseded | Admitted executable operation packages                         |
 | [0024](0024-anchored-node-creation-from-absence.md)              | Accepted             | Anchored-node creation as a separate executable program        |
-| [0025](0025-scheduler-owned-executable-operation-actions.md)     | Accepted             | Scheduler-owned executable-operation Actions                   |
+| [0025](0025-scheduler-owned-executable-operation-actions.md)     | Partially superseded | Scheduler-owned executable-operation Actions                   |
 | [0026](0026-durable-external-action-settlement.md)               | Accepted             | Request-before-effect and settlement-before-resumption         |
 
 ADR 0006 predates this index contract and did not declare a status. Its

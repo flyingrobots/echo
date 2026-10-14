@@ -12,7 +12,11 @@ set -euo pipefail
 #
 # Forbidden:
 #   - OnceLock/LazyLock/lazy_static/once_cell/thread_local/static mut
-#   - statics with interior mutability (Mutex, RwLock, atomics, cells)
+#   - any static whose declared type does not begin, on the same line, with a
+#     shared reference or an array. That admits `static T: &[u8]` and
+#     `static M: [u8; 4]` and refuses a Mutex, an atomic, a cell, a struct
+#     that could hold one, and a type wrapped onto the next line. The rule
+#     fails closed: it does not try to recognise which types are mutable.
 #
 # A global installer is only global through one of those statics, so the
 # statics are what this script looks for. It does not match function names.
@@ -47,7 +51,7 @@ PATTERNS=(
   'once-cell	\bonce_cell\b'
   'thread-local	\bthread_local!'
   'static-mut	\bstatic[[:space:]]+mut\b'
-  'static-interior	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[^=;]*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell)\b'
+  'static-non-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*([^&\[[:space:]]|$)'
 )
 
 echo "ban-globals: scanning paths:"

@@ -43,7 +43,12 @@ det_load_waivers() {
     [[ -z "$line" ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     read -r rule path rest <<< "$line"
-    [[ -n "${rule:-}" && -n "${path:-}" ]] || continue
+    # A waiver without a reason is not a waiver. Refuse the whole file so a
+    # malformed row cannot silently admit what it names.
+    if [[ -z "${rule:-}" || -z "${path:-}" || -z "${rest:-}" ]]; then
+      echo "determinism-scan: malformed waiver in $allowlist (need: <rule> <path> <reason>): $line" >&2
+      return 2
+    fi
     DET_WAIVER_RULES+=("$rule")
     DET_WAIVER_PATHS+=("$path")
   done < "$allowlist"

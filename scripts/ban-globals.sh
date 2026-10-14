@@ -13,13 +13,18 @@ set -euo pipefail
 # Forbidden:
 #   - OnceLock/LazyLock/lazy_static/once_cell/thread_local/static mut
 #   - any static whose declared type does not begin, on the same line, with a
-#     shared reference or an array. That admits `static T: &[u8]` and
-#     `static M: [u8; 4]` and refuses a Mutex, an atomic, a cell, a struct
-#     that could hold one, and a type wrapped onto the next line. The rule
-#     fails closed: it does not try to recognise which types are mutable.
+#     shared reference. That admits `static T: &[u8]` and refuses a Mutex, an
+#     atomic, a cell, an array (which can hold atomics), a struct that could
+#     hold one, and a type wrapped onto the next line. The rule fails closed:
+#     it does not try to recognise which types are mutable.
+#   - a reference-typed static that names a mutable type on its line
+#   - a call to `module::install_*(...)`: an installer reached through a
+#     module path, whose backing static may live outside the scanned crates
 #
-# A global installer is only global through one of those statics, so the
-# statics are what this script looks for. It does not match function names.
+# Known limits of a line scanner: a reference-typed static whose mutable type
+# wraps onto the next line, and an installer imported by `use` and then
+# called by its bare name. Methods and helpers named install_* that take
+# their state as an argument are not global and are not matched.
 #
 # Usage:
 #   ./scripts/ban-globals.sh
@@ -51,7 +56,9 @@ PATTERNS=(
   'once-cell	\bonce_cell\b'
   'thread-local	\bthread_local!'
   'static-mut	\bstatic[[:space:]]+mut\b'
-  'static-non-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*([^&\[[:space:]]|$)'
+  'static-non-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*([^&[:space:]]|$)'
+  'static-interior-reference	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*&.*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell|OnceLock|LazyLock|OnceCell)\b'
+  'external-install	(^|[^A-Za-z0-9_])[a-z_][a-z0-9_]*::install_[A-Za-z0-9_]*[[:space:]]*\('
 )
 
 echo "ban-globals: scanning paths:"

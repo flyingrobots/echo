@@ -39,10 +39,17 @@ fail() {
 mkdir -p "$work/clean" "$work/empty"
 cat > "$work/clean/lib.rs" <<'RS'
 const LIMIT: usize = 4;
-static MAGIC: [u8; 4] = *b"ECHO";
+static MAGIC: &[u8; 4] = b"ECHO";
 struct Installer;
 impl Installer {
     fn install_package(&mut self) {}
+}
+fn install_fixture(installer: &mut Installer) {
+    installer.install_package();
+    Installer::install_package(installer);
+}
+fn caller(installer: &mut Installer) {
+    install_fixture(installer);
 }
 RS
 : > "$work/none.allow"
@@ -67,12 +74,15 @@ write_case static-lowercase 'static counter: std::sync::Mutex<u64> = std::sync::
 mkdir -p "$work/static-wrapped"
 printf '%s\n' 'static COUNTERS:' '    Wrapper<std::sync::atomic::AtomicU64> = Wrapper::new();' > "$work/static-wrapped/lib.rs"
 write_case static-struct 'static REGISTRY: Registry = Registry::new();'
+write_case static-array 'static COUNTERS: [std::sync::atomic::AtomicU64; 1] = [std::sync::atomic::AtomicU64::new(0)];'
+write_case static-interior-reference 'static COUNTER: &std::sync::atomic::AtomicU64 = &std::sync::atomic::AtomicU64::new(0);'
+write_case external-install 'fn boot() { dependency::install_runtime(); }'
 
 for backend in 0 1; do
   run "$backend" "$work/none.allow" "$work/clean" || fail "clean source refused (backend $backend)"
   run "$backend" "$work/none.allow" "$work/empty" || fail "empty path refused (backend $backend)"
 
-  for rule in once-lock lazy-lock lazy-static once-cell thread-local static-mut static-non-reference; do
+  for rule in once-lock lazy-lock lazy-static once-cell thread-local static-mut static-non-reference static-interior-reference external-install; do
     if run "$backend" "$work/none.allow" "$work/$rule"; then
       fail "[$rule] violation passed (backend $backend)"
     fi
@@ -103,7 +113,7 @@ done
 
 # Unconventional names, wrapped types and opaque struct types are refused.
 for backend in 0 1; do
-  for name in static-underscore static-lowercase static-wrapped static-struct; do
+  for name in static-underscore static-lowercase static-wrapped static-struct static-array; do
     if run "$backend" "$work/none.allow" "$work/$name"; then
       fail "[$name] violation passed (backend $backend)"
     fi

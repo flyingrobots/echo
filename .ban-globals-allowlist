@@ -11,4 +11,14 @@ once-lock crates/warp-core/src/external_action.rs immutable table of empty-subtr
 thread-local crates/warp-core/src/causal_wal.rs diagnostic recovery work counter; not admission authority. To be replaced by an owned counter: issue #801.
 static-interior crates/warp-core/src/causal_wal.rs the cell of that diagnostic counter: issue #801.
 static-interior crates/warp-core/src/causal_wal_tests.rs test-only counter that names unique temporary directories.
-static-interior crates/warp-core/tests/* test-only counters for unique temporary directories and callback call counts, with one lock that serializes the callback tests; never linked into the runtime.
+static-interior crates/warp-core/tests/bounded_workspace_observation_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/bounded_workspace_patch_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/causal_wal_hardening_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/edict_projected_cas_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/executable_operation_pipeline_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/external_action_protocol_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/external_consumer_contract_fixture_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/trusted_runtime_host_loop_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/wsc_store_tests.rs test-only counter that names unique temporary directories.
+static-interior crates/warp-core/tests/provider_contract_admission_tests.rs test-only callback call counters and temp-directory counter, with one lock that serializes the tests that read the counters.
+static-interior crates/warp-core/tests/provider_contract_package_proposal_tests.rs test-only callback call counters.

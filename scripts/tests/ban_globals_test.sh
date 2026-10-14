@@ -58,6 +58,10 @@ write_case once-cell 'use once_cell::sync::Lazy;'
 write_case thread-local 'thread_local! { static DEPTH: u8 = const { 0 }; }'
 write_case static-mut 'static mut COUNTER: u64 = 0;'
 write_case static-interior 'static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);'
+# Rust accepts a static named with a leading underscore or in lower case; the
+# rule must not depend on the conventional spelling.
+write_case static-underscore 'static _COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);'
+write_case static-lowercase 'static counter: std::sync::Mutex<u64> = std::sync::Mutex::new(0);'
 
 for backend in 0 1; do
   run "$backend" "$work/none.allow" "$work/clean" || fail "clean source refused (backend $backend)"
@@ -87,6 +91,18 @@ for backend in 0 1; do
     if run "$backend" "$work/wrong.allow" "$work/$rule"; then
       fail "[$rule] violation passed under a waiver for a different rule (backend $backend)"
     fi
+  done
+done
+
+# Unconventional names are caught by the static-interior rule.
+for backend in 0 1; do
+  for name in static-underscore static-lowercase; do
+    if run "$backend" "$work/none.allow" "$work/$name"; then
+      fail "[$name] violation passed (backend $backend)"
+    fi
+    grep -q 'Checking \[static-interior\]' "$work/out.txt" \
+      && grep -q "$work/$name/lib.rs" "$work/out.txt" \
+      || fail "[$name] violation did not name its file (backend $backend)"
   done
 done
 

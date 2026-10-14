@@ -47,7 +47,7 @@ PATTERNS=(
   'once-cell	\bonce_cell\b'
   'thread-local	\bthread_local!'
   'static-mut	\bstatic[[:space:]]+mut\b'
-  'static-interior	\bstatic[[:space:]]+[A-Z][A-Z0-9_]*[[:space:]]*:[^=;]*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell)\b'
+  'static-interior	\bstatic[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[^=;]*\b(Mutex|RwLock|Atomic[A-Za-z0-9]*|Cell|RefCell|UnsafeCell)\b'
 )
 
 echo "ban-globals: scanning paths:"

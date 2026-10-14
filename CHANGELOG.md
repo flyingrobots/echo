@@ -5,6 +5,13 @@
 
 ## Unreleased
 
+### Removed
+
+- The `echo-trace` and `echo-graph` crates. Nothing in the workspace used
+  them. `echo-trace`'s null sink returned successful receipts with all-zero
+  hashes. `echo-graph` served only `echo-dry-tests`' `SnapshotBuilder` and
+  `DiffBuilder`, which nothing used and which are removed with it.
+
 ### Added
 
 - `submit_intents_with_runtime_wal_ack` accepts several intents and returns after one storage sync has made all of their acceptance transactions durable. Each intent writes the same acceptance transaction as a single submission, so recovery is unchanged. No acceptance of a batch counts as durable, or can be scheduled, before that sync succeeds. A failed batch acknowledges nothing. If the runtime refuses an intent before anything is written for it, the intents before it stay accepted and are synced. If an append or the sync fails, the call's intake is rolled back and the WAL refuses further work with `StorageFailed` until it is reopened.

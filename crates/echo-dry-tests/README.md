@@ -11,7 +11,6 @@ This crate provides reusable test utilities including:
 
 - Demo rules (motion, port) for integration tests
 - Engine and GraphStore builder utilities
-- WarpSnapshot and WarpDiff builders
 - Hash ID generation helpers
 - Motion payload encoding helpers
 - Synthetic rule builders (noop matchers/executors)
@@ -41,11 +40,6 @@ This crate provides reusable test utilities including:
   node.
 - **`build_engine_with_typed_root(name, type_name)`** - Build an engine with a
   named and typed root node.
-
-### Frame Builders
-
-- **`SnapshotBuilder`** - Builder for constructing `WarpSnapshot` test fixtures.
-- **`DiffBuilder`** - Builder for constructing `WarpDiff` test fixtures.
 
 ### Hash Helpers
 

@@ -146,5 +146,4 @@ test('every workspace member has an explicit non-catch-all policy path', () => {
   );
   assert.match(policyYaml, /echo-runtime-schema:\n\s+class: DET_CRITICAL\n/);
   assert.match(policyYaml, /echo-file-aperture:\n\s+class: DET_IMPORTANT\n/);
-  assert.match(policyYaml, /echo-trace:\n\s+class: DET_IMPORTANT\n/);
 });

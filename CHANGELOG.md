@@ -12,6 +12,17 @@
   hashes. `echo-graph` served only `echo-dry-tests`' `SnapshotBuilder` and
   `DiffBuilder`, which nothing used and which are removed with it.
 
+### Changed
+
+- Filesystem recovery work is counted on the store. The public free function
+  `causal_wal::filesystem_recovery_work()` and its thread-local counter are
+  removed; use `FilesystemWalStore::recovery_work()` or
+  `TrustedRuntimeWal::filesystem_recovery_work()`, which return
+  `FilesystemRecoveryWork { scans, frames }`. `ECHO_WAL_PROFILE` now reports
+  the host store's counts, which start at zero when the store opens, rather
+  than cumulative counts for the thread. `recover_filesystem_store` counts
+  nothing.
+
 ### Added
 
 - `ActualFootprint` records the graph resources an execution actually touched

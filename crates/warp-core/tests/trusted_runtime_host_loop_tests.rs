@@ -676,6 +676,63 @@ fn runtime_wal_ack_adapter_is_configured_by_trusted_host_boundary() {
 }
 
 #[test]
+fn a_second_host_cannot_touch_the_log_of_a_live_writer() {
+    let wal_root = temp_runtime_wal_dir("second-host-live-writer");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut live = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    live.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the first host takes the writer lease");
+    live.register_contract_package(package())
+        .expect("host should install package");
+    {
+        let mut app = live.app();
+        app.submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+            .expect("the live writer commits a submission");
+    }
+
+    // The live writer is in the middle of a record: the segment ends in bytes
+    // that are not yet a whole record. A reader sees an uncommitted tail.
+    let segment = canonical_segment_path(&wal_root, WalSegmentId::from_raw(1));
+    {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&segment)
+            .expect("segment opens for append");
+        file.write_all(b"partial")
+            .expect("partial record bytes are written");
+    }
+    let before = fs::read(&segment).expect("segment is readable");
+
+    let (second_runtime, _) = runtime();
+    let mut second = TrustedRuntimeHost::new(second_runtime, empty_engine())
+        .expect("second trusted host should initialize");
+    let error = second
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect_err("a second host must not open a log that has a live writer");
+
+    assert!(
+        matches!(
+            error,
+            TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::Store(
+                WalStoreError::WriterEpochLeaseUnavailable
+            ))
+        ),
+        "the refusal names the lease: {error:?}"
+    );
+    // Recovery that drops an uncommitted tail is a write. It must not run
+    // before the second host holds the lease, which it never does here.
+    assert_eq!(
+        fs::read(&segment).expect("segment is readable"),
+        before,
+        "the live writer's segment is untouched"
+    );
+    drop(live);
+    let _ = fs::remove_dir_all(wal_root);
+}
+
+#[test]
 fn filesystem_runtime_wal_ack_reconstructs_submission_and_tick_from_root() {
     let wal_root = temp_runtime_wal_dir("ack-recovery");
     let (initial_runtime, worldline_id) = runtime();

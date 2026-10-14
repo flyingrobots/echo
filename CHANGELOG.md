@@ -35,6 +35,12 @@
 
 ### Fixed
 
+- A trusted host takes the filesystem WAL writer lease before it runs
+  writable recovery. It used to recover first and take the lease afterwards,
+  so a second host that opened a log with a live writer could drop that
+  writer's in-progress tail by rewriting its segment files, and only then be
+  refused. The second host is now refused at the lease and modifies nothing.
+
 - The canonical CBOR decoder in `echo-wasm-abi` no longer reserves memory in
   proportion to a length its input claims, and no longer recurses without
   bound. A header that claims more array elements, map entries or string

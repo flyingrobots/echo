@@ -5640,6 +5640,9 @@ pub struct FilesystemWalStore {
     closed_epochs: Vec<WriterEpoch>,
     epoch_closures: BTreeMap<WriterEpochId, WriterEpochClosure>,
     writer_lock: Option<WriterEpochLock>,
+    /// The lease is held and no writer epoch has been admitted under it yet.
+    /// A store in this state may recover the log; it may not append.
+    lease_awaits_epoch: bool,
     manifests: Vec<WalManifest>,
     sync_evidence: Vec<FilesystemSyncEvidence>,
     /// Transactions whose commit records are appended and not yet synced.
@@ -5700,6 +5703,7 @@ impl FilesystemWalStore {
             closed_epochs: writer_epoch_ledger.closed_epochs,
             epoch_closures: writer_epoch_ledger.epoch_closures,
             writer_lock: None,
+            lease_awaits_epoch: false,
             manifests: Vec::new(),
             sync_evidence,
             deferred_commits: Vec::new(),
@@ -5790,7 +5794,7 @@ impl FilesystemWalStore {
     }
 
     fn ensure_writer_lock(&self) -> Result<(), WalStoreError> {
-        if self.writer_lock.is_some() {
+        if self.writer_lock.is_some() && !self.lease_awaits_epoch {
             Ok(())
         } else {
             Err(WalStoreError::WriterEpochLeaseUnavailable)
@@ -5809,10 +5813,16 @@ impl FilesystemWalStore {
         &mut self,
         minimum_started_at_lsn: Lsn,
     ) -> Result<WriterEpoch, WalStoreError> {
-        if self.writer_lock.is_some() {
+        if self.writer_lock.is_some() && !self.lease_awaits_epoch {
             return Err(WalStoreError::WriterEpochAlreadyActive);
         }
-        let writer_lock = acquire_writer_epoch_lock(&self.root)?;
+        // A caller that took the lease first, to recover the log under it,
+        // keeps that lease. Otherwise the lease is taken here.
+        let writer_lock = if self.writer_lock.is_some() {
+            None
+        } else {
+            Some(acquire_writer_epoch_lock(&self.root)?)
+        };
         self.reload_writer_epoch_ledger()?;
         // Make what the earlier writer left readable durable before it is
         // read as recovered history.
@@ -5916,8 +5926,40 @@ impl FilesystemWalStore {
             self.install_writer_epoch_ledger(closed_ledger);
             return Err(error);
         }
-        self.writer_lock = Some(writer_lock);
+        if let Some(writer_lock) = writer_lock {
+            self.writer_lock = Some(writer_lock);
+        }
+        self.lease_awaits_epoch = false;
         Ok(epoch)
+    }
+
+    /// Takes the filesystem writer lease without admitting a writer epoch.
+    ///
+    /// Recovery that drops an uncommitted tail rewrites segment files. It is
+    /// a write, so only the lease holder may run it. A host calls this before
+    /// writable recovery and then admits its epoch with
+    /// [`Self::acquire_fresh_writer_epoch`], which keeps the lease taken here.
+    /// Until an epoch is admitted the store refuses to append.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalStoreError::WriterEpochLeaseUnavailable`] when another
+    /// writer holds the lease. Nothing in the log directory is modified in
+    /// that case.
+    pub fn acquire_writer_lease(&mut self) -> Result<(), WalStoreError> {
+        if self.writer_lock.is_some() {
+            return Ok(());
+        }
+        let writer_lock = acquire_writer_epoch_lock(&self.root)?;
+        self.writer_lock = Some(writer_lock);
+        self.lease_awaits_epoch = true;
+        Ok(())
+    }
+
+    /// Whether this store holds the filesystem writer lease.
+    #[must_use]
+    pub fn holds_writer_lease(&self) -> bool {
+        self.writer_lock.is_some()
     }
 
     /// Returns the WAL root directory.
@@ -6252,7 +6294,7 @@ impl WalStorePort for FilesystemWalStore {
         } else {
             Some(acquire_writer_epoch_lock(&self.root)?)
         };
-        if writer_lock.is_some() {
+        if writer_lock.is_some() || self.lease_awaits_epoch {
             self.reload_writer_epoch_ledger()?;
             // An earlier writer may have stopped, or failed a sync, after
             // writing records. They are readable. Make them durable before
@@ -6273,6 +6315,7 @@ impl WalStorePort for FilesystemWalStore {
         if let Some(writer_lock) = writer_lock {
             self.writer_lock = Some(writer_lock);
         }
+        self.lease_awaits_epoch = false;
         Ok(epoch)
     }
 

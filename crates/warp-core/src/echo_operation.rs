@@ -7976,10 +7976,7 @@ mod tests {
                 1_024,
             ),
         );
-        let mut projection = create
-            .application_result_projection
-            .clone()
-            .expect("projection");
+        let mut projection = create.application_result_projection.expect("projection");
         let key_path = projection.application_input_node_key_path.clone();
         let replacement_path = projection.application_input_replacement_path.clone();
         projection.application_input_expected_value_digest_path = Some(vec!["expected".to_owned()]);

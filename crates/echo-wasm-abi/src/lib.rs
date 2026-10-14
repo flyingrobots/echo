@@ -1208,7 +1208,7 @@ mod tests {
             commit_hash: vec![5; 32],
         };
 
-        let outcomes = vec![
+        let outcomes = [
             IntentDispatchResult::Admitted(AdmittedIntent {
                 optic_id,
                 base_coordinate: base_coordinate.clone(),

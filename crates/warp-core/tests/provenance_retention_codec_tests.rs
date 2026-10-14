@@ -359,7 +359,7 @@ fn replayable_state_delta_rejects_non_canonical_parent_order() {
     });
     entry
         .parents
-        .sort_unstable_by(|left, right| right.commit_hash.cmp(&left.commit_hash));
+        .sort_unstable_by_key(|parent| std::cmp::Reverse(parent.commit_hash));
     entry.expected.commit_hash = compute_commit_hash_v2(
         &entry.expected.state_root,
         &entry

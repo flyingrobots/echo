@@ -180,7 +180,7 @@ fn engine_reduce_sum_stable_across_apply_order() {
     let ch = make_channel_id("engine:reduce-sum");
 
     // Three rewrites emitting u64 values
-    let execs = vec![
+    let execs = [
         SimulatedRuleExec {
             scope_hash: scope_hash(1),
             rule_id: 1,

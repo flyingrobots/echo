@@ -127,6 +127,36 @@ jobs:
                   cargo clippy -p echo-wesley-gen --bins -- -D warnings -D missing_docs
                   cargo clippy -p xtask --bins -- -D warnings -D missing_docs
 
+    clippy-test-targets:
+        name: Clippy (test targets)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: false
+            - uses: dtolnay/rust-toolchain@1.96.0
+              with:
+                  components: clippy, rustfmt
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: |
+                      .
+            # The other Clippy jobs lint libraries and binaries. This one lints
+            # tests, benches and examples too, so a test that cannot run, such
+            # as a function that lost its #[test] attribute, fails here.
+            - name: cargo clippy (workspace, all targets)
+              run: cargo clippy --workspace --exclude warp-core --exclude warp-wasm --all-targets -- -D warnings
+            - name: cargo clippy (warp-wasm, all targets, default and engine)
+              run: |
+                  cargo clippy -p warp-wasm --all-targets -- -D warnings
+                  cargo clippy -p warp-wasm --features engine --all-targets -- -D warnings
+            - name: cargo clippy (warp-core, all targets, default features)
+              run: cargo clippy -p warp-core --all-targets -- -D warnings
+            - name: cargo clippy (warp-core, all targets, det_fixed)
+              run: cargo clippy -p warp-core --features det_fixed --all-targets -- -D warnings
+            - name: cargo clippy (warp-core, all targets, runtime features)
+              run: cargo clippy -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test,delta_validate --all-targets -- -D warnings
+
     clippy-warp-core-tests:
         name: Clippy (warp-core test lanes)
         runs-on: ubuntu-latest

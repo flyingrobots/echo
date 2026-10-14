@@ -59,7 +59,7 @@ fn merge_for_commit_path(deltas: Vec<TickDelta>) -> Vec<WarpOp> {
         .map(|op| (op.sort_key(), op))
         .collect();
 
-    flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    flat.sort_unstable_by_key(|item| item.0);
 
     flat.dedup_by(|a, b| a.0 == b.0);
     flat.into_iter().map(|(_, op)| op).collect()
@@ -256,7 +256,7 @@ fn bench_work_queue(c: &mut Criterion) {
                 b.iter_batched(
                     || make_multi_warp_setup(num_warps, ipw),
                     |(stores, items_by_warp)| {
-                        let units = build_work_units(items_by_warp.into_iter());
+                        let units = build_work_units(items_by_warp);
                         // Cap workers at 4 but never more than the number of
                         // work units; max(1) prevents zero-division on empty input.
                         let workers = 4.min(units.len().max(1));

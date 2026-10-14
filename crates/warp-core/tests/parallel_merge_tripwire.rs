@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Merge tripwire tests for parallel execution Phase 6.
@@ -110,7 +111,7 @@ fn merge_conflict_contains_both_writers() {
 
     // Extract the conflict from the error enum
     let MergeError::Conflict(conflict) = err else {
-        panic!("Expected MergeError::Conflict, got: {:?}", err);
+        panic!("Expected MergeError::Conflict, got: {err:?}");
     };
 
     // Both writers must be reported
@@ -164,7 +165,7 @@ fn merge_conflict_reports_correct_key() {
 
     // Extract the conflict from the error enum
     let MergeError::Conflict(conflict) = err else {
-        panic!("Expected MergeError::Conflict, got: {:?}", err);
+        panic!("Expected MergeError::Conflict, got: {err:?}");
     };
 
     assert_eq!(
@@ -291,7 +292,7 @@ fn three_way_conflict_reports_all_writers() {
 
     // Extract the conflict from the error enum
     let MergeError::Conflict(conflict) = err else {
-        panic!("Expected MergeError::Conflict, got: {:?}", err);
+        panic!("Expected MergeError::Conflict, got: {err:?}");
     };
 
     assert_eq!(
@@ -355,7 +356,7 @@ fn conflict_on_one_key_while_others_would_merge() {
 
     // Extract the conflict from the error enum
     let MergeError::Conflict(conflict) = err else {
-        panic!("Expected MergeError::Conflict, got: {:?}", err);
+        panic!("Expected MergeError::Conflict, got: {err:?}");
     };
 
     // Verify the conflict involves both origins that wrote to key_a
@@ -486,7 +487,7 @@ fn merged_ops_are_canonically_ordered() {
 
     // Verify ops are in canonical order using WarpOp::sort_key() directly
     // (less coupling to AttachmentKey ordering implementation)
-    let keys: Vec<_> = merged.iter().map(|op| op.sort_key()).collect();
+    let keys: Vec<_> = merged.iter().map(warp_core::WarpOp::sort_key).collect();
     for i in 1..keys.len() {
         assert!(
             keys[i - 1] <= keys[i],

@@ -446,6 +446,7 @@ pub fn init_embedded() -> Result<EmbeddedHandle, AbiError> {
 }
 
 #[cfg(all(test, feature = "engine", not(feature = "experimental-warp-drive-g2b")))]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod default_engine_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
@@ -477,6 +478,7 @@ mod default_engine_tests {
 }
 
 #[cfg(all(test, feature = "engine", feature = "experimental-warp-drive-g2b"))]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod experimental_warp_drive_g2b_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{

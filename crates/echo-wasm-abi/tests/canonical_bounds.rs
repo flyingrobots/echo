@@ -6,7 +6,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use ciborium::value::Value;
-use echo_wasm_abi::{CanonError, MAX_CANONICAL_NESTING_DEPTH, decode_value};
+use echo_wasm_abi::{CanonError, MAX_CANONICAL_NESTING_DEPTH, decode_value, encode_value};
 use proptest::prelude::*;
 
 /// `depth` nested one-element arrays around the integer 0.
@@ -69,6 +69,35 @@ fn nesting_is_accepted_up_to_the_limit_and_refused_one_past_it() {
     let error = decode_value(&nested_arrays(MAX_CANONICAL_NESTING_DEPTH + 1))
         .expect_err("one level past the limit is refused");
     assert!(matches!(error, CanonError::Decode(ref detail) if detail.contains("nesting")));
+}
+
+/// `depth` nested one-element arrays around the integer 0, as a value.
+fn nested_array_value(depth: usize) -> Value {
+    let mut value = Value::Integer(0.into());
+    for _ in 0..depth {
+        value = Value::Array(vec![value]);
+    }
+    value
+}
+
+#[test]
+fn the_encoder_refuses_what_the_decoder_would_refuse() {
+    let at_limit = encode_value(&nested_array_value(MAX_CANONICAL_NESTING_DEPTH))
+        .expect("nesting at the limit encodes");
+    assert_eq!(at_limit, nested_arrays(MAX_CANONICAL_NESTING_DEPTH));
+    decode_value(&at_limit).expect("and the bytes decode");
+
+    let error = encode_value(&nested_array_value(MAX_CANONICAL_NESTING_DEPTH + 1))
+        .expect_err("one level past the limit does not encode");
+    assert!(matches!(error, CanonError::Encode(ref detail) if detail.contains("nesting")));
+
+    // A map counts as a level, in key and in value position.
+    let mut value = Value::Integer(0.into());
+    for _ in 0..=MAX_CANONICAL_NESTING_DEPTH {
+        value = Value::Map(vec![(Value::Integer(0.into()), value)]);
+    }
+    let error = encode_value(&value).expect_err("maps past the limit do not encode");
+    assert!(matches!(error, CanonError::Encode(ref detail) if detail.contains("nesting")));
 }
 
 #[test]

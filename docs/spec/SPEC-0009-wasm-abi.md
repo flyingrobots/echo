@@ -109,7 +109,10 @@ Byte-returning exports use CBOR result envelopes: `{ "ok": true, ... }` or `{ "o
 The canonical decoder treats every request as untrusted. It refuses a value
 nested more than 128 arrays or maps deep, and it refuses a header whose
 claimed element, entry or byte count exceeds the bytes that remain, before it
-allocates for that count. A caller that encodes deeper values receives a
-decode error. Evidence: `crates/echo-wasm-abi/tests/canonical_bounds.rs`.
+allocates for that count. Memory the decoder asks for follows the size of the
+request, not the size times its depth. The canonical encoder refuses the same
+nesting depth, so a caller learns of it before submission. Evidence:
+`crates/echo-wasm-abi/tests/canonical_bounds.rs` and
+`crates/echo-wasm-abi/tests/canonical_allocation.rs`.
 
 Implementation evidence: `crates/warp-wasm/src/lib.rs`, `crates/warp-wasm/src/kernel.rs`, `crates/echo-wasm-abi/src/*`, and `crates/echo-wasm-abi/tests/*`.

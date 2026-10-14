@@ -970,6 +970,54 @@ fn filesystem_writer_lease_refuses_overlap_before_takeover() {
     must_ok(fs::remove_dir_all(root));
 }
 
+#[cfg(feature = "host_test")]
+#[test]
+fn a_contender_refused_the_lease_syncs_nothing_in_the_live_log() {
+    let root = temp_wal_root("writer-lease-contender-syncs-nothing");
+    let mut active = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(active.acquire_writer_epoch(writer_epoch_request()));
+    // The live writer has a commit record that it has not synced yet.
+    must_ok(
+        active.append_transaction_deferring_commit_sync(submission_transaction(
+            "live-unsynced",
+            Lsn::from_raw(0),
+        )),
+    );
+
+    let mut contender = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    let error = must_err(
+        contender.acquire_writer_lease(),
+        "a live writer holds the lease",
+    );
+    assert!(matches!(error, WalStoreError::WriterEpochLeaseUnavailable));
+    assert!(!contender.holds_writer_lease());
+    // Syncing the segments would make the live writer's unsynced record
+    // durable. A refused contender must not decide that.
+    assert_eq!(contender.recovered_segment_sync_count_for_test(), 0);
+    drop(contender);
+
+    drop(active);
+    let mut successor = must_ok(FilesystemWalStore::open(&root, WalSegmentId::from_raw(1)));
+    must_ok(successor.acquire_writer_lease());
+    assert!(successor.holds_writer_lease());
+    assert_eq!(
+        successor.recovered_segment_sync_count_for_test(),
+        1,
+        "the lease holder syncs the log before recovery reads it"
+    );
+    // The lease alone does not permit appending.
+    let append_error = must_err(
+        successor.append_transaction(submission_transaction("too-early", Lsn::from_raw(2))),
+        "no writer epoch has been admitted under the lease yet",
+    );
+    assert!(matches!(
+        append_error,
+        WalStoreError::WriterEpochLeaseUnavailable
+    ));
+    drop(successor);
+    must_ok(fs::remove_dir_all(root));
+}
+
 #[test]
 fn filesystem_writer_epoch_ledger_digest_mismatch_fails_closed() {
     let root = temp_wal_root("writer-epoch-ledger-digest");

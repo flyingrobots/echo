@@ -422,7 +422,7 @@ Release-grade durability requires all of the following executable claims:
 - Retained evidence survives restart or produces a typed obstruction.
 - Required recovery artifacts are emitted by CI.
 
-Filesystem writer takeover acquires the process lease and checks the recovered tail before closing a predecessor epoch. An uncommitted or torn tail refuses takeover until writable recovery reconciles it. Writable recovery rewrites segment files, so it is a write: a host takes the lease first, runs writable recovery under it, and only then admits its epoch. A host that opens a log held by a live writer is refused at the lease and modifies nothing. An empty predecessor leaves its starting LSN unused, so a distinct linked successor may start at that same coordinate; a committed predecessor requires the successor to start after its final LSN, with overflow refused.
+Filesystem writer takeover acquires the process lease and checks the recovered tail before closing a predecessor epoch. An uncommitted or torn tail refuses takeover until writable recovery reconciles it. Writable recovery rewrites segment files, so it is a write: a host takes the lease first, runs writable recovery under it, and only then admits its epoch. A host that opens a log held by a live writer is refused at the lease. It modifies nothing and syncs nothing: making a live writer's unsynced records durable is that writer's decision. An empty predecessor leaves its starting LSN unused, so a distinct linked successor may start at that same coordinate; a committed predecessor requires the successor to start after its final LSN, with overflow refused.
 
 ## Evidence
 

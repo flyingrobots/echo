@@ -3677,10 +3677,9 @@ impl TrustedRuntimeWalStore {
                 };
                 #[cfg(not(any(test, feature = "host_test")))]
                 let store = FilesystemWalStore::open(root, segment_id)?;
-                let mut store = store;
-                // Make what an earlier writer left readable durable before
-                // any of it is read as recovered history.
-                store.sync_existing_segments()?;
+                // Nothing is synced here. Syncing another writer's segments
+                // changes what is durable in its log, so it waits for the
+                // writer lease; see `acquire_writer_lease`.
                 Ok(Self::Filesystem(store))
             }
         }

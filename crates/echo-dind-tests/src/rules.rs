@@ -13,9 +13,9 @@ use crate::type_ids::{
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AtomView, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, EdgeSet, Footprint, GraphStore, GraphView,
-    Hash, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, RewriteRule, TickDelta, TypeId,
-    WarpId, WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, EdgeSet, ExecutionGraphView, Footprint,
+    GraphStore, GraphView, Hash, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, RewriteRule,
+    RuleExecutor, TickDelta, TypeId, WarpId, WarpOp,
 };
 
 const TYPE_VIEW_OP: &str = "sys/view/op";
@@ -61,13 +61,15 @@ pub fn route_push_rule() -> RewriteRule {
         name: ROUTE_PUSH_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::route_push::OP_ID),
-        executor: |s, scope, delta| {
-            if let Some(args) =
-                decode_op_args::<ops::route_push::Args>(s, scope, ops::route_push::decode_vars)
-            {
+        executor: RuleExecutor::observed(|s, scope, delta| {
+            if let Some(args) = decode_observed_op_args::<ops::route_push::Args>(
+                s,
+                scope,
+                ops::route_push::decode_vars,
+            ) {
                 emit_route_push(s.warp_id(), delta, args.path);
             }
-        },
+        }),
         compute_footprint: |s, scope| {
             // Only declare full footprint if args decode succeeds (mirrors executor).
             if decode_op_args::<ops::route_push::Args>(s, scope, ops::route_push::decode_vars)
@@ -92,13 +94,15 @@ pub fn set_theme_rule() -> RewriteRule {
         name: SET_THEME_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::set_theme::OP_ID),
-        executor: |s, scope, delta| {
-            if let Some(args) =
-                decode_op_args::<ops::set_theme::Args>(s, scope, ops::set_theme::decode_vars)
-            {
+        executor: RuleExecutor::observed(|s, scope, delta| {
+            if let Some(args) = decode_observed_op_args::<ops::set_theme::Args>(
+                s,
+                scope,
+                ops::set_theme::decode_vars,
+            ) {
                 emit_set_theme(s.warp_id(), delta, args.mode);
             }
-        },
+        }),
         compute_footprint: |s, scope| {
             // Only declare full footprint if args decode succeeds (mirrors executor).
             if decode_op_args::<ops::set_theme::Args>(s, scope, ops::set_theme::decode_vars)
@@ -123,9 +127,9 @@ pub fn toggle_nav_rule() -> RewriteRule {
         name: TOGGLE_NAV_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::toggle_nav::OP_ID),
-        executor: |s, _scope, delta| {
+        executor: RuleExecutor::observed(|s, _scope, delta| {
             emit_toggle_nav(s, delta);
-        },
+        }),
         compute_footprint: |s, scope| footprint_for_state_node(s, scope, "sim/state/navOpen"),
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -142,9 +146,9 @@ pub fn toast_rule() -> RewriteRule {
         name: TOAST_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::toast::OP_ID),
-        executor: |s, scope, delta| {
+        executor: RuleExecutor::observed(|s, scope, delta| {
             if let Some(args) =
-                decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars)
+                decode_observed_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars)
             {
                 // Use intent scope (NodeId) for deterministic view op sequencing.
                 // This ensures the same intent always produces the same view op ID,
@@ -157,7 +161,7 @@ pub fn toast_rule() -> RewriteRule {
                     scope,
                 );
             }
-        },
+        }),
         compute_footprint: |s, scope| {
             // Only declare full footprint if args decode succeeds (mirrors executor).
             if decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars).is_none() {
@@ -190,7 +194,7 @@ pub fn drop_ball_rule() -> RewriteRule {
         name: DROP_BALL_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::drop_ball::OP_ID),
-        executor: |view, _scope, delta| {
+        executor: RuleExecutor::observed(|view, _scope, delta| {
             let warp_id = view.warp_id();
             let ball_id = make_node_id("ball");
             // Q32.32 fixed-point: 1 unit = 1 << 32
@@ -215,7 +219,7 @@ pub fn drop_ball_rule() -> RewriteRule {
                 }),
                 value: Some(AttachmentValue::Atom(atom)),
             });
-        },
+        }),
         compute_footprint: |s, _scope| {
             // Minimal footprint: executor only creates the ball node and its attachment.
             // No sim/state hierarchy or edges are created by this rule.
@@ -249,8 +253,8 @@ pub fn ball_physics_rule() -> RewriteRule {
             }
             false
         },
-        executor: |view, scope, delta| {
-            if let Some(m) = MotionV2View::try_from_node(&view, scope) {
+        executor: RuleExecutor::observed(|view, scope, delta| {
+            if let Some(m) = MotionV2View::try_from_execution_node(view, scope) {
                 let mut pos = m.pos_raw();
                 let mut vel = m.vel_raw();
 
@@ -276,7 +280,7 @@ pub fn ball_physics_rule() -> RewriteRule {
                     ))),
                 });
             }
-        },
+        }),
         compute_footprint: |s, scope| {
             echo_dry_tests::FootprintBuilder::from_view(s)
                 .reads_writes_node_alpha(*scope)
@@ -301,13 +305,13 @@ pub fn put_kv_rule() -> RewriteRule {
         name: PUT_KV_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::put_kv::OP_ID),
-        executor: |s, scope, delta| {
+        executor: RuleExecutor::observed(|s, scope, delta| {
             if let Some(args) =
-                decode_op_args::<ops::put_kv::Args>(s, scope, ops::put_kv::decode_vars)
+                decode_observed_op_args::<ops::put_kv::Args>(s, scope, ops::put_kv::decode_vars)
             {
                 emit_put_kv(s.warp_id(), delta, args.key, args.value);
             }
-        },
+        }),
         compute_footprint: |s, scope| {
             if let Some(args) =
                 decode_op_args::<ops::put_kv::Args>(s, scope, ops::put_kv::decode_vars)
@@ -347,6 +351,18 @@ fn decode_op_args<T>(
     decode_fn(vars)
 }
 
+fn decode_observed_op_args<T>(
+    view: &mut ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    decode_fn: fn(&[u8]) -> Option<T>,
+) -> Option<T> {
+    let AttachmentValue::Atom(a) = view.node_attachment(scope)? else {
+        return None;
+    };
+    let (_, vars) = unpack_intent_v1(&a.bytes).ok()?;
+    decode_fn(vars)
+}
+
 impl<'a> MotionV2View<'a> {
     /// Attempt to construct a motion v2 view from a node's attachment.
     pub fn try_from_node(view: &'a GraphView<'a>, node: &NodeId) -> Option<Self> {
@@ -354,6 +370,17 @@ impl<'a> MotionV2View<'a> {
             return None;
         };
         Self::try_from_payload(p)
+    }
+
+    /// Attempt to construct a motion v2 view through an observed executor view.
+    pub fn try_from_execution_node<'store>(
+        view: &mut ExecutionGraphView<'store, '_>,
+        node: &NodeId,
+    ) -> Option<MotionV2View<'store>> {
+        let AttachmentValue::Atom(p) = view.node_attachment(node)? else {
+            return None;
+        };
+        MotionV2View::try_from_payload(p)
     }
 }
 
@@ -533,7 +560,7 @@ fn emit_set_theme(warp_id: WarpId, delta: &mut TickDelta, mode: crate::codecs::T
 }
 
 /// Emit ops for a toggle nav operation.
-fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
+fn emit_toggle_nav(view: &mut ExecutionGraphView<'_, '_>, delta: &mut TickDelta) {
     let warp_id = view.warp_id();
     let (_, sim_state_id) = emit_state_base(warp_id, delta);
     let id = make_node_id("sim/state/navOpen");

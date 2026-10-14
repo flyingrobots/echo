@@ -245,7 +245,7 @@ mod tests {
         let items: Vec<ExecItem> = (0..100)
             .map(|i| {
                 let node = crate::make_node_id(&format!("partition-test-{i}"));
-                ExecItem::new(dummy_exec, node, OpOrigin::default())
+                ExecItem::new(i, dummy_exec, node, OpOrigin::default())
             })
             .collect();
 

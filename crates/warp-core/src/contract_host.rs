@@ -10,6 +10,7 @@
 //! to recognize their operation and decode their own generated vars.
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
+use crate::execution_graph_view::ExecutionGraphView;
 use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
 use crate::graph_view::GraphView;
 use crate::ident::{make_type_id, NodeId, NodeKey};
@@ -56,6 +57,27 @@ pub fn eint_vars_for_op<'a>(
     expected_op_id: u32,
 ) -> Option<&'a [u8]> {
     let (op_id, vars) = runtime_ingress_eint(view, scope)?;
+    (op_id == expected_op_id).then_some(vars)
+}
+
+/// Returns canonical EINT vars through the observed executor capability.
+///
+/// Native executors use this form so reading the runtime ingress attachment is
+/// retained in their actual footprint. Matchers and footprint computation keep
+/// using [`eint_vars_for_op`] through the immutable legacy view.
+#[must_use]
+pub fn observed_eint_vars_for_op<'store>(
+    view: &mut ExecutionGraphView<'store, '_>,
+    scope: &NodeId,
+    expected_op_id: u32,
+) -> Option<&'store [u8]> {
+    let Some(AttachmentValue::Atom(atom)) = view.node_attachment(scope) else {
+        return None;
+    };
+    if atom.type_id != make_type_id(INTENT_ATTACHMENT_TYPE) {
+        return None;
+    }
+    let (op_id, vars) = decode_canonical_eint(atom.bytes.as_ref())?;
     (op_id == expected_op_id).then_some(vars)
 }
 

@@ -62,6 +62,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
         .enumerate()
         .map(|(i, &scope)| {
             ExecItem::new(
+                u32::try_from(i).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -83,6 +84,7 @@ fn make_mixed_exec_items(node_groups: &[Vec<NodeId>]) -> Vec<ExecItem> {
     for nodes in node_groups {
         for &scope in nodes {
             items.push(ExecItem::new(
+                u32::try_from(intent_counter).expect("the test sequence fits in u32"),
                 touch_executor,
                 scope,
                 OpOrigin {
@@ -518,6 +520,7 @@ fn interleaved_warp_ordering_invariance() {
     let mut pattern_ab = Vec::new();
     for i in 0..10 {
         pattern_ab.push(ExecItem::new(
+            u32::try_from(i * 2).expect("the test sequence fits in u32"),
             touch_executor,
             nodes_a[i],
             OpOrigin {
@@ -528,6 +531,7 @@ fn interleaved_warp_ordering_invariance() {
             },
         ));
         pattern_ab.push(ExecItem::new(
+            u32::try_from(i * 2 + 1).expect("the test sequence fits in u32"),
             touch_executor,
             nodes_b[i],
             OpOrigin {
@@ -543,6 +547,7 @@ fn interleaved_warp_ordering_invariance() {
     let mut pattern_ba = Vec::new();
     for i in 0..10 {
         pattern_ba.push(ExecItem::new(
+            u32::try_from(i * 2).expect("the test sequence fits in u32"),
             touch_executor,
             nodes_b[i],
             OpOrigin {
@@ -553,6 +558,7 @@ fn interleaved_warp_ordering_invariance() {
             },
         ));
         pattern_ba.push(ExecItem::new(
+            u32::try_from(i * 2 + 1).expect("the test sequence fits in u32"),
             touch_executor,
             nodes_a[i],
             OpOrigin {

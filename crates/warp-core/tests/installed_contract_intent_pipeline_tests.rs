@@ -159,8 +159,12 @@ fn contract_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
     warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) == Some(MUTATION_VARS)
 }
 
-fn contract_execute(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
-    if warp_core::eint_vars_for_op(view, scope, MUTATION_OP_ID) != Some(MUTATION_VARS) {
+fn contract_execute(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    scope: &NodeId,
+    delta: &mut TickDelta,
+) {
+    if warp_core::observed_eint_vars_for_op(view, scope, MUTATION_OP_ID) != Some(MUTATION_VARS) {
         return;
     }
     let warp_id = view.warp_id();
@@ -208,7 +212,7 @@ fn contract_rule() -> warp_core::RewriteRule {
         name: MUTATION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: contract_matches,
-        executor: contract_execute,
+        executor: warp_core::RuleExecutor::observed(contract_execute),
         compute_footprint: contract_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,
@@ -224,7 +228,11 @@ fn conflict_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
     warp_core::eint_vars_for_op(view, scope, CONFLICT_OP_ID).is_some()
 }
 
-fn conflict_execute(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
+fn conflict_execute(
+    view: &mut warp_core::ExecutionGraphView<'_, '_>,
+    _scope: &NodeId,
+    delta: &mut TickDelta,
+) {
     let warp_id = view.warp_id();
     let result = shared_conflict_node_id();
     delta.push(warp_core::WarpOp::UpsertNode {
@@ -252,7 +260,7 @@ fn conflict_rule() -> warp_core::RewriteRule {
         name: CONFLICT_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: conflict_matches,
-        executor: conflict_execute,
+        executor: warp_core::RuleExecutor::observed(conflict_execute),
         compute_footprint: conflict_footprint,
         factor_mask: 0,
         conflict_policy: warp_core::ConflictPolicy::Abort,

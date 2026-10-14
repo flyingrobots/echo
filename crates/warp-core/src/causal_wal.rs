@@ -6918,6 +6918,7 @@ pub enum ObjectStoreCapabilityError {
     UnconditionalManifestOverwrite,
 }
 
+#[cfg(any(test, feature = "host_test"))]
 /// Validates strict object-store WAL adapter capabilities.
 pub fn validate_strict_object_store_capabilities(
     capabilities: ObjectStoreWalCapabilities,
@@ -6957,6 +6958,7 @@ pub struct ObjectStoreManifestCommitShape {
     pub new_manifest_digest: Hash,
 }
 
+#[cfg(any(test, feature = "host_test"))]
 /// Validates the strict object-store manifest commit shape.
 pub fn validate_strict_object_store_manifest_commit(
     shape: ObjectStoreManifestCommitShape,
@@ -7184,6 +7186,7 @@ pub struct MaterializationOutboxEntry {
     pub recovery_posture: MaterializationRecoveryPosture,
 }
 
+#[cfg(any(test, feature = "host_test"))]
 /// Builds a side-effect outbox transaction.
 pub fn build_materialization_outbox_transaction(
     mut builder: WalTransactionBuilder,
@@ -8219,179 +8222,6 @@ fn first_shadow_replay_mismatch(
         }
     }
     None
-}
-
-/// WAL release readiness audit result.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WalReleaseReadinessReport {
-    /// `true` when all release-readiness gates are satisfied.
-    pub ready: bool,
-    /// Gate names that passed.
-    pub passed_gates: Vec<&'static str>,
-    /// Gate names that remain blocked.
-    pub blocked_gates: Vec<&'static str>,
-}
-
-/// Audits WAL release readiness from known gate booleans.
-#[must_use]
-pub fn audit_wal_release_readiness(gates: WalReleaseReadinessGates) -> WalReleaseReadinessReport {
-    let mut passed_gates = Vec::new();
-    let mut blocked_gates = Vec::new();
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "filesystem_adapter",
-        gates.filesystem_adapter,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "object_store_capability_gate",
-        gates.object_store_capability_gate,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "segment_repair",
-        gates.segment_repair,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "segment_layout_policy",
-        gates.segment_layout_policy,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "segment_manifest_validation",
-        gates.segment_manifest_validation,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "crash_matrix",
-        gates.crash_matrix,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "crashpoint_manifest",
-        gates.crashpoint_manifest,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "shadow_replay",
-        gates.shadow_replay,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "outbox",
-        gates.outbox,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "commit_evidence",
-        gates.commit_evidence,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "wal_doctor",
-        gates.wal_doctor,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "semantic_validator",
-        gates.semantic_validator,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "topology_recovery",
-        gates.topology_recovery,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "filesystem_sync_evidence",
-        gates.filesystem_sync_evidence,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "object_store_manifest_negatives",
-        gates.object_store_manifest_negatives,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "security_redaction",
-        gates.security_redaction,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "app_noun_guard",
-        gates.app_noun_guard,
-    );
-    push_gate(
-        &mut passed_gates,
-        &mut blocked_gates,
-        "external_consumer_gate",
-        gates.external_consumer_gate,
-    );
-    let ready = blocked_gates.is_empty();
-    WalReleaseReadinessReport {
-        ready,
-        passed_gates,
-        blocked_gates,
-    }
-}
-
-/// WAL release readiness gate input.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct WalReleaseReadinessGates {
-    /// Filesystem WAL adapter gate.
-    pub filesystem_adapter: bool,
-    /// Object-store capability gate.
-    pub object_store_capability_gate: bool,
-    /// Segment repair/truncation gate.
-    pub segment_repair: bool,
-    /// Segment layout policy gate.
-    pub segment_layout_policy: bool,
-    /// Segment manifest validation gate.
-    pub segment_manifest_validation: bool,
-    /// Crash matrix gate.
-    pub crash_matrix: bool,
-    /// Crashpoint manifest gate.
-    pub crashpoint_manifest: bool,
-    /// Shadow replay gate.
-    pub shadow_replay: bool,
-    /// Side-effect outbox gate.
-    pub outbox: bool,
-    /// Causal commit evidence projection gate.
-    pub commit_evidence: bool,
-    /// WAL doctor/inspector gate.
-    pub wal_doctor: bool,
-    /// Semantic validator gate.
-    pub semantic_validator: bool,
-    /// Topology recovery index gate.
-    pub topology_recovery: bool,
-    /// Strict filesystem sync evidence gate.
-    pub filesystem_sync_evidence: bool,
-    /// Object-store manifest negative matrix gate.
-    pub object_store_manifest_negatives: bool,
-    /// Security and redaction posture gate.
-    pub security_redaction: bool,
-    /// No-app-nouns guard gate.
-    pub app_noun_guard: bool,
-    /// External consumer recovery gate.
-    pub external_consumer_gate: bool,
 }
 
 enum DiskWalRecord<'a> {
@@ -9592,6 +9422,7 @@ pub fn build_retained_reading_transaction(
     builder.commit(affected_frontiers)
 }
 
+#[cfg(any(test, feature = "host_test"))]
 /// Builds a topology-intent transaction from typed topology evidence records.
 pub fn build_topology_intent_transaction(
     mut builder: WalTransactionBuilder,
@@ -9604,6 +9435,7 @@ pub fn build_topology_intent_transaction(
     builder.commit(affected_frontiers)
 }
 
+#[cfg(any(test, feature = "host_test"))]
 /// Builds a checkpoint publication transaction.
 pub fn build_checkpoint_publication_transaction(
     mut builder: WalTransactionBuilder,
@@ -11642,19 +11474,6 @@ fn causal_commit_evidence_id(commit: &WalTransactionCommit) -> Hash {
     h.update(&commit.transaction_id.as_hash());
     h.update(&commit.commit_digest);
     h.finalize().into()
-}
-
-fn push_gate(
-    passed: &mut Vec<&'static str>,
-    blocked: &mut Vec<&'static str>,
-    name: &'static str,
-    ok: bool,
-) {
-    if ok {
-        passed.push(name);
-    } else {
-        blocked.push(name);
-    }
 }
 
 struct WalPayloadCursor<'a> {

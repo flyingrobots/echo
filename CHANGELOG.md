@@ -20,9 +20,25 @@
   without the reachability rule the state root applies.
 - The crate-private `RetentionPolicy`, which nothing constructed and one of
   whose variants was documented to panic.
+- `CodecRegistry`, `ErasedCodec`, `RegistryError` and
+  `DecodeError::UnknownTypeId`. Nothing registered or looked up a codec.
+  `Codec` and `AtomPayload::decode_with` are unchanged.
+- `SchedulerKind::Legacy` and its scheduler. Nothing selected it, and no test
+  compared it with the radix scheduler it was kept to check.
+- The public `dynamic_binding` module (`StructuredRuntimeBindings`,
+  `StructuredBindingRuntime` and related types). Nothing bound through it. Its
+  vocabulary and refusal rules are kept in
+  `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`.
+- `audit_wal_release_readiness` and `WalReleaseReadinessGates`/`Report`. It
+  combined booleans its caller supplied and checked nothing; the gate list is
+  kept in `docs/topics/WAL.md`.
 
 ### Changed
 
+- The topology-intent, checkpoint-publication and materialization-outbox
+  transaction builders and the strict object-store validators are available only with `host_test`. No production
+  path used them; the hardening tests that exercise those record kinds now
+  require `host_test`, as CI already ran them.
 - Operation-context refusals name the lifetime limit. A WAL root retains at
   most 1,024 observations and 4,096 request bindings over its whole life,
   because contexts are never retired; each limit refuses only its own kind,

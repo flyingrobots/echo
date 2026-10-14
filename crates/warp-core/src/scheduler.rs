@@ -512,75 +512,14 @@ impl<K: Ord + Copy> GenSet<K> {
 }
 
 // ============================================================================
-// Legacy scheduler (BTreeMap drain + Vec<Footprint> independence)
-// ============================================================================
-
-#[derive(Debug, Default)]
-pub(crate) struct LegacyScheduler {
-    pending: BTreeMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
-    active: BTreeMap<TxId, Vec<Footprint>>,
-}
-
-impl LegacyScheduler {
-    #[inline]
-    pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
-        let entry = self.pending.entry(tx).or_default();
-        entry.insert((rewrite.scope_hash, rewrite.rule_id), rewrite);
-    }
-
-    pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
-        self.pending
-            .remove(&tx)
-            .map(|map| map.into_values().collect())
-            .unwrap_or_default()
-    }
-
-    /// Attempts to reserve a rewrite by checking full footprint independence
-    /// against the currently reserved frontier.
-    ///
-    /// This legacy implementation performs an O(k) scan over the reserved
-    /// footprints for the tick, using [`Footprint::independent`] to detect
-    /// conflicts.
-    ///
-    /// Return value contract (engine spike):
-    /// - Returns `true` when the rewrite is reserved and will be applied.
-    /// - Returns `false` exclusively when the rewrite footprint conflicts with
-    ///   the already-reserved frontier for this tick. In this case the rewrite
-    ///   phase is transitioned to `Aborted`.
-    ///
-    /// If additional rejection reasons are introduced in the future (beyond
-    /// footprint conflicts), upgrade the return type to an explicit reason enum
-    /// so callers can distinguish between them.
-    pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
-        let frontier = self.active.entry(tx).or_default();
-        for fp in frontier.iter() {
-            if !pr.footprint.independent(fp) {
-                pr.phase = RewritePhase::Aborted;
-                return false;
-            }
-        }
-        pr.phase = RewritePhase::Reserved;
-        frontier.push(pr.footprint.clone());
-        true
-    }
-
-    pub(crate) fn finalize_tx(&mut self, tx: TxId) {
-        self.active.remove(&tx);
-        self.pending.remove(&tx);
-    }
-}
-
-// ============================================================================
-// Scheduler wrapper (swap between radix and legacy)
+// Scheduler wrapper
 // ============================================================================
 
 /// Selects which deterministic scheduler implementation to use.
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerKind {
-    /// Radix-based pending queue with O(n) drain and `GenSet` independence checks (default).
+    /// Radix-based pending queue with O(n) drain and `GenSet` independence checks.
     Radix,
-    /// Legacy `BTreeMap` + `Vec<Footprint>` implementation for comparisons.
-    Legacy,
 }
 
 /// Deterministic scheduler wrapper with telemetry support.
@@ -603,7 +542,6 @@ impl std::fmt::Debug for DeterministicScheduler {
 #[derive(Debug)]
 enum SchedulerImpl {
     Radix(RadixScheduler),
-    Legacy(LegacyScheduler),
 }
 
 impl Default for DeterministicScheduler {
@@ -619,7 +557,6 @@ impl DeterministicScheduler {
     pub(crate) fn new(kind: SchedulerKind, telemetry: Arc<dyn TelemetrySink>) -> Self {
         let inner = match kind {
             SchedulerKind::Radix => SchedulerImpl::Radix(RadixScheduler::default()),
-            SchedulerKind::Legacy => SchedulerImpl::Legacy(LegacyScheduler::default()),
         };
         Self {
             inner,
@@ -631,14 +568,12 @@ impl DeterministicScheduler {
     pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
         match &mut self.inner {
             SchedulerImpl::Radix(s) => s.enqueue(tx, rewrite),
-            SchedulerImpl::Legacy(s) => s.enqueue(tx, rewrite),
         }
     }
 
     pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
         match &mut self.inner {
             SchedulerImpl::Radix(s) => s.drain_for_tx(tx),
-            SchedulerImpl::Legacy(s) => s.drain_for_tx(tx),
         }
     }
 
@@ -659,7 +594,6 @@ impl DeterministicScheduler {
         let rule_id = pr.rule_id;
         let accepted = match &mut self.inner {
             SchedulerImpl::Radix(s) => s.reserve(tx, pr),
-            SchedulerImpl::Legacy(s) => s.reserve(tx, pr),
         };
 
         // Track counters and emit telemetry
@@ -683,7 +617,6 @@ impl DeterministicScheduler {
 
         match &mut self.inner {
             SchedulerImpl::Radix(s) => s.finalize_tx(tx),
-            SchedulerImpl::Legacy(s) => s.finalize_tx(tx),
         }
     }
 }

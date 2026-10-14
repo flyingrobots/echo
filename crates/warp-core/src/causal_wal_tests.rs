@@ -11,12 +11,12 @@
 
 use crate::causal_anchor::prepare_causal_anchor_admission;
 use crate::causal_wal::{
-    apply_committed_transaction, audit_wal_release_readiness,
-    build_causal_anchor_admission_transaction, build_checkpoint_publication_transaction,
-    build_materialization_outbox_transaction, build_recovery_certificate,
-    build_replayable_tick_batch_transaction, build_retained_reading_transaction,
-    build_submission_acceptance_transaction, build_submission_acceptance_with_material_transaction,
-    build_tick_transaction, build_topology_intent_transaction, canonical_segment_relative_path,
+    apply_committed_transaction, build_causal_anchor_admission_transaction,
+    build_checkpoint_publication_transaction, build_materialization_outbox_transaction,
+    build_recovery_certificate, build_replayable_tick_batch_transaction,
+    build_retained_reading_transaction, build_submission_acceptance_transaction,
+    build_submission_acceptance_with_material_transaction, build_tick_transaction,
+    build_topology_intent_transaction, canonical_segment_relative_path,
     causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
     causal_history_genesis_frontier_digest, doctor_in_memory_store,
     evaluate_checkpoint_publication, lint_wal_schema_terms, logical_causal_history_frontier_digest,
@@ -48,12 +48,11 @@ use crate::causal_wal::{
     WalRecoveryBootstrapSource, WalRecoveryCheckpointPosture, WalRecoveryError,
     WalRecoveryIndexError, WalRecoveryPlan, WalRecoveryProjectionObstruction,
     WalRecoveryProjectionPosture, WalRecoveryRetainedMaterialAvailability,
-    WalRecoveryRetainedMaterialPosture, WalRecoverySegmentEvidence, WalReleaseReadinessGates,
-    WalRoot, WalSchemaLintError, WalSegmentId, WalSegmentRef, WalSegmentSealPosture,
-    WalSegmentStorageLocator, WalStoreError, WalStorePort, WalSubmissionEnvelopeRecord,
-    WalTickDecision, WalTransactionBuilder, WalTransactionId, WalTransactionKind, WalWriterEpoch,
-    WriterEpoch, WriterEpochId, WriterEpochRequest,
-    WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
+    WalRecoveryRetainedMaterialPosture, WalRecoverySegmentEvidence, WalRoot, WalSchemaLintError,
+    WalSegmentId, WalSegmentRef, WalSegmentSealPosture, WalSegmentStorageLocator, WalStoreError,
+    WalStorePort, WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder,
+    WalTransactionId, WalTransactionKind, WalWriterEpoch, WriterEpoch, WriterEpochId,
+    WriterEpochRequest, WAL_PROJECTION_GRAPH_RECOVERY_CERTIFICATE_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_ROOT_COMMIT_ANCHOR_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_SEGMENT_COMMIT_ANCHOR_EDGE_TYPE, WAL_PROJECTION_GRAPH_SEGMENT_EDGE_TYPE,
     WAL_PROJECTION_GRAPH_WRITER_EPOCH_EDGE_TYPE,
@@ -4895,42 +4894,6 @@ fn wal_shadow_replay_detects_recovered_state_match() {
     let live_state = must_ok(apply_committed_transaction(RecoveredState::default(), &tx));
 
     assert!(must_ok(shadow_replay_matches(&live_state, &[tx])));
-}
-
-#[test]
-fn wal_release_readiness_audit_reports_blocked_and_ready_gates() {
-    let blocked = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        ..WalReleaseReadinessGates::default()
-    });
-    assert!(!blocked.ready);
-    assert!(blocked.passed_gates.contains(&"filesystem_adapter"));
-    assert!(blocked.blocked_gates.contains(&"shadow_replay"));
-    assert!(blocked.blocked_gates.contains(&"topology_recovery"));
-
-    let ready = audit_wal_release_readiness(WalReleaseReadinessGates {
-        filesystem_adapter: true,
-        object_store_capability_gate: true,
-        segment_repair: true,
-        segment_layout_policy: true,
-        segment_manifest_validation: true,
-        crash_matrix: true,
-        crashpoint_manifest: true,
-        shadow_replay: true,
-        outbox: true,
-        commit_evidence: true,
-        wal_doctor: true,
-        semantic_validator: true,
-        topology_recovery: true,
-        filesystem_sync_evidence: true,
-        object_store_manifest_negatives: true,
-        security_redaction: true,
-        app_noun_guard: true,
-        external_consumer_gate: true,
-    });
-    assert!(ready.ready);
-    assert!(ready.blocked_gates.is_empty());
 }
 
 fn submission_transaction_in_segment(

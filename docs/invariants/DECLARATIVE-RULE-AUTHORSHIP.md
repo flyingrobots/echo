@@ -65,6 +65,27 @@ and forbidden surfaces. Echo then owns the runtime problem of binding concrete
 ids and resolving those declared closures without widening the capability
 surface.
 
+The runtime binding vocabulary for that problem is fixed even though no
+implementation exists yet. An earlier unused draft was removed (#820); this
+paragraph keeps its contract. A structured footprint invocation produces one
+set of runtime bindings, keyed by authored slot name:
+
+- A **direct slot** binds from invocation-supplied reference material to one
+  concrete graph node.
+- A **relation slot** binds from an already bound source slot through one
+  declared relation, and must resolve to a node of the expected kind.
+- A **closure** resolves from an already bound source slot, and optionally a
+  second related slot, through one declared closure operator over a requested
+  range. It yields an ordered list of members.
+
+Binding is deterministic and fails closed, never widening the surface. A slot
+or closure bound twice is refused. So are: a direct slot whose reference has no
+target; a relation or closure whose source slot is unbound; a relation with no
+target; an unrecognised closure operator; a range outside the basis head; and a
+basis head that does not belong to the requested worldline. A runtime adapter
+resolves direct slots, relation slots and range closures against graph truth;
+the binding set only accumulates them.
+
 ### R2 — Native rewrite functions are bootstrap-only
 
 `RewriteRule`, `MatchFn`, and `ExecuteFn` are bootstrap-only trusted-code

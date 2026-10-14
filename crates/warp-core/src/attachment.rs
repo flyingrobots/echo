@@ -21,10 +21,6 @@
 //! - Descend links are explicit (not encoded inside bytes), satisfying the
 //!   “no hidden edges” law.
 
-use std::any::Any;
-use std::collections::BTreeMap;
-use std::marker::PhantomData;
-
 use bytes::Bytes;
 use thiserror::Error;
 
@@ -249,9 +245,6 @@ pub enum DecodeError {
         /// Found type identifier.
         found: TypeId,
     },
-    /// No codec was registered for the payload `TypeId`.
-    #[error("no codec registered for payload type id: {0:?}")]
-    UnknownTypeId(TypeId),
     /// The byte content was invalid for the expected type.
     #[error("invalid payload bytes")]
     InvalidBytes,
@@ -282,122 +275,6 @@ pub trait Codec<T> {
     /// # Errors
     /// Returns an error if `bytes` is not a valid canonical encoding of `T`.
     fn decode_strict(bytes: &Bytes) -> Result<T, DecodeError>;
-}
-
-/// Object-safe codec wrapper for dynamic decoding based on `TypeId`.
-///
-/// This exists primarily for tooling/view layers that need to decode arbitrary
-/// payloads at runtime (e.g., inspectors). The core rewrite engine does not use
-/// this registry on hot paths.
-pub trait ErasedCodec: Send + Sync {
-    /// Type id handled by this codec.
-    fn type_id(&self) -> TypeId;
-    /// Human-readable type name for debugging and tooling.
-    fn type_name(&self) -> &'static str;
-    /// Strictly decode bytes into a type-erased value.
-    ///
-    /// # Errors
-    /// Returns an error if `bytes` is not a valid canonical encoding for this
-    /// codec's type.
-    fn decode_any(&self, bytes: &Bytes) -> Result<Box<dyn Any>, DecodeError>;
-}
-
-struct ErasedCodecImpl<T, C> {
-    type_name: &'static str,
-    _marker: PhantomData<(T, C)>,
-}
-
-impl<T, C> ErasedCodecImpl<T, C> {
-    const fn new(type_name: &'static str) -> Self {
-        Self {
-            type_name,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T, C> ErasedCodec for ErasedCodecImpl<T, C>
-where
-    T: Any + Send + Sync,
-    C: Codec<T> + Send + Sync,
-{
-    fn type_id(&self) -> TypeId {
-        C::TYPE_ID
-    }
-
-    fn type_name(&self) -> &'static str {
-        self.type_name
-    }
-
-    fn decode_any(&self, bytes: &Bytes) -> Result<Box<dyn Any>, DecodeError> {
-        let value = C::decode_strict(bytes)?;
-        Ok(Box::new(value))
-    }
-}
-
-/// Minimal codec registry keyed by payload `TypeId`.
-///
-/// The registry supports dynamic decode for tooling layers. It is intentionally
-/// small and is not used by the core scheduler/matcher unless an application
-/// layer explicitly consults it.
-#[derive(Default)]
-pub struct CodecRegistry {
-    codecs: BTreeMap<TypeId, Box<dyn ErasedCodec>>,
-}
-
-/// Errors returned when registering codecs.
-#[derive(Debug, Error)]
-pub enum RegistryError {
-    /// Attempted to register two codecs for the same `TypeId`.
-    #[error("duplicate codec registration for type id: {0:?}")]
-    DuplicateTypeId(TypeId),
-}
-
-impl CodecRegistry {
-    /// Creates an empty registry.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Registers codec `C` for payload type `T`.
-    ///
-    /// `type_name` is a human-readable identifier for debugging/tooling.
-    ///
-    /// # Errors
-    /// Returns [`RegistryError::DuplicateTypeId`] if a codec is already registered
-    /// for the same `TypeId`.
-    pub fn register<T, C>(&mut self, type_name: &'static str) -> Result<(), RegistryError>
-    where
-        T: Any + Send + Sync,
-        C: Codec<T> + Send + Sync + 'static,
-    {
-        let type_id = C::TYPE_ID;
-        if self.codecs.contains_key(&type_id) {
-            return Err(RegistryError::DuplicateTypeId(type_id));
-        }
-        self.codecs
-            .insert(type_id, Box::new(ErasedCodecImpl::<T, C>::new(type_name)));
-        Ok(())
-    }
-
-    /// Returns the codec registered for `type_id` (if any).
-    #[must_use]
-    pub fn get(&self, type_id: &TypeId) -> Option<&dyn ErasedCodec> {
-        self.codecs.get(type_id).map(std::convert::AsRef::as_ref)
-    }
-
-    /// Decodes a typed atom payload using the codec registered for its `type_id`.
-    ///
-    /// # Errors
-    /// Returns [`DecodeError::TypeMismatch`] if the payload `type_id` is not
-    /// registered.
-    pub fn decode_atom(&self, payload: &AtomPayload) -> Result<Box<dyn Any>, DecodeError> {
-        let Some(codec) = self.get(&payload.type_id) else {
-            return Err(DecodeError::UnknownTypeId(payload.type_id));
-        };
-        codec.decode_any(&payload.bytes)
-    }
 }
 
 #[cfg(test)]

@@ -565,3 +565,33 @@ WSC, reveals retained reading material, and requires all paths to agree on the
 same app-facing receipt and bounded reading. Missing CAS support material and
 corrupt embedded retained bytes must surface as typed obstruction evidence
 rather than a divergent success.
+
+### Release readiness gates
+
+The WAL is not release-ready. Readiness requires every gate below to hold, and
+no code checks them together. An earlier aggregator only combined booleans its
+caller supplied, so it verified nothing and was removed (#820).
+
+- filesystem adapter
+- object-store capability gate
+- segment repair and truncation
+- segment layout policy
+- segment manifest validation
+- crash matrix
+- crashpoint manifest
+- shadow replay
+- side-effect outbox
+- causal commit evidence projection
+- WAL doctor and inspector
+- semantic validator
+- topology recovery index
+- strict filesystem sync evidence
+- object-store manifest negative matrix
+- security and redaction posture
+- no-application-nouns guard
+- external consumer recovery
+
+The builders for topology-intent, checkpoint-publication and
+materialization-outbox transactions and the strict object-store validators exist only under `test` or `host_test`. They are
+fixtures for the hardening tests that prove recovery understands those record
+kinds. No production path writes those transactions or uses an object store.

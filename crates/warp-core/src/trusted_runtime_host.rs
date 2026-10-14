@@ -2599,6 +2599,10 @@ impl TrustedRuntimeWal {
     pub fn from_config(config: TrustedRuntimeWalConfig) -> Result<Self, TrustedRuntimeWalError> {
         let TrustedRuntimeWalConfig { store, next_lsn } = config;
         let mut store = TrustedRuntimeWalStore::open(store)?;
+        // Writable recovery can drop an uncommitted tail, which rewrites
+        // segment files. Hold the writer lease first, so a second host that
+        // opens a live log is refused before it can touch that log.
+        store.acquire_writer_lease()?;
         let recovery_report = store.recover_for_writer()?;
         let recovered_cursor = TrustedRuntimeWalCursor::from_recovery(&recovery_report)?;
         let contexts = observed_context::Contexts::from_recovery(&recovery_report)?;
@@ -3714,10 +3718,25 @@ impl TrustedRuntimeWalStore {
         }
     }
 
+    /// Takes the writer lease of a filesystem store. An in-memory store has
+    /// one owner and no lease.
+    fn acquire_writer_lease(&mut self) -> Result<(), WalStoreError> {
+        match self {
+            Self::InMemory(_) => Ok(()),
+            Self::Filesystem(store) => store.acquire_writer_lease(),
+        }
+    }
+
     fn recover_for_writer(&self) -> Result<RecoveryScanReport, WalRecoveryError> {
         match self {
             Self::InMemory(store) => recover_runtime_wal_store_read_only(store),
             Self::Filesystem(store) => {
+                // Writable recovery is a write. Refuse it without the lease.
+                if !store.holds_writer_lease() {
+                    return Err(WalRecoveryError::Store(
+                        WalStoreError::WriterEpochLeaseUnavailable,
+                    ));
+                }
                 recover_filesystem_store(store.root(), RecoveryAccessMode::Writable)
             }
         }

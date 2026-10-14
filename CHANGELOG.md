@@ -35,6 +35,12 @@
 
 ### Fixed
 
+- A trusted host takes the filesystem WAL writer lease before it runs
+  writable recovery. It used to recover first and take the lease afterwards,
+  so a second host that opened a log with a live writer could drop that
+  writer's in-progress tail by rewriting its segment files, and only then be
+  refused. The second host is now refused at the lease and modifies nothing.
+
 - A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
 
 - A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.

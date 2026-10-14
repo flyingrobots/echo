@@ -35,6 +35,15 @@
 
 ### Changed
 
+- Executable-operation Actions decided after their origin tick can commit
+  when their dependencies are corroborated as unchanged (#837). Before, any
+  commit in between obstructed every waiting Action with `BasisChanged`, so a
+  head committed at most 64 Actions per frame. This applies to compare-and-set
+  and create-if-absent Actions whose target and observed nodes are in the root
+  warp, whose origin is a coordinate retained in history, and whose target and
+  observed slots no tick wrote between origin and parent. A value that was
+  changed and restored, and every other Action, keep the whole-frontier rule.
+  Receipts keep the origin basis; recovery recomputes the rule from history.
 - The topology-intent, checkpoint-publication and materialization-outbox
   transaction builders and the strict object-store validators are available only with `host_test`. No production
   path used them; the hardening tests that exercise those record kinds now

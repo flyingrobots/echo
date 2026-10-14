@@ -2682,7 +2682,11 @@ fn update_precondition_refuses_when_the_node_has_the_wrong_type() {
 }
 
 #[test]
-fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
+/// Under dependency-scoped validity (#837), an Action deferred by the inbox
+/// budget still commits in a later Tick, because the first Tick did not touch
+/// the node it reads. The tests under "Dependency-scoped Action validity" cover
+/// the obstruction when the read did change.
+fn budget_deferred_independent_action_commits_in_a_later_tick() {
     let second_node_id = make_node_id("operation-fixture-budget-deferred");
     let attachment_type = make_type_id("operation-fixture-atom");
     let (mut host, head_key, first_node, second_node) = fixture_host_with_bare_node_and_policy(
@@ -2757,14 +2761,12 @@ fn budget_deferred_executable_action_reaches_typed_basis_obstruction() {
         .expect("the deferred Action reaches scheduler-owned private evaluation");
     assert_eq!(second_tick.len(), 1);
     assert_eq!(second_tick[0].admitted_count, 1);
-    let Some(EchoOperationActionOutcomeV1::Obstructed(obstruction)) =
-        host.echo_operation_action_outcome_v1(&deferred_submission_id)
-    else {
-        panic!("the stale deferred Action must receive one typed obstruction");
-    };
-    assert_eq!(
-        obstruction.kind(),
-        EchoOperationObstructionKindV1::BasisChanged
+    assert!(
+        matches!(
+            host.echo_operation_action_outcome_v1(&deferred_submission_id),
+            Some(EchoOperationActionOutcomeV1::Committed(_))
+        ),
+        "the deferred Action read a node the first Tick did not touch"
     );
     assert!(matches!(
         host.echo_operation_action_outcome_v1(&committed_submission_id),
@@ -3425,9 +3427,12 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
                     .submission_id;
                 host.tick_once()
                     .expect("delayed Action receives a decision");
-                assert!(matches!(host.echo_operation_action_outcome_v1(&id),
-                    Some(EchoOperationActionOutcomeV1::Obstructed(o))
-                    if o.kind() == EchoOperationObstructionKindV1::BasisChanged));
+                // The delayed node is still absent, so under dependency-scoped
+                // validity (#837) the stale-based creation commits.
+                assert!(matches!(
+                    host.echo_operation_action_outcome_v1(&id),
+                    Some(EchoOperationActionOutcomeV1::Committed(_))
+                ));
             }
         }
         let (mut reopened, _, _) = fixture_host();
@@ -3443,6 +3448,9 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
             .echo_operation_parent_state_work_for_test(reopened.runtime(), reopened.provenance())
             .expect("parent-state validation remains lawful");
         let ticks = create_count + usize::from(retain_stale);
+        // Under dependency-scoped validity (#837) the stale-based creation
+        // commits, so it adds one node and its bytes to the final state.
+        let created = create_count + usize::from(retain_stale);
         assert!(
             work.replayed_patches <= 2 * ticks,
             "replay must not reapply every prefix: {work:?}"
@@ -3452,13 +3460,15 @@ fn action_recovery_bounds_replay_work_and_retained_data_with_stale_bases() {
             "one worldline needs one cursor plus one transient simulation: {work:?}"
         );
         assert!(
-            work.peak_retained_node_records <= 2 * (create_count + 1),
+            work.peak_retained_node_records <= 2 * (created + 1),
             "{work:?}"
         );
         assert!(work.peak_retained_tick_records <= 2 * ticks, "{work:?}");
         assert!(
             work.peak_retained_atom_bytes
-                <= 2 * (b"before".len() + create_count * b"created".len()),
+                <= 2 * (b"before".len()
+                    + create_count * b"created".len()
+                    + usize::from(retain_stale) * b"late".len()),
             "{work:?}"
         );
         if !retain_stale {
@@ -4531,5 +4541,243 @@ fn scheduler_tick_construction_failure_publishes_no_action_state_or_receipt() {
             WalTransactionKind::ExecutableOperationInstallation,
             WalTransactionKind::SubmissionIntake,
         ]
+    );
+}
+
+// =============================================================================
+// Dependency-scoped Action validity (#837)
+// =============================================================================
+
+fn submit_action(
+    host: &mut TrustedRuntimeHost,
+    head_key: WriterHeadKey,
+    invocation: Vec<u8>,
+) -> warp_core::Hash {
+    let envelope = warp_core::echo_operation_action_envelope_v1(
+        IngressTarget::ExactHead { key: head_key },
+        invocation,
+    )
+    .expect("the invocation becomes one Action");
+    host.app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("the Action is durable")
+        .submission_id
+}
+
+fn creation_action_invocation(
+    host: &TrustedRuntimeHost,
+    installed: &InstalledEchoOperationV1,
+    head_key: WriterHeadKey,
+    node: NodeKey,
+    payload: &[u8],
+) -> Vec<u8> {
+    let evaluation_basis = host
+        .echo_operation_evaluation_basis_v1(
+            head_key,
+            warp_core::echo_operation_anchored_node_absent_application_basis_v1(node),
+        )
+        .expect("Echo resolves the creation basis");
+    EchoOperationInvocationV1::anchored_node_attachment_create_if_absent(
+        installed.package_id(),
+        installed.operation_coordinate(),
+        evaluation_basis,
+        digest("fixture-authority-grant"),
+        EchoOperationBudgetV1::new(3, 64, 71),
+        node,
+        payload.to_vec(),
+    )
+    .to_canonical_bytes()
+    .expect("the creation invocation is canonical")
+}
+
+fn outcome_is_committed(host: &TrustedRuntimeHost, id: &warp_core::Hash) -> bool {
+    matches!(
+        host.echo_operation_action_outcome_v1(id),
+        Some(EchoOperationActionOutcomeV1::Committed(_))
+    )
+}
+
+fn outcome_is_basis_changed(host: &TrustedRuntimeHost, id: &warp_core::Hash) -> bool {
+    matches!(
+        host.echo_operation_action_outcome_v1(id),
+        Some(EchoOperationActionOutcomeV1::Obstructed(obstruction))
+            if obstruction.kind() == EchoOperationObstructionKindV1::BasisChanged
+    )
+}
+
+#[test]
+fn independent_actions_beyond_one_tick_all_commit_and_recover() {
+    const ACTIONS: usize = 128;
+    let wal_dir = TempWalDir::new();
+    let submissions;
+    {
+        let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(ACTIONS);
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        // Every Action is built against the same origin basis, before any of
+        // them is decided.
+        let invocations = nodes
+            .iter()
+            .map(|node| action_invocation(&host, &installed, head_key, *node, b"before", b"after"))
+            .collect::<Vec<_>>();
+        submissions = invocations
+            .into_iter()
+            .map(|invocation| submit_action(&mut host, head_key, invocation))
+            .collect::<Vec<_>>();
+        for _ in 0..ACTIONS.div_ceil(64) {
+            host.tick_once().expect("the scheduler decides a batch");
+        }
+        assert!(
+            submissions.iter().all(|id| outcome_is_committed(&host, id)),
+            "Actions decided after the first Tick commit when their read is unchanged"
+        );
+    }
+    let (mut recovered, _, _) = fixture_host_with_independent_nodes(ACTIONS);
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("recovery recomputes scoped validity and agrees");
+    assert!(submissions
+        .iter()
+        .all(|id| outcome_is_committed(&recovered, id)));
+}
+
+#[test]
+fn an_action_whose_read_changed_is_obstructed_in_a_later_tick() {
+    let (mut host, head_key, node) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("the WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let first = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+    let stale = action_invocation(&host, &installed, head_key, node, b"before", b"other");
+
+    let first = submit_action(&mut host, head_key, first);
+    host.tick_once().expect("the first Action is decided");
+    assert!(outcome_is_committed(&host, &first));
+
+    let stale = submit_action(&mut host, head_key, stale);
+    host.tick_once().expect("the stale Action is decided");
+    assert!(
+        outcome_is_basis_changed(&host, &stale),
+        "the value it read changed, so it keeps the basis obstruction"
+    );
+}
+
+#[test]
+/// A value that changed and was restored cannot be corroborated at the origin
+/// without replaying history, so the origin-built Action keeps the
+/// whole-frontier rule (#837 review). Live and recovery agree on that.
+fn a_restored_value_does_not_corroborate_its_origin_and_recovery_agrees() {
+    let wal_dir = TempWalDir::new();
+    let late;
+    {
+        let (mut host, head_key, node) = fixture_host();
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        // Built at the origin, expecting `before`.
+        let origin_built =
+            action_invocation(&host, &installed, head_key, node, b"before", b"third");
+
+        let change = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+        let change = submit_action(&mut host, head_key, change);
+        host.tick_once().expect("the change is decided");
+        assert!(outcome_is_committed(&host, &change));
+
+        let restore = action_invocation(&host, &installed, head_key, node, b"after", b"before");
+        let restore = submit_action(&mut host, head_key, restore);
+        host.tick_once().expect("the restoration is decided");
+        assert!(outcome_is_committed(&host, &restore));
+
+        late = submit_action(&mut host, head_key, origin_built);
+        host.tick_once()
+            .expect("the origin-built Action is decided");
+        assert!(
+            outcome_is_basis_changed(&host, &late),
+            "intervening writes to the target leave the origin uncorroborated"
+        );
+    }
+    let (mut recovered, _, _) = fixture_host();
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("recovery recomputes scoped validity at the reconstructed parent");
+    assert!(outcome_is_basis_changed(&recovered, &late));
+}
+
+#[test]
+fn a_creation_whose_node_appeared_is_obstructed_in_a_later_tick() {
+    let (mut host, head_key, _) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("the WAL opens");
+    let installed = install_fixture_creation_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let node = NodeKey {
+        warp_id: make_warp_id("operation-fixture"),
+        local_id: make_node_id("operation-fixture-scoped-created"),
+    };
+    let first = creation_action_invocation(&host, &installed, head_key, node, b"first");
+    let second = creation_action_invocation(&host, &installed, head_key, node, b"second");
+
+    let first = submit_action(&mut host, head_key, first);
+    host.tick_once().expect("the first creation is decided");
+    assert!(outcome_is_committed(&host, &first));
+
+    let second = submit_action(&mut host, head_key, second);
+    host.tick_once().expect("the second creation is decided");
+    assert!(
+        outcome_is_basis_changed(&host, &second),
+        "the node is no longer absent, so the creation keeps the basis obstruction"
+    );
+}
+
+#[test]
+fn an_action_with_a_forged_origin_keeps_the_whole_frontier_rule() {
+    let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(2);
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("the WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let honest = action_invocation(&host, &installed, head_key, nodes[1], b"before", b"after");
+    // Same writer head and application basis, but a state root that the
+    // worldline never held at that tick.
+    let CanonicalValueV1::Map(mut basis) = decode_canonical_cbor_v1(
+        &encode_canonical_cbor_v1(
+            &decode_canonical_cbor_v1(&honest)
+                .ok()
+                .and_then(|value| match value {
+                    CanonicalValueV1::Map(fields) => fields
+                        .into_iter()
+                        .find(|(key, _)| key == &CanonicalValueV1::Text("evaluation_basis".into()))
+                        .map(|(_, value)| value),
+                    _ => None,
+                })
+                .expect("the invocation carries its evaluation basis"),
+        )
+        .expect("the basis re-encodes"),
+    )
+    .expect("the basis decodes") else {
+        panic!("the evaluation basis is a canonical map");
+    };
+    let state_root = basis
+        .iter_mut()
+        .find(|(key, _)| key == &CanonicalValueV1::Text("state_root".into()))
+        .expect("the basis names its state root");
+    state_root.1 = CanonicalValueV1::Bytes(digest("forged-origin").to_vec());
+    let forged =
+        replace_canonical_map_field(&honest, "evaluation_basis", CanonicalValueV1::Map(basis));
+
+    let first = action_invocation(&host, &installed, head_key, nodes[0], b"before", b"after");
+    let first = submit_action(&mut host, head_key, first);
+    host.tick_once().expect("the first Action is decided");
+    assert!(outcome_is_committed(&host, &first));
+
+    let forged = submit_action(&mut host, head_key, forged);
+    host.tick_once().expect("the forged Action is decided");
+    assert!(
+        outcome_is_basis_changed(&host, &forged),
+        "an origin that history does not hold cannot earn scoped validity"
     );
 }

@@ -3801,6 +3801,191 @@ fn current_application_basis(
     }
 }
 
+/// Whether an Action evaluated against an earlier basis may still commit on
+/// `current_head` at `current_tick` under dependency-scoped validity (#837).
+///
+/// The Action keeps its origin basis; nothing here re-stamps it. Scoped
+/// validity applies only where the evaluator establishes the Action's complete
+/// dependency set:
+///
+/// - the same writer head, and an origin tick strictly before `current_tick`;
+/// - a program whose reads are exactly its target node and alpha attachment,
+///   with the target in the worldline's root warp, so that no portal on a
+///   descent path is read;
+/// - the application basis recomputed from `state` equals the one the Action
+///   carries: the same value digest for compare-and-set, the same occupancy for
+///   create-if-absent. The comparison is by value;
+/// - an embedded observation, if any, was captured no later than the origin and
+///   reads only root-warp nodes, so its reads are value dependencies that
+///   execution re-checks against `state` and no portal is read for them.
+///
+/// The caller must also have verified that the origin basis names a retained
+/// coordinate of the worldline's history; this function does not.
+///
+/// Anything else keeps the whole-frontier rule, and the caller obstructs it
+/// with `BasisChanged`. `state` must be the state the Action commits onto.
+pub(crate) fn scoped_action_basis_holds_v1(
+    installed: &InstalledEchoOperationV1,
+    invocation: &EchoOperationInvocationV1,
+    current_head: WriterHeadKey,
+    current_tick: WorldlineTick,
+    state: &WorldlineState,
+) -> bool {
+    let origin = &invocation.evaluation_basis;
+    let supported = matches!(
+        installed.program,
+        EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. }
+            | EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+    );
+    supported
+        && origin.writer_head == current_head
+        && origin.worldline_tick < current_tick
+        && invocation.node.warp_id == state.root().warp_id
+        && invocation.observation.as_ref().is_none_or(|observation| {
+            observation.basis().worldline_tick() <= origin.worldline_tick
+                && observation
+                    .readings()
+                    .all(|(node, _)| node.warp_id == state.root().warp_id)
+        })
+        && current_application_basis(installed, invocation, state)
+            .is_ok_and(|basis| basis == origin.application_basis)
+}
+
+/// Slots written by a worldline's entries from `from` (inclusive) to `to`
+/// (exclusive), or `None` when one of those entries has no replay patch and its
+/// writes are therefore unknown.
+pub(crate) fn echo_operation_written_slots_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    worldline_id: crate::WorldlineId,
+    from: WorldlineTick,
+    to: WorldlineTick,
+) -> Option<BTreeSet<crate::tick_patch::SlotId>> {
+    let mut written = Some(BTreeSet::new());
+    extend_echo_operation_written_slots_v1(provenance, worldline_id, &mut written, from, to);
+    written
+}
+
+/// Adds the slots written by entries `from..to` to `written`, which becomes
+/// `None` once any entry's writes are unknown.
+pub(crate) fn extend_echo_operation_written_slots_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    worldline_id: crate::WorldlineId,
+    written: &mut Option<BTreeSet<crate::tick_patch::SlotId>>,
+    from: WorldlineTick,
+    to: WorldlineTick,
+) {
+    use crate::provenance_store::ProvenanceStore as _;
+
+    for tick in from.as_u64()..to.as_u64() {
+        let Some(slots) = written.as_mut() else {
+            return;
+        };
+        match provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tick))
+            .ok()
+            .and_then(|entry| entry.patch)
+        {
+            Some(patch) => slots.extend(patch.out_slots),
+            None => *written = None,
+        }
+    }
+}
+
+/// Whether the origin an Action claims is corroborated by retained history,
+/// as dependency-scoped validity (#837) requires before it compares values at
+/// the parent.
+///
+/// - The origin names a coordinate history actually holds: the entry before
+///   its tick (commit id, global tick, state root), or the initial boundary at
+///   genesis.
+/// - `written`, the slots written between the origin and the parent (from
+///   [`echo_operation_written_slots_v1`]), contains neither the node nor the
+///   alpha slot of the target or of any observed node. A claim that holds at the
+///   parent then held at the origin too. `None`, unknown writes, corroborates
+///   nothing.
+///
+/// A value that changed and was restored therefore does not corroborate; such
+/// an Action keeps the whole-frontier rule. Callers compute `written` once per
+/// origin and share it, so a queue of Actions from one origin does not rescan
+/// history per Action.
+pub(crate) fn echo_operation_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    invocation: &EchoOperationInvocationV1,
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
+) -> bool {
+    use crate::provenance_store::ProvenanceStore as _;
+
+    let Some(written) = written else {
+        return false;
+    };
+    let origin = invocation.evaluation_basis;
+    let worldline_id = origin.writer_head.worldline_id;
+    let retained = match origin.worldline_tick.as_u64().checked_sub(1) {
+        None => {
+            origin.commit_global_tick.is_none()
+                && provenance
+                    .initial_boundary_hash(worldline_id)
+                    .is_ok_and(|root| root == origin.state_root)
+                && origin.commit_id == genesis_commit_id(origin.writer_head, origin.state_root)
+        }
+        Some(tip) => provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tip))
+            .is_ok_and(|entry| {
+                Some(entry.commit_global_tick) == origin.commit_global_tick
+                    && entry.expected.commit_hash == origin.commit_id
+                    && entry.expected.state_root == origin.state_root
+            }),
+    };
+    let untouched = |node: NodeKey| {
+        !written.contains(&crate::tick_patch::SlotId::Node(node))
+            && !written.contains(&crate::tick_patch::SlotId::Attachment(
+                AttachmentKey::node_alpha(node),
+            ))
+    };
+    retained
+        && untouched(invocation.node)
+        && invocation
+            .observation
+            .as_ref()
+            .is_none_or(|observation| observation.readings().all(|(node, _)| untouched(node)))
+}
+
+/// [`echo_operation_origin_corroborated_v1`] for an admitted Action.
+pub(crate) fn admitted_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    admitted: &AdmittedEchoOperationInvocationV1,
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
+) -> bool {
+    echo_operation_origin_corroborated_v1(provenance, &admitted.invocation, written)
+}
+
+/// [`echo_operation_origin_corroborated_v1`] for a recovered canonical
+/// invocation.
+pub(crate) fn recovered_origin_corroborated_v1(
+    provenance: &crate::provenance_store::ProvenanceService,
+    canonical_invocation_bytes: &[u8],
+    written: Option<&BTreeSet<crate::tick_patch::SlotId>>,
+) -> bool {
+    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+        |invocation| echo_operation_origin_corroborated_v1(provenance, &invocation, written),
+    )
+}
+
+/// [`scoped_action_basis_holds_v1`] for a recovered canonical invocation.
+pub(crate) fn scoped_action_basis_holds_for_bytes_v1(
+    installed: &InstalledEchoOperationV1,
+    canonical_invocation_bytes: &[u8],
+    current_head: WriterHeadKey,
+    current_tick: WorldlineTick,
+    state: &WorldlineState,
+) -> bool {
+    EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes).is_ok_and(
+        |invocation| {
+            scoped_action_basis_holds_v1(installed, &invocation, current_head, current_tick, state)
+        },
+    )
+}
+
 pub(crate) fn action_application_basis_matches_state_v1(
     installed: &InstalledEchoOperationV1,
     canonical_invocation_bytes: &[u8],
@@ -3903,6 +4088,7 @@ pub(crate) fn reconstruct_action_evaluation_v1(
         state,
         policy_id,
         &authority,
+        false,
     ))
 }
 
@@ -4869,6 +5055,7 @@ pub(crate) fn prepare_operation_v1(
     state: &WorldlineState,
     policy_id: u32,
     evaluation_authority: &EchoOperationEvaluationAuthorityV1,
+    origin_corroborated: bool,
 ) -> EchoOperationPreparationV1 {
     let package_id = admitted.invocation.package_id;
     let invocation_id = admitted.invocation_id;
@@ -4902,7 +5089,16 @@ pub(crate) fn prepare_operation_v1(
     {
         return obstruction(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch);
     }
-    if admitted.invocation.evaluation_basis != current_basis {
+    if admitted.invocation.evaluation_basis != current_basis
+        && !(origin_corroborated
+            && scoped_action_basis_holds_v1(
+                installed,
+                &admitted.invocation,
+                current_basis.writer_head,
+                current_basis.worldline_tick,
+                state,
+            ))
+    {
         return obstruction(EchoOperationObstructionKindV1::BasisChanged);
     }
 
@@ -5135,7 +5331,9 @@ pub(crate) fn prepare_operation_v1(
         installed.program_id,
         admitted.admission_id,
         admitted.invocation_id,
-        current_basis.identity(),
+        // The origin basis, as everywhere in the preparation (#837). The
+        // receipt binds the parent it committed onto separately.
+        admitted.invocation.evaluation_basis.identity(),
         declared_footprint_digest,
         actual_footprint_digest,
         consumed_budget,
@@ -5146,6 +5344,10 @@ pub(crate) fn prepare_operation_v1(
             .map(EchoOperationApplicationResultV1::identity),
     );
     let preparation_id = preparation_id(private_evaluation_id, patch.digest(), result_id);
+    // The Action keeps its origin basis, even when dependency-scoped validity
+    // (#837) lets it commit onto a later parent; it is never re-stamped. The
+    // receipt records that parent in its Tick fields.
+    let origin_basis = admitted.invocation.evaluation_basis;
     EchoOperationPreparationV1::Prepared(Box::new(PreparedEchoOperationV1 {
         installed: installed.clone(),
         invocation: admitted.invocation,
@@ -5154,7 +5356,7 @@ pub(crate) fn prepare_operation_v1(
         invocation_admission_policy_id: admitted.admission_policy_id,
         invocation_admission_maximum_budget: admitted.admission_policy.maximum_delegated_budget,
         invocation_admission_id: admitted.admission_id,
-        evaluation_basis: current_basis,
+        evaluation_basis: origin_basis,
         declared_footprint,
         actual_footprint,
         declared_footprint_digest,
@@ -5889,12 +6091,6 @@ impl EchoOperationReceiptV1 {
         if retained_digest != expected_digest {
             return Err(invalid_structure("operation receipt digest mismatch"));
         }
-        let committed_worldline_tick_after = receipt
-            .evaluation_basis
-            .worldline_tick
-            .as_u64()
-            .checked_add(1)
-            .map(WorldlineTick::from_raw);
         let expected_composition_digest = singleton_composition_digest_from_parts(
             receipt.preparation_id,
             receipt.prepared_patch_digest,
@@ -5916,8 +6112,13 @@ impl EchoOperationReceiptV1 {
                         && !allow_composite_context)
                     || (receipt.committed_patch_digest == Some(receipt.prepared_patch_digest)
                         && receipt.composition_digest != Some(expected_composition_digest))
-                    || receipt.state_root_before != receipt.evaluation_basis.state_root
-                    || committed_worldline_tick_after != Some(receipt.worldline_tick_after) =>
+                    // The basis is the Tick parent, or an earlier origin
+                    // committed under dependency-scoped validity (#837),
+                    // which recovery recomputes; it is never later.
+                    || receipt.evaluation_basis.worldline_tick >= receipt.worldline_tick_after
+                    || (receipt.evaluation_basis.worldline_tick.as_u64().checked_add(1)
+                        == Some(receipt.worldline_tick_after.as_u64())
+                        && receipt.state_root_before != receipt.evaluation_basis.state_root) =>
             {
                 return Err(invalid_structure(
                     "committed receipt is missing commit or tick evidence",
@@ -8308,6 +8509,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &authority,
+            false,
         ) else {
             panic!("projected invocation prepares");
         };
@@ -8401,6 +8603,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &authority,
+            false,
         ) else {
             panic!("an oversized application result must not produce a patch");
         };
@@ -8657,6 +8860,16 @@ mod tests {
             target,
             b"created".to_vec(),
         );
+        // The target is absent and the head and an earlier origin match, so
+        // only the root-warp condition keeps this descended Action out of
+        // dependency-scoped validity (#837): its portal chain is not tracked.
+        assert!(!scoped_action_basis_holds_v1(
+            &installed,
+            &invocation,
+            writer_head,
+            WorldlineTick::from_raw(1),
+            &state,
+        ));
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
             authority_profile,
@@ -8680,6 +8893,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &evaluation_authority,
+            false,
         ) else {
             panic!("the descended invocation prepares");
         };
@@ -8758,6 +8972,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &evaluation_authority,
+            false,
         ) else {
             panic!("the portal traversal must stop at its delegated read allowance");
         };
@@ -9558,6 +9773,7 @@ mod tests {
                 &state,
                 crate::POLICY_ID_NO_POLICY_V0,
                 &authority,
+                false,
             ) else {
                 panic!("boundary key prepares");
             };

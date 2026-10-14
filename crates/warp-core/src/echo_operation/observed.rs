@@ -324,6 +324,7 @@ mod tests {
                 &state,
                 crate::POLICY_ID_NO_POLICY_V0,
                 &authority,
+                false,
             ),
             observed,
         )

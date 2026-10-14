@@ -3031,7 +3031,12 @@ impl TrustedRuntimeWal {
     fn refresh_cursor_from_store_for_writer(&mut self) -> Result<(), TrustedRuntimeWalError> {
         // After a failed storage sync a readable record is not a durable one,
         // so the live adapter must not reconcile itself from the log. Only
-        // reopening the WAL recovers.
+        // reopening the WAL recovers. The store knows when a commit record
+        // was written and its sync failed; that is the case in which the log
+        // would show the record as committed.
+        if self.store.commit_sync_failed() {
+            self.fail_storage();
+        }
         if self.storage_failed {
             return Err(TrustedRuntimeWalError::StorageFailed);
         }
@@ -3672,10 +3677,9 @@ impl TrustedRuntimeWalStore {
                 };
                 #[cfg(not(any(test, feature = "host_test")))]
                 let store = FilesystemWalStore::open(root, segment_id)?;
-                let mut store = store;
-                // Make what an earlier writer left readable durable before
-                // any of it is read as recovered history.
-                store.sync_existing_segments()?;
+                // Nothing is synced here. Syncing another writer's segments
+                // changes what is durable in its log, so it waits for the
+                // writer lease; see `acquire_writer_lease`.
                 Ok(Self::Filesystem(store))
             }
         }
@@ -3715,6 +3719,15 @@ impl TrustedRuntimeWalStore {
                 lease_or_lock_evidence: trusted_runtime_wal_digest("lease"),
             }),
             Self::Filesystem(store) => store.acquire_fresh_writer_epoch(next_lsn),
+        }
+    }
+
+    /// Whether a filesystem commit record was written and its sync failed.
+    /// An in-memory store has no storage sync to fail.
+    fn commit_sync_failed(&self) -> bool {
+        match self {
+            Self::InMemory(_) => false,
+            Self::Filesystem(store) => store.commit_sync_failed(),
         }
     }
 

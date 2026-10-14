@@ -35,6 +35,16 @@
 
 ### Fixed
 
+- A commit record whose storage sync failed is no longer acknowledged. The
+  record can be readable without being durable; a trusted host used to
+  re-read the log after the error and treat what it found as committed, for
+  submissions, scheduler ticks, causal anchors, operation installations and
+  operation ticks. The filesystem store now refuses further writes after any
+  failure while a commit record is written or synced, and the host takes the
+  work back and refuses further WAL work with `StorageFailed` until the WAL
+  is reopened, as batched submission already did. An error that arrives after
+  a successful sync is still reconciled from the log.
+
 - A trusted host takes the filesystem WAL writer lease before it runs
   writable recovery. It used to recover first and take the lease afterwards,
   so a second host that opened a log with a live writer could drop that

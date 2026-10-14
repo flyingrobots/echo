@@ -1966,6 +1966,121 @@ fn filesystem_runtime_wal_failure_submission_restores_exact_runtime() {
     }
 }
 
+#[test]
+fn a_submission_whose_commit_sync_failed_is_not_acknowledged() {
+    let wal_root = temp_runtime_wal_dir("commit-sync-failed-submission");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    let runtime_before = format!("{:?}", host.runtime());
+    // The commit record reaches the file and its sync fails. The record is
+    // readable. It is not durable.
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSync,
+    ))
+    .expect("host should inject a filesystem failure");
+
+    host.app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect_err("a readable record whose sync failed must not be acknowledged");
+
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "the failed submission is taken back"
+    );
+    // The host does not reconcile itself from the log. It refuses further
+    // WAL work until the WAL is reopened.
+    let error = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(distinct_intents(worldline_id, 1).remove(0))
+        .expect_err("the WAL is failed closed");
+    assert!(
+        matches!(
+            error,
+            TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "{error:?}"
+    );
+    drop(host);
+
+    // Reopening syncs the log before trusting it. The record it holds is
+    // then durable and recovers as an accepted, pending submission.
+    let (reopened_runtime, _) = runtime();
+    let mut reopened = TrustedRuntimeHost::new(reopened_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    reopened
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the reopened host recovers the log");
+    let again = reopened
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("a reopened WAL accepts work again");
+    assert!(
+        again.duplicate,
+        "the record survived as an accepted submission"
+    );
+    drop(reopened);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
+#[test]
+fn a_tick_whose_commit_sync_failed_is_not_visible() {
+    let wal_root = temp_runtime_wal_dir("commit-sync-failed-tick");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect("submission acceptance should commit before ACK");
+    host.stage_installed_contract_submission(submission.submission_id, &admission_ticket(109))
+        .expect("trusted host should stage package-supported ticketed ingress");
+    let runtime_before = format!("{:?}", host.runtime());
+    let provenance_before = format!("{:?}", host.provenance());
+    host.inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+        FilesystemWalFaultTarget::CommitMarkerSync,
+    ))
+    .expect("host should inject a filesystem failure");
+
+    host.tick_once()
+        .expect_err("a tick whose commit sync failed must not remain visible");
+
+    assert_eq!(
+        format!("{:?}", host.runtime()),
+        runtime_before,
+        "the failed tick restores the exact pre-tick runtime"
+    );
+    assert_eq!(
+        format!("{:?}", host.provenance()),
+        provenance_before,
+        "the failed tick restores the exact pre-tick provenance"
+    );
+    assert_eq!(host.runtime().receipt_correlation_count(), 0);
+    let outcome = host.app().observe_intent_outcome(&submission.submission_id);
+    assert!(
+        matches!(outcome, IntentOutcome::Pending { .. }),
+        "no outcome is published for a tick that is not durable: {outcome:?}"
+    );
+    // The tick is not retried against a log that may hold its record.
+    let error = host.tick_once().expect_err("the WAL is failed closed");
+    assert!(
+        matches!(
+            error,
+            TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "{error:?}"
+    );
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture should be removable");
+}
+
 fn distinct_intents(worldline_id: WorldlineId, count: u8) -> Vec<IngressEnvelope> {
     (0..count)
         .map(|index| {
@@ -3295,6 +3410,48 @@ fn filesystem_causal_anchor_flush_failure_publishes_no_admission() {
     assert!(recovery.causal_anchor_history.is_empty());
     assert_eq!(recovery.certificate.committed_transactions_replayed, 0);
 
+    drop(host);
+    fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
+}
+
+#[test]
+fn a_causal_anchor_whose_commit_sync_failed_is_not_admitted() {
+    let wal_root = temp_runtime_wal_dir("causal-anchor-commit-sync-failure");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(
+        TrustedRuntimeWalConfig::filesystem_with_fault_plan_for_test(
+            &wal_root,
+            FilesystemWalFaultPlan::fail_next(FilesystemWalFaultTarget::CommitMarkerSync),
+        ),
+    )
+    .expect("faulting filesystem runtime WAL should initialize");
+    let basis = host
+        .app()
+        .current_causal_anchor_basis()
+        .expect("enabled WAL should expose its durable causal basis");
+    let request = causal_anchor_request(basis, "commit-sync-failure");
+    host.install_causal_anchor_root_support_policy(causal_anchor_support_policy(
+        std::slice::from_ref(&request),
+    ));
+
+    host.app()
+        .admit_causal_anchor(request)
+        .expect_err("a readable anchor record whose sync failed must not grant authority");
+
+    // The host does not reconcile itself from the log.
+    let error = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(eint_envelope(worldline_id))
+        .expect_err("the WAL is failed closed");
+    assert!(
+        matches!(
+            error,
+            TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "{error:?}"
+    );
     drop(host);
     fs::remove_dir_all(&wal_root).expect("failed-anchor WAL fixture should be removable");
 }

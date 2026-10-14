@@ -271,6 +271,7 @@ impl ReadRelation<'_> {
             field(implementation, "targetConfiguration")?,
             &self.closure.configuration.artifact,
             SUBJECT,
+            "bounded read adapter target configuration reference",
         )?;
         let address = scope.ty(text(effect, "inputType")?)?;
         let address_export = unique_export(self.exports, "types", text(effect, "inputType")?)?;

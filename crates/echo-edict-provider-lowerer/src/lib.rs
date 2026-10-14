@@ -365,13 +365,19 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
         ),
     ];
     if inputs.len() != 4 {
-        return Err(unsupported_semantics("semantic-inputs"));
+        return Err(unsupported_semantics(
+            "semantic-inputs",
+            "the DPO lowering closure requires exactly four semantic inputs",
+        ));
     }
 
     for ((role, kind, coordinate, domain, bytes), input) in EXPECTED.into_iter().zip(inputs.iter())
     {
         if input.role != role || input.kind != kind {
-            return Err(unsupported_semantics(&input.role));
+            return Err(unsupported_semantics(
+                &input.role,
+                "semantic input role or kind differs from the checked DPO closure order",
+            ));
         }
         validate_binding(&input.artifact)
             .map_err(|()| invalid_artifact(&input.role, "artifact binding is invalid"))?;
@@ -391,7 +397,10 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
         || lowerability.kind != SemanticInputKind::LowerabilityFacts
         || lowerability.artifact.artifact.domain != LOWERABILITY_DOMAIN
     {
-        return Err(unsupported_semantics(&lowerability.role));
+        return Err(unsupported_semantics(
+            &lowerability.role,
+            "lowerability input role, kind, or domain differs from the checked closure",
+        ));
     }
     let value = validate_binding(&lowerability.artifact)
         .map_err(|()| invalid_artifact(&lowerability.role, "artifact binding is invalid"))?;
@@ -401,7 +410,12 @@ fn validate_semantic_closure(inputs: &[SemanticInput]) -> Result<(), ProviderRef
             "artifact does not equal the checked provider closure",
         ));
     }
-    validate_lowerability(&value).map_err(|()| unsupported_semantics(&lowerability.role))
+    validate_lowerability(&value).map_err(|()| {
+        unsupported_semantics(
+            &lowerability.role,
+            "lowerability facts differ from the checked DPO lowerability facts",
+        )
+    })
 }
 
 fn validate_lowerability(value: &CanonicalValueV1) -> Result<(), ()> {
@@ -1568,20 +1582,28 @@ fn lower_core(
         || map_field(&value, "types").and_then(as_map).is_none()
         || array_field(&value, "requiredCoreCapabilities").is_none()
     {
-        return Err(unsupported_semantics(coordinate));
+        return Err(unsupported_semantics(
+            coordinate,
+            "Core imports, types, or required capabilities are absent or malformed",
+        ));
     }
 
     let intents = map_field(&value, "intents")
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact("core.echo-provider", "Core intents map is invalid"))?;
     if intents.is_empty() {
-        return Err(unsupported_semantics(coordinate));
+        return Err(unsupported_semantics(
+            coordinate,
+            "Core declares no intents",
+        ));
     }
     let mut lowered_intents = Vec::with_capacity(intents.len());
     for (intent_key, intent) in intents {
         let intent_name = as_text(intent_key)
             .filter(|name| !name.is_empty())
-            .ok_or_else(|| unsupported_semantics(coordinate))?;
+            .ok_or_else(|| {
+                unsupported_semantics(coordinate, "Core intent name is not nonempty text")
+            })?;
         lowered_intents.push((
             intent_name.to_owned(),
             lower_intent(coordinate, intent_name, intent)?,
@@ -1640,20 +1662,39 @@ fn lower_intent(
     let operation_coordinate = format!("{core_coordinate}.{intent_name}");
     let input_type = text_field(intent, "input")
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| unsupported_semantics(&operation_coordinate))?;
+        .ok_or_else(|| {
+            unsupported_semantics(
+                &operation_coordinate,
+                "intent input type is not nonempty text",
+            )
+        })?;
     text_field(intent, "output")
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| unsupported_semantics(&operation_coordinate))?;
+        .ok_or_else(|| {
+            unsupported_semantics(
+                &operation_coordinate,
+                "intent output type is not nonempty text",
+            )
+        })?;
     if map_field(intent, "optic").is_some() {
-        return Err(unsupported_semantics(&operation_coordinate));
+        return Err(unsupported_semantics(
+            &operation_coordinate,
+            "intent declares an optic",
+        ));
     }
     if text_field(intent, "requiredOperationProfile") != Some(OPERATION_PROFILE) {
-        return Err(unsupported_semantics(&operation_coordinate));
+        return Err(unsupported_semantics(
+            &operation_coordinate,
+            "intent required operation profile is not the supported DPO profile",
+        ));
     }
     let input_constraints = array_field(intent, "inputConstraints")
         .ok_or_else(|| invalid_artifact(&operation_coordinate, "input constraints are invalid"))?;
     if !input_constraints.is_empty() {
-        return Err(unsupported_semantics(&operation_coordinate));
+        return Err(unsupported_semantics(
+            &operation_coordinate,
+            "intent declares input constraints",
+        ));
     }
     let budget = map_field(intent, "coreEvaluationBudget")
         .filter(|budget| validate_budget(budget))
@@ -1671,7 +1712,10 @@ fn lower_intent(
     let nodes = array_field(body, "nodes")
         .ok_or_else(|| invalid_artifact(&operation_coordinate, "Core nodes are invalid"))?;
     let [node] = nodes.as_slice() else {
-        return Err(unsupported_semantics(&operation_coordinate));
+        return Err(unsupported_semantics(
+            &operation_coordinate,
+            "Core body must contain exactly one node",
+        ));
     };
     let lowered_effect =
         lower_effect_node(&operation_coordinate, intent_name, input_type, node, locals)?;
@@ -1711,7 +1755,10 @@ fn lower_effect_node<'a>(
     if text_field(node, "kind") != Some("effect")
         || text_field(node, "effect") != Some(SEMANTIC_EFFECT)
     {
-        return Err(unsupported_semantics(operation_coordinate));
+        return Err(unsupported_semantics(
+            operation_coordinate,
+            "body node is not the supported semantic effect",
+        ));
     }
     let binding = map_field(node, "binding")
         .filter(|binding| validate_local(binding))
@@ -1720,11 +1767,19 @@ fn lower_effect_node<'a>(
         .and_then(as_map)
         .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction map is invalid"))?;
     let [(failure, arm)] = obstruction_map.as_slice() else {
-        return Err(unsupported_semantics(operation_coordinate));
+        return Err(unsupported_semantics(
+            operation_coordinate,
+            "effect obstruction map must contain exactly one arm",
+        ));
     };
     let failure = as_text(failure)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| unsupported_semantics(operation_coordinate))?;
+        .ok_or_else(|| {
+            unsupported_semantics(
+                operation_coordinate,
+                "obstruction failure name is not nonempty text",
+            )
+        })?;
     let obstruction_binder = map_field(arm, "binder")
         .filter(|binder| validate_local(binder))
         .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction binder is invalid"))?;
@@ -1745,12 +1800,20 @@ fn lower_effect_node<'a>(
         .ok_or_else(|| invalid_artifact(operation_coordinate, "obstruction value is invalid"))?;
     let obstruction_callee = text_field(obstruction_value, "callee")
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| unsupported_semantics(operation_coordinate))?;
+        .ok_or_else(|| {
+            unsupported_semantics(
+                operation_coordinate,
+                "obstruction value callee is not nonempty text",
+            )
+        })?;
     if text_field(obstruction_value, "kind") != Some("call")
         || !matches!(array_field(obstruction_value, "typeArgs"), Some(arguments) if arguments.is_empty())
         || !matches!(array_field(obstruction_value, "args"), Some(arguments) if arguments.is_empty())
     {
-        return Err(unsupported_semantics(operation_coordinate));
+        return Err(unsupported_semantics(
+            operation_coordinate,
+            "obstruction value is not a call without type or value arguments",
+        ));
     }
     validate_expr(obstruction_value, &obstruction_scope, &[obstruction_callee]).map_err(
         |error| expression_refusal(operation_coordinate, error, "obstruction value is invalid"),
@@ -1947,7 +2010,10 @@ fn expression_refusal(
             invalid_artifact(operation_coordinate, invalid_message)
         }
         ExpressionValidationError::LocalOutOfScope => local_scope_refusal(operation_coordinate),
-        ExpressionValidationError::UnsupportedCall => unsupported_semantics(operation_coordinate),
+        ExpressionValidationError::UnsupportedCall => unsupported_semantics(
+            operation_coordinate,
+            &format!("{invalid_message}: expression calls an unsupported callee"),
+        ),
     }
 }
 
@@ -2050,11 +2116,15 @@ fn local_scope_refusal(operation_coordinate: &str) -> ProviderRefusalV1 {
     )
 }
 
-fn unsupported_semantics(subject: &str) -> ProviderRefusalV1 {
+/// Refuse semantics outside the lowering closure, naming the check that fired.
+///
+/// `check` is a short, deterministic phrase unique to one refusal site, so a
+/// diagnostic identifies which check refused rather than only the refusal kind.
+fn unsupported_semantics(subject: &str, check: &str) -> ProviderRefusalV1 {
     refusal(
         ProviderRefusalKind::UnsupportedSemantics,
         subject,
         "echo.provider.unsupported-semantics",
-        "the supplied semantics are outside the exact first Echo lowering closure",
+        &format!("unsupported semantics: {check}"),
     )
 }

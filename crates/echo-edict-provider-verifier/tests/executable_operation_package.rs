@@ -166,12 +166,21 @@ fn providers_refuse_effect_inputs_not_equal_to_the_declared_application_argument
                     }
                 },
             );
+            let check = match case {
+                "local" | "type" => "effect input reference is not arg.0 of the intent input type",
+                "missing-local" => "Core locals declare no arg.0 input local",
+                "duplicate-local" => {
+                    "arg.0 input local is repeated or differs in type or alpha name"
+                }
+                _ => "effect input argument is not a local reference",
+            };
             let lower = lowerer::lower(lowering_request(names, &fixture)).expect_err(case);
             assert_eq!(
                 lower.kind,
                 lowerer::ProviderRefusalKind::UnsupportedSemantics,
                 "cas={cas} case={case}"
             );
+            assert_lowerer_check(&lower, check);
             let verify = verifier::verify(verification_request(names, &fixture, package.clone()))
                 .expect_err(case);
             assert_eq!(
@@ -179,6 +188,7 @@ fn providers_refuse_effect_inputs_not_equal_to_the_declared_application_argument
                 verifier::ProviderRefusalKind::UnsupportedSemantics,
                 "cas={cas} case={case}"
             );
+            assert_verifier_check(&verify, check);
         }
     }
 }
@@ -211,12 +221,18 @@ fn cas_providers_refuse_missing_aliased_and_underbudget_digest_bindings() {
             ) = text(case);
         }
         let fixture = raw_fixture_with_values(names, config, result_projection(names));
+        let check = match case {
+            "missing" => "field `expectedValueDigestField` is absent or not text",
+            "budget" => "replacement bound is zero or the budget is below the program minimum",
+            _ => "expected digest field coincides with the node key or replacement field",
+        };
         let lower = lowerer::lower(lowering_request(names, &fixture)).expect_err(case);
         assert_eq!(
             lower.kind,
             lowerer::ProviderRefusalKind::UnsupportedSemantics,
             "{case}"
         );
+        assert_lowerer_check(&lower, check);
         let verify = verifier::verify(verification_request(names, &fixture, package.clone()))
             .expect_err(case);
         assert_eq!(
@@ -224,7 +240,32 @@ fn cas_providers_refuse_missing_aliased_and_underbudget_digest_bindings() {
             verifier::ProviderRefusalKind::UnsupportedSemantics,
             "{case}"
         );
+        assert_verifier_check(&verify, check);
     }
+}
+
+/// Assert that exactly the named lowerer unsupported-semantics check refused.
+fn assert_lowerer_check(refusal: &lowerer::ProviderRefusalV1, check: &str) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(diagnostic.code, "echo.provider.unsupported-semantics");
+    assert_eq!(
+        diagnostic.message,
+        format!("unsupported semantics: {check}")
+    );
+}
+
+/// Assert that exactly the named verifier unsupported-semantics check refused.
+fn assert_verifier_check(refusal: &verifier::ProviderRefusalV1, check: &str) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(diagnostic.code, "echo.verifier.unsupported-semantics");
+    assert_eq!(
+        diagnostic.message,
+        format!("unsupported semantics: {check}")
+    );
 }
 
 #[test]
@@ -463,6 +504,10 @@ fn verifier_requires_the_compiler_projection_input() {
         refusal.kind,
         verifier::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_verifier_check(
+        &refusal,
+        "executable-operation closure requires exactly seven semantic inputs",
+    );
 }
 
 #[test]
@@ -502,6 +547,10 @@ fn verifier_refuses_equal_invocation_binding_fields() {
     assert_eq!(
         refusal.kind,
         verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+    assert_verifier_check(
+        &refusal,
+        "invocation binding fields coincide or name an unsupported derivation",
     );
 }
 
@@ -1627,12 +1676,15 @@ fn bounded_key_profile_refuses_compare_and_set_in_both_providers() {
         lower_refusal.kind,
         lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    let check = "v2 key-bound selector is only allowed for the create operation";
+    assert_lowerer_check(&lower_refusal, check);
     let verifier_refusal = verifier::verify(verification_request(names, &fixture, package))
         .expect_err("verifier independently refuses v2 compare-and-set");
     assert_eq!(
         verifier_refusal.kind,
         verifier::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_verifier_check(&verifier_refusal, check);
 }
 
 fn bounded_key_core(names: FixtureNames<'_>) -> CanonicalValueV1 {
@@ -1702,12 +1754,14 @@ fn bounded_key_profile_refuses_missing_core_key_type_in_both_providers() {
         lower_refusal.kind,
         lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_lowerer_check(&lower_refusal, "field `types` is absent");
     let verifier_refusal = verifier::verify(verification_request(names, &fixture, legacy_package))
         .expect_err("verifier independently refuses missing Core type");
     assert_eq!(
         verifier_refusal.kind,
         verifier::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_verifier_check(&verifier_refusal, "field `types` is absent");
 }
 
 #[test]
@@ -1721,22 +1775,30 @@ fn bounded_key_providers_agree_on_adversarial_core_limits() {
         "apiVersion",
         text("echo.operation-lowering-configuration/v2"),
     );
-    for (label, reference, definition) in [
+    for (label, reference, definition, check) in [
         (
             "noncanonical decimal",
             "String<max=064,canonical=raw-utf8>".to_owned(),
             None,
+            "inline key string max is not in canonical decimal form",
         ),
-        ("missing inline policy", "String<max=64>".to_owned(), None),
+        (
+            "missing inline policy",
+            "String<max=64>".to_owned(),
+            None,
+            "inline key string type lacks a canonical form",
+        ),
         (
             "inline maximum overflow",
             "String<max=65537,canonical=raw-utf8>".to_owned(),
             None,
+            "key scalar bound is zero or exceeds 65536",
         ),
         (
             "missing named policy",
             format!("{}.Key", names.application),
             Some(owned_map([("kind", text("String")), ("max", integer(64))])),
+            "named key type is not a string with a supported canonical form",
         ),
         (
             "named maximum overflow",
@@ -1746,6 +1808,7 @@ fn bounded_key_providers_agree_on_adversarial_core_limits() {
                 ("max", integer(65_537)),
                 ("canonical", text("raw-utf8")),
             ])),
+            "key scalar bound is zero or exceeds 65536",
         ),
     ] {
         let mut core_value = core(names);
@@ -1778,6 +1841,7 @@ fn bounded_key_providers_agree_on_adversarial_core_limits() {
             lowerer::ProviderRefusalKind::UnsupportedSemantics,
             "{label}"
         );
+        assert_lowerer_check(&lower_refusal, check);
         let verify_refusal = verifier::verify(verification_request(
             names,
             &fixture,
@@ -1789,5 +1853,6 @@ fn bounded_key_providers_agree_on_adversarial_core_limits() {
             verifier::ProviderRefusalKind::UnsupportedSemantics,
             "{label}"
         );
+        assert_verifier_check(&verify_refusal, check);
     }
 }

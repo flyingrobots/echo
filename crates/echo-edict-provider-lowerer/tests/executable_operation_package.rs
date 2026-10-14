@@ -10,8 +10,8 @@ use echo_edict_canonical::{
 };
 use echo_edict_provider_lowerer::{
     lower, Artifact, BoundArtifact, Digest, DigestAlgorithm, LoweringOutputKind,
-    LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1, ResourceRef, ResponseLimitsV1,
-    SemanticInput, SemanticInputKind,
+    LoweringOutputRequest, LoweringRequestV1, ProtocolVersionV1, ProviderRefusalV1, ResourceRef,
+    ResponseLimitsV1, SemanticInput, SemanticInputKind,
 };
 use warp_core::{
     echo_operation_create_if_absent_target_profile_identity_v1,
@@ -234,6 +234,10 @@ fn result_projection_is_a_mandatory_semantic_input() {
         refusal.kind,
         echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_unsupported_check(
+        &refusal,
+        "executable-operation closure requires exactly seven semantic inputs",
+    );
 }
 
 #[test]
@@ -287,6 +291,21 @@ fn invocation_binding_fields_must_be_distinct() {
     assert_eq!(
         refusal.kind,
         echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+    );
+    assert_unsupported_check(
+        &refusal,
+        "invocation binding fields coincide or name an unsupported derivation",
+    );
+}
+
+/// Assert that exactly the named unsupported-semantics check refused.
+fn assert_unsupported_check(refusal: &ProviderRefusalV1, check: &str) {
+    let [diagnostic] = refusal.diagnostics.as_slice() else {
+        panic!("one diagnostic expected: {refusal:?}");
+    };
+    assert_eq!(
+        diagnostic.message,
+        format!("unsupported semantics: {check}")
     );
 }
 

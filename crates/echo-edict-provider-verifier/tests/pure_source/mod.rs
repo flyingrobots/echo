@@ -20,6 +20,10 @@ fn lowerer_refuses_pure_source_with_another_coordinate() {
         refusal.kind,
         lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_lowerer_check(
+        &refusal,
+        "Edict source coordinate differs from the Core coordinate",
+    );
 }
 
 #[test]
@@ -34,7 +38,15 @@ fn verifier_refuses_pure_source_with_another_coordinate() {
         .artifact
         .reference
         .coordinate = "another.application@1".to_owned();
-    assert_verifier_refusal(request, verifier::ProviderRefusalKind::UnsupportedSemantics);
+    let refusal = verifier::verify(request).expect_err("unrelated source coordinate must refuse");
+    assert_eq!(
+        refusal.kind,
+        verifier::ProviderRefusalKind::UnsupportedSemantics
+    );
+    assert_verifier_check(
+        &refusal,
+        "Edict source coordinate differs from the Core coordinate",
+    );
 }
 
 #[test]

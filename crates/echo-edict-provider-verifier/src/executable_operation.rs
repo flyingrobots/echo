@@ -264,6 +264,7 @@ pub(super) fn verify(
     if configuration.program != intent.program {
         return Err(super::unsupported_semantics(
             "target-configuration.operation-profile",
+            "target configuration program kind differs from the Core operation profile",
         ));
     }
     let result_projection = validate_result_projection(
@@ -350,7 +351,10 @@ fn verify_compiler_produced_pure(
     validate_pure_target_ir(target_ir, request, closure.lawpack, intent_name, intent)?;
     source_functions::validate(core, exports, false)?;
     if !crate::pure_relation::preserves(intent, target_ir, intent_name) {
-        return Err(super::unsupported_semantics("target-ir.echo-pure-relation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-pure-relation",
+            "pure target IR does not preserve the Core pure relation",
+        ));
     }
     validate_pure_result_projection(
         result_projection,
@@ -362,6 +366,7 @@ fn verify_compiler_produced_pure(
     if !crate::pure_projection::preserves(intent, target_ir, intent_name, result_projection) {
         return Err(super::unsupported_semantics(
             "result-projection.echo-pure-relation",
+            "pure result projection does not preserve the Core result relation",
         ));
     }
     let expected =
@@ -421,6 +426,7 @@ fn validate_pure_configuration(value: &CanonicalValueV1) -> Result<(), ProviderR
     } else {
         Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
+            "target configuration is not the compiler-produced bounded pure program",
         ))
     }
 }
@@ -432,11 +438,19 @@ fn validate_pure_core<'a>(
     let coordinate = required_nonempty_text(value, "coordinate", "core.echo-pure-operation")?;
     if text_field(value, "apiVersion") != Some(CORE_ABI) || coordinate != core.reference.coordinate
     {
-        return Err(super::unsupported_semantics("core.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "core.echo-pure-operation",
+            "pure Core API version or coordinate differs from the bound Core",
+        ));
     }
     let (intent_name, intent) =
         single_text_map_entry(required_map(value, "intents", "core.echo-pure-operation")?)
-            .ok_or_else(|| super::unsupported_semantics("core.echo-pure-operation"))?;
+            .ok_or_else(|| {
+                super::unsupported_semantics(
+                    "core.echo-pure-operation",
+                    "pure Core must declare exactly one text-named intent",
+                )
+            })?;
     required_nonempty_text(
         intent,
         "requiredOperationProfile",
@@ -448,7 +462,10 @@ fn validate_pure_core<'a>(
         .iter()
         .any(|node| text_field(node, "kind") != Some("let"))
     {
-        return Err(super::unsupported_semantics("core.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "core.echo-pure-operation",
+            "pure Core body may contain only let nodes",
+        ));
     }
     Ok((intent_name, intent, format!("{coordinate}.{intent_name}")))
 }
@@ -477,10 +494,17 @@ fn validate_pure_lawpack(
         "operationProfiles",
         "adapter.echo-pure-operation",
     )?;
-    let (_, profile) = single_text_map_entry(profiles)
-        .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
+    let (_, profile) = single_text_map_entry(profiles).ok_or_else(|| {
+        super::unsupported_semantics(
+            "adapter.echo-pure-operation",
+            "pure adapter must declare exactly one operation profile",
+        )
+    })?;
     if !required_array(profile, "semanticEffects", "adapter.echo-pure-operation")?.is_empty() {
-        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-pure-operation",
+            "pure adapter operation profile declares semantic effects",
+        ));
     }
     Ok(())
 }
@@ -499,13 +523,17 @@ fn validate_compiler_lawpack(
     if text_field(value, "apiVersion") != Some(LAWPACK_DOMAIN)
         || format!("{id}@{version}") != closure.lawpack.artifact.reference.coordinate
     {
-        return Err(super::unsupported_semantics("lawpack.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "lawpack.echo-pure-operation",
+            "compiler lawpack API version or id@version differs from the bound lawpack",
+        ));
     }
     require_owner_resource_ref(
         required_map(value, "exports", "lawpack.echo-pure-operation")?,
         &closure.exports.artifact,
         exports_value,
         "lawpack.echo-pure-operation",
+        "compiler lawpack exports reference",
     )?;
     let adapters = required_array(value, "targetAdapters", "lawpack.echo-pure-operation")?;
     let selected = adapters
@@ -518,27 +546,43 @@ fn validate_compiler_lawpack(
             )
             .is_ok_and(|reference| resource_ref_matches(reference, target_profile))
         })
-        .ok_or_else(|| super::unsupported_semantics("lawpack.echo-pure-operation"))?;
+        .ok_or_else(|| {
+            super::unsupported_semantics(
+                "lawpack.echo-pure-operation",
+                "compiler lawpack has no target adapter accepting the requested target profile",
+            )
+        })?;
     require_owner_resource_ref(
         required_map(selected, "adapter", "lawpack.echo-pure-operation")?,
         &closure.adapter.artifact,
         adapter_value,
         "lawpack.echo-pure-operation",
+        "compiler lawpack target adapter reference",
     )?;
     if text_field(adapter_value, "apiVersion") != Some(ADAPTER_ABI)
         || text_field(adapter_value, "class") != Some("declarative")
     {
-        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-pure-operation",
+            "compiler adapter is not a declarative lawpack adapter",
+        ));
     }
     let profiles = required_map(
         adapter_value,
         "operationProfiles",
         "adapter.echo-pure-operation",
     )?;
-    let (_, profile) = single_text_map_entry(profiles)
-        .ok_or_else(|| super::unsupported_semantics("adapter.echo-pure-operation"))?;
+    let (_, profile) = single_text_map_entry(profiles).ok_or_else(|| {
+        super::unsupported_semantics(
+            "adapter.echo-pure-operation",
+            "compiler adapter must declare exactly one operation profile",
+        )
+    })?;
     if text_field(profile, "core") != text_field(intent, "requiredOperationProfile") {
-        return Err(super::unsupported_semantics("adapter.echo-pure-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-pure-operation",
+            "compiler adapter profile core differs from the intent operation profile",
+        ));
     }
     required_nonempty_text(profile, "budgetObligation", "adapter.echo-pure-operation")?;
     require_resource_ref(
@@ -549,6 +593,7 @@ fn validate_compiler_lawpack(
         )?,
         &closure.configuration.artifact,
         "adapter.echo-pure-operation",
+        "compiler adapter target configuration reference",
     )
 }
 
@@ -566,12 +611,14 @@ fn validate_pure_target_ir(
     {
         return Err(super::unsupported_semantics(
             "target-ir.echo-pure-operation",
+            "pure target IR domain or source Core coordinate differs from the request",
         ));
     }
     require_resource_ref(
         required_map(value, "targetProfile", "target-ir.echo-pure-operation")?,
         &request.target_profile,
         "target-ir.echo-pure-operation",
+        "pure target IR target profile reference",
     )?;
     let semantic_closure = required_map(value, "semanticClosure", "target-ir.echo-pure-operation")?;
     require_resource_ref(
@@ -582,6 +629,7 @@ fn validate_pure_target_ir(
         )?,
         &request.core,
         "target-ir.echo-pure-operation",
+        "pure target IR source Core reference",
     )?;
     let [lawpack_reference] = required_array(
         semantic_closure,
@@ -591,12 +639,14 @@ fn validate_pure_target_ir(
     .as_slice() else {
         return Err(super::unsupported_semantics(
             "target-ir.echo-pure-operation",
+            "pure target IR semantic closure must name exactly one lawpack",
         ));
     };
     require_resource_ref(
         lawpack_reference,
         &lawpack.artifact,
         "target-ir.echo-pure-operation",
+        "pure target IR lawpack reference",
     )?;
     let target_intent = required_map_field(
         required_map(value, "intents", "target-ir.echo-pure-operation")?,
@@ -614,6 +664,7 @@ fn validate_pure_target_ir(
     {
         return Err(super::unsupported_semantics(
             "target-ir.echo-pure-operation",
+            "pure target IR intent has steps, external actions, or a differing budget or profile",
         ));
     }
     Ok(())
@@ -833,19 +884,32 @@ fn encode_expected_pure_package(
                     "max_allocated_bytes",
                     map_field(budget, "maxAllocatedBytes")
                         .cloned()
-                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                        .ok_or_else(|| {
+                            super::unsupported_semantics(
+                                operation_coordinate,
+                                "Core evaluation budget lacks maxAllocatedBytes",
+                            )
+                        })?,
                 ),
                 (
                     "max_output_bytes",
                     map_field(budget, "maxOutputBytes")
                         .cloned()
-                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                        .ok_or_else(|| {
+                            super::unsupported_semantics(
+                                operation_coordinate,
+                                "Core evaluation budget lacks maxOutputBytes",
+                            )
+                        })?,
                 ),
                 (
                     "max_steps",
-                    map_field(budget, "maxSteps")
-                        .cloned()
-                        .ok_or_else(|| super::unsupported_semantics(operation_coordinate))?,
+                    map_field(budget, "maxSteps").cloned().ok_or_else(|| {
+                        super::unsupported_semantics(
+                            operation_coordinate,
+                            "Core evaluation budget lacks maxSteps",
+                        )
+                    })?,
                 ),
             ]),
         ),
@@ -897,6 +961,7 @@ fn select_closure(inputs: &[SemanticInput]) -> Result<ClosureInputs<'_>, Provide
     if inputs.len() != 7 {
         return Err(super::unsupported_semantics(
             "semantic-inputs.echo-operation",
+            "executable-operation closure requires exactly seven semantic inputs",
         ));
     }
     Ok(ClosureInputs {
@@ -936,11 +1001,13 @@ fn unique_input<'a>(
     let Some(input) = matching.next() else {
         return Err(super::unsupported_semantics(
             "semantic-inputs.echo-operation",
+            &format!("semantic input kind {kind:?} is absent"),
         ));
     };
     if matching.next().is_some() {
         return Err(super::unsupported_semantics(
             "semantic-inputs.echo-operation",
+            &format!("semantic input kind {kind:?} is repeated"),
         ));
     }
     Ok(input)
@@ -951,7 +1018,10 @@ fn validate_bound(
     domain: &str,
 ) -> Result<CanonicalValueV1, ProviderRefusalV1> {
     if bound.artifact.domain != domain {
-        return Err(super::unsupported_semantics(&bound.reference.coordinate));
+        return Err(super::unsupported_semantics(
+            &bound.reference.coordinate,
+            &format!("bound artifact domain is not {domain}"),
+        ));
     }
     validate_binding(bound).map_err(|()| {
         invalid_artifact(
@@ -968,32 +1038,61 @@ fn validate_core<'a>(
     let coordinate = required_text(value, "coordinate", "core.echo-operation")?;
     if text_field(value, "apiVersion") != Some(CORE_ABI) || coordinate != core.reference.coordinate
     {
-        return Err(super::unsupported_semantics("core.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "core.echo-operation",
+            "operation Core API version or coordinate differs from the bound Core",
+        ));
     }
     let (intent_name, intent) =
-        single_text_map_entry(required_map(value, "intents", "core.echo-operation")?)
-            .ok_or_else(|| super::unsupported_semantics("core.echo-operation"))?;
+        single_text_map_entry(required_map(value, "intents", "core.echo-operation")?).ok_or_else(
+            || {
+                super::unsupported_semantics(
+                    "core.echo-operation",
+                    "operation Core must declare exactly one text-named intent",
+                )
+            },
+        )?;
     let program = match text_field(intent, "requiredOperationProfile") {
         Some(OPERATION_PROFILE) => OperationProgram::Create,
         Some("continuum.profile.write/v1") => OperationProgram::CompareAndSet,
-        _ => return Err(super::unsupported_semantics(coordinate)),
+        _ => {
+            return Err(super::unsupported_semantics(
+                coordinate,
+                "operation Core intent profile is neither create nor write",
+            ))
+        }
     };
     let body = required_map(intent, "body", coordinate)?;
     let [node] = required_array(body, "nodes", coordinate)?.as_slice() else {
-        return Err(super::unsupported_semantics(coordinate));
+        return Err(super::unsupported_semantics(
+            coordinate,
+            "operation Core body must contain exactly one node",
+        ));
     };
     if text_field(node, "kind") != Some("effect") {
-        return Err(super::unsupported_semantics(coordinate));
+        return Err(super::unsupported_semantics(
+            coordinate,
+            "operation Core body node is not an effect",
+        ));
     }
     validate_application_argument(intent, body, node, coordinate)?;
     let effect_coordinate = required_text(node, "effect", coordinate)?;
     let (failure_name, obstruction_arm) =
-        single_text_map_entry(required_map(node, "obstructionMap", coordinate)?)
-            .ok_or_else(|| super::unsupported_semantics(coordinate))?;
+        single_text_map_entry(required_map(node, "obstructionMap", coordinate)?).ok_or_else(
+            || {
+                super::unsupported_semantics(
+                    coordinate,
+                    "operation Core effect must map exactly one text-named obstruction",
+                )
+            },
+        )?;
     let obstruction_value = required_map(obstruction_arm, "value", coordinate)?;
     let obstruction_coordinate = required_text(obstruction_value, "callee", coordinate)?;
     if obstruction_coordinate.is_empty() {
-        return Err(super::unsupported_semantics(coordinate));
+        return Err(super::unsupported_semantics(
+            coordinate,
+            "operation Core obstruction callee is empty",
+        ));
     }
     Ok(ApplicationIntent {
         program,
@@ -1019,6 +1118,7 @@ fn validate_application_argument(
     if text_field(argument, "kind") != Some("local") {
         return Err(super::unsupported_semantics(
             "core.echo-operation.effect-input",
+            "effect input argument is not a local reference",
         ));
     }
     require_exact_fields(argument, &["kind", "ref"], subject)?;
@@ -1029,6 +1129,7 @@ fn validate_application_argument(
     {
         return Err(super::unsupported_semantics(
             "core.echo-operation.effect-input",
+            "effect input reference is not arg.0 of the intent input type",
         ));
     }
     let alpha_name = required_nonempty_text(reference, "alphaName", subject)?;
@@ -1039,6 +1140,7 @@ fn validate_application_argument(
     let Some(input) = inputs.next() else {
         return Err(super::unsupported_semantics(
             "core.echo-operation.input-local",
+            "Core locals declare no arg.0 input local",
         ));
     };
     if inputs.next().is_some()
@@ -1047,6 +1149,7 @@ fn validate_application_argument(
     {
         return Err(super::unsupported_semantics(
             "core.echo-operation.input-local",
+            "arg.0 input local is repeated or differs in type or alpha name",
         ));
     }
     require_exact_fields(input, &["id", "alphaName", "type"], subject)?;
@@ -1059,7 +1162,10 @@ fn validate_source<'a>(
     core: &BoundArtifact,
 ) -> Result<&'a str, ProviderRefusalV1> {
     if source.artifact.reference.coordinate != core.reference.coordinate {
-        return Err(super::unsupported_semantics(&source.role));
+        return Err(super::unsupported_semantics(
+            &source.role,
+            "Edict source coordinate differs from the Core coordinate",
+        ));
     }
     let CanonicalValueV1::Bytes(source_bytes) = value else {
         return Err(invalid_artifact(
@@ -1079,18 +1185,34 @@ fn validate_exports(
     let effect = required_array(value, "effects", "exports.echo-operation")?
         .iter()
         .find(|effect| text_field(effect, "coordinate") == Some(semantic_effect))
-        .ok_or_else(|| super::unsupported_semantics("exports.echo-operation"))?;
+        .ok_or_else(|| {
+            super::unsupported_semantics(
+                "exports.echo-operation",
+                "exports declare no effect with the semantic effect coordinate",
+            )
+        })?;
     if text_field(effect, "executionClass") != Some("runtime") {
-        return Err(super::unsupported_semantics("exports.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "exports.echo-operation",
+            "exported effect execution class is not runtime",
+        ));
     }
     let (failure_name, _) = single_text_map_entry(required_map(
         effect,
         "effectFailures",
         "exports.echo-operation",
     )?)
-    .ok_or_else(|| super::unsupported_semantics("exports.echo-operation"))?;
+    .ok_or_else(|| {
+        super::unsupported_semantics(
+            "exports.echo-operation",
+            "exported effect must declare exactly one text-named failure",
+        )
+    })?;
     if failure_name != intent.failure_name {
-        return Err(super::unsupported_semantics("exports.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "exports.echo-operation",
+            "exported effect failure differs from the Core obstruction failure",
+        ));
     }
     Ok(())
 }
@@ -1109,13 +1231,17 @@ fn validate_lawpack(
     if text_field(value, "apiVersion") != Some(LAWPACK_DOMAIN)
         || format!("{id}@{version}") != lawpack.artifact.reference.coordinate
     {
-        return Err(super::unsupported_semantics("lawpack.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "lawpack.echo-operation",
+            "lawpack API version or id@version differs from the bound lawpack",
+        ));
     }
     require_owner_resource_ref(
         required_map(value, "exports", "lawpack.echo-operation")?,
         &exports.artifact,
         exports_value,
         "lawpack.echo-operation",
+        "lawpack exports reference",
     )?;
     let selected = required_array(value, "targetAdapters", "lawpack.echo-operation")?
         .iter()
@@ -1123,12 +1249,18 @@ fn validate_lawpack(
             required_map(candidate, "acceptedTargetProfile", "lawpack.echo-operation")
                 .is_ok_and(|reference| resource_ref_matches(reference, target_profile))
         })
-        .ok_or_else(|| super::unsupported_semantics("lawpack.echo-operation"))?;
+        .ok_or_else(|| {
+            super::unsupported_semantics(
+                "lawpack.echo-operation",
+                "lawpack has no target adapter accepting the requested target profile",
+            )
+        })?;
     require_owner_resource_ref(
         required_map(selected, "adapter", "lawpack.echo-operation")?,
         &adapter.artifact,
         adapter_value,
         "lawpack.echo-operation",
+        "lawpack target adapter reference",
     )
 }
 
@@ -1141,7 +1273,10 @@ fn validate_adapter(
     if text_field(value, "apiVersion") != Some(ADAPTER_ABI)
         || text_field(value, "class") != Some("declarative")
     {
-        return Err(super::unsupported_semantics("adapter.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-operation",
+            "adapter is not a declarative lawpack adapter",
+        ));
     }
     let implementation = required_map_field(
         required_map(value, "effectImplementations", "adapter.echo-operation")?,
@@ -1151,7 +1286,10 @@ fn validate_adapter(
     if text_field(implementation, "targetIntrinsic") != Some(intent.program.intrinsic())
         || text_field(implementation, "writeClass") != Some(intent.program.write_class())
     {
-        return Err(super::unsupported_semantics("adapter.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-operation",
+            "adapter effect intrinsic or write class differs from the operation program",
+        ));
     }
     require_resource_ref(
         required_map(
@@ -1161,13 +1299,17 @@ fn validate_adapter(
         )?,
         &configuration.artifact,
         "adapter.echo-operation",
+        "adapter effect target configuration reference",
     )?;
     if text_field(
         required_map(implementation, "failureMappings", "adapter.echo-operation")?,
         intent.failure_name,
     ) != Some(PRECONDITION_MISMATCH)
     {
-        return Err(super::unsupported_semantics("adapter.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "adapter.echo-operation",
+            "adapter failure mapping is not the precondition-mismatch obstruction",
+        ));
     }
     Ok(())
 }
@@ -1213,7 +1355,10 @@ fn semantic_lawpack_member_coordinate(
             }
         }
     }
-    Err(super::unsupported_semantics("source.lawpack-alias"))
+    Err(super::unsupported_semantics(
+        "source.lawpack-alias",
+        "Core effect is neither a lawpack member nor a declared lawpack alias member",
+    ))
 }
 
 fn validate_target_ir(
@@ -1227,50 +1372,76 @@ fn validate_target_ir(
         || text_field(value, "sourceCoreCoordinate")
             != Some(request.core.reference.coordinate.as_str())
     {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR coordinate, domain, or source Core coordinate differs from the request",
+        ));
     }
     require_resource_ref(
         required_map(value, "targetProfile", "target-ir.echo-operation")?,
         &request.target_profile,
         "target-ir.echo-operation",
+        "target IR target profile reference",
     )?;
     let closure = required_map(value, "semanticClosure", "target-ir.echo-operation")?;
     require_resource_ref(
         required_map(closure, "sourceCore", "target-ir.echo-operation")?,
         &request.core,
         "target-ir.echo-operation",
+        "target IR source Core reference",
     )?;
     let [lawpack_reference] =
         required_array(closure, "lawpacks", "target-ir.echo-operation")?.as_slice()
     else {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR semantic closure must name exactly one lawpack",
+        ));
     };
     require_resource_ref(
         lawpack_reference,
         &lawpack.artifact,
         "target-ir.echo-operation",
+        "target IR lawpack reference",
     )?;
     let (intent_name, target_intent) =
         single_text_map_entry(required_map(value, "intents", "target-ir.echo-operation")?)
-            .ok_or_else(|| super::unsupported_semantics("target-ir.echo-operation"))?;
+            .ok_or_else(|| {
+                super::unsupported_semantics(
+                    "target-ir.echo-operation",
+                    "target IR must declare exactly one text-named intent",
+                )
+            })?;
     if intent_name != intent.name
         || text_field(target_intent, "operationProfile") != Some(intent.program.operation_profile())
     {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR intent name or operation profile differs from the Core intent",
+        ));
     }
     let [step] = required_array(target_intent, "steps", "target-ir.echo-operation")?.as_slice()
     else {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR intent must contain exactly one step",
+        ));
     };
     let [failure] =
         required_array(step, "obstructionFailures", "target-ir.echo-operation")?.as_slice()
     else {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR step must declare exactly one obstruction failure",
+        ));
     };
     if text_field(step, "targetIntrinsic") != Some(intent.program.intrinsic())
         || as_text(failure) != Some(PRECONDITION_MISMATCH)
     {
-        return Err(super::unsupported_semantics("target-ir.echo-operation"));
+        return Err(super::unsupported_semantics(
+            "target-ir.echo-operation",
+            "target IR step intrinsic or obstruction failure differs from the operation program",
+        ));
     }
     Ok(())
 }
@@ -1285,6 +1456,7 @@ fn validate_configuration<'a>(
     if !bounded_keys && text_field(value, "apiVersion") != Some(CONFIGURATION_ABI) {
         return Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
+            "target configuration API version is neither v1 nor v2",
         ));
     }
     let program = match text_field(value, "programKind") {
@@ -1293,6 +1465,7 @@ fn validate_configuration<'a>(
         _ => {
             return Err(super::unsupported_semantics(
                 "target-configuration.program-kind",
+                "target configuration program kind is neither create nor compare-and-set",
             ))
         }
     };
@@ -1300,6 +1473,7 @@ fn validate_configuration<'a>(
     if bounded_keys && !matches!(program, OperationProgram::Create) {
         return Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
+            "v2 key-bound selector is only allowed for the create operation",
         ));
     }
     let invocation = required_map(
@@ -1325,6 +1499,7 @@ fn validate_configuration<'a>(
     {
         return Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
+            "invocation binding fields coincide or name an unsupported derivation",
         ));
     }
     let expected_value_digest_field = match program {
@@ -1338,6 +1513,7 @@ fn validate_configuration<'a>(
             if field == node_key_field || field == replacement_field {
                 return Err(super::unsupported_semantics(
                     "target-configuration.expected-digest-field",
+                    "expected digest field coincides with the node key or replacement field",
                 ));
             }
             Some(field)
@@ -1346,6 +1522,7 @@ fn validate_configuration<'a>(
             if map_field(invocation, "expectedValueDigestField").is_some() {
                 return Err(super::unsupported_semantics(
                     "target-configuration.expected-digest-field",
+                    "create configuration declares an expected digest field",
                 ));
             }
             None
@@ -1402,6 +1579,7 @@ fn validate_configuration<'a>(
     {
         return Err(super::unsupported_semantics(
             "target-configuration.echo-operation",
+            "replacement bound is zero or the budget is below the program minimum",
         ));
     }
     Ok(configuration)
@@ -1422,7 +1600,10 @@ fn derive_key_scalar_limit(
     let input_name = input.strip_prefix(&prefix).unwrap_or(input);
     let input = required_map(types, input_name, subject)?;
     if text_field(input, "kind") != Some("Record") {
-        return Err(super::unsupported_semantics(subject));
+        return Err(super::unsupported_semantics(
+            subject,
+            "intent input type is not a record",
+        ));
     }
     let fields = required_map(input, "fields", subject)?;
     let key_type = required_text(fields, field, subject)?;
@@ -1430,17 +1611,23 @@ fn derive_key_scalar_limit(
         .strip_prefix("String<max=")
         .and_then(|s| s.strip_suffix('>'))
     {
-        let (max, canonical) = spec
-            .split_once(",canonical=")
-            .ok_or_else(|| super::unsupported_semantics(subject))?;
+        let (max, canonical) = spec.split_once(",canonical=").ok_or_else(|| {
+            super::unsupported_semantics(subject, "inline key string type lacks a canonical form")
+        })?;
         if !matches!(canonical, "raw-utf8" | "unicode-scalar-nfc") {
-            return Err(super::unsupported_semantics(subject));
+            return Err(super::unsupported_semantics(
+                subject,
+                "inline key string canonical form is unsupported",
+            ));
         }
-        let parsed = max
-            .parse::<u64>()
-            .map_err(|_| super::unsupported_semantics(subject))?;
+        let parsed = max.parse::<u64>().map_err(|_| {
+            super::unsupported_semantics(subject, "inline key string max is not an integer")
+        })?;
         if parsed.to_string() != max {
-            return Err(super::unsupported_semantics(subject));
+            return Err(super::unsupported_semantics(
+                subject,
+                "inline key string max is not in canonical decimal form",
+            ));
         }
         parsed
     } else {
@@ -1452,12 +1639,18 @@ fn derive_key_scalar_limit(
                 Some("raw-utf8" | "unicode-scalar-nfc")
             )
         {
-            return Err(super::unsupported_semantics(subject));
+            return Err(super::unsupported_semantics(
+                subject,
+                "named key type is not a string with a supported canonical form",
+            ));
         }
         required_u64(key, "max", subject)?
     };
     if max == 0 || max > 65_536 {
-        return Err(super::unsupported_semantics(subject));
+        return Err(super::unsupported_semantics(
+            subject,
+            "key scalar bound is zero or exceeds 65536",
+        ));
     }
     Ok(max)
 }
@@ -1515,6 +1708,7 @@ fn validate_result_projection(
     let [target_step] = required_array(target_intent, "steps", &input.role)?.as_slice() else {
         return Err(super::unsupported_semantics(
             "result-projection.target-steps",
+            "result projection target intent must contain exactly one step",
         ));
     };
     let target_step_id = required_nonempty_text(target_step, "id", &input.role)?;
@@ -1620,6 +1814,7 @@ fn lower_projection_expression(
                     {
                         return Err(super::unsupported_semantics(
                             "result-projection.capability-result",
+                            "capability result names another step or a non-node-key path",
                         ));
                     }
                     lowered_path = vec![node_key_field.to_owned()];
@@ -2038,31 +2233,44 @@ fn build_report(
         .map_err(|_| invalid_artifact(REPORT_ROLE, "report could not be canonically encoded"))
 }
 
+/// Require `value` to reference `artifact`; `reference` names the checked reference.
 fn require_resource_ref(
     value: &CanonicalValueV1,
     artifact: &BoundArtifact,
     subject: &str,
+    reference: &str,
 ) -> Result<(), ProviderRefusalV1> {
     if resource_ref_matches(value, artifact) {
         Ok(())
     } else {
-        Err(super::unsupported_semantics(subject))
+        Err(super::unsupported_semantics(
+            subject,
+            &format!("{reference} does not match the bound artifact"),
+        ))
     }
 }
 
+/// Require an owner-framed reference; `reference` names the checked reference.
 fn require_owner_resource_ref(
     value: &CanonicalValueV1,
     artifact: &BoundArtifact,
     artifact_value: &CanonicalValueV1,
     subject: &str,
+    reference: &str,
 ) -> Result<(), ProviderRefusalV1> {
     let Some(coordinate) = text_field(value, "id") else {
-        return Err(super::unsupported_semantics(subject));
+        return Err(super::unsupported_semantics(
+            subject,
+            &format!("{reference} has no text id"),
+        ));
     };
     let Some(digest) = array_field(value, "digest")
         .and_then(|values| <&[CanonicalValueV1; 2]>::try_from(values.as_slice()).ok())
     else {
-        return Err(super::unsupported_semantics(subject));
+        return Err(super::unsupported_semantics(
+            subject,
+            &format!("{reference} digest is not a two-element array"),
+        ));
     };
     let expected = digest_canonical_value_bytes_v1(coordinate, artifact_value)
         .map_err(|_| invalid_artifact(coordinate, "owner-framed digest could not be computed"))?;
@@ -2072,7 +2280,10 @@ fn require_owner_resource_ref(
     {
         Ok(())
     } else {
-        Err(super::unsupported_semantics(subject))
+        Err(super::unsupported_semantics(
+            subject,
+            &format!("{reference} does not match the owner-framed artifact digest"),
+        ))
     }
 }
 
@@ -2099,11 +2310,12 @@ fn required_map<'a>(
     field: &str,
     subject: &str,
 ) -> Result<&'a CanonicalValueV1, ProviderRefusalV1> {
-    let value = map_field(value, field).ok_or_else(|| super::unsupported_semantics(subject))?;
-    as_map(value)
-        .is_some()
-        .then_some(value)
-        .ok_or_else(|| super::unsupported_semantics(subject))
+    let value = map_field(value, field).ok_or_else(|| {
+        super::unsupported_semantics(subject, &format!("field `{field}` is absent"))
+    })?;
+    as_map(value).is_some().then_some(value).ok_or_else(|| {
+        super::unsupported_semantics(subject, &format!("field `{field}` is not a map"))
+    })
 }
 
 fn required_map_field<'a>(
@@ -2111,11 +2323,12 @@ fn required_map_field<'a>(
     field: &str,
     subject: &str,
 ) -> Result<&'a CanonicalValueV1, ProviderRefusalV1> {
-    let value = map_field(value, field).ok_or_else(|| super::unsupported_semantics(subject))?;
-    as_map(value)
-        .is_some()
-        .then_some(value)
-        .ok_or_else(|| super::unsupported_semantics(subject))
+    let value = map_field(value, field).ok_or_else(|| {
+        super::unsupported_semantics(subject, &format!("map entry `{field}` is absent"))
+    })?;
+    as_map(value).is_some().then_some(value).ok_or_else(|| {
+        super::unsupported_semantics(subject, &format!("map entry `{field}` is not a map"))
+    })
 }
 
 fn required_array<'a>(
@@ -2123,7 +2336,12 @@ fn required_array<'a>(
     field: &str,
     subject: &str,
 ) -> Result<&'a Vec<CanonicalValueV1>, ProviderRefusalV1> {
-    array_field(value, field).ok_or_else(|| super::unsupported_semantics(subject))
+    array_field(value, field).ok_or_else(|| {
+        super::unsupported_semantics(
+            subject,
+            &format!("field `{field}` is absent or not an array"),
+        )
+    })
 }
 
 fn required_text<'a>(
@@ -2131,7 +2349,9 @@ fn required_text<'a>(
     field: &str,
     subject: &str,
 ) -> Result<&'a str, ProviderRefusalV1> {
-    text_field(value, field).ok_or_else(|| super::unsupported_semantics(subject))
+    text_field(value, field).ok_or_else(|| {
+        super::unsupported_semantics(subject, &format!("field `{field}` is absent or not text"))
+    })
 }
 
 fn required_nonempty_text<'a>(
@@ -2140,9 +2360,9 @@ fn required_nonempty_text<'a>(
     subject: &str,
 ) -> Result<&'a str, ProviderRefusalV1> {
     required_text(value, field, subject).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| super::unsupported_semantics(subject))
+        (!value.is_empty()).then_some(value).ok_or_else(|| {
+            super::unsupported_semantics(subject, &format!("field `{field}` is empty text"))
+        })
     })
 }
 
@@ -2152,10 +2372,16 @@ fn required_u64(
     subject: &str,
 ) -> Result<u64, ProviderRefusalV1> {
     match map_field(value, field) {
-        Some(CanonicalValueV1::Integer(value)) => {
-            u64::try_from(*value).map_err(|_| super::unsupported_semantics(subject))
-        }
-        _ => Err(super::unsupported_semantics(subject)),
+        Some(CanonicalValueV1::Integer(value)) => u64::try_from(*value).map_err(|_| {
+            super::unsupported_semantics(
+                subject,
+                &format!("field `{field}` is negative or exceeds u64"),
+            )
+        }),
+        _ => Err(super::unsupported_semantics(
+            subject,
+            &format!("field `{field}` is absent or not an integer"),
+        )),
     }
 }
 

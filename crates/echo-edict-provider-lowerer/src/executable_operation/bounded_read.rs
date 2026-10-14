@@ -238,18 +238,34 @@ fn validate_closure(
         field(target, "targetProfile")?,
         &request.target_profile,
         SUBJECT,
+        "bounded read target IR target profile reference",
     )?;
     let semantic = field(target, "semanticClosure")?;
-    require_resource_ref(field(semantic, "sourceCore")?, &request.core, SUBJECT)?;
+    require_resource_ref(
+        field(semantic, "sourceCore")?,
+        &request.core,
+        SUBJECT,
+        "bounded read target IR source Core reference",
+    )?;
     let [lawpack] = array(semantic, "lawpacks")? else {
         return Err(invalid());
     };
-    require_resource_ref(lawpack, &closure.lawpack.artifact, SUBJECT)?;
+    require_resource_ref(
+        lawpack,
+        &closure.lawpack.artifact,
+        SUBJECT,
+        "bounded read target IR lawpack reference",
+    )?;
     let [import] = array(core, "imports")? else {
         return Err(invalid());
     };
     if text(import, "kind")? != "lawpack" {
         return Err(invalid());
     }
-    require_resource_ref(field(import, "ref")?, &closure.lawpack.artifact, SUBJECT)
+    require_resource_ref(
+        field(import, "ref")?,
+        &closure.lawpack.artifact,
+        SUBJECT,
+        "bounded read Core lawpack import reference",
+    )
 }

@@ -5,22 +5,34 @@ use super::*;
 
 #[test]
 fn lowerer_refuses_effectful_pure_profile() {
-    assert_lowerer_refuses(add_effect);
+    assert_lowerer_refuses(
+        add_effect,
+        "pure adapter operation profile declares semantic effects",
+    );
 }
 
 #[test]
 fn verifier_refuses_effectful_pure_profile() {
-    assert_verifier_refuses(add_effect);
+    assert_verifier_refuses(
+        add_effect,
+        "pure adapter operation profile declares semantic effects",
+    );
 }
 
 #[test]
 fn lowerer_refuses_pure_profile_without_budget_obligation() {
-    assert_lowerer_refuses(remove_budget);
+    assert_lowerer_refuses(
+        remove_budget,
+        "field `budgetObligation` is absent or not text",
+    );
 }
 
 #[test]
 fn verifier_refuses_pure_profile_without_budget_obligation() {
-    assert_verifier_refuses(remove_budget);
+    assert_verifier_refuses(
+        remove_budget,
+        "field `budgetObligation` is absent or not text",
+    );
 }
 
 fn add_effect(profile: &mut CanonicalValueV1) {
@@ -35,7 +47,7 @@ fn remove_budget(profile: &mut CanonicalValueV1) {
     entries.retain(|(key, _)| key != &text("budgetObligation"));
 }
 
-fn assert_lowerer_refuses(mutate: impl FnOnce(&mut CanonicalValueV1)) {
+fn assert_lowerer_refuses(mutate: impl FnOnce(&mut CanonicalValueV1), check: &str) {
     let names = FIXTURES[0];
     let fixture = pure_raw_fixture_with_profile(names, mutate);
     let refusal = lowerer::lower(lowering_request(names, &fixture))
@@ -44,9 +56,10 @@ fn assert_lowerer_refuses(mutate: impl FnOnce(&mut CanonicalValueV1)) {
         refusal.kind,
         lowerer::ProviderRefusalKind::UnsupportedSemantics
     );
+    assert_lowerer_check(&refusal, check);
 }
 
-fn assert_verifier_refuses(mutate: impl FnOnce(&mut CanonicalValueV1)) {
+fn assert_verifier_refuses(mutate: impl FnOnce(&mut CanonicalValueV1), check: &str) {
     let names = FIXTURES[0];
     let baseline = pure_raw_fixture(names);
     let package = lower_package(names, &baseline);
@@ -82,10 +95,13 @@ fn assert_verifier_refuses(mutate: impl FnOnce(&mut CanonicalValueV1)) {
         &fixture,
         canonical_bytes(&package),
     )) {
-        Err(refusal) => assert_eq!(
-            refusal.kind,
-            verifier::ProviderRefusalKind::UnsupportedSemantics
-        ),
+        Err(refusal) => {
+            assert_eq!(
+                refusal.kind,
+                verifier::ProviderRefusalKind::UnsupportedSemantics
+            );
+            assert_verifier_check(&refusal, check);
+        }
         Ok(success) => {
             let report =
                 decode_canonical_cbor_v1(&success.outputs[0].artifact.bytes).expect("report");

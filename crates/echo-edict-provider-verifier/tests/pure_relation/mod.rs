@@ -146,10 +146,16 @@ fn assert_target_mutation_refused(mutate: impl FnOnce(&mut CanonicalValueV1)) {
     fixture.target_ir = canonical_bytes(&target);
     let package = lower_package(names, &fixture);
     match verifier::verify(verification_request(names, &fixture, package)) {
-        Err(refusal) => assert_eq!(
-            refusal.kind,
-            verifier::ProviderRefusalKind::UnsupportedSemantics
-        ),
+        Err(refusal) => {
+            assert_eq!(
+                refusal.kind,
+                verifier::ProviderRefusalKind::UnsupportedSemantics
+            );
+            assert_verifier_check(
+                &refusal,
+                "pure target IR does not preserve the Core pure relation",
+            );
+        }
         Ok(result) => {
             let report = decode_canonical_cbor_v1(&result.outputs[0].artifact.bytes)
                 .expect("verification report");
@@ -232,10 +238,16 @@ fn assert_projection_mutation_refused(mutate: impl FnOnce(&mut CanonicalValueV1)
     fixture.result_projection = canonical_bytes(&projection);
     let package = lower_package(names, &fixture);
     match verifier::verify(verification_request(names, &fixture, package)) {
-        Err(refusal) => assert_eq!(
-            refusal.kind,
-            verifier::ProviderRefusalKind::UnsupportedSemantics
-        ),
+        Err(refusal) => {
+            assert_eq!(
+                refusal.kind,
+                verifier::ProviderRefusalKind::UnsupportedSemantics
+            );
+            assert_verifier_check(
+                &refusal,
+                "pure result projection does not preserve the Core result relation",
+            );
+        }
         Ok(result) => {
             let report =
                 decode_canonical_cbor_v1(&result.outputs[0].artifact.bytes).expect("report");

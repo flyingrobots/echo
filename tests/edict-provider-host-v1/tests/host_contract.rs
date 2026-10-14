@@ -1479,7 +1479,7 @@ fn assert_unsupported_core_semantics_contract() {
     assert_eq!(diagnostic.severity, ProviderDiagnosticSeverity::Error);
     assert_eq!(
         diagnostic.message,
-        "the supplied semantics are outside the exact first Echo lowering closure"
+        "unsupported semantics: Core body must contain exactly one node"
     );
     assert_eq!(diagnostic.repair, None);
 }

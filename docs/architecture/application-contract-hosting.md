@@ -177,7 +177,7 @@ supported. Invocation admission also checks the relationship and exact digest.
 Missing or substituted invocation bindings
 return `ApplicationInputMismatch`; legacy invocation encodings remain unchanged.
 Both mutation profiles require the effect argument to be the declared application
-input directly. The lowerer and independent verifier each check the canonical
+input directly. The lowerer and the structurally separate verifier each check the canonical
 `arg.0` reference, its declared type and alpha name, and its unique local
 declaration. They refuse transformed records and other local references with
 `UnsupportedSemantics`; these bounded profiles do not evaluate arbitrary effect
@@ -187,7 +187,8 @@ accepted `message: "forced"` counterexample as historical failing evidence; the
 corrected components refuse that source without publishing package artifacts,
 while the direct-input control produces the same package and report bytes.
 
-The native lowerer and independent verifier select the CAS program from an exact
+The native lowerer and the structurally separate verifier select the CAS program
+from an exact
 `continuum.profile.write/v1` effect with the CAS target intrinsic and `replace`
 write class. Its configuration requires a distinct `expectedValueDigestField`
 and at least four steps; the package binds the corresponding input path and

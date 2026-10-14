@@ -191,9 +191,11 @@ standalone application-owned Edict source
 **Decision 2026-10-14 ([#837](https://github.com/flyingrobots/echo/issues/837)),
 superseding in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md)'s
 exact-basis requirements and [ADR 0025](../adr/0025-scheduler-owned-executable-operation-actions.md)'s
-shared parent basis, for Actions that meet its conditions.** Implementation is
-tracked on #837. Until it lands, the whole-frontier rule below still governs
-every Action.
+shared parent basis, for Actions that meet its conditions.** It is
+implemented for compare-and-set and create-if-absent Actions whose target is in
+the worldline's root warp, with value-based payload and single-key absence
+dependencies. Every other Action, including any target reached through a
+portal, still follows the whole-frontier rule below.
 
 Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head
 (worldline and head identities), worldline tick, optional commit global tick,

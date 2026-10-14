@@ -42,36 +42,6 @@ fn t3_1_footprint_independence_is_symmetric() {
     }
 }
 
-// TODO(FP-001): Implement once bucket target enforcement exists.
-#[test]
-#[ignore = "FP-001: Parallel bucket target enforcement not yet implemented"]
-fn t3_2_no_write_read_overlap_admitted() {
-    // Given: two planned rewrites where one writes a node the other reads
-    // Expect: only one admitted
-    todo!(
-        "FP-001: build two PlannedRewrites with write/read overlap; \
-         assert only one is admitted"
-    );
-}
-
-// TODO(FP-002): Implement once bucket target enforcement exists.
-#[test]
-#[ignore = "FP-002: Parallel bucket target enforcement not yet implemented"]
-fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
-    // The classic race: delete e1=(A->B) and e2=(A->C) both mutate edges_from[A].
-    // Your footprint model must claim the bucket target
-    // (e.g., AttachmentKey::EdgesFromBucket(A)).
-    //
-    // Given: two edge deletes with same `from` but different edge_id
-    // Expect: independence fails when adjacency bucket target is claimed
-    //
-    // (This test prevents the "retain() race" forever.)
-    todo!(
-        "FP-002: build two PlannedRewrites deleting edges from same node; \
-         assert admission rejects running both concurrently"
-    );
-}
-
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
 mod enforcement {

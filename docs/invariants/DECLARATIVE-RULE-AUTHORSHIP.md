@@ -79,15 +79,17 @@ set of runtime bindings, keyed by authored slot name:
   range. It yields a list of members in the order the declared closure
   operator defines. That order is part of the operator's contract and must not
   depend on how a runtime adapter enumerates the graph, so every adapter yields
-  the same list for the same graph.
+  the same list for the same basis.
 
 Binding is deterministic and fails closed, never widening the surface. A slot
 or closure bound twice is refused. So are: a direct slot whose reference has no
 target; a relation or closure whose source slot is unbound; a relation with no
 target; an unrecognised closure operator; a range outside the basis head; and a
 basis head that does not belong to the requested worldline. A runtime adapter
-resolves direct slots, relation slots and range closures against graph truth;
-the binding set only accumulates them.
+resolves direct slots, relation slots and range closures against one explicit,
+witnessed causal basis: admitted history at a named worldline and head. Any
+graph it consults is a derived reading of that basis, not an authority of its
+own. The binding set only accumulates what the adapter resolves.
 
 ### R2 — Native rewrite functions are bootstrap-only
 

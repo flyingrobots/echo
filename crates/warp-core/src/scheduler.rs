@@ -579,7 +579,7 @@ impl DeterministicScheduler {
 
     /// Attempts to reserve `pr` in the scheduler for `tx`.
     ///
-    /// This forwards to the selected scheduler implementation (radix vs legacy).
+    /// This forwards to the radix scheduler.
     ///
     /// Return value contract (engine spike):
     /// - Returns `true` when the rewrite is reserved and will be applied.

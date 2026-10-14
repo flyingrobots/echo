@@ -31,7 +31,7 @@
   `docs/invariants/DECLARATIVE-RULE-AUTHORSHIP.md`.
 - `audit_wal_release_readiness` and `WalReleaseReadinessGates`/`Report`. It
   combined booleans its caller supplied and checked nothing; the gate list is
-  kept in `docs/topics/WAL.md`.
+  tracked in #858.
 
 ### Changed
 

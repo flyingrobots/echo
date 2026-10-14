@@ -363,6 +363,78 @@ fn compiler_cas_tick_wal_failure_restores_exact_runtime_and_provenance() {
     }
 }
 
+/// A commit record that reaches the file and then fails its sync is readable
+/// and not durable. The Action tick must not stay visible, and the host must
+/// not reconcile itself from the log.
+#[cfg(feature = "host_test")]
+#[test]
+fn compiler_cas_tick_whose_commit_sync_failed_is_not_visible() {
+    use warp_core::causal_wal::{FilesystemWalFaultPlan, FilesystemWalFaultTarget};
+    use warp_core::{TrustedRuntimeHostError, TrustedRuntimeWalError};
+
+    let dir = WalDir::new();
+    let mut fixture = Fixture::new(true);
+    fixture.enable_wal(&dir);
+    fixture.install();
+    fixture
+        .host
+        .install_echo_operation_action_admission_policy_v1(policy());
+    let submit = |fixture: &mut Fixture, current: &[u8], next: &str| {
+        let digest = echo_operation_atom_value_digest_v1(attachment_type(), current);
+        let envelope = echo_operation_action_envelope_v1(
+            IngressTarget::ExactHead { key: fixture.head },
+            fixture.invocation(current, digest, digest, next),
+        )
+        .expect("Action envelope");
+        fixture
+            .host
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("durable Action acknowledgement")
+            .submission_id
+    };
+    submit(&mut fixture, INITIAL, "first");
+    fixture.host.tick_once().expect("first Action commits");
+    assert_eq!(fixture.value(), b"first");
+
+    let submission = submit(&mut fixture, b"first", "second");
+    let runtime_before = format!("{:?}", fixture.host.runtime());
+    let provenance_before = format!("{:?}", fixture.host.provenance());
+    fixture
+        .host
+        .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(
+            FilesystemWalFaultTarget::CommitMarkerSync,
+        ))
+        .expect("inject a filesystem failure");
+
+    fixture
+        .host
+        .tick_once()
+        .expect_err("an Action tick whose commit sync failed must not remain visible");
+
+    assert_eq!(format!("{:?}", fixture.host.runtime()), runtime_before);
+    assert_eq!(
+        format!("{:?}", fixture.host.provenance()),
+        provenance_before
+    );
+    assert_eq!(fixture.value(), b"first");
+    assert!(fixture
+        .host
+        .echo_operation_action_outcome_v1(&submission)
+        .is_none());
+    let error = fixture
+        .host
+        .tick_once()
+        .expect_err("the WAL is failed closed");
+    assert!(
+        matches!(
+            error,
+            TrustedRuntimeHostError::Wal(TrustedRuntimeWalError::StorageFailed)
+        ),
+        "{error:?}"
+    );
+}
+
 #[cfg(feature = "host_test")]
 #[test]
 fn compiler_cas_tick_hashes_the_state_once_after_the_first_commit() {

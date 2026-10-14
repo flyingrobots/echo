@@ -5515,6 +5515,9 @@ pub enum FilesystemWalFaultTarget {
     FlushCommit,
     /// Fail after writing and syncing the next commit marker.
     CommitMarkerSynced,
+    /// Write the next commit marker and then fail its storage sync. The
+    /// marker is readable and is not known to be durable.
+    CommitMarkerSync,
     /// Fail the next manifest publish before writing manifest material.
     PublishManifest,
     /// Fail the next storage sync that would make deferred commit records
@@ -5532,6 +5535,7 @@ pub struct FilesystemWalFaultPlan {
     append_frame: u32,
     flush_commit: u32,
     commit_marker_synced: u32,
+    commit_marker_sync: u32,
     publish_manifest: u32,
     deferred_commit_sync: u32,
     recovered_segment_sync: u32,
@@ -5557,6 +5561,7 @@ impl FilesystemWalFaultPlan {
                 append_frame: 1,
                 flush_commit: 0,
                 commit_marker_synced: 0,
+                commit_marker_sync: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
                 recovered_segment_sync: 0,
@@ -5566,6 +5571,7 @@ impl FilesystemWalFaultPlan {
                 append_frame: 0,
                 flush_commit: 1,
                 commit_marker_synced: 0,
+                commit_marker_sync: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
                 recovered_segment_sync: 0,
@@ -5575,6 +5581,17 @@ impl FilesystemWalFaultPlan {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 1,
+                commit_marker_sync: 0,
+                publish_manifest: 0,
+                deferred_commit_sync: 0,
+                recovered_segment_sync: 0,
+                skip: 0,
+            },
+            FilesystemWalFaultTarget::CommitMarkerSync => Self {
+                append_frame: 0,
+                flush_commit: 0,
+                commit_marker_synced: 0,
+                commit_marker_sync: 1,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
                 recovered_segment_sync: 0,
@@ -5584,6 +5601,7 @@ impl FilesystemWalFaultPlan {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 0,
+                commit_marker_sync: 0,
                 publish_manifest: 1,
                 deferred_commit_sync: 0,
                 recovered_segment_sync: 0,
@@ -5593,6 +5611,7 @@ impl FilesystemWalFaultPlan {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 0,
+                commit_marker_sync: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 1,
                 recovered_segment_sync: 0,
@@ -5602,6 +5621,7 @@ impl FilesystemWalFaultPlan {
                 append_frame: 0,
                 flush_commit: 0,
                 commit_marker_synced: 0,
+                commit_marker_sync: 0,
                 publish_manifest: 0,
                 deferred_commit_sync: 0,
                 recovered_segment_sync: 1,
@@ -5615,6 +5635,7 @@ impl FilesystemWalFaultPlan {
             FilesystemWalFaultTarget::AppendFrame => &mut self.append_frame,
             FilesystemWalFaultTarget::FlushCommit => &mut self.flush_commit,
             FilesystemWalFaultTarget::CommitMarkerSynced => &mut self.commit_marker_synced,
+            FilesystemWalFaultTarget::CommitMarkerSync => &mut self.commit_marker_sync,
             FilesystemWalFaultTarget::PublishManifest => &mut self.publish_manifest,
             FilesystemWalFaultTarget::DeferredCommitSync => &mut self.deferred_commit_sync,
             FilesystemWalFaultTarget::RecoveredSegmentSync => &mut self.recovered_segment_sync,
@@ -6050,10 +6071,26 @@ impl FilesystemWalStore {
         #[cfg(not(any(test, feature = "host_test")))]
         let injected = false;
         let transaction_id = commit.transaction_id;
+        #[cfg(any(test, feature = "host_test"))]
+        let sync_injected = !injected
+            && sync_now
+            && self
+                .fault_plan
+                .should_fail(FilesystemWalFaultTarget::CommitMarkerSync);
+        #[cfg(not(any(test, feature = "host_test")))]
+        let sync_injected = false;
         let flushed = if injected {
             Err(WalStoreError::Io(
                 "injected filesystem WAL flush_commit failure".to_owned(),
             ))
+        } else if sync_injected {
+            // The marker reaches the file; only its sync fails.
+            append_segment_record(&self.segment_path(), DiskWalRecord::Commit(&commit), false)
+                .and_then(|()| {
+                    Err(WalStoreError::Io(
+                        "injected filesystem WAL commit_marker_sync failure".to_owned(),
+                    ))
+                })
         } else {
             append_segment_record(
                 &self.segment_path(),
@@ -6062,10 +6099,14 @@ impl FilesystemWalStore {
             )
         };
         if let Err(error) = flushed {
-            if sync_now && !self.deferred_commits.is_empty() {
-                // This commit's sync would also have covered the deferred
-                // records. It failed, so they are in the same position as
-                // after a failed deferred sync.
+            // Any failure while the marker is written or synced can leave it
+            // readable without being durable. A readable record is not a
+            // durable one: nothing may read this log as committed history
+            // until the store is reopened. The flush-commit fault fails
+            // before anything is written, so it leaves no such marker; it
+            // still fails closed when deferred records were waiting for this
+            // commit's sync, because that sync will now never cover them.
+            if !injected || (sync_now && !self.deferred_commits.is_empty()) {
                 self.deferred_commit_sync_failed = true;
                 self.deferred_commits.clear();
             }
@@ -6220,10 +6261,20 @@ impl FilesystemWalStore {
         Ok(())
     }
 
+    /// Whether a commit record was written and its storage sync failed.
+    ///
+    /// After that, the log can hold a readable commit record that is not
+    /// durable. The store refuses further writes, and a caller must not
+    /// reconcile itself from the log; only reopening the store recovers.
+    #[must_use]
+    pub const fn commit_sync_failed(&self) -> bool {
+        self.deferred_commit_sync_failed
+    }
+
     fn ensure_deferred_commit_sync_has_not_failed(&self) -> Result<(), WalStoreError> {
         if self.deferred_commit_sync_failed {
             return Err(WalStoreError::Io(
-                "a deferred commit sync failed; reopen the WAL store".to_owned(),
+                "a commit record sync failed; reopen the WAL store".to_owned(),
             ));
         }
         Ok(())

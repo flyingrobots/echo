@@ -358,12 +358,16 @@ jobs:
                   cargo test -p warp-core --features delta_validate --lib
                   cargo test -p warp-core --features delta_validate --test parallel_parallel_exec --test parallel_merge_tripwire --test parallel_merge_warpopkey --test parallel_engine_integration_multiwarp --test parallel_engine_worker_invariance --test parallel_stress_multiwarp --test parallel_openportal_rules
             - name: cargo test (trusted runtime consumer and fault-recovery fixtures)
-              run: cargo test -p warp-core --features trusted_runtime --test scheduler_fault_recovery_authority --test causal_anchor_external_consumer_tests --test external_consumer_contract_fixture_tests
+              run: |
+                  cargo test -p warp-core --features trusted_runtime --test scheduler_fault_recovery_authority
+                  cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test causal_anchor_external_consumer_tests --test external_consumer_contract_fixture_tests
             - name: cargo test (warp-core unit tests and inbox under host_test)
               run: cargo test -p warp-core --features host_test --lib --test inbox
             - name: cargo check (footprint enforcement feature lanes)
               run: |
-                  cargo check -p warp-core --features footprint_enforce_release --all-targets
+                  # Enforcement is already on in debug builds; the feature exists
+                  # for release builds, so that is the profile to check.
+                  cargo check -p warp-core --release --features footprint_enforce_release --all-targets
                   cargo check -p warp-core --features unsafe_graph --all-targets
             - name: cargo test (warp-wasm engine kernel)
               run: cargo test -p warp-wasm --features engine

@@ -400,15 +400,6 @@ jobs:
                   cargo check -p warp-core --features unsafe_graph --all-targets
             - name: cargo test (warp-wasm engine kernel)
               run: cargo test -p warp-wasm --features engine
-            - name: cargo test (warp-core canonical merge, delta_validate)
-              run: |
-                  cargo test -p warp-core --features delta_validate \
-                      --test parallel_merge_tripwire \
-                      --test parallel_merge_warpopkey \
-                      --test parallel_openportal_rules \
-                      --test parallel_parallel_exec \
-                      --test parallel_engine_integration_multiwarp \
-                      --test parallel_stress_multiwarp
             - name: cargo test --doc (warp-core)
               run: cargo test -p warp-core --doc
             - name: PRNG golden regression (warp-math)

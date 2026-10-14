@@ -1455,7 +1455,10 @@ fn healthy_contexts_advance_without_reconstructing_the_wal() {
     let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
     host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
         .expect("WAL");
-    let before = warp_core::causal_wal::filesystem_recovery_work();
+    let before = host
+        .runtime_wal()
+        .and_then(warp_core::TrustedRuntimeWal::filesystem_recovery_work)
+        .expect("filesystem WAL");
     for i in 0..8 {
         let attempt = format!("attempt-{i}");
         let observation = host
@@ -1478,7 +1481,10 @@ fn healthy_contexts_advance_without_reconstructing_the_wal() {
             original
         );
     }
-    let after = warp_core::causal_wal::filesystem_recovery_work();
+    let after = host
+        .runtime_wal()
+        .and_then(warp_core::TrustedRuntimeWal::filesystem_recovery_work)
+        .expect("filesystem WAL");
     assert_eq!(
         after, before,
         "healthy operations rescanned committed records"
@@ -1577,11 +1583,19 @@ fn durable_request_error_resolves_original_bytes_before_retrying() {
     assert!(host
         .bind_echo_operation_request_v1("request", "attempt", invocation(b"replacement"))
         .is_err());
-    let scans = warp_core::causal_wal::filesystem_recovery_work();
+    let scans = host
+        .runtime_wal()
+        .and_then(warp_core::TrustedRuntimeWal::filesystem_recovery_work)
+        .expect("filesystem WAL");
     let bytes = host
         .bind_echo_operation_request_v1("request", "attempt", invocation(b"original"))
         .expect("resolve durable request");
-    assert_eq!(scans, warp_core::causal_wal::filesystem_recovery_work());
+    assert_eq!(
+        scans,
+        host.runtime_wal()
+            .and_then(warp_core::TrustedRuntimeWal::filesystem_recovery_work)
+            .expect("filesystem WAL")
+    );
     assert_eq!(host.runtime_wal().expect("WAL").commits().len(), 2);
     drop(host);
     let (mut recovered, _, _) = reopen();

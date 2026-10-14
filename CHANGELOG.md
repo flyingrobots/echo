@@ -29,6 +29,14 @@
   including after reopening. The refusals now say so instead of "context
   admission limit reached", and the limits are named constants. Retirement
   is a design question (#854).
+- Filesystem recovery work is counted on the store. The public free function
+  `causal_wal::filesystem_recovery_work()` and its thread-local counter are
+  removed; use `FilesystemWalStore::recovery_work()` or
+  `TrustedRuntimeWal::filesystem_recovery_work()`, which return
+  `FilesystemRecoveryWork { scans, frames }`. `ECHO_WAL_PROFILE` now reports
+  the host store's counts, which start at zero when the store opens, rather
+  than cumulative counts for the thread. `recover_filesystem_store` counts
+  nothing.
 
 ### Added
 

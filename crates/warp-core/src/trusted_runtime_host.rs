@@ -31,20 +31,19 @@ use crate::{
         build_submission_acceptance_with_material_transaction,
         causal_anchor_frontier_digest_from_evidence, causal_anchor_genesis_frontier_digest,
         causal_history_genesis_frontier_digest, decode_tick_receipt_records,
-        logical_causal_history_frontier_digest, recover_filesystem_store,
-        recover_from_frames_and_commits, recover_receipt_index, recover_submission_index,
-        recovered_submission_receipt_index_root, tick_receipt_payload_is_batch,
-        trusted_runtime_wal_digest, validate_recovered_causal_anchor_history, AffectedFrontier,
-        AffectedFrontierKind, ExternalActionCoordinatorCapability, FilesystemWalStore,
-        InMemoryWalStore, Lsn, PayloadCodecId, PayloadSchemaId, RecoveredCausalAnchorAdmission,
-        RecoveredReceiptIndex, RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate,
-        RecoveryScanReport, SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority,
-        WalBuildError, WalCommittedTransaction, WalDecodeError, WalDurabilityMode,
-        WalReceiptCorrelationRecord, WalRecordKind, WalRecoveryError, WalRecoveryIndexError,
-        WalRuntimeStateDeltaRecord, WalSegmentId, WalStoreError, WalStorePort, WalStoreSnapshot,
-        WalSubmissionEnvelopeRecord, WalTickDecision, WalTransactionBuilder, WalTransactionCommit,
-        WalTransactionId, WalTransactionKind, WriterEpochId, WriterEpochRequest,
-        TRUSTED_RUNTIME_WAL_DOMAIN,
+        logical_causal_history_frontier_digest, recover_from_frames_and_commits,
+        recover_receipt_index, recover_submission_index, recovered_submission_receipt_index_root,
+        tick_receipt_payload_is_batch, trusted_runtime_wal_digest,
+        validate_recovered_causal_anchor_history, AffectedFrontier, AffectedFrontierKind,
+        ExternalActionCoordinatorCapability, FilesystemWalStore, InMemoryWalStore, Lsn,
+        PayloadCodecId, PayloadSchemaId, RecoveredCausalAnchorAdmission, RecoveredReceiptIndex,
+        RecoveredSubmissionIndex, RecoveryAccessMode, RecoveryCertificate, RecoveryScanReport,
+        SubmissionAcceptanceRecord, TickReceiptRecord, WalAppendAuthority, WalBuildError,
+        WalCommittedTransaction, WalDecodeError, WalDurabilityMode, WalReceiptCorrelationRecord,
+        WalRecordKind, WalRecoveryError, WalRecoveryIndexError, WalRuntimeStateDeltaRecord,
+        WalSegmentId, WalStoreError, WalStorePort, WalStoreSnapshot, WalSubmissionEnvelopeRecord,
+        WalTickDecision, WalTransactionBuilder, WalTransactionCommit, WalTransactionId,
+        WalTransactionKind, WriterEpochId, WriterEpochRequest, TRUSTED_RUNTIME_WAL_DOMAIN,
     },
     contract_host::{decode_canonical_eint, encode_canonical_eint},
     echo_operation::{
@@ -3231,6 +3230,16 @@ impl TrustedRuntimeWal {
         self.last_synced_commit_digest = self.previous_committed_transaction_digest;
     }
 
+    /// Returns the recovery scans and decoded frames of the filesystem store
+    /// behind this adapter, or `None` for an in-memory store. Diagnostic only.
+    #[must_use]
+    pub fn filesystem_recovery_work(&self) -> Option<crate::causal_wal::FilesystemRecoveryWork> {
+        match &self.store {
+            TrustedRuntimeWalStore::Filesystem(store) => Some(store.recovery_work()),
+            TrustedRuntimeWalStore::InMemory(_) => None,
+        }
+    }
+
     /// Returns how many storage syncs have made commit records durable, when
     /// the adapter is backed by the filesystem store.
     #[cfg(any(test, feature = "host_test"))]
@@ -3974,7 +3983,7 @@ impl TrustedRuntimeWalStore {
                         WalStoreError::WriterEpochLeaseUnavailable,
                     ));
                 }
-                recover_filesystem_store(store.root(), RecoveryAccessMode::Writable)
+                store.recover(RecoveryAccessMode::Writable)
             }
         }
     }
@@ -3982,9 +3991,7 @@ impl TrustedRuntimeWalStore {
     fn recover_read_only(&self) -> Result<RecoveryScanReport, WalRecoveryError> {
         match self {
             Self::InMemory(store) => recover_runtime_wal_store_read_only(store),
-            Self::Filesystem(store) => {
-                recover_filesystem_store(store.root(), RecoveryAccessMode::ReadOnly)
-            }
+            Self::Filesystem(store) => store.recover(RecoveryAccessMode::ReadOnly),
         }
     }
 

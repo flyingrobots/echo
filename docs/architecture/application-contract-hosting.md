@@ -577,11 +577,13 @@ the original request rather than replacing its semantic input.
 Retention policy and authenticated aperture delegation remain separate work.
 
 For diagnostic workload accounting, `ECHO_WAL_PROFILE=1` makes the session driver
-emit cumulative thread-local recovery calls and decoded frame counts on stderr
-after each RPC. Counters restart with each process. They count all filesystem
-recovery calls, including required opening and explicit recovery, and do not
-change stdout responses or retained evidence. They are work counts, not CPU-time
-or physical-I/O measurements.
+emit the recovery scans and decoded frame counts of its host's filesystem WAL
+store on stderr after each RPC. The store owns the counters, so they start at
+zero when the store opens and cover every recovery the host runs through it,
+including required opening and explicit recovery. Recovery through the free
+`recover_filesystem_store` function, as `warp-cli` and the WAL doctor use it,
+is not counted. The counters do not change stdout responses or retained
+evidence. They are work counts, not CPU-time or physical-I/O measurements.
 
 Disconnected create-if-absent cells can leave the root-reachable state hash
 unchanged. Recovery evidence must therefore include native commit identities

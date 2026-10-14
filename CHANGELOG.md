@@ -35,16 +35,16 @@
 
 ### Fixed
 
-- The canonical CBOR decoder in `echo-wasm-abi` no longer sizes allocations
-  from a length its input claims, and no longer recurses without bound. A
-  header that claims more array elements, map entries or string bytes than
-  the input has left is refused with `Incomplete` before anything is
-  allocated, and the comparison is made before the length is narrowed, so
-  32-bit and 64-bit targets refuse the same inputs. Nesting deeper than
+- The canonical CBOR decoder in `echo-wasm-abi` no longer reserves memory in
+  proportion to a length its input claims, and no longer recurses without
+  bound. A header that claims more array elements, map entries or string
+  bytes than the input has left is refused with `Incomplete`, and the
+  comparison is made before the length is narrowed, so 32-bit and 64-bit
+  targets refuse the same inputs. A container reserves at most a few slots
+  before its elements are decoded, so nested headers cannot multiply the
+  memory a request asks for. Nesting deeper than
   `MAX_CANONICAL_NESTING_DEPTH` (128) is refused, by the encoder as well, so
-  bytes it returns always decode. The decoder reserves at most a few slots for
-  a container before decoding its elements, so nested headers cannot multiply
-  the memory a request asks for. Before, a nine-byte request could abort the
+  bytes it returns always decode. Before, a nine-byte request could abort the
   process.
 
 - A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.

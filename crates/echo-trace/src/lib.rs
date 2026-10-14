@@ -115,3 +115,5 @@ impl<N, E, A> TraceSink<N, E, A> for NullTraceSink {
         })
     }
 }
+
+fn   probe_misformatted( ){}

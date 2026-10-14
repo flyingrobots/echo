@@ -29,7 +29,9 @@
 //! No write-ahead log is enabled; `wal_record_cost` measures that.
 //!
 //! Settings (environment):
-//! - `ECHO_BENCH_CELLS`: cells in the scene (default 10000)
+//! - `ECHO_BENCH_CELLS`: cells in the scene, each reachable from the root
+//!   (default 10000)
+//! - `ECHO_BENCH_UNLINKED`: leave the cells unreachable, outside the state root
 //! - `ECHO_BENCH_ACTIONS`: Actions per frame, comma-separated (default 64,256)
 //! - `ECHO_BENCH_OVERLAP`: percent of Actions that collide, each below 100
 //!   (default 0,10,25,50,90)

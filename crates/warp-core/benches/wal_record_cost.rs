@@ -24,7 +24,9 @@
 //! Settings (environment):
 //! - `ECHO_BENCH_HISTORY`: history lengths to report (default 250,500,1000,2000)
 //! - `ECHO_BENCH_WINDOW`: updates in each measured window (default 100)
-//! - `ECHO_BENCH_CELLS`: cells in the scene (default 1)
+//! - `ECHO_BENCH_CELLS`: cells in the scene, each reachable from the root
+//!   (default 1)
+//! - `ECHO_BENCH_UNLINKED`: leave the cells unreachable, outside the state root
 //! - `ECHO_BENCH_DURABILITY`: none, in-memory, filesystem (default: all three)
 //! - `ECHO_BENCH_LOG_DIR`: where the filesystem log is written (default: the
 //!   system temporary directory). The numbers depend on this device.

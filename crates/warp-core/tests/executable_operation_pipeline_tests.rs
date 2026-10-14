@@ -4729,3 +4729,52 @@ fn a_creation_whose_node_appeared_is_obstructed_in_a_later_tick() {
         "the node is no longer absent, so the creation keeps the basis obstruction"
     );
 }
+
+#[test]
+fn an_action_with_a_forged_origin_keeps_the_whole_frontier_rule() {
+    let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(2);
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("the WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let honest = action_invocation(&host, &installed, head_key, nodes[1], b"before", b"after");
+    // Same writer head and application basis, but a state root that the
+    // worldline never held at that tick.
+    let CanonicalValueV1::Map(mut basis) = decode_canonical_cbor_v1(
+        &encode_canonical_cbor_v1(
+            &decode_canonical_cbor_v1(&honest)
+                .ok()
+                .and_then(|value| match value {
+                    CanonicalValueV1::Map(fields) => fields
+                        .into_iter()
+                        .find(|(key, _)| key == &CanonicalValueV1::Text("evaluation_basis".into()))
+                        .map(|(_, value)| value),
+                    _ => None,
+                })
+                .expect("the invocation carries its evaluation basis"),
+        )
+        .expect("the basis re-encodes"),
+    )
+    .expect("the basis decodes") else {
+        panic!("the evaluation basis is a canonical map");
+    };
+    let state_root = basis
+        .iter_mut()
+        .find(|(key, _)| key == &CanonicalValueV1::Text("state_root".into()))
+        .expect("the basis names its state root");
+    state_root.1 = CanonicalValueV1::Bytes(digest("forged-origin").to_vec());
+    let forged =
+        replace_canonical_map_field(&honest, "evaluation_basis", CanonicalValueV1::Map(basis));
+
+    let first = action_invocation(&host, &installed, head_key, nodes[0], b"before", b"after");
+    let first = submit_action(&mut host, head_key, first);
+    host.tick_once().expect("the first Action is decided");
+    assert!(outcome_is_committed(&host, &first));
+
+    let forged = submit_action(&mut host, head_key, forged);
+    host.tick_once().expect("the forged Action is decided");
+    assert!(
+        outcome_is_basis_changed(&host, &forged),
+        "an origin that history does not hold cannot earn scoped validity"
+    );
+}

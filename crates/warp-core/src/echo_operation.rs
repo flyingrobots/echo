@@ -3814,7 +3814,13 @@ fn current_application_basis(
 ///   descent path is read;
 /// - the application basis recomputed from `state` equals the one the Action
 ///   carries: the same value digest for compare-and-set, the same occupancy for
-///   create-if-absent. The comparison is by value.
+///   create-if-absent. The comparison is by value;
+/// - an embedded observation, if any, was captured no later than the origin and
+///   reads only root-warp nodes, so its reads are value dependencies that
+///   execution re-checks against `state` and no portal is read for them.
+///
+/// The caller must also have verified that the origin basis names a retained
+/// coordinate of the worldline's history; this function does not.
 ///
 /// Anything else keeps the whole-frontier rule, and the caller obstructs it
 /// with `BasisChanged`. `state` must be the state the Action commits onto.
@@ -3835,6 +3841,12 @@ pub(crate) fn scoped_action_basis_holds_v1(
         && origin.writer_head == current_head
         && origin.worldline_tick < current_tick
         && invocation.node.warp_id == state.root().warp_id
+        && invocation.observation.as_ref().is_none_or(|observation| {
+            observation.basis().worldline_tick() <= origin.worldline_tick
+                && observation
+                    .readings()
+                    .all(|(node, _)| node.warp_id == state.root().warp_id)
+        })
         && current_application_basis(installed, invocation, state)
             .is_ok_and(|basis| basis == origin.application_basis)
 }
@@ -3956,6 +3968,7 @@ pub(crate) fn reconstruct_action_evaluation_v1(
         state,
         policy_id,
         &authority,
+        false,
     ))
 }
 
@@ -4922,6 +4935,7 @@ pub(crate) fn prepare_operation_v1(
     state: &WorldlineState,
     policy_id: u32,
     evaluation_authority: &EchoOperationEvaluationAuthorityV1,
+    origin_retained: bool,
 ) -> EchoOperationPreparationV1 {
     let package_id = admitted.invocation.package_id;
     let invocation_id = admitted.invocation_id;
@@ -4956,13 +4970,14 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::EvaluationAuthorityMismatch);
     }
     if admitted.invocation.evaluation_basis != current_basis
-        && !scoped_action_basis_holds_v1(
-            installed,
-            &admitted.invocation,
-            current_basis.writer_head,
-            current_basis.worldline_tick,
-            state,
-        )
+        && !(origin_retained
+            && scoped_action_basis_holds_v1(
+                installed,
+                &admitted.invocation,
+                current_basis.writer_head,
+                current_basis.worldline_tick,
+                state,
+            ))
     {
         return obstruction(EchoOperationObstructionKindV1::BasisChanged);
     }
@@ -8374,6 +8389,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &authority,
+            false,
         ) else {
             panic!("projected invocation prepares");
         };
@@ -8467,6 +8483,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &authority,
+            false,
         ) else {
             panic!("an oversized application result must not produce a patch");
         };
@@ -8746,6 +8763,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &evaluation_authority,
+            false,
         ) else {
             panic!("the descended invocation prepares");
         };
@@ -8824,6 +8842,7 @@ mod tests {
             &state,
             crate::POLICY_ID_NO_POLICY_V0,
             &evaluation_authority,
+            false,
         ) else {
             panic!("the portal traversal must stop at its delegated read allowance");
         };
@@ -9624,6 +9643,7 @@ mod tests {
                 &state,
                 crate::POLICY_ID_NO_POLICY_V0,
                 &authority,
+                false,
             ) else {
                 panic!("boundary key prepares");
             };

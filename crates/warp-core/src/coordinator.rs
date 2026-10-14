@@ -71,6 +71,39 @@ pub(crate) fn resolve_echo_operation_evaluation_basis_v1(
     )
 }
 
+/// Whether `basis` names a coordinate that the worldline's retained history
+/// actually holds: its tick, global tick, state root and commit id (#837).
+///
+/// Dependency-scoped validity lets an Action commit after its origin, so the
+/// origin must be a real coordinate, not one a caller assembled.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+pub(crate) fn echo_operation_origin_is_retained_v1(
+    provenance: &ProvenanceService,
+    basis: &EchoOperationEvaluationBasisV1,
+) -> bool {
+    let worldline_id = basis.writer_head().worldline_id;
+    match basis.worldline_tick().as_u64().checked_sub(1) {
+        None => {
+            basis.commit_global_tick().is_none()
+                && provenance
+                    .initial_boundary_hash(worldline_id)
+                    .is_ok_and(|root| root == basis.state_root())
+                && basis.commit_id()
+                    == crate::echo_operation::genesis_commit_id(
+                        basis.writer_head(),
+                        basis.state_root(),
+                    )
+        }
+        Some(tip) => provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tip))
+            .is_ok_and(|entry| {
+                Some(entry.commit_global_tick) == basis.commit_global_tick()
+                    && entry.expected.commit_hash == basis.commit_id()
+                    && entry.expected.state_root == basis.state_root()
+            }),
+    }
+}
+
 /// The part of an evaluation basis that a writer head's frontier fixes.
 ///
 /// It does not depend on the invocation. Resolving it hashes the whole
@@ -4604,6 +4637,10 @@ impl SchedulerCoordinator {
                             state,
                             engine.echo_operation_policy_id(),
                             evaluation_authority,
+                            echo_operation_origin_is_retained_v1(
+                                provenance,
+                                &admitted_action.evaluation_basis(),
+                            ),
                         );
                         candidates.push(SchedulerEchoOperationCandidateV1 {
                             submission_id,

@@ -1188,6 +1188,8 @@ impl TrustedRuntimeHost {
             state,
             self.engine.echo_operation_policy_id(),
             &self.echo_operation_evaluation_authority,
+            // The direct seam keeps the whole-frontier rule.
+            false,
         )
     }
 
@@ -4987,6 +4989,12 @@ fn validate_recovered_echo_operation_parent_states(
     }
     // Sort verification references; retained WAL/decision order remains unchanged.
     basis_obligations.sort_unstable();
+    // The most recent stale origin state. Actions that spill into later Ticks
+    // usually share one origin, so it is replayed once, not once per Action.
+    let mut transient_origin: Option<(
+        (crate::WorldlineId, crate::WorldlineTick),
+        crate::WorldlineState,
+    )> = None;
     for (_, _, obligation) in basis_obligations {
         match obligation {
             BasisObligation::Receipt(index) => {
@@ -5097,30 +5105,40 @@ fn validate_recovered_echo_operation_parent_states(
                 // decided after its origin, or on another worldline. Then
                 // the origin state is a transient replay, so that a stale
                 // basis never rewinds the cursor (#837).
-                let transient_basis_state;
                 let basis_state = if basis_worldline_id == parent_worldline_id
                     && basis.worldline_tick() == tick_before
                 {
                     parent_state
                 } else {
-                    let (state, applied) =
-                        crate::provenance_store::replay_worldline_state_at_with_work(
-                            recovered_provenance,
-                            basis_worldline_id,
-                            frontier.state(),
-                            basis.worldline_tick(),
-                        )
-                        .map_err(|_| {
-                            TrustedRuntimeWalError::EchoOperationExecutionMismatch {
-                                detail: "Action basis state cannot be reconstructed",
-                            }
-                        })?;
-                    work.replay_count += 1;
-                    work.replayed_patches += applied;
-                    transient_basis_state = state;
+                    let key = (basis_worldline_id, basis.worldline_tick());
+                    if transient_origin
+                        .as_ref()
+                        .is_none_or(|(cached, _)| *cached != key)
+                    {
+                        let (state, applied) =
+                            crate::provenance_store::replay_worldline_state_at_with_work(
+                                recovered_provenance,
+                                basis_worldline_id,
+                                frontier.state(),
+                                basis.worldline_tick(),
+                            )
+                            .map_err(|_| {
+                                TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                                    detail: "Action basis state cannot be reconstructed",
+                                }
+                            })?;
+                        work.replay_count += 1;
+                        work.replayed_patches += applied;
+                        transient_origin = Some((key, state));
+                    }
+                    let (_, state) = transient_origin.as_ref().ok_or(
+                        TrustedRuntimeWalError::EchoOperationExecutionMismatch {
+                            detail: "Action basis state cannot be reconstructed",
+                        },
+                    )?;
                     #[cfg(any(test, feature = "host_test"))]
-                    work.note_states([parent_state, &transient_basis_state].into_iter());
-                    &transient_basis_state
+                    work.note_states([parent_state, state].into_iter());
+                    state
                 };
                 if basis_state.state_root() != basis.state_root()
                     || !action_application_basis_matches_state_v1(

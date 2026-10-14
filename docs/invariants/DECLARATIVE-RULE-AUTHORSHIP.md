@@ -76,7 +76,10 @@ set of runtime bindings, keyed by authored slot name:
   declared relation, and must resolve to a node of the expected kind.
 - A **closure** resolves from an already bound source slot, and optionally a
   second related slot, through one declared closure operator over a requested
-  range. It yields an ordered list of members.
+  range. It yields a list of members in the order the declared closure
+  operator defines. That order is part of the operator's contract and must not
+  depend on how a runtime adapter enumerates the graph, so every adapter yields
+  the same list for the same graph.
 
 Binding is deterministic and fails closed, never widening the surface. A slot
 or closure bound twice is refused. So are: a direct slot whose reference has no

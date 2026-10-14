@@ -2091,8 +2091,6 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
   LSN gap and made subsequent recovery fail.
 
 - Generic executable-operation lowering and verification now
-
-- Generic executable-operation lowering and independent verification now
   resolve source-local obstruction constructor aliases through the exact
   digest-locked lawpack import before encoding or comparing the package.
   Runtime duplicate outcomes therefore retain the capability-owned obstruction

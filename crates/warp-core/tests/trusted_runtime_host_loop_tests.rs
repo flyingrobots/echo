@@ -1438,6 +1438,166 @@ fn a_wal_root_refuses_observations_beyond_its_lifetime_limit_even_after_reopenin
     );
 }
 
+fn request_link_fixture(
+    root: &std::path::Path,
+) -> impl Fn() -> (TrustedRuntimeHost, WriterHeadKey, warp_core::NodeKey) + '_ {
+    move || {
+        let (runtime, lane, _) = runtime_pair();
+        let node = *runtime
+            .worldlines()
+            .get(&lane)
+            .expect("lane")
+            .state()
+            .root();
+        let head = WriterHeadKey {
+            worldline_id: lane,
+            head_id: make_head_id("default-a"),
+        };
+        let mut host = TrustedRuntimeHost::new(runtime, empty_engine()).expect("host");
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(root))
+            .expect("WAL");
+        (host, head, node)
+    }
+}
+
+fn bind_link_request(
+    host: &mut TrustedRuntimeHost,
+    head: WriterHeadKey,
+    node: warp_core::NodeKey,
+    request: &str,
+) -> Vec<u8> {
+    let observation = host
+        .retain_echo_operation_observation_v1(request, head, &[node])
+        .expect("capture");
+    let invocation = warp_core::EchoOperationInvocationV1::anchored_node_attachment_create_if_absent_with_application_input(
+        warp_core::echo_operation_package_id_v1(b"context-only-test"), "test.context@1.create",
+        observation.basis(), [1;32], warp_core::EchoOperationBudgetV1::new(16, 1024, 320), node, b"value".to_vec(), vec![0xa0]);
+    host.bind_echo_operation_request_v1(request, request, invocation)
+        .expect("bind")
+}
+
+#[test]
+fn a_submitted_request_is_durably_linked_to_its_submission() {
+    let root = temp_runtime_wal_dir("request-outcome-link");
+    let reopen = request_link_fixture(&root);
+    let (mut host, head, node) = reopen();
+    bind_link_request(&mut host, head, node, "request");
+    assert_eq!(
+        host.echo_operation_request_outcome_v1("request")
+            .expect("query"),
+        None,
+        "a bound request is not linked until it is submitted"
+    );
+    let target = warp_core::IngressTarget::ExactHead { key: head };
+    let submission = host
+        .submit_bound_echo_operation_request_v1("request", target.clone())
+        .expect("submit");
+    assert_eq!(
+        host.submit_bound_echo_operation_request_v1("request", target)
+            .expect("retry"),
+        submission,
+        "retrying returns the same submission"
+    );
+    host.tick_once().expect("the Action is decided");
+    let live = host
+        .echo_operation_request_outcome_v1("request")
+        .expect("query")
+        .expect("linked");
+    assert_eq!(live.0, submission);
+    drop(host);
+
+    let (recovered, _, _) = reopen();
+    assert_eq!(
+        recovered
+            .echo_operation_request_outcome_v1("request")
+            .expect("query"),
+        Some(live),
+        "the link and its outcome survive reopening"
+    );
+}
+
+#[test]
+fn an_unlinked_acceptance_is_linked_by_retry() {
+    let root = temp_runtime_wal_dir("request-outcome-link-retry");
+    let reopen = request_link_fixture(&root);
+    let (mut host, head, node) = reopen();
+    let bytes = bind_link_request(&mut host, head, node, "request");
+    let target = warp_core::IngressTarget::ExactHead { key: head };
+    // The crash window: the submission is durably accepted, but its link is
+    // not yet retained.
+    let accepted = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(
+            warp_core::echo_operation_action_envelope_v1(target.clone(), bytes).expect("envelope"),
+        )
+        .expect("accepted")
+        .submission_id;
+    drop(host);
+
+    let (mut reopened, _, _) = reopen();
+    assert_eq!(
+        reopened
+            .echo_operation_request_outcome_v1("request")
+            .expect("query"),
+        None
+    );
+    assert_eq!(
+        reopened
+            .submit_bound_echo_operation_request_v1("request", target)
+            .expect("retry completes the link"),
+        accepted
+    );
+    assert_eq!(
+        reopened
+            .echo_operation_request_outcome_v1("request")
+            .expect("query")
+            .map(|(submission, _)| submission),
+        Some(accepted)
+    );
+}
+
+#[test]
+fn a_linked_request_refuses_another_target_and_unknown_requests_are_refused() {
+    let root = temp_runtime_wal_dir("request-outcome-link-target");
+    let reopen = request_link_fixture(&root);
+    let (mut host, head, node) = reopen();
+    bind_link_request(&mut host, head, node, "request");
+    let submission = host
+        .submit_bound_echo_operation_request_v1(
+            "request",
+            warp_core::IngressTarget::ExactHead { key: head },
+        )
+        .expect("submit");
+    // A target that resolves to the same head is the same submission.
+    assert_eq!(
+        host.submit_bound_echo_operation_request_v1(
+            "request",
+            warp_core::IngressTarget::DefaultWriter {
+                worldline_id: head.worldline_id,
+            },
+        )
+        .expect("an equivalent target"),
+        submission
+    );
+    // A different head would be a second submission of one request.
+    let other_head = WriterHeadKey {
+        worldline_id: WorldlineId::from_bytes([2; 32]),
+        head_id: make_head_id("default-b"),
+    };
+    assert!(host
+        .submit_bound_echo_operation_request_v1(
+            "request",
+            warp_core::IngressTarget::ExactHead { key: other_head },
+        )
+        .is_err());
+    assert!(host
+        .submit_bound_echo_operation_request_v1(
+            "never-bound",
+            warp_core::IngressTarget::ExactHead { key: head },
+        )
+        .is_err());
+}
+
 #[test]
 fn healthy_contexts_advance_without_reconstructing_the_wal() {
     let root = temp_runtime_wal_dir("context-steady-prefix");

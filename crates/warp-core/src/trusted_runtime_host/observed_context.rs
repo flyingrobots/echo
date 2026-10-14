@@ -62,6 +62,9 @@ fn check_id(id: &str) -> Result<()> {
 pub(super) struct Contexts {
     observations: BTreeMap<String, EchoOperationObservationV1>,
     requests: BTreeMap<String, (String, Hash, Vec<u8>)>,
+    /// Durable link from a logical request to the submission that carries it
+    /// (#854, R1).
+    submissions: BTreeMap<String, Hash>,
 }
 
 impl Contexts {
@@ -123,6 +126,15 @@ impl Contexts {
                         .is_some()
                     {
                         return Err(error("duplicate request identity"));
+                    }
+                }
+                "submission" if fields.len() == 4 => {
+                    if !self.requests.contains_key(&id) {
+                        return Err(error("submission link names an unbound request"));
+                    }
+                    let submission: Hash = field_bytes(&fields[3])?.try_into().map_err(error)?;
+                    if self.submissions.insert(id, submission).is_some() {
+                        return Err(error("duplicate submission link"));
                     }
                 }
                 _ => return Err(error("invalid context record kind")),
@@ -378,5 +390,89 @@ impl TrustedRuntimeHost {
                 V::Bytes(bytes.clone()),
             ])?;
         Ok(bytes)
+    }
+
+    /// Submits the Action bound to `request` to `target` and durably links
+    /// the request to that submission (#854, R1).
+    ///
+    /// The submission is accepted durably first, then the link is retained.
+    /// Retrying after a failure between the two re-derives the same submission
+    /// (the envelope is the same content) and completes the link. A request is
+    /// linked to exactly one submission: submitting it to a different target
+    /// afterwards is refused.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unknown request, a request already linked to another
+    /// submission, and any failure to submit or to retain the link durably.
+    pub fn submit_bound_echo_operation_request_v1(
+        &mut self,
+        request: &str,
+        target: crate::IngressTarget,
+    ) -> Result<Hash> {
+        check_id(request)?;
+        let wal = self
+            .runtime_wal
+            .as_mut()
+            .ok_or_else(|| error("durable WAL required"))?;
+        wal.reconcile_operation_context_prefix()?;
+        let contexts = wal.operation_contexts()?;
+        let (_, _, bytes) = contexts
+            .requests
+            .get(request)
+            .ok_or_else(|| error("unknown logical request"))?;
+        let bytes = bytes.clone();
+        let linked = contexts.submissions.get(request).copied();
+        let envelope = crate::echo_operation::echo_operation_action_envelope_v1(target, bytes)
+            .map_err(error)?;
+        let submission = self
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .map_err(error)?
+            .submission_id;
+        if let Some(linked) = linked {
+            return if linked == submission {
+                Ok(submission)
+            } else {
+                Err(error("logical request already submitted to another target"))
+            };
+        }
+        self.runtime_wal
+            .as_mut()
+            .ok_or_else(|| error("durable WAL required"))?
+            .retain_operation_context(vec![
+                V::Text(SCHEMA.into()),
+                V::Text("submission".into()),
+                V::Text(request.into()),
+                V::Bytes(submission.to_vec()),
+            ])?;
+        Ok(submission)
+    }
+
+    /// Returns the submission durably linked to `request` and its recorded
+    /// outcome, if one has been decided (#854, R1).
+    ///
+    /// `Ok(None)` means the request has not been submitted through
+    /// [`Self::submit_bound_echo_operation_request_v1`].
+    ///
+    /// # Errors
+    ///
+    /// Refuses a malformed request identity or an unreadable WAL.
+    pub fn echo_operation_request_outcome_v1(
+        &self,
+        request: &str,
+    ) -> Result<Option<(Hash, Option<crate::EchoOperationActionOutcomeV1>)>> {
+        check_id(request)?;
+        let wal = self
+            .runtime_wal
+            .as_ref()
+            .ok_or_else(|| error("durable WAL required"))?;
+        let contexts = wal.operation_contexts()?;
+        Ok(contexts.submissions.get(request).map(|submission| {
+            (
+                *submission,
+                self.echo_operation_action_outcome_v1(submission).cloned(),
+            )
+        }))
     }
 }

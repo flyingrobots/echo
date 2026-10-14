@@ -65,6 +65,13 @@
 
 ### Added
 
+- `submit_bound_echo_operation_request_v1` submits the Action bound to a
+  logical request and durably links the request to that submission;
+  `echo_operation_request_outcome_v1` returns the linked submission and its
+  recorded outcome, live and after reopening (#854, R1). The link is retained
+  after durable acceptance; a retry after a failure between the two completes
+  it, and a second submission of one request to another head is refused.
+
 - `ActualFootprint` records the graph resources an execution actually touched
   and compares them against a declared `Footprint`, returning the existing
   `ViolationKind` vocabulary in a deterministic axis order. Footprint

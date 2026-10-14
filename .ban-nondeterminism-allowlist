@@ -40,3 +40,10 @@ std-fs crates/warp-math/tests/trig_golden_vectors.rs golden-vector fixture read/
 std-fs crates/echo-edict-provider-lowerer/tests/lowerer_contract.rs explicit ignored checked generated-helper fixture regeneration only.
 std-env crates/warp-core/tests/edict_node_read_tests.rs test-only selection of public-compiler fixture directory; fixed independently recorded package pins remain mandatory and no semantic runtime environment is read.
 std-fs crates/warp-core/tests/edict_node_read_tests.rs test-only loading of unchanged public-compiler CBOR fixtures; evaluation always checks fixed package pins; separate witnesses check the retained accepted reports.
+time-instant crates/warp-core/benches/action_footprint_overlap.rs benchmark driver measures elapsed time; it is not linked into the runtime and decides no history.
+std-env crates/warp-core/benches/action_footprint_overlap.rs benchmark driver reads its settings from the environment; it is not linked into the runtime.
+time-instant crates/warp-core/benches/wal_record_cost.rs benchmark driver measures elapsed time; it is not linked into the runtime and decides no history.
+std-env crates/warp-core/benches/wal_record_cost.rs benchmark driver reads its settings from the environment; it is not linked into the runtime.
+time-instant crates/warp-core/benches/support/action_scene.rs benchmark driver measures elapsed time; it is not linked into the runtime and decides no history.
+std-env crates/warp-core/benches/support/action_scene.rs benchmark driver reads its settings from the environment; it is not linked into the runtime.
+std-fs crates/warp-core/benches/support/action_scene.rs benchmark driver creates and removes its own log directory; it is not linked into the runtime.

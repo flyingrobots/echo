@@ -14,6 +14,23 @@ Criterion-based microbenchmarks for Echo’s engine.
 - Produces HTML reports (via Criterion) to help evaluate engine changes and
   detect regressions over time.
 
+## Action-path benchmarks live in `warp-core`
+
+Two benchmarks drive a trusted host with real compare-and-set Actions:
+`action_footprint_overlap` and `wal_record_cost`. They are bench targets of
+`warp-core`, not of this crate, because they need dependencies this crate does
+not have, and adding them would change `Cargo.lock`, which the provider
+package binds. Run them with:
+
+```sh
+cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime \
+  --bench action_footprint_overlap
+cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime \
+  --bench wal_record_cost
+```
+
+Each prints a table. The header comment of each file lists its settings.
+
 ## Documentation
 
 - See `docs/benchmarks/` and the repository `README.md` for instructions on

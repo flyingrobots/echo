@@ -49,7 +49,7 @@ an independent semantic check (#809). The bounded-read route below is
 different: `src/executable_operation/bounded_read.rs` rebuilds Core from the
 Target IR instead of repeating the lowering.
 
-For `compiler-produced-bounded-pure/v1`, the verifier independently enforces
+For `compiler-produced-bounded-pure/v1`, the verifier separately enforces
 the zero-choice configuration, effect-free Core and Target IR shapes, exact
 budget and closure bindings, pure-binding result projection, and embedded
 compiler artifact bytes. It reconstructs the distinct generic pure package

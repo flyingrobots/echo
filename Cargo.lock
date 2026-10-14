@@ -2168,7 +2168,6 @@ dependencies = [
  "criterion",
  "echo-dry-tests",
  "rayon",
- "rustc-hash 2.1.1",
  "warp-core",
 ]
 

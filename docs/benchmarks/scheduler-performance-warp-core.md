@@ -54,23 +54,6 @@ obstructed. It runs with
 `cargo bench -p warp-core --features native_rule_bootstrap,trusted_runtime --bench action_footprint_overlap`
 and prints a table; see the benchmark guide for why it lives in `warp-core`.
 
-### Adversarial hashing (collision behavior)
-
-Bench file:
-
-- `crates/warp-benches/benches/scheduler_adversarial.rs`
-
-What it measures:
-
-- worst-case behavior for `FxHashMap` under deliberate collisions vs random keys
-- relevant because `reserve()` uses hash-backed sets for conflict detection/marking
-
-Run:
-
-```sh
-cargo bench -p warp-benches
-```
-
 ## Documentation Hygiene
 
 When you add/modify scheduler benches:

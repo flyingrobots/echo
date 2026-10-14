@@ -8825,6 +8825,16 @@ mod tests {
             target,
             b"created".to_vec(),
         );
+        // The target is absent and the head and an earlier origin match, so
+        // only the root-warp condition keeps this descended Action out of
+        // dependency-scoped validity (#837): its portal chain is not tracked.
+        assert!(!scoped_action_basis_holds_v1(
+            &installed,
+            &invocation,
+            writer_head,
+            WorldlineTick::from_raw(1),
+            &state,
+        ));
         let invocation_bytes = invocation.to_canonical_bytes().expect("invocation encodes");
         let invocation_policy = EchoOperationInvocationAdmissionPolicyV1::new(
             authority_profile,

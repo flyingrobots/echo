@@ -4604,11 +4604,13 @@ impl SchedulerCoordinator {
                             state,
                             engine.echo_operation_policy_id(),
                             evaluation_authority,
-                            crate::echo_operation::admitted_origin_corroborated_v1(
-                                provenance,
-                                admitted_action,
-                                current_basis.worldline_tick(),
-                            ),
+                            // Only a stale Action needs its origin corroborated.
+                            admitted_action.evaluation_basis() != current_basis
+                                && crate::echo_operation::admitted_origin_corroborated_v1(
+                                    provenance,
+                                    admitted_action,
+                                    current_basis.worldline_tick(),
+                                ),
                         );
                         candidates.push(SchedulerEchoOperationCandidateV1 {
                             submission_id,

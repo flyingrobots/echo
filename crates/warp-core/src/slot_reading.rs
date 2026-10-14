@@ -582,7 +582,7 @@ mod tests {
             let from = sequence.pick(&self.nodes);
             let ty =
                 make_type_id(["t0", "t1", "t2"][usize::try_from(sequence.next() % 3).unwrap()]);
-            let value = (sequence.next() % 3 != 0)
+            let value = (!sequence.next().is_multiple_of(3))
                 .then(|| atom(u8::try_from(sequence.next() % 251).unwrap()));
             let [_, child] = self.warps;
             let portal_owner = self.portal_owner();
@@ -671,7 +671,7 @@ mod tests {
         /// Operations for one tick. Deleting the child instance must clear the
         /// portal that points at it in the same tick.
         fn tick_ops(&self, sequence: &mut Sequence) -> Vec<WarpOp> {
-            if sequence.next() % 7 == 0 {
+            if sequence.next().is_multiple_of(7) {
                 return vec![
                     WarpOp::DeleteWarpInstance {
                         warp_id: self.warps[1],

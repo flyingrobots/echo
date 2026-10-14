@@ -1,3 +1,11 @@
+// The four ignored placeholder tests at the end of this file have
+// `unimplemented!` bodies. Issue #814 removes them.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::unimplemented
+)]
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! OpenPortal rule tests for parallel execution.
@@ -376,7 +384,7 @@ fn openportal_op_structure_is_correct() {
                 }
             }
         }
-        _ => panic!("expected WarpOp::OpenPortal, got {:?}", op),
+        _ => panic!("expected WarpOp::OpenPortal, got {op:?}"),
     }
 }
 
@@ -402,7 +410,7 @@ fn openportal_canonical_ordering_via_patch() {
 
     // Insert in reverse order - patch should canonicalize
     let ops_reverse = vec![op_b.clone(), op_a.clone()];
-    let ops_forward = vec![op_a.clone(), op_b.clone()];
+    let ops_forward = vec![op_a, op_b];
 
     let patch_reverse = WarpTickPatchV1::new(
         POLICY_ID_NO_POLICY_V0,
@@ -539,11 +547,11 @@ fn openportal_creates_valid_child_warp() {
     let _tick_n_op = make_open_portal_op(parent_warp, parent_node, child_warp, child_root);
 
     // Tick N+1: write to the child warp (should succeed)
-    let _tick_n1_target_node = make_node_id("test/new-node-next-tick");
+    let tick_n1_target_node = make_node_id("test/new-node-next-tick");
     let _tick_n1_op = WarpOp::UpsertNode {
         node: NodeKey {
             warp_id: child_warp,
-            local_id: _tick_n1_target_node,
+            local_id: tick_n1_target_node,
         },
         record: NodeRecord {
             ty: make_type_id("test/new-node"),

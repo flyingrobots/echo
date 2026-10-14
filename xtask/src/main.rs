@@ -9173,8 +9173,7 @@ mod tests {
     fn collect_policy_matrix_rows_errors_on_malformed_policy_case() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |duration| duration.as_nanos());
         let root = std::env::temp_dir().join(format!(
             "echo-xtask-policy-case-{}-{unique}",
             std::process::id()

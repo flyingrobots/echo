@@ -47,8 +47,7 @@ fn test_dind_coverage() -> Result<()> {
 /// Check if env var is set to a truthy value ("1", "true", "yes").
 fn is_env_truthy(var: &str) -> bool {
     std::env::var(var)
-        .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
+        .is_ok_and(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
 fn run_suite(manifest_path: PathBuf) -> Result<()> {

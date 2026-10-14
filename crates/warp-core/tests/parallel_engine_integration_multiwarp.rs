@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Multi-warp engine integration tests for parallel execution.
@@ -129,13 +130,13 @@ fn warp_iteration_order_does_not_affect_result() {
     let items_b = make_exec_items(&nodes_b);
 
     let mut items_a_then_b: Vec<ExecItem> = Vec::new();
-    items_a_then_b.extend(items_a.iter().cloned());
-    items_a_then_b.extend(items_b.iter().cloned());
+    items_a_then_b.extend(items_a.iter().copied());
+    items_a_then_b.extend(items_b.iter().copied());
 
     // Create items: B-then-A order
     let mut items_b_then_a: Vec<ExecItem> = Vec::new();
-    items_b_then_a.extend(items_b.iter().cloned());
-    items_b_then_a.extend(items_a.iter().cloned());
+    items_b_then_a.extend(items_b.iter().copied());
+    items_b_then_a.extend(items_a.iter().copied());
 
     // Execute with A-then-B order
     let deltas_a_then_b = execute_parallel(view, &items_a_then_b, 4);
@@ -176,8 +177,8 @@ fn warp_iteration_order_invariance_across_seeds_and_workers() {
 
     // Baseline: A-then-B with serial execution
     let mut baseline_items: Vec<ExecItem> = Vec::new();
-    baseline_items.extend(items_a.iter().cloned());
-    baseline_items.extend(items_b.iter().cloned());
+    baseline_items.extend(items_a.iter().copied());
+    baseline_items.extend(items_b.iter().copied());
 
     let baseline_delta = execute_serial(view, &baseline_items);
     let baseline_ops = merge_deltas_ok(vec![baseline_delta]).expect("baseline merge failed");
@@ -187,8 +188,8 @@ fn warp_iteration_order_invariance_across_seeds_and_workers() {
 
         // Create B-then-A ordering
         let mut items_b_then_a: Vec<ExecItem> = Vec::new();
-        items_b_then_a.extend(items_b.iter().cloned());
-        items_b_then_a.extend(items_a.iter().cloned());
+        items_b_then_a.extend(items_b.iter().copied());
+        items_b_then_a.extend(items_a.iter().copied());
 
         // Shuffle both orderings
         let mut shuffled_a_then_b = baseline_items.clone();

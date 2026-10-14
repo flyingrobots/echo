@@ -243,7 +243,7 @@ mod tests {
         }
         fs::write(marker, b"ready").expect("write ready marker");
         loop {
-            thread::sleep(Duration::from_secs(60));
+            thread::sleep(Duration::from_mins(1));
         }
     }
 

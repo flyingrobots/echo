@@ -175,6 +175,7 @@ fn observed_session_rejects_an_unobserved_only_budget_before_creating_wal() {
     );
 }
 
+#[test]
 fn runner_accepts_absolute_artifacts_outside_git() {
     let run_dir = TempRunDir::outside_repo();
     let git_probe = Command::new("git")

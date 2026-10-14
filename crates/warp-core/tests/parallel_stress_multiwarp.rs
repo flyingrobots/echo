@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! High-volume multi-warp stress tests for parallel execution Phase 6.
@@ -118,7 +119,7 @@ fn two_warps_256_shard_coverage_stress() {
 
     // Verify shard coverage: with 5k items we should hit most shards
     let mut shard_hits = vec![false; NUM_SHARDS];
-    for node in nodes1.iter() {
+    for node in &nodes1 {
         let shard = shard_of(node);
         shard_hits[shard] = true;
     }
@@ -165,7 +166,7 @@ fn two_warps_256_shard_coverage_stress() {
 
     // Now test with permuted input
     let mut rng = XorShift64::new(0xDEADBEEF_CAFEBABE);
-    let mut items_permuted = items1.clone();
+    let mut items_permuted = items1;
 
     for perm in 0..10 {
         shuffle(&mut rng, &mut items_permuted);
@@ -350,7 +351,7 @@ fn stress_many_small_items_multiwarp() {
                 node,
                 OpOrigin {
                     intent_id: (round * 1000 + i) as u64,
-                    rule_id: (round + 1) as u32,
+                    rule_id: u32::try_from(round + 1).expect("the round count fits in u32"),
                     match_ix: 0,
                     op_ix: 0,
                 },

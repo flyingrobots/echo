@@ -695,7 +695,7 @@ fn intent_dispatch_result_matching_is_variant_exhaustive() {
         }),
         message: "base coordinate is stale".to_owned(),
     };
-    let outcomes = vec![
+    let outcomes = [
         IntentDispatchResult::Admitted(AdmittedIntent {
             optic_id: optic.optic_id,
             base_coordinate: base_coordinate.clone(),

@@ -6870,6 +6870,14 @@ fn wal_tick_decision_from_observation(
 }
 
 #[cfg(test)]
+// Production items follow this module. Moving it to the end of the file is a
+// 1,300-line relocation that belongs with the split of this file (#821).
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::items_after_test_module
+)]
 mod tests {
     use super::*;
     use crate::{

@@ -20,7 +20,8 @@ use crate::telemetry::TelemetrySink;
 use crate::tick_delta::OpOrigin;
 use crate::tx::TxId;
 
-/// Active footprint tracking using generation-stamped sets for O(1) conflict detection.
+/// Active footprint tracking for one transaction, using per-transaction
+/// [`GenSet`]s (`BTreeMap`-backed, O(log n) per lookup).
 ///
 /// All resource keys are warp-scoped: they include both `warp_id` and local identifiers.
 /// This ensures rewrites in different warps don't cause false conflicts when they
@@ -62,7 +63,8 @@ impl ActiveFootprints {
 pub(crate) struct RadixScheduler {
     /// Pending rewrites per transaction, stored for O(1) enqueue and O(n) drain.
     pending: BTreeMap<TxId, PendingTx<PendingRewrite>>,
-    /// Active footprints per transaction for O(m) independence checking via `GenSets`.
+    /// Active footprints per transaction, checked through `GenSet`s at O(log n) per
+    /// resource, so O(m log n) for a footprint of size m.
     /// Checks all aspects: nodes (read/write), edges (read/write), and boundary ports.
     pub(crate) active: BTreeMap<TxId, ActiveFootprints>,
 }
@@ -118,11 +120,11 @@ impl RadixScheduler {
     }
 
     /// Attempts to reserve a rewrite by checking full footprint independence
-    /// using generation-stamped conflict detection.
+    /// against the transaction's active sets.
     ///
     /// Checks all aspects of the footprint: node read/write sets, edge read/write
-    /// sets, and boundary ports. Uses O(1) `GenSet` lookups for each resource,
-    /// making this O(m) where m is the size of the current footprint.
+    /// sets, and boundary ports. Each resource is an O(log n) `GenSet` lookup,
+    /// so this is O(m log n) for a footprint of size m against n reserved keys.
     ///
     /// On success, marks all resources in the active `GenSets` and transitions
     /// the phase to `Reserved`.
@@ -475,14 +477,15 @@ fn bucket16(r: &RewriteThin, pass: usize) -> u16 {
 }
 
 // ============================================================================
-// Generation-stamped conflict set for O(1) independence checks
+// Per-transaction conflict sets
 // ============================================================================
 
-/// Generation-stamped set for O(1) conflict detection.
+/// Set of keys seen by one transaction, for conflict detection.
 ///
-/// This data structure allows O(1) conflict checking without clearing hash tables
-/// between transactions by using generation counters. Each transaction gets a new
-/// generation, and we track which generation last saw each key.
+/// Each transaction gets fresh sets (`ActiveFootprints::new`) and they are
+/// dropped with it, so the generation stays at 1: it is never advanced, and
+/// nothing is reused across transactions. Lookups go through a `BTreeMap`, so
+/// they cost O(log n), not O(1).
 #[derive(Debug)]
 pub(crate) struct GenSet<K> {
     gen: u32,

@@ -122,7 +122,7 @@ basis-pinned traversal used by applications to discover those receipts after
 restart. It includes the same typed derivation on inverse entries and obstructs
 when any cited receipt, submission, envelope, or parent evidence is missing or
 inconsistent. See
-[/topics/CausalReceiptHistory](/topics/CausalReceiptHistory).
+[causal receipt history](CausalReceiptHistory.md).
 
 ## Obstruction Is Truth
 

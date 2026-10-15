@@ -130,6 +130,6 @@ operation moves a hidden cursor backward or removes history. Process restart
 must not change which transition the application selects for the same basis and
 policy.
 
-See [/topics/ContractInverseAdmission](/topics/ContractInverseAdmission) for
-inverse derivation and admission, and [/topics/WAL](/topics/WAL) for the durable
+See [contract inverse admission](ContractInverseAdmission.md) for
+inverse derivation and admission, and [WAL](WAL.md) for the durable
 carrier and recovery boundary.

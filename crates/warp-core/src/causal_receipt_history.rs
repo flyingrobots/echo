@@ -252,9 +252,7 @@ pub(crate) fn causal_receipt_history(
         // before the basis; otherwise the continuation point is gone.
         if cursor.last_receipt_ref.worldline_id != request.worldline_id
             || cursor.last_receipt_ref.worldline_tick_after > request.basis_frontier_tick
-            || runtime
-                .receipt_correlation_for_receipt_ref(&cursor.last_receipt_ref)
-                .is_none()
+            || !indexed_exactly(runtime, &cursor.last_receipt_ref)
         {
             return Err(CausalReceiptHistoryObstruction::CursorReceiptUnavailable {
                 cursor_receipt_ref: Box::new(cursor.last_receipt_ref),
@@ -290,11 +288,15 @@ pub(crate) fn causal_receipt_history(
             has_more = true;
             break;
         }
-        let correlation = correlation.ok_or_else(|| {
-            CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
-                receipt_ref: Box::new(receipt_ref),
-            }
-        })?;
+        // The index entry must resolve to the correlation for this exact
+        // receipt; a stale entry resolving to another one is inconsistent.
+        let correlation = correlation
+            .filter(|correlation| correlation.causal_receipt_ref == receipt_ref)
+            .ok_or_else(
+                || CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                    receipt_ref: Box::new(receipt_ref),
+                },
+            )?;
         verify_retained_transition(provenance, &receipt_ref)?;
         entries.push(history_entry(runtime, provenance, correlation)?);
     }
@@ -313,6 +315,15 @@ pub(crate) fn causal_receipt_history(
         entries,
         next_cursor,
     })
+}
+
+/// Whether the receipt index resolves `receipt_ref` to the correlation for
+/// that exact receipt, not to a different one through a stale entry.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+fn indexed_exactly(runtime: &WorldlineRuntime, receipt_ref: &CausalTickReceiptRef) -> bool {
+    runtime
+        .receipt_correlation_for_receipt_ref(receipt_ref)
+        .is_some_and(|correlation| correlation.causal_receipt_ref == *receipt_ref)
 }
 
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -420,9 +431,7 @@ fn history_entry(
     // A parent counts as available only when retained history still holds
     // its transition; the correlation index alone is not causal authority.
     for parent_receipt_ref in &causal_parent_receipts {
-        if runtime
-            .receipt_correlation_for_receipt_ref(parent_receipt_ref)
-            .is_none()
+        if !indexed_exactly(runtime, parent_receipt_ref)
             || verify_retained_transition(provenance, parent_receipt_ref).is_err()
         {
             return Err(CausalReceiptHistoryObstruction::CausalParentUnavailable {
@@ -692,6 +701,41 @@ mod tests {
         assert!(matches!(
             result,
             Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
+
+    #[test]
+    fn a_stale_index_entry_resolving_to_another_receipt_is_refused() {
+        let mut runtime = runtime();
+        let mut elsewhere = receipt_ref(2);
+        elsewhere.worldline_id = WorldlineId::from_bytes([9; 32]);
+        runtime.plant_receipt_correlation_for_test(record(elsewhere, 2), true, true);
+        // A stale entry for receipt 1 points at the other worldline's record.
+        let mut stale = record(receipt_ref(1), 2);
+        stale.ticketed_ingress_id = [2; 32];
+        runtime.plant_receipt_correlation_for_test(stale, true, false);
+        let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent { .. })
+        ));
+    }
+
+    #[test]
+    fn a_cursor_whose_index_entry_resolves_to_another_receipt_is_refused() {
+        let mut runtime = runtime();
+        runtime.plant_receipt_correlation_for_test(record(receipt_ref(2), 2), true, true);
+        let mut stale = record(receipt_ref(1), 2);
+        stale.ticketed_ingress_id = [2; 32];
+        runtime.plant_receipt_correlation_for_test(stale, true, false);
+        let result = causal_receipt_history(
+            &runtime,
+            &ProvenanceService::new(),
+            request(Some(cursor(receipt_ref(1)))),
+        );
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::CursorReceiptUnavailable { .. })
         ));
     }
 }

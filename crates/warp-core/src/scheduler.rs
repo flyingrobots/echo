@@ -20,7 +20,8 @@ use crate::telemetry::TelemetrySink;
 use crate::tick_delta::OpOrigin;
 use crate::tx::TxId;
 
-/// Active footprint tracking using generation-stamped sets for O(1) conflict detection.
+/// Active footprint tracking for one transaction, using per-transaction
+/// [`GenSet`]s (`BTreeMap`-backed, O(log n) per lookup).
 ///
 /// All resource keys are warp-scoped: they include both `warp_id` and local identifiers.
 /// This ensures rewrites in different warps don't cause false conflicts when they
@@ -118,11 +119,11 @@ impl RadixScheduler {
     }
 
     /// Attempts to reserve a rewrite by checking full footprint independence
-    /// using generation-stamped conflict detection.
+    /// against the transaction's active sets.
     ///
     /// Checks all aspects of the footprint: node read/write sets, edge read/write
-    /// sets, and boundary ports. Uses O(1) `GenSet` lookups for each resource,
-    /// making this O(m) where m is the size of the current footprint.
+    /// sets, and boundary ports. Each resource is an O(log n) `GenSet` lookup,
+    /// so this is O(m log n) for a footprint of size m against n reserved keys.
     ///
     /// On success, marks all resources in the active `GenSets` and transitions
     /// the phase to `Reserved`.

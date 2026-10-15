@@ -30,10 +30,13 @@ use crate::NodeId;
 ///
 /// # Not part of any hash
 ///
-/// No digest or state root includes this value. It only decides how execution
-/// items are partitioned among workers; worker deltas are merged in canonical
-/// order (`parallel::merge`), so the committed result does not depend on it.
-/// Changing it changes load balance, not hashes.
+/// No digest or state root includes this value, and worker deltas are merged in
+/// canonical order (`parallel::merge`), so the committed result does not depend
+/// on it. It is still observable: it partitions execution items, and it caps the
+/// effective worker count (`parallel::exec`), which decides how many per-worker
+/// deltas the parallel execution APIs return (even for empty input) and which
+/// execution plan they select. Changing it changes those API-visible shapes and
+/// load balance, not hashes.
 ///
 /// # Value Choice
 ///

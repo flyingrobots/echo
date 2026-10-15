@@ -35,6 +35,17 @@
 
 ### Changed
 
+- Causal receipt history walks retained ticks and treats each tick's committed
+  attribution as the authority, with the correlation index as a checked cache.
+  A ticketed submission a tick attributes but no correlation records is
+  `AttributedSubmissionUncorrelated`, even when every correlation of that tick
+  was lost; a correlation the tick does not attribute is
+  `UnattributedCorrelation`. Pages bound inspected ticks and records as well as
+  returned entries, can resume inside a tick, may return nothing and still
+  continue, and report `CausalReceiptHistoryCompleteness`, which is
+  `UnestablishedForLegacyTicks` when a page read a tick without attribution.
+  The plain-tick attribution seal is now linear in receipt entries.
+  `docs/topics/SubmissionAttribution.md` documents the feature (#873).
 - Outcome lookup reads a tick's attribution section when it has one. A
   submission's outcome then comes from the receipt alone, so it no longer
   depends on the other correlations of the same tick surviving, which the

@@ -1794,62 +1794,42 @@ impl WorldlineRuntime {
             })
     }
 
-    /// Receipt correlations of `worldline_id` whose transition is at or
-    /// before `basis`, in receipt-reference order (reversed when
-    /// `newest_first`), starting strictly after `after`.
-    ///
-    /// This is a range scan over the receipt-reference index, so one page of
-    /// causal receipt history (#660) costs O(log n + page size), not a scan of
-    /// every correlation. An index entry whose correlation record is missing
-    /// yields `None`. `after`, when given, must be on `worldline_id` and at or
-    /// before `basis`.
+    /// Receipt correlations indexed for one transition of `worldline_id`:
+    /// those whose receipt has `worldline_tick_after`, in receipt-reference
+    /// order. Within one tick that is submission order. An index entry whose
+    /// correlation record is missing yields `None`.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-    pub(crate) fn receipt_correlations_through_basis(
+    pub(crate) fn receipt_correlations_at_tick(
         &self,
         worldline_id: WorldlineId,
-        basis: WorldlineTick,
-        after: Option<CausalTickReceiptRef>,
-        newest_first: bool,
-    ) -> Box<dyn Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_>
-    {
-        use std::ops::Bound;
+        worldline_tick_after: WorldlineTick,
+    ) -> impl Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_ {
+        let bound = |fill: u8, global: GlobalTick| CausalTickReceiptRef {
+            worldline_id,
+            worldline_tick_after,
+            commit_global_tick: global,
+            commit_hash: [fill; 32],
+            submission_id: [fill; 32],
+            ticket_digest: [fill; 32],
+            receipt_content_digest: [fill; 32],
+        };
+        self.receipt_correlation_by_receipt_ref
+            .range(bound(0, GlobalTick::ZERO)..=bound(0xff, GlobalTick::MAX))
+            .map(|(receipt_ref, ticketed_ingress_id)| {
+                (
+                    *receipt_ref,
+                    self.receipt_correlations_by_ticketed_ingress
+                        .get(ticketed_ingress_id),
+                )
+            })
+    }
 
-        let lower = CausalTickReceiptRef {
-            worldline_id,
-            worldline_tick_after: WorldlineTick::ZERO,
-            commit_global_tick: GlobalTick::ZERO,
-            commit_hash: [0; 32],
-            submission_id: [0; 32],
-            ticket_digest: [0; 32],
-            receipt_content_digest: [0; 32],
-        };
-        let upper = CausalTickReceiptRef {
-            worldline_id,
-            worldline_tick_after: basis,
-            commit_global_tick: GlobalTick::MAX,
-            commit_hash: [0xff; 32],
-            submission_id: [0xff; 32],
-            ticket_digest: [0xff; 32],
-            receipt_content_digest: [0xff; 32],
-        };
-        let range = match (after, newest_first) {
-            (None, _) => (Bound::Included(lower), Bound::Included(upper)),
-            (Some(after), false) => (Bound::Excluded(after), Bound::Included(upper)),
-            (Some(after), true) => (Bound::Included(lower), Bound::Excluded(after)),
-        };
-        let resolve = move |(receipt_ref, ticketed_ingress_id): (&CausalTickReceiptRef, &Hash)| {
-            (
-                *receipt_ref,
-                self.receipt_correlations_by_ticketed_ingress
-                    .get(ticketed_ingress_id),
-            )
-        };
-        let entries = self.receipt_correlation_by_receipt_ref.range(range);
-        if newest_first {
-            Box::new(entries.rev().map(resolve))
-        } else {
-            Box::new(entries.map(resolve))
-        }
+    /// Whether `submission_id` was ever staged as ticketed runtime ingress,
+    /// and so should have a receipt correlation once a tick decides it.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn submission_was_ticketed(&self, submission_id: &Hash) -> bool {
+        self.ticketed_runtime_ingress_by_submission
+            .contains_key(submission_id)
     }
 
     /// Plants a receipt correlation directly in the runtime's indexes, for
@@ -1867,8 +1847,29 @@ impl WorldlineRuntime {
                 .insert(record.causal_receipt_ref, record.ticketed_ingress_id);
         }
         if index_by_ticketed_ingress {
+            self.receipt_correlation_by_submission
+                .insert(record.submission_id, record.ticketed_ingress_id);
             self.receipt_correlations_by_ticketed_ingress
                 .insert(record.ticketed_ingress_id, record);
+        }
+    }
+
+    /// Records that `submission_id` was staged as ticketed runtime ingress,
+    /// for tests of history over submissions whose correlation is missing.
+    #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn mark_submission_ticketed_for_test(&mut self, submission_id: Hash) {
+        self.ticketed_runtime_ingress_by_submission
+            .insert(submission_id, submission_id);
+    }
+
+    /// Advances `worldline_id`'s frontier, for tests that pair a runtime with
+    /// hand-built provenance.
+    #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn advance_frontier_for_test(&mut self, worldline_id: WorldlineId, ticks: u64) {
+        if let Some(frontier) = self.worldlines.frontier_mut(&worldline_id) {
+            for _ in 0..ticks {
+                let _ = frontier.advance_tick();
+            }
         }
     }
 

@@ -18,6 +18,7 @@ for the page and relationship contracts.
 ## Index
 
 - [Causal anchors](CausalAnchors.md)
+- [Causal receipt history](CausalReceiptHistory.md)
 - [Contract inverse admission](ContractInverseAdmission.md)
 - [External actions](ExternalActions.md)
 - [Generated rule authorship](GeneratedRules.md)
@@ -26,5 +27,6 @@ for the page and relationship contracts.
 - [Runtime constellation](RuntimeConstellation.md)
 - [Security posture and threat models](security/README.md)
 - [Strands and braids](StrandsAndBraids.md)
+- [Submission attribution](SubmissionAttribution.md)
 - [WAL truth boundary](WAL.md)
 - [WARP optics](WarpOptics.md)

@@ -8,6 +8,10 @@ admitted transition evidence. It lets an application traverse the receipts that
 remain reachable at an explicit worldline basis without maintaining a
 process-local history authority.
 
+Which submissions a tick decided is owned by
+[submission attribution](SubmissionAttribution.md): the history walks it and
+checks every other source against it.
+
 The history projection does not define undo semantics. An application contract
 decides which transitions are invertible and how to derive an inverse. Echo
 retains and projects the exact receipts, submissions, causal parents, and
@@ -17,6 +21,8 @@ contract evidence required to make that decision honestly.
 
 The projection is reconstructed from:
 
+- each retained tick's committed attribution section, which names the
+  submissions that tick decided;
 - recovered receipt-correlation records;
 - witnessed submission records;
 - retained canonical ingress envelopes;
@@ -26,7 +32,9 @@ The projection is reconstructed from:
 
 An in-memory map may index these facts after recovery, but it is not an
 independent source of truth. Deleting and rebuilding that index must not change
-the returned history.
+the returned history. For an attributed tick, a correlation the attribution
+does not name, or an attributed ticketed submission with no correlation, is an
+obstruction rather than a shorter page.
 
 The query does not:
 
@@ -71,25 +79,51 @@ ingress-parent roles rather than from a process-local request map.
 
 ## Pagination
 
-Echo orders receipts by their canonical coordinate and applies the traversal
-direction to that order. A page is read from Echo's receipt-coordinate index
-starting at the cursor, so its cost is bounded by the page size and the index
-depth, not by the length of history. A continuation cursor binds:
+The query walks retained ticks in the requested direction, not the correlation
+index. Within one tick, submissions are in submission order, which is also the
+order of their receipt coordinates, so traversal order matches canonical
+receipt order.
+
+One page has three separate limits:
+
+- at most `page_size` returned entries;
+- at most `MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_TICKS` inspected ticks;
+- at most `MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_RECORDS` inspected attribution
+  records or legacy correlations.
+
+Each inspected record costs a fixed number of index lookups and at most
+`MAX_CAUSAL_RECEIPT_HISTORY_PARENTS` parent checks, so these limits bound a
+page's work, not only its output. A long run of ticks with no submissions costs
+several pages; a page that spends its inspection budget may return no entries
+and still continue.
+
+A continuation cursor binds:
 
 - worldline;
 - basis frontier;
 - direction;
-- exact last receipt returned.
+- the next tick to inspect;
+- within that tick, the last submission already returned.
 
-The cursor is exclusive. Reusing it continues immediately after that receipt.
-A cursor minted for a different worldline, basis, or direction is rejected.
-A cursor whose exact receipt is no longer available, lies on another worldline,
-or lies after the basis is also rejected; Echo does not silently skip the
-missing evidence.
+A cursor can therefore resume inside a tick. A cursor minted for a different
+worldline, basis, or direction is rejected, and so is one naming a tick at or
+beyond the basis or a submission its tick does not account for. Each page makes
+forward progress, so a traversal always ends.
 
 Because the basis is fixed, history admitted after that basis does not alter the
 page sequence. Repeating the same traversal after WAL recovery produces the
 same entries and continuation boundaries.
+
+## Completeness
+
+Each page reports `CausalReceiptHistoryCompleteness`:
+
+- `Established` when every inspected tick committed an attribution section, so
+  every submission those ticks decided was returned or lies ahead of the
+  cursor;
+- `UnestablishedForLegacyTicks` when the page inspected a tick written before
+  attribution existed. Such a tick returns its retained correlations, but Echo
+  cannot prove none is missing.
 
 ## Obstructions
 
@@ -99,7 +133,12 @@ The query returns `CausalReceiptHistoryObstruction` when:
 - the worldline is unavailable;
 - the basis exceeds the recovered frontier;
 - provenance cannot establish a nonzero basis;
-- the cursor scope or exact cursor receipt is invalid;
+- the cursor scope or position is invalid;
+- retained provenance holds no transition for a tick before the basis;
+- an attributed tick's indexed correlation is not named by its attribution;
+- an attributed, ticketed submission has no receipt correlation (lost
+  correlation material);
+- an attributed submission was never ticketed, so it has no receipt identity;
 - duplicate correlations claim one exact receipt;
 - an indexed receipt has no correlation record, or its fields disagree with
   its exact coordinate;

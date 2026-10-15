@@ -1920,6 +1920,18 @@ impl WorldlineRuntime {
         }
     }
 
+    /// Points `submission_id`'s submission-index entry at another
+    /// correlation, for tests of history over a damaged index.
+    #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn misdirect_submission_index_for_test(
+        &mut self,
+        submission_id: Hash,
+        ticketed_ingress_id: Hash,
+    ) {
+        self.receipt_correlation_by_submission
+            .insert(submission_id, ticketed_ingress_id);
+    }
+
     /// Records that `submission_id` was staged as ticketed runtime ingress,
     /// for tests of history over submissions whose correlation is missing.
     #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]

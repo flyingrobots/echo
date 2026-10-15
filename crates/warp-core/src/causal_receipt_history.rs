@@ -632,7 +632,14 @@ impl<'a> PageWalk<'a> {
                 });
             };
             let receipt_ref = correlation.causal_receipt_ref;
-            if receipt_ref.worldline_tick_after != commit.worldline_tick_after {
+            // The correlation must be the cursor's own submission, on this
+            // tick's commit, not another receipt a damaged index resolves to.
+            if receipt_ref.submission_id != after
+                || receipt_ref.worldline_id != commit.worldline_id
+                || receipt_ref.worldline_tick_after != commit.worldline_tick_after
+                || receipt_ref.commit_global_tick != commit.commit_global_tick
+                || receipt_ref.commit_hash != commit.commit_hash
+            {
                 return Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable {
                     worldline_tick,
                     after_submission: Some(after),
@@ -1335,6 +1342,23 @@ mod tests {
                 request(1, Some(cursor_at(1, 0, Some(1))))
             ),
             Err(CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent { .. })
+        ));
+    }
+
+    #[test]
+    fn a_legacy_cursor_resolving_to_another_submission_is_refused() {
+        let (mut runtime, provenance, retained) = history_fixture(&[None]);
+        // Submission 2 is retained and indexed; submission 1's index entry
+        // now points at submission 2's correlation.
+        correlate(&mut runtime, &retained, 0, 2);
+        runtime.misdirect_submission_index_for_test(submission(1), [2; 32]);
+        assert!(matches!(
+            causal_receipt_history(
+                &runtime,
+                &provenance,
+                request(1, Some(cursor_at(1, 0, Some(1))))
+            ),
+            Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable { .. })
         ));
     }
 

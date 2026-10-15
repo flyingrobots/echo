@@ -223,9 +223,9 @@ pub use causal_receipt::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 pub use causal_receipt_history::{
     CausalReceiptHistoryCompleteness, CausalReceiptHistoryCursor, CausalReceiptHistoryDirection,
     CausalReceiptHistoryEntry, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
-    CausalReceiptHistoryRequest, MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_RECORDS,
-    MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_TICKS, MAX_CAUSAL_RECEIPT_HISTORY_PAGE_SIZE,
-    MAX_CAUSAL_RECEIPT_HISTORY_PARENTS,
+    CausalReceiptHistoryRequest, CausalReceiptHistoryTickRange,
+    MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_RECORDS, MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_TICKS,
+    MAX_CAUSAL_RECEIPT_HISTORY_PAGE_SIZE, MAX_CAUSAL_RECEIPT_HISTORY_PARENTS,
 };
 pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use cmd::{

@@ -116,14 +116,20 @@ same entries and continuation boundaries.
 
 ## Completeness
 
-Each page reports `CausalReceiptHistoryCompleteness`:
+Each page reports the ticks it inspected, `inspected` (first and last, in
+traversal order), and a `CausalReceiptHistoryCompleteness` claim about exactly
+those ticks under the pinned basis:
 
 - `Established` when every inspected tick committed an attribution section, so
   every submission those ticks decided was returned or lies ahead of the
   cursor;
-- `UnestablishedForLegacyTicks` when the page inspected a tick written before
-  attribution existed. Such a tick returns its retained correlations, but Echo
-  cannot prove none is missing.
+- `UnestablishedForLegacyTicks { first_legacy_tick }` when an inspected tick
+  was written before attribution existed. Its retained correlations are
+  returned, but Echo cannot prove none is missing.
+
+The claim never extends beyond `inspected`. A traversal is complete only if
+every one of its pages is `Established`, so legacy uncertainty cannot be hidden
+by splitting a traversal into pages.
 
 ## Obstructions
 

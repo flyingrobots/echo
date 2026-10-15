@@ -44,7 +44,9 @@
   returned entries, can resume inside a tick, may return nothing and still
   continue, and report `CausalReceiptHistoryCompleteness`, which is
   `UnestablishedForLegacyTicks` when a page read a tick without attribution.
-  The plain-tick attribution seal is now linear in receipt entries.
+  The plain-tick attribution seal groups receipt entries by scope once
+  instead of scanning them per submission: `O(r log s + n log s)` for `r`
+  entries, `s` distinct scopes and `n` submissions, down from `O(n·r)`.
   `docs/topics/SubmissionAttribution.md` documents the feature (#873).
 - Outcome lookup reads a tick's attribution section when it has one. A
   submission's outcome then comes from the receipt alone, so it no longer

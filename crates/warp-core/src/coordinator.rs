@@ -1794,16 +1794,17 @@ impl WorldlineRuntime {
             })
     }
 
-    /// Receipt correlations indexed for one transition of `worldline_id`:
-    /// those whose receipt has `worldline_tick_after`, in receipt-reference
-    /// order. Within one tick that is submission order. An index entry whose
-    /// correlation record is missing yields `None`.
+    /// The first and last receipt-reference index keys for one transition of
+    /// `worldline_id`, or `None` when nothing is indexed for it.
+    ///
+    /// Keys sort by tick, then global tick and commit, so when both ends name
+    /// one commit, every key between them does too.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-    pub(crate) fn receipt_correlations_at_tick(
+    pub(crate) fn receipt_ref_ends_at_tick(
         &self,
         worldline_id: WorldlineId,
         worldline_tick_after: WorldlineTick,
-    ) -> impl Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_ {
+    ) -> Option<(CausalTickReceiptRef, CausalTickReceiptRef)> {
         let bound = |fill: u8, global: GlobalTick| CausalTickReceiptRef {
             worldline_id,
             worldline_tick_after,
@@ -1813,8 +1814,30 @@ impl WorldlineRuntime {
             ticket_digest: [fill; 32],
             receipt_content_digest: [fill; 32],
         };
-        self.receipt_correlation_by_receipt_ref
+        let mut keys = self
+            .receipt_correlation_by_receipt_ref
             .range(bound(0, GlobalTick::ZERO)..=bound(0xff, GlobalTick::MAX))
+            .map(|(receipt_ref, _)| *receipt_ref);
+        let first = keys.next()?;
+        Some((first, keys.next_back().unwrap_or(first)))
+    }
+
+    /// Index entries for `submission_id` within one commit of one transition.
+    /// Well-formed state has at most one.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn receipt_correlations_of_submission(
+        &self,
+        commit: &CausalTickReceiptRef,
+        submission_id: Hash,
+    ) -> impl Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_ {
+        let key = |fill: u8| CausalTickReceiptRef {
+            submission_id,
+            ticket_digest: [fill; 32],
+            receipt_content_digest: [fill; 32],
+            ..*commit
+        };
+        self.receipt_correlation_by_receipt_ref
+            .range(key(0)..=key(0xff))
             .map(|(receipt_ref, ticketed_ingress_id)| {
                 (
                     *receipt_ref,
@@ -1822,6 +1845,49 @@ impl WorldlineRuntime {
                         .get(ticketed_ingress_id),
                 )
             })
+    }
+
+    /// Receipt correlations indexed for one commit of one transition, in
+    /// submission order (reversed when `newest_first`), starting strictly after
+    /// `after` when given. An index entry whose correlation record is missing
+    /// yields `None`. Iteration is lazy, so a caller pays only for the entries
+    /// it reads.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn receipt_correlations_in_commit(
+        &self,
+        commit: &CausalTickReceiptRef,
+        after: Option<Hash>,
+        newest_first: bool,
+    ) -> Box<dyn Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_>
+    {
+        use std::ops::Bound;
+
+        let key = |submission_id: Hash, fill: u8| CausalTickReceiptRef {
+            submission_id,
+            ticket_digest: [fill; 32],
+            receipt_content_digest: [fill; 32],
+            ..*commit
+        };
+        let lower = key([0; 32], 0);
+        let upper = key([0xff; 32], 0xff);
+        let range = match (after, newest_first) {
+            (None, _) => (Bound::Included(lower), Bound::Included(upper)),
+            (Some(after), false) => (Bound::Excluded(key(after, 0xff)), Bound::Included(upper)),
+            (Some(after), true) => (Bound::Included(lower), Bound::Excluded(key(after, 0))),
+        };
+        let resolve = move |(receipt_ref, ticketed_ingress_id): (&CausalTickReceiptRef, &Hash)| {
+            (
+                *receipt_ref,
+                self.receipt_correlations_by_ticketed_ingress
+                    .get(ticketed_ingress_id),
+            )
+        };
+        let entries = self.receipt_correlation_by_receipt_ref.range(range);
+        if newest_first {
+            Box::new(entries.rev().map(resolve))
+        } else {
+            Box::new(entries.map(resolve))
+        }
     }
 
     /// Whether `submission_id` was ever staged as ticketed runtime ingress,

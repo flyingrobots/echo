@@ -62,16 +62,34 @@ pub struct CausalReceiptHistoryCursor {
     after_submission: Option<Hash>,
 }
 
-/// Whether a page's ticks could all be checked for completeness (#873).
+/// Whether the ticks one page inspected could all be checked for
+/// completeness (#873).
+///
+/// The claim covers only [`CausalReceiptHistoryPage::inspected`], under the
+/// page's pinned basis. It says nothing about ticks other pages inspect, so a
+/// traversal is complete only if every one of its pages is `Established`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CausalReceiptHistoryCompleteness {
-    /// Every tick the page inspected committed an attribution section, and
-    /// every submission it names was returned or is still ahead of the cursor.
+    /// Every inspected tick committed an attribution section, and every
+    /// submission those ticks decided was returned or lies ahead of the
+    /// page's cursor.
     Established,
-    /// The page inspected at least one legacy tick, which commits no
-    /// attribution section. For those ticks the page returns the retained
-    /// correlations, but Echo cannot prove none is missing.
-    UnestablishedForLegacyTicks,
+    /// At least one inspected tick is a legacy tick, which commits no
+    /// attribution section. Its retained correlations are returned, but Echo
+    /// cannot prove none is missing.
+    UnestablishedForLegacyTicks {
+        /// The first legacy tick the page inspected, in traversal order.
+        first_legacy_tick: WorldlineTick,
+    },
+}
+
+/// The ticks one page inspected, in traversal order, inclusive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CausalReceiptHistoryTickRange {
+    /// First inspected tick (provenance index).
+    pub first: WorldlineTick,
+    /// Last inspected tick (provenance index).
+    pub last: WorldlineTick,
 }
 
 /// Request for one bounded page of retained causal receipt history.
@@ -113,8 +131,10 @@ pub struct CausalReceiptHistoryPage {
     /// may hold fewer entries than requested, or none, and still continue,
     /// when it spent its inspection budget.
     pub next_cursor: Option<CausalReceiptHistoryCursor>,
-    /// Whether every tick this page inspected could be checked for
-    /// completeness.
+    /// The ticks this page inspected, or `None` when it inspected none.
+    pub inspected: Option<CausalReceiptHistoryTickRange>,
+    /// Whether every inspected tick could be checked for completeness. The
+    /// claim covers `inspected` only.
     pub completeness: CausalReceiptHistoryCompleteness,
 }
 
@@ -347,10 +367,16 @@ pub(crate) fn causal_receipt_history(
     // Walk ticks, not the correlation index: a tick's committed attribution is
     // the authority for which submissions it decided, and the index is a
     // cache checked against it (#873).
-    let mut entries = Vec::with_capacity(request.page_size);
+    let mut walk = PageWalk {
+        runtime,
+        provenance,
+        request: &request,
+        entries: Vec::with_capacity(request.page_size),
+        records_inspected: 0,
+    };
     let mut completeness = CausalReceiptHistoryCompleteness::Established;
+    let mut inspected: Option<CausalReceiptHistoryTickRange> = None;
     let mut ticks_inspected = 0_u64;
-    let mut records_inspected = 0_usize;
     let mut next_cursor = None;
     let cursor_at = |tick: u64, after_submission: Option<Hash>| CausalReceiptHistoryCursor {
         worldline_id: request.worldline_id,
@@ -360,78 +386,33 @@ pub(crate) fn causal_receipt_history(
         after_submission,
     };
     while let Some((tick, after)) = position {
-        if entries.len() == request.page_size
-            || ticks_inspected == MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_TICKS
-        {
+        if walk.page_full() || ticks_inspected == MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_TICKS {
             next_cursor = Some(cursor_at(tick, after));
             break;
         }
         ticks_inspected += 1;
-        let members = tick_members(runtime, provenance, request.worldline_id, tick)?;
-        if !members.attributed {
-            completeness = CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks;
-        }
-        let mut ordered = members.submissions;
-        if newest_first {
-            ordered.reverse();
-        }
-        let start = match after {
-            None => 0,
-            Some(after) => {
-                ordered
-                    .iter()
-                    .position(|(submission_id, _)| *submission_id == after)
-                    .ok_or_else(
-                        || CausalReceiptHistoryObstruction::CursorPositionUnavailable {
-                            worldline_tick: WorldlineTick::from_raw(tick),
-                            after_submission: Some(after),
-                        },
-                    )?
-                    + 1
+        let worldline_tick = WorldlineTick::from_raw(tick);
+        inspected = Some(CausalReceiptHistoryTickRange {
+            first: inspected.map_or(worldline_tick, |range| range.first),
+            last: worldline_tick,
+        });
+        match walk.visit_tick(tick, after)? {
+            TickVisit::Finished { attributed } => {
+                if !attributed && completeness == CausalReceiptHistoryCompleteness::Established {
+                    completeness = CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
+                        first_legacy_tick: worldline_tick,
+                    };
+                }
             }
-        };
-        let mut last = after;
-        let mut stopped = false;
-        for (submission_id, correlation) in ordered.into_iter().skip(start) {
-            if entries.len() == request.page_size
-                || records_inspected == MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_RECORDS
-            {
-                stopped = true;
+            TickVisit::Stopped { attributed, last } => {
+                if !attributed && completeness == CausalReceiptHistoryCompleteness::Established {
+                    completeness = CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
+                        first_legacy_tick: worldline_tick,
+                    };
+                }
+                next_cursor = Some(cursor_at(tick, last));
                 break;
             }
-            records_inspected += 1;
-            let correlation = correlation.ok_or_else(|| {
-                if runtime.submission_was_ticketed(&submission_id) {
-                    CausalReceiptHistoryObstruction::AttributedSubmissionUncorrelated {
-                        worldline_tick: WorldlineTick::from_raw(tick),
-                        submission_id,
-                    }
-                } else {
-                    CausalReceiptHistoryObstruction::SubmissionWithoutReceiptIdentity {
-                        worldline_tick: WorldlineTick::from_raw(tick),
-                        submission_id,
-                    }
-                }
-            })?;
-            let receipt_ref = correlation.causal_receipt_ref;
-            if receipt_ref.worldline_id != request.worldline_id
-                || receipt_ref.worldline_tick_after.as_u64() != tick + 1
-                || receipt_ref.submission_id != submission_id
-                || !indexed_exactly(runtime, &receipt_ref)
-            {
-                return Err(
-                    CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
-                        receipt_ref: Box::new(receipt_ref),
-                    },
-                );
-            }
-            verify_retained_transition(provenance, &receipt_ref)?;
-            entries.push(history_entry(runtime, provenance, correlation)?);
-            last = Some(submission_id);
-        }
-        if stopped {
-            next_cursor = Some(cursor_at(tick, last));
-            break;
         }
         position = if newest_first {
             tick.checked_sub(1).map(|previous| (previous, None))
@@ -443,81 +424,304 @@ pub(crate) fn causal_receipt_history(
     }
 
     Ok(CausalReceiptHistoryPage {
-        entries,
+        entries: walk.entries,
         next_cursor,
+        inspected,
         completeness,
     })
 }
 
-/// The submissions one tick accounts for, in submission order, each with its
-/// receipt correlation if the runtime retains one.
+/// How far one page got through one tick.
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-struct TickMembers<'a> {
-    submissions: Vec<(Hash, Option<&'a ReceiptCorrelationRecord>)>,
-    /// Whether the tick committed an attribution section. Without one, the
-    /// submissions are the retained correlations and may be incomplete.
-    attributed: bool,
+enum TickVisit {
+    /// Every submission of the tick after the starting point was inspected.
+    Finished { attributed: bool },
+    /// The page filled or spent its record budget; `last` is the last
+    /// submission inspected in this tick, where the next page resumes.
+    Stopped {
+        attributed: bool,
+        last: Option<Hash>,
+    },
 }
 
-/// Reads which submissions tick `tick` of `worldline_id` decided.
-///
-/// For an attributed tick that is the committed attribution, and every
-/// correlation indexed for the tick must be one of them. For a legacy tick it
-/// is the correlations indexed for the tick.
+/// One page's traversal state.
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-fn tick_members<'a>(
+struct PageWalk<'a> {
     runtime: &'a WorldlineRuntime,
-    provenance: &ProvenanceService,
-    worldline_id: WorldlineId,
-    tick: u64,
-) -> Result<TickMembers<'a>, CausalReceiptHistoryObstruction> {
-    let worldline_tick = WorldlineTick::from_raw(tick);
-    let unavailable = || CausalReceiptHistoryObstruction::TickUnavailable { worldline_tick };
-    let receipt = provenance
-        .retained_tick_receipt(worldline_id, worldline_tick)
-        .map_err(|_| unavailable())?;
-    let tick_after = WorldlineTick::from_raw(tick + 1);
-    let indexed = runtime.receipt_correlations_at_tick(worldline_id, tick_after);
-    let Some(attribution) = receipt.and_then(crate::TickReceipt::attribution) else {
-        let submissions = indexed
-            .map(|(receipt_ref, correlation)| {
-                correlation
-                    .filter(|correlation| correlation.causal_receipt_ref == receipt_ref)
-                    .map(|correlation| (receipt_ref.submission_id, Some(correlation)))
-                    .ok_or_else(
-                        || CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
-                            receipt_ref: Box::new(receipt_ref),
+    provenance: &'a ProvenanceService,
+    request: &'a CausalReceiptHistoryRequest,
+    entries: Vec<CausalReceiptHistoryEntry>,
+    records_inspected: usize,
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+impl<'a> PageWalk<'a> {
+    fn page_full(&self) -> bool {
+        self.entries.len() == self.request.page_size
+    }
+
+    fn budget_spent(&self) -> bool {
+        self.page_full() || self.records_inspected == MAX_CAUSAL_RECEIPT_HISTORY_INSPECTED_RECORDS
+    }
+
+    /// Inspects tick `tick` from just after `after`, lazily.
+    ///
+    /// An attributed tick is walked in lockstep with the index entries for
+    /// its commit, both in submission order, so each step consumes one
+    /// attribution record and the index entries for that submission. Every
+    /// index entry is therefore checked against the attribution, and a page
+    /// pays only for the records it reaches. A legacy tick walks its index
+    /// entries.
+    fn visit_tick(
+        &mut self,
+        tick: u64,
+        after: Option<Hash>,
+    ) -> Result<TickVisit, CausalReceiptHistoryObstruction> {
+        let runtime: &'a WorldlineRuntime = self.runtime;
+        let provenance: &'a ProvenanceService = self.provenance;
+        let worldline_id = self.request.worldline_id;
+        let worldline_tick = WorldlineTick::from_raw(tick);
+        let unavailable = || CausalReceiptHistoryObstruction::TickUnavailable { worldline_tick };
+        let summary = provenance
+            .commit_summary(worldline_id, worldline_tick)
+            .map_err(|_| unavailable())?;
+        let receipt = provenance
+            .retained_tick_receipt(worldline_id, worldline_tick)
+            .map_err(|_| unavailable())?;
+        let tick_after = WorldlineTick::from_raw(tick + 1);
+        let commit = CausalTickReceiptRef {
+            worldline_id,
+            worldline_tick_after: tick_after,
+            commit_global_tick: summary.commit_global_tick,
+            commit_hash: summary.commit.commit_hash,
+            submission_id: [0; 32],
+            ticket_digest: [0; 32],
+            receipt_content_digest: [0; 32],
+        };
+        // Every key indexed for this tick must name this tick's commit. Keys
+        // sort by global tick and commit after the tick, so checking both ends
+        // checks every key between them.
+        if let Some(ends) = runtime.receipt_ref_ends_at_tick(worldline_id, tick_after) {
+            let foreign = |end: &CausalTickReceiptRef| {
+                end.commit_global_tick != commit.commit_global_tick
+                    || end.commit_hash != commit.commit_hash
+            };
+            let (first, last) = ends;
+            let foreign_end = if foreign(&first) {
+                Some(first)
+            } else if foreign(&last) {
+                Some(last)
+            } else {
+                None
+            };
+            if let Some(end) = foreign_end {
+                return Err(
+                    CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                        receipt_ref: Box::new(end),
+                    },
+                );
+            }
+        }
+        let newest_first = self.request.direction == CausalReceiptHistoryDirection::NewestFirst;
+        let Some(attribution) = receipt.and_then(crate::TickReceipt::attribution) else {
+            return self.visit_legacy_tick(&commit, after, newest_first);
+        };
+
+        let start = match after {
+            None => None,
+            Some(after) => Some(
+                attribution
+                    .binary_search_by_key(&after, |record| record.submission_id)
+                    .map_err(
+                        |_| CausalReceiptHistoryObstruction::CursorPositionUnavailable {
+                            worldline_tick,
+                            after_submission: Some(after),
                         },
-                    )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        return Ok(TickMembers {
-            submissions,
-            attributed: false,
-        });
-    };
-    for (receipt_ref, _) in indexed {
-        if attribution
-            .binary_search_by_key(&receipt_ref.submission_id, |record| record.submission_id)
-            .is_err()
-        {
+                    )?,
+            ),
+        };
+        // The submission the cursor resumes after was returned on an earlier
+        // page; its evidence is checked again so a gap opened since then is
+        // not stepped over.
+        if let Some(index) = start {
+            let record = &attribution[index];
+            let mut its_entries =
+                runtime.receipt_correlations_of_submission(&commit, record.submission_id);
+            let indexed = its_entries.next();
+            if its_entries.next().is_some() {
+                return Err(Self::inconsistent(&commit, record.submission_id));
+            }
+            self.records_inspected += 1;
+            self.checked_correlation(worldline_tick, tick_after, record.submission_id, indexed)?;
+        }
+        let records: Box<dyn Iterator<Item = &crate::TickSubmissionAttribution>> =
+            match (start, newest_first) {
+                (None, false) => Box::new(attribution.iter()),
+                (None, true) => Box::new(attribution.iter().rev()),
+                (Some(index), false) => Box::new(attribution[index + 1..].iter()),
+                (Some(index), true) => Box::new(attribution[..index].iter().rev()),
+            };
+        let mut indexed = runtime
+            .receipt_correlations_in_commit(&commit, after, newest_first)
+            .peekable();
+        let precedes = |key: &Hash, submission: &Hash| {
+            if newest_first {
+                key > submission
+            } else {
+                key < submission
+            }
+        };
+        let mut last = after;
+        for record in records {
+            if self.budget_spent() {
+                return Ok(TickVisit::Stopped {
+                    attributed: true,
+                    last,
+                });
+            }
+            self.records_inspected += 1;
+            // Index entries ordered before this submission name no attributed
+            // submission.
+            if let Some((key, _)) = indexed.peek() {
+                if precedes(&key.submission_id, &record.submission_id) {
+                    return Err(CausalReceiptHistoryObstruction::UnattributedCorrelation {
+                        receipt_ref: Box::new(*key),
+                    });
+                }
+            }
+            let own = indexed.next_if(|(key, _)| key.submission_id == record.submission_id);
+            if indexed
+                .peek()
+                .is_some_and(|(key, _)| key.submission_id == record.submission_id)
+            {
+                return Err(Self::inconsistent(&commit, record.submission_id));
+            }
+            let correlation =
+                self.checked_correlation(worldline_tick, tick_after, record.submission_id, own)?;
+            self.entries
+                .push(history_entry(runtime, provenance, correlation)?);
+            last = Some(record.submission_id);
+        }
+        // Whatever the index still holds for this commit is unattributed.
+        if let Some((key, _)) = indexed.next() {
             return Err(CausalReceiptHistoryObstruction::UnattributedCorrelation {
-                receipt_ref: Box::new(receipt_ref),
+                receipt_ref: Box::new(key),
             });
         }
+        Ok(TickVisit::Finished { attributed: true })
     }
-    Ok(TickMembers {
-        submissions: attribution
-            .iter()
-            .map(|record| {
-                (
-                    record.submission_id,
-                    runtime.receipt_correlation_for_submission(&record.submission_id),
-                )
-            })
-            .collect(),
-        attributed: true,
-    })
+
+    /// Walks a legacy tick's index entries, which are all Echo has for it.
+    fn visit_legacy_tick(
+        &mut self,
+        commit: &CausalTickReceiptRef,
+        after: Option<Hash>,
+        newest_first: bool,
+    ) -> Result<TickVisit, CausalReceiptHistoryObstruction> {
+        let runtime: &'a WorldlineRuntime = self.runtime;
+        let provenance: &'a ProvenanceService = self.provenance;
+        let worldline_tick = WorldlineTick::from_raw(commit.worldline_tick_after.as_u64() - 1);
+        if let Some(after) = after {
+            let resumed = runtime
+                .receipt_correlation_for_submission(&after)
+                .is_some_and(|correlation| {
+                    correlation.causal_receipt_ref.worldline_tick_after
+                        == commit.worldline_tick_after
+                });
+            if !resumed {
+                return Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable {
+                    worldline_tick,
+                    after_submission: Some(after),
+                });
+            }
+        }
+        let mut last = after;
+        for (key, correlation) in
+            runtime.receipt_correlations_in_commit(commit, after, newest_first)
+        {
+            if self.budget_spent() {
+                return Ok(TickVisit::Stopped {
+                    attributed: false,
+                    last,
+                });
+            }
+            self.records_inspected += 1;
+            let correlation = correlation
+                .filter(|correlation| correlation.causal_receipt_ref == key)
+                .ok_or_else(
+                    || CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                        receipt_ref: Box::new(key),
+                    },
+                )?;
+            verify_retained_transition(provenance, &key)?;
+            self.entries
+                .push(history_entry(runtime, provenance, correlation)?);
+            last = Some(key.submission_id);
+        }
+        Ok(TickVisit::Finished { attributed: false })
+    }
+
+    /// The correlation for an attributed submission, checked against the index
+    /// entry found for it, its tick and retained provenance.
+    fn checked_correlation(
+        &self,
+        worldline_tick: WorldlineTick,
+        tick_after: WorldlineTick,
+        submission_id: Hash,
+        indexed: Option<(CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)>,
+    ) -> Result<&'a ReceiptCorrelationRecord, CausalReceiptHistoryObstruction> {
+        let runtime: &'a WorldlineRuntime = self.runtime;
+        let Some(correlation) = runtime.receipt_correlation_for_submission(&submission_id) else {
+            if let Some((key, _)) = indexed {
+                return Err(
+                    CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                        receipt_ref: Box::new(key),
+                    },
+                );
+            }
+            return Err(if runtime.submission_was_ticketed(&submission_id) {
+                CausalReceiptHistoryObstruction::AttributedSubmissionUncorrelated {
+                    worldline_tick,
+                    submission_id,
+                }
+            } else {
+                CausalReceiptHistoryObstruction::SubmissionWithoutReceiptIdentity {
+                    worldline_tick,
+                    submission_id,
+                }
+            });
+        };
+        let receipt_ref = correlation.causal_receipt_ref;
+        let indexed_matches = indexed.is_some_and(|(key, record)| {
+            key == receipt_ref
+                && record.is_some_and(|record| record.causal_receipt_ref == receipt_ref)
+        });
+        if !indexed_matches
+            || receipt_ref.worldline_id != self.request.worldline_id
+            || receipt_ref.worldline_tick_after != tick_after
+            || receipt_ref.submission_id != submission_id
+        {
+            return Err(
+                CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                    receipt_ref: Box::new(receipt_ref),
+                },
+            );
+        }
+        verify_retained_transition(self.provenance, &receipt_ref)?;
+        Ok(correlation)
+    }
+
+    fn inconsistent(
+        commit: &CausalTickReceiptRef,
+        submission_id: Hash,
+    ) -> CausalReceiptHistoryObstruction {
+        CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+            receipt_ref: Box::new(CausalTickReceiptRef {
+                submission_id,
+                ..*commit
+            }),
+        }
+    }
 }
 
 /// Whether the receipt index resolves `receipt_ref` to the correlation for
@@ -925,7 +1129,17 @@ mod tests {
         assert_eq!(page.next_cursor, None);
         assert_eq!(
             page.completeness,
-            CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks
+            CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
+                first_legacy_tick: WorldlineTick::ZERO,
+            }
+        );
+        // The claim is scoped to the inspected ticks.
+        assert_eq!(
+            page.inspected,
+            Some(CausalReceiptHistoryTickRange {
+                first: WorldlineTick::ZERO,
+                last: WorldlineTick::from_raw(1),
+            })
         );
 
         let (runtime, provenance, _) = history_fixture(&[Some(Vec::new())]);
@@ -1025,6 +1239,51 @@ mod tests {
                 worldline_tick: WorldlineTick::ZERO,
                 after_submission: Some(submission(9)),
             })
+        );
+    }
+
+    #[test]
+    fn a_stale_index_entry_reusing_an_attributed_submission_is_refused() {
+        let (mut runtime, provenance, retained) = history_fixture(&[Some(vec![1])]);
+        correlate(&mut runtime, &retained, 0, 1);
+        // A second index key for submission 1, with another ticket, still
+        // resolves to submission 1's proper correlation.
+        let fixture = &retained[0];
+        let stale = CausalTickReceiptRef {
+            worldline_id: worldline(),
+            worldline_tick_after: WorldlineTick::from_raw(1),
+            commit_global_tick: fixture.global_tick,
+            commit_hash: fixture.commit_hash,
+            submission_id: submission(1),
+            ticket_digest: [9; 32],
+            receipt_content_digest: fixture.receipt_digest,
+        };
+        runtime.plant_receipt_correlation_for_test(record(stale, 1), true, false);
+        assert!(matches!(
+            causal_receipt_history(&runtime, &provenance, request(1, None)),
+            Err(CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent { .. })
+        ));
+    }
+
+    #[test]
+    fn a_cursor_resuming_after_a_lost_correlation_is_refused() {
+        let (mut runtime, provenance, retained) = history_fixture(&[Some(vec![1, 2])]);
+        // Submission 1 was returned on an earlier page; its correlation has
+        // since been lost from the cache.
+        runtime.mark_submission_ticketed_for_test(submission(1));
+        correlate(&mut runtime, &retained, 0, 2);
+        assert_eq!(
+            causal_receipt_history(
+                &runtime,
+                &provenance,
+                request(1, Some(cursor_at(1, 0, Some(1))))
+            ),
+            Err(
+                CausalReceiptHistoryObstruction::AttributedSubmissionUncorrelated {
+                    worldline_tick: WorldlineTick::ZERO,
+                    submission_id: submission(1),
+                }
+            )
         );
     }
 

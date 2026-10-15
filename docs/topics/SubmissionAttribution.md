@@ -79,11 +79,11 @@ history. Either one changes the ingress ID and so creates a new submission.
 The section is built from each tick's own decision process, never from a
 correlation index. A tick whose decisions and receipt disagree is not sealed.
 
-| Commit path                                                 | How the section is built                                                                                                                                                                 | Refuses to seal when                                                                                        |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Plain runtime tick (`Engine::commit_attributed_with_state`) | Records whether each submission's command rule matched, then takes the entries scoped to its request node `NodeId(ingress_id)`. Entries are grouped by scope once, so sealing is linear. | A matched submission has no entry; an unmatched one has entries; an entry belongs to no admitted submission |
-| Action batch (`commit_scheduler_action_batch_to_state_v1`)  | Each candidate is attributed to the receipt entry at its own position.                                                                                                                   | Candidates and entries differ in number                                                                     |
-| Direct host commit (`commit_prepared_to_state`)             | Decides no submission, so it records an empty section.                                                                                                                                   | Never; the section is fixed                                                                                 |
+| Commit path                                                 | How the section is built                                                                                                                                                                                                                | Refuses to seal when                                                                                        |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Plain runtime tick (`Engine::commit_attributed_with_state`) | Records whether each submission's command rule matched, then takes the entries scoped to its request node `NodeId(ingress_id)`. Entries are grouped by scope once: `O(r log s + n log s)` for `r` entries, `s` scopes, `n` submissions. | A matched submission has no entry; an unmatched one has entries; an entry belongs to no admitted submission |
+| Action batch (`commit_scheduler_action_batch_to_state_v1`)  | Each candidate is attributed to the receipt entry at its own position.                                                                                                                                                                  | Candidates and entries differ in number                                                                     |
+| Direct host commit (`commit_prepared_to_state`)             | Decides no submission, so it records an empty section.                                                                                                                                                                                  | Never; the section is fixed                                                                                 |
 
 The scheduler derives each submission ID from the head and ingress ID by the
 identity law. It never looks one up, so a damaged index cannot change what is
@@ -100,12 +100,15 @@ callers, which have no submissions behind them.
 - A retained record cannot change version by relabelling its magic.
 - A legacy history can be extended by attributed ticks. A legacy tick's commit
   hash is the same with or without a section.
-- **Binding.** Commit hash v2 covers state root, parents, patch digest and
-  policy, not the receipt. The section is bound by the receipt digest that the
-  patch header (`decision_digest`) and every receipt reference
-  (`receipt_content_digest`) carry, and by each WAL record's digest. Whether new
-  ticks should also adopt a commit-hash version that binds the receipt is an
-  open decision on #873.
+- **Binding.** The owner ruled on #873 that attribution must be bound
+  transitively into commit identity: commit hash → receipt digest →
+  attribution. Commit hash v2 covers state root, parents, patch digest and
+  policy only (`snapshot.rs`, `compute_commit_hash_v2`), so it does not meet
+  that bar: today the section is bound by the receipt digest that the patch
+  header (`decision_digest`) and every receipt reference
+  (`receipt_content_digest`) carry, and by each WAL record's digest. New ticks
+  will move to a commit-hash version that covers the receipt digest; legacy
+  ticks keep v2 and replay unchanged. Until that lands, #873 stays open.
 
 ## How Echo uses it on its own
 
@@ -137,12 +140,15 @@ authority. Echo checks the correlation index against it, tick by tick:
 
 - an attributed, ticketed submission with no correlation is
   `AttributedSubmissionUncorrelated`. This catches a lost correlation even when
-  every correlation of the tick is gone, which an index scan could never see;
+  every correlation of the tick is gone, which an index scan could never see.
+  The page walks each tick's attribution and index entries together, in
+  submission order, so every index entry is checked and a page pays only for
+  the records it reaches;
 - a correlation the tick does not attribute is `UnattributedCorrelation`;
 - an attributed submission that was never ticketed is
   `SubmissionWithoutReceiptIdentity`;
 - a page reports `Established` completeness only when every tick it inspected
-  was attributed.
+  was attributed, and the claim names exactly the ticks it inspected.
 
 See [causal receipt history](CausalReceiptHistory.md) for paging, budgets and
 the cursor.
@@ -198,8 +204,8 @@ Measured costs are not yet recorded; these are derived from the format.
   request with one entry adds 45 bytes to its retained tick.
 - **Memory:** retained ticks are held in memory with the same overhead. The
   correlation maps are unchanged.
-- **Commit CPU:** plain-tick sealing is one pass over the receipt entries plus
-  one ordered-map lookup per submission. Action sealing is one entry per
+- **Commit CPU:** plain-tick sealing builds an ordered map of entries by
+  scope, `O(r log s)`, then does one lookup per submission, `O(n log s)`. Action sealing is one entry per
   candidate. Both hash the section once into the receipt digest.
 - **Query CPU:** outcome lookup is a binary search in one tick's section. A
   history page is bounded by its tick and record budgets.
@@ -208,9 +214,11 @@ Measured costs are not yet recorded; these are derived from the format.
 
 - **Legacy ticks** cannot prove completeness. History marks pages that
   inspected them `UnestablishedForLegacyTicks`.
-- **No WAL decision code for "no rule matched".** A ticketed no-match outcome is
-  still unrecordable in the WAL tick record (`TickOutcomeUnavailable`).
-- **Commit-hash binding** of the receipt is an open decision (#873).
+- **No-match across restart is not yet proven.** A ticketed no-match outcome is
+  still unrecordable in the WAL tick record (`TickOutcomeUnavailable`). The
+  owner ruled that it must survive restart, with outcome lookup and history
+  agreeing before and after recovery; #873 depends on that work.
+- **Commit-hash binding** of the receipt is ruled but not yet built (#873).
 - **Unticketed submissions** decided by a tick have no receipt identity, so
   history reports them as `SubmissionWithoutReceiptIdentity` instead of
   returning them.

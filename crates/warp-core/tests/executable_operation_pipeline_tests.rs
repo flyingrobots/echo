@@ -4644,6 +4644,88 @@ fn independent_actions_beyond_one_tick_all_commit_and_recover() {
 }
 
 #[test]
+fn an_action_tick_attributes_each_submission_and_the_attribution_recovers() {
+    const ACTIONS: usize = 3;
+    let wal_dir = TempWalDir::new();
+    let (head_key, attribution) = {
+        let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(ACTIONS);
+        host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+            .expect("the WAL opens");
+        let installed = install_fixture_operation(&mut host);
+        host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+        let invocations = nodes
+            .iter()
+            .map(|node| action_invocation(&host, &installed, head_key, *node, b"before", b"after"))
+            .collect::<Vec<_>>();
+        let mut submissions = invocations
+            .into_iter()
+            .map(|invocation| submit_action(&mut host, head_key, invocation))
+            .collect::<Vec<_>>();
+        host.tick_once()
+            .expect("the scheduler decides the batch in one Tick");
+
+        let receipt = warp_core::ProvenanceStore::entry(
+            host.provenance(),
+            head_key.worldline_id,
+            warp_core::WorldlineTick::ZERO,
+        )
+        .expect("the Tick is retained")
+        .tick_receipt
+        .expect("a scheduler Tick retains its receipt");
+        let attribution = receipt
+            .attribution()
+            .expect("a new Action Tick commits an attribution section")
+            .to_vec();
+        // One record per submission, in submission order.
+        submissions.sort_unstable();
+        assert_eq!(
+            attribution
+                .iter()
+                .map(|record| record.submission_id)
+                .collect::<Vec<_>>(),
+            submissions
+        );
+        // Each Action's decision is exactly one receipt entry, and every entry
+        // belongs to exactly one Action.
+        let mut entries = attribution
+            .iter()
+            .map(|record| match &record.decision {
+                warp_core::TickSubmissionDecision::ReceiptEntries(entries) => {
+                    assert_eq!(entries.len(), 1, "an Action has one receipt entry");
+                    entries[0]
+                }
+                warp_core::TickSubmissionDecision::NoMatchingRule => {
+                    panic!("an Action is always decided by its own receipt entry")
+                }
+            })
+            .collect::<Vec<_>>();
+        entries.sort_unstable();
+        assert_eq!(entries, vec![0, 1, 2]);
+        assert_eq!(receipt.entries().len(), ACTIONS);
+        (head_key, attribution)
+    };
+
+    let (mut recovered, recovered_head, _) = fixture_host_with_independent_nodes(ACTIONS);
+    assert_eq!(recovered_head, head_key);
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("the attributed Tick recovers");
+    let recovered_receipt = warp_core::ProvenanceStore::entry(
+        recovered.provenance(),
+        head_key.worldline_id,
+        warp_core::WorldlineTick::ZERO,
+    )
+    .expect("the recovered Tick is retained")
+    .tick_receipt
+    .expect("the recovered Tick retains its receipt");
+    assert_eq!(
+        recovered_receipt.attribution(),
+        Some(attribution.as_slice()),
+        "recovery returns the attribution the Tick committed"
+    );
+}
+
+#[test]
 fn an_action_whose_read_changed_is_obstructed_in_a_later_tick() {
     let (mut host, head_key, node) = fixture_host();
     host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())

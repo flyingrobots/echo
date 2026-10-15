@@ -12,7 +12,10 @@ use crate::{
     head::{HeadId, WriterHeadKey},
     ident::{EdgeId, EdgeKey, Hash, NodeId, NodeKey, TypeId, WarpId},
     provenance_store::{ProvenanceEntry, ProvenanceEventKind, ProvenanceRef},
-    receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection},
+    receipt::{
+        TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection,
+        TickSubmissionAttribution, TickSubmissionDecision,
+    },
     record::{EdgeRecord, NodeRecord},
     tick_patch::{PortalInit, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1},
     tx::TxId,
@@ -21,6 +24,10 @@ use crate::{
 };
 
 const RETAINED_PROVENANCE_MAGIC_V1: &[u8; 8] = b"EPRV0001";
+/// Same layout as version 1, plus the tick receipt's attribution section
+/// (#873) directly after the receipt. A receipt without attribution is still
+/// written as version 1, byte for byte.
+const RETAINED_PROVENANCE_MAGIC_V2: &[u8; 8] = b"EPRV0002";
 
 /// Error returned by the retained local-commit provenance codec.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -95,7 +102,11 @@ pub(crate) fn encode_local_commit_v1(
         .ok_or(RetainedProvenanceError::MissingTickReceipt)?;
 
     let mut out = Vec::new();
-    out.extend_from_slice(RETAINED_PROVENANCE_MAGIC_V1);
+    out.extend_from_slice(if receipt.attribution().is_some() {
+        RETAINED_PROVENANCE_MAGIC_V2
+    } else {
+        RETAINED_PROVENANCE_MAGIC_V1
+    });
     push_worldline_id(&mut out, entry.worldline_id);
     push_u64(&mut out, entry.worldline_tick.as_u64());
     push_u64(&mut out, entry.commit_global_tick.as_u64());
@@ -107,6 +118,9 @@ pub(crate) fn encode_local_commit_v1(
     }
     push_hash_triplet(&mut out, &entry.expected);
     push_tick_receipt(&mut out, receipt);
+    if let Some(attribution) = receipt.attribution() {
+        push_tick_attribution(&mut out, attribution);
+    }
     push_worldline_patch(&mut out, patch);
     push_len(&mut out, entry.outputs.len());
     for (channel, bytes) in &entry.outputs {
@@ -125,9 +139,14 @@ pub(crate) fn decode_local_commit_v1(
     bytes: &[u8],
 ) -> Result<ProvenanceEntry, RetainedProvenanceError> {
     let mut cursor = RetainedProvenanceCursor::new(bytes);
-    if cursor.read_exact(RETAINED_PROVENANCE_MAGIC_V1.len())? != RETAINED_PROVENANCE_MAGIC_V1 {
+    let magic = cursor.read_exact(RETAINED_PROVENANCE_MAGIC_V1.len())?;
+    let attributed = if magic == RETAINED_PROVENANCE_MAGIC_V1 {
+        false
+    } else if magic == RETAINED_PROVENANCE_MAGIC_V2 {
+        true
+    } else {
         return Err(RetainedProvenanceError::InvalidMagic);
-    }
+    };
     let worldline_id = cursor.read_worldline_id()?;
     let worldline_tick = WorldlineTick::from_raw(cursor.read_u64()?);
     let commit_global_tick = GlobalTick::from_raw(cursor.read_u64()?);
@@ -142,7 +161,13 @@ pub(crate) fn decode_local_commit_v1(
         parents.push(cursor.read_provenance_ref()?);
     }
     let expected = cursor.read_hash_triplet()?;
-    let receipt = cursor.read_tick_receipt()?;
+    let mut receipt = cursor.read_tick_receipt()?;
+    if attributed {
+        let attribution = cursor.read_tick_attribution()?;
+        receipt = receipt
+            .with_attribution(attribution)
+            .map_err(|_| RetainedProvenanceError::NonCanonicalTickReceipt)?;
+    }
     let patch = cursor.read_worldline_patch()?;
     let output_count = cursor.read_count(40)?;
     let mut outputs = Vec::with_capacity(output_count);
@@ -294,6 +319,23 @@ fn push_tick_receipt(out: &mut Vec<u8>, receipt: &TickReceipt) {
         push_len(out, blockers.len());
         for blocker in blockers {
             out.extend_from_slice(&blocker.to_le_bytes());
+        }
+    }
+}
+
+fn push_tick_attribution(out: &mut Vec<u8>, attribution: &[TickSubmissionAttribution]) {
+    push_len(out, attribution.len());
+    for record in attribution {
+        push_hash(out, &record.submission_id);
+        match &record.decision {
+            TickSubmissionDecision::ReceiptEntries(entries) => {
+                out.push(1);
+                push_len(out, entries.len());
+                for entry in entries {
+                    out.extend_from_slice(&entry.to_le_bytes());
+                }
+            }
+            TickSubmissionDecision::NoMatchingRule => out.push(2),
         }
     }
 }
@@ -634,6 +676,33 @@ impl<'a> RetainedProvenanceCursor<'a> {
         }
         TickReceipt::try_from_retained_parts(tx, entries, blocked_by)
             .map_err(|_| RetainedProvenanceError::NonCanonicalTickReceipt)
+    }
+
+    fn read_tick_attribution(
+        &mut self,
+    ) -> Result<Vec<TickSubmissionAttribution>, RetainedProvenanceError> {
+        let count = self.read_count(33)?;
+        let mut attribution = Vec::with_capacity(count);
+        for _ in 0..count {
+            let submission_id = self.read_hash()?;
+            let decision = match self.read_u8()? {
+                1 => {
+                    let entry_count = self.read_count(4)?;
+                    let mut entries = Vec::with_capacity(entry_count);
+                    for _ in 0..entry_count {
+                        entries.push(self.read_u32()?);
+                    }
+                    TickSubmissionDecision::ReceiptEntries(entries)
+                }
+                2 => TickSubmissionDecision::NoMatchingRule,
+                tag => return Err(unknown_tag("tick attribution decision", tag)),
+            };
+            attribution.push(TickSubmissionAttribution {
+                submission_id,
+                decision,
+            });
+        }
+        Ok(attribution)
     }
 
     fn read_writer_head_key(&mut self) -> Result<WriterHeadKey, RetainedProvenanceError> {

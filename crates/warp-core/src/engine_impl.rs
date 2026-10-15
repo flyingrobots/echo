@@ -36,7 +36,10 @@ use crate::provider_contract::{
     InstalledProviderContractPackageRecordV1, ProviderContractInstallationError,
     ProviderContractInstallationErrorKind, ProviderPackageReferenceV1,
 };
-use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
+use crate::receipt::{
+    TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection,
+    TickSubmissionAttribution, TickSubmissionDecision,
+};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule, RuleExecutor};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
@@ -143,6 +146,13 @@ pub enum EngineError {
     /// Tick index is out of bounds (exceeds ledger length).
     #[error("tick index {0} exceeds ledger length {1}")]
     InvalidTickIndex(usize, usize),
+    /// A runtime commit's decisions do not match its admitted submissions
+    /// exactly, so the tick cannot be sealed with complete attribution (#873).
+    #[error("tick attribution does not account for the admitted submissions: {0}")]
+    TickAttributionMismatch(&'static str),
+    /// A runtime commit built a malformed attribution section.
+    #[error(transparent)]
+    InvalidTickAttribution(#[from] crate::receipt::TickAttributionError),
 }
 
 // ============================================================================
@@ -1827,21 +1837,64 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
     ) -> Result<CommitOutcome, EngineError> {
+        self.commit_runtime_batch(state, admitted, None)
+    }
+
+    /// Commits a batch of admitted submissions and seals the tick's
+    /// attribution section (#873).
+    ///
+    /// `submission_ids[i]` is the accepted submission behind `admitted[i]`.
+    /// The section records, for each distinct submission, the receipt entries
+    /// that carry its decision, or that no command rule matched it. Sealing
+    /// fails when a decision and the receipt disagree, or when a receipt
+    /// entry belongs to no admitted submission.
+    pub(crate) fn commit_attributed_with_state(
+        &mut self,
+        state: &mut WorldlineState,
+        admitted: &[IngressEnvelope],
+        submission_ids: &[Hash],
+    ) -> Result<CommitOutcome, EngineError> {
+        if admitted.len() != submission_ids.len() {
+            return Err(EngineError::TickAttributionMismatch(
+                "the submission list is not parallel to the admitted batch",
+            ));
+        }
+        self.commit_runtime_batch(state, admitted, Some(submission_ids))
+    }
+
+    fn commit_runtime_batch(
+        &mut self,
+        state: &mut WorldlineState,
+        admitted: &[IngressEnvelope],
+        submission_ids: Option<&[Hash]>,
+    ) -> Result<CommitOutcome, EngineError> {
         let mut guard = RuntimeCommitStateGuard::enter(self, state);
 
         let result = (|| {
             let tx = guard.engine.begin();
             let mut seen_ingress = BTreeSet::new();
+            let mut decided = Vec::with_capacity(admitted.len());
 
-            for envelope in admitted {
+            for (index, envelope) in admitted.iter().enumerate() {
                 if !seen_ingress.insert(envelope.ingress_id()) {
                     continue;
                 }
                 let event_id = guard.engine.materialize_runtime_ingress_event(envelope)?;
-                let _ = guard.engine.enqueue_first_matching_command(tx, &event_id)?;
+                let matched = guard.engine.enqueue_first_matching_command(tx, &event_id)?;
+                if let Some(submission_ids) = submission_ids {
+                    decided.push(RuntimeSubmissionDecision {
+                        submission_id: submission_ids[index],
+                        event_id,
+                        matched,
+                    });
+                }
             }
 
-            let (mut snapshot, receipt, patch) = guard.engine.commit_with_receipt(tx)?;
+            let (mut snapshot, mut receipt, patch) = guard.engine.commit_with_receipt(tx)?;
+            if submission_ids.is_some() {
+                receipt = seal_runtime_attribution(receipt, &decided)?;
+                snapshot.decision_digest = receipt.digest();
+            }
             let combined_patch = WarpTickPatchV1::new(
                 patch.policy_id(),
                 patch.rule_pack_id(),
@@ -1858,10 +1911,11 @@ impl Engine {
                 snapshot.policy_id,
             );
             guard.engine.last_snapshot = Some(snapshot.clone());
-            if let Some((recorded_snapshot, _recorded_receipt, recorded_patch)) =
+            if let Some((recorded_snapshot, recorded_receipt, recorded_patch)) =
                 guard.engine.tick_history.last_mut()
             {
                 *recorded_snapshot = snapshot.clone();
+                *recorded_receipt = receipt.clone();
                 *recorded_patch = combined_patch.clone();
             }
             Ok(CommitOutcome {
@@ -3237,6 +3291,65 @@ fn runtime_ingress_kind_edge_id(event_id: &NodeId, kind_node_id: &NodeId) -> cra
     crate::ident::EdgeId(hasher.finalize().into())
 }
 
+/// One distinct admitted submission and how the tick's decision process
+/// treated it, recorded while the batch is enqueued.
+struct RuntimeSubmissionDecision {
+    submission_id: Hash,
+    event_id: NodeId,
+    matched: bool,
+}
+
+/// Seals a runtime tick's attribution section from its own decision process
+/// (#873).
+///
+/// A submission's receipt entries are those scoped to its ingress node,
+/// where its command rule ran. A matched submission must have at least one; an
+/// unmatched one must have none and is recorded as `NoMatchingRule`. Every
+/// receipt entry must belong to an admitted submission.
+fn seal_runtime_attribution(
+    receipt: TickReceipt,
+    decided: &[RuntimeSubmissionDecision],
+) -> Result<TickReceipt, EngineError> {
+    let mut owned = vec![false; receipt.entries().len()];
+    let mut attribution = Vec::with_capacity(decided.len());
+    for decision in decided {
+        let mut entries = Vec::new();
+        for (index, entry) in receipt.entries().iter().enumerate() {
+            if entry.scope.local_id == decision.event_id {
+                entries.push(u32::try_from(index).map_err(|_| {
+                    EngineError::TickAttributionMismatch("receipt entry index overflow")
+                })?);
+                owned[index] = true;
+            }
+        }
+        let decision_record = match (decision.matched, entries.is_empty()) {
+            (true, false) => TickSubmissionDecision::ReceiptEntries(entries),
+            (false, true) => TickSubmissionDecision::NoMatchingRule,
+            (true, true) => {
+                return Err(EngineError::TickAttributionMismatch(
+                    "a matched submission has no receipt entry",
+                ))
+            }
+            (false, false) => {
+                return Err(EngineError::TickAttributionMismatch(
+                    "an unmatched submission has receipt entries",
+                ))
+            }
+        };
+        attribution.push(TickSubmissionAttribution {
+            submission_id: decision.submission_id,
+            decision: decision_record,
+        });
+    }
+    if owned.contains(&false) {
+        return Err(EngineError::TickAttributionMismatch(
+            "a receipt entry belongs to no admitted submission",
+        ));
+    }
+    attribution.sort_by_key(|record| record.submission_id);
+    Ok(receipt.with_attribution(attribution)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3510,6 +3623,99 @@ mod tests {
             crate::POLICY_ID_NO_POLICY_V0,
         )
         .map(|engine| (engine, warp_a, warp_b))
+    }
+
+    #[allow(clippy::unwrap_used)]
+    mod attribution_seal {
+        use super::super::{seal_runtime_attribution, RuntimeSubmissionDecision};
+        use crate::ident::{make_node_id, make_warp_id, NodeId, NodeKey};
+        use crate::receipt::{
+            TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickSubmissionDecision,
+        };
+        use crate::tx::TxId;
+        use crate::EngineError;
+
+        fn receipt_scoped_to(nodes: &[NodeId]) -> TickReceipt {
+            let warp_id = make_warp_id("attribution-seal");
+            let entries = nodes
+                .iter()
+                .map(|node| TickReceiptEntry {
+                    rule_id: [1; 32],
+                    scope_hash: [2; 32],
+                    scope: NodeKey {
+                        warp_id,
+                        local_id: *node,
+                    },
+                    disposition: TickReceiptDisposition::Applied,
+                })
+                .collect::<Vec<_>>();
+            let blocked_by = vec![Vec::new(); entries.len()];
+            TickReceipt::new(TxId::from_raw(1), entries, blocked_by)
+        }
+
+        fn decided(submission: u8, event_id: NodeId, matched: bool) -> RuntimeSubmissionDecision {
+            RuntimeSubmissionDecision {
+                submission_id: [submission; 32],
+                event_id,
+                matched,
+            }
+        }
+
+        #[test]
+        fn a_consistent_tick_seals_in_submission_order() {
+            let a = make_node_id("a");
+            let b = make_node_id("b");
+            let unmatched = make_node_id("unmatched");
+            let sealed = seal_runtime_attribution(
+                receipt_scoped_to(&[a, b]),
+                &[
+                    decided(3, a, true),
+                    decided(1, b, true),
+                    decided(2, unmatched, false),
+                ],
+            )
+            .unwrap();
+            let attribution = sealed.attribution().unwrap();
+            assert_eq!(
+                attribution
+                    .iter()
+                    .map(|record| (record.submission_id[0], record.decision.clone()))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (1, TickSubmissionDecision::ReceiptEntries(vec![1])),
+                    (2, TickSubmissionDecision::NoMatchingRule),
+                    (3, TickSubmissionDecision::ReceiptEntries(vec![0])),
+                ]
+            );
+        }
+
+        #[test]
+        fn a_matched_submission_without_a_receipt_entry_is_not_sealed() {
+            let a = make_node_id("a");
+            assert!(matches!(
+                seal_runtime_attribution(receipt_scoped_to(&[]), &[decided(1, a, true)]),
+                Err(EngineError::TickAttributionMismatch(_))
+            ));
+        }
+
+        #[test]
+        fn an_unmatched_submission_with_receipt_entries_is_not_sealed() {
+            let a = make_node_id("a");
+            assert!(matches!(
+                seal_runtime_attribution(receipt_scoped_to(&[a]), &[decided(1, a, false)]),
+                Err(EngineError::TickAttributionMismatch(_))
+            ));
+        }
+
+        #[test]
+        fn a_receipt_entry_with_no_admitted_submission_is_not_sealed() {
+            let a = make_node_id("a");
+            let stray = make_node_id("stray");
+            assert!(matches!(
+                seal_runtime_attribution(receipt_scoped_to(&[a, stray]), &[decided(1, a, true)]),
+                Err(EngineError::TickAttributionMismatch(_))
+            ));
+        }
     }
 
     #[test]

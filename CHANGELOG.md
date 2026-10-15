@@ -65,6 +65,15 @@
 
 ### Added
 
+- Every new scheduler tick commits an attribution section in its tick
+  receipt: one record per accepted submission the tick decided, naming the
+  receipt entries that carry its decision, or recording that no rule matched
+  it. Plain ticks and Action ticks seal it from their own batch, and refuse to
+  commit when a decision and the receipt disagree; a direct host commit, which
+  decides no submission, records an empty section. Receipts with the section
+  use receipt format version 3 and are retained as `EPRV0002`. Receipts without
+  it keep version 2 and `EPRV0001` byte for byte, so existing history replays
+  unchanged and a legacy history can be extended by attributed ticks (#873).
 - `warp-core` trusted applications can now traverse bounded causal receipt
   history at an explicit worldline frontier in either canonical direction
   (#660). Echo-issued continuation cursors bind worldline, basis, direction, and

@@ -2724,6 +2724,10 @@ pub enum WalTickDecision {
     RejectedFootprintConflict,
     /// The work is obstructed by retained material or runtime support posture.
     Obstructed,
+    /// The scheduler committed the work, and no rule matched it (#873). Only
+    /// a tick with an attribution section records this; older WALs never
+    /// contain the code.
+    NoMatchingRule,
 }
 
 impl WalTickDecision {
@@ -2732,6 +2736,7 @@ impl WalTickDecision {
             Self::Applied => 1,
             Self::RejectedFootprintConflict => 2,
             Self::Obstructed => 3,
+            Self::NoMatchingRule => 4,
         }
     }
 
@@ -2740,6 +2745,7 @@ impl WalTickDecision {
             1 => Ok(Self::Applied),
             2 => Ok(Self::RejectedFootprintConflict),
             3 => Ok(Self::Obstructed),
+            4 => Ok(Self::NoMatchingRule),
             _ => Err(WalDecodeError::UnknownEnumCode {
                 enum_name: "WalTickDecision",
                 code,
@@ -3284,6 +3290,8 @@ pub enum RecoveredSubmissionPosture {
     DecidedRejected,
     /// Submission is obstructed.
     Obstructed,
+    /// Submission was decided, and no rule matched it (#873).
+    DecidedNoMatchingRule,
     /// Recovery found a fault for this submission.
     RecoveryFaulted,
 }
@@ -3301,6 +3309,8 @@ pub enum SubmissionRetryPosture {
     AlreadyDecidedRejected,
     /// Same id and envelope recovered as obstructed.
     AlreadyObstructed,
+    /// Same id and envelope recovered as decided, with no rule matched (#873).
+    AlreadyDecidedNoMatchingRule,
     /// Same id recovered with a different canonical envelope digest.
     ConflictSameIdDifferentEnvelope,
     /// New id with same envelope should be treated as a new submission unless
@@ -3407,6 +3417,7 @@ impl RecoveredSubmissionIndex {
                 RecoveredSubmissionPosture::DecidedRejected
             }
             WalTickDecision::Obstructed => RecoveredSubmissionPosture::Obstructed,
+            WalTickDecision::NoMatchingRule => RecoveredSubmissionPosture::DecidedNoMatchingRule,
         };
         if let Some(entry) = self.submissions.get_mut(&receipt.receipt_ref.submission_id) {
             if let Some(existing) = entry.receipt_ref {
@@ -3480,6 +3491,9 @@ impl RecoveredSubmissionIndex {
             }
             RecoveredSubmissionPosture::DecidedRejected => {
                 SubmissionRetryPosture::AlreadyDecidedRejected
+            }
+            RecoveredSubmissionPosture::DecidedNoMatchingRule => {
+                SubmissionRetryPosture::AlreadyDecidedNoMatchingRule
             }
             RecoveredSubmissionPosture::Obstructed
             | RecoveredSubmissionPosture::RecoveryFaulted => {
@@ -3587,6 +3601,7 @@ fn recovered_submission_posture_code(posture: RecoveredSubmissionPosture) -> u8 
         RecoveredSubmissionPosture::DecidedRejected => 3,
         RecoveredSubmissionPosture::Obstructed => 4,
         RecoveredSubmissionPosture::RecoveryFaulted => 5,
+        RecoveredSubmissionPosture::DecidedNoMatchingRule => 6,
     }
 }
 

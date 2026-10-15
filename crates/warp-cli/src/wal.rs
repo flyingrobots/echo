@@ -128,6 +128,7 @@ fn recovered_posture_label(posture: RecoveredSubmissionPosture) -> &'static str 
         RecoveredSubmissionPosture::DecidedApplied => "DecidedApplied",
         RecoveredSubmissionPosture::DecidedRejected => "DecidedRejected",
         RecoveredSubmissionPosture::Obstructed => "Obstructed",
+        RecoveredSubmissionPosture::DecidedNoMatchingRule => "DecidedNoMatchingRule",
         RecoveredSubmissionPosture::RecoveryFaulted => "RecoveryFaulted",
     }
 }
@@ -139,6 +140,7 @@ fn retry_posture_label(posture: SubmissionRetryPosture) -> &'static str {
         SubmissionRetryPosture::AlreadyDecidedApplied => "AlreadyDecidedApplied",
         SubmissionRetryPosture::AlreadyDecidedRejected => "AlreadyDecidedRejected",
         SubmissionRetryPosture::AlreadyObstructed => "AlreadyObstructed",
+        SubmissionRetryPosture::AlreadyDecidedNoMatchingRule => "AlreadyDecidedNoMatchingRule",
         SubmissionRetryPosture::ConflictSameIdDifferentEnvelope => {
             "ConflictSameIdDifferentEnvelope"
         }

@@ -180,6 +180,20 @@ fn refusing_matcher(_view: GraphView<'_>, _scope: &NodeId) -> bool {
     false
 }
 
+/// Intent variables a [`selective_matcher`] refuses.
+const REFUSED_VARS: &[u8] = b"refuse-this";
+
+/// Matches every intent except one whose bytes end with [`REFUSED_VARS`], so
+/// one installed operation can yield a matched and a no-match submission in
+/// the same tick.
+fn selective_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
+    MATCHER_CALLS.fetch_add(1, Ordering::SeqCst);
+    !matches!(
+        view.node_attachment(scope),
+        Some(warp_core::AttachmentValue::Atom(payload)) if payload.bytes.ends_with(REFUSED_VARS)
+    )
+}
+
 fn counting_executor(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
     EXECUTOR_CALLS.fetch_add(1, Ordering::SeqCst);
 }
@@ -1050,6 +1064,133 @@ fn provider_matcher_refusal_cannot_be_reported_as_provider_execution() {
                     op_id: generated::OPERATION_ID,
                 }
     ));
+}
+
+/// Submits one provider EINT intent with `vars` and admits it for the
+/// scheduler.
+fn submit_provider_intent(host: &mut TrustedRuntimeHost, worldline_id: WorldlineId, vars: &[u8]) -> warp_core::Hash {
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(generated::OPERATION_ID, vars)
+                .expect("provider EINT intent packs"),
+        ))
+        .expect("provider EINT intent is witnessed")
+        .submission_id;
+    host.admit_provider_contract_submission_v1(submission)
+        .expect("installed provider submission stages");
+    submission
+}
+
+/// The scheduler decision and retained attribution of each submission.
+fn decisions_of(
+    host: &TrustedRuntimeHost,
+    submissions: &[warp_core::Hash],
+) -> Vec<(warp_core::IntentOutcomeDecision, warp_core::TickSubmissionDecision)> {
+    submissions
+        .iter()
+        .map(|submission_id| {
+            let warp_core::IntentOutcomeObservation::Decided {
+                correlation,
+                decision,
+            } = host.runtime().observe_intent_outcome(submission_id)
+            else {
+                panic!("each submission is decided by a scheduler tick");
+            };
+            let tick = correlation
+                .worldline_tick_after
+                .checked_sub(1)
+                .expect("a decided submission names its tick");
+            let receipt = warp_core::ProvenanceStore::entry(
+                host.provenance(),
+                correlation.head_key.worldline_id,
+                tick,
+            )
+            .expect("the deciding tick is retained")
+            .tick_receipt
+            .expect("a scheduler tick retains its receipt");
+            let record = receipt
+                .attribution()
+                .expect("a new tick commits attribution")
+                .iter()
+                .find(|record| record.submission_id == *submission_id)
+                .expect("the tick attributes the submission")
+                .decision
+                .clone();
+            (decision, record)
+        })
+        .collect()
+}
+
+#[test]
+fn a_no_match_decided_beside_an_applied_submission_survives_restart() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let wal_root = temp_provider_wal_dir("no-match-restart");
+    let (mut host, worldline_id) = provider_runtime_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("provider WAL initializes");
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal_with_matcher(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256, selective_matcher),
+        )
+        .expect("the provider proposal is admitted");
+    host.install_admitted_provider_contract_package_v1_trusted(package_reference(), admitted)
+        .expect("the provider package installs");
+
+    let applied = submit_provider_intent(&mut host, worldline_id, b"apply-this");
+    let refused = submit_provider_intent(&mut host, worldline_id, REFUSED_VARS);
+    host.run_until_idle(4)
+        .expect("a tick holding a matched and a no-match submission commits under the WAL");
+
+    let submissions = [applied, refused];
+    let before = decisions_of(&host, &submissions);
+    assert!(matches!(
+        before[0],
+        (
+            warp_core::IntentOutcomeDecision::Applied { .. },
+            warp_core::TickSubmissionDecision::ReceiptEntries(_)
+        )
+    ));
+    assert_eq!(
+        before[1],
+        (
+            warp_core::IntentOutcomeDecision::NoMatchingRule,
+            warp_core::TickSubmissionDecision::NoMatchingRule
+        )
+    );
+    let app_outcomes = submissions.map(|id| host.app().observe_intent_outcome(&id));
+    drop(host);
+
+    let (mut restarted, restarted_worldline_id) = provider_runtime_host();
+    assert_eq!(restarted_worldline_id, worldline_id);
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the WAL with a no-match decision recovers");
+    let readmitted = restarted
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal_with_matcher(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256, selective_matcher),
+        )
+        .expect("the provider proposal is admitted again");
+    restarted
+        .install_admitted_provider_contract_package_v1_trusted(package_reference(), readmitted)
+        .expect("the provider package reinstalls");
+    assert_eq!(
+        decisions_of(&restarted, &submissions),
+        before,
+        "both decisions and their attribution survive restart"
+    );
+    assert_eq!(
+        submissions.map(|id| restarted.app().observe_intent_outcome(&id)),
+        app_outcomes,
+        "outcome lookup agrees before and after recovery"
+    );
+    drop(restarted);
+    std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
 }
 
 #[test]

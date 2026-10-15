@@ -3310,18 +3310,23 @@ fn seal_runtime_attribution(
     receipt: TickReceipt,
     decided: &[RuntimeSubmissionDecision],
 ) -> Result<TickReceipt, EngineError> {
-    let mut owned = vec![false; receipt.entries().len()];
+    // Group entries by scope node once: O(r log s) to build for r entries
+    // and s scopes, then O(log s) per submission, instead of a pass over every
+    // entry per submission.
+    let mut by_scope: BTreeMap<NodeId, Vec<u32>> = BTreeMap::new();
+    for (index, entry) in receipt.entries().iter().enumerate() {
+        let index = u32::try_from(index)
+            .map_err(|_| EngineError::TickAttributionMismatch("receipt entry index overflow"))?;
+        by_scope
+            .entry(entry.scope.local_id)
+            .or_default()
+            .push(index);
+    }
+    let mut owned = 0_usize;
     let mut attribution = Vec::with_capacity(decided.len());
     for decision in decided {
-        let mut entries = Vec::new();
-        for (index, entry) in receipt.entries().iter().enumerate() {
-            if entry.scope.local_id == decision.event_id {
-                entries.push(u32::try_from(index).map_err(|_| {
-                    EngineError::TickAttributionMismatch("receipt entry index overflow")
-                })?);
-                owned[index] = true;
-            }
-        }
+        let entries = by_scope.remove(&decision.event_id).unwrap_or_default();
+        owned += entries.len();
         let decision_record = match (decision.matched, entries.is_empty()) {
             (true, false) => TickSubmissionDecision::ReceiptEntries(entries),
             (false, true) => TickSubmissionDecision::NoMatchingRule,
@@ -3341,7 +3346,7 @@ fn seal_runtime_attribution(
             decision: decision_record,
         });
     }
-    if owned.contains(&false) {
+    if owned != receipt.entries().len() {
         return Err(EngineError::TickAttributionMismatch(
             "a receipt entry belongs to no admitted submission",
         ));

@@ -63,7 +63,8 @@ impl ActiveFootprints {
 pub(crate) struct RadixScheduler {
     /// Pending rewrites per transaction, stored for O(1) enqueue and O(n) drain.
     pending: BTreeMap<TxId, PendingTx<PendingRewrite>>,
-    /// Active footprints per transaction for O(m) independence checking via `GenSets`.
+    /// Active footprints per transaction, checked through `GenSet`s at O(log n) per
+    /// resource, so O(m log n) for a footprint of size m.
     /// Checks all aspects: nodes (read/write), edges (read/write), and boundary ports.
     pub(crate) active: BTreeMap<TxId, ActiveFootprints>,
 }

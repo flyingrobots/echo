@@ -44,7 +44,7 @@ use crate::{
         TickSubmissionAttribution, TickSubmissionDecision,
     },
     record::NodeRecord,
-    snapshot::{compute_commit_hash_v2, Snapshot},
+    snapshot::Snapshot,
     tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
     tx::TxId,
     worldline_state::WorldlineState,
@@ -6623,11 +6623,12 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         .as_ref()
         .map(|snapshot| vec![snapshot.hash])
         .unwrap_or_default();
-    let commit_id = compute_commit_hash_v2(
+    let commit_id = crate::snapshot::compute_commit_hash_for_receipt(
         &state_root_after,
         &parents,
         &patch.digest(),
         patch.policy_id(),
+        Some(&tick_receipt),
     );
     let snapshot = Snapshot {
         root: *state.root(),
@@ -6950,11 +6951,12 @@ pub(crate) fn commit_prepared_to_state(
         .map(|snapshot| vec![snapshot.hash])
         .unwrap_or_default();
     let patch_digest = prepared.patch.digest();
-    let commit_id = compute_commit_hash_v2(
+    let commit_id = crate::snapshot::compute_commit_hash_for_receipt(
         &state_root_after,
         &parents,
         &patch_digest,
         prepared.patch.policy_id(),
+        Some(&tick_receipt),
     );
     let snapshot = Snapshot {
         root: *state.root(),

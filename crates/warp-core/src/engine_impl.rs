@@ -1904,11 +1904,14 @@ impl Engine {
                 diff_state(guard.state_before_runtime_commit(), &guard.engine.state),
             );
             snapshot.patch_digest = combined_patch.digest();
-            snapshot.hash = compute_commit_hash_v2(
+            // An attributed tick's commit hash binds its receipt (v3); an
+            // engine-direct commit has no section and keeps v2 (#873).
+            snapshot.hash = crate::snapshot::compute_commit_hash_for_receipt(
                 &snapshot.state_root,
                 &snapshot.parents,
                 &snapshot.patch_digest,
                 snapshot.policy_id,
+                Some(&receipt),
             );
             guard.engine.last_snapshot = Some(snapshot.clone());
             if let Some((recorded_snapshot, recorded_receipt, recorded_patch)) =

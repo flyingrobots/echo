@@ -31,7 +31,7 @@ use crate::ident::{Hash, NodeKey, WarpId};
 use crate::materialization::FinalizedChannel;
 use crate::receipt::TickReceipt;
 use crate::revelation::CausalPosture;
-use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state, Snapshot};
+use crate::snapshot::{compute_state_root_for_warp_state, Snapshot};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::worldline_state::WorldlineState;
@@ -1074,11 +1074,12 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
             .iter()
             .map(|parent| parent.commit_hash)
             .collect::<Vec<_>>();
-        let actual_commit_hash = compute_commit_hash_v2(
+        let actual_commit_hash = crate::snapshot::compute_commit_hash_for_receipt(
             &actual_state_root,
             &parent_hashes,
             &entry.expected.patch_digest,
             patch.policy_id(),
+            entry.tick_receipt.as_ref(),
         );
         if actual_commit_hash != entry.expected.commit_hash {
             return Err(ReplayError::CommitHashMismatch {
@@ -2621,7 +2622,7 @@ mod tests {
             .iter()
             .map(|parent| parent.commit_hash)
             .collect::<Vec<_>>();
-        let commit_hash = compute_commit_hash_v2(
+        let commit_hash = crate::snapshot::compute_commit_hash_v2(
             &state_root,
             &parent_hashes,
             &patch.patch_digest,
@@ -3795,7 +3796,7 @@ mod tests {
             .expect("fixture patch should apply");
         let state_root =
             compute_state_root_for_warp_state(next_state.warp_state(), next_state.root());
-        let commit_hash = compute_commit_hash_v2(
+        let commit_hash = crate::snapshot::compute_commit_hash_v2(
             &state_root,
             &[],
             &patch.patch_digest,

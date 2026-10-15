@@ -35,6 +35,14 @@
 
 ### Changed
 
+- Commit hash v3 binds a tick's receipt digest, and through it the tick's
+  attribution section, into the tick's commit identity (#873). Every tick
+  whose receipt carries an attribution section is committed with v3; legacy
+  ticks and engine-direct commits keep v2, so existing history and golden
+  vectors are unchanged. The receipt selects the version
+  (`compute_commit_hash_for_receipt`), and retained-commit validation and
+  replay recompute it, so altered attribution, or a section stripped from a v3
+  tick, no longer validates under the original commit.
 - Outcome lookup reads a tick's attribution section when it has one. A
   submission's outcome then comes from the receipt alone, so it no longer
   depends on the other correlations of the same tick surviving, which the

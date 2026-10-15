@@ -481,8 +481,9 @@ pub use settlement::{
 };
 pub use slot_reading::{SlotReader, SlotReading, SlotReadingError, SlotWriteIndex};
 pub use snapshot::{
-    compute_commit_hash_v2, compute_emissions_digest, compute_op_emission_index_digest,
-    compute_tick_commit_hash_v2, OpEmissionEntry, Snapshot,
+    compute_commit_hash_for_receipt, compute_commit_hash_v2, compute_commit_hash_v3,
+    compute_emissions_digest, compute_op_emission_index_digest, compute_tick_commit_hash_v2,
+    OpEmissionEntry, Snapshot,
 };
 pub use strand::{
     make_strand_id, DropReceipt, ForkBasisRef, ParentMovementFootprint, Strand, StrandBasisReport,

@@ -8,7 +8,6 @@ use thiserror::Error;
 use crate::{
     attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue},
     clock::{GlobalTick, WorldlineTick},
-    compute_commit_hash_v2,
     head::{HeadId, WriterHeadKey},
     ident::{EdgeId, EdgeKey, Hash, NodeId, NodeKey, TypeId, WarpId},
     provenance_store::{ProvenanceEntry, ProvenanceEventKind, ProvenanceRef},
@@ -17,6 +16,7 @@ use crate::{
         TickSubmissionAttribution, TickSubmissionDecision,
     },
     record::{EdgeRecord, NodeRecord},
+    snapshot::compute_commit_hash_for_receipt,
     tick_patch::{PortalInit, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1},
     tx::TxId,
     warp_state::WarpInstance,
@@ -254,11 +254,12 @@ fn validate_local_commit(entry: &ProvenanceEntry) -> Result<(), RetainedProvenan
         .iter()
         .map(|parent| parent.commit_hash)
         .collect::<Vec<_>>();
-    if compute_commit_hash_v2(
+    if compute_commit_hash_for_receipt(
         &entry.expected.state_root,
         &parent_hashes,
         &entry.expected.patch_digest,
         patch.policy_id(),
+        Some(receipt),
     ) != entry.expected.commit_hash
     {
         return Err(RetainedProvenanceError::Inconsistent("commit hash"));

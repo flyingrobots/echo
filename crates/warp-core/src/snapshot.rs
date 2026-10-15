@@ -276,6 +276,59 @@ pub fn compute_commit_hash_v2(
     h.finalize().into()
 }
 
+/// Computes commit hash v3: v2's inputs plus the tick receipt digest.
+///
+/// A tick whose receipt carries an attribution section (#873) uses v3, so the
+/// commit identity transitively binds which submissions the tick decided:
+/// commit hash → receipt digest → attribution. v3 has its own domain tag and
+/// version, so its bytes can never equal a v2 preimage.
+pub fn compute_commit_hash_v3(
+    state_root: &Hash,
+    parents: &[Hash],
+    patch_digest: &Hash,
+    receipt_digest: &Hash,
+    policy_id: u32,
+) -> Hash {
+    let mut h = Hasher::new();
+    h.update(domain::COMMIT_ID_V3);
+    h.update(&3u16.to_le_bytes());
+    h.update(&(parents.len() as u64).to_le_bytes());
+    for p in parents {
+        h.update(p);
+    }
+    h.update(state_root);
+    h.update(patch_digest);
+    h.update(receipt_digest);
+    h.update(&policy_id.to_le_bytes());
+    h.finalize().into()
+}
+
+/// The commit hash of a tick, given its retained receipt.
+///
+/// The receipt's own format decides the version: a receipt with an
+/// attribution section (format 3, retained as `EPRV0002`) is committed with
+/// v3, which binds its digest; any other tick, including every legacy tick and
+/// every commit with no receipt, keeps v2. A receipt stripped of its section
+/// therefore selects v2 and cannot reproduce a v3 commit hash.
+pub fn compute_commit_hash_for_receipt(
+    state_root: &Hash,
+    parents: &[Hash],
+    patch_digest: &Hash,
+    policy_id: u32,
+    receipt: Option<&crate::receipt::TickReceipt>,
+) -> Hash {
+    match receipt.filter(|receipt| receipt.attribution().is_some()) {
+        Some(receipt) => compute_commit_hash_v3(
+            state_root,
+            parents,
+            patch_digest,
+            &receipt.digest(),
+            policy_id,
+        ),
+        None => compute_commit_hash_v2(state_root, parents, patch_digest, policy_id),
+    }
+}
+
 // Tests for commit header encoding and hashing live under PR-09
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.

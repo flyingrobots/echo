@@ -111,7 +111,16 @@ envelope frame in each intake transaction.
 
 Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
 canonical local-commit provenance entry, its exact typed `TickReceipt`, and any
-installed-invocation identity attached to the outcome. That identity is a
+installed-invocation identity attached to the outcome. A tick receipt written since
+#873 also carries an attribution section: one record per accepted submission
+the tick decided, in submission order, naming either the receipt entries that
+carry its decision or that no rule matched it. The scheduler seals that section
+from the tick's own batch and refuses to commit a tick whose decisions and
+receipt entries disagree. The retained entry for such a tick is written as
+`EPRV0002`; a receipt without the section keeps `EPRV0001` and its receipt
+digest byte for byte, so legacy history replays unchanged. The commit hash does
+not cover the receipt: the section is bound by the receipt digest that the
+patch header and every receipt reference carry. That identity is a
 tagged proposition: the existing legacy Wesley/GraphQL evidence keeps its
 byte-stable tag-1 encoding, while tag 2 retains provider package id and exact
 reference, operation id and coordinate, Target IR identity, and scheduler rule

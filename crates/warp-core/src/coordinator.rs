@@ -3510,6 +3510,16 @@ fn receipt_correlation_current_basis(
     )
 }
 
+/// The accepted submission behind each admitted envelope of `head_key`'s
+/// batch, in batch order. Submission identity is derived, not looked up, so
+/// the tick's attribution does not depend on any correlation index (#873).
+fn admitted_submission_ids(head_key: WriterHeadKey, admitted: &[IngressEnvelope]) -> Vec<Hash> {
+    admitted
+        .iter()
+        .map(|envelope| derive_intent_submission_id(head_key, envelope.ingress_id()))
+        .collect()
+}
+
 fn derive_intent_submission_id(head_key: WriterHeadKey, ingress_id: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.intent-submission.v0");
@@ -4274,6 +4284,14 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
                     hasher.update(&(*index as u64).to_le_bytes());
                     hasher.update(&(*len as u64).to_le_bytes());
                 }
+                EngineError::TickAttributionMismatch(message) => {
+                    hasher.update(b"tick-attribution-mismatch");
+                    hasher.update(message.as_bytes());
+                }
+                EngineError::InvalidTickAttribution(error) => {
+                    hasher.update(b"invalid-tick-attribution");
+                    hasher.update(error.to_string().as_bytes());
+                }
             }
         }
         #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
@@ -4765,7 +4783,11 @@ impl SchedulerCoordinator {
                             .state_journal_mut(key.worldline_id)?
                             .retain_copy(frontier.state().warp_state());
                         engine
-                            .commit_with_state(frontier.state_mut(), &admitted)
+                            .commit_attributed_with_state(
+                                frontier.state_mut(),
+                                &admitted,
+                                &admitted_submission_ids(*key, &admitted),
+                            )
                             .map_err(RuntimeError::from)?
                     };
                     (snapshot, patch, receipt)
@@ -4785,7 +4807,11 @@ impl SchedulerCoordinator {
                         .state_journal_mut(key.worldline_id)?
                         .retain_copy(frontier.state().warp_state());
                     engine
-                        .commit_with_state(frontier.state_mut(), &admitted)
+                        .commit_attributed_with_state(
+                            frontier.state_mut(),
+                            &admitted,
+                            &admitted_submission_ids(*key, &admitted),
+                        )
                         .map_err(RuntimeError::from)?
                 };
                 let tick_receipt_digest = receipt.digest();
@@ -5449,6 +5475,283 @@ mod tests {
             InboxPolicy::AcceptAll,
         );
         (runtime, engine, worldline_id)
+    }
+
+    fn retained_receipt(
+        provenance: &ProvenanceService,
+        worldline_id: WorldlineId,
+        tick: u64,
+    ) -> crate::TickReceipt {
+        provenance
+            .entry(worldline_id, WorldlineTick::from_raw(tick))
+            .unwrap()
+            .tick_receipt
+            .unwrap()
+    }
+
+    fn accepted_submission(disposition: IngressDisposition) -> Hash {
+        match disposition {
+            IngressDisposition::Accepted { submission_id, .. } => submission_id,
+            IngressDisposition::Duplicate { .. } => {
+                panic!("expected a new submission, got a duplicate")
+            }
+        }
+    }
+
+    #[test]
+    fn a_plain_tick_attributes_each_submission_to_its_receipt_entries() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        let event_id = NodeId(envelope.ingress_id());
+        let submission_id = accepted_submission(runtime.ingest(envelope).unwrap());
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        let receipt = retained_receipt(&provenance, worldline_id, 0);
+        let scoped = receipt
+            .entries()
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.scope.local_id == event_id)
+            .map(|(index, _)| u32::try_from(index).unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            !scoped.is_empty(),
+            "the command rule ran on the request node"
+        );
+        assert_eq!(
+            receipt.attribution(),
+            Some(
+                &[crate::TickSubmissionAttribution {
+                    submission_id,
+                    decision: crate::TickSubmissionDecision::ReceiptEntries(scoped),
+                }][..]
+            )
+        );
+        // The retained patch header names the digest that covers the section.
+        assert_eq!(
+            provenance
+                .entry(worldline_id, WorldlineTick::ZERO)
+                .unwrap()
+                .patch
+                .unwrap()
+                .header
+                .decision_digest,
+            receipt.digest()
+        );
+    }
+
+    #[test]
+    fn a_plain_tick_records_a_submission_no_rule_matched() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let submission_id = accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/unmatched"),
+                    b"no rule handles this".to_vec(),
+                ))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        let receipt = retained_receipt(&provenance, worldline_id, 0);
+        assert!(receipt.entries().is_empty());
+        assert_eq!(
+            receipt.attribution(),
+            Some(
+                &[crate::TickSubmissionAttribution {
+                    submission_id,
+                    decision: crate::TickSubmissionDecision::NoMatchingRule,
+                }][..]
+            ),
+            "a decided submission with no receipt entry is recorded, not dropped"
+        );
+    }
+
+    #[test]
+    fn an_idempotent_retry_adds_no_history_item_and_an_intentional_repeat_does() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let bytes = toy_increment_intent(TOY_INCREMENT_VARS);
+        let first = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            bytes.clone(),
+        );
+        let first_submission = accepted_submission(runtime.ingest(first.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        // Retrying the same content on the same head names the existing
+        // submission and gives the scheduler nothing new to decide.
+        match runtime.ingest(first).unwrap() {
+            IngressDisposition::Duplicate { submission_id, .. } => {
+                assert_eq!(submission_id, first_submission);
+            }
+            IngressDisposition::Accepted { .. } => panic!("a retry must be a duplicate"),
+        }
+        let retry_steps =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert!(retry_steps.is_empty(), "a retry commits no Tick");
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+
+        // Content identity is the law: the same bytes with a causal parent are
+        // different content, so citing earlier history makes a deliberate
+        // repeat a new ingress.
+        let cited = IngressEnvelope::local_intent_with_causal_parents(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            bytes.clone(),
+            vec![crate::IngressCausalParent::TickReceipt {
+                receipt_ref: crate::CausalTickReceiptRef {
+                    worldline_id,
+                    worldline_tick_after: WorldlineTick::from_raw(1),
+                    commit_global_tick: GlobalTick::from_raw(1),
+                    commit_hash: [1; 32],
+                    submission_id: first_submission,
+                    ticket_digest: [2; 32],
+                    receipt_content_digest: [3; 32],
+                },
+            }],
+        );
+        assert_ne!(
+            cited.ingress_id(),
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                bytes.clone(),
+            )
+            .ingress_id()
+        );
+
+        // A deliberate repeat with distinguishing bytes is a new submission,
+        // decided and attributed in its own tick.
+        let mut repeat_bytes = bytes;
+        repeat_bytes.extend_from_slice(b";again");
+        let repeat_submission = accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    repeat_bytes,
+                ))
+                .unwrap(),
+        );
+        assert_ne!(repeat_submission, first_submission);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(provenance.len(worldline_id).unwrap(), 2);
+        let attributed = retained_receipt(&provenance, worldline_id, 1)
+            .attribution()
+            .unwrap()
+            .iter()
+            .map(|record| record.submission_id)
+            .collect::<Vec<_>>();
+        assert_eq!(attributed, vec![repeat_submission]);
+    }
+
+    /// The same tick as a legacy (receipt format 2) entry: no attribution
+    /// section, and the patch header naming the legacy receipt digest.
+    fn without_attribution(mut entry: crate::ProvenanceEntry) -> crate::ProvenanceEntry {
+        let receipt = entry.tick_receipt.take().unwrap();
+        let blocked_by = (0..receipt.entries().len())
+            .map(|index| receipt.blocked_by(index).to_vec())
+            .collect();
+        let legacy = crate::TickReceipt::try_from_retained_parts(
+            receipt.tx(),
+            receipt.entries().to_vec(),
+            blocked_by,
+        )
+        .unwrap();
+        if let Some(patch) = entry.patch.as_mut() {
+            patch.header.decision_digest = legacy.digest();
+        }
+        entry.with_tick_receipt(legacy)
+    }
+
+    #[test]
+    fn retained_ticks_keep_their_format_and_a_legacy_history_extends_with_attributed_ticks() {
+        use crate::provenance_codec::{decode_local_commit_v1, encode_local_commit_v1};
+
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let mut provenance = mirrored_provenance(&runtime);
+        let mut store = mirrored_provenance(&runtime);
+        for amount in [b"amount=1".as_slice(), b"amount=2".as_slice()] {
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(amount),
+                ))
+                .unwrap();
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        }
+        let first = provenance.entry(worldline_id, WorldlineTick::ZERO).unwrap();
+        let second = provenance
+            .entry(worldline_id, WorldlineTick::from_raw(1))
+            .unwrap();
+
+        // New ticks are written as version 2 and decode to exactly themselves.
+        let attributed_bytes = encode_local_commit_v1(&first).unwrap();
+        assert_eq!(&attributed_bytes[..8], b"EPRV0002");
+        assert_eq!(decode_local_commit_v1(&attributed_bytes).unwrap(), first);
+
+        // The same tick without attribution is a legacy record: version 1,
+        // no section, and the same commit hash, because the commit hash does
+        // not cover the receipt.
+        let legacy = without_attribution(first.clone());
+        let legacy_bytes = encode_local_commit_v1(&legacy).unwrap();
+        assert_eq!(&legacy_bytes[..8], b"EPRV0001");
+        let decoded_legacy = decode_local_commit_v1(&legacy_bytes).unwrap();
+        assert_eq!(decoded_legacy, legacy);
+        assert_eq!(decoded_legacy.tick_receipt.unwrap().attribution(), None);
+        assert_eq!(legacy.expected.commit_hash, first.expected.commit_hash);
+
+        // A record cannot change version by relabelling.
+        let mut relabelled_legacy = legacy_bytes;
+        relabelled_legacy[..8].copy_from_slice(b"EPRV0002");
+        assert!(decode_local_commit_v1(&relabelled_legacy).is_err());
+        let mut relabelled_attributed = attributed_bytes;
+        relabelled_attributed[..8].copy_from_slice(b"EPRV0001");
+        assert!(decode_local_commit_v1(&relabelled_attributed).is_err());
+
+        // A legacy tick followed by an attributed tick is one valid history.
+        store.append_local_commit(legacy).unwrap();
+        store.append_local_commit(second).unwrap();
+        assert_eq!(
+            store
+                .entry(worldline_id, WorldlineTick::ZERO)
+                .unwrap()
+                .tick_receipt
+                .unwrap()
+                .attribution(),
+            None
+        );
+        assert!(store
+            .entry(worldline_id, WorldlineTick::from_raw(1))
+            .unwrap()
+            .tick_receipt
+            .unwrap()
+            .attribution()
+            .is_some());
     }
 
     #[test]

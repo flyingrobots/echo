@@ -39,7 +39,10 @@ use crate::{
     head::{HeadId, WriterHeadKey},
     head_inbox::{make_intent_kind, IngressEnvelope, IngressPayload, IngressTarget, IntentKind},
     ident::{EdgeKey, Hash, NodeKey, TypeId},
-    receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection},
+    receipt::{
+        TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection,
+        TickSubmissionAttribution, TickSubmissionDecision,
+    },
     record::NodeRecord,
     snapshot::{compute_commit_hash_v2, Snapshot},
     tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1},
@@ -6309,6 +6312,21 @@ pub enum EchoOperationCommitErrorV1 {
     /// More than one candidate claimed the same canonical ingress identity.
     #[error("executable-operation Action batch contains duplicate ingress identity")]
     DuplicateCandidateIngress,
+    /// The Tick's attribution section does not account for its candidates
+    /// exactly (#873): one record per submission, one entry per candidate.
+    #[error("executable-operation Action batch attribution is invalid: {0}")]
+    Attribution(#[from] crate::receipt::TickAttributionError),
+    /// The batch decided a different number of candidates than it wrote
+    /// receipt entries, so some decision would be unattributed.
+    #[error(
+        "executable-operation Action batch decided {decided} candidates but wrote {entries} receipt entries"
+    )]
+    AttributionIncomplete {
+        /// Candidates the batch decided.
+        decided: usize,
+        /// Receipt entries the batch wrote.
+        entries: usize,
+    },
     /// Test-only scheduler fault injected before Action Tick construction.
     #[cfg(all(
         feature = "native_rule_bootstrap",
@@ -6427,6 +6445,24 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     let mut ordered_rule_ids = Vec::with_capacity(candidates.len());
     let mut footprint_comparisons = 0_usize;
     let mut blocker_evidence_count = 0_usize;
+
+    // The Tick decides every candidate, and each candidate's decision is the
+    // receipt entry at its own position. The attribution section records that
+    // from the batch itself, not from any correlation index (#873).
+    let decided = candidates.len();
+    let mut attribution = candidates
+        .iter()
+        .enumerate()
+        .map(|(entry_index, candidate)| {
+            u32::try_from(entry_index)
+                .map(|entry| TickSubmissionAttribution {
+                    submission_id: candidate.submission_id,
+                    decision: TickSubmissionDecision::ReceiptEntries(vec![entry]),
+                })
+                .map_err(|_| EchoOperationCommitErrorV1::TooManyCandidates)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    attribution.sort_by_key(|record| record.submission_id);
 
     for (entry_index, candidate) in candidates.into_iter().enumerate() {
         let entry_index_u32 = u32::try_from(entry_index)
@@ -6551,7 +6587,13 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
         }
     }
 
-    let tick_receipt = TickReceipt::new(tx, entries, blocked_by);
+    if entries.len() != decided {
+        return Err(EchoOperationCommitErrorV1::AttributionIncomplete {
+            decided,
+            entries: entries.len(),
+        });
+    }
+    let tick_receipt = TickReceipt::new(tx, entries, blocked_by).with_attribution(attribution)?;
     let plan_digest = action_batch_plan_digest(tick_receipt.entries());
     let applied = decisions
         .iter()
@@ -6891,7 +6933,10 @@ pub(crate) fn commit_prepared_to_state(
             disposition: TickReceiptDisposition::Applied,
         }],
         vec![Vec::new()],
-    );
+    )
+    // A direct host commit decides no accepted submission. The empty section
+    // records that explicitly, unlike a legacy receipt with no section (#873).
+    .with_attribution(Vec::new())?;
     // Nothing after this application can fail, so the journal is not kept.
     state.apply_patch_journaled(
         &prepared.patch,

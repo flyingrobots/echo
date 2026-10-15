@@ -448,8 +448,8 @@ pub use provenance_store::{
     ProvenanceRef, ProvenanceService, ProvenanceStore, ReplayCheckpoint, ReplayError,
 };
 pub use receipt::{
-    TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptPartsError,
-    TickReceiptRejection,
+    TickAttributionError, TickReceipt, TickReceiptDisposition, TickReceiptEntry,
+    TickReceiptPartsError, TickReceiptRejection, TickSubmissionAttribution, TickSubmissionDecision,
 };
 pub use record::{EdgeRecord, NodeRecord};
 #[allow(deprecated)]

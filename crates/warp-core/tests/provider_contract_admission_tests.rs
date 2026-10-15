@@ -180,6 +180,20 @@ fn refusing_matcher(_view: GraphView<'_>, _scope: &NodeId) -> bool {
     false
 }
 
+/// Intent variables a [`selective_matcher`] refuses.
+const REFUSED_VARS: &[u8] = b"refuse-this";
+
+/// Matches every intent except one whose bytes end with [`REFUSED_VARS`], so
+/// one installed operation can yield a matched and a no-match submission in
+/// the same tick.
+fn selective_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
+    MATCHER_CALLS.fetch_add(1, Ordering::SeqCst);
+    !matches!(
+        view.node_attachment(scope),
+        Some(warp_core::AttachmentValue::Atom(payload)) if payload.bytes.ends_with(REFUSED_VARS)
+    )
+}
+
 fn counting_executor(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {
     EXECUTOR_CALLS.fetch_add(1, Ordering::SeqCst);
 }
@@ -1072,6 +1086,362 @@ fn submit_provider_intent(
     host.admit_provider_contract_submission_v1(submission)
         .expect("installed provider submission stages");
     submission
+}
+
+/// The whole receipt history of `worldline_id` at its current frontier,
+/// requiring every page to prove completeness.
+fn full_history(
+    host: &mut TrustedRuntimeHost,
+    worldline_id: WorldlineId,
+) -> Vec<warp_core::CausalReceiptHistoryEntry> {
+    let basis = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("the provider worldline is registered")
+        .frontier_tick();
+    let mut entries = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = host
+            .app()
+            .causal_receipt_history(warp_core::CausalReceiptHistoryRequest {
+                worldline_id,
+                basis_frontier_tick: basis,
+                direction: warp_core::CausalReceiptHistoryDirection::OldestFirst,
+                page_size: 8,
+                cursor,
+            })
+            .expect("the receipt history is readable");
+        assert_eq!(
+            page.completeness,
+            warp_core::CausalReceiptHistoryCompleteness::Established
+        );
+        entries.extend(page.entries);
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return entries,
+        }
+    }
+}
+
+/// The scheduler decision and retained attribution of each submission.
+fn decisions_of(
+    host: &TrustedRuntimeHost,
+    submissions: &[warp_core::Hash],
+) -> Vec<(
+    warp_core::IntentOutcomeDecision,
+    warp_core::TickSubmissionDecision,
+)> {
+    submissions
+        .iter()
+        .map(|submission_id| {
+            let warp_core::IntentOutcomeObservation::Decided {
+                correlation,
+                decision,
+            } = host.runtime().observe_intent_outcome(submission_id)
+            else {
+                panic!("each submission is decided by a scheduler tick");
+            };
+            let tick = correlation
+                .worldline_tick_after
+                .checked_sub(1)
+                .expect("a decided submission names its tick");
+            let receipt = warp_core::ProvenanceStore::entry(
+                host.provenance(),
+                correlation.head_key.worldline_id,
+                tick,
+            )
+            .expect("the deciding tick is retained")
+            .tick_receipt
+            .expect("a scheduler tick retains its receipt");
+            let record = receipt
+                .attribution()
+                .expect("a new tick commits attribution")
+                .iter()
+                .find(|record| record.submission_id == *submission_id)
+                .expect("the tick attributes the submission")
+                .decision
+                .clone();
+            (decision, record)
+        })
+        .collect()
+}
+
+#[test]
+fn a_no_match_decided_beside_an_applied_submission_survives_restart() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let wal_root = temp_provider_wal_dir("no-match-restart");
+    let (mut host, worldline_id) = provider_runtime_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("provider WAL initializes");
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal_with_matcher(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256, selective_matcher),
+        )
+        .expect("the provider proposal is admitted");
+    host.install_admitted_provider_contract_package_v1_trusted(package_reference(), admitted)
+        .expect("the provider package installs");
+
+    let applied = submit_provider_intent(&mut host, worldline_id, b"apply-this");
+    let refused = submit_provider_intent(&mut host, worldline_id, REFUSED_VARS);
+    host.run_until_idle(4)
+        .expect("a tick holding a matched and a no-match submission commits under the WAL");
+
+    let submissions = [applied, refused];
+    let before = decisions_of(&host, &submissions);
+    assert!(matches!(
+        before[0],
+        (
+            warp_core::IntentOutcomeDecision::Applied { .. },
+            warp_core::TickSubmissionDecision::ReceiptEntries(_)
+        )
+    ));
+    assert_eq!(
+        before[1],
+        (
+            warp_core::IntentOutcomeDecision::NoMatchingRule,
+            warp_core::TickSubmissionDecision::NoMatchingRule
+        )
+    );
+    let app_outcomes = submissions.map(|id| host.app().observe_intent_outcome(&id));
+    let history = full_history(&mut host, worldline_id);
+    let mut expected_members = submissions.to_vec();
+    expected_members.sort_unstable();
+    assert_eq!(
+        history
+            .iter()
+            .map(|entry| entry.submission_id)
+            .collect::<Vec<_>>(),
+        expected_members,
+        "history lists the applied and the no-match submission of the tick"
+    );
+    drop(host);
+
+    let (mut restarted, restarted_worldline_id) = provider_runtime_host();
+    assert_eq!(restarted_worldline_id, worldline_id);
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the WAL with a no-match decision recovers");
+    let readmitted = restarted
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal_with_matcher(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256, selective_matcher),
+        )
+        .expect("the provider proposal is admitted again");
+    restarted
+        .install_admitted_provider_contract_package_v1_trusted(package_reference(), readmitted)
+        .expect("the provider package reinstalls");
+    assert_eq!(
+        decisions_of(&restarted, &submissions),
+        before,
+        "both decisions and their attribution survive restart"
+    );
+    assert_eq!(
+        submissions.map(|id| restarted.app().observe_intent_outcome(&id)),
+        app_outcomes,
+        "outcome lookup agrees before and after recovery"
+    );
+    assert_eq!(
+        full_history(&mut restarted, worldline_id),
+        history,
+        "history agrees before and after recovery"
+    );
+    drop(restarted);
+    std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
+}
+
+/// A host with a filesystem WAL whose one tick applied one submission and
+/// recorded another as no-match. Returns the host, its worldline, the WAL root
+/// and the `[applied, refused]` submissions.
+fn no_match_scenario(
+    label: &str,
+) -> (
+    TrustedRuntimeHost,
+    WorldlineId,
+    PathBuf,
+    [warp_core::Hash; 2],
+) {
+    let wal_root = temp_provider_wal_dir(label);
+    let (mut host, worldline_id) = reopen_selective_host(&wal_root);
+    let applied = submit_provider_intent(&mut host, worldline_id, b"apply-this");
+    let refused = submit_provider_intent(&mut host, worldline_id, REFUSED_VARS);
+    host.run_until_idle(4)
+        .expect("the mixed tick commits under the WAL");
+    (host, worldline_id, wal_root, [applied, refused])
+}
+
+/// Opens (or reopens) a provider host on `wal_root` with the selective matcher
+/// installed.
+fn reopen_selective_host(wal_root: &PathBuf) -> (TrustedRuntimeHost, WorldlineId) {
+    let (mut host, worldline_id) = provider_runtime_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_root))
+        .expect("the provider WAL opens");
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal_with_matcher(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256, selective_matcher),
+        )
+        .expect("the provider proposal is admitted");
+    host.install_admitted_provider_contract_package_v1_trusted(package_reference(), admitted)
+        .expect("the provider package installs");
+    (host, worldline_id)
+}
+
+/// Every history page of `worldline_id` at its frontier, `page_size` entries
+/// at a time, or the first obstruction.
+fn history_pages(
+    host: &mut TrustedRuntimeHost,
+    worldline_id: WorldlineId,
+    page_size: usize,
+) -> Result<Vec<warp_core::CausalReceiptHistoryPage>, warp_core::CausalReceiptHistoryObstruction> {
+    let basis = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("the provider worldline is registered")
+        .frontier_tick();
+    let mut pages = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = host
+            .app()
+            .causal_receipt_history(warp_core::CausalReceiptHistoryRequest {
+                worldline_id,
+                basis_frontier_tick: basis,
+                direction: warp_core::CausalReceiptHistoryDirection::OldestFirst,
+                page_size,
+                cursor,
+            })?;
+        let next = page.next_cursor.clone();
+        pages.push(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(pages),
+        }
+    }
+}
+
+#[test]
+fn no_match_history_pages_are_identical_across_restart() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let (mut host, worldline_id, wal_root, _) = no_match_scenario("no-match-pages");
+    // One entry per page, so the cursor resumes inside the tick.
+    let before = history_pages(&mut host, worldline_id, 1).expect("history is readable");
+    assert!(before.len() >= 2, "the two submissions span pages");
+    drop(host);
+    let (mut restarted, _) = reopen_selective_host(&wal_root);
+    assert_eq!(
+        history_pages(&mut restarted, worldline_id, 1).expect("recovered history is readable"),
+        before,
+        "entries, order, cursors, inspected ranges and completeness claims agree"
+    );
+    drop(restarted);
+    std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
+}
+
+/// Needs `host_test`: it rewrites a recovered decision and runs recovery's
+/// decision check against the live host.
+#[cfg(feature = "host_test")]
+#[test]
+fn a_recorded_decision_must_match_the_retained_attribution() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let (host, _, wal_root, [applied, refused]) = no_match_scenario("no-match-decision-check");
+    let recovery = host
+        .runtime_wal()
+        .expect("the WAL is configured")
+        .recover_read_only()
+        .expect("the WAL recovers read-only");
+    host.check_recovered_tick_decisions_for_test(&recovery.receipts)
+        .expect("recorded decisions match the retained receipt");
+
+    for (submission_id, forged, retained) in [
+        (
+            applied,
+            warp_core::causal_wal::WalTickDecision::NoMatchingRule,
+            warp_core::causal_wal::WalTickDecision::Applied,
+        ),
+        (
+            refused,
+            warp_core::causal_wal::WalTickDecision::Applied,
+            warp_core::causal_wal::WalTickDecision::NoMatchingRule,
+        ),
+    ] {
+        let mut receipts = recovery.receipts.clone();
+        let recorded = receipts
+            .decisions_by_receipt
+            .iter_mut()
+            .find(|(receipt_ref, _)| receipt_ref.submission_id == submission_id)
+            .expect("the submission's decision is recorded")
+            .1;
+        *recorded = forged;
+        assert_eq!(
+            host.check_recovered_tick_decisions_for_test(&receipts),
+            Err(warp_core::TrustedRuntimeWalError::TickDecisionMismatch {
+                submission_id,
+                recorded: forged,
+                retained,
+            }),
+            "a recorded {forged:?} contradicting the sealed attribution is refused"
+        );
+    }
+    drop(host);
+    std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
+}
+
+/// Needs `host_test`: it removes correlations from a live host.
+#[cfg(feature = "host_test")]
+#[test]
+fn a_lost_correlation_in_a_no_match_tick_is_reported_live_and_after_recovery() {
+    let _callback_guard = callback_test_guard();
+    for case in ["matched", "no-match", "all"] {
+        reset_callback_counts();
+        let (mut host, worldline_id, wal_root, [applied, refused]) =
+            no_match_scenario(&format!("no-match-lost-{case}"));
+        let lost = match case {
+            "matched" => vec![applied],
+            "no-match" => vec![refused],
+            _ => vec![applied, refused],
+        };
+        // Traversal is in submission order, so the first lost submission it
+        // reaches is the smallest.
+        let expected =
+            warp_core::CausalReceiptHistoryObstruction::AttributedSubmissionUncorrelated {
+                worldline_tick: warp_core::WorldlineTick::ZERO,
+                submission_id: *lost.iter().min().expect("one lost submission"),
+            };
+
+        // Live host.
+        history_pages(&mut host, worldline_id, 8).expect("intact history is readable");
+        for submission_id in &lost {
+            assert!(host.forget_receipt_correlation_for_test(submission_id));
+        }
+        assert_eq!(
+            history_pages(&mut host, worldline_id, 8),
+            Err(expected.clone()),
+            "losing the {case} correlation is reported on the live host"
+        );
+        drop(host);
+
+        // Recovered host: recovery restores the correlations, and losing them
+        // again is reported the same way, not hidden.
+        let (mut recovered, _) = reopen_selective_host(&wal_root);
+        history_pages(&mut recovered, worldline_id, 8).expect("recovered history is readable");
+        for submission_id in &lost {
+            assert!(recovered.forget_receipt_correlation_for_test(submission_id));
+        }
+        assert_eq!(
+            history_pages(&mut recovered, worldline_id, 8),
+            Err(expected),
+            "losing the {case} correlation is reported after recovery"
+        );
+        drop(recovered);
+        std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
+    }
 }
 
 const FROZEN_EPRV0002_SEGMENT: &[u8] =

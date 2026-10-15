@@ -167,6 +167,12 @@ records, each one must be named by its tick's attribution. That includes a
 legacy scope check would wrongly refuse. The retained-provenance codec
 re-encodes every decoded tick and refuses any record that is not canonical.
 
+A no-match decision survives restart. Under the WAL a tick's no-match
+submission is recorded with its own decision code (`WalTickDecision::NoMatchingRule`,
+code 4), and full host recovery requires every recorded decision to equal the
+decision the restored receipt yields, so a log cannot assert a no-match that the
+sealed attribution does not, or the reverse.
+
 ### 4. A rebuildable index
 
 Because attribution is committed, the five correlation maps are a cache:
@@ -222,10 +228,6 @@ Measured costs are not yet recorded; these are derived from the format.
 
 - **Legacy ticks** cannot prove completeness. History marks pages that
   inspected them `UnestablishedForLegacyTicks`.
-- **No-match across restart is not yet proven.** A ticketed no-match outcome is
-  still unrecordable in the WAL tick record (`TickOutcomeUnavailable`). The
-  owner ruled that it must survive restart, with outcome lookup and history
-  agreeing before and after recovery; #873 depends on that work.
 - **Unticketed submissions** decided by a tick have no receipt identity, so
   history reports them as `SubmissionWithoutReceiptIdentity` instead of
   returning them.
@@ -233,16 +235,21 @@ Measured costs are not yet recorded; these are derived from the format.
 
 ## Evidence
 
-| Claim                                                                                        | Test                                                                                                                                      |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy receipt digest unchanged; the section changes it; malformed shapes refused            | `receipt::tests`                                                                                                                          |
-| Plain seal and its refusals                                                                  | `engine_impl::tests::attribution_seal`                                                                                                    |
-| Plain ticks attribute entries and no-match                                                   | `coordinator::tests::a_plain_tick_attributes_each_submission_to_its_receipt_entries`, `a_plain_tick_records_a_submission_no_rule_matched` |
-| Retry adds nothing; repeat is new                                                            | `coordinator::tests::an_idempotent_retry_adds_no_history_item_and_an_intentional_repeat_does`                                             |
-| `EPRV0001`, `EPRV0002` and `EPRV0003` formats; mixed history                                 | `coordinator::tests::retained_ticks_keep_their_format_and_a_legacy_history_extends_with_attributed_ticks`                                 |
-| Outcomes resolve from the receipt alone                                                      | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused` |
-| Restore accepts an attributed no-match                                                       | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                             |
-| Lost correlations, unattributed correlations, budgets, cursors                               | `causal_receipt_history::tests`                                                                                                           |
-| Action attribution, paging inside one tick, and recovery                                     | `executable_operation_pipeline_tests::an_action_tick_attributes_each_submission_and_the_attribution_recovers`                             |
-| Attribution is bound into commit identity; substitution under the original commit is refused | `coordinator::tests::substituting_attribution_under_a_ticks_commit_fails_validation`                                                      |
-| Ticks attributed before commit binding keep their v2 identity                                | `coordinator::tests::an_attributed_tick_retained_before_commit_binding_still_validates`                                                   |
+| Claim                                                                                        | Test                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Legacy receipt digest unchanged; the section changes it; malformed shapes refused            | `receipt::tests`                                                                                                                                             |
+| Plain seal and its refusals                                                                  | `engine_impl::tests::attribution_seal`                                                                                                                       |
+| Plain ticks attribute entries and no-match                                                   | `coordinator::tests::a_plain_tick_attributes_each_submission_to_its_receipt_entries`, `a_plain_tick_records_a_submission_no_rule_matched`                    |
+| Retry adds nothing; repeat is new                                                            | `coordinator::tests::an_idempotent_retry_adds_no_history_item_and_an_intentional_repeat_does`                                                                |
+| `EPRV0001`, `EPRV0002` and `EPRV0003` formats; mixed history                                 | `coordinator::tests::retained_ticks_keep_their_format_and_a_legacy_history_extends_with_attributed_ticks`                                                    |
+| Outcomes resolve from the receipt alone                                                      | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused`                    |
+| Restore accepts an attributed no-match                                                       | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                                                |
+| Lost correlations, unattributed correlations, budgets, cursors                               | `causal_receipt_history::tests`                                                                                                                              |
+| Action attribution, paging inside one tick, and recovery                                     | `executable_operation_pipeline_tests::an_action_tick_attributes_each_submission_and_the_attribution_recovers`                                                |
+| Attribution is bound into commit identity; substitution under the original commit is refused | `coordinator::tests::substituting_attribution_under_a_ticks_commit_fails_validation`                                                                         |
+| Ticks attributed before commit binding keep their v2 identity                                | `coordinator::tests::an_attributed_tick_retained_before_commit_binding_still_validates`                                                                      |
+| Outcomes resolve from the receipt alone                                                      | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused`                    |
+| Restore accepts an attributed no-match                                                       | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                                                |
+| A matched and a no-match decision in one tick survive restart; history and outcomes agree    | `provider_contract_admission_tests::a_no_match_decided_beside_an_applied_submission_survives_restart`, `no_match_history_pages_are_identical_across_restart` |
+| A lost correlation (matched, no-match or all) is reported, live and after recovery           | `provider_contract_admission_tests::a_lost_correlation_in_a_no_match_tick_is_reported_live_and_after_recovery`                                               |
+| A recorded decision must match the retained attribution                                      | `provider_contract_admission_tests::a_recorded_decision_must_match_the_retained_attribution`                                                                 |

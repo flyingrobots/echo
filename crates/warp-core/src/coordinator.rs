@@ -2018,6 +2018,33 @@ impl WorldlineRuntime {
         self.receipt_correlations_by_ticketed_ingress.values()
     }
 
+    /// Forgets the receipt correlation of `submission_id` from every
+    /// correlation index, as lost correlation material would, for tests that
+    /// history reports the loss instead of hiding it. Returns whether one
+    /// existed.
+    #[cfg(any(test, feature = "host_test"))]
+    pub fn forget_receipt_correlation_for_test(&mut self, submission_id: &Hash) -> bool {
+        let Some(ticketed_ingress_id) =
+            self.receipt_correlation_by_submission.remove(submission_id)
+        else {
+            return false;
+        };
+        let Some(record) = self
+            .receipt_correlations_by_ticketed_ingress
+            .remove(&ticketed_ingress_id)
+        else {
+            return false;
+        };
+        self.receipt_correlation_by_ticket
+            .remove(&record.ticket_digest);
+        self.receipt_correlation_by_receipt_ref
+            .remove(&record.causal_receipt_ref);
+        for ticketed in self.receipt_correlations_by_current_basis.values_mut() {
+            ticketed.remove(&ticketed_ingress_id);
+        }
+        true
+    }
+
     /// Resets test instrumentation for frontier basis resolutions.
     #[cfg(any(test, feature = "host_test"))]
     pub fn reset_frontier_basis_resolution_count_for_test(&self) {

@@ -343,6 +343,19 @@ pub enum TrustedRuntimeWalError {
         /// Receipt digest expected by the new correlation.
         receipt_digest: Hash,
     },
+    /// A recovered WAL tick record asserts a decision the retained receipt
+    /// does not yield for that submission (#873).
+    #[error(
+        "trusted runtime WAL tick decision for submission {submission_id:?} is recorded as {recorded:?} but the retained receipt yields {retained:?}"
+    )]
+    TickDecisionMismatch {
+        /// Submission whose recorded decision disagrees.
+        submission_id: Hash,
+        /// Decision the WAL tick record asserts.
+        recorded: WalTickDecision,
+        /// Decision derived from the retained receipt.
+        retained: WalTickDecision,
+    },
     /// Runtime outcome evidence did not match the receipt correlation.
     #[error(
         "trusted runtime WAL receipt digest mismatch: expected {expected_receipt_digest:?}, observed {observed_receipt_digest:?}"
@@ -999,6 +1012,28 @@ impl TrustedRuntimeHost {
         }
     }
 
+    /// Runs recovery's tick-decision check over `receipts` against this host's
+    /// runtime, for tests that tamper with recovered decisions.
+    ///
+    /// # Errors
+    ///
+    /// The same as full WAL recovery's decision check.
+    #[cfg(feature = "host_test")]
+    pub fn check_recovered_tick_decisions_for_test(
+        &self,
+        receipts: &RecoveredReceiptIndex,
+    ) -> Result<(), TrustedRuntimeWalError> {
+        validate_recovered_tick_decisions(&self.runtime, receipts)
+    }
+
+    /// Forgets one submission's receipt correlation, as lost correlation
+    /// material would, for tests that history reports the loss.
+    #[cfg(feature = "host_test")]
+    pub fn forget_receipt_correlation_for_test(&mut self, submission_id: &Hash) -> bool {
+        self.runtime
+            .forget_receipt_correlation_for_test(submission_id)
+    }
+
     /// Returns the host-owned runtime as read-only evidence.
     #[must_use]
     pub fn runtime(&self) -> &WorldlineRuntime {
@@ -1384,6 +1419,7 @@ impl TrustedRuntimeHost {
             &recovery.provenance_entries,
             &recovery.receipt_correlations,
         )?;
+        validate_recovered_tick_decisions(&restored_runtime, &recovery.receipts)?;
 
         self.engine
             .restore_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
@@ -7162,6 +7198,32 @@ fn submission_frontier_digest(previous: Hash, record: SubmissionAcceptanceRecord
     hasher.finalize().into()
 }
 
+/// Requires every recovered WAL tick decision to be the decision the restored
+/// runtime derives from the retained receipt (#873).
+///
+/// A checksum-valid record cannot assert, for example, `NoMatchingRule` for a
+/// submission the sealed attribution decided through receipt entries: the log
+/// and the receipt would then give two contradictory decisions.
+fn validate_recovered_tick_decisions(
+    runtime: &WorldlineRuntime,
+    receipts: &RecoveredReceiptIndex,
+) -> Result<(), TrustedRuntimeWalError> {
+    for (receipt_ref, recorded) in &receipts.decisions_by_receipt {
+        let retained = wal_tick_decision_from_observation(
+            runtime.observe_intent_outcome(&receipt_ref.submission_id),
+            receipt_ref.receipt_content_digest,
+        )?;
+        if retained != *recorded {
+            return Err(TrustedRuntimeWalError::TickDecisionMismatch {
+                submission_id: receipt_ref.submission_id,
+                recorded: *recorded,
+                retained,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn wal_tick_decision_from_observation(
     observation: IntentOutcomeObservation,
     expected_receipt_digest: Hash,
@@ -7195,10 +7257,10 @@ fn wal_tick_decision_from_observation(
             reason: TickReceiptRejection::ExecutableOperationObstruction,
             ..
         } => WalTickDecision::Obstructed,
-        // The WAL has no decision code for "no rule matched" yet, so such a
-        // ticketed outcome stays unrecordable, as before attribution (#873).
-        IntentOutcomeDecision::NoMatchingReceiptEntry { .. }
-        | IntentOutcomeDecision::NoMatchingRule => {
+        // A committed "no rule matched" decision is recordable (#873); a
+        // receipt that yields no decision for the submission is not.
+        IntentOutcomeDecision::NoMatchingRule => WalTickDecision::NoMatchingRule,
+        IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => {
             return Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
                 submission_id: correlation.submission_id,
                 receipt_digest: expected_receipt_digest,
@@ -8656,6 +8718,7 @@ fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
         WalTickDecision::Applied => 1,
         WalTickDecision::RejectedFootprintConflict => 2,
         WalTickDecision::Obstructed => 3,
+        WalTickDecision::NoMatchingRule => 4,
     }
 }
 

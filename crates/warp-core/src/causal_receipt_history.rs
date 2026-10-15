@@ -1420,6 +1420,114 @@ mod tests {
         ));
     }
 
+    /// One retained tick that applied submission 1 through a receipt entry
+    /// and recorded submission 2 as no-match, both correlated.
+    fn mixed_decision_tick() -> (WorldlineRuntime, ProvenanceService) {
+        let state = WorldlineState::empty();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(worldline(), &state)
+            .expect("worldline registers");
+        let mut records = vec![
+            TickSubmissionAttribution {
+                submission_id: submission(1),
+                decision: TickSubmissionDecision::ReceiptEntries(vec![0]),
+            },
+            TickSubmissionAttribution {
+                submission_id: submission(2),
+                decision: TickSubmissionDecision::NoMatchingRule,
+            },
+        ];
+        records.sort_by_key(|record| record.submission_id);
+        let receipt = TickReceipt::new(
+            TxId::from_raw(1),
+            vec![crate::TickReceiptEntry {
+                rule_id: [5; 32],
+                scope_hash: [6; 32],
+                scope: crate::NodeKey {
+                    warp_id: state.root().warp_id,
+                    local_id: crate::NodeId([1; 32]),
+                },
+                disposition: crate::TickReceiptDisposition::Applied,
+            }],
+            vec![Vec::new()],
+        )
+        .with_attribution(records)
+        .expect("fixture attribution");
+        let global_tick = GlobalTick::from_raw(1);
+        let commit_hash = [8; 32];
+        let entry = ProvenanceEntry::local_commit(
+            worldline(),
+            WorldlineTick::ZERO,
+            global_tick,
+            head_key(),
+            Vec::new(),
+            HashTriplet {
+                state_root: [1; 32],
+                patch_digest: [1; 32],
+                commit_hash,
+            },
+            WorldlineTickPatchV1 {
+                header: WorldlineTickHeaderV1 {
+                    commit_global_tick: global_tick,
+                    policy_id: 0,
+                    rule_pack_id: [0; 32],
+                    plan_digest: [0; 32],
+                    decision_digest: receipt.digest(),
+                    rewrites_digest: [0; 32],
+                },
+                warp_id: state.root().warp_id,
+                ops: Vec::new(),
+                in_slots: Vec::new(),
+                out_slots: Vec::new(),
+                patch_digest: [1; 32],
+            },
+            Vec::new(),
+            Vec::new(),
+        )
+        .with_tick_receipt(receipt);
+        provenance
+            .append_local_commit(entry)
+            .expect("fixture tick appends");
+        let mut runtime = runtime();
+        runtime.advance_frontier_for_test(worldline(), 1);
+        for seed in [1, 2] {
+            runtime.mark_submission_ticketed_for_test(submission(seed));
+        }
+        (runtime, provenance)
+    }
+
+    #[test]
+    fn losing_either_correlation_of_a_mixed_decision_tick_is_detected() {
+        for (kept, lost) in [(1, 2), (2, 1)] {
+            let (mut runtime, provenance) = mixed_decision_tick();
+            let fixture = FixtureTick {
+                global_tick: GlobalTick::from_raw(1),
+                commit_hash: [8; 32],
+                receipt_digest: provenance
+                    .retained_tick_receipt(worldline(), WorldlineTick::ZERO)
+                    .unwrap()
+                    .unwrap()
+                    .digest(),
+            };
+            correlate(&mut runtime, std::slice::from_ref(&fixture), 0, kept);
+            // Resume after the kept submission when it sorts first, so its
+            // missing submission record does not end the page before the
+            // lost one is reached.
+            let cursor = (kept < lost).then(|| cursor_at(1, 0, Some(kept)));
+            assert_eq!(
+                causal_receipt_history(&runtime, &provenance, request(1, cursor)),
+                Err(
+                    CausalReceiptHistoryObstruction::AttributedSubmissionUncorrelated {
+                        worldline_tick: WorldlineTick::ZERO,
+                        submission_id: submission(lost),
+                    }
+                ),
+                "losing submission {lost}'s correlation must be detected"
+            );
+        }
+    }
+
     #[test]
     fn ticks_attributed_before_commit_binding_are_weaker_evidence() {
         let (runtime, provenance, _) =

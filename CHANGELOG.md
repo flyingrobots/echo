@@ -208,6 +208,12 @@
 
 ### Fixed
 
+- A tick that decides a submission no rule matched now commits and recovers
+  under the WAL (#873). The WAL tick decision gains `NoMatchingRule` (code 4),
+  recovery maps it to `RecoveredSubmissionPosture::DecidedNoMatchingRule`, and
+  a retry reports `SubmissionRetryPosture::AlreadyDecidedNoMatchingRule`.
+  Before, such a tick failed with `TickOutcomeUnavailable` and could not be
+  recorded at all. Older WALs never contain the code.
 - `Footprint::independent` no longer treats an unpopulated `factor_mask` as
   partition evidence. The mask fast path now applies only when both masks are
   non-zero; a zero placeholder on either side falls through to the node, edge,

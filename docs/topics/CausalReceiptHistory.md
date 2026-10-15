@@ -104,11 +104,14 @@ The query returns `CausalReceiptHistoryObstruction` when:
 - an indexed receipt has no correlation record, or its fields disagree with
   its exact coordinate;
 - retained provenance does not hold the transition a receipt names, or holds
-  it with a different commit (a retention gap);
+  it with a different commit or receipt content (a retention gap), for any
+  returned receipt or the cursor's receipt;
 - witnessed submission records or envelopes are missing;
 - submission, envelope, and correlation ingress identities disagree;
 - envelope parents disagree with retained correlation parents;
-- a cited parent receipt is unavailable;
+- a cited parent receipt is unavailable, or retained provenance does not hold
+  its transition as named;
+- an entry cites more than `MAX_CAUSAL_RECEIPT_HISTORY_PARENTS` causal parents;
 - typed inverse derivation is missing or ambiguous.
 
 These conditions are obstructions, not empty pages. Returning less history than

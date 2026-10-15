@@ -14,6 +14,14 @@ use crate::{
     InstalledInvocationEvidence, WorldlineId, WorldlineTick,
 };
 
+/// Maximum number of causal parents one history entry may cite.
+///
+/// Admission does not yet bound an ingress's causal parents, so the query
+/// does: each cited parent costs a lookup and a provenance check, and this
+/// keeps one page's work and size proportional to its page size. An entry
+/// over the bound is an obstruction, never a truncated parent list.
+pub const MAX_CAUSAL_RECEIPT_HISTORY_PARENTS: usize = 64;
+
 /// Maximum number of retained receipt entries returned by one history page.
 pub const MAX_CAUSAL_RECEIPT_HISTORY_PAGE_SIZE: usize = 256;
 
@@ -140,12 +148,24 @@ pub enum CausalReceiptHistoryObstruction {
     #[error("causal receipt history has duplicate receipt evidence")]
     DuplicateReceiptEvidence,
     /// A receipt names a transition that retained history does not hold, or
-    /// holds with a different commit, so the history before the basis is not
-    /// fully available.
+    /// holds with a different commit or receipt content, so the history before
+    /// the basis is not fully available.
     #[error("causal receipt history evidence is not retained for {receipt_ref:?}")]
     RetentionGap {
         /// First receipt whose transition is not retained as named.
         receipt_ref: Box<CausalTickReceiptRef>,
+    },
+    /// A history entry cites more causal parents than one entry may return.
+    #[error(
+        "causal receipt history entry {receipt_ref:?} cites {parent_count} causal parents, over the bound {max}"
+    )]
+    CausalParentsExceedBound {
+        /// Receipt whose causal parents exceed the bound.
+        receipt_ref: Box<CausalTickReceiptRef>,
+        /// Number of causal parents the entry cites.
+        parent_count: usize,
+        /// [`MAX_CAUSAL_RECEIPT_HISTORY_PARENTS`].
+        max: usize,
     },
     /// A retained receipt does not have its witnessed submission record and envelope.
     #[error(
@@ -240,8 +260,16 @@ pub(crate) fn causal_receipt_history(
                 cursor_receipt_ref: Box::new(cursor.last_receipt_ref),
             });
         }
+        // The scan starts after the cursor and never examines it, so its
+        // transition is checked here: a lost continuation point is a gap
+        // between pages.
+        verify_retained_transition(provenance, &cursor.last_receipt_ref)?;
     }
-    if !runtime.receipt_correlation_indexes_agree() {
+    // More correlations than receipt-index entries means one is shadowed by
+    // another claiming the same receipt. (An index entry without a
+    // correlation is reported by the scan below, as
+    // ReceiptEvidenceInconsistent.)
+    if runtime.receipt_correlation_index_has_shadowed_records() {
         return Err(CausalReceiptHistoryObstruction::DuplicateReceiptEvidence);
     }
 
@@ -268,7 +296,7 @@ pub(crate) fn causal_receipt_history(
             }
         })?;
         verify_retained_transition(provenance, &receipt_ref)?;
-        entries.push(history_entry(runtime, correlation)?);
+        entries.push(history_entry(runtime, provenance, correlation)?);
     }
     let next_cursor =
         entries
@@ -289,8 +317,8 @@ pub(crate) fn causal_receipt_history(
 
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 /// Checks that retained history holds the transition `receipt_ref` names,
-/// with the same commit: a receipt is never presented for a tick that history
-/// lost or recorded differently.
+/// with the same commit and the same receipt content: a receipt is never
+/// presented for a tick that history lost or recorded differently.
 fn verify_retained_transition(
     provenance: &ProvenanceService,
     receipt_ref: &CausalTickReceiptRef,
@@ -307,6 +335,8 @@ fn verify_retained_transition(
         .map_err(|_| gap())?;
     if entry.expected.commit_hash != receipt_ref.commit_hash
         || entry.commit_global_tick != receipt_ref.commit_global_tick
+        || entry.tick_receipt.as_ref().map(crate::TickReceipt::digest)
+            != Some(receipt_ref.receipt_content_digest)
     {
         return Err(gap());
     }
@@ -316,6 +346,7 @@ fn verify_retained_transition(
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn history_entry(
     runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
     correlation: &ReceiptCorrelationRecord,
 ) -> Result<CausalReceiptHistoryEntry, CausalReceiptHistoryObstruction> {
     let receipt_ref = correlation.causal_receipt_ref;
@@ -357,6 +388,17 @@ fn history_entry(
         );
     }
 
+    let parent_count = correlation
+        .causal_parent_receipts
+        .len()
+        .max(envelope.causal_parents().len());
+    if parent_count > MAX_CAUSAL_RECEIPT_HISTORY_PARENTS {
+        return Err(CausalReceiptHistoryObstruction::CausalParentsExceedBound {
+            receipt_ref: Box::new(receipt_ref),
+            parent_count,
+            max: MAX_CAUSAL_RECEIPT_HISTORY_PARENTS,
+        });
+    }
     let mut causal_parent_receipts = correlation.causal_parent_receipts.clone();
     causal_parent_receipts.sort_unstable();
     causal_parent_receipts.dedup();
@@ -375,10 +417,13 @@ fn history_entry(
             },
         );
     }
+    // A parent counts as available only when retained history still holds
+    // its transition; the correlation index alone is not causal authority.
     for parent_receipt_ref in &causal_parent_receipts {
         if runtime
             .receipt_correlation_for_receipt_ref(parent_receipt_ref)
             .is_none()
+            || verify_retained_transition(provenance, parent_receipt_ref).is_err()
         {
             return Err(CausalReceiptHistoryObstruction::CausalParentUnavailable {
                 receipt_ref: Box::new(receipt_ref),
@@ -401,7 +446,10 @@ fn history_entry(
 mod tests {
     use super::*;
     use crate::clock::GlobalTick;
-    use crate::{make_head_id, WorldlineState, WriterHeadKey};
+    use crate::{
+        make_head_id, HashTriplet, ProvenanceEntry, TickReceipt, TxId, WorldlineState,
+        WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+    };
 
     fn worldline() -> WorldlineId {
         WorldlineId::from_bytes([7; 32])
@@ -441,7 +489,7 @@ mod tests {
             contract: None,
             commit_global_tick: receipt_ref.commit_global_tick,
             worldline_tick_after: receipt_ref.worldline_tick_after,
-            tick_receipt_digest: [ticketed_ingress; 32],
+            tick_receipt_digest: receipt_ref.receipt_content_digest,
             commit_hash: receipt_ref.commit_hash,
             causal_parent_receipts: Vec::new(),
         }
@@ -511,9 +559,9 @@ mod tests {
     #[test]
     fn an_indexed_receipt_without_its_correlation_is_refused() {
         let mut runtime = runtime();
+        // An index entry whose correlation record is gone: a dangling entry,
+        // not a duplicate.
         runtime.plant_receipt_correlation_for_test(record(receipt_ref(1), 1), true, false);
-        // Keep the index sizes equal so only the missing record is at fault.
-        runtime.plant_receipt_correlation_for_test(record(receipt_ref(2), 2), false, true);
         let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
         assert!(matches!(
             result,
@@ -528,6 +576,119 @@ mod tests {
         // Provenance holds no transition for this receipt, so the page must not
         // silently omit or present it.
         let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
+
+    /// A provenance service holding one committed tick of `worldline()`, and
+    /// the receipt reference that names it exactly.
+    fn provenance_with_one_tick(retain_receipt: bool) -> (ProvenanceService, CausalTickReceiptRef) {
+        let state = WorldlineState::empty();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(worldline(), &state)
+            .expect("worldline registers");
+        let receipt = TickReceipt::new(TxId::from_raw(1), Vec::new(), Vec::new());
+        let patch = WorldlineTickPatchV1 {
+            header: WorldlineTickHeaderV1 {
+                commit_global_tick: GlobalTick::from_raw(1),
+                policy_id: 0,
+                rule_pack_id: [0; 32],
+                plan_digest: [0; 32],
+                decision_digest: receipt.digest(),
+                rewrites_digest: [0; 32],
+            },
+            warp_id: state.root().warp_id,
+            ops: Vec::new(),
+            in_slots: Vec::new(),
+            out_slots: Vec::new(),
+            patch_digest: [1; 32],
+        };
+        let expected = HashTriplet {
+            state_root: [1; 32],
+            patch_digest: [1; 32],
+            commit_hash: [3; 32],
+        };
+        let mut entry = ProvenanceEntry::local_commit(
+            worldline(),
+            WorldlineTick::ZERO,
+            GlobalTick::from_raw(1),
+            WriterHeadKey {
+                worldline_id: worldline(),
+                head_id: make_head_id("history-test"),
+            },
+            Vec::new(),
+            expected,
+            patch,
+            Vec::new(),
+            Vec::new(),
+        );
+        if retain_receipt {
+            entry = entry.with_tick_receipt(receipt.clone());
+        }
+        provenance
+            .append_local_commit(entry)
+            .expect("committed tick appends");
+        let mut receipt_ref = receipt_ref(1);
+        receipt_ref.worldline_tick_after = WorldlineTick::from_raw(1);
+        receipt_ref.commit_global_tick = GlobalTick::from_raw(1);
+        receipt_ref.commit_hash = [3; 32];
+        receipt_ref.receipt_content_digest = receipt.digest();
+        (provenance, receipt_ref)
+    }
+
+    #[test]
+    fn a_receipt_matching_its_retained_transition_is_accepted() {
+        let (provenance, receipt_ref) = provenance_with_one_tick(true);
+        assert_eq!(
+            verify_retained_transition(&provenance, &receipt_ref),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_receipt_whose_content_differs_from_the_retained_receipt_is_a_retention_gap() {
+        let (provenance, mut receipt_ref) = provenance_with_one_tick(true);
+        receipt_ref.receipt_content_digest = [9; 32];
+        assert!(matches!(
+            verify_retained_transition(&provenance, &receipt_ref),
+            Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
+
+    #[test]
+    fn a_transition_retained_without_its_receipt_is_a_retention_gap() {
+        let (provenance, receipt_ref) = provenance_with_one_tick(false);
+        assert!(matches!(
+            verify_retained_transition(&provenance, &receipt_ref),
+            Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
+
+    #[test]
+    fn a_receipt_naming_a_different_commit_is_a_retention_gap() {
+        let (provenance, mut receipt_ref) = provenance_with_one_tick(true);
+        receipt_ref.commit_hash = [4; 32];
+        assert!(matches!(
+            verify_retained_transition(&provenance, &receipt_ref),
+            Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
+
+    #[test]
+    fn a_cursor_whose_transition_history_lost_is_refused() {
+        let mut runtime = runtime();
+        let lost = receipt_ref(1);
+        // The cursor's correlation is still indexed, but provenance holds no
+        // transition for it, so continuing after it would skip a gap.
+        runtime.plant_receipt_correlation_for_test(record(lost, 1), true, true);
+        let result = causal_receipt_history(
+            &runtime,
+            &ProvenanceService::new(),
+            request(Some(cursor(lost))),
+        );
         assert!(matches!(
             result,
             Err(CausalReceiptHistoryObstruction::RetentionGap { .. })

@@ -1838,13 +1838,18 @@ impl WorldlineRuntime {
         }
     }
 
-    /// Whether the two receipt-correlation indexes hold the same number of
-    /// entries. A difference means two correlations share one receipt
-    /// reference, so one of them is shadowed.
+    /// Whether more receipt correlations exist than receipt-reference index
+    /// entries. Each correlation indexes its own receipt, so a surplus means
+    /// two correlations claim one receipt and one of them is shadowed. (A
+    /// surplus of index entries is the opposite fault, an index entry with no
+    /// correlation, which a history scan reports where it meets it.) This is
+    /// an O(1) count comparison, so a coincident duplicate and dangling entry
+    /// can cancel; the scan still reports the dangling entry if it is on the
+    /// page.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-    pub(crate) fn receipt_correlation_indexes_agree(&self) -> bool {
+    pub(crate) fn receipt_correlation_index_has_shadowed_records(&self) -> bool {
         self.receipt_correlations_by_ticketed_ingress.len()
-            == self.receipt_correlation_by_receipt_ref.len()
+            > self.receipt_correlation_by_receipt_ref.len()
     }
 
     /// Returns a receipt correlation by its exact retained causal coordinate.

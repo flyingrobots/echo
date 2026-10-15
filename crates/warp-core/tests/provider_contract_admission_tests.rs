@@ -1343,6 +1343,56 @@ fn no_match_history_pages_are_identical_across_restart() {
     std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
 }
 
+/// Needs `host_test`: it rewrites a recovered decision and runs recovery's
+/// decision check against the live host.
+#[cfg(feature = "host_test")]
+#[test]
+fn a_recorded_decision_must_match_the_retained_attribution() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let (host, _, wal_root, [applied, refused]) = no_match_scenario("no-match-decision-check");
+    let recovery = host
+        .runtime_wal()
+        .expect("the WAL is configured")
+        .recover_read_only()
+        .expect("the WAL recovers read-only");
+    host.check_recovered_tick_decisions_for_test(&recovery.receipts)
+        .expect("recorded decisions match the retained receipt");
+
+    for (submission_id, forged, retained) in [
+        (
+            applied,
+            warp_core::causal_wal::WalTickDecision::NoMatchingRule,
+            warp_core::causal_wal::WalTickDecision::Applied,
+        ),
+        (
+            refused,
+            warp_core::causal_wal::WalTickDecision::Applied,
+            warp_core::causal_wal::WalTickDecision::NoMatchingRule,
+        ),
+    ] {
+        let mut receipts = recovery.receipts.clone();
+        let recorded = receipts
+            .decisions_by_receipt
+            .iter_mut()
+            .find(|(receipt_ref, _)| receipt_ref.submission_id == submission_id)
+            .expect("the submission's decision is recorded")
+            .1;
+        *recorded = forged;
+        assert_eq!(
+            host.check_recovered_tick_decisions_for_test(&receipts),
+            Err(warp_core::TrustedRuntimeWalError::TickDecisionMismatch {
+                submission_id,
+                recorded: forged,
+                retained,
+            }),
+            "a recorded {forged:?} contradicting the sealed attribution is refused"
+        );
+    }
+    drop(host);
+    std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
+}
+
 /// Needs `host_test`: it removes correlations from a live host.
 #[cfg(feature = "host_test")]
 #[test]

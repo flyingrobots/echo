@@ -11,9 +11,9 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::{
-    CausalTickReceiptRef, ContractEvidenceIdentity, ContractOperationKind, Hash,
-    IngressCausalParent, IngressTarget, InstalledContractPackageId, IntentKind, ProvenanceService,
-    WorldlineId, WorldlineRuntime, WorldlineTick,
+    CausalTickReceiptRef, ContractEvidenceIdentity, ContractOperationKind, Hash, IngressTarget,
+    InstalledContractPackageId, IntentKind, ProvenanceService, WorldlineId, WorldlineRuntime,
+    WorldlineTick,
 };
 
 /// App request to derive and durably witness one contract-defined inverse intent.
@@ -104,6 +104,7 @@ pub enum ContractInverseHistoryObstruction {
     },
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn recover_contract_inverse_derivation(
     runtime: &WorldlineRuntime,
     inverse_receipt_ref: &CausalTickReceiptRef,
@@ -127,10 +128,10 @@ pub(crate) fn recover_contract_inverse_derivation(
     let mut current_basis_receipt_refs = Vec::new();
     for parent in envelope.causal_parents() {
         match *parent {
-            IngressCausalParent::TickReceipt { receipt_ref } => {
+            crate::IngressCausalParent::TickReceipt { receipt_ref } => {
                 current_basis_receipt_refs.push(receipt_ref);
             }
-            IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+            crate::IngressCausalParent::ContractInverseTarget { receipt_ref } => {
                 target_receipt_refs.push(receipt_ref);
             }
         }

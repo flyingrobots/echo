@@ -71,8 +71,10 @@ ingress-parent roles rather than from a process-local request map.
 
 ## Pagination
 
-Echo sorts receipt coordinates canonically before applying traversal direction.
-A continuation cursor binds:
+Echo orders receipts by their canonical coordinate and applies the traversal
+direction to that order. A page is read from Echo's receipt-coordinate index
+starting at the cursor, so its cost is bounded by the page size and the index
+depth, not by the length of history. A continuation cursor binds:
 
 - worldline;
 - basis frontier;
@@ -81,8 +83,9 @@ A continuation cursor binds:
 
 The cursor is exclusive. Reusing it continues immediately after that receipt.
 A cursor minted for a different worldline, basis, or direction is rejected.
-A cursor whose exact receipt is no longer available is also rejected; Echo does
-not silently skip the missing evidence.
+A cursor whose exact receipt is no longer available, lies on another worldline,
+or lies after the basis is also rejected; Echo does not silently skip the
+missing evidence.
 
 Because the basis is fixed, history admitted after that basis does not alter the
 page sequence. Repeating the same traversal after WAL recovery produces the
@@ -98,7 +101,10 @@ The query returns `CausalReceiptHistoryObstruction` when:
 - provenance cannot establish a nonzero basis;
 - the cursor scope or exact cursor receipt is invalid;
 - duplicate correlations claim one exact receipt;
-- receipt fields disagree with their exact coordinate;
+- an indexed receipt has no correlation record, or its fields disagree with
+  its exact coordinate;
+- retained provenance does not hold the transition a receipt names, or holds
+  it with a different commit (a retention gap);
 - witnessed submission records or envelopes are missing;
 - submission, envelope, and correlation ingress identities disagree;
 - envelope parents disagree with retained correlation parents;

@@ -4,11 +4,14 @@
 
 use thiserror::Error;
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 use crate::{
-    contract_inverse::recover_contract_inverse_derivation, CausalTickReceiptRef,
-    ContractInverseDerivation, ContractInverseHistoryObstruction, Hash,
-    InstalledInvocationEvidence, ProvenanceService, ProvenanceStore, ReceiptCorrelationRecord,
-    WorldlineId, WorldlineRuntime, WorldlineTick,
+    contract_inverse::recover_contract_inverse_derivation, ProvenanceService, ProvenanceStore,
+    ReceiptCorrelationRecord, WorldlineRuntime,
+};
+use crate::{
+    CausalTickReceiptRef, ContractInverseDerivation, ContractInverseHistoryObstruction, Hash,
+    InstalledInvocationEvidence, WorldlineId, WorldlineTick,
 };
 
 /// Maximum number of retained receipt entries returned by one history page.
@@ -132,10 +135,16 @@ pub enum CausalReceiptHistoryObstruction {
         /// Exact receipt whose retained fields disagree.
         receipt_ref: Box<CausalTickReceiptRef>,
     },
-    /// More than one retained correlation claims the same exact receipt coordinate.
-    #[error("causal receipt history has duplicate evidence: {receipt_ref:?}")]
-    DuplicateReceiptEvidence {
-        /// Exact receipt claimed by multiple correlations.
+    /// More than one retained correlation claims the same exact receipt
+    /// coordinate, so one of them is shadowed.
+    #[error("causal receipt history has duplicate receipt evidence")]
+    DuplicateReceiptEvidence,
+    /// A receipt names a transition that retained history does not hold, or
+    /// holds with a different commit, so the history before the basis is not
+    /// fully available.
+    #[error("causal receipt history evidence is not retained for {receipt_ref:?}")]
+    RetentionGap {
+        /// First receipt whose transition is not retained as named.
         receipt_ref: Box<CausalTickReceiptRef>,
     },
     /// A retained receipt does not have its witnessed submission record and envelope.
@@ -169,6 +178,7 @@ pub enum CausalReceiptHistoryObstruction {
     ContractInverse(#[from] ContractInverseHistoryObstruction),
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 pub(crate) fn causal_receipt_history(
     runtime: &WorldlineRuntime,
     provenance: &ProvenanceService,
@@ -218,47 +228,46 @@ pub(crate) fn causal_receipt_history(
         {
             return Err(CausalReceiptHistoryObstruction::CursorScopeMismatch);
         }
+        // The cursor's receipt must still be retained on this worldline at or
+        // before the basis; otherwise the continuation point is gone.
+        if cursor.last_receipt_ref.worldline_id != request.worldline_id
+            || cursor.last_receipt_ref.worldline_tick_after > request.basis_frontier_tick
+            || runtime
+                .receipt_correlation_for_receipt_ref(&cursor.last_receipt_ref)
+                .is_none()
+        {
+            return Err(CausalReceiptHistoryObstruction::CursorReceiptUnavailable {
+                cursor_receipt_ref: Box::new(cursor.last_receipt_ref),
+            });
+        }
+    }
+    if !runtime.receipt_correlation_indexes_agree() {
+        return Err(CausalReceiptHistoryObstruction::DuplicateReceiptEvidence);
     }
 
-    let mut correlations = runtime
-        .receipt_correlations()
-        .filter(|correlation| {
-            correlation.causal_receipt_ref.worldline_id == request.worldline_id
-                && correlation.causal_receipt_ref.worldline_tick_after
-                    <= request.basis_frontier_tick
-        })
-        .collect::<Vec<_>>();
-    correlations.sort_unstable_by_key(|correlation| correlation.causal_receipt_ref);
-    if let Some(duplicate) = correlations.windows(2).find_map(|pair| {
-        (pair[0].causal_receipt_ref == pair[1].causal_receipt_ref)
-            .then_some(pair[0].causal_receipt_ref)
-    }) {
-        return Err(CausalReceiptHistoryObstruction::DuplicateReceiptEvidence {
-            receipt_ref: Box::new(duplicate),
-        });
-    }
-    if request.direction == CausalReceiptHistoryDirection::NewestFirst {
-        correlations.reverse();
-    }
-
-    let start = if let Some(cursor) = &request.cursor {
-        correlations
-            .iter()
-            .position(|correlation| correlation.causal_receipt_ref == cursor.last_receipt_ref)
-            .map(|index| index + 1)
-            .ok_or_else(
-                || CausalReceiptHistoryObstruction::CursorReceiptUnavailable {
-                    cursor_receipt_ref: Box::new(cursor.last_receipt_ref),
-                },
-            )?
-    } else {
-        0
-    };
-    let available = &correlations[start..];
-    let has_more = available.len() > request.page_size;
-    let selected = available.iter().take(request.page_size);
-    let mut entries = Vec::with_capacity(request.page_size.min(available.len()));
-    for correlation in selected {
+    // A range scan from the cursor: one page costs O(log n + page size).
+    let window = runtime.receipt_correlations_through_basis(
+        request.worldline_id,
+        request.basis_frontier_tick,
+        request
+            .cursor
+            .as_ref()
+            .map(|cursor| cursor.last_receipt_ref),
+        request.direction == CausalReceiptHistoryDirection::NewestFirst,
+    );
+    let mut entries = Vec::with_capacity(request.page_size);
+    let mut has_more = false;
+    for (receipt_ref, correlation) in window {
+        if entries.len() == request.page_size {
+            has_more = true;
+            break;
+        }
+        let correlation = correlation.ok_or_else(|| {
+            CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                receipt_ref: Box::new(receipt_ref),
+            }
+        })?;
+        verify_retained_transition(provenance, &receipt_ref)?;
         entries.push(history_entry(runtime, correlation)?);
     }
     let next_cursor =
@@ -278,6 +287,33 @@ pub(crate) fn causal_receipt_history(
     })
 }
 
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+/// Checks that retained history holds the transition `receipt_ref` names,
+/// with the same commit: a receipt is never presented for a tick that history
+/// lost or recorded differently.
+fn verify_retained_transition(
+    provenance: &ProvenanceService,
+    receipt_ref: &CausalTickReceiptRef,
+) -> Result<(), CausalReceiptHistoryObstruction> {
+    let gap = || CausalReceiptHistoryObstruction::RetentionGap {
+        receipt_ref: Box::new(*receipt_ref),
+    };
+    let tick = receipt_ref
+        .worldline_tick_after
+        .checked_sub(1)
+        .ok_or_else(gap)?;
+    let entry = provenance
+        .entry(receipt_ref.worldline_id, tick)
+        .map_err(|_| gap())?;
+    if entry.expected.commit_hash != receipt_ref.commit_hash
+        || entry.commit_global_tick != receipt_ref.commit_global_tick
+    {
+        return Err(gap());
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 fn history_entry(
     runtime: &WorldlineRuntime,
     correlation: &ReceiptCorrelationRecord,
@@ -358,4 +394,143 @@ fn history_entry(
         causal_parent_receipts,
         inverse_derivation: recover_contract_inverse_derivation(runtime, &receipt_ref)?,
     })
+}
+
+#[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::clock::GlobalTick;
+    use crate::{make_head_id, WorldlineState, WriterHeadKey};
+
+    fn worldline() -> WorldlineId {
+        WorldlineId::from_bytes([7; 32])
+    }
+
+    fn runtime() -> WorldlineRuntime {
+        let mut runtime = WorldlineRuntime::new();
+        runtime
+            .register_worldline(worldline(), WorldlineState::empty())
+            .expect("worldline registers");
+        runtime
+    }
+
+    fn receipt_ref(seed: u8) -> CausalTickReceiptRef {
+        CausalTickReceiptRef {
+            worldline_id: worldline(),
+            worldline_tick_after: WorldlineTick::ZERO,
+            commit_global_tick: GlobalTick::ZERO,
+            commit_hash: [seed; 32],
+            submission_id: [seed; 32],
+            ticket_digest: [seed; 32],
+            receipt_content_digest: [seed; 32],
+        }
+    }
+
+    fn record(receipt_ref: CausalTickReceiptRef, ticketed_ingress: u8) -> ReceiptCorrelationRecord {
+        ReceiptCorrelationRecord {
+            ticketed_ingress_id: [ticketed_ingress; 32],
+            submission_id: receipt_ref.submission_id,
+            ticket_digest: receipt_ref.ticket_digest,
+            causal_receipt_ref: receipt_ref,
+            ingress_id: [ticketed_ingress; 32],
+            head_key: WriterHeadKey {
+                worldline_id: worldline(),
+                head_id: make_head_id("history-test"),
+            },
+            contract: None,
+            commit_global_tick: receipt_ref.commit_global_tick,
+            worldline_tick_after: receipt_ref.worldline_tick_after,
+            tick_receipt_digest: [ticketed_ingress; 32],
+            commit_hash: receipt_ref.commit_hash,
+            causal_parent_receipts: Vec::new(),
+        }
+    }
+
+    fn request(cursor: Option<CausalReceiptHistoryCursor>) -> CausalReceiptHistoryRequest {
+        CausalReceiptHistoryRequest {
+            worldline_id: worldline(),
+            basis_frontier_tick: WorldlineTick::ZERO,
+            direction: CausalReceiptHistoryDirection::OldestFirst,
+            page_size: 8,
+            cursor,
+        }
+    }
+
+    fn cursor(last_receipt_ref: CausalTickReceiptRef) -> CausalReceiptHistoryCursor {
+        CausalReceiptHistoryCursor {
+            worldline_id: worldline(),
+            basis_frontier_tick: WorldlineTick::ZERO,
+            direction: CausalReceiptHistoryDirection::OldestFirst,
+            last_receipt_ref,
+        }
+    }
+
+    #[test]
+    fn a_cursor_for_a_receipt_no_longer_retained_is_refused() {
+        let result = causal_receipt_history(
+            &runtime(),
+            &ProvenanceService::new(),
+            request(Some(cursor(receipt_ref(1)))),
+        );
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::CursorReceiptUnavailable { .. })
+        ));
+    }
+
+    #[test]
+    fn a_cursor_whose_receipt_is_on_another_worldline_is_refused() {
+        let mut foreign = receipt_ref(1);
+        foreign.worldline_id = WorldlineId::from_bytes([9; 32]);
+        let result = causal_receipt_history(
+            &runtime(),
+            &ProvenanceService::new(),
+            request(Some(cursor(foreign))),
+        );
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::CursorReceiptUnavailable { .. })
+        ));
+    }
+
+    #[test]
+    fn two_correlations_claiming_one_receipt_are_refused() {
+        let mut runtime = runtime();
+        let shared = receipt_ref(1);
+        runtime.plant_receipt_correlation_for_test(record(shared, 1), true, true);
+        // A second correlation for the same receipt shadows the first.
+        runtime.plant_receipt_correlation_for_test(record(shared, 2), false, true);
+        let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::DuplicateReceiptEvidence)
+        ));
+    }
+
+    #[test]
+    fn an_indexed_receipt_without_its_correlation_is_refused() {
+        let mut runtime = runtime();
+        runtime.plant_receipt_correlation_for_test(record(receipt_ref(1), 1), true, false);
+        // Keep the index sizes equal so only the missing record is at fault.
+        runtime.plant_receipt_correlation_for_test(record(receipt_ref(2), 2), false, true);
+        let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent { .. })
+        ));
+    }
+
+    #[test]
+    fn a_receipt_whose_transition_history_does_not_hold_is_a_retention_gap() {
+        let mut runtime = runtime();
+        runtime.plant_receipt_correlation_for_test(record(receipt_ref(1), 1), true, true);
+        // Provenance holds no transition for this receipt, so the page must not
+        // silently omit or present it.
+        let result = causal_receipt_history(&runtime, &ProvenanceService::new(), request(None));
+        assert!(matches!(
+            result,
+            Err(CausalReceiptHistoryObstruction::RetentionGap { .. })
+        ));
+    }
 }

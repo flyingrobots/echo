@@ -1760,6 +1760,93 @@ impl WorldlineRuntime {
             })
     }
 
+    /// Receipt correlations of `worldline_id` whose transition is at or
+    /// before `basis`, in receipt-reference order (reversed when
+    /// `newest_first`), starting strictly after `after`.
+    ///
+    /// This is a range scan over the receipt-reference index, so one page of
+    /// causal receipt history (#660) costs O(log n + page size), not a scan of
+    /// every correlation. An index entry whose correlation record is missing
+    /// yields `None`. `after`, when given, must be on `worldline_id` and at or
+    /// before `basis`.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn receipt_correlations_through_basis(
+        &self,
+        worldline_id: WorldlineId,
+        basis: WorldlineTick,
+        after: Option<CausalTickReceiptRef>,
+        newest_first: bool,
+    ) -> Box<dyn Iterator<Item = (CausalTickReceiptRef, Option<&ReceiptCorrelationRecord>)> + '_>
+    {
+        use std::ops::Bound;
+
+        let lower = CausalTickReceiptRef {
+            worldline_id,
+            worldline_tick_after: WorldlineTick::ZERO,
+            commit_global_tick: GlobalTick::ZERO,
+            commit_hash: [0; 32],
+            submission_id: [0; 32],
+            ticket_digest: [0; 32],
+            receipt_content_digest: [0; 32],
+        };
+        let upper = CausalTickReceiptRef {
+            worldline_id,
+            worldline_tick_after: basis,
+            commit_global_tick: GlobalTick::MAX,
+            commit_hash: [0xff; 32],
+            submission_id: [0xff; 32],
+            ticket_digest: [0xff; 32],
+            receipt_content_digest: [0xff; 32],
+        };
+        let range = match (after, newest_first) {
+            (None, _) => (Bound::Included(lower), Bound::Included(upper)),
+            (Some(after), false) => (Bound::Excluded(after), Bound::Included(upper)),
+            (Some(after), true) => (Bound::Included(lower), Bound::Excluded(after)),
+        };
+        let resolve = move |(receipt_ref, ticketed_ingress_id): (&CausalTickReceiptRef, &Hash)| {
+            (
+                *receipt_ref,
+                self.receipt_correlations_by_ticketed_ingress
+                    .get(ticketed_ingress_id),
+            )
+        };
+        let entries = self.receipt_correlation_by_receipt_ref.range(range);
+        if newest_first {
+            Box::new(entries.rev().map(resolve))
+        } else {
+            Box::new(entries.map(resolve))
+        }
+    }
+
+    /// Plants a receipt correlation directly in the runtime's indexes, for
+    /// tests of the evidence checks that guard against corrupt state. Either
+    /// index can be skipped to fabricate a missing record or a shadowed one.
+    #[cfg(all(test, feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn plant_receipt_correlation_for_test(
+        &mut self,
+        record: ReceiptCorrelationRecord,
+        index_by_receipt_ref: bool,
+        index_by_ticketed_ingress: bool,
+    ) {
+        if index_by_receipt_ref {
+            self.receipt_correlation_by_receipt_ref
+                .insert(record.causal_receipt_ref, record.ticketed_ingress_id);
+        }
+        if index_by_ticketed_ingress {
+            self.receipt_correlations_by_ticketed_ingress
+                .insert(record.ticketed_ingress_id, record);
+        }
+    }
+
+    /// Whether the two receipt-correlation indexes hold the same number of
+    /// entries. A difference means two correlations share one receipt
+    /// reference, so one of them is shadowed.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn receipt_correlation_indexes_agree(&self) -> bool {
+        self.receipt_correlations_by_ticketed_ingress.len()
+            == self.receipt_correlation_by_receipt_ref.len()
+    }
+
     /// Returns a receipt correlation by its exact retained causal coordinate.
     ///
     /// The correlation set is rebuilt from durable receipt, submission, and

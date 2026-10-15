@@ -444,8 +444,8 @@ pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_codec::RetainedProvenanceError;
 pub use provenance_store::{
     BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,
-    LocalProvenanceStore, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, ProvenanceService,
-    ProvenanceStore, ReplayCheckpoint, ReplayError,
+    LocalProvenanceStore, ProvenanceCommitSummary, ProvenanceEntry, ProvenanceEventKind,
+    ProvenanceRef, ProvenanceService, ProvenanceStore, ReplayCheckpoint, ReplayError,
 };
 pub use receipt::{
     TickAttributionError, TickReceipt, TickReceiptDisposition, TickReceiptEntry,

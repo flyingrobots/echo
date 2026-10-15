@@ -232,7 +232,7 @@ pub(crate) fn causal_receipt_history(
             },
         )?;
         provenance
-            .entry(request.worldline_id, evidence_tick)
+            .commit_summary(request.worldline_id, evidence_tick)
             .map_err(
                 |_| CausalReceiptHistoryObstruction::BasisEvidenceUnavailable {
                     worldline_id: request.worldline_id,
@@ -344,13 +344,12 @@ fn verify_retained_transition(
         .worldline_tick_after
         .checked_sub(1)
         .ok_or_else(gap)?;
-    let entry = provenance
-        .entry(receipt_ref.worldline_id, tick)
+    let summary = provenance
+        .commit_summary(receipt_ref.worldline_id, tick)
         .map_err(|_| gap())?;
-    if entry.expected.commit_hash != receipt_ref.commit_hash
-        || entry.commit_global_tick != receipt_ref.commit_global_tick
-        || entry.tick_receipt.as_ref().map(crate::TickReceipt::digest)
-            != Some(receipt_ref.receipt_content_digest)
+    if summary.commit.commit_hash != receipt_ref.commit_hash
+        || summary.commit_global_tick != receipt_ref.commit_global_tick
+        || summary.tick_receipt_digest != Some(receipt_ref.receipt_content_digest)
     {
         return Err(gap());
     }

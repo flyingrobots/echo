@@ -35,6 +35,12 @@
 
 ### Changed
 
+- `ProvenanceStore::commit_summary` returns one tick's commit reference,
+  global tick and receipt digest without copying its patch or outputs. The
+  in-memory stores answer it, and `parents`, by reference instead of cloning
+  the whole entry, and causal receipt history now uses it for every
+  retention check. Implementations that only provide `entry` get a default
+  that reads the entry, so they keep working unchanged (#873).
 - Executable-operation Actions decided after their origin tick can commit
   when their dependencies are corroborated as unchanged (#837). Before, any
   commit in between obstructed every waiting Action with `BasisChanged`, so a

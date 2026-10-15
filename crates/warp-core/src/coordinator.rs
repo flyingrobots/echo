@@ -5873,7 +5873,173 @@ mod tests {
         if let Some(patch) = entry.patch.as_mut() {
             patch.header.decision_digest = legacy.digest();
         }
+        // A legacy tick's identity is commit hash v2, which does not cover
+        // the receipt.
+        entry.expected.commit_hash = crate::compute_commit_hash_v2(
+            &entry.expected.state_root,
+            &entry
+                .parents
+                .iter()
+                .map(|parent| parent.commit_hash)
+                .collect::<Vec<_>>(),
+            &entry.expected.patch_digest,
+            entry.patch.as_ref().unwrap().policy_id(),
+        );
         entry.with_tick_receipt(legacy)
+    }
+
+    /// `entry` rechained onto `parent`, with the commit hash its own receipt
+    /// selects recomputed for the new parent.
+    fn rechained(
+        mut entry: crate::ProvenanceEntry,
+        parent: crate::ProvenanceRef,
+    ) -> crate::ProvenanceEntry {
+        entry.parents = vec![parent];
+        entry.expected.commit_hash = crate::compute_commit_hash_for_receipt(
+            &entry.expected.state_root,
+            &[parent.commit_hash],
+            &entry.expected.patch_digest,
+            entry.patch.as_ref().unwrap().policy_id(),
+            entry.tick_receipt.as_ref(),
+        );
+        entry
+    }
+
+    /// One real attributed plain tick and its retained provenance entry.
+    fn one_attributed_tick() -> crate::ProvenanceEntry {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let mut provenance = mirrored_provenance(&runtime);
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(TOY_INCREMENT_VARS),
+            ))
+            .unwrap();
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        provenance.entry(worldline_id, WorldlineTick::ZERO).unwrap()
+    }
+
+    /// `entry` with its receipt's attribution replaced and the patch header
+    /// updated to the new receipt digest, but its commit hash left as it was.
+    fn with_substituted_attribution(
+        mut entry: crate::ProvenanceEntry,
+        attribution: Vec<crate::TickSubmissionAttribution>,
+    ) -> crate::ProvenanceEntry {
+        let receipt = entry.tick_receipt.take().unwrap();
+        let blocked_by = (0..receipt.entries().len())
+            .map(|index| receipt.blocked_by(index).to_vec())
+            .collect();
+        let altered = crate::TickReceipt::try_from_retained_parts(
+            receipt.tx(),
+            receipt.entries().to_vec(),
+            blocked_by,
+        )
+        .unwrap()
+        .with_bound_attribution(attribution)
+        .unwrap();
+        if let Some(patch) = entry.patch.as_mut() {
+            patch.header.decision_digest = altered.digest();
+        }
+        entry.with_tick_receipt(altered)
+    }
+
+    #[test]
+    fn an_attributed_tick_retained_before_commit_binding_still_validates() {
+        use crate::provenance_codec::{decode_local_commit_v1, encode_local_commit_v1};
+
+        // Between attribution and commit binding, Echo retained attributed
+        // ticks as EPRV0002 with commit hash v2. Rebuild one such record.
+        let mut entry = one_attributed_tick();
+        let receipt = entry.tick_receipt.take().unwrap();
+        let blocked_by = (0..receipt.entries().len())
+            .map(|index| receipt.blocked_by(index).to_vec())
+            .collect();
+        let unbound = crate::TickReceipt::try_from_retained_parts(
+            receipt.tx(),
+            receipt.entries().to_vec(),
+            blocked_by,
+        )
+        .unwrap()
+        .with_attribution(receipt.attribution().unwrap().to_vec())
+        .unwrap();
+        if let Some(patch) = entry.patch.as_mut() {
+            patch.header.decision_digest = unbound.digest();
+        }
+        entry.expected.commit_hash = crate::compute_commit_hash_v2(
+            &entry.expected.state_root,
+            &entry
+                .parents
+                .iter()
+                .map(|parent| parent.commit_hash)
+                .collect::<Vec<_>>(),
+            &entry.expected.patch_digest,
+            entry.patch.as_ref().unwrap().policy_id(),
+        );
+        let entry = entry.with_tick_receipt(unbound);
+
+        let bytes =
+            encode_local_commit_v1(&entry).expect("the earlier attributed record validates");
+        assert_eq!(&bytes[..8], b"EPRV0002");
+        assert_eq!(decode_local_commit_v1(&bytes).unwrap(), entry);
+    }
+
+    #[test]
+    fn substituting_attribution_under_a_ticks_commit_fails_validation() {
+        use crate::provenance_codec::encode_local_commit_v1;
+
+        let entry = one_attributed_tick();
+        encode_local_commit_v1(&entry).expect("the committed tick validates");
+        let original = entry.tick_receipt.clone().unwrap();
+        let parent_hashes = entry
+            .parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>();
+        let policy_id = entry.patch.as_ref().unwrap().policy_id();
+        let commit_with = |receipt: &crate::TickReceipt| {
+            crate::compute_commit_hash_for_receipt(
+                &entry.expected.state_root,
+                &parent_hashes,
+                &entry.expected.patch_digest,
+                policy_id,
+                Some(receipt),
+            )
+        };
+        // The tick's identity is commit hash v3 over its receipt digest.
+        assert_eq!(commit_with(&original), entry.expected.commit_hash);
+        assert_ne!(
+            entry.expected.commit_hash,
+            crate::compute_commit_hash_v2(
+                &entry.expected.state_root,
+                &parent_hashes,
+                &entry.expected.patch_digest,
+                policy_id,
+            )
+        );
+        let mut records = original.attribution().unwrap().to_vec();
+        assert_eq!(records.len(), 1);
+        // Change only the attributed submission ID: same entries, same
+        // decision, same patch, same state.
+        records[0].submission_id = hash(200);
+        let forged = with_substituted_attribution(entry.clone(), records);
+        assert_ne!(
+            forged.tick_receipt.as_ref().unwrap().digest(),
+            original.digest(),
+            "the receipt digest covers the attribution"
+        );
+        assert_ne!(
+            commit_with(forged.tick_receipt.as_ref().unwrap()),
+            forged.expected.commit_hash,
+            "the commit hash covers the receipt digest"
+        );
+        assert!(
+            matches!(
+                encode_local_commit_v1(&forged),
+                Err(crate::RetainedProvenanceError::Inconsistent("commit hash"))
+            ),
+            "altered attribution under the original commit hash must not validate"
+        );
     }
 
     #[test]
@@ -5898,31 +6064,52 @@ mod tests {
             .entry(worldline_id, WorldlineTick::from_raw(1))
             .unwrap();
 
-        // New ticks are written as version 2 and decode to exactly themselves.
+        // New ticks are commit-bound, written as version 3, and decode to
+        // exactly themselves.
         let attributed_bytes = encode_local_commit_v1(&first).unwrap();
-        assert_eq!(&attributed_bytes[..8], b"EPRV0002");
+        assert_eq!(&attributed_bytes[..8], b"EPRV0003");
         assert_eq!(decode_local_commit_v1(&attributed_bytes).unwrap(), first);
 
         // The same tick without attribution is a legacy record: version 1,
-        // no section, and the same commit hash, because the commit hash does
-        // not cover the receipt.
+        // no section, and its own commit hash v2.
         let legacy = without_attribution(first.clone());
         let legacy_bytes = encode_local_commit_v1(&legacy).unwrap();
         assert_eq!(&legacy_bytes[..8], b"EPRV0001");
         let decoded_legacy = decode_local_commit_v1(&legacy_bytes).unwrap();
         assert_eq!(decoded_legacy, legacy);
         assert_eq!(decoded_legacy.tick_receipt.unwrap().attribution(), None);
-        assert_eq!(legacy.expected.commit_hash, first.expected.commit_hash);
+        assert_ne!(
+            legacy.expected.commit_hash, first.expected.commit_hash,
+            "an attributed tick's commit hash (v3) binds its receipt; the legacy form's (v2) does not"
+        );
+        // Stripping the section while keeping the v3 commit hash does not
+        // validate: the stripped receipt selects v2.
+        let mut stripped = legacy.clone();
+        stripped.expected.commit_hash = first.expected.commit_hash;
+        assert!(matches!(
+            encode_local_commit_v1(&stripped),
+            Err(crate::RetainedProvenanceError::Inconsistent("commit hash"))
+        ));
 
         // A record cannot change version by relabelling.
         let mut relabelled_legacy = legacy_bytes;
         relabelled_legacy[..8].copy_from_slice(b"EPRV0002");
         assert!(decode_local_commit_v1(&relabelled_legacy).is_err());
-        let mut relabelled_attributed = attributed_bytes;
-        relabelled_attributed[..8].copy_from_slice(b"EPRV0001");
-        assert!(decode_local_commit_v1(&relabelled_attributed).is_err());
+        for other in [b"EPRV0001", b"EPRV0002"] {
+            let mut relabelled_attributed = attributed_bytes.clone();
+            relabelled_attributed[..8].copy_from_slice(other);
+            assert!(decode_local_commit_v1(&relabelled_attributed).is_err());
+        }
 
-        // A legacy tick followed by an attributed tick is one valid history.
+        // A legacy tick followed by an attributed tick is one valid history:
+        // the attributed tick chains to the legacy tick's v2 identity.
+        let legacy_ref = crate::ProvenanceRef {
+            worldline_id,
+            worldline_tick: WorldlineTick::ZERO,
+            commit_hash: legacy.expected.commit_hash,
+        };
+        let second = rechained(second, legacy_ref);
+        encode_local_commit_v1(&second).expect("the attributed successor validates");
         store.append_local_commit(legacy).unwrap();
         store.append_local_commit(second).unwrap();
         assert_eq!(

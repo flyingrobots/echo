@@ -4135,13 +4135,18 @@ fn recovery_separates_identical_commits_on_distinct_worldlines() {
         .tick_once()
         .expect("both exact-head Actions commit in one scheduler pass");
     assert_eq!(steps.len(), 2);
-    assert_eq!(steps[0].commit_hash, steps[1].commit_hash);
+    // The two ticks have identical state and patches. Before commit hash v3
+    // their commit hashes were equal; v3 binds each receipt's attribution,
+    // and the two submissions differ by worldline and head, so the commit
+    // identities now differ too (#873). Recovery must still keep the two
+    // worldlines' identical decisions apart.
+    assert_ne!(steps[0].commit_hash, steps[1].commit_hash);
 
     let recovery = host
         .runtime_wal()
         .expect("the scheduler WAL remains enabled")
         .recover_read_only()
-        .expect("equal commit hashes on distinct worldlines recover independently");
+        .expect("identical decisions on distinct worldlines recover independently");
     for submission_id in submission_ids {
         assert!(recovery
             .echo_operation_action_outcomes

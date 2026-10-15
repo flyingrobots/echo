@@ -120,16 +120,30 @@ Each page reports the ticks it inspected, `inspected` (first and last, in
 traversal order), and a `CausalReceiptHistoryCompleteness` claim about exactly
 those ticks under the pinned basis:
 
-- `Established` when every inspected tick committed an attribution section, so
+- `Established` when every inspected tick committed an attribution section
+  bound into its commit hash (`EPRV0003`), so
   every submission those ticks decided was returned or lies ahead of the
   cursor;
+- `EstablishedWithoutCommitBinding { first_unbound_tick }` when every
+  inspected tick is attributed, so the page is complete, but at least one was
+  retained before commit binding existed (`EPRV0002`): its attribution is not
+  bound into its commit hash, which is weaker evidence than `Established`;
 - `UnestablishedForLegacyTicks { first_legacy_tick }` when an inspected tick
   was written before attribution existed. Its retained correlations are
   returned, but Echo cannot prove none is missing.
 
-The claim never extends beyond `inspected`. A traversal is complete only if
-every one of its pages is `Established`, so legacy uncertainty cannot be hidden
-by splitting a traversal into pages.
+The claim never extends beyond `inspected`, and a traversal's claim is the
+weakest of its pages' claims, so uncertainty cannot be hidden by splitting a
+traversal into pages:
+
+- a traversal is **complete** when every page is `Established` or
+  `EstablishedWithoutCommitBinding`; every submission its ticks decided was
+  returned;
+- a complete traversal is also **commit-bound** only when every page is
+  `Established`; otherwise some of its attribution is not bound into the commit
+  hash;
+- a traversal with any `UnestablishedForLegacyTicks` page is not proven
+  complete.
 
 ## Obstructions
 

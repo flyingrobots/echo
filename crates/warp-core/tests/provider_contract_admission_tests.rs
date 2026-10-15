@@ -1052,6 +1052,183 @@ fn provider_matcher_refusal_cannot_be_reported_as_provider_execution() {
     ));
 }
 
+/// Submits one provider EINT intent with `vars` and admits it for the
+/// scheduler.
+fn submit_provider_intent(
+    host: &mut TrustedRuntimeHost,
+    worldline_id: WorldlineId,
+    vars: &[u8],
+) -> warp_core::Hash {
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(generated::OPERATION_ID, vars)
+                .expect("provider EINT intent packs"),
+        ))
+        .expect("provider EINT intent is witnessed")
+        .submission_id;
+    host.admit_provider_contract_submission_v1(submission)
+        .expect("installed provider submission stages");
+    submission
+}
+
+const FROZEN_EPRV0002_SEGMENT: &[u8] =
+    include_bytes!("fixtures/eprv0002_wal/segments/segment-00000000000000000001.ecwal");
+const FROZEN_EPRV0002_EPOCHS: &[u8] = include_bytes!("fixtures/eprv0002_wal/writer-epochs.ecwal");
+/// The submission the frozen WAL's one tick decided.
+const FROZEN_EPRV0002_SUBMISSION: &str =
+    "e6f10fe39e0b55b4d4a0764cfed1794d885ea30a1541a1d263f1eb6d653c679b";
+
+/// A fresh copy of the frozen `EPRV0002` WAL, checked against its recorded
+/// digests so a regenerated fixture cannot pass silently.
+fn frozen_eprv0002_wal() -> PathBuf {
+    use sha2::{Digest, Sha256};
+    assert_eq!(
+        hex::encode(Sha256::digest(FROZEN_EPRV0002_SEGMENT)),
+        "f9fd809e035f01563fb013eab5aac959ddd748837f690cb9a1a6ba97494edcc5"
+    );
+    assert_eq!(
+        hex::encode(Sha256::digest(FROZEN_EPRV0002_EPOCHS)),
+        "bdef26980af969e059f52c3a212ade94cc26329083020b8bd1119313877efc61"
+    );
+    let root = temp_provider_wal_dir("frozen-eprv0002");
+    std::fs::create_dir_all(root.join("segments")).expect("segments directory");
+    std::fs::write(
+        root.join("segments")
+            .join("segment-00000000000000000001.ecwal"),
+        FROZEN_EPRV0002_SEGMENT,
+    )
+    .expect("frozen segment copies");
+    std::fs::write(root.join("writer-epochs.ecwal"), FROZEN_EPRV0002_EPOCHS)
+        .expect("frozen epoch ledger copies");
+    root
+}
+
+/// Reopens the provider host on `wal_root` and reinstalls the default
+/// provider package, as a restarted process would.
+fn reopen_provider_host(wal_root: &PathBuf) -> (TrustedRuntimeHost, WorldlineId) {
+    let (mut host, worldline_id) = provider_runtime_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_root))
+        .expect("the WAL recovers");
+    let admitted = host
+        .admit_provider_contract_package_v1(
+            &admission_policy(),
+            proposal(RELEASE_DIGEST, PACKAGE_ARTIFACT_SHA256),
+        )
+        .expect("the provider proposal is admitted");
+    host.install_admitted_provider_contract_package_v1_trusted(package_reference(), admitted)
+        .expect("the provider package installs");
+    (host, worldline_id)
+}
+
+/// Each retained tick's (attributed, commit-bound) evidence, oldest first.
+fn tick_evidence(host: &TrustedRuntimeHost, worldline_id: WorldlineId) -> Vec<(bool, bool)> {
+    let ticks = warp_core::ProvenanceStore::len(host.provenance(), worldline_id)
+        .expect("the worldline is retained");
+    (0..ticks)
+        .map(|tick| {
+            let receipt = warp_core::ProvenanceStore::entry(
+                host.provenance(),
+                worldline_id,
+                warp_core::WorldlineTick::from_raw(tick),
+            )
+            .expect("the tick is retained")
+            .tick_receipt
+            .expect("a scheduler tick retains its receipt");
+            (receipt.attribution().is_some(), receipt.binds_commit())
+        })
+        .collect()
+}
+
+fn history_claim(
+    host: &mut TrustedRuntimeHost,
+    worldline_id: WorldlineId,
+) -> (
+    Vec<warp_core::Hash>,
+    warp_core::CausalReceiptHistoryCompleteness,
+) {
+    let basis = host
+        .runtime()
+        .worldlines()
+        .get(&worldline_id)
+        .expect("the worldline is registered")
+        .frontier_tick();
+    let page = host
+        .app()
+        .causal_receipt_history(warp_core::CausalReceiptHistoryRequest {
+            worldline_id,
+            basis_frontier_tick: basis,
+            direction: warp_core::CausalReceiptHistoryDirection::OldestFirst,
+            page_size: 8,
+            cursor: None,
+        })
+        .expect("history is readable");
+    assert_eq!(page.next_cursor, None, "the whole history fits one page");
+    (
+        page.entries
+            .iter()
+            .map(|entry| entry.submission_id)
+            .collect(),
+        page.completeness,
+    )
+}
+
+#[test]
+fn a_frozen_eprv0002_wal_recovers_extends_with_bound_ticks_and_restarts() {
+    let _callback_guard = callback_test_guard();
+    reset_callback_counts();
+    let wal_root = frozen_eprv0002_wal();
+    let frozen_submission: warp_core::Hash = hex::decode(FROZEN_EPRV0002_SUBMISSION)
+        .expect("hex")
+        .try_into()
+        .expect("32 bytes");
+
+    // Recover bytes the earlier writer wrote: the tick is attributed but not
+    // commit-bound, and its outcome is still the applied decision.
+    let (mut host, worldline_id) = reopen_provider_host(&wal_root);
+    assert_eq!(tick_evidence(&host, worldline_id), vec![(true, false)]);
+    assert!(matches!(
+        host.app().observe_intent_outcome(&frozen_submission),
+        IntentOutcome::Applied { .. }
+    ));
+
+    // Extend it: the new tick is commit-bound.
+    let extension = submit_provider_intent(&mut host, worldline_id, b"after-binding");
+    host.run_until_idle(4)
+        .expect("a recovered EPRV0002 history extends with a bound tick");
+    assert_eq!(
+        tick_evidence(&host, worldline_id),
+        vec![(true, false), (true, true)]
+    );
+    let outcomes = [frozen_submission, extension].map(|id| host.app().observe_intent_outcome(&id));
+    let claim = history_claim(&mut host, worldline_id);
+    assert_eq!(
+        claim.1,
+        warp_core::CausalReceiptHistoryCompleteness::EstablishedWithoutCommitBinding {
+            first_unbound_tick: warp_core::WorldlineTick::ZERO,
+        },
+        "history must not present the EPRV0002 tick as commit-bound"
+    );
+    drop(host);
+
+    // Restart again: both formats recover exactly, with the same outcomes and
+    // the same history claim.
+    let (mut restarted, _) = reopen_provider_host(&wal_root);
+    assert_eq!(
+        tick_evidence(&restarted, worldline_id),
+        vec![(true, false), (true, true)]
+    );
+    assert_eq!(
+        [frozen_submission, extension].map(|id| restarted.app().observe_intent_outcome(&id)),
+        outcomes
+    );
+    assert_eq!(history_claim(&mut restarted, worldline_id), claim);
+    drop(restarted);
+    std::fs::remove_dir_all(&wal_root).expect("fixture cleanup succeeds");
+}
+
 #[test]
 fn provider_native_invocation_retains_provider_evidence_through_receipt() {
     let _callback_guard = callback_test_guard();

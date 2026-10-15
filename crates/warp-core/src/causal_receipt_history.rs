@@ -70,10 +70,19 @@ pub struct CausalReceiptHistoryCursor {
 /// traversal is complete only if every one of its pages is `Established`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CausalReceiptHistoryCompleteness {
-    /// Every inspected tick committed an attribution section, and every
-    /// submission those ticks decided was returned or lies ahead of the
-    /// page's cursor.
+    /// Every inspected tick committed an attribution section bound into its
+    /// commit hash, and every submission those ticks decided was returned or
+    /// lies ahead of the page's cursor.
     Established,
+    /// Every inspected tick committed an attribution section, so every
+    /// submission they decided was returned or lies ahead of the cursor, but
+    /// at least one of them was retained before commit binding existed
+    /// (`EPRV0002`): its attribution is not bound into its commit hash, so
+    /// this is weaker evidence than `Established`.
+    EstablishedWithoutCommitBinding {
+        /// The first such tick the page inspected, in traversal order.
+        first_unbound_tick: WorldlineTick,
+    },
     /// At least one inspected tick is a legacy tick, which commits no
     /// attribution section. Its retained correlations are returned, but Echo
     /// cannot prove none is missing.
@@ -396,23 +405,11 @@ pub(crate) fn causal_receipt_history(
             first: inspected.map_or(worldline_tick, |range| range.first),
             last: worldline_tick,
         });
-        match walk.visit_tick(tick, after)? {
-            TickVisit::Finished { attributed } => {
-                if !attributed && completeness == CausalReceiptHistoryCompleteness::Established {
-                    completeness = CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
-                        first_legacy_tick: worldline_tick,
-                    };
-                }
-            }
-            TickVisit::Stopped { attributed, last } => {
-                if !attributed && completeness == CausalReceiptHistoryCompleteness::Established {
-                    completeness = CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
-                        first_legacy_tick: worldline_tick,
-                    };
-                }
-                next_cursor = Some(cursor_at(tick, last));
-                break;
-            }
+        let visit = walk.visit_tick(tick, after)?;
+        completeness = completeness.weakened_by(visit.evidence(), worldline_tick);
+        if let TickVisit::Stopped { last, .. } = visit {
+            next_cursor = Some(cursor_at(tick, last));
+            break;
         }
         position = if newest_first {
             tick.checked_sub(1).map(|previous| (previous, None))
@@ -431,17 +428,63 @@ pub(crate) fn causal_receipt_history(
     })
 }
 
+/// What a tick's retained receipt can prove about its submissions.
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+#[derive(Clone, Copy)]
+enum TickEvidence {
+    /// No attribution section: completeness cannot be established.
+    Legacy,
+    /// Attributed, but the attribution is not bound into the commit hash
+    /// (`EPRV0002`, commit hash v2).
+    AttributedUnbound,
+    /// Attributed and bound into the commit hash (`EPRV0003`, commit hash
+    /// v3).
+    AttributedBound,
+}
+
 /// How far one page got through one tick.
 #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
 enum TickVisit {
     /// Every submission of the tick after the starting point was inspected.
-    Finished { attributed: bool },
+    Finished { evidence: TickEvidence },
     /// The page filled or spent its record budget; `last` is the last
     /// submission inspected in this tick, where the next page resumes.
     Stopped {
-        attributed: bool,
+        evidence: TickEvidence,
         last: Option<Hash>,
     },
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+impl TickVisit {
+    const fn evidence(&self) -> TickEvidence {
+        match self {
+            Self::Finished { evidence } | Self::Stopped { evidence, .. } => *evidence,
+        }
+    }
+}
+
+#[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+impl CausalReceiptHistoryCompleteness {
+    /// This page's claim after inspecting a tick with `evidence`. The claim
+    /// only ever weakens, and records the first tick that weakened it.
+    const fn weakened_by(self, evidence: TickEvidence, tick: WorldlineTick) -> Self {
+        match (self, evidence) {
+            (Self::UnestablishedForLegacyTicks { .. }, _)
+            | (_, TickEvidence::AttributedBound)
+            | (Self::EstablishedWithoutCommitBinding { .. }, TickEvidence::AttributedUnbound) => {
+                self
+            }
+            (_, TickEvidence::Legacy) => Self::UnestablishedForLegacyTicks {
+                first_legacy_tick: tick,
+            },
+            (Self::Established, TickEvidence::AttributedUnbound) => {
+                Self::EstablishedWithoutCommitBinding {
+                    first_unbound_tick: tick,
+                }
+            }
+        }
+    }
 }
 
 /// One page's traversal state.
@@ -526,6 +569,11 @@ impl<'a> PageWalk<'a> {
         let Some(attribution) = receipt.and_then(crate::TickReceipt::attribution) else {
             return self.visit_legacy_tick(&commit, after, newest_first);
         };
+        let evidence = if receipt.is_some_and(crate::TickReceipt::binds_commit) {
+            TickEvidence::AttributedBound
+        } else {
+            TickEvidence::AttributedUnbound
+        };
 
         let start = match after {
             None => None,
@@ -574,10 +622,7 @@ impl<'a> PageWalk<'a> {
         let mut last = after;
         for record in records {
             if self.budget_spent() {
-                return Ok(TickVisit::Stopped {
-                    attributed: true,
-                    last,
-                });
+                return Ok(TickVisit::Stopped { evidence, last });
             }
             self.records_inspected += 1;
             // Index entries ordered before this submission name no attributed
@@ -608,7 +653,7 @@ impl<'a> PageWalk<'a> {
                 receipt_ref: Box::new(key),
             });
         }
-        Ok(TickVisit::Finished { attributed: true })
+        Ok(TickVisit::Finished { evidence })
     }
 
     /// Walks a legacy tick's index entries, which are all Echo has for it.
@@ -661,7 +706,7 @@ impl<'a> PageWalk<'a> {
         {
             if self.budget_spent() {
                 return Ok(TickVisit::Stopped {
-                    attributed: false,
+                    evidence: TickEvidence::Legacy,
                     last,
                 });
             }
@@ -678,7 +723,9 @@ impl<'a> PageWalk<'a> {
                 .push(history_entry(runtime, provenance, correlation)?);
             last = Some(key.submission_id);
         }
-        Ok(TickVisit::Finished { attributed: false })
+        Ok(TickVisit::Finished {
+            evidence: TickEvidence::Legacy,
+        })
     }
 
     /// The correlation for an attributed submission, checked against the index
@@ -930,6 +977,14 @@ mod tests {
     fn history_fixture(
         ticks: &[Option<Vec<u8>>],
     ) -> (WorldlineRuntime, ProvenanceService, Vec<FixtureTick>) {
+        history_fixture_with(ticks, true)
+    }
+
+    /// As [`history_fixture`], with attributed ticks commit-bound or not.
+    fn history_fixture_with(
+        ticks: &[Option<Vec<u8>>],
+        bound: bool,
+    ) -> (WorldlineRuntime, ProvenanceService, Vec<FixtureTick>) {
         let state = WorldlineState::empty();
         let mut provenance = ProvenanceService::new();
         provenance
@@ -949,9 +1004,12 @@ mod tests {
                     })
                     .collect::<Vec<_>>();
                 records.sort_by_key(|record| record.submission_id);
-                receipt = receipt
-                    .with_attribution(records)
-                    .expect("fixture attribution");
+                receipt = if bound {
+                    receipt.with_bound_attribution(records)
+                } else {
+                    receipt.with_attribution(records)
+                }
+                .expect("fixture attribution");
             }
             let global_tick = GlobalTick::from_raw(tick + 1);
             let commit_hash = *blake3::hash(&tick.to_le_bytes()).as_bytes();
@@ -1360,6 +1418,38 @@ mod tests {
             ),
             Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable { .. })
         ));
+    }
+
+    #[test]
+    fn ticks_attributed_before_commit_binding_are_weaker_evidence() {
+        let (runtime, provenance, _) =
+            history_fixture_with(&[Some(Vec::new()), Some(Vec::new())], false);
+        assert_eq!(
+            causal_receipt_history(&runtime, &provenance, request(2, None))
+                .unwrap()
+                .completeness,
+            CausalReceiptHistoryCompleteness::EstablishedWithoutCommitBinding {
+                first_unbound_tick: WorldlineTick::ZERO,
+            },
+            "complete, but not bound into the commit hash"
+        );
+        // A legacy tick outranks an unbound one.
+        let (runtime, provenance, _) = history_fixture_with(&[Some(Vec::new()), None], false);
+        assert_eq!(
+            causal_receipt_history(&runtime, &provenance, request(2, None))
+                .unwrap()
+                .completeness,
+            CausalReceiptHistoryCompleteness::UnestablishedForLegacyTicks {
+                first_legacy_tick: WorldlineTick::from_raw(1),
+            }
+        );
+        let (runtime, provenance, _) = history_fixture(&[Some(Vec::new()), Some(Vec::new())]);
+        assert_eq!(
+            causal_receipt_history(&runtime, &provenance, request(2, None))
+                .unwrap()
+                .completeness,
+            CausalReceiptHistoryCompleteness::Established
+        );
     }
 
     #[test]

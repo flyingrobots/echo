@@ -1250,7 +1250,7 @@ pre_push_extra_feature_strings_for_test_target() {
   local test_target="$2"
 
   case "${crate}:${test_target}" in
-    warp-core:executable_operation_pipeline_tests)
+    warp-core:executable_operation_pipeline_tests|warp-core:provider_contract_admission_tests)
       printf '%s\n' "native_rule_bootstrap,trusted_runtime,host_test"
       ;;
   esac

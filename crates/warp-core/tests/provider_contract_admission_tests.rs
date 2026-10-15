@@ -1343,6 +1343,8 @@ fn no_match_history_pages_are_identical_across_restart() {
     std::fs::remove_dir_all(&wal_root).expect("provider WAL fixture cleanup succeeds");
 }
 
+/// Needs `host_test`: it removes correlations from a live host.
+#[cfg(feature = "host_test")]
 #[test]
 fn a_lost_correlation_in_a_no_match_tick_is_reported_live_and_after_recovery() {
     let _callback_guard = callback_test_guard();

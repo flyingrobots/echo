@@ -7,7 +7,8 @@
 its own records of those decisions are complete.
 **Used by:** [causal receipt history](CausalReceiptHistory.md), intent outcome
 lookup, WAL recovery and history restore.
-**Carried by:** the [WAL truth boundary](WAL.md) (`EPRV0002` retained ticks).
+**Carried by:** the [WAL truth boundary](WAL.md) (`EPRV0003` retained ticks).
+**Hash contract:** [commit hash v3](../spec/merkle-commit.md) binds the section.
 **Decision record:** [#873](https://github.com/flyingrobots/echo/issues/873).
 
 Every tick Echo commits now says, in its own retained receipt, which accepted
@@ -92,23 +93,26 @@ callers, which have no submissions behind them.
 
 ## Format, binding and legacy
 
-|                                | Receipt digest                     | Retained tick record                |
-| ------------------------------ | ---------------------------------- | ----------------------------------- |
-| With section (every new tick)  | version 3, covers the section      | `EPRV0002`                          |
-| Without section (legacy ticks) | version 2, unchanged byte for byte | `EPRV0001`, unchanged byte for byte |
+| Receipt                                         | Receipt digest | Retained record | Commit hash |
+| ----------------------------------------------- | -------------- | --------------- | ----------- |
+| Commit-bound section (every new scheduler tick) | version 4      | `EPRV0003`      | v3          |
+| Section retained before commit binding existed  | version 3      | `EPRV0002`      | v2          |
+| No section (legacy tick)                        | version 2      | `EPRV0001`      | v2          |
 
 - A retained record cannot change version by relabelling its magic.
 - A legacy history can be extended by attributed ticks. A legacy tick's commit
   hash is the same with or without a section.
-- **Binding.** The owner ruled on #873 that attribution must be bound
-  transitively into commit identity: commit hash → receipt digest →
-  attribution. Commit hash v2 covers state root, parents, patch digest and
-  policy only (`snapshot.rs`, `compute_commit_hash_v2`), so it does not meet
-  that bar: today the section is bound by the receipt digest that the patch
-  header (`decision_digest`) and every receipt reference
-  (`receipt_content_digest`) carry, and by each WAL record's digest. New ticks
-  will move to a commit-hash version that covers the receipt digest; legacy
-  ticks keep v2 and replay unchanged. Until that lands, #873 stays open.
+- **Binding.** Attribution is bound transitively into commit identity:
+  commit hash → receipt digest → attribution, as the owner ruled on #873. A
+  commit-bound receipt (format 4) is committed with commit hash v3, which
+  hashes the receipt digest alongside v2's inputs (`compute_commit_hash_v3`).
+  An explicit format marker, never the mere presence of a section, selects the
+  version (`compute_commit_hash_for_receipt`), so `EPRV0002` and `EPRV0001`
+  ticks keep their v2 identities. Replacing the attribution changes the
+  receipt digest and so the commit hash; stripping the binding selects v2,
+  which cannot reproduce the recorded v3 hash. Retained-commit validation and
+  replay recompute the selected version. The canonical contract is
+  [merkle-commit](../spec/merkle-commit.md), Decision 3a.
 
 ## How Echo uses it on its own
 
@@ -147,8 +151,10 @@ authority. Echo checks the correlation index against it, tick by tick:
 - a correlation the tick does not attribute is `UnattributedCorrelation`;
 - an attributed submission that was never ticketed is
   `SubmissionWithoutReceiptIdentity`;
-- a page reports `Established` completeness only when every tick it inspected
-  was attributed, and the claim names exactly the ticks it inspected.
+- a page's claim names exactly the ticks it inspected: `Established` when every
+  one is attributed and commit-bound, `EstablishedWithoutCommitBinding` when
+  every one is attributed but some predate commit binding, and
+  `UnestablishedForLegacyTicks` otherwise.
 
 See [causal receipt history](CausalReceiptHistory.md) for paging, budgets and
 the cursor.
@@ -187,8 +193,10 @@ The remaining uses are explicit application reads:
   submission and never creates a second history item, so an application can
   retry blindly.
 - **Audit and reconciliation.** Page through receipt history at a fixed basis.
-  An `Established` page proves the history it covers is complete, which is what
-  an audit trail or a post-crash reconciliation needs.
+  An `Established` page proves the history it covers is complete and bound into
+  commit identity; `EstablishedWithoutCommitBinding` proves completeness with
+  weaker binding. That is what an audit trail or a post-crash reconciliation
+  needs.
 - **Undo and redo.** Read history, choose a transition by contract policy,
   derive and submit its inverse
   ([contract inverse admission](ContractInverseAdmission.md)). Completeness
@@ -220,7 +228,6 @@ Measured costs are not yet recorded; these are derived from the format.
 
 - **Legacy ticks** cannot prove completeness. History marks pages that
   inspected them `UnestablishedForLegacyTicks`.
-- **Commit-hash binding** of the receipt is ruled but not yet built (#873).
 - **Unticketed submissions** decided by a tick have no receipt identity, so
   history reports them as `SubmissionWithoutReceiptIdentity` instead of
   returning them.
@@ -228,17 +235,21 @@ Measured costs are not yet recorded; these are derived from the format.
 
 ## Evidence
 
-| Claim                                                                                     | Test                                                                                                                                                         |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Legacy receipt digest unchanged; the section changes it; malformed shapes refused         | `receipt::tests`                                                                                                                                             |
-| Plain seal and its refusals                                                               | `engine_impl::tests::attribution_seal`                                                                                                                       |
-| Plain ticks attribute entries and no-match                                                | `coordinator::tests::a_plain_tick_attributes_each_submission_to_its_receipt_entries`, `a_plain_tick_records_a_submission_no_rule_matched`                    |
-| Retry adds nothing; repeat is new                                                         | `coordinator::tests::an_idempotent_retry_adds_no_history_item_and_an_intentional_repeat_does`                                                                |
-| `EPRV0001` and `EPRV0002` formats; mixed history                                          | `coordinator::tests::retained_ticks_keep_their_format_and_a_legacy_history_extends_with_attributed_ticks`                                                    |
-| Outcomes resolve from the receipt alone                                                   | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused`                    |
-| Restore accepts an attributed no-match                                                    | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                                                |
-| Lost correlations, unattributed correlations, budgets, cursors                            | `causal_receipt_history::tests`                                                                                                                              |
-| Action attribution, paging inside one tick, and recovery                                  | `executable_operation_pipeline_tests::an_action_tick_attributes_each_submission_and_the_attribution_recovers`                                                |
-| A matched and a no-match decision in one tick survive restart; history and outcomes agree | `provider_contract_admission_tests::a_no_match_decided_beside_an_applied_submission_survives_restart`, `no_match_history_pages_are_identical_across_restart` |
-| A lost correlation (matched, no-match or all) is reported, live and after recovery        | `provider_contract_admission_tests::a_lost_correlation_in_a_no_match_tick_is_reported_live_and_after_recovery`                                               |
-| A recorded decision must match the retained attribution                                   | `provider_contract_admission_tests::a_recorded_decision_must_match_the_retained_attribution`                                                                 |
+| Claim                                                                                        | Test                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Legacy receipt digest unchanged; the section changes it; malformed shapes refused            | `receipt::tests`                                                                                                                                             |
+| Plain seal and its refusals                                                                  | `engine_impl::tests::attribution_seal`                                                                                                                       |
+| Plain ticks attribute entries and no-match                                                   | `coordinator::tests::a_plain_tick_attributes_each_submission_to_its_receipt_entries`, `a_plain_tick_records_a_submission_no_rule_matched`                    |
+| Retry adds nothing; repeat is new                                                            | `coordinator::tests::an_idempotent_retry_adds_no_history_item_and_an_intentional_repeat_does`                                                                |
+| `EPRV0001`, `EPRV0002` and `EPRV0003` formats; mixed history                                 | `coordinator::tests::retained_ticks_keep_their_format_and_a_legacy_history_extends_with_attributed_ticks`                                                    |
+| Outcomes resolve from the receipt alone                                                      | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused`                    |
+| Restore accepts an attributed no-match                                                       | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                                                |
+| Lost correlations, unattributed correlations, budgets, cursors                               | `causal_receipt_history::tests`                                                                                                                              |
+| Action attribution, paging inside one tick, and recovery                                     | `executable_operation_pipeline_tests::an_action_tick_attributes_each_submission_and_the_attribution_recovers`                                                |
+| Attribution is bound into commit identity; substitution under the original commit is refused | `coordinator::tests::substituting_attribution_under_a_ticks_commit_fails_validation`                                                                         |
+| Ticks attributed before commit binding keep their v2 identity                                | `coordinator::tests::an_attributed_tick_retained_before_commit_binding_still_validates`                                                                      |
+| Outcomes resolve from the receipt alone                                                      | `coordinator::tests::attributed_outcomes_resolve_from_the_receipt_alone`, `an_attributed_no_match_is_a_decision_and_ambiguity_is_refused`                    |
+| Restore accepts an attributed no-match                                                       | `coordinator::tests::receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission`                                                |
+| A matched and a no-match decision in one tick survive restart; history and outcomes agree    | `provider_contract_admission_tests::a_no_match_decided_beside_an_applied_submission_survives_restart`, `no_match_history_pages_are_identical_across_restart` |
+| A lost correlation (matched, no-match or all) is reported, live and after recovery           | `provider_contract_admission_tests::a_lost_correlation_in_a_no_match_tick_is_reported_live_and_after_recovery`                                               |
+| A recorded decision must match the retained attribution                                      | `provider_contract_admission_tests::a_recorded_decision_must_match_the_retained_attribution`                                                                 |

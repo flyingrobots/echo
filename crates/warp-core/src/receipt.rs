@@ -32,6 +32,7 @@ pub struct TickReceipt {
     entries: Vec<TickReceiptEntry>,
     blocked_by: Vec<Vec<u32>>,
     attribution: Option<Vec<TickSubmissionAttribution>>,
+    binds_commit: bool,
     digest: Hash,
 }
 
@@ -171,12 +172,13 @@ impl TickReceipt {
             blocked_by.len(),
             "blocked_by must be parallel to entries"
         );
-        let digest = compute_tick_receipt_digest(&entries, None);
+        let digest = compute_tick_receipt_digest(&entries, None, false);
         Self {
             tx,
             entries,
             blocked_by,
             attribution: None,
+            binds_commit: false,
             digest,
         }
     }
@@ -200,9 +202,40 @@ impl TickReceipt {
         attribution: Vec<TickSubmissionAttribution>,
     ) -> Result<Self, TickAttributionError> {
         validate_attribution(self.entries.len(), &attribution)?;
-        self.digest = compute_tick_receipt_digest(&self.entries, Some(&attribution));
+        self.digest = compute_tick_receipt_digest(&self.entries, Some(&attribution), false);
         self.attribution = Some(attribution);
+        self.binds_commit = false;
         Ok(self)
+    }
+
+    /// Adds the attribution section and marks the receipt as bound into its
+    /// tick's commit identity (#873): the tick is committed with commit hash
+    /// v3, which hashes this receipt's digest.
+    ///
+    /// This is receipt format version 4. Format 3 (attribution without the
+    /// binding) is what Echo retained before commit binding existed; its
+    /// ticks keep commit hash v2, so the format, not the presence of a
+    /// section, selects the commit-hash version.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`TickReceipt::with_attribution`].
+    pub fn with_bound_attribution(
+        mut self,
+        attribution: Vec<TickSubmissionAttribution>,
+    ) -> Result<Self, TickAttributionError> {
+        validate_attribution(self.entries.len(), &attribution)?;
+        self.digest = compute_tick_receipt_digest(&self.entries, Some(&attribution), true);
+        self.attribution = Some(attribution);
+        self.binds_commit = true;
+        Ok(self)
+    }
+
+    /// Whether the tick's commit identity binds this receipt (format 4,
+    /// commit hash v3).
+    #[must_use]
+    pub fn binds_commit(&self) -> bool {
+        self.binds_commit
     }
 
     /// Reconstructs a receipt value from retained canonical parts.
@@ -283,12 +316,13 @@ impl TickReceipt {
                 }
             }
         }
-        let digest = compute_tick_receipt_digest(&entries, None);
+        let digest = compute_tick_receipt_digest(&entries, None, false);
         Ok(Self {
             tx,
             entries,
             blocked_by,
             attribution: None,
+            binds_commit: false,
             digest,
         })
     }
@@ -449,13 +483,19 @@ fn validate_attribution(
 fn compute_tick_receipt_digest(
     entries: &[TickReceiptEntry],
     attribution: Option<&[TickSubmissionAttribution]>,
+    binds_commit: bool,
 ) -> Hash {
     if entries.is_empty() && attribution.is_none() {
         return crate::constants::digest_len0_u64();
     }
     let mut hasher = Hasher::new();
-    // Receipt format version tag: 3 when the attribution section is present.
-    let version: u16 = if attribution.is_some() { 3 } else { 2 };
+    // Receipt format version tag: 2 without attribution, 3 with it, 4 when
+    // the receipt is also bound into its commit identity.
+    let version: u16 = match (attribution.is_some(), binds_commit) {
+        (false, _) => 2,
+        (true, false) => 3,
+        (true, true) => 4,
+    };
     hasher.update(&version.to_le_bytes());
     // Entry count.
     hasher.update(&(entries.len() as u64).to_le_bytes());
@@ -525,8 +565,8 @@ mod tests {
                 ),
             },
         ];
-        let digest_a = compute_tick_receipt_digest(&entries, None);
-        let digest_b = compute_tick_receipt_digest(&entries, None);
+        let digest_a = compute_tick_receipt_digest(&entries, None, false);
+        let digest_b = compute_tick_receipt_digest(&entries, None, false);
         assert_eq!(digest_a, digest_b);
         assert_ne!(digest_a, crate::constants::digest_len0_u64());
     }
@@ -557,8 +597,8 @@ mod tests {
             disposition: TickReceiptDisposition::Applied,
         }];
 
-        let digest_a = compute_tick_receipt_digest(&entries_a, None);
-        let digest_b = compute_tick_receipt_digest(&entries_b, None);
+        let digest_a = compute_tick_receipt_digest(&entries_a, None, false);
+        let digest_b = compute_tick_receipt_digest(&entries_b, None, false);
         assert_ne!(digest_a, digest_b);
     }
 
@@ -670,6 +710,18 @@ mod tests {
             .unwrap();
         assert_ne!(attributed.digest(), split.digest());
         assert_eq!(attributed.attribution().map(<[_]>::len), Some(1));
+    }
+
+    #[test]
+    fn a_commit_bound_receipt_has_its_own_format_and_digest() {
+        let records = vec![record(1, entries_decision(&[0, 1]))];
+        let unbound = sample_receipt().with_attribution(records.clone()).unwrap();
+        let bound = sample_receipt().with_bound_attribution(records).unwrap();
+        assert!(!unbound.binds_commit());
+        assert!(bound.binds_commit());
+        assert_eq!(bound.attribution(), unbound.attribution());
+        assert_ne!(bound.digest(), unbound.digest());
+        assert!(!sample_receipt().binds_commit());
     }
 
     #[test]

@@ -35,6 +35,16 @@
 
 ### Changed
 
+- Commit hash v3 binds a tick's receipt digest, and through it the tick's
+  attribution section, into the tick's commit identity (#873). Every new
+  scheduler tick's receipt is commit-bound (receipt format 4, retained as
+  `EPRV0003`) and committed with v3. Legacy ticks (`EPRV0001`), ticks
+  attributed before commit binding (`EPRV0002`) and engine-direct commits keep
+  v2, so existing history and golden vectors are unchanged. An explicit format
+  marker, not the presence of attribution, selects the version
+  (`compute_commit_hash_for_receipt`), and retained-commit validation and
+  replay recompute it, so altered attribution, or a stripped binding, no longer
+  validates under the original commit.
 - Causal receipt history walks retained ticks and treats each tick's committed
   attribution as the authority, with the correlation index as a checked cache.
   A ticketed submission a tick attributes but no correlation records is
@@ -96,10 +106,12 @@
   receipt entries that carry its decision, or recording that no rule matched
   it. Plain ticks and Action ticks seal it from their own batch, and refuse to
   commit when a decision and the receipt disagree; a direct host commit, which
-  decides no submission, records an empty section. Receipts with the section
-  use receipt format version 3 and are retained as `EPRV0002`. Receipts without
-  it keep version 2 and `EPRV0001` byte for byte, so existing history replays
-  unchanged and a legacy history can be extended by attributed ticks (#873).
+  decides no submission, records an empty section. Every new tick's receipt is
+  also commit-bound: receipt format 4, retained as `EPRV0003` (see the commit
+  hash v3 entry). Receipts attributed before commit binding (format 3,
+  `EPRV0002`) and receipts without a section (format 2, `EPRV0001`) are read
+  byte for byte, so existing history replays unchanged and a legacy history can
+  be extended by attributed ticks (#873).
 - `warp-core` trusted applications can now traverse bounded causal receipt
   history at an explicit worldline frontier in either canonical direction
   (#660). Echo-issued continuation cursors bind worldline, basis, direction, the

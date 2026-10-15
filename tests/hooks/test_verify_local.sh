@@ -275,6 +275,39 @@ EOF
 name = "warp-core"
 version = "0.0.0"
 edition = "2021"
+
+[[test]]
+name = "causal_anchor_external_consumer_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+# Mapped in verify-local.sh to host_test; the manifest adds a requirement
+# the mapping does not know, over a multiline array.
+[[test]]
+name = "optic_invocation_admission_tests"
+required-features = [
+    "manifest_only_feature", # declared only here
+    "host_test",
+]
+
+[[test]]
+name = "parallel_engine_integration_multiwarp"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_tripwire"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_warpopkey"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_openportal_rules"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_stress_multiwarp"
+required-features = ["delta_validate"]
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
   printf '%s\n' '#[cfg(test)] mod tests { #[test] fn ok() {} }' >"$tmp/crates/warp-core/src/observation.rs"
@@ -1662,6 +1695,33 @@ if printf '%s\n' "$fake_pre_push_warp_math_serde_cargo_log" | grep -q -- 'test -
 else
   fail "pre-push should keep required serde feature for determinism_policy_tests"
   printf '%s\n' "$fake_pre_push_warp_math_serde_output"
+fi
+
+for parallel_target in parallel_engine_integration_multiwarp parallel_merge_tripwire parallel_merge_warpopkey parallel_openportal_rules parallel_stress_multiwarp; do
+  parallel_output="$(run_fake_verify pre-push "crates/warp-core/tests/${parallel_target}.rs")"
+  parallel_cargo_log="$(extract_log_section cargo-log "$parallel_output")"
+  if printf '%s\n' "$parallel_cargo_log" | grep -qE -- "test -p warp-core --features delta_validate --test ${parallel_target}\$"; then
+    pass "pre-push keeps delta_validate for ${parallel_target}"
+  else
+    fail "pre-push omitted delta_validate for ${parallel_target}"
+  fi
+done
+
+anchor_output="$(run_fake_verify pre-push crates/warp-core/tests/causal_anchor_external_consumer_tests.rs)"
+anchor_cargo_log="$(extract_log_section cargo-log "$anchor_output")"
+if printf '%s\n' "$anchor_cargo_log" | grep -qE -- "test -p warp-core --features native_rule_bootstrap,trusted_runtime --test causal_anchor_external_consumer_tests\$"; then
+  pass "pre-push derives manifest features for causal_anchor_external_consumer_tests"
+else
+  fail "pre-push omitted manifest features for causal_anchor_external_consumer_tests"
+fi
+
+optic_output="$(run_fake_verify pre-push crates/warp-core/tests/optic_invocation_admission_tests.rs)"
+optic_cargo_log="$(extract_log_section cargo-log "$optic_output")"
+if printf '%s\n' "$optic_cargo_log" | grep -qE -- "test -p warp-core --features manifest_only_feature,host_test --test optic_invocation_admission_tests\$"; then
+  pass "pre-push takes manifest features as the baseline for a mapped target"
+else
+  fail "pre-push ignored the manifest features of mapped optic_invocation_admission_tests"
+  printf '%s\n' "$optic_cargo_log"
 fi
 
 fake_pre_push_warp_core_parallel_output="$(run_fake_verify pre-push crates/warp-core/tests/parallel_parallel_exec.rs)"

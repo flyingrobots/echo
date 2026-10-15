@@ -161,3 +161,42 @@ blake3 = "1.0"
 
 [lints]
 workspace = true
+
+# A test file whose whole body sits behind an inner `#![cfg(feature = ...)]`
+# must also declare `required-features` here. Without it, `cargo test -p
+# warp-core` compiles an empty target and reports "running 0 tests ... ok",
+# a green that ran nothing. With it, cargo skips the target outright.
+# `scripts/check-feature-gated-tests.py` enforces this, and that CI runs each
+# such target with its features (#867).
+
+[[test]]
+name = "causal_anchor_external_consumer_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "external_consumer_contract_fixture_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "trusted_runtime_host_loop_tests"
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[test]]
+name = "parallel_engine_integration_multiwarp"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_tripwire"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_merge_warpopkey"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_openportal_rules"
+required-features = ["delta_validate"]
+
+[[test]]
+name = "parallel_stress_multiwarp"
+required-features = ["delta_validate"]

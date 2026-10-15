@@ -622,18 +622,31 @@ impl<'a> PageWalk<'a> {
         let provenance: &'a ProvenanceService = self.provenance;
         let worldline_tick = WorldlineTick::from_raw(commit.worldline_tick_after.as_u64() - 1);
         if let Some(after) = after {
-            let resumed = runtime
-                .receipt_correlation_for_submission(&after)
-                .is_some_and(|correlation| {
-                    correlation.causal_receipt_ref.worldline_tick_after
-                        == commit.worldline_tick_after
+            // The resumed-after submission was returned on an earlier page; its
+            // exact receipt is checked again so a continuation point lost or
+            // damaged since then is not stepped over.
+            let Some(correlation) = runtime.receipt_correlation_for_submission(&after) else {
+                return Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable {
+                    worldline_tick,
+                    after_submission: Some(after),
                 });
-            if !resumed {
+            };
+            let receipt_ref = correlation.causal_receipt_ref;
+            if receipt_ref.worldline_tick_after != commit.worldline_tick_after {
                 return Err(CausalReceiptHistoryObstruction::CursorPositionUnavailable {
                     worldline_tick,
                     after_submission: Some(after),
                 });
             }
+            if !indexed_exactly(runtime, &receipt_ref) {
+                return Err(
+                    CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent {
+                        receipt_ref: Box::new(receipt_ref),
+                    },
+                );
+            }
+            self.records_inspected += 1;
+            verify_retained_transition(provenance, &receipt_ref)?;
         }
         let mut last = after;
         for (key, correlation) in
@@ -1285,6 +1298,44 @@ mod tests {
                 }
             )
         );
+    }
+
+    #[test]
+    fn a_legacy_cursor_whose_index_entry_was_lost_is_refused() {
+        let (mut runtime, provenance, retained) = history_fixture(&[None]);
+        let fixture = &retained[0];
+        let resumed = CausalTickReceiptRef {
+            worldline_id: worldline(),
+            worldline_tick_after: WorldlineTick::from_raw(1),
+            commit_global_tick: fixture.global_tick,
+            commit_hash: fixture.commit_hash,
+            submission_id: submission(1),
+            ticket_digest: [1; 32],
+            receipt_content_digest: fixture.receipt_digest,
+        };
+        // The resumed-after submission keeps its correlation record, but its
+        // receipt-reference index entry is gone.
+        runtime.plant_receipt_correlation_for_test(record(resumed, 1), false, true);
+        // Keep the index sizes equal so the shadow backstop does not fire.
+        runtime.plant_receipt_correlation_for_test(
+            record(
+                CausalTickReceiptRef {
+                    worldline_tick_after: WorldlineTick::from_raw(9),
+                    ..resumed
+                },
+                9,
+            ),
+            true,
+            false,
+        );
+        assert!(matches!(
+            causal_receipt_history(
+                &runtime,
+                &provenance,
+                request(1, Some(cursor_at(1, 0, Some(1))))
+            ),
+            Err(CausalReceiptHistoryObstruction::ReceiptEvidenceInconsistent { .. })
+        ));
     }
 
     #[test]

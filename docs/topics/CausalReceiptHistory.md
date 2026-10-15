@@ -150,7 +150,8 @@ The query returns `CausalReceiptHistoryObstruction` when:
   its exact coordinate;
 - retained provenance does not hold the transition a receipt names, or holds
   it with a different commit or receipt content (a retention gap), for any
-  returned receipt or the cursor's receipt;
+  returned receipt or for the receipt of the submission a cursor resumes
+  after;
 - witnessed submission records or envelopes are missing;
 - submission, envelope, and correlation ingress identities disagree;
 - envelope parents disagree with retained correlation parents;

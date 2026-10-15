@@ -102,8 +102,8 @@
   unchanged and a legacy history can be extended by attributed ticks (#873).
 - `warp-core` trusted applications can now traverse bounded causal receipt
   history at an explicit worldline frontier in either canonical direction
-  (#660). Echo-issued continuation cursors bind worldline, basis, direction, and
-  exact last receipt; each entry includes witnessed submission identity,
+  (#660). Echo-issued continuation cursors bind worldline, basis, direction, the
+  next tick and the last submission returned within it; each entry includes witnessed submission identity,
   contract evidence, canonical parent receipts, and any typed inverse
   derivation. Filesystem recovery returns identical pages without a
   process-local history authority, while missing, duplicate, or inconsistent

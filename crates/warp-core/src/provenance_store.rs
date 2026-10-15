@@ -476,6 +476,38 @@ pub struct ProvenanceRef {
     pub commit_hash: Hash,
 }
 
+/// The commit fields of one retained tick, without its patch, receipt or
+/// outputs.
+///
+/// Reading this instead of a whole [`ProvenanceEntry`] avoids copying the
+/// tick's patch and outputs when a caller only checks what a tick committed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ProvenanceCommitSummary {
+    /// The tick's commit reference.
+    pub commit: ProvenanceRef,
+    /// Global tick at which the commit was made.
+    pub commit_global_tick: GlobalTick,
+    /// Digest of the retained tick receipt, or `None` when the entry retains
+    /// no receipt.
+    pub tick_receipt_digest: Option<Hash>,
+}
+
+impl ProvenanceCommitSummary {
+    /// The summary of a retained entry.
+    #[must_use]
+    pub fn of(entry: &ProvenanceEntry) -> Self {
+        Self {
+            commit: ProvenanceRef {
+                worldline_id: entry.worldline_id,
+                worldline_tick: entry.worldline_tick,
+                commit_hash: entry.expected.commit_hash,
+            },
+            commit_global_tick: entry.commit_global_tick,
+            tick_receipt_digest: entry.tick_receipt.as_ref().map(TickReceipt::digest),
+        }
+    }
+}
+
 /// Event kind recorded by a provenance entry.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ProvenanceEventKind {
@@ -747,6 +779,22 @@ pub trait ProvenanceStore: Send + Sync {
 
     /// Returns the entry for a specific tick.
     fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError>;
+
+    /// Returns the commit fields of a specific tick.
+    ///
+    /// The default reads the whole entry. Stores that hold entries in memory
+    /// override it to avoid copying the patch and outputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`ProvenanceStore::entry`].
+    fn commit_summary(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<ProvenanceCommitSummary, HistoryError> {
+        Ok(ProvenanceCommitSummary::of(&self.entry(w, tick)?))
+    }
 
     /// Returns the stored parent refs for a specific tick.
     fn parents(
@@ -1388,6 +1436,20 @@ impl LocalProvenanceStore {
             .ok_or(HistoryError::WorldlineNotFound(w))
     }
 
+    /// Borrows the entry for a specific tick.
+    fn entry_ref(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<&ProvenanceEntry, HistoryError> {
+        let index = usize::try_from(tick.as_u64())
+            .map_err(|_| HistoryError::HistoryUnavailable { tick })?;
+        self.history(w)?
+            .entries
+            .get(index)
+            .ok_or(HistoryError::HistoryUnavailable { tick })
+    }
+
     fn history_mut(&mut self, w: WorldlineId) -> Result<&mut WorldlineHistory, HistoryError> {
         self.worldlines
             .get_mut(&w)
@@ -1778,13 +1840,15 @@ impl ProvenanceStore for LocalProvenanceStore {
     }
 
     fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
-        let index = usize::try_from(tick.as_u64())
-            .map_err(|_| HistoryError::HistoryUnavailable { tick })?;
-        self.history(w)?
-            .entries
-            .get(index)
-            .cloned()
-            .ok_or(HistoryError::HistoryUnavailable { tick })
+        self.entry_ref(w, tick).cloned()
+    }
+
+    fn commit_summary(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<ProvenanceCommitSummary, HistoryError> {
+        self.entry_ref(w, tick).map(ProvenanceCommitSummary::of)
     }
 
     fn parents(
@@ -1792,7 +1856,7 @@ impl ProvenanceStore for LocalProvenanceStore {
         w: WorldlineId,
         tick: WorldlineTick,
     ) -> Result<Vec<ProvenanceRef>, HistoryError> {
-        Ok(self.entry(w, tick)?.parents)
+        Ok(self.entry_ref(w, tick)?.parents.clone())
     }
 
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
@@ -2293,6 +2357,14 @@ impl ProvenanceStore for ProvenanceService {
         self.store.entry(w, tick)
     }
 
+    fn commit_summary(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<ProvenanceCommitSummary, HistoryError> {
+        self.store.commit_summary(w, tick)
+    }
+
     fn parents(
         &self,
         w: WorldlineId,
@@ -2672,6 +2744,92 @@ mod tests {
                 got
             }) if expected == wt(1) && got == wt(2)
         ));
+    }
+
+    /// A store that only implements the required methods, so it uses the
+    /// default `commit_summary`.
+    struct EntryOnly<'a>(&'a LocalProvenanceStore);
+
+    impl ProvenanceStore for EntryOnly<'_> {
+        fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
+            self.0.u0(w)
+        }
+        fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+            self.0.initial_boundary_hash(w)
+        }
+        fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
+            self.0.len(w)
+        }
+        fn entry(
+            &self,
+            w: WorldlineId,
+            tick: WorldlineTick,
+        ) -> Result<ProvenanceEntry, HistoryError> {
+            self.0.entry(w, tick)
+        }
+        fn parents(
+            &self,
+            w: WorldlineId,
+            tick: WorldlineTick,
+        ) -> Result<Vec<ProvenanceRef>, HistoryError> {
+            self.0.parents(w, tick)
+        }
+        fn append_local_commit(&mut self, _entry: ProvenanceEntry) -> Result<(), HistoryError> {
+            unreachable!("read-only test store")
+        }
+        fn append_recorded_event(&mut self, _entry: ProvenanceEntry) -> Result<(), HistoryError> {
+            unreachable!("read-only test store")
+        }
+        fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
+            self.0.checkpoint_before(w, tick)
+        }
+        fn checkpoint_state_before(
+            &self,
+            w: WorldlineId,
+            tick: WorldlineTick,
+        ) -> Option<ReplayCheckpoint> {
+            self.0.checkpoint_state_before(w, tick)
+        }
+    }
+
+    #[test]
+    fn commit_summary_agrees_with_the_entry_it_summarizes() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+        let receipt = TickReceipt::new(TxId::from_raw(1), Vec::new(), Vec::new());
+        let mut entry = test_entry(0);
+        if let Some(patch) = entry.patch.as_mut() {
+            patch.header.decision_digest = receipt.digest();
+        }
+        let entry = entry.with_tick_receipt(receipt.clone());
+        store.append_local_commit(entry.clone()).unwrap();
+
+        let summary = store.commit_summary(w, wt(0)).unwrap();
+        assert_eq!(summary, ProvenanceCommitSummary::of(&entry));
+        assert_eq!(summary.commit.commit_hash, entry.expected.commit_hash);
+        assert_eq!(summary.commit_global_tick, entry.commit_global_tick);
+        assert_eq!(summary.tick_receipt_digest, Some(receipt.digest()));
+        // The default implementation, which reads the whole entry, agrees.
+        assert_eq!(EntryOnly(&store).commit_summary(w, wt(0)).unwrap(), summary);
+        assert_eq!(store.parents(w, wt(0)).unwrap(), entry.parents);
+    }
+
+    #[test]
+    fn commit_summary_of_a_missing_tick_is_unavailable() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+        assert_eq!(
+            store.commit_summary(w, wt(0)),
+            Err(HistoryError::HistoryUnavailable { tick: wt(0) })
+        );
+        assert_eq!(
+            store.commit_summary(WorldlineId::from_bytes([2u8; 32]), wt(0)),
+            Err(HistoryError::WorldlineNotFound(WorldlineId::from_bytes(
+                [2u8; 32]
+            )))
+        );
     }
 
     #[test]

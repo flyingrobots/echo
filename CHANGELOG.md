@@ -45,6 +45,19 @@
   (`compute_commit_hash_for_receipt`), and retained-commit validation and
   replay recompute it, so altered attribution, or a stripped binding, no longer
   validates under the original commit.
+- Causal receipt history walks retained ticks and treats each tick's committed
+  attribution as the authority, with the correlation index as a checked cache.
+  A ticketed submission a tick attributes but no correlation records is
+  `AttributedSubmissionUncorrelated`, even when every correlation of that tick
+  was lost; a correlation the tick does not attribute is
+  `UnattributedCorrelation`. Pages bound inspected ticks and records as well as
+  returned entries, can resume inside a tick, may return nothing and still
+  continue, and report `CausalReceiptHistoryCompleteness`, which is
+  `UnestablishedForLegacyTicks` when a page read a tick without attribution.
+  The plain-tick attribution seal groups receipt entries by scope once
+  instead of scanning them per submission: `O(r log s + n log s)` for `r`
+  entries, `s` distinct scopes and `n` submissions, down from `O(n·r)`.
+  `docs/topics/SubmissionAttribution.md` documents the feature (#873).
 - Outcome lookup reads a tick's attribution section when it has one. A
   submission's outcome then comes from the receipt alone, so it no longer
   depends on the other correlations of the same tick surviving, which the
@@ -99,8 +112,8 @@
   unchanged and a legacy history can be extended by attributed ticks (#873).
 - `warp-core` trusted applications can now traverse bounded causal receipt
   history at an explicit worldline frontier in either canonical direction
-  (#660). Echo-issued continuation cursors bind worldline, basis, direction, and
-  exact last receipt; each entry includes witnessed submission identity,
+  (#660). Echo-issued continuation cursors bind worldline, basis, direction, the
+  next tick and the last submission returned within it; each entry includes witnessed submission identity,
   contract evidence, canonical parent receipts, and any typed inverse
   derivation. Filesystem recovery returns identical pages without a
   process-local history authority, while missing, duplicate, or inconsistent

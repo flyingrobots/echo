@@ -4648,11 +4648,45 @@ fn independent_actions_beyond_one_tick_all_commit_and_recover() {
         .all(|id| outcome_is_committed(&recovered, id)));
 }
 
+/// Reads the whole receipt history of `head_key`'s worldline at `basis`, one
+/// entry per page, and returns the submissions in page order.
+fn paged_history_submissions(
+    host: &mut TrustedRuntimeHost,
+    head_key: WriterHeadKey,
+    basis: u64,
+    direction: warp_core::CausalReceiptHistoryDirection,
+) -> Vec<warp_core::Hash> {
+    let mut cursor = None;
+    let mut submissions = Vec::new();
+    loop {
+        let page = host
+            .app()
+            .causal_receipt_history(warp_core::CausalReceiptHistoryRequest {
+                worldline_id: head_key.worldline_id,
+                basis_frontier_tick: warp_core::WorldlineTick::from_raw(basis),
+                direction,
+                page_size: 1,
+                cursor,
+            })
+            .expect("the attributed history is readable");
+        assert_eq!(
+            page.completeness,
+            warp_core::CausalReceiptHistoryCompleteness::Established,
+            "every tick is attributed, so completeness is proven"
+        );
+        submissions.extend(page.entries.iter().map(|entry| entry.submission_id));
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return submissions,
+        }
+    }
+}
+
 #[test]
 fn an_action_tick_attributes_each_submission_and_the_attribution_recovers() {
     const ACTIONS: usize = 3;
     let wal_dir = TempWalDir::new();
-    let (head_key, attribution) = {
+    let (head_key, attribution, submissions) = {
         let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(ACTIONS);
         host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
             .expect("the WAL opens");
@@ -4707,7 +4741,29 @@ fn an_action_tick_attributes_each_submission_and_the_attribution_recovers() {
         entries.sort_unstable();
         assert_eq!(entries, vec![0, 1, 2]);
         assert_eq!(receipt.entries().len(), ACTIONS);
-        (head_key, attribution)
+
+        // History pages resume inside the one tick, in both directions.
+        assert_eq!(
+            paged_history_submissions(
+                &mut host,
+                head_key,
+                1,
+                warp_core::CausalReceiptHistoryDirection::OldestFirst
+            ),
+            submissions
+        );
+        let mut newest_first = submissions.clone();
+        newest_first.reverse();
+        assert_eq!(
+            paged_history_submissions(
+                &mut host,
+                head_key,
+                1,
+                warp_core::CausalReceiptHistoryDirection::NewestFirst
+            ),
+            newest_first
+        );
+        (head_key, attribution, submissions)
     };
 
     let (mut recovered, recovered_head, _) = fixture_host_with_independent_nodes(ACTIONS);
@@ -4727,6 +4783,16 @@ fn an_action_tick_attributes_each_submission_and_the_attribution_recovers() {
         recovered_receipt.attribution(),
         Some(attribution.as_slice()),
         "recovery returns the attribution the Tick committed"
+    );
+    assert_eq!(
+        paged_history_submissions(
+            &mut recovered,
+            head_key,
+            1,
+            warp_core::CausalReceiptHistoryDirection::OldestFirst
+        ),
+        submissions,
+        "recovered history pages exactly as before restart"
     );
 }
 

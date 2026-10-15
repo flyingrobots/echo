@@ -1437,6 +1437,17 @@ impl LocalProvenanceStore {
             .ok_or(HistoryError::WorldlineNotFound(w))
     }
 
+    /// Borrows the retained tick receipt of a specific tick, or `None` when
+    /// the entry retains no receipt.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn retained_tick_receipt(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Option<&TickReceipt>, HistoryError> {
+        Ok(self.entry_ref(w, tick)?.tick_receipt.as_ref())
+    }
+
     /// Borrows the entry for a specific tick.
     fn entry_ref(
         &self,
@@ -1930,6 +1941,17 @@ pub struct ProvenanceService {
 }
 
 impl ProvenanceService {
+    /// Borrows the retained tick receipt of a specific tick, or `None` when
+    /// the entry retains no receipt.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn retained_tick_receipt(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Option<&TickReceipt>, HistoryError> {
+        self.store.retained_tick_receipt(w, tick)
+    }
+
     /// Creates an empty provenance service.
     #[must_use]
     pub fn new() -> Self {

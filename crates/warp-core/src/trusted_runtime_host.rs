@@ -999,6 +999,14 @@ impl TrustedRuntimeHost {
         }
     }
 
+    /// Forgets one submission's receipt correlation, as lost correlation
+    /// material would, for tests that history reports the loss.
+    #[cfg(feature = "host_test")]
+    pub fn forget_receipt_correlation_for_test(&mut self, submission_id: &Hash) -> bool {
+        self.runtime
+            .forget_receipt_correlation_for_test(submission_id)
+    }
+
     /// Returns the host-owned runtime as read-only evidence.
     #[must_use]
     pub fn runtime(&self) -> &WorldlineRuntime {

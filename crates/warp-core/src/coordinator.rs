@@ -830,6 +830,9 @@ pub enum IntentOutcomeDecision {
         /// Digest recorded by the correlation index.
         tick_receipt_digest: Hash,
     },
+    /// The tick committed this submission, and its attribution records that no
+    /// rule matched it (#873). This is a decision, not missing evidence.
+    NoMatchingRule,
 }
 
 /// Polling observation for a witnessed intent submission.
@@ -997,6 +1000,14 @@ pub enum IntentOutcome {
         /// Typed contract-host obstruction.
         obstruction: crate::ContractObstruction,
     },
+    /// A scheduler-owned tick committed this intent, and no rule matched it,
+    /// so the tick changed nothing on its behalf (#873).
+    NoMatchingRule {
+        /// Witnessed Echo submission id.
+        submission_id: Hash,
+        /// Exact receipt coordinate of the deciding tick.
+        causal_receipt_ref: CausalTickReceiptRef,
+    },
 }
 
 impl IntentOutcome {
@@ -1086,6 +1097,29 @@ impl IntentOutcome {
                     obstruction,
                 }
             }
+            IntentOutcomeObservation::Decided {
+                correlation,
+                decision: IntentOutcomeDecision::NoMatchingRule,
+            } => match correlation
+                .contract
+                .as_ref()
+                .and_then(crate::InstalledInvocationEvidence::provider_v1)
+            {
+                // An installed provider's matcher refusing its own operation
+                // is a runtime fault, never an ordinary non-match.
+                Some(provider) => Self::Obstructed {
+                    submission_id: correlation.submission_id,
+                    obstruction: crate::ContractObstruction::runtime_fault(
+                        crate::ContractObstructionSubject::Operation {
+                            op_id: provider.operation_id(),
+                        },
+                    ),
+                },
+                None => Self::NoMatchingRule {
+                    submission_id: correlation.submission_id,
+                    causal_receipt_ref: correlation.causal_receipt_ref,
+                },
+            },
         }
     }
 }
@@ -2106,6 +2140,13 @@ impl WorldlineRuntime {
             return no_match();
         }
 
+        if let Some(attribution) = receipt.attribution() {
+            return attributed_outcome_decision(receipt, attribution, correlation)
+                .unwrap_or_else(no_match);
+        }
+
+        // Legacy receipts (no attribution section) name a plain submission's
+        // entries by request-node scope and an Action's only by position.
         let ingress_node = NodeId(correlation.ingress_id);
         let mut candidates = receipt
             .entries()
@@ -3518,6 +3559,66 @@ fn admitted_submission_ids(head_key: WriterHeadKey, admitted: &[IngressEnvelope]
         .iter()
         .map(|envelope| derive_intent_submission_id(head_key, envelope.ingress_id()))
         .collect()
+}
+
+/// The outcome a tick's committed attribution records for `correlation`'s
+/// submission (#873), or `None` when the attribution does not name it or names
+/// no single deciding entry.
+///
+/// Unlike the legacy positional rule, this reads only the receipt itself, so
+/// it does not depend on other correlations of the same tick surviving.
+fn attributed_outcome_decision(
+    receipt: &crate::TickReceipt,
+    attribution: &[crate::TickSubmissionAttribution],
+    correlation: &ReceiptCorrelationRecord,
+) -> Option<IntentOutcomeDecision> {
+    // The correlation must name the submission its own head and ingress
+    // derive to; otherwise its fields disagree and it names no decision.
+    if derive_intent_submission_id(correlation.head_key, correlation.ingress_id)
+        != correlation.submission_id
+    {
+        return None;
+    }
+    let record = attribution
+        .binary_search_by_key(&correlation.submission_id, |record| record.submission_id)
+        .ok()
+        .map(|index| &attribution[index])?;
+    let entries = match &record.decision {
+        crate::TickSubmissionDecision::NoMatchingRule => {
+            return Some(IntentOutcomeDecision::NoMatchingRule)
+        }
+        crate::TickSubmissionDecision::ReceiptEntries(entries) => entries,
+    };
+    let provider_rule = correlation
+        .contract
+        .as_ref()
+        .and_then(crate::InstalledInvocationEvidence::provider_v1)
+        .map(|provider| *provider.rule_id());
+    let mut deciding = entries.iter().copied().filter(|&index| {
+        provider_rule.is_none_or(|rule_id| {
+            receipt
+                .entries()
+                .get(index as usize)
+                .is_some_and(|entry| entry.rule_id == rule_id)
+        })
+    });
+    let index = deciding.next()?;
+    if deciding.next().is_some() {
+        return None;
+    }
+    let entry = receipt.entries().get(index as usize)?;
+    Some(match entry.disposition {
+        TickReceiptDisposition::Applied => IntentOutcomeDecision::Applied {
+            receipt_entry_index: index,
+            rule_id: entry.rule_id,
+        },
+        TickReceiptDisposition::Rejected(reason) => IntentOutcomeDecision::Rejected {
+            receipt_entry_index: index,
+            rule_id: entry.rule_id,
+            reason,
+            blocked_by: receipt.blocked_by(index as usize).to_vec(),
+        },
+    })
 }
 
 fn derive_intent_submission_id(head_key: WriterHeadKey, ingress_id: Hash) -> Hash {
@@ -7227,6 +7328,173 @@ mod tests {
             } if submission_id == handle.submission_id
                 && submission_generation == handle.submission_generation
         ));
+    }
+
+    fn attributed_test_head() -> WriterHeadKey {
+        WriterHeadKey {
+            worldline_id: wl(6),
+            head_id: make_head_id("default"),
+        }
+    }
+
+    /// A correlation for the submission that ingress `ingress` derives to on
+    /// the test head, as the identity law requires.
+    fn attributed_test_correlation(ingress: u8) -> ReceiptCorrelationRecord {
+        let head_key = attributed_test_head();
+        let submission_id = derive_intent_submission_id(head_key, hash(ingress));
+        ReceiptCorrelationRecord {
+            ticketed_ingress_id: hash(1),
+            submission_id,
+            ticket_digest: hash(3),
+            ingress_id: hash(ingress),
+            head_key,
+            contract: None,
+            commit_global_tick: gt(7),
+            worldline_tick_after: wt(8),
+            tick_receipt_digest: hash(9),
+            commit_hash: hash(10),
+            causal_receipt_ref: CausalTickReceiptRef {
+                worldline_id: head_key.worldline_id,
+                worldline_tick_after: wt(8),
+                commit_global_tick: gt(7),
+                commit_hash: hash(10),
+                submission_id,
+                ticket_digest: hash(3),
+                receipt_content_digest: hash(9),
+            },
+            causal_parent_receipts: Vec::new(),
+        }
+    }
+
+    fn attributed_test_submission(ingress: u8) -> Hash {
+        attributed_test_correlation(ingress).submission_id
+    }
+
+    /// An Action-shaped receipt: three entries, the middle one rejected for a
+    /// conflict with the first, attributed to the submissions of ingress 21,
+    /// 22 and 23 in that entry order.
+    fn attributed_action_receipt() -> crate::TickReceipt {
+        let entry = |rule: u8, disposition| crate::TickReceiptEntry {
+            rule_id: hash(rule),
+            scope_hash: hash(40),
+            scope: crate::NodeKey {
+                warp_id: crate::ident::make_warp_id("attributed-outcome"),
+                local_id: make_node_id("target"),
+            },
+            disposition,
+        };
+        let mut attribution = [21, 22, 23]
+            .into_iter()
+            .zip(0_u32..)
+            .map(|(ingress, entry)| crate::TickSubmissionAttribution {
+                submission_id: attributed_test_submission(ingress),
+                decision: crate::TickSubmissionDecision::ReceiptEntries(vec![entry]),
+            })
+            .collect::<Vec<_>>();
+        attribution.sort_by_key(|record| record.submission_id);
+        crate::TickReceipt::new(
+            crate::TxId::from_raw(9),
+            vec![
+                entry(31, TickReceiptDisposition::Applied),
+                entry(
+                    32,
+                    TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict),
+                ),
+                entry(33, TickReceiptDisposition::Applied),
+            ],
+            vec![Vec::new(), vec![0], Vec::new()],
+        )
+        .with_attribution(attribution)
+        .expect("the attribution fits the receipt")
+    }
+
+    #[test]
+    fn attributed_outcomes_resolve_from_the_receipt_alone() {
+        let receipt = attributed_action_receipt();
+        let attribution = receipt.attribution().expect("attributed");
+        // Each submission resolves with no sibling correlation present, which
+        // the legacy positional rule cannot do.
+        assert_eq!(
+            attributed_outcome_decision(&receipt, attribution, &attributed_test_correlation(23)),
+            Some(IntentOutcomeDecision::Applied {
+                receipt_entry_index: 2,
+                rule_id: hash(33),
+            })
+        );
+        assert_eq!(
+            attributed_outcome_decision(&receipt, attribution, &attributed_test_correlation(22)),
+            Some(IntentOutcomeDecision::Rejected {
+                receipt_entry_index: 1,
+                rule_id: hash(32),
+                reason: TickReceiptRejection::FootprintConflict,
+                blocked_by: vec![0],
+            })
+        );
+        // A submission the tick did not decide has no attributed outcome.
+        assert_eq!(
+            attributed_outcome_decision(&receipt, attribution, &attributed_test_correlation(24)),
+            None
+        );
+        // A correlation whose ingress does not derive to its submission names
+        // no decision, even though the submission is attributed.
+        let mut inconsistent = attributed_test_correlation(23);
+        inconsistent.ingress_id = hash(99);
+        assert_eq!(
+            attributed_outcome_decision(&receipt, attribution, &inconsistent),
+            None
+        );
+    }
+
+    #[test]
+    fn an_attributed_no_match_is_a_decision_and_ambiguity_is_refused() {
+        let no_match = crate::TickReceipt::new(crate::TxId::from_raw(9), Vec::new(), Vec::new())
+            .with_attribution(vec![crate::TickSubmissionAttribution {
+                submission_id: attributed_test_submission(21),
+                decision: crate::TickSubmissionDecision::NoMatchingRule,
+            }])
+            .expect("attributed");
+        assert_eq!(
+            attributed_outcome_decision(
+                &no_match,
+                no_match.attribution().expect("attributed"),
+                &attributed_test_correlation(21)
+            ),
+            Some(IntentOutcomeDecision::NoMatchingRule)
+        );
+
+        // Two entries for one submission, with no provider rule to choose
+        // between them, name no single decision.
+        let receipt = attributed_action_receipt();
+        let two_entries = crate::TickReceipt::new(
+            crate::TxId::from_raw(9),
+            receipt.entries().to_vec(),
+            vec![Vec::new(), vec![0], Vec::new()],
+        )
+        .with_attribution(vec![crate::TickSubmissionAttribution {
+            submission_id: attributed_test_submission(21),
+            decision: crate::TickSubmissionDecision::ReceiptEntries(vec![0, 2]),
+        }])
+        .expect("attributed");
+        assert_eq!(
+            attributed_outcome_decision(
+                &two_entries,
+                two_entries.attribution().expect("attributed"),
+                &attributed_test_correlation(21)
+            ),
+            None
+        );
+
+        let outcome = IntentOutcome::from_observation(IntentOutcomeObservation::Decided {
+            correlation: Box::new(attributed_test_correlation(21)),
+            decision: IntentOutcomeDecision::NoMatchingRule,
+        });
+        assert_eq!(
+            outcome,
+            IntentOutcome::NoMatchingRule {
+                submission_id: attributed_test_submission(21),
+                causal_receipt_ref: attributed_test_correlation(21).causal_receipt_ref,
+            }
+        );
     }
 
     #[test]

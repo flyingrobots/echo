@@ -35,6 +35,13 @@
 
 ### Changed
 
+- Outcome lookup reads a tick's attribution section when it has one. A
+  submission's outcome then comes from the receipt alone, so it no longer
+  depends on the other correlations of the same tick surviving, which the
+  positional rule for Action ticks required. A submission that no rule
+  matched is reported as `IntentOutcome::NoMatchingRule` with its receipt
+  coordinate instead of as missing evidence. Legacy ticks keep the positional
+  rule (#873).
 - Executable-operation Actions decided after their origin tick can commit
   when their dependencies are corroborated as unchanged (#837). Before, any
   commit in between obstructed every waiting Action with `BasisChanged`, so a

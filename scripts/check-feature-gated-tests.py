@@ -8,7 +8,8 @@ compiles to an empty target without it, and a run then reports "running 0
 tests ... ok". So each such test must (1) declare those features as
 ``required-features`` in its crate manifest, so a run without them skips the
 target, and (2) be executed with them by some CI ``cargo test`` or
-``cargo nextest run`` command (#867).
+``cargo nextest run`` command in a workflow that runs on pushes or pull
+requests (#867).
 """
 from __future__ import annotations
 
@@ -48,23 +49,65 @@ def required_features(source: str) -> set[str]:
 
 
 def manifest_tests(manifest_path: str) -> tuple[str, dict[str, set[str]]]:
-    """The package name and each ``[[test]]`` target's required features."""
+    """The package name and each ``[[test]]`` target's required features.
+
+    ``required-features`` may span several lines. (``tomllib`` would parse
+    this fully but needs Python 3.11; this reader covers what Cargo test
+    tables use.)
+    """
     package, tests, section, current = "", {}, None, None
+    collecting = None
     with open(manifest_path, encoding="utf-8") as manifest:
         for raw in manifest:
             line = raw.split("#", 1)[0].strip()
+            if collecting is not None:
+                tests[collecting].update(re.findall(r'"([^"]+)"', line.split("]", 1)[0]))
+                if "]" in line:
+                    collecting = None
+                continue
             if line.startswith("["):
                 section, current = line, None
                 continue
             if section == "[package]" and line.startswith("name") and not package:
                 package = line.split("=", 1)[1].strip().strip('"')
-            elif section == "[[test]]" and line.startswith("name"):
+            elif section == "[[test]]" and re.match(r"name\s*=", line):
                 current = line.split("=", 1)[1].strip().strip('"')
                 tests.setdefault(current, set())
             elif section == "[[test]]" and line.startswith("required-features") and current:
                 values = line.split("=", 1)[1]
-                tests[current].update(re.findall(r'"([^"]+)"', values))
+                tests[current].update(re.findall(r'"([^"]+)"', values.split("]", 1)[0]))
+                if "]" not in values:
+                    collecting = current
     return package, tests
+
+
+AUTOMATIC_TRIGGERS = {"push", "pull_request", "pull_request_target", "merge_group"}
+
+
+def runs_automatically(text: str) -> bool:
+    """Whether a workflow's ``on:`` runs it for pushes, pull requests or the
+    merge queue. Manual (``workflow_dispatch``) and scheduled-only workflows
+    do not gate a change, so their commands are not coverage."""
+    lines = text.splitlines()
+    for index, raw in enumerate(lines):
+        match = re.match(r"""^["']?on["']?\s*:\s*(.*)$""", raw)
+        if not match:
+            continue
+        inline = match.group(1).split("#", 1)[0].strip()
+        if inline:
+            return bool(AUTOMATIC_TRIGGERS & set(re.findall(r"[a-z_]+", inline)))
+        triggers, indent = set(), None
+        for line in lines[index + 1 :]:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            depth = len(line) - len(line.lstrip())
+            if depth == 0:
+                break
+            indent = depth if indent is None else indent
+            if depth == indent:
+                triggers.add(line.strip().lstrip("- ").split(":", 1)[0].strip())
+        return bool(AUTOMATIC_TRIGGERS & triggers)
+    return False
 
 
 def ci_commands() -> list[list[str]]:
@@ -72,7 +115,10 @@ def ci_commands() -> list[list[str]]:
     commands = []
     for workflow in sorted(glob.glob(os.path.join(ROOT, ".github", "workflows", "*.yml"))):
         with open(workflow, encoding="utf-8") as handle:
-            lines = handle.read().splitlines()
+            text = handle.read()
+        if not runs_automatically(text):
+            continue
+        lines = text.splitlines()
         joined, buffer = [], ""
         for raw in lines:
             line = raw.strip()

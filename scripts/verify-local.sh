@@ -1147,7 +1147,30 @@ pre_push_feature_string_for_file() {
   esac
 }
 
+# Prints the features pre-push runs integration test `$2` of crate `$1` with:
+# the target's manifest `required-features` first, then any features mapped
+# below that the manifest does not already list. The manifest is the
+# baseline for every target, so a mapped list can add lanes but never drop a
+# requirement the manifest declares (#867).
 pre_push_feature_string_for_test_target() {
+  local crate="$1"
+  local test_target="$2"
+  local manifest mapped
+
+  manifest="$(manifest_required_features_for_test_target "$crate" "$test_target")"
+  mapped="$(pre_push_mapped_feature_string_for_test_target "$crate" "$test_target")"
+  awk -v features="${manifest},${mapped}" 'BEGIN {
+    count = split(features, names, ",")
+    for (i = 1; i <= count; i++) {
+      if (names[i] != "" && !seen[names[i]]++) {
+        joined = joined (joined == "" ? "" : ",") names[i]
+      }
+    }
+    if (joined != "") print joined
+  }'
+}
+
+pre_push_mapped_feature_string_for_test_target() {
   local crate="$1"
   local test_target="$2"
 
@@ -1186,16 +1209,12 @@ pre_push_feature_string_for_test_target() {
     warp-math:prng_golden_regression)
       printf '%s\n' "golden_prng"
       ;;
-    *)
-      manifest_required_features_for_test_target "$crate" "$test_target"
-      ;;
   esac
 }
 
 # Prints the `required-features` of integration test `$2` in crate `$1`'s
-# manifest as one comma-separated string, or nothing. Targets without an
-# explicit entry above run with the features their manifest requires, so a
-# feature-gated test is never run empty (#867).
+# manifest as one comma-separated string, or nothing. The array may span
+# several lines.
 manifest_required_features_for_test_target() {
   local crate="$1"
   local test_target="$2"
@@ -1206,10 +1225,22 @@ manifest_required_features_for_test_target() {
     /^\[\[test\]\]/ { in_test = 1; matched = 0; next }
     /^\[/ { in_test = 0; matched = 0 }
     in_test && $0 ~ "^name *= *\"" name "\"" { matched = 1; next }
+    collecting {
+      line = $0; sub(/#.*$/, "", line)
+      done = index(line, "]") > 0; sub(/\].*$/, "", line)
+      features = features line
+      if (done) { collecting = 0; finish() }
+      next
+    }
     in_test && matched && /^required-features/ {
-      line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
-      gsub(/[ "]/, "", line)
-      if (line != "") print line
+      line = $0; sub(/#.*$/, "", line); sub(/^[^[]*\[/, "", line)
+      done = index(line, "]") > 0; sub(/\].*$/, "", line)
+      features = line
+      if (done) finish(); else collecting = 1
+    }
+    function finish() {
+      gsub(/[ \t"]/, "", features); sub(/,$/, "", features)
+      if (features != "") print features
     }
   ' "$manifest"
 }

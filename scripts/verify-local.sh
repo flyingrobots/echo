@@ -1186,7 +1186,32 @@ pre_push_feature_string_for_test_target() {
     warp-math:prng_golden_regression)
       printf '%s\n' "golden_prng"
       ;;
+    *)
+      manifest_required_features_for_test_target "$crate" "$test_target"
+      ;;
   esac
+}
+
+# Prints the `required-features` of integration test `$2` in crate `$1`'s
+# manifest as one comma-separated string, or nothing. Targets without an
+# explicit entry above run with the features their manifest requires, so a
+# feature-gated test is never run empty (#867).
+manifest_required_features_for_test_target() {
+  local crate="$1"
+  local test_target="$2"
+  local manifest="crates/${crate}/Cargo.toml"
+
+  [[ -f "$manifest" ]] || return 0
+  awk -v name="$test_target" '
+    /^\[\[test\]\]/ { in_test = 1; matched = 0; next }
+    /^\[/ { in_test = 0; matched = 0 }
+    in_test && $0 ~ "^name *= *\"" name "\"" { matched = 1; next }
+    in_test && matched && /^required-features/ {
+      line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
+      gsub(/[ "]/, "", line)
+      if (line != "") print line
+    }
+  ' "$manifest"
 }
 
 pre_push_extra_feature_strings_for_test_target() {

@@ -6415,9 +6415,9 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
     if candidates.len() > ACTION_BATCH_CANDIDATE_LIMIT_V1 {
         return Err(EchoOperationCommitErrorV1::TooManyCandidates);
     }
-    // This order is part of the receipt-correlation contract: coordinator
-    // outcome lookup maps the same Tick's ingress-sorted correlations onto
-    // these receipt entries by position.
+    // Entries are in ingress order. Outcome lookup for legacy Action Ticks,
+    // which have no attribution section, maps the same Tick's ingress-sorted
+    // correlations onto these entries by position, so the order is kept.
     candidates.sort_by_key(|candidate| candidate.ingress_id);
     if candidates
         .windows(2)

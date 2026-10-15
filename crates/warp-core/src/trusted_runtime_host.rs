@@ -7195,7 +7195,10 @@ fn wal_tick_decision_from_observation(
             reason: TickReceiptRejection::ExecutableOperationObstruction,
             ..
         } => WalTickDecision::Obstructed,
-        IntentOutcomeDecision::NoMatchingReceiptEntry { .. } => {
+        // The WAL has no decision code for "no rule matched" yet, so such a
+        // ticketed outcome stays unrecordable, as before attribution (#873).
+        IntentOutcomeDecision::NoMatchingReceiptEntry { .. }
+        | IntentOutcomeDecision::NoMatchingRule => {
             return Err(TrustedRuntimeWalError::TickOutcomeUnavailable {
                 submission_id: correlation.submission_id,
                 receipt_digest: expected_receipt_digest,

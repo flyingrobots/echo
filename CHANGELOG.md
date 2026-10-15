@@ -35,6 +35,13 @@
 
 ### Changed
 
+- Outcome lookup reads a tick's attribution section when it has one. A
+  submission's outcome then comes from the receipt alone, so it no longer
+  depends on the other correlations of the same tick surviving, which the
+  positional rule for Action ticks required. A submission that no rule
+  matched is reported as `IntentOutcome::NoMatchingRule` with its receipt
+  coordinate instead of as missing evidence. Legacy ticks keep the positional
+  rule (#873).
 - `ProvenanceStore::commit_summary` returns one tick's commit reference,
   global tick and receipt digest without copying its patch or outputs. The
   in-memory stores answer it, and `parents`, by reference instead of cloning

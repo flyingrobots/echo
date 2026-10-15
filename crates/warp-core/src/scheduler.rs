@@ -475,14 +475,15 @@ fn bucket16(r: &RewriteThin, pass: usize) -> u16 {
 }
 
 // ============================================================================
-// Generation-stamped conflict set for O(1) independence checks
+// Per-transaction conflict sets
 // ============================================================================
 
-/// Generation-stamped set for O(1) conflict detection.
+/// Set of keys seen by one transaction, for conflict detection.
 ///
-/// This data structure allows O(1) conflict checking without clearing hash tables
-/// between transactions by using generation counters. Each transaction gets a new
-/// generation, and we track which generation last saw each key.
+/// Each transaction gets fresh sets (`ActiveFootprints::new`) and they are
+/// dropped with it, so the generation stays at 1: it is never advanced, and
+/// nothing is reused across transactions. Lookups go through a `BTreeMap`, so
+/// they cost O(log n), not O(1).
 #[derive(Debug)]
 pub(crate) struct GenSet<K> {
     gen: u32,

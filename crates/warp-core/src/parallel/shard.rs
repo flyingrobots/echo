@@ -28,13 +28,12 @@ use crate::NodeId;
 
 /// Number of virtual shards (power of two for fast modulo).
 ///
-/// # Protocol Constant
+/// # Not part of any hash
 ///
-/// This value is recorded in the commit hash domain via `compute_patch_digest_v2`.
-/// Changing it would produce different hashes for the same world state.
-///
-/// If you ever need to change this, it requires a protocol version bump
-/// and explicit migration handling.
+/// No digest or state root includes this value. It only decides how execution
+/// items are partitioned among workers; worker deltas are merged in canonical
+/// order (`parallel::merge`), so the committed result does not depend on it.
+/// Changing it changes load balance, not hashes.
 ///
 /// # Value Choice
 ///

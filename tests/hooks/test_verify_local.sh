@@ -1691,7 +1691,7 @@ fi
 for parallel_target in parallel_engine_integration_multiwarp parallel_merge_tripwire parallel_merge_warpopkey parallel_openportal_rules parallel_stress_multiwarp; do
   parallel_output="$(run_fake_verify pre-push "crates/warp-core/tests/${parallel_target}.rs")"
   parallel_cargo_log="$(extract_log_section cargo-log "$parallel_output")"
-  if printf '%s\n' "$parallel_cargo_log" | grep -q -- "test -p warp-core --features delta_validate --test ${parallel_target}"; then
+  if printf '%s\n' "$parallel_cargo_log" | grep -qE -- "test -p warp-core --features delta_validate --test ${parallel_target}\$"; then
     pass "pre-push keeps delta_validate for ${parallel_target}"
   else
     fail "pre-push omitted delta_validate for ${parallel_target}"
@@ -1700,7 +1700,7 @@ done
 
 anchor_output="$(run_fake_verify pre-push crates/warp-core/tests/causal_anchor_external_consumer_tests.rs)"
 anchor_cargo_log="$(extract_log_section cargo-log "$anchor_output")"
-if printf '%s\n' "$anchor_cargo_log" | grep -q -- "test -p warp-core --features native_rule_bootstrap,trusted_runtime --test causal_anchor_external_consumer_tests"; then
+if printf '%s\n' "$anchor_cargo_log" | grep -qE -- "test -p warp-core --features native_rule_bootstrap,trusted_runtime --test causal_anchor_external_consumer_tests\$"; then
   pass "pre-push derives manifest features for causal_anchor_external_consumer_tests"
 else
   fail "pre-push omitted manifest features for causal_anchor_external_consumer_tests"

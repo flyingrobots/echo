@@ -166,7 +166,7 @@ workspace = true
 # must also declare `required-features` here. Without it, `cargo test -p
 # warp-core` compiles an empty target and reports "running 0 tests ... ok",
 # a green that ran nothing. With it, cargo skips the target outright.
-# `scripts/check-feature-gated-tests.sh` enforces this, and that CI runs each
+# `scripts/check-feature-gated-tests.py` enforces this, and that CI runs each
 # such target with its features (#867).
 
 [[test]]

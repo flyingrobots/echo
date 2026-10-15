@@ -845,7 +845,8 @@ fn inverse_intent_and_causal_receipt_history_survive_restart() {
         let contract = entry
             .contract
             .as_ref()
-            .expect("each fixture transition should retain contract evidence");
+            .and_then(warp_core::InstalledInvocationEvidence::legacy_contract)
+            .expect("each fixture transition should retain legacy contract evidence");
         assert_eq!(contract.op_id, REPLACE_RANGE_OP_ID);
         assert_eq!(contract.op_kind, ContractOperationKind::Mutation);
     }

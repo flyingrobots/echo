@@ -6,9 +6,9 @@ use thiserror::Error;
 
 use crate::{
     contract_inverse::recover_contract_inverse_derivation, CausalTickReceiptRef,
-    ContractEvidenceIdentity, ContractInverseDerivation, ContractInverseHistoryObstruction, Hash,
-    ProvenanceService, ProvenanceStore, ReceiptCorrelationRecord, WorldlineId, WorldlineRuntime,
-    WorldlineTick,
+    ContractInverseDerivation, ContractInverseHistoryObstruction, Hash,
+    InstalledInvocationEvidence, ProvenanceService, ProvenanceStore, ReceiptCorrelationRecord,
+    WorldlineId, WorldlineRuntime, WorldlineTick,
 };
 
 /// Maximum number of retained receipt entries returned by one history page.
@@ -58,7 +58,7 @@ pub struct CausalReceiptHistoryEntry {
     /// Witnessed submission decided by the transition.
     pub submission_id: Hash,
     /// Installed-contract evidence attached to the transition, if any.
-    pub contract: Option<ContractEvidenceIdentity>,
+    pub contract: Option<InstalledInvocationEvidence>,
     /// Canonical retained receipt references cited by the admitted intent.
     pub causal_parent_receipts: Vec<CausalTickReceiptRef>,
     /// Typed inverse derivation when this transition is a contract inverse.

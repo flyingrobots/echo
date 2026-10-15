@@ -58,7 +58,9 @@ Pending rewrites drain in lexicographic order derived from `scope_hash`, stable 
 
 ## Decision 5: Radix reservation is the default implementation
 
-The default scheduler uses generation-stamped active sets for membership checks. Expected reservation cost is proportional to candidate footprint size.
+The default scheduler uses per-transaction active sets (`BTreeMap`-backed) for
+membership checks. Reservation costs O(log n) per footprint resource, where n
+is the number of keys already reserved in the transaction.
 
 ## Decision 6: Executable Actions are evaluated only inside Tick construction
 

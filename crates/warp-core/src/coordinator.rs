@@ -1845,7 +1845,9 @@ impl WorldlineRuntime {
     /// correlation, which a history scan reports where it meets it.) This is
     /// an O(1) count comparison, so a coincident duplicate and dangling entry
     /// can cancel; the scan still reports the dangling entry if it is on the
-    /// page.
+    /// page. It backs up, and does not replace, the write-time invariant: live
+    /// commit and WAL replay both refuse to index a receipt that is already
+    /// indexed to another correlation.
     #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
     pub(crate) fn receipt_correlation_index_has_shadowed_records(&self) -> bool {
         self.receipt_correlations_by_ticketed_ingress.len()

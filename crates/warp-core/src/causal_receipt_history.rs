@@ -263,9 +263,12 @@ pub(crate) fn causal_receipt_history(
         // between pages.
         verify_retained_transition(provenance, &cursor.last_receipt_ref)?;
     }
-    // More correlations than receipt-index entries means one is shadowed by
-    // another claiming the same receipt. (An index entry without a
-    // correlation is reported by the scan below, as
+    // Both writers of the correlation indexes refuse a receipt that is already
+    // indexed, so one correlation per receipt is a write-time invariant and a
+    // shadowed correlation cannot arise from the runtime's own operations.
+    // This O(1) count comparison is a backstop for corrupt state only: a
+    // shadowed record paired with an unrelated dangling entry cancels out.
+    // (A dangling entry on this page is reported by the scan below, as
     // ReceiptEvidenceInconsistent.)
     if runtime.receipt_correlation_index_has_shadowed_records() {
         return Err(CausalReceiptHistoryObstruction::DuplicateReceiptEvidence);
@@ -365,7 +368,8 @@ fn history_entry(
         && receipt_ref.ticket_digest == correlation.ticket_digest
         && receipt_ref.worldline_tick_after == correlation.worldline_tick_after
         && receipt_ref.commit_global_tick == correlation.commit_global_tick
-        && receipt_ref.commit_hash == correlation.commit_hash;
+        && receipt_ref.commit_hash == correlation.commit_hash
+        && correlation.head_key.worldline_id == receipt_ref.worldline_id;
     let receipt_content_matches =
         receipt_ref.receipt_content_digest == correlation.tick_receipt_digest;
     if !coordinate_matches || !receipt_content_matches {
@@ -388,9 +392,14 @@ fn history_entry(
             receipt_ref: Box::new(receipt_ref),
             submission_id: correlation.submission_id,
         })?;
+    // The submission must be the one that produced this receipt, on this
+    // receipt's worldline: same identity, same writer head, and an envelope
+    // targeting the receipt's worldline.
     if submission.submission_id != correlation.submission_id
         || submission.ingress_id != correlation.ingress_id
         || envelope.ingress_id() != correlation.ingress_id
+        || submission.head_key != correlation.head_key
+        || envelope.target().worldline_id() != receipt_ref.worldline_id
     {
         return Err(
             CausalReceiptHistoryObstruction::SubmissionEvidenceInconsistent {

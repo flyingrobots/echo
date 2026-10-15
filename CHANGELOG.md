@@ -106,10 +106,12 @@
   receipt entries that carry its decision, or recording that no rule matched
   it. Plain ticks and Action ticks seal it from their own batch, and refuse to
   commit when a decision and the receipt disagree; a direct host commit, which
-  decides no submission, records an empty section. Receipts with the section
-  use receipt format version 3 and are retained as `EPRV0002`. Receipts without
-  it keep version 2 and `EPRV0001` byte for byte, so existing history replays
-  unchanged and a legacy history can be extended by attributed ticks (#873).
+  decides no submission, records an empty section. Every new tick's receipt is
+  also commit-bound: receipt format 4, retained as `EPRV0003` (see the commit
+  hash v3 entry). Receipts attributed before commit binding (format 3,
+  `EPRV0002`) and receipts without a section (format 2, `EPRV0001`) are read
+  byte for byte, so existing history replays unchanged and a legacy history can
+  be extended by attributed ticks (#873).
 - `warp-core` trusted applications can now traverse bounded causal receipt
   history at an explicit worldline frontier in either canonical direction
   (#660). Echo-issued continuation cursors bind worldline, basis, direction, the

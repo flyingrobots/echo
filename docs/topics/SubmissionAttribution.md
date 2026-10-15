@@ -151,8 +151,10 @@ authority. Echo checks the correlation index against it, tick by tick:
 - a correlation the tick does not attribute is `UnattributedCorrelation`;
 - an attributed submission that was never ticketed is
   `SubmissionWithoutReceiptIdentity`;
-- a page reports `Established` completeness only when every tick it inspected
-  was attributed, and the claim names exactly the ticks it inspected.
+- a page's claim names exactly the ticks it inspected: `Established` when every
+  one is attributed and commit-bound, `EstablishedWithoutCommitBinding` when
+  every one is attributed but some predate commit binding, and
+  `UnestablishedForLegacyTicks` otherwise.
 
 See [causal receipt history](CausalReceiptHistory.md) for paging, budgets and
 the cursor.
@@ -185,8 +187,10 @@ The remaining uses are explicit application reads:
   submission and never creates a second history item, so an application can
   retry blindly.
 - **Audit and reconciliation.** Page through receipt history at a fixed basis.
-  An `Established` page proves the history it covers is complete, which is what
-  an audit trail or a post-crash reconciliation needs.
+  An `Established` page proves the history it covers is complete and bound into
+  commit identity; `EstablishedWithoutCommitBinding` proves completeness with
+  weaker binding. That is what an audit trail or a post-crash reconciliation
+  needs.
 - **Undo and redo.** Read history, choose a transition by contract policy,
   derive and submit its inverse
   ([contract inverse admission](ContractInverseAdmission.md)). Completeness

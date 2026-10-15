@@ -132,9 +132,18 @@ those ticks under the pinned basis:
   was written before attribution existed. Its retained correlations are
   returned, but Echo cannot prove none is missing.
 
-The claim never extends beyond `inspected`. A traversal is complete only if
-every one of its pages is `Established`, so legacy uncertainty cannot be hidden
-by splitting a traversal into pages.
+The claim never extends beyond `inspected`, and a traversal's claim is the
+weakest of its pages' claims, so uncertainty cannot be hidden by splitting a
+traversal into pages:
+
+- a traversal is **complete** when every page is `Established` or
+  `EstablishedWithoutCommitBinding`; every submission its ticks decided was
+  returned;
+- a complete traversal is also **commit-bound** only when every page is
+  `Established`; otherwise some of its attribution is not bound into the commit
+  hash;
+- a traversal with any `UnestablishedForLegacyTicks` page is not proven
+  complete.
 
 ## Obstructions
 

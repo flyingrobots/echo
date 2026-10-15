@@ -2771,14 +2771,23 @@ impl WorldlineRuntime {
                 persisted.tick_receipt_digest,
             ));
         }
+        // An attributed tick names the submissions it decided, including ones
+        // no rule matched (#873). A legacy tick can only be checked by the
+        // request-node scope of its entries.
         let ingress_node = NodeId(submission.ingress_id);
-        if !receipt.entries().is_empty()
+        let attributed_elsewhere = receipt.attribution().map(|attribution| {
+            attribution
+                .binary_search_by_key(&persisted.submission_id, |record| record.submission_id)
+                .is_err()
+        });
+        let legacy_unscoped = attributed_elsewhere.is_none()
+            && !receipt.entries().is_empty()
             && !receipt
                 .entries()
                 .iter()
                 .any(|entry| entry.scope.local_id == ingress_node)
-            && crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope).is_none()
-        {
+            && crate::echo_operation::echo_operation_action_invocation_bytes_v1(envelope).is_none();
+        if attributed_elsewhere == Some(true) || legacy_unscoped {
             return Err(RuntimeError::ReceiptCorrelationReplayMismatch(
                 persisted.causal_receipt_ref.identity_digest(),
             ));
@@ -7196,6 +7205,68 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![correlation.ticketed_ingress_id]
         );
+    }
+
+    #[test]
+    fn receipt_correlation_restore_accepts_an_attributed_no_match_beside_an_applied_submission() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let head_key = runtime
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
+            .unwrap();
+        let matched = stage_ticketed_envelope(
+            &mut runtime,
+            head_key,
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(TOY_INCREMENT_VARS),
+            ),
+            hash(83),
+        );
+        let unmatched = stage_ticketed_envelope(
+            &mut runtime,
+            head_key,
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"no rule matches this".to_vec(),
+            ),
+            hash(84),
+        );
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let matched = runtime
+            .receipt_correlation_for_ticketed_ingress(&matched)
+            .unwrap()
+            .clone();
+        let unmatched = runtime
+            .receipt_correlation_for_ticketed_ingress(&unmatched)
+            .unwrap()
+            .clone();
+        assert_eq!(
+            matched.worldline_tick_after, unmatched.worldline_tick_after,
+            "both submissions are decided by one tick"
+        );
+        assert!(matches!(
+            runtime.observe_intent_outcome(&unmatched.submission_id),
+            IntentOutcomeObservation::Decided {
+                decision: IntentOutcomeDecision::NoMatchingRule,
+                ..
+            }
+        ));
+
+        // The receipt has an entry, none scoped to the unmatched submission,
+        // yet its attribution names it, so its correlation restores.
+        let persisted = ReceiptCorrelationPersistenceRecord::from(&unmatched);
+        runtime.receipt_correlations_by_ticketed_ingress.clear();
+        runtime.receipt_correlation_by_submission.clear();
+        runtime.receipt_correlation_by_ticket.clear();
+        runtime.receipt_correlation_by_receipt_ref.clear();
+        runtime.receipt_correlations_by_current_basis.clear();
+        runtime.restore_receipt_correlation(&persisted).unwrap();
+        assert!(runtime
+            .receipt_correlation_for_submission(&unmatched.submission_id)
+            .is_some());
     }
 
     #[test]

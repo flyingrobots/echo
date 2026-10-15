@@ -118,9 +118,12 @@ carry its decision or that no rule matched it. The scheduler seals that section
 from the tick's own batch and refuses to commit a tick whose decisions and
 receipt entries disagree. The retained entry for such a tick is written as
 `EPRV0002`; a receipt without the section keeps `EPRV0001` and its receipt
-digest byte for byte, so legacy history replays unchanged. Such a tick is committed with commit hash v3, which hashes the receipt
-digest alongside v2's inputs, so its commit identity binds its attribution:
-commit hash → receipt digest → attribution. Legacy ticks keep commit hash v2. That identity is a
+digest byte for byte, so legacy history replays unchanged. Every new scheduler tick's receipt is also commit-bound (receipt
+format 4, retained as `EPRV0003`) and committed with commit hash v3, which
+hashes the receipt digest, so its commit identity binds its attribution: commit
+hash → receipt digest → attribution. Ticks attributed before commit binding
+existed (`EPRV0002`) and legacy ticks (`EPRV0001`) keep commit hash v2; see
+[the commit-hash specification](../spec/merkle-commit.md). That identity is a
 tagged proposition: the existing legacy Wesley/GraphQL evidence keeps its
 byte-stable tag-1 encoding, while tag 2 retains provider package id and exact
 reference, operation id and coordinate, Target IR identity, and scheduler rule

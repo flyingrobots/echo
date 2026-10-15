@@ -6593,7 +6593,8 @@ pub(crate) fn commit_scheduler_action_batch_to_state_v1(
             entries: entries.len(),
         });
     }
-    let tick_receipt = TickReceipt::new(tx, entries, blocked_by).with_attribution(attribution)?;
+    let tick_receipt =
+        TickReceipt::new(tx, entries, blocked_by).with_bound_attribution(attribution)?;
     let plan_digest = action_batch_plan_digest(tick_receipt.entries());
     let applied = decisions
         .iter()
@@ -6937,7 +6938,7 @@ pub(crate) fn commit_prepared_to_state(
     )
     // A direct host commit decides no accepted submission. The empty section
     // records that explicitly, unlike a legacy receipt with no section (#873).
-    .with_attribution(Vec::new())?;
+    .with_bound_attribution(Vec::new())?;
     // Nothing after this application can fail, so the journal is not kept.
     state.apply_patch_journaled(
         &prepared.patch,

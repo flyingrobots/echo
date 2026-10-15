@@ -28,6 +28,10 @@ const RETAINED_PROVENANCE_MAGIC_V1: &[u8; 8] = b"EPRV0001";
 /// (#873) directly after the receipt. A receipt without attribution is still
 /// written as version 1, byte for byte.
 const RETAINED_PROVENANCE_MAGIC_V2: &[u8; 8] = b"EPRV0002";
+/// Same layout as version 2, for a receipt bound into its commit identity
+/// (receipt format 4, commit hash v3). Version 2 keeps meaning an attributed
+/// receipt whose tick has commit hash v2, as retained before commit binding.
+const RETAINED_PROVENANCE_MAGIC_V3: &[u8; 8] = b"EPRV0003";
 
 /// Error returned by the retained local-commit provenance codec.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -102,11 +106,13 @@ pub(crate) fn encode_local_commit_v1(
         .ok_or(RetainedProvenanceError::MissingTickReceipt)?;
 
     let mut out = Vec::new();
-    out.extend_from_slice(if receipt.attribution().is_some() {
-        RETAINED_PROVENANCE_MAGIC_V2
-    } else {
-        RETAINED_PROVENANCE_MAGIC_V1
-    });
+    out.extend_from_slice(
+        match (receipt.attribution().is_some(), receipt.binds_commit()) {
+            (false, _) => RETAINED_PROVENANCE_MAGIC_V1,
+            (true, false) => RETAINED_PROVENANCE_MAGIC_V2,
+            (true, true) => RETAINED_PROVENANCE_MAGIC_V3,
+        },
+    );
     push_worldline_id(&mut out, entry.worldline_id);
     push_u64(&mut out, entry.worldline_tick.as_u64());
     push_u64(&mut out, entry.commit_global_tick.as_u64());
@@ -140,10 +146,13 @@ pub(crate) fn decode_local_commit_v1(
 ) -> Result<ProvenanceEntry, RetainedProvenanceError> {
     let mut cursor = RetainedProvenanceCursor::new(bytes);
     let magic = cursor.read_exact(RETAINED_PROVENANCE_MAGIC_V1.len())?;
-    let attributed = if magic == RETAINED_PROVENANCE_MAGIC_V1 {
-        false
+    // (attributed, bound into the commit identity)
+    let (attributed, bound) = if magic == RETAINED_PROVENANCE_MAGIC_V1 {
+        (false, false)
     } else if magic == RETAINED_PROVENANCE_MAGIC_V2 {
-        true
+        (true, false)
+    } else if magic == RETAINED_PROVENANCE_MAGIC_V3 {
+        (true, true)
     } else {
         return Err(RetainedProvenanceError::InvalidMagic);
     };
@@ -164,9 +173,12 @@ pub(crate) fn decode_local_commit_v1(
     let mut receipt = cursor.read_tick_receipt()?;
     if attributed {
         let attribution = cursor.read_tick_attribution()?;
-        receipt = receipt
-            .with_attribution(attribution)
-            .map_err(|_| RetainedProvenanceError::NonCanonicalTickReceipt)?;
+        receipt = if bound {
+            receipt.with_bound_attribution(attribution)
+        } else {
+            receipt.with_attribution(attribution)
+        }
+        .map_err(|_| RetainedProvenanceError::NonCanonicalTickReceipt)?;
     }
     let patch = cursor.read_worldline_patch()?;
     let output_count = cursor.read_count(40)?;

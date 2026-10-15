@@ -5857,12 +5857,52 @@ mod tests {
             blocked_by,
         )
         .unwrap()
-        .with_attribution(attribution)
+        .with_bound_attribution(attribution)
         .unwrap();
         if let Some(patch) = entry.patch.as_mut() {
             patch.header.decision_digest = altered.digest();
         }
         entry.with_tick_receipt(altered)
+    }
+
+    #[test]
+    fn an_attributed_tick_retained_before_commit_binding_still_validates() {
+        use crate::provenance_codec::{decode_local_commit_v1, encode_local_commit_v1};
+
+        // Between attribution and commit binding, Echo retained attributed
+        // ticks as EPRV0002 with commit hash v2. Rebuild one such record.
+        let mut entry = one_attributed_tick();
+        let receipt = entry.tick_receipt.take().unwrap();
+        let blocked_by = (0..receipt.entries().len())
+            .map(|index| receipt.blocked_by(index).to_vec())
+            .collect();
+        let unbound = crate::TickReceipt::try_from_retained_parts(
+            receipt.tx(),
+            receipt.entries().to_vec(),
+            blocked_by,
+        )
+        .unwrap()
+        .with_attribution(receipt.attribution().unwrap().to_vec())
+        .unwrap();
+        if let Some(patch) = entry.patch.as_mut() {
+            patch.header.decision_digest = unbound.digest();
+        }
+        entry.expected.commit_hash = crate::compute_commit_hash_v2(
+            &entry.expected.state_root,
+            &entry
+                .parents
+                .iter()
+                .map(|parent| parent.commit_hash)
+                .collect::<Vec<_>>(),
+            &entry.expected.patch_digest,
+            entry.patch.as_ref().unwrap().policy_id(),
+        );
+        let entry = entry.with_tick_receipt(unbound);
+
+        let bytes =
+            encode_local_commit_v1(&entry).expect("the earlier attributed record validates");
+        assert_eq!(&bytes[..8], b"EPRV0002");
+        assert_eq!(decode_local_commit_v1(&bytes).unwrap(), entry);
     }
 
     #[test]
@@ -5945,9 +5985,10 @@ mod tests {
             .entry(worldline_id, WorldlineTick::from_raw(1))
             .unwrap();
 
-        // New ticks are written as version 2 and decode to exactly themselves.
+        // New ticks are commit-bound, written as version 3, and decode to
+        // exactly themselves.
         let attributed_bytes = encode_local_commit_v1(&first).unwrap();
-        assert_eq!(&attributed_bytes[..8], b"EPRV0002");
+        assert_eq!(&attributed_bytes[..8], b"EPRV0003");
         assert_eq!(decode_local_commit_v1(&attributed_bytes).unwrap(), first);
 
         // The same tick without attribution is a legacy record: version 1,
@@ -5975,9 +6016,11 @@ mod tests {
         let mut relabelled_legacy = legacy_bytes;
         relabelled_legacy[..8].copy_from_slice(b"EPRV0002");
         assert!(decode_local_commit_v1(&relabelled_legacy).is_err());
-        let mut relabelled_attributed = attributed_bytes;
-        relabelled_attributed[..8].copy_from_slice(b"EPRV0001");
-        assert!(decode_local_commit_v1(&relabelled_attributed).is_err());
+        for other in [b"EPRV0001", b"EPRV0002"] {
+            let mut relabelled_attributed = attributed_bytes.clone();
+            relabelled_attributed[..8].copy_from_slice(other);
+            assert!(decode_local_commit_v1(&relabelled_attributed).is_err());
+        }
 
         // A legacy tick followed by an attributed tick is one valid history:
         // the attributed tick chains to the legacy tick's v2 identity.

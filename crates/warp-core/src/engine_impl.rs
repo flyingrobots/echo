@@ -3350,7 +3350,7 @@ fn seal_runtime_attribution(
         ));
     }
     attribution.sort_by_key(|record| record.submission_id);
-    Ok(receipt.with_attribution(attribution)?)
+    Ok(receipt.with_bound_attribution(attribution)?)
 }
 
 #[cfg(test)]

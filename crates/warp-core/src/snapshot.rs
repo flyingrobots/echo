@@ -305,10 +305,11 @@ pub fn compute_commit_hash_v3(
 
 /// The commit hash of a tick, given its retained receipt.
 ///
-/// The receipt's own format decides the version: a receipt with an
-/// attribution section (format 3, retained as `EPRV0002`) is committed with
-/// v3, which binds its digest; any other tick, including every legacy tick and
-/// every commit with no receipt, keeps v2. A receipt stripped of its section
+/// The receipt's own format decides the version: a commit-bound receipt
+/// (format 4, retained as `EPRV0003`) is committed with v3, which binds its
+/// digest; any other tick keeps v2, including legacy ticks (format 2,
+/// `EPRV0001`), ticks attributed before commit binding existed (format 3,
+/// `EPRV0002`) and commits with no receipt. A receipt stripped of its binding
 /// therefore selects v2 and cannot reproduce a v3 commit hash.
 pub fn compute_commit_hash_for_receipt(
     state_root: &Hash,
@@ -317,7 +318,7 @@ pub fn compute_commit_hash_for_receipt(
     policy_id: u32,
     receipt: Option<&crate::receipt::TickReceipt>,
 ) -> Hash {
-    match receipt.filter(|receipt| receipt.attribution().is_some()) {
+    match receipt.filter(|receipt| receipt.binds_commit()) {
         Some(receipt) => compute_commit_hash_v3(
             state_root,
             parents,

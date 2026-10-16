@@ -3279,6 +3279,9 @@ impl WorldlineRuntime {
                 submission_id,
             ));
         }
+        // The applied digest is not part of the ingress id, so occurrence
+        // material must be checked here, before the staged-duplicate return.
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
             submission_id,
@@ -6278,6 +6281,55 @@ mod tests {
                 existing_submission_id,
                 ..
             }) if existing_submission_id == original
+        ));
+    }
+
+    /// Code review of #884: restaging a staged submission with a different
+    /// applied digest keeps the ingress id and ticketed ingress id, so the
+    /// ticketed duplicate path must apply the occurrence binding too.
+    #[test]
+    fn restaging_with_changed_occurrence_material_is_a_conflict() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let original_envelope = occurrence_envelope(worldline_id, b"content", [0xa1; 32]);
+        let altered_envelope = occurrence_envelope(worldline_id, b"content", [0xb2; 32]);
+        let original = accepted_intent(runtime.submit_intent(original_envelope.clone()).unwrap());
+        let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
+        let ticket = crate::OpticAdmissionTicket {
+            kind: crate::OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+            artifact_handle: crate::OpticArtifactHandle {
+                kind: crate::OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+                id: "occurrence-restage".to_owned(),
+            },
+            artifact_hash: "artifact".to_owned(),
+            operation_id: "operation".to_owned(),
+            requirements_digest: "requirements".to_owned(),
+            canonical_variables_digest: vec![7],
+            basis_request_digest: [7; 32],
+            aperture_request_digest: [8; 32],
+            budget_request_digest: [9; 32],
+            law_witness_digest: [10; 32],
+            ticket_digest: [11; 32],
+        };
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(
+                &authority,
+                original,
+                &ticket,
+                original_envelope.clone()
+            ),
+            Ok(TicketedRuntimeIngressDisposition::Staged { .. })
+        ));
+
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(&authority, original, &ticket, altered_envelope),
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                existing_submission_id,
+                ..
+            }) if existing_submission_id == original
+        ));
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(&authority, original, &ticket, original_envelope),
+            Ok(TicketedRuntimeIngressDisposition::Duplicate { .. })
         ));
     }
 

@@ -192,6 +192,17 @@ EffectProposal {
 }
 ```
 
+Every `node` is an instance-scoped `NodeKey { warp_id, local_id }` and every
+`edge` an `EdgeKey`. An edge's `from`, `to`, and `expectedTo` are local node
+ids in the edge's own warp, because a `GraphStore` holds one warp and an
+`EdgeRecord`'s endpoints are local `NodeId`s within it. `type` is the node
+record's type. `atom` is an `AtomPayload { type_id, bytes }`: its `type_id`
+is a separate proposition from the node type, and the
+[two-plane law](../invariants/warp-two-plane-law.md) (L3) requires it in
+every encoding and digest that includes the bytes. `ReplaceAtom` replaces
+both the payload type and the bytes, and its `expectedAtomDigest` covers
+both.
+
 Rules:
 
 - **Effects are the only writes.** The proposal contains no prepared patch.
@@ -201,13 +212,16 @@ Rules:
   has a primary slot: the node record for `EnsureNode` and `CreateNode`, the
   atom for `ReplaceAtom`, and the edge for `EnsureEdge` and `ReplaceEdge`.
   Effects sort by the primary slot's class (node record, then atom, then
-  edge), then by its id bytes, compared lexicographically. A tie can occur
+  edge), then by its warp id bytes, then its local id bytes, compared
+  lexicographically. A tie can occur
   only in a proposal that obstructs with `DuplicateEffectTarget`; it breaks
   by effect kind (`EnsureNode`, `CreateNode`, `ReplaceAtom`, `EnsureEdge`,
   `ReplaceEdge`), then by the effect's canonical encoding bytes. That
   encoding includes every field of the effect, expected values included: a
-  kind tag, then each field in the order the effect lists it, with ids and
-  digests at fixed width and type and atom bytes length-prefixed. Sorting never
+  kind tag, then each field in the order the effect lists it, with each
+  instance-scoped key as its warp id then its local id, ids, type ids, and
+  digests at fixed width, and atom bytes length-prefixed after the atom's
+  `type_id`. Sorting never
   removes an effect, so duplicates stay visible to the one-effect-per-slot
   rule.
 - **One effect per slot.** No two effects in one proposal may target the same
@@ -224,7 +238,10 @@ Rules:
 - **Slots.** One canonical slot model serves the target set, the write set,
   the read set, and the footprint. A slot is a node record, a node's atom
   (its alpha attachment), an edge, or an outgoing-edge range key
-  `(source node, edge type)` (see
+  `(source node, edge type)`. Every slot is instance-scoped: a node record or
+  atom by its `NodeKey`, an edge by its `EdgeKey`, and a range key by its
+  source `NodeKey`, so equal local ids in different warps are different
+  slots (see
   [Witnessed reads](#witnessed-reads-over-a-bounded-slice)).
 - **Target set.** The proposal's target set is the canonical set of slots its
   effects target: for `EnsureNode` and `CreateNode` the node record and its
@@ -244,9 +261,9 @@ Rules:
       exists, including an atom without a node record, the effect obstructs
       with `PreconditionMismatch`, as today's create-if-absent does;
     - `EnsureNode`: the node record and its atom are both absent, or both
-      present with identical type and atom. Any other state, including a
-      record without an atom or an atom without a record, is
-      `ContentIdentityConflict`;
+      present with identical node type, atom `type_id`, and atom bytes. Any
+      other state, including a record without an atom or an atom without a
+      record, is `ContentIdentityConflict`;
     - `EnsureEdge`: the edge is absent, or present with identical endpoints
       and type;
     - `ReplaceAtom`: the node record exists, else `NodeMissing` (as today's
@@ -464,33 +481,33 @@ held; this design validates only what the proposal adds or retargets.
       failed validation (for example `DuplicateEffectTarget`) still has one
       encodable outcome. Only when every dependency holds does validation run.
       Echo never validates a delayed Action without its actual dependencies.
-    - **Within one Tick, footprints before earlier writes.** Every check
-      before composition, preconditions and expected values included, runs
-      against the Tick's commit parent, never against writes accepted
-      earlier in the same Tick. Composition then reserves each candidate's
-      complete footprint (witnessed reads, precondition reads, and write
-      set) in canonical order, and any overlap with an earlier accepted
-      Action in which either of the two writes the slot is
-      `RejectedFootprintConflict` with its blockers, as the
+    - **Within one Tick, footprints before earlier writes.** Every check before
+      composition, preconditions and expected values included, runs against the
+      Tick's commit parent, never against writes accepted earlier in the same
+      Tick. Composition then reserves each candidate's complete footprint
+      (witnessed reads, precondition reads, and write set) in canonical order,
+      and any overlap with an earlier accepted Action in which either of the two
+      writes the slot is `RejectedFootprintConflict` with its blockers, as the
       [within-one-tick rule](../topics/GeneratedRules.md#action-validity-across-ticks)
-      requires. Read against read never conflicts, so Actions that share
-      existing structure both proceed. A candidate with no such overlap
-      depends on no slot an earlier Action wrote, so its values at the
-      validation position (the commit parent plus earlier accepted writes)
-      equal its values at the commit parent. A later Action that expects a value an earlier Action
+      requires.
+      Read against read never conflicts, so Actions that share existing
+      structure both proceed. A candidate with no such overlap depends on no
+      slot an earlier Action wrote, so its values at the validation position
+      (the commit parent plus earlier accepted writes) equal its values at the
+      commit parent. A later Action that expects a value an earlier Action
       replaced is therefore a footprint conflict, never a
       `PreconditionMismatch`.
 - **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
-  effect adds a fixed write cost. Exhausting any evaluation limit obstructs
-  with `BudgetExceeded`, posture `NoProposal`, and no patch. A proposal whose
-  derived patch alone exceeds the Action-batch operation limit
+  effect adds a fixed write cost. Exhausting any evaluation limit obstructs with
+  `BudgetExceeded`, posture `NoProposal`, and no patch. A proposal whose derived
+  patch alone exceeds the Action-batch operation limit
   (`ACTION_BATCH_OPERATION_LIMIT_V1`) also obstructs with `BudgetExceeded` and
   no committed patch, rather than splitting across Ticks, but its posture is
   `Proposed` with a derived patch: the proposal exists, so its identity,
-  target-set, write-set, and patch digests are recorded, not discarded. A proposal that fits alone
-  but not beside the Actions already accepted into the batch is handled by the
-  existing batch rule, which obstructs that candidate in this batch, likewise
-  with posture `Proposed`.
+  target-set, write-set, and patch digests are recorded, not discarded. A
+  proposal that fits alone but not beside the Actions already accepted into the
+  batch is handled by the existing batch rule, which obstructs that candidate in
+  this batch, likewise with posture `Proposed`.
 - **Retries.** A decided outcome is final. An Action is identified by its
   submission (see Identity and existing contracts); once it is decided
   (committed, obstructed, or `RejectedFootprintConflict`), its outcome,
@@ -587,28 +604,35 @@ Each Action's receipt entry binds, in addition to its current fields:
       its slot (class and id), its kind (value present, observed absent,
       expected value, or endpoint existence), and its comparison mode.
       Descriptors sort by slot class (node record, atom, edge, then range
-      key), then slot id bytes, then kind in the order listed, then
-      comparison mode; each is encoded as a kind tag, the slot class tag and
-      fixed-width id, and the comparison-mode tag, and the dependency-set
+      key), then slot identity bytes as the canonical set encoding below
+      defines them, then kind in the order listed, then comparison mode;
+      each is encoded as a kind tag, the slot encoding, and the
+      comparison-mode tag, and the dependency-set
       digest hashes them in that order. An evaluation obstruction
       runs no dependency comparison, so its `Scoped` evidence is the origin
       basis and validation position only;
 - for `NoProposal` and `Proposed`, consumed budget.
 
-**Canonical set encoding.** The read-set, target-set, write-set, and
-dependency-set digests each hash a set of slot entries, never a collection in
-discovery order. Entries sort by slot class (node record, atom, edge, then
-range key), then by id bytes compared lexicographically; a range key's id is
-its source node id followed by its edge-type id. Each entry encodes as a slot
-class tag and its fixed-width id or ids, followed by what that set records
-for the slot:
+**Canonical set encoding.** The read-set, target-set, write-set,
+dependency-set, and compared-values digests each hash a set of slot entries,
+never a collection in discovery order. A slot encodes as its class tag followed
+by its identity: the warp id and local id of its `NodeKey` or `EdgeKey`, and
+for a range key the source `NodeKey` followed by the edge-type id, all at fixed
+width. Entries sort by slot class (node record, atom, edge, then range key),
+then by those identity bytes compared lexicographically. Each entry is the slot
+encoding followed by what that set records for the slot:
 
 - read set: an outcome tag (present or absent) and, when present, the 32-byte
-  digest of the value read; a range read records the observed edges as a
+  digest of the value read (for an atom, over its `type_id` and bytes); a
+  range read records the observed edges as a
   count-prefixed list of edge id and target node id pairs, sorted by edge id;
 - target set and write set: the slot alone;
 - dependency set: the descriptor encoding defined under the `Scoped` evidence
-  above.
+  above;
+- compared values: one entry per dependency, in canonical descriptor order,
+  each the descriptor encoding, a presence tag (present or absent at the
+  validation position), and, when present, the 32-byte digest of the value
+  compared, encoded as for the read set.
 
 Each digest is BLAKE3 over a domain tag naming the set and its version, the
 entry count as a little-endian `u64`, and the entries in order. Live

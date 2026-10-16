@@ -658,6 +658,15 @@ pub enum StrandError {
     #[error("strand already exists: {0:?}")]
     AlreadyExists(StrandId),
 
+    /// The child worldline already belongs to another strand.
+    #[error("worldline {child:?} is already the child of strand {existing:?}")]
+    ChildWorldlineAlreadyRelated {
+        /// Child worldline named by the rejected strand.
+        child: WorldlineId,
+        /// Strand the worldline already belongs to.
+        existing: StrandId,
+    },
+
     /// The strand was not found in the registry.
     #[error("strand not found: {0:?}")]
     NotFound(StrandId),
@@ -837,6 +846,13 @@ impl StrandRegistry {
     pub fn insert(&mut self, strand: Strand) -> Result<(), StrandError> {
         if self.strands.contains_key(&strand.strand_id) {
             return Err(StrandError::AlreadyExists(strand.strand_id));
+        }
+        // A child worldline has exactly one causal past: one strand relation.
+        if let Some(existing) = self.find_by_child_worldline(&strand.child_worldline_id) {
+            return Err(StrandError::ChildWorldlineAlreadyRelated {
+                child: strand.child_worldline_id,
+                existing: existing.strand_id,
+            });
         }
         validate_local_strand_invariants::<DynamicPosture>(
             strand.strand_id,

@@ -6755,7 +6755,7 @@ impl TrustedRuntimeApp<'_> {
             return Err(RuntimeError::EchoOperationActionRequiresRuntimeWalAck);
         }
         let handle = self.host.runtime.submit_app_intent(envelope)?;
-        if self.host.runtime_wal.is_none() {
+        if self.host.runtime_wal.is_none() && handle.inherited_through.is_none() {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,
                 is_echo_operation_action,
@@ -6902,6 +6902,11 @@ impl TrustedRuntimeApp<'_> {
                 .rollback_intent_submission(submission_rollback, &handle);
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
+        // An occurrence already in inherited history admits nothing here, so
+        // there is no acceptance to record.
+        if handle.inherited_through.is_some() {
+            return Ok(handle);
+        }
         if handle.duplicate
             && runtime_wal
                 .has_recorded_submission_acceptance(handle.submission_id, envelope.ingress_id())
@@ -8270,6 +8275,7 @@ mod tests {
             submission_id: [12; 32],
             submission_generation: IngressSubmissionGeneration::from_raw(1),
             duplicate: false,
+            inherited_through: None,
         };
         let record = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,
@@ -8383,6 +8389,7 @@ mod tests {
             submission_id: [21; 32],
             submission_generation: IngressSubmissionGeneration::from_raw(1),
             duplicate: false,
+            inherited_through: None,
         };
         let acceptance = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,

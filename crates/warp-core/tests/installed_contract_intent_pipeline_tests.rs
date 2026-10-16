@@ -480,7 +480,8 @@ fn installed_contract_mutation_dispatches_only_through_ticketed_scheduler_tick()
         .expect("submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first submission should not be duplicate")
         }
     };
@@ -570,7 +571,8 @@ fn unsupported_installed_contract_mutation_cannot_enter_ticketed_runtime_ingress
         .expect("unsupported submission should still be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first submission should not be duplicate")
         }
     };
@@ -620,7 +622,8 @@ fn relabeled_eint_cannot_enter_installed_contract_runtime_ingress() {
         .expect("relabeled submission is witnessed before contract admission")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first relabeled submission should not be duplicate")
         }
     };
@@ -663,7 +666,8 @@ fn footprint_conflict_is_final_without_hidden_retry() {
         .expect("first submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first submission must not be duplicate")
         }
     };
@@ -672,7 +676,8 @@ fn footprint_conflict_is_final_without_hidden_retry() {
         .expect("second submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("second submission must not be duplicate")
         }
     };
@@ -864,7 +869,8 @@ fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress(
         .expect("first submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first submission must not be duplicate")
         }
     };
@@ -873,7 +879,8 @@ fn witnessed_submission_replay_restores_pending_history_without_runtime_ingress(
         .expect("second submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("second submission must not be duplicate")
         }
     };
@@ -964,7 +971,8 @@ fn external_contract_fixture_proves_mutation_query_retention_and_replay() {
         .expect("external fixture submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first external fixture submission must not be duplicate")
         }
     };
@@ -1156,7 +1164,8 @@ fn installed_contract_pipeline_replays_to_same_receipt_and_outcome() {
         .expect("submission should be witnessed")
     {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-        IntentSubmissionDisposition::Duplicate { .. } => {
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
             panic!("first submission must not be duplicate")
         }
     };

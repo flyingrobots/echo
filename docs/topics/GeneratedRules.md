@@ -321,13 +321,15 @@ can delete the legacy feature without also losing executable operations.
 
 #### Application operation semantics authored in Edict source
 
-**Decision 2026-10-15 (proposed for review in
-[flyingrobots/jedit#302](https://github.com/flyingrobots/jedit/pull/302); tracks
-[flyingrobots/jedit#296](https://github.com/flyingrobots/jedit/issues/296)),
-superseding in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md):
-its "Jedit rope-law closure" section and its selection under "Alternatives for
+**Decision 2026-10-15, accepted, effective when
+[flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges to
+`main`; until that merge it is a proposal and ADR 0023 governs unchanged. Tracks
+[flyingrobots/jedit#296](https://github.com/flyingrobots/jedit/issues/296).
+Supersedes in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md):
+the declarative-resource requirements of its "Jedit rope-law closure" section,
+enumerated in that section's banner, and its selection under "Alternatives for
 Expressing the Rope Law". Every other provision of ADR 0023 continues to
-govern.**
+govern, and its original reasoning is kept.**
 
 Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict
 source and compiled by Edict. It is not imported as a declarative executable
@@ -367,8 +369,10 @@ Evidence for the change, which ADR 0023 did not have on 2026-07-18:
 
 Consequences:
 
+- This decision accepts an architectural contract, not an implementation. No
+  evaluation-to-effect bridge exists until it is built and witnessed.
 - The generic evaluation-to-effect boundary must be designed and reviewed
-  before it is implemented; the proposal is
+  before it is implemented; the design is
   [Authored Operation Effects](../architecture/authored-operation-effects.md).
   Evaluation proposes effects; it never performs
   them. Echo witnesses the actual read and write dependencies, validates basis,

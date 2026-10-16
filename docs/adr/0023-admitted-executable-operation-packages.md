@@ -12,8 +12,11 @@
   applies to Actions that meet that decision's conditions
 - **Superseded in part by:** the
   [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)
-  decision of 2026-10-15, for the "Jedit rope-law closure" section and the
-  selection under "Alternatives for Expressing the Rope Law"
+  decision, accepted 2026-10-15 and effective when
+  [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
+  to `main`, for the declarative-resource requirements of the "Jedit rope-law
+  closure" section (enumerated in its banner) and the selection under
+  "Alternatives for Expressing the Rope Law"
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -295,12 +298,25 @@ admission posture without adding broad authorization policy to this decision.
 
 ### Jedit rope-law closure
 
-> **Superseded in part (2026-10-15):** The rope law is now authored in
-> Jedit-owned Edict source rather than imported as a declarative executable
-> resource. See
+> **Superseded in part,** effective when
+> [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
+> to `main`. The rope law is authored in Jedit-owned Edict source rather than
+> imported as a declarative executable resource. See
 > [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
-> The schema-declaration requirements and the prohibited forms below still
-> govern.
+> The text below is kept as written, for its reasoning.
+>
+> **No longer required:** the declarative resource and lawpack named in the
+> first paragraph; the fifth required binding (the rope-law resource
+> coordinate and digest); the lawpack and `EchoOperationProgramV1` steps of the
+> binding chain and the paragraph after it; and the paragraphs on what makes
+> the resource acceptable and who owns it.
+>
+> **Still governing:** the versioned canonical text-schema declaration and its
+> first four required bindings; the package's binding of that declaration's
+> coordinate and digest, with the typed schema-closure refusal, applied to the
+> package's compiled Edict program in place of the lawpack and subordinate
+> program; the prohibited forms, which the compiled Edict program may not
+> contain or resolve to; and the handwritten planner's test-only role.
 
 For the first `ReplaceRange` vertical, Jedit will use a digest-locked canonical
 declarative executable semantic resource imported through a Jedit-owned Edict
@@ -382,8 +398,8 @@ and complete obstruction control.
 This is the preferable long-term authoring experience if repeated operations
 demonstrate that those constructs belong in Edict. It is rejected for the first
 vertical because the current compiler's initial lowerable subset is much
-smaller. (This route became the selected direction on 2026-10-15; see the
-superseding decision linked above.) Implementing the entire language surface before any hook-free
+smaller. (The superseding decision linked above selects this route, effective
+when flyingrobots/echo#889 merges.) Implementing the entire language surface before any hook-free
 operation runs would turn the first witness into a broad language and runtime design
 effort and would make `ReplaceRange` define unproven universal syntax.
 
@@ -395,8 +411,8 @@ identity through Core and target lowering, and generate canonical client and
 package artifacts. The persistent-rope execution law lives in declarative
 program bytes rather than native code.
 
-This route was selected on 2026-07-18 and was superseded on 2026-10-15 before
-it was implemented; see
+This route was selected on 2026-07-18 and was never implemented. The selection
+is superseded, effective when flyingrobots/echo#889 merges; see
 [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
 The original rationale follows. It is the smallest route that closes the
 execution proof chain without broad Edict expansion. It does not establish a permanent

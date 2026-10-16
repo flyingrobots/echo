@@ -239,7 +239,9 @@ all of the following hold:
   identity, origin basis, commit parent, validation position, each dependency
   descriptor and comparison mode, and a digest of the compared values. Recovery
   recomputes the validation at that position and refuses a history whose
-  result differs; it never trusts the evidence field alone.
+  result differs; it never trusts the evidence field alone. An Action rejected
+  as a footprint conflict under the within-one-tick rule above is not
+  validated, so recovery recomputes its conflict instead.
 
 An Action is never re-stamped as if evaluated against its commit parent. A
 dependency failure names the dependency that changed. The per-tick limit of 64

@@ -683,7 +683,11 @@ Each Action's receipt entry binds, in addition to its current fields:
         - `Compared`, for every Action that passed the history check,
           whatever its later outcome: the dependency-set digest and a
           compared-values digest over the dependency values the
-          pre-composition checks read at the commit parent. For an accepted
+          pre-composition checks read at the commit parent. A dependency
+          those checks never reached, because validation stopped at an
+          earlier step or a validation read exhausted the budget before
+          hashing its value, is recorded as not compared, with no value. For
+          an accepted
           Action these equal its values at the validation position (the
           commit parent plus the writes of every earlier accepted Action),
           because composition admits no overlap; a
@@ -730,9 +734,10 @@ records for the slot:
 - dependency set: the descriptor encoding defined under
   [Dependency descriptors](#evidence) above;
 - compared values: one entry per dependency, in canonical descriptor order,
-  each the descriptor encoding, a presence tag (present or absent at the
-  commit parent, as the pre-composition checks read it), and, when present,
-  the 32-byte digest of the value compared, encoded as for the read set.
+  each the descriptor encoding, a presence tag (`0` present, `1` absent at
+  the commit parent as the pre-composition checks read it, or `2` not
+  compared), and, for `0`, the 32-byte digest of the value compared, encoded
+  as for the read set.
 
 Each digest is BLAKE3 over a domain tag naming the set and its version, the
 entry count as a little-endian `u64`, and the entries in order. Live
@@ -824,13 +829,33 @@ identities are 32 bytes. The section is:
    compared-values digest;
 5. the consumed budget against the delegated `EchoOperationBudgetV1` axes,
    steps, read bytes, and write bytes, followed by the evaluator's allocated
-   bytes.
+   bytes;
+6. the outcome coordinate: `0` none (committed, or
+   `RejectedFootprintConflict`), `1` a bridge obstruction kind followed by
+   its one-byte code, or `2` an authored obstruction (such as
+   `BasisNotCanonical`) followed by its 32-byte package-declared obstruction
+   identity, qualified by the package and installed operation as the ADR
+   0025 supersession states. Bridge kind codes are `BasisChanged` `0`,
+   `BudgetExceeded` `1`, `DuplicateEffectTarget` `2`, `IdentityLawViolation`
+   `3`, `UnreachableWarp` `4`, `SchemaViolation` `5`, `FootprintLawViolation`
+   `6`, `NodeMissing` `7`, `PreconditionMismatch` `8`,
+   `ContentIdentityConflict` `9`, `DanglingReference` `10`, and
+   `FootprintMismatch` `11`.
 
 Every tag is one byte. Receipt digest version 5 hashes, in place of each
 version-4 entry, that entry's version-4 bytes followed by its bridge section
 exactly as `EPRV0004` retains it, length included, under the version-5
 domain. An `EPRV0004` decoder refuses a section whose length disagrees with
 its contents or that carries trailing bytes.
+
+**Retained Action outcome.** Today's `EOACT003` record writes an obstruction
+as a code from `EchoOperationObstructionKindV1`, which has none of the
+bridge kinds and no authored obstruction. A bridge Action's retained outcome
+is therefore written as `EOACT004`: the `EOACT003` layout with its one-byte
+obstruction kind replaced by the outcome coordinate above. Fixed-profile
+Actions keep `EOACT003`, its decoder is unchanged, and each record decodes
+by its own magic. Recovery requires the `EOACT004` coordinate to equal the
+receipt's bridge-section coordinate.
 The implementation adds this row to
 [Submission Attribution's format table](../topics/SubmissionAttribution.md#format-binding-and-legacy)
 when it lands:
@@ -1044,6 +1069,7 @@ Each behaviour below needs a test before implementation:
 | Budget                        | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                                                                               |
 | Atom write bytes              | A proposal whose atom bytes exceed the delegated `write_bytes` obstructs with `BudgetExceeded` and `NoProposal`; a whole-frontier `BasisChanged` records zero consumed budget.                                                                                                                                                                                                                                |
 | Validation read budget        | A `ReplaceAtom` of a stored atom larger than the remaining `read_bytes` obstructs with `BudgetExceeded`, posture `Proposed`, `NotDerived`, before hashing it; allocation beyond `edict_pure`'s `max_allocated_bytes` obstructs with `BudgetExceeded` and `NoProposal`.                                                                                                                                        |
+| Budget-stopped evidence       | A scoped proposal whose validation read exhausts the budget records `Compared` with that dependency, and every later one, as not compared; no value past the stop is hashed.                                                                                                                                                                                                                                  |
 | Determinism                   | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
 | Canonical order               | Emitting the same effects in different orders yields the same canonical `EffectProposal` bytes and proposal identity.                                                                                                                                                                                                                                                                                         |
 | Encoding vectors              | Fixed byte vectors for the proposal encoding, every value digest, every set digest (including a descriptor list with both comparison modes), and an `EPRV0004` entry of each posture, validity, and evidence tag reproduce the specified bytes and receipt-v5 digests.                                                                                                                                        |
@@ -1079,6 +1105,7 @@ Each behaviour below needs a test before implementation:
 | Scoped basis change           | A dependency-scoped Action evaluated at its origin obstructs with `BasisChanged`, posture `Proposed` with `NotDerived`, and keeps its proposal, read set, and changed dependency when a dependency changed, even if its proposal would also fail validation; an unchanged dependency set lets it commit.                                                                                                      |
 | Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                                            |
 | Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
+| Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                                    |
 | Recovered evidence            | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
 | Pending recovery              | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                                        |
 

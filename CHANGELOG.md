@@ -265,6 +265,13 @@
 
 ### Fixed
 
+- `dispatch_intent` no longer stages a witnessed suffix import against the
+  kernel's default worldline (#892). It ignored the request's receiving
+  worldline and recorded `Staged` without the bundle and basis checks the
+  library performs. Until comparable-basis transport exists, import intents
+  are refused with `NOT_SUPPORTED` and nothing is admitted, staged or
+  attributed.
+
 - A tick that decides a submission no rule matched now commits and recovers
   under the WAL (#873). The WAL tick decision gains `NoMatchingRule` (code 4),
   recovery maps it to `RecoveredSubmissionPosture::DecidedNoMatchingRule`, and

@@ -28,6 +28,8 @@ Two intents are the same when their canonical bytes are byte-identical: `intent_
 
 Refined by Decision 6 for intents admitted from Continuum: a declared Continuum occurrence is not transport metadata, and it is part of ingress identity. Local intents keep this rule unchanged.
 
+Refined by Decision 7 for causal intents: the ingress id of an intent that cites causal parents uses a versioned recipe that a plain intent cannot alias.
+
 ## Decision 2: Ingress is idempotent per resolved writer head
 
 The pending inbox is keyed by `ingress_id` for the resolved writer head. Re-ingesting an already pending or already committed intent must not create a second live entry.
@@ -132,3 +134,56 @@ admission. Reconciling occurrences admitted independently on divergent
 branches is a separate merge question.
 
 Decision record: [#880](https://github.com/flyingrobots/echo/issues/880).
+
+## Decision 7: Identity recipes are versioned and unambiguous
+
+The original recipes hash a plain intent as `"ingress:" || kind || bytes` and a
+causal intent as `"ingress:causal:v2\0" || kind || len || bytes || count ||
+parents`. The causal domain begins with the plain one and a kind is any 32
+bytes, so a plain intent can reproduce a causal intent's hash input byte for
+byte. That is an **encoding alias**, not a hash collision: the construction is
+direct and costs nothing (`a_plain_intent_aliases_the_original_causal_recipe_but_not_the_separated_one`).
+The planted plain intent then takes the causal request's ingress and submission
+IDs, and the genuine request is treated as its duplicate.
+
+Every envelope now records its `IngressIdentityVersion`:
+
+| Recipe | Version | Domain | Retained as |
+| --- | --- | --- | --- |
+| Plain intent | `Original` (unchanged) | `ingress:` | `EINGR002` (`EINGR003` with an occurrence) |
+| Causal intent, accepted before #885 | `Original` | `ingress:causal:v2\0` | `EINGR002` / `EINGR003` |
+| Causal intent, new | `SeparatedCausal` | `echo.ingress.causal.v3\0` | `EINGR004` |
+| Continuum occurrence | as its content | `echo.ingress.continuum-occurrence.v1\0` | per content |
+
+`EINGR001` to `EINGR003` are retention formats whose identity interpretation is
+frozen: they decode to `Original`, including ordinary plain intents, and keep
+their bytes and IDs exactly. `EINGR004` is the `EINGR002` layout followed by an
+occurrence flag and, when set, the two occurrence digests. Every recipe's input
+begins with a domain no other input can begin with, and every later field has a
+fixed length or a length prefix; the separated recipe tags parent roles with one
+byte over fixed-length receipt references.
+
+Every newly constructed causal intent uses the separated recipe. A causal
+request in the original recipe can only name an existing submission; admitting
+it as new fails with `RuntimeError::OriginalCausalIdentityNotAdmissible`.
+Historical decoding and new admission policy are separate: retained records are
+never rejected because a new admission rule would refuse them.
+
+**Transition rule.** A resend of a causal request accepted under the original
+recipe arrives in the separated form, with a different ingress id. Exact legacy
+matches take precedence over creating a separated submission, so a resend never
+becomes a second act:
+
+| Found for the request's original-recipe id on its head | Echo's answer |
+| --- | --- |
+| A retained submission whose envelope states the same kind, bytes, causal parents, occurrence (both digests) and resolved head | That submission (`Duplicate`, with its original ingress id); staging uses its retained envelope |
+| A retained submission whose envelope states something else (an alias) | Not a retry and no reservation: ordinary separated admission |
+| A submission without retained envelope material, or committed ingress without a submission | `RuntimeError::OriginalIngressIdentityUnverifiable` |
+| Both a legacy and a separated submission of the same request | `RuntimeError::IngressIdentityAmbiguous` |
+
+The same comparison applies to occurrence retries and to occurrences a strand
+inherits. The recipe, the retention layout and this lookup are Echo's own; any
+identity version or outcome exposed through Continuum must first be authored in
+Continuum's contracts.
+
+Decision record: [#885](https://github.com/flyingrobots/echo/issues/885).

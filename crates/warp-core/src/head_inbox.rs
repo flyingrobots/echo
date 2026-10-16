@@ -26,6 +26,13 @@ const RETAINED_INGRESS_ENVELOPE_MAGIC_V1: &[u8; 8] = b"EINGR001";
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V2: &[u8; 8] = b"EINGR002";
 /// Retained envelope format that also carries a Continuum occurrence.
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V3: &[u8; 8] = b"EINGR003";
+/// Retained envelope format for causal intents identified by the separated
+/// causal recipe ([`IngressIdentityVersion::SeparatedCausal`]).
+const RETAINED_INGRESS_ENVELOPE_MAGIC_V4: &[u8; 8] = b"EINGR004";
+/// Ingress id domain of the separated causal recipe.
+///
+/// Like the occurrence domain, it must not begin with `"ingress:"`.
+const SEPARATED_CAUSAL_INGRESS_DOMAIN: &[u8] = b"echo.ingress.causal.v3\0";
 /// Ingress id domain for a Continuum occurrence of content-addressed intent.
 ///
 /// It must not begin with `"ingress:"`; see [`compute_ingress_id`].
@@ -284,6 +291,32 @@ fn lower_hex(bytes: &Hash) -> [u8; 64] {
 }
 
 // =============================================================================
+// IngressIdentityVersion
+// =============================================================================
+
+/// Which identity recipe an envelope's ingress id uses.
+///
+/// The original recipes hash a parentless intent as `"ingress:" || kind ||
+/// bytes` and a causal intent as `"ingress:causal:v2\0" || kind || ...`. The
+/// second begins with the first and the kind is any 32 bytes, so a plain intent
+/// can alias a causal intent's hash input exactly (#885). New causal intents
+/// therefore use a separated recipe whose domain cannot alias plain input.
+///
+/// The version is retained with the envelope so stored requests keep their
+/// exact identity. It only matters for causal intents: an envelope without
+/// causal parents uses the unchanged plain recipe and is always `Original`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IngressIdentityVersion {
+    /// The recipes in use before #885, kept for retained requests. Retention
+    /// formats `EINGR001`, `EINGR002` and `EINGR003` decode to this version.
+    Original,
+    /// The separated causal recipe, `"echo.ingress.causal.v3\0" || ...`,
+    /// used by every newly constructed causal intent and retained as
+    /// `EINGR004`.
+    SeparatedCausal,
+}
+
+// =============================================================================
 // IngressEnvelope
 // =============================================================================
 
@@ -307,6 +340,8 @@ pub struct IngressEnvelope {
     payload: IngressPayload,
     /// Continuum occurrence this envelope admits, if it came from Continuum.
     occurrence: Option<ContinuumOccurrence>,
+    /// Identity recipe of `ingress_id`; `Original` when there are no parents.
+    identity_version: IngressIdentityVersion,
 }
 
 impl IngressEnvelope {
@@ -332,7 +367,14 @@ impl IngressEnvelope {
         intent_bytes: Vec<u8>,
         causal_parents: Vec<IngressCausalParent>,
     ) -> Self {
-        Self::build(target, intent_kind, intent_bytes, causal_parents, None)
+        Self::build(
+            target,
+            intent_kind,
+            intent_bytes,
+            causal_parents,
+            None,
+            IngressIdentityVersion::SeparatedCausal,
+        )
     }
 
     /// Creates an intent that admits one Continuum occurrence.
@@ -357,6 +399,7 @@ impl IngressEnvelope {
             intent_bytes,
             causal_parents,
             Some(occurrence),
+            IngressIdentityVersion::SeparatedCausal,
         )
     }
 
@@ -366,11 +409,22 @@ impl IngressEnvelope {
         intent_bytes: Vec<u8>,
         mut causal_parents: Vec<IngressCausalParent>,
         occurrence: Option<ContinuumOccurrence>,
+        identity_version: IngressIdentityVersion,
     ) -> Self {
         causal_parents.sort_unstable();
         causal_parents.dedup();
-        let ingress_id =
-            compute_ingress_id(&intent_kind, &intent_bytes, &causal_parents, occurrence);
+        let identity_version = if causal_parents.is_empty() {
+            IngressIdentityVersion::Original
+        } else {
+            identity_version
+        };
+        let ingress_id = compute_ingress_id(
+            &intent_kind,
+            &intent_bytes,
+            &causal_parents,
+            occurrence,
+            identity_version,
+        );
         Self {
             ingress_id,
             target,
@@ -380,7 +434,50 @@ impl IngressEnvelope {
                 intent_bytes,
             },
             occurrence,
+            identity_version,
         }
+    }
+
+    /// Returns the identity recipe of this envelope's ingress id.
+    #[must_use]
+    pub fn identity_version(&self) -> IngressIdentityVersion {
+        self.identity_version
+    }
+
+    /// Returns this request as identified by the original recipe, when it is
+    /// a causal request identified by the separated recipe.
+    ///
+    /// Echo uses it to recognise a resend of a request accepted before #885;
+    /// a match must still compare the retained request, because the original
+    /// recipe can be aliased.
+    #[must_use]
+    pub(crate) fn original_identity_form(&self) -> Option<Self> {
+        if self.identity_version != IngressIdentityVersion::SeparatedCausal {
+            return None;
+        }
+        let IngressPayload::LocalIntent {
+            intent_kind,
+            intent_bytes,
+        } = &self.payload;
+        Some(Self::build(
+            self.target.clone(),
+            *intent_kind,
+            intent_bytes.clone(),
+            self.causal_parents.clone(),
+            self.occurrence,
+            IngressIdentityVersion::Original,
+        ))
+    }
+
+    /// Whether two envelopes state the same request: kind, bytes, causal
+    /// parents, occurrence (both digests) and identity version. The routing
+    /// target is compared by the caller after resolution.
+    #[must_use]
+    pub(crate) fn same_request_as(&self, other: &Self) -> bool {
+        self.payload == other.payload
+            && self.causal_parents == other.causal_parents
+            && self.occurrence == other.occurrence
+            && self.identity_version == other.identity_version
     }
 
     /// Returns the canonical content address of this envelope.
@@ -404,7 +501,13 @@ impl IngressEnvelope {
             IngressPayload::LocalIntent {
                 intent_kind,
                 intent_bytes,
-            } => compute_ingress_id(intent_kind, intent_bytes, &self.causal_parents, None),
+            } => compute_ingress_id(
+                intent_kind,
+                intent_bytes,
+                &self.causal_parents,
+                None,
+                self.identity_version,
+            ),
         }
     }
 
@@ -452,8 +555,11 @@ impl IngressEnvelope {
     /// applied digest.
     #[must_use]
     pub fn to_retained_bytes(&self) -> Vec<u8> {
+        let separated = self.identity_version == IngressIdentityVersion::SeparatedCausal;
         let mut out = Vec::new();
-        out.extend_from_slice(if self.occurrence.is_some() {
+        out.extend_from_slice(if separated {
+            RETAINED_INGRESS_ENVELOPE_MAGIC_V4
+        } else if self.occurrence.is_some() {
             RETAINED_INGRESS_ENVELOPE_MAGIC_V3
         } else {
             RETAINED_INGRESS_ENVELOPE_MAGIC_V2
@@ -502,6 +608,9 @@ impl IngressEnvelope {
                 out.extend_from_slice(intent_bytes);
             }
         }
+        if separated {
+            out.push(u8::from(self.occurrence.is_some()));
+        }
         if let Some(occurrence) = &self.occurrence {
             out.extend_from_slice(&occurrence.occurrence_key_digest);
             out.extend_from_slice(&occurrence.applied_digest);
@@ -519,6 +628,9 @@ impl IngressEnvelope {
         let magic = bytes
             .get(..RETAINED_INGRESS_ENVELOPE_MAGIC_V2.len())
             .ok_or(IngressEnvelopeDecodeError::UnexpectedEof)?;
+        if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V4 {
+            return Self::from_retained_bytes_v2_or_v3(bytes, RETAINED_INGRESS_ENVELOPE_MAGIC_V4);
+        }
         if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V3 {
             return Self::from_retained_bytes_v2_or_v3(bytes, RETAINED_INGRESS_ENVELOPE_MAGIC_V3);
         }
@@ -531,7 +643,8 @@ impl IngressEnvelope {
         Err(IngressEnvelopeDecodeError::InvalidMagic)
     }
 
-    /// Decodes `EINGR002`, or `EINGR003`, which appends a Continuum occurrence.
+    /// Decodes `EINGR002`; `EINGR003`, which appends a Continuum occurrence;
+    /// or `EINGR004`, a separated-causal request with an occurrence flag.
     fn from_retained_bytes_v2_or_v3(
         bytes: &[u8],
         magic: &[u8; 8],
@@ -594,7 +707,21 @@ impl IngressEnvelope {
                 let intent_kind = IntentKind::from_hash(cursor.read_hash()?);
                 let intent_len = cursor.read_len()?;
                 let intent_bytes = cursor.read_exact(intent_len)?.to_vec();
-                let occurrence = if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V3 {
+                let (has_occurrence, identity_version) =
+                    if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V4 {
+                        let has_occurrence = match cursor.read_u8()? {
+                            0 => false,
+                            1 => true,
+                            _ => return Err(IngressEnvelopeDecodeError::NonCanonical),
+                        };
+                        (has_occurrence, IngressIdentityVersion::SeparatedCausal)
+                    } else {
+                        (
+                            magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V3,
+                            IngressIdentityVersion::Original,
+                        )
+                    };
+                let occurrence = if has_occurrence {
                     Some(ContinuumOccurrence::new(
                         cursor.read_hash()?,
                         cursor.read_hash()?,
@@ -608,6 +735,7 @@ impl IngressEnvelope {
                     intent_bytes,
                     causal_parents,
                     occurrence,
+                    identity_version,
                 )
             }
             tag => return Err(IngressEnvelopeDecodeError::UnknownPayloadTag(tag)),
@@ -700,6 +828,7 @@ impl IngressEnvelope {
                 intent_bytes,
                 &self.causal_parents,
                 self.occurrence,
+                self.identity_version,
             ),
         }
     }
@@ -809,24 +938,31 @@ impl<'a> RetainedIngressCursor<'a> {
 
 /// Computes the content address of a local intent.
 ///
-/// Parentless intents preserve the original
-/// `BLAKE3("ingress:" || kind_hash || bytes)` identity. Causal intents use a
-/// separate versioned domain with explicit lengths so the same contract bytes
-/// cited against different receipt evidence cannot collapse as duplicates.
-/// A Continuum occurrence wraps that content identity:
-/// `BLAKE3("echo.ingress.continuum-occurrence.v1\0" || occurrence_key || content_id)`,
-/// so distinct occurrences of identical content are distinct ingress. The
-/// occurrence domain differs from `"ingress:"` at its first byte: local ingress
-/// hashes `"ingress:" || kind || bytes` with an arbitrary 32-byte kind, so any
-/// domain beginning with `"ingress:"` could be reproduced by a local intent.
+/// Every recipe's hash input begins with a domain no other recipe's input can
+/// begin with, and every later field has a fixed length or a length prefix:
+///
+/// - plain intent: `"ingress:" || kind || bytes` (unchanged since the first
+///   release);
+/// - causal intent, [`IngressIdentityVersion::SeparatedCausal`]:
+///   `"echo.ingress.causal.v3\0" || kind || len || bytes || count ||
+///   (tag || receipt_ref)*`, with one-byte role tags and fixed-length refs;
+/// - causal intent, [`IngressIdentityVersion::Original`] (retained requests
+///   only): `"ingress:causal:v2\0" || ...`, which a plain intent can alias;
+/// - Continuum occurrence: `"echo.ingress.continuum-occurrence.v1\0" ||
+///   occurrence_key || content_id`, where `content_id` is the request's own
+///   id under the same identity version.
+///
+/// The `echo.` domains differ from `"ingress:"` (and from the engine's
+/// `"intent:"`) at the first byte, and from each other at byte 14.
 fn compute_ingress_id(
     kind: &IntentKind,
     bytes: &[u8],
     causal_parents: &[IngressCausalParent],
     occurrence: Option<ContinuumOccurrence>,
+    identity_version: IngressIdentityVersion,
 ) -> Hash {
     if let Some(occurrence) = occurrence {
-        let content_id = compute_ingress_id(kind, bytes, causal_parents, None);
+        let content_id = compute_ingress_id(kind, bytes, causal_parents, None, identity_version);
         let mut hasher = blake3::Hasher::new();
         hasher.update(CONTINUUM_OCCURRENCE_INGRESS_DOMAIN);
         hasher.update(&occurrence.occurrence_key_digest);
@@ -835,20 +971,41 @@ fn compute_ingress_id(
     }
     let mut hasher = blake3::Hasher::new();
     if !causal_parents.is_empty() {
-        hasher.update(b"ingress:causal:v2\0");
-        hasher.update(kind.as_hash());
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(bytes);
-        hasher.update(&(causal_parents.len() as u64).to_le_bytes());
-        for parent in causal_parents {
-            match parent {
-                IngressCausalParent::TickReceipt { receipt_ref } => {
-                    hasher.update(b"tick-receipt\0");
+        match identity_version {
+            IngressIdentityVersion::SeparatedCausal => {
+                hasher.update(SEPARATED_CAUSAL_INGRESS_DOMAIN);
+                hasher.update(kind.as_hash());
+                hasher.update(&(bytes.len() as u64).to_le_bytes());
+                hasher.update(bytes);
+                hasher.update(&(causal_parents.len() as u64).to_le_bytes());
+                for parent in causal_parents {
+                    let (tag, receipt_ref) = match parent {
+                        IngressCausalParent::TickReceipt { receipt_ref } => (1u8, receipt_ref),
+                        IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                            (2u8, receipt_ref)
+                        }
+                    };
+                    hasher.update(&[tag]);
                     hasher.update(&receipt_ref.to_canonical_bytes());
                 }
-                IngressCausalParent::ContractInverseTarget { receipt_ref } => {
-                    hasher.update(b"contract-inverse-target\0");
-                    hasher.update(&receipt_ref.to_canonical_bytes());
+            }
+            IngressIdentityVersion::Original => {
+                hasher.update(b"ingress:causal:v2\0");
+                hasher.update(kind.as_hash());
+                hasher.update(&(bytes.len() as u64).to_le_bytes());
+                hasher.update(bytes);
+                hasher.update(&(causal_parents.len() as u64).to_le_bytes());
+                for parent in causal_parents {
+                    match parent {
+                        IngressCausalParent::TickReceipt { receipt_ref } => {
+                            hasher.update(b"tick-receipt\0");
+                            hasher.update(&receipt_ref.to_canonical_bytes());
+                        }
+                        IngressCausalParent::ContractInverseTarget { receipt_ref } => {
+                            hasher.update(b"contract-inverse-target\0");
+                            hasher.update(&receipt_ref.to_canonical_bytes());
+                        }
+                    }
                 }
             }
         }

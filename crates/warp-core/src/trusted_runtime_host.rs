@@ -6894,7 +6894,7 @@ impl TrustedRuntimeApp<'_> {
         }
         if handle.duplicate
             && runtime_wal
-                .has_recorded_submission_acceptance(handle.submission_id, envelope.ingress_id())
+                .has_recorded_submission_acceptance(handle.submission_id, handle.ingress_id)
         {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,

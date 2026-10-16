@@ -326,9 +326,12 @@ can delete the legacy feature without also losing executable operations.
 `main`; until that merge it is a proposal and ADR 0023 governs unchanged. Tracks
 [flyingrobots/jedit#296](https://github.com/flyingrobots/jedit/issues/296).
 Supersedes in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md):
-the declarative-resource requirements of its "Jedit rope-law closure" section,
-enumerated in that section's banner, and its selection under "Alternatives for
-Expressing the Rope Law". Every other provision of ADR 0023 continues to
+every requirement that assumes the rope law is an imported declarative
+resource or lawpack, wherever it appears in ADR 0023 (the rope-law closure,
+the package binding direction and obligations, the evidence grades,
+Jurisdiction, and Consequences), each marked where it appears and enumerated
+in the "Jedit rope-law closure" banner, and its selection under "Alternatives
+for Expressing the Rope Law". Every other provision of ADR 0023 continues to
 govern, and its original reasoning is kept.**
 
 Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict

@@ -14,9 +14,11 @@
   [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)
   decision, accepted 2026-10-15 and effective when
   [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
-  to `main`, for the declarative-resource requirements of the "Jedit rope-law
-  closure" section (enumerated in its banner) and the selection under
-  "Alternatives for Expressing the Rope Law"
+  to `main`, for the declarative-resource and lawpack requirements that
+  assume the rope law is an imported resource, in this ADR's rope-law
+  closure, package binding, package obligations, evidence grades,
+  Jurisdiction, and Consequences (enumerated in the "Jedit rope-law closure"
+  banner), and the selection under "Alternatives for Expressing the Rope Law"
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -108,6 +110,13 @@ Edict intent / admitted executable-operation package
 → binds the exact EchoOperationProgramV1 bytes and digest
 ```
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> lawpack step applies only to a program whose executable meaning is imported
+> from a lawpack resource. A program compiled from Edict source, such as
+> Jedit's `ReplaceRange`, goes from the canonical semantic closure directly to
+> the exact program bytes and digest, and binds no lawpack resource. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
+
 The admitted Edict operation supplies the public operation coordinate,
 invocation and result schemas, basis contract, budget and footprint contract,
 authority requirements, result and obstruction interpretation, and the
@@ -142,6 +151,13 @@ Every `ExecutableOperationPackageV1` must canonically bind:
 - authority requirements and invocation-admission requirements;
 - result and obstruction interpretation;
 - one evaluator ABI and intrinsic-profile identity.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> lawpack resource coordinate and digest are bound only by a package whose
+> program is imported from a lawpack resource. A package whose program is
+> compiled from Edict source binds no lawpack resource; every other
+> obligation above still applies to it. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
 
 Every bound `EchoOperationProgramV1` must canonically bind its executable
 meaning:
@@ -310,6 +326,9 @@ admission posture without adding broad authorization policy to this decision.
 > coordinate and digest); the lawpack and `EchoOperationProgramV1` steps of the
 > binding chain and the paragraph after it; the paragraphs on what makes
 > the resource acceptable and who owns it; and, outside this section, the
+> lawpack step of the package binding direction and the lawpack obligation in
+> "First-version execution obligations" (both now apply only to a program
+> imported from a lawpack resource), the
 > lawpack-resource binding in the evidence-grade table, the rope-law resource
 > and generic resource binding in Jurisdiction, and the executable-resource
 > binding in Consequences, each marked where it appears.

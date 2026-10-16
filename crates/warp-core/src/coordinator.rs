@@ -3849,6 +3849,26 @@ impl WorldlineRuntime {
                     .unwrap_or(fork_basis_ref.fork_tick),
             });
         };
+        // Every strand relation in the ancestry must be backed by recorded
+        // prefix evidence (a fork, not a bare registration) before any
+        // ancestor's binding is trusted or followed.
+        let mut lineage = fork_basis_ref.source_lane_id;
+        for _ in 0..=self.strands.len() {
+            let Some(strand) = self.strands.find_by_child_worldline(&lineage) else {
+                break;
+            };
+            if !self.inherited_prefixes.contains_key(&lineage) {
+                return Err(RuntimeError::AdmissionCoverageUnestablished {
+                    worldline_id: lineage,
+                    basis_tick: strand
+                        .fork_basis_ref
+                        .fork_tick
+                        .checked_increment()
+                        .unwrap_or(strand.fork_basis_ref.fork_tick),
+                });
+            }
+            lineage = strand.fork_basis_ref.source_lane_id;
+        }
         let mut ancestor = Some(fork_basis_ref.source_lane_id);
         // The last tick of the current ancestor that the child inherits.
         let mut cap = fork_basis_ref.fork_tick;
@@ -3907,21 +3927,6 @@ impl WorldlineRuntime {
                 }
             }
             let next = self.strands.find_by_child_worldline(&ancestor_id);
-            // Following a strand relation upward is only sound when that child
-            // was forked with recorded prefix evidence; a registered-only
-            // relation is an unproven claim about its causal past.
-            if let Some(strand) = next {
-                if !self.inherited_prefixes.contains_key(&ancestor_id) {
-                    return Err(RuntimeError::AdmissionCoverageUnestablished {
-                        worldline_id: ancestor_id,
-                        basis_tick: strand
-                            .fork_basis_ref
-                            .fork_tick
-                            .checked_increment()
-                            .unwrap_or(strand.fork_basis_ref.fork_tick),
-                    });
-                }
-            }
             if let Some(strand) = next {
                 if strand.fork_basis_ref.fork_tick.as_u64() < cap.as_u64() {
                     cap = strand.fork_basis_ref.fork_tick;
@@ -7089,6 +7094,81 @@ mod tests {
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
 
         // C is forked properly from B, so it has a recorded prefix.
+        let (grandchild, _) = fork_child(
+            &mut runtime,
+            &mut provenance,
+            registered,
+            0,
+            "grandchild",
+            4,
+        );
+        assert!(matches!(
+            runtime.ingest(occurred(grandchild)),
+            Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
+                if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: the unproven intermediate may itself hold the binding;
+    /// its lineage must be validated before its binding is trusted.
+    #[test]
+    fn an_unproven_intermediate_binding_is_not_trusted() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                b"one".to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: source,
+                    },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (_, fork_basis_ref) = fork_child(&mut runtime, &mut provenance, source, 0, "forked", 2);
+
+        // B decides the occurrence itself, then claims descent by registration.
+        let registered = wl(3);
+        runtime
+            .register_worldline(registered, WorldlineState::empty())
+            .unwrap();
+        provenance
+            .register_worldline(registered, &WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            registered,
+            "registered",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        accepted_submission(runtime.ingest(occurred(registered)).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        runtime
+            .register_strand(
+                Strand::new(
+                    make_strand_id("registered"),
+                    fork_basis_ref,
+                    registered,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(11),
+                )
+                .unwrap(),
+            )
+            .unwrap();
         let (grandchild, _) = fork_child(
             &mut runtime,
             &mut provenance,

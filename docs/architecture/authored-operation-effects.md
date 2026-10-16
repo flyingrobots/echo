@@ -470,12 +470,14 @@ held; this design validates only what the proposal adds or retargets.
       earlier in the same Tick. Composition then reserves each candidate's
       complete footprint (witnessed reads, precondition reads, and write
       set) in canonical order, and any overlap with an earlier accepted
-      Action is `RejectedFootprintConflict` with its blockers, as the
+      Action in which either of the two writes the slot is
+      `RejectedFootprintConflict` with its blockers, as the
       [within-one-tick rule](../topics/GeneratedRules.md#action-validity-across-ticks)
-      requires. A candidate that overlaps nothing depends on no slot an
-      earlier Action wrote, so its values at the validation position (the
-      commit parent plus earlier accepted writes) equal its values at the
-      commit parent. A later Action that expects a value an earlier Action
+      requires. Read against read never conflicts, so Actions that share
+      existing structure both proceed. A candidate with no such overlap
+      depends on no slot an earlier Action wrote, so its values at the
+      validation position (the commit parent plus earlier accepted writes)
+      equal its values at the commit parent. A later Action that expects a value an earlier Action
       replaced is therefore a footprint conflict, never a
       `PreconditionMismatch`.
 - **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
@@ -592,6 +594,26 @@ Each Action's receipt entry binds, in addition to its current fields:
       runs no dependency comparison, so its `Scoped` evidence is the origin
       basis and validation position only;
 - for `NoProposal` and `Proposed`, consumed budget.
+
+**Canonical set encoding.** The read-set, target-set, write-set, and
+dependency-set digests each hash a set of slot entries, never a collection in
+discovery order. Entries sort by slot class (node record, atom, edge, then
+range key), then by id bytes compared lexicographically; a range key's id is
+its source node id followed by its edge-type id. Each entry encodes as a slot
+class tag and its fixed-width id or ids, followed by what that set records
+for the slot:
+
+- read set: an outcome tag (present or absent) and, when present, the 32-byte
+  digest of the value read; a range read records the observed edges as a
+  count-prefixed list of edge id and target node id pairs, sorted by edge id;
+- target set and write set: the slot alone;
+- dependency set: the descriptor encoding defined under the `Scoped` evidence
+  above.
+
+Each digest is BLAKE3 over a domain tag naming the set and its version, the
+entry count as a little-endian `u64`, and the entries in order. Live
+execution and recovery therefore produce identical bytes whatever order an
+implementation visits slots in.
 
 The submission identity is present in every variant. An identified submission
 whose evaluation produced no proposal is a different evidence state from an
@@ -866,4 +888,7 @@ Each behaviour below needs a test before implementation:
 - Whether the footprint law is per-invocation or per-package with parameters.
 - Which domain-separated hash Edict source can call to derive ids.
 - Whether proposals larger than the Action-batch operation limit should ever
-  be representable. This design says no.
+  be committable. This design says no: such a proposal is still representable
+  as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as
+  [Basis, budget, retries](#basis-budget-retries) states), but it never
+  commits and is never split across Ticks.

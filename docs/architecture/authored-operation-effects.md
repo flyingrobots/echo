@@ -31,7 +31,7 @@ what the evaluation actually read and what it proposes to write, validates both
 against the admitted contract and the basis, and commits all of the effects in
 one Tick or none of them.
 
-Three invariants govern the design:
+Five invariants govern the design:
 
 1. **Evaluation is not commitment.** A successful evaluation yields a
    proposal. Nothing it computes is authoritative until the scheduler commits
@@ -52,6 +52,12 @@ Three invariants govern the design:
    is free of dangling edges: other writers do not check endpoints today (see
    [Current implementation](#current-implementation)), and this design does not
    validate the rest of the graph.
+5. **A proposal identity names exactly one evaluated proposal.** Every outcome
+   that carries a proposal identity binds it to the exact effects the
+   evaluation produced, whether those effects committed or were rejected. A
+   rejected proposal is never ambiguous on replay or audit: re-deriving it over
+   the recorded basis must reproduce effects that hash to the recorded
+   identity and derive the recorded patch digest.
 
 Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
 
@@ -326,6 +332,17 @@ The submission identity is present in both variants. An identified submission
 whose evaluation produced no proposal is a different evidence state from an
 evaluated proposal, and the receipt keeps them distinct.
 
+The proposal identity is `H(Action, evaluation basis, canonical
+EffectProposal)`, and the canonical `EffectProposal` contains every effect in
+canonical order, so the identity binds the exact evaluated effects
+(invariant 5). The write-set and derived patch digests are derived from those
+same effects. Proposals are not retained apart from their Tick; the binding is
+checked by re-deriving the proposal, as the recovery matrix below requires for
+every class that carries one.
+
+An Action obstructed with `BasisChanged` is decided before evaluation runs
+(`echo_operation.rs`), so it has posture `NoProposal` and an empty read set.
+
 These fields change the receipt entry's encoding, which commit hash v3 binds.
 They therefore need a new receipt entry format version, introduced under the
 same rules as Submission Attribution's format table: existing formats and
@@ -344,17 +361,8 @@ new evidence. Verification is not re-admission.
   patch, never from a re-derived proposal.
 - Recovery keeps the per-class verification described in
   [Current implementation](#current-implementation) and adds the new evidence
-  to whatever each class already compares:
-    - where recovery reconstructs a preparation (committed and
-      `RejectedFootprintConflict`), or accepts one for a scheduler-assigned
-      `BudgetExceeded` and verifies it through the batch composition, it also
-      compares posture `Proposed`, the proposal identity, the read-set and
-      write-set digests, and the derived patch digest;
-    - where it re-evaluates an obstruction, it also compares the posture and
-      the read-set digest, and for `Proposed` the proposal digests;
-    - where it does not re-evaluate (`BasisChanged`), it verifies only the
-      evidence that class verifies today, and adds no re-evaluation.
-      Any disagreement refuses the history.
+  to whatever each class already compares, as the matrix below states. Any
+  disagreement refuses the history.
 - The comparison never changes a decision. The recorded outcome, receipt, and
   attribution stand as written; a re-derived proposal is checked against them
   and then discarded.
@@ -364,6 +372,20 @@ new evidence. Verification is not re-admission.
   position from retained history and refuses a history whose result differs.
 - An undecided Action stays the same pending submission and is evaluated when
   the scheduler next selects it.
+
+Recovery matrix. "Existing check" is what recovery verifies today; "Added" is
+what the bridge adds. "Effects bound" means the re-derived effects must hash
+to the recorded proposal identity and derive the recorded write-set and patch
+digests (invariant 5).
+
+| Outcome                                                                                                | Posture      | Existing check                                                        | Added                                                      |
+| ------------------------------------------------------------------------------------------------------ | ------------ | --------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Committed                                                                                              | `Proposed`   | replay patch; reconstruct preparation; compare identities             | effects bound; read-set digest; patch digest equals replay |
+| `RejectedFootprintConflict`                                                                            | `Proposed`   | reconstruct preparation; compare identities                           | effects bound; read-set digest                             |
+| Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, footprint law, stale expect) | `Proposed`   | re-evaluate; compare pre-decision evidence                            | effects bound; read-set digest; obstruction kind           |
+| `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                              | `Proposed`   | accept reconstructed preparation; verify through batch reconstruction | effects bound; read-set digest                             |
+| `BudgetExceeded` during evaluation, or an authored guard                                               | `NoProposal` | re-evaluate; compare pre-decision evidence                            | re-evaluation again yields no proposal; read-set digest    |
+| `BasisChanged`                                                                                         | `NoProposal` | admission evidence; recomputed basis posture; no re-evaluation        | none; posture must be `NoProposal` with an empty read set  |
 
 ## Execution traces
 
@@ -491,6 +513,7 @@ Each behaviour below needs a test before implementation:
 | Stale basis            | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                                                                                                                                                                                                                                                   |
 | Budget                 | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                    |
 | Determinism            | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                               |
+| Proposal binding       | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                      |
 | No-proposal evidence   | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                                                                           |
 | Recovery               | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                               |
 | Composition            | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                 |

@@ -4862,6 +4862,11 @@ fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
             hasher.update(b"already-exists");
             hasher.update(strand_id.as_bytes());
         }
+        StrandError::ChildWorldlineAlreadyRelated { child, existing } => {
+            hasher.update(b"child-worldline-already-related");
+            hash_worldline_id(hasher, child);
+            hasher.update(existing.as_bytes());
+        }
         StrandError::NotFound(strand_id) => {
             hasher.update(b"not-found");
             hasher.update(strand_id.as_bytes());
@@ -7003,6 +7008,51 @@ mod tests {
             runtime.ingest(occurred(registered)),
             Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
                 if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: a child worldline has exactly one causal past, so a
+    /// second strand relation for it is refused instead of letting lookups
+    /// pick one of two fork bases.
+    #[test]
+    fn a_child_worldline_cannot_belong_to_two_strands() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: source,
+                    },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (child, fork_basis_ref) =
+            fork_child(&mut runtime, &mut provenance, source, 0, "child", 2);
+        let head = runtime
+            .resolve_target(&IngressTarget::DefaultWriter {
+                worldline_id: child,
+            })
+            .unwrap();
+        assert!(matches!(
+            runtime.register_strand(
+                Strand::new(
+                    make_strand_id("second-relation"),
+                    fork_basis_ref,
+                    child,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(12),
+                )
+                .unwrap(),
+            ),
+            Err(RuntimeError::Strand(StrandError::ChildWorldlineAlreadyRelated {
+                child: refused,
+                ..
+            })) if refused == child
         ));
     }
 

@@ -290,6 +290,54 @@ pub enum RuntimeError {
         /// Frontier tick of the restored basis.
         basis_tick: WorldlineTick,
     },
+    /// A causal request exists both as a submission identified by the
+    /// original recipe and as one identified by the separated recipe.
+    ///
+    /// Echo does not choose between them silently.
+    #[error(
+        "causal request has two submissions: {original_submission_id:?} (original identity) and {separated_submission_id:?} (separated identity)"
+    )]
+    IngressIdentityAmbiguous {
+        /// Submission identified by the original recipe.
+        original_submission_id: Hash,
+        /// Submission identified by the separated causal recipe.
+        separated_submission_id: Hash,
+    },
+    /// A request accepted under the original identity recipe may exist, but
+    /// Echo lacks the retained material to tell whether this is its resend.
+    ///
+    /// Absence of evidence never authorizes a second act.
+    #[error(
+        "cannot verify whether {head_key:?} already accepted this request under original ingress id {original_ingress_id:?}"
+    )]
+    OriginalIngressIdentityUnverifiable {
+        /// Resolved writer head.
+        head_key: WriterHeadKey,
+        /// Ingress id the request has under the original recipe.
+        original_ingress_id: Hash,
+    },
+    /// The presented request has the ingress id of a retained submission that
+    /// states a different request: an alias under the original causal recipe.
+    ///
+    /// Echo neither treats it as a retry nor overwrites the retained request.
+    #[error(
+        "request aliases retained submission {submission_id:?} but states a different request"
+    )]
+    IngressIdentityAlias {
+        /// Retained submission whose ingress id the request shares.
+        submission_id: Hash,
+    },
+    /// A causal request identified by the original recipe can only name an
+    /// existing submission; new causal requests use the separated recipe.
+    #[error(
+        "causal request {ingress_id:?} on {head_key:?} uses the original identity recipe and names no existing submission"
+    )]
+    OriginalCausalIdentityNotAdmissible {
+        /// Resolved writer head.
+        head_key: WriterHeadKey,
+        /// Original-recipe ingress id that was presented.
+        ingress_id: Hash,
+    },
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -3375,7 +3423,16 @@ impl WorldlineRuntime {
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
         self.check_admission_coverage(head_key.worldline_id)?;
+        if let Some(record) = self.original_identity_submission(head_key, &envelope)? {
+            return Ok(IntentSubmissionDisposition::Duplicate {
+                ingress_id: record.ingress_id,
+                head_key,
+                submission_id: record.submission_id,
+                submission_generation: record.submission_generation,
+            });
+        }
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
+        self.refuse_retained_alias(head_key, &envelope)?;
         if let Some(inherited) = self.inherited_continuum_occurrence(head_key, &envelope)? {
             return Ok(
                 IntentSubmissionDisposition::AlreadyPresentInInheritedHistory {
@@ -3425,6 +3482,7 @@ impl WorldlineRuntime {
             });
         }
 
+        refuse_new_original_causal_identity(head_key, &retained_envelope)?;
         let record = self.record_witnessed_submission(head_key, ingress_id)?;
         self.bind_continuum_occurrence(&record, &retained_envelope);
         self.witnessed_submission_envelopes
@@ -3488,6 +3546,21 @@ impl WorldlineRuntime {
         self.check_admission_coverage(head_key.worldline_id)?;
         let Some(submission) = self.witnessed_submissions.get(&submission_id) else {
             return Err(RuntimeError::UnknownIntentSubmission(submission_id));
+        };
+        // A submission accepted under the original recipe is staged with its
+        // retained envelope, never with a separated form whose identity
+        // differs from the submission's.
+        let envelope = match (
+            self.witnessed_submission_envelopes.get(&submission_id),
+            envelope.original_identity_form(),
+        ) {
+            (Some(retained), Some(original))
+                if retained.ingress_id() == submission.ingress_id
+                    && retained.same_request_as(&original) =>
+            {
+                retained.clone()
+            }
+            _ => envelope,
         };
         let ingress_id = envelope.ingress_id();
         if submission.ingress_id != ingress_id || submission.head_key != head_key {
@@ -3671,10 +3744,25 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
     ) -> Result<IngressDisposition, RuntimeError> {
         let ingress_id = envelope.ingress_id();
-        let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
         self.check_admission_coverage(head_key.worldline_id)?;
+        // A resend of a request accepted under the original recipe continues
+        // as that submission, with its retained envelope and identity.
+        let (envelope, ingress_id) = match self.original_identity_submission(head_key, &envelope)? {
+            Some(record) => (
+                self.witnessed_submission_envelopes
+                    .get(&record.submission_id)
+                    .cloned()
+                    .ok_or(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                        record.submission_id,
+                    ))?,
+                record.ingress_id,
+            ),
+            None => (envelope, ingress_id),
+        };
+        let retained_envelope = envelope.clone();
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
+        self.refuse_retained_alias(head_key, &envelope)?;
         if let Some(inherited) = self.inherited_continuum_occurrence(head_key, &envelope)? {
             return Ok(IngressDisposition::AlreadyPresentInInheritedHistory {
                 ingress_id,
@@ -3701,6 +3789,12 @@ impl WorldlineRuntime {
             });
         }
 
+        if !self
+            .submission_by_target
+            .contains_key(&(head_key, ingress_id))
+        {
+            refuse_new_original_causal_identity(head_key, &envelope)?;
+        }
         let outcome = self
             .heads
             .inbox_mut(&head_key)
@@ -3890,10 +3984,7 @@ impl WorldlineRuntime {
                         .witnessed_submissions
                         .get(&submission_id)
                         .zip(self.witnessed_submission_envelopes.get(&submission_id))
-                        .filter(|(record, existing)| {
-                            record.ingress_id == envelope.ingress_id()
-                                && existing.occurrence() == Some(occurrence)
-                        })
+                        .filter(|(_, existing)| is_same_request(existing, envelope))
                         .map(|(record, _)| record.clone());
                     let Some(record) = same_binding else {
                         return Err(RuntimeError::ContinuumOccurrenceConflict {
@@ -3935,6 +4026,107 @@ impl WorldlineRuntime {
             ancestor = next.map(|strand| strand.fork_basis_ref.source_lane_id);
         }
         Ok(None)
+    }
+
+    /// Finds the submission of a causal request accepted under the original
+    /// identity recipe, when `envelope` is that request's separated form.
+    ///
+    /// Exact legacy matches take precedence over a new separated submission,
+    /// so a resend does not become a second act. The retained request must
+    /// state the same kind, bytes, parents, occurrence and head: the original
+    /// recipe can be aliased by a plain intent, and an alias is not a match.
+    /// Missing retained material obstructs instead of admitting. When both a
+    /// legacy and a separated submission exist, the request is ambiguous.
+    fn original_identity_submission(
+        &self,
+        head_key: WriterHeadKey,
+        envelope: &IngressEnvelope,
+    ) -> Result<Option<IntentSubmissionRecord>, RuntimeError> {
+        let Some(original) = envelope.original_identity_form() else {
+            return Ok(None);
+        };
+        let original_ingress_id = original.ingress_id();
+        let committed = self
+            .worldlines
+            .get(&head_key.worldline_id)
+            .is_some_and(|frontier| {
+                frontier
+                    .state()
+                    .contains_committed_ingress(&head_key, &original_ingress_id)
+            });
+        let Some(record) = self
+            .submission_by_target
+            .get(&(head_key, original_ingress_id))
+            .and_then(|submission_id| self.witnessed_submissions.get(submission_id))
+        else {
+            if committed {
+                return Err(RuntimeError::OriginalIngressIdentityUnverifiable {
+                    head_key,
+                    original_ingress_id,
+                });
+            }
+            return Ok(None);
+        };
+        let Some(retained) = self
+            .witnessed_submission_envelopes
+            .get(&record.submission_id)
+        else {
+            return Err(RuntimeError::OriginalIngressIdentityUnverifiable {
+                head_key,
+                original_ingress_id,
+            });
+        };
+        if !retained.same_request_as(&original)
+            || self.resolve_target(retained.target()).ok() != Some(head_key)
+        {
+            return Ok(None);
+        }
+        let separated_ingress_id = envelope.ingress_id();
+        if let Some(separated_submission_id) = self
+            .submission_by_target
+            .get(&(head_key, separated_ingress_id))
+            .copied()
+            .or_else(|| {
+                self.worldlines
+                    .get(&head_key.worldline_id)
+                    .is_some_and(|frontier| {
+                        frontier
+                            .state()
+                            .contains_committed_ingress(&head_key, &separated_ingress_id)
+                    })
+                    .then(|| derive_intent_submission_id(head_key, separated_ingress_id))
+            })
+        {
+            return Err(RuntimeError::IngressIdentityAmbiguous {
+                original_submission_id: record.submission_id,
+                separated_submission_id,
+            });
+        }
+        Ok(Some(record.clone()))
+    }
+
+    /// Refuses a request whose ingress id names a retained submission that
+    /// states a different request. Only the original causal recipe can alias
+    /// (#885); an alias is neither a retry nor a reason to overwrite the
+    /// retained request.
+    fn refuse_retained_alias(
+        &self,
+        head_key: WriterHeadKey,
+        envelope: &IngressEnvelope,
+    ) -> Result<(), RuntimeError> {
+        let Some(submission_id) = self
+            .submission_by_target
+            .get(&(head_key, envelope.ingress_id()))
+            .copied()
+        else {
+            return Ok(());
+        };
+        match self.witnessed_submission_envelopes.get(&submission_id) {
+            Some(retained) if !retained.same_request_as(envelope) => {
+                Err(RuntimeError::IngressIdentityAlias { submission_id })
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Applies Continuum's occurrence binding law at admission.
@@ -3979,9 +4171,7 @@ impl WorldlineRuntime {
                     .get(&existing_submission_id),
             )
             .is_some_and(|(record, existing)| {
-                record.head_key == head_key
-                    && record.ingress_id == envelope.ingress_id()
-                    && existing.occurrence() == Some(occurrence)
+                record.head_key == head_key && is_same_request(existing, envelope)
             });
         if retry {
             Ok(())
@@ -4362,6 +4552,32 @@ fn attributed_outcome_decision(
     })
 }
 
+/// Refuses to create a submission for a causal request identified by the
+/// original recipe: only resends of retained requests may use it.
+fn refuse_new_original_causal_identity(
+    head_key: WriterHeadKey,
+    envelope: &IngressEnvelope,
+) -> Result<(), RuntimeError> {
+    if envelope.identity_version() == crate::IngressIdentityVersion::Original
+        && !envelope.causal_parents().is_empty()
+    {
+        return Err(RuntimeError::OriginalCausalIdentityNotAdmissible {
+            head_key,
+            ingress_id: envelope.ingress_id(),
+        });
+    }
+    Ok(())
+}
+
+/// Whether `presented` restates the retained request `existing`, directly or
+/// as the separated form of a request retained under the original recipe.
+fn is_same_request(existing: &IngressEnvelope, presented: &IngressEnvelope) -> bool {
+    existing.same_request_as(presented)
+        || presented
+            .original_identity_form()
+            .is_some_and(|original| existing.same_request_as(&original))
+}
+
 fn derive_intent_submission_id(head_key: WriterHeadKey, ingress_id: Hash) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo.intent-submission.v0");
@@ -4478,6 +4694,10 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::ContinuumOccurrenceConflict { .. }
         | RuntimeError::ContinuumOccurrenceCoverageUnavailable { .. }
         | RuntimeError::AdmissionCoverageUnestablished { .. }
+        | RuntimeError::IngressIdentityAmbiguous { .. }
+        | RuntimeError::OriginalIngressIdentityUnverifiable { .. }
+        | RuntimeError::OriginalCausalIdentityNotAdmissible { .. }
+        | RuntimeError::IngressIdentityAlias { .. }
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -5264,6 +5484,36 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
             hasher.update(b"admission-coverage-unestablished");
             hasher.update(worldline_id.as_bytes());
             hash_worldline_tick(&mut hasher, *basis_tick);
+        }
+        RuntimeError::IngressIdentityAmbiguous {
+            original_submission_id,
+            separated_submission_id,
+        } => {
+            hasher.update(b"ingress-identity-ambiguous");
+            hasher.update(original_submission_id);
+            hasher.update(separated_submission_id);
+        }
+        RuntimeError::OriginalIngressIdentityUnverifiable {
+            head_key,
+            original_ingress_id,
+        } => {
+            hasher.update(b"original-ingress-identity-unverifiable");
+            hasher.update(head_key.worldline_id.as_bytes());
+            hasher.update(head_key.head_id.as_bytes());
+            hasher.update(original_ingress_id);
+        }
+        RuntimeError::IngressIdentityAlias { submission_id } => {
+            hasher.update(b"ingress-identity-alias");
+            hasher.update(submission_id);
+        }
+        RuntimeError::OriginalCausalIdentityNotAdmissible {
+            head_key,
+            ingress_id,
+        } => {
+            hasher.update(b"original-causal-identity-not-admissible");
+            hasher.update(head_key.worldline_id.as_bytes());
+            hasher.update(head_key.head_id.as_bytes());
+            hasher.update(ingress_id);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
@@ -6918,6 +7168,266 @@ mod tests {
             early_basis,
         );
         accepted_submission(runtime.ingest(occurred(early, 4, b"four")).unwrap());
+    }
+
+    /// Retains `envelope` as an accepted submission of generation `generation`,
+    /// as restore does for a request accepted by an earlier writer.
+    fn retain_submission(
+        runtime: &mut WorldlineRuntime,
+        envelope: IngressEnvelope,
+        generation: u64,
+    ) -> Hash {
+        let head_key = runtime.resolve_target(envelope.target()).unwrap();
+        let submission_id = derive_intent_submission_id(head_key, envelope.ingress_id());
+        runtime
+            .restore_witnessed_submission_persistence(WitnessedSubmissionPersistenceSnapshot::new(
+                vec![WitnessedSubmissionPersistenceRecord {
+                    submission: IntentSubmissionRecord {
+                        submission_id,
+                        ingress_id: envelope.ingress_id(),
+                        head_key,
+                        submission_generation: IngressSubmissionGeneration::from_raw(generation),
+                    },
+                    envelope,
+                }],
+            ))
+            .unwrap();
+        submission_id
+    }
+
+    fn causal_request(worldline_id: WorldlineId, parent_seed: u8) -> IngressEnvelope {
+        IngressEnvelope::local_intent_with_causal_parents(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test/causal"),
+            b"causal payload".to_vec(),
+            vec![crate::IngressCausalParent::TickReceipt {
+                receipt_ref: CausalTickReceiptRef {
+                    worldline_id,
+                    worldline_tick_after: wt(1),
+                    commit_global_tick: gt(1),
+                    commit_hash: hash(parent_seed),
+                    submission_id: hash(parent_seed.wrapping_add(1)),
+                    ticket_digest: hash(parent_seed.wrapping_add(2)),
+                    receipt_content_digest: hash(parent_seed.wrapping_add(3)),
+                },
+            }],
+        )
+    }
+
+    /// Issue #885: a resend of a causal request accepted under the original
+    /// recipe resolves to that submission, and staging uses its retained
+    /// envelope. A plain alias of the original recipe, or a request with a
+    /// different parent, is not a match and is admitted under the separated
+    /// recipe. New requests cannot use the original causal recipe.
+    #[test]
+    fn a_causal_resend_resolves_to_its_original_identity_submission() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let separated = causal_request(worldline_id, 40);
+        let original = separated.original_identity_form().unwrap();
+        assert_ne!(original.ingress_id(), separated.ingress_id());
+
+        // An earlier writer could create the original form; this one cannot.
+        assert!(matches!(
+            runtime.submit_intent(original.clone()),
+            Err(RuntimeError::OriginalCausalIdentityNotAdmissible { .. })
+        ));
+        assert!(matches!(
+            runtime.ingest(original.clone()),
+            Err(RuntimeError::OriginalCausalIdentityNotAdmissible { .. })
+        ));
+        let legacy = retain_submission(&mut runtime, original.clone(), 1);
+
+        // Genuine resend: the retained submission, nothing new witnessed.
+        match runtime.submit_intent(separated.clone()).unwrap() {
+            IntentSubmissionDisposition::Duplicate {
+                submission_id,
+                ingress_id,
+                ..
+            } => {
+                assert_eq!(submission_id, legacy);
+                assert_eq!(ingress_id, original.ingress_id());
+            }
+            other => panic!("a resend must resolve to the retained submission, got {other:?}"),
+        }
+        assert_eq!(runtime.witnessed_submission_count(), 1);
+        // A resend of the original form itself is an ordinary retry.
+        assert!(matches!(
+            runtime.submit_intent(original.clone()).unwrap(),
+            IntentSubmissionDisposition::Duplicate { submission_id, .. } if submission_id == legacy
+        ));
+
+        // Staging with the separated form stages the retained request.
+        let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
+        match runtime
+            .ingest_ticketed_invocation(&authority, legacy, &test_ticket(21), separated)
+            .unwrap()
+        {
+            TicketedRuntimeIngressDisposition::Staged { record, .. } => {
+                assert_eq!(record.ingress_id, original.ingress_id());
+            }
+            TicketedRuntimeIngressDisposition::Duplicate { .. } => panic!("first staging"),
+        }
+
+        // A different parent is a different request.
+        accepted_intent(
+            runtime
+                .submit_intent(causal_request(worldline_id, 50))
+                .unwrap(),
+        );
+    }
+
+    #[test]
+    fn a_plain_alias_of_the_original_recipe_is_not_a_resend() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let separated = causal_request(worldline_id, 40);
+        let original = separated.original_identity_form().unwrap();
+        let IngressPayload::LocalIntent {
+            intent_kind,
+            intent_bytes,
+        } = separated.payload();
+        let parent = separated.causal_parents()[0].receipt_ref();
+        let mut alias_kind = [0u8; 32];
+        alias_kind[..10].copy_from_slice(b"causal:v2\0");
+        alias_kind[10..].copy_from_slice(&intent_kind.as_hash()[..22]);
+        let mut alias_bytes = intent_kind.as_hash()[22..].to_vec();
+        alias_bytes.extend_from_slice(&(intent_bytes.len() as u64).to_le_bytes());
+        alias_bytes.extend_from_slice(intent_bytes);
+        alias_bytes.extend_from_slice(&1u64.to_le_bytes());
+        alias_bytes.extend_from_slice(b"tick-receipt\0");
+        alias_bytes.extend_from_slice(&parent.to_canonical_bytes());
+        let alias = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            crate::IntentKind::from_hash(alias_kind),
+            alias_bytes,
+        );
+        assert_eq!(alias.ingress_id(), original.ingress_id());
+
+        let planted = accepted_intent(runtime.submit_intent(alias).unwrap());
+        let genuine = accepted_intent(runtime.submit_intent(separated).unwrap());
+        assert_ne!(
+            genuine, planted,
+            "the alias neither counts as a retry nor reserves the request"
+        );
+    }
+
+    /// PR #900 review: an ingress id shared by two different requests (an
+    /// alias under the original causal recipe) is neither a retry nor a
+    /// reason to overwrite the retained request, in either direction.
+    #[test]
+    fn a_retained_alias_is_refused_and_never_overwritten() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let separated = causal_request(worldline_id, 40);
+        let original = separated.original_identity_form().unwrap();
+        let IngressPayload::LocalIntent {
+            intent_kind,
+            intent_bytes,
+        } = separated.payload();
+        let parent = separated.causal_parents()[0].receipt_ref();
+        let mut alias_kind = [0u8; 32];
+        alias_kind[..10].copy_from_slice(b"causal:v2\0");
+        alias_kind[10..].copy_from_slice(&intent_kind.as_hash()[..22]);
+        let mut alias_bytes = intent_kind.as_hash()[22..].to_vec();
+        alias_bytes.extend_from_slice(&(intent_bytes.len() as u64).to_le_bytes());
+        alias_bytes.extend_from_slice(intent_bytes);
+        alias_bytes.extend_from_slice(&1u64.to_le_bytes());
+        alias_bytes.extend_from_slice(b"tick-receipt\0");
+        alias_bytes.extend_from_slice(&parent.to_canonical_bytes());
+        let alias = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            crate::IntentKind::from_hash(alias_kind),
+            alias_bytes,
+        );
+
+        // A planted plain alias, then the original causal form through ingest.
+        let planted = accepted_intent(runtime.submit_intent(alias.clone()).unwrap());
+        assert!(matches!(
+            runtime.ingest(original.clone()),
+            Err(RuntimeError::IngressIdentityAlias { submission_id }) if submission_id == planted
+        ));
+        assert_eq!(
+            runtime.witnessed_submission_envelope(&planted),
+            Some(&alias)
+        );
+
+        // A retained legacy causal request, then its plain alias.
+        let (mut runtime, _engine, _) = toy_contract_runtime();
+        let legacy = retain_submission(&mut runtime, original.clone(), 1);
+        assert!(matches!(
+            runtime.submit_intent(alias.clone()),
+            Err(RuntimeError::IngressIdentityAlias { submission_id }) if submission_id == legacy
+        ));
+        assert!(matches!(
+            runtime.ingest(alias),
+            Err(RuntimeError::IngressIdentityAlias { submission_id }) if submission_id == legacy
+        ));
+        assert_eq!(
+            runtime.witnessed_submission_envelope(&legacy),
+            Some(&original)
+        );
+    }
+
+    #[test]
+    fn original_identity_resends_obstruct_on_ambiguity_or_missing_material() {
+        // Both identities of one request retained: Echo will not choose.
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let separated = causal_request(worldline_id, 40);
+        let original = separated.original_identity_form().unwrap();
+        let legacy = retain_submission(&mut runtime, original.clone(), 1);
+        let current = retain_submission(&mut runtime, separated.clone(), 2);
+        assert!(matches!(
+            runtime.submit_intent(separated.clone()),
+            Err(RuntimeError::IngressIdentityAmbiguous {
+                original_submission_id,
+                separated_submission_id,
+                ..
+            }) if original_submission_id == legacy && separated_submission_id == current
+        ));
+
+        // A legacy submission without retained material cannot be compared.
+        let (mut replayed, _engine, _) = toy_contract_runtime();
+        let head_key = replayed
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
+            .unwrap();
+        replayed
+            .replay_witnessed_submissions([IntentSubmissionRecord {
+                submission_id: legacy,
+                ingress_id: original.ingress_id(),
+                head_key,
+                submission_generation: IngressSubmissionGeneration::from_raw(1),
+            }])
+            .unwrap();
+        assert!(matches!(
+            replayed.submit_intent(separated),
+            Err(RuntimeError::OriginalIngressIdentityUnverifiable { original_ingress_id, .. })
+                if original_ingress_id == original.ingress_id()
+        ));
+        assert_eq!(replayed.witnessed_submission_count(), 1);
+    }
+
+    #[test]
+    fn a_causal_occurrence_resend_keeps_its_original_binding() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let occurred = |applied: Hash| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/causal"),
+                b"causal payload".to_vec(),
+                causal_request(worldline_id, 40).causal_parents().to_vec(),
+                crate::ContinuumOccurrence::new([9; 32], applied),
+            )
+        };
+        let separated = occurred([0xa1; 32]);
+        let original = separated.original_identity_form().unwrap();
+        let legacy = retain_submission(&mut runtime, original, 1);
+        assert!(matches!(
+            runtime.submit_intent(separated).unwrap(),
+            IntentSubmissionDisposition::Duplicate { submission_id, .. } if submission_id == legacy
+        ));
+        assert!(matches!(
+            runtime.submit_intent(occurred([0xb2; 32])),
+            Err(RuntimeError::ContinuumOccurrenceConflict { existing_submission_id, .. })
+                if existing_submission_id == legacy
+        ));
     }
 
     /// Owner conditions for #890: an inherited occurrence keeps resolving to

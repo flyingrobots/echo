@@ -38,7 +38,7 @@
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
   It writes `EINGR002`, byte for byte as before, for an envelope without a
   Continuum occurrence, and `EINGR003` for one with an occurrence.
-  `from_retained_bytes` reads `EINGR001` to `EINGR003`.
+  `from_retained_bytes` reads `EINGR001` to `EINGR003` (and, from #885, `EINGR004`).
 - Commit hash v3 binds a tick's receipt digest, and through it the tick's
   attribution section, into the tick's commit identity (#873). Every new
   scheduler tick's receipt is commit-bound (receipt format 4, retained as
@@ -105,6 +105,18 @@
 
 ### Added
 
+- Causal intents get an identity recipe that a plain intent cannot alias
+  (#885). Under the original recipe a plain intent could reproduce a causal
+  intent's hash input exactly and take its ingress and submission IDs. New
+  causal intents are identified by `"echo.ingress.causal.v3\0" || ...`, record
+  `IngressIdentityVersion::SeparatedCausal`, and are retained as `EINGR004`.
+  `EINGR001` to `EINGR003` decode exactly as before, as `Original`. A resend of
+  a causal request accepted before this change resolves to its original
+  submission when its retained envelope states the same request, and is staged
+  with that envelope; an alias is not a match. Missing legacy material is
+  `OriginalIngressIdentityUnverifiable`, a request with both identities is
+  `IngressIdentityAmbiguous`, and new admission in the original causal recipe
+  is `OriginalCausalIdentityNotAdmissible`.
 - A strand inherits the Continuum occurrences decided in its causal past
   (#886). Redelivering such an occurrence to the strand returns
   `AlreadyPresentInInheritedHistory` (from `submit_intent` and `ingest`)

@@ -6909,7 +6909,7 @@ impl TrustedRuntimeApp<'_> {
         }
         if handle.duplicate
             && runtime_wal
-                .has_recorded_submission_acceptance(handle.submission_id, envelope.ingress_id())
+                .has_recorded_submission_acceptance(handle.submission_id, handle.ingress_id)
         {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,
@@ -6917,6 +6917,27 @@ impl TrustedRuntimeApp<'_> {
             );
             return Ok(handle);
         }
+        // A resend that resolved to a submission accepted under the original
+        // identity recipe is recorded with that submission's retained
+        // envelope, so the WAL's identity matches the handle on recovery.
+        let envelope = if handle.ingress_id == envelope.ingress_id() {
+            envelope
+        } else {
+            match self
+                .host
+                .runtime
+                .witnessed_submission_envelope(&handle.submission_id)
+                .cloned()
+            {
+                Some(retained) => retained,
+                None => {
+                    return Err(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                        handle.submission_id,
+                    )
+                    .into())
+                }
+            }
+        };
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle, sync) {
             if matches!(sync, CommitSync::Deferred) {
                 // Earlier records of this batch are appended and not synced.

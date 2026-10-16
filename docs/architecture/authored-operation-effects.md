@@ -429,20 +429,31 @@ recorded obstruction:
    (`BasisChanged`);
 2. one effect per slot (`DuplicateEffectTarget`);
 3. the identity law (`IdentityLawViolation`);
-4. warp reachability of every effect key (`UnreachableWarp`);
-5. the schema (`SchemaViolation`);
+4. warp reachability of every effect key at the evaluation basis
+   (`UnreachableWarp`). For a scoped Action that basis is its origin: a warp
+   unreachable there obstructs even if a later Tick made it reachable, and a
+   reachable warp's portal chain is already in its dependency set, so step 1
+   catches any change to it;
+5. the schema, over the types each effect itself carries: node types, edge
+   types, and atom `type_id`s must be admitted (`SchemaViolation`). The
+   relation between a node's type and the atom types it may carry is checked
+   here for `EnsureNode` and `CreateNode`, which carry both;
 6. the footprint law over the witnessed read set, the precondition slots,
    the target set, and the counts (`FootprintLawViolation`);
 7. effect preconditions, effect by effect in canonical order, and within an
    effect in the order its precondition list gives (`NodeMissing`,
    `PreconditionMismatch`, `ContentIdentityConflict`, `DanglingReference`,
-   or `BudgetExceeded` when a validation read exceeds the remaining budget);
+   or `BudgetExceeded` when a validation read exceeds the remaining budget).
+   For a `ReplaceAtom`, the node record is read and charged first; once it
+   exists, the relation between its type and the new atom's `type_id` is
+   checked (`SchemaViolation`) before the expected digest;
 8. the footprint law over the resolved write set
    (`FootprintLawViolation`);
 9. patch derivation and the actual-footprint equality
    (`FootprintMismatch`);
-10. the Action-batch operation limit (`BudgetExceeded`);
-11. composition (`RejectedFootprintConflict`).
+10. composition (`RejectedFootprintConflict`);
+11. the Action-batch operation limit (`BudgetExceeded`), tested only for a
+    candidate with no blockers, as today's scheduler does.
 
 Steps 2 through 8 yield `NotDerived`, and steps 9 through 11 yield `Derived`.
 Within a step that examines several effects, the first failing effect in
@@ -540,7 +551,8 @@ held; this design validates only what the proposal adds or retargets.
     - **Within one Tick, footprints before earlier writes.** Every check before
       composition, preconditions and expected values included, runs against the
       Tick's commit parent, never against writes accepted earlier in the same
-      Tick. Composition then reserves each candidate's complete footprint
+      Tick. The one exception is warp reachability, which is checked at the
+      evaluation basis (see [Validation order](#validation-order)). Composition then reserves each candidate's complete footprint
       (witnessed reads, precondition reads, and write set) in canonical order,
       and any overlap with an earlier accepted Action in which either of the two
       writes the slot is `RejectedFootprintConflict` with its blockers, as the
@@ -1065,7 +1077,7 @@ Each behaviour below needs a test before implementation:
 | Ensure identity               | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                                                                                                                                                                                                                                                                                                                  |
 | Partial occupancy             | A node record without its atom, or an atom without its record: `CreateNode` obstructs with `PreconditionMismatch` and `EnsureNode` with `ContentIdentityConflict`; neither overwrites the orphan slot.                                                                                                                                                                                                        |
 | Witnessed footprint           | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                                                                                                                                                                                                                                                                                                      |
-| Stale basis                   | `ReplaceAtom` with a changed expected digest, or `ReplaceEdge` with a moved `expectedTo`, obstructs with `PreconditionMismatch`, posture `Proposed`, `NotDerived`, and no patch.                                                                                                                                                                                                                              |
+| Stale basis                   | A `ReplaceAtom` or `ReplaceEdge` whose expected value already disagrees with the value at its evaluation basis obstructs with `PreconditionMismatch`, posture `Proposed`, `NotDerived`, and no patch; when the value instead changed after the origin, a whole-frontier Action obstructs with `BasisChanged` before evaluation and a scoped one at the history check.                                         |
 | Budget                        | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                                                                               |
 | Atom write bytes              | A proposal whose atom bytes exceed the delegated `write_bytes` obstructs with `BudgetExceeded` and `NoProposal`; a whole-frontier `BasisChanged` records zero consumed budget.                                                                                                                                                                                                                                |
 | Validation read budget        | A `ReplaceAtom` of a stored atom larger than the remaining `read_bytes` obstructs with `BudgetExceeded`, posture `Proposed`, `NotDerived`, before hashing it; allocation beyond `edict_pure`'s `max_allocated_bytes` obstructs with `BudgetExceeded` and `NoProposal`.                                                                                                                                        |
@@ -1077,8 +1089,10 @@ Each behaviour below needs a test before implementation:
 | Write set                     | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
 | Identity law                  | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
 | Unreachable warp              | An effect naming a key in a missing warp, or in a warp no valid portal chain reaches, obstructs with `UnreachableWarp`, posture `Proposed`, `NotDerived`.                                                                                                                                                                                                                                                     |
+| Origin reachability           | A scoped Action naming a warp unreachable at its origin obstructs with `UnreachableWarp` even when an intervening Tick created the portal that reaches it.                                                                                                                                                                                                                                                    |
 | Schema                        | An effect whose node type, atom `type_id`, or edge type the package's schema does not admit obstructs with `SchemaViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                   |
 | Validation order              | A proposal that breaks several rules (for example a duplicate target, an unadmitted type, and a missing endpoint) records the obstruction of the earliest step in the validation order, live and on recovery.                                                                                                                                                                                                 |
+| Conflict before batch limit   | A candidate that both overlaps an earlier accepted Action and would exceed the batch operation limit records `RejectedFootprintConflict`, as today's scheduler does.                                                                                                                                                                                                                                          |
 | Footprint stages              | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`, and so does a `ReplaceEdge` whose basis edge's range key lies outside the law; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                       |
 | Restored value (ABA)          | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`, including when the intervening patch under-declared its `out_slots`; with one replay patch in the interval missing, the Action obstructs before evaluation as a whole-frontier `BasisChanged`, posture `NoProposal`, with an empty read set.              |
 | Scoped preconditions          | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |

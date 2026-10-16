@@ -19,6 +19,13 @@
   closure, package binding, package obligations, evidence grades,
   Jurisdiction, and Consequences (enumerated in the "Jedit rope-law closure"
   banner), and the selection under "Alternatives for Expressing the Rope Law"
+- **Superseded in part by:**
+  [Authored Operation Effects](../architecture/authored-operation-effects.md),
+  effective when [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889)
+  merges to `main`, for bridge Actions only: the prepared-evaluation outcome
+  (a successful evaluation exposes one patch; the closed
+  `PreparedEchoOperationOutcomeV1`; no patch digest on `Obstructed`), marked
+  where it appears
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -182,6 +189,18 @@ exposes one normal Echo patch; an obstructed evaluation exposes no parent
 mutation. Version 1 retains an execution or trace identity sufficient to bind
 later evidence without claiming that a durable child worldline already exists.
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: for
+> bridge Actions, whose compiled Edict program proposes effects, the
+> evaluation and outcome contract here is replaced by
+> [Authored Operation Effects](../architecture/authored-operation-effects.md).
+> A bridge evaluation yields an `EffectProposal` or a typed obstruction rather
+> than a patch, Echo derives the patch afterwards in the same Tick
+> construction, and the receipt posture defined there replaces
+> `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
+> patch digest that was never committed. Atomic visibility, one parent patch
+> or one obstruction, still governs. The original text is preserved and still
+> governs every other Action.
+
 The program may use generic primitives for typed graph access, canonical scalar
 operations, checked `u64` arithmetic, bounded byte manipulation, UTF-8
 validation, canonical hashing, content-address derivation, and graph-delta
@@ -243,6 +262,18 @@ An `Obstructed` outcome never enters parent commit or scheduler composition and
 never carries a patch digest. It may produce retained typed execution evidence,
 but it does not claim a committed consequence.
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: for
+> bridge Actions, whose compiled Edict program proposes effects, the
+> evaluation and outcome contract here is replaced by
+> [Authored Operation Effects](../architecture/authored-operation-effects.md).
+> A bridge evaluation yields an `EffectProposal` or a typed obstruction rather
+> than a patch, Echo derives the patch afterwards in the same Tick
+> construction, and the receipt posture defined there replaces
+> `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
+> patch digest that was never committed. Atomic visibility, one parent patch
+> or one obstruction, still governs. The original text is preserved and still
+> governs every other Action.
+>
 > **Superseded in part (2026-10-14, #837):** for Actions that meet the
 > conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),
 > the exact-basis requirement here is replaced by dependency-scoped validity.

@@ -331,8 +331,11 @@ resource or lawpack, wherever it appears in ADR 0023 (the rope-law closure,
 the package binding direction and obligations, the evidence grades,
 Jurisdiction, and Consequences), each marked where it appears and enumerated
 in the "Jedit rope-law closure" banner, and its selection under "Alternatives
-for Expressing the Rope Law". Every other provision of ADR 0023 continues to
-govern, and its original reasoning is kept.**
+for Expressing the Rope Law". For bridge Actions,
+[Authored Operation Effects](../architecture/authored-operation-effects.md)
+also supersedes ADR 0023's prepared-evaluation outcome, as marked there. Every
+other provision of ADR 0023 continues to govern, and its original reasoning is
+kept.**
 
 Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict
 source and compiled by Edict. It is not imported as a declarative executable

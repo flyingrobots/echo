@@ -131,6 +131,28 @@ that view resolved: node records, alpha atoms, and outgoing edges by type. A
 program has no other path to state, so the record is complete by construction.
 This needs new instrumentation; today's `edict_read` only counts reads.
 
+Absence is a dependency too. Every resolution is recorded with its outcome,
+against the basis it was resolved at:
+
+| Resolution                             | Recorded dependency                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| node or atom present                   | the slot and a digest of its value                                     |
+| node or atom absent                    | the slot, observed absent                                              |
+| outgoing edges of one type from a node | the source node and type, with the target set observed, empty included |
+
+An `Ensure` that finds no existing node depends on that absence, so a
+co-scheduled Action that creates the slot invalidates it like any other
+changed read.
+
+These dependency kinds follow the
+[Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+decision (#837). Value and single-key absence dependencies are the kinds that
+decision supports. A read of outgoing edges by type is a topology dependency,
+which that decision does not yet support, so an Action that reads edges keeps
+the whole-frontier rule: it commits only onto the exact basis it was evaluated
+against. Widening that requires sound edge-set tracking under #837, not a
+looser rule here.
+
 The view resolves each slot on demand from the basis, as
 [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md)
 law 1 requires. The contract never depends on a complete materialized graph:
@@ -158,8 +180,9 @@ An `Ensure` of a node or edge that already exists identically in the basis is
 a read, not a write, so Actions that share existing structure do not conflict.
 Two Actions in one Tick that both create the same new content-addressed node
 do write the same slot, and the existing rule makes the later one obstruct.
-This design adds no merge rule for identical writes. On retry the node exists
-in the new basis, the `Ensure` becomes a read, and the conflict disappears.
+This design adds no merge rule for identical writes. The rejected Action's
+outcome is final (see Retries); a new submission evaluated later finds the
+node in its basis, so its `Ensure` is a read and does not conflict.
 
 ## Visibility and referential integrity
 
@@ -181,19 +204,27 @@ coordinate after shows the new head with everything it reaches.
 
 ## Basis, budget, retries
 
-- **Basis.** Reads are taken from the exact basis. At commit, every
-  `expected…` value and every read slot that a co-scheduled Action wrote must
-  still hold; otherwise the Action obstructs as stale. Action validity across
-  ticks keeps its existing rules.
+- **Basis.** Reads, including observed absences, are taken from the exact
+  basis. At commit, every `expected…` value and every recorded dependency that
+  a co-scheduled Action wrote must still hold; otherwise the Action obstructs
+  as stale. Action validity across ticks keeps its existing rules, and an
+  Action is never re-stamped as if it had been evaluated against a later basis.
 - **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
   effect adds a fixed write cost. Exhausting any limit obstructs with
   `BudgetExceeded`, no proposal, and no patch. A proposal that would exceed the
   Tick's operation cap obstructs the same way rather than splitting.
-- **Retries.** An Action is identified by package, invocation, and basis.
-  Re-evaluating the same Action at the same basis yields the same proposal.
-  Content-addressed `Ensure` effects make a retried, already-committed
-  operation a no-op where the program says so; the operation's own `Replace`
-  guard decides whether a retry is a stale basis.
+- **Retries.** A decided outcome is final. An Action is identified by its
+  submission; once it is decided (committed, obstructed, or
+  `RejectedFootprintConflict`), its outcome, receipt, and attribution never
+  change, and a later success is never written over an earlier conflict. A
+  retry is a new submission with its own identity and attribution, evaluated
+  against whatever basis is current when the scheduler selects it, and it may
+  reach a different outcome. Echo does not retry on its own; whether to submit
+  again is the application's decision.
+- **Pending is not retried.** An Action that was never decided, for example
+  one whose Tick was lost in a crash before its WAL record, remains the same
+  submission. Recovery re-evaluates it; that is not a retry, because no
+  outcome was ever recorded for it.
 
 ## Evidence
 
@@ -263,8 +294,9 @@ B.canonicalHead, B.atom}`. No co-scheduled Action reads or writes these.
     and `T1` are no longer reachable from `B`; they leave the state root, and
     whether their bytes are kept is the retention policy's decision.
 
-A crash before the WAL record loses the Tick entirely; on recovery the Action
-is pending again and re-evaluates against `c` to the same proposal. A crash
+A crash before the WAL record loses the Tick entirely; the Action was never
+decided, so on recovery it is the same pending submission and re-evaluates
+against `c` to the same proposal. A crash
 after it recovers Tick `t+1` from the WAL, with the same state root and
 receipt.
 
@@ -291,9 +323,12 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 2. Their write sets overlap on `B.canonicalHead`. In deterministic order the
    first joins the Tick; the second gets `RejectedFootprintConflict`, with no
    patch.
-3. If the second is retried in a later Tick, its basis now shows `H2`, its
-   guard fails, and it obstructs with `BasisNotCanonical`. Echo never merges
-   the two edits; reconciling them is the application's decision.
+3. The second Action's `RejectedFootprintConflict` is its final outcome. If
+   the application submits the edit again, that is a new submission with its
+   own identity; evaluated at `t+1`, its basis shows `H2`, its guard fails, and
+   it obstructs with `BasisNotCanonical`. Echo never merges the two edits and
+   never rewrites the first rejection; reconciling them is the application's
+   decision.
 
 ## What this design does not do
 
@@ -322,6 +357,10 @@ Each behaviour below needs a test before implementation:
 | Referential integrity | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`.                   |
 | Visibility            | No published coordinate shows a retargeted head without every node and edge it reaches.                                  |
 | Witnessed reads       | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.        |
+| Negative reads        | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it.                |
+| Edge-read basis       | An Action that read edges commits only onto its exact evaluation basis.                                                  |
+| Final outcomes        | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.  |
+| Pending recovery      | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                   |
 
 ## Open questions
 

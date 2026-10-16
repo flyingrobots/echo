@@ -119,6 +119,11 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
       history where any reconstructed outcome differs from the recorded one; for
       each `RejectedFootprintConflict` it also recomputes the blocking earlier
       Actions and requires them to equal the recorded blockers.
+- `echo_operation_written_slots_v1` collects the slots written between an
+  origin and a commit parent by unioning each retained replay patch's
+  `out_slots`. `WarpTickPatchV1::new` accepts `out_slots` independently of
+  its operations, and only debug builds or `footprint_enforce_release` check
+  that a rewrite stays inside its declared footprint.
 - The state root is a full walk of the reachable graph on every commit. See the
   open state-root decision in
   [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md#open-decisions-that-bound-these-laws).
@@ -170,6 +175,18 @@ Rules:
 
 - **Effects are the only writes.** The proposal contains no prepared patch.
   Echo derives the patch from the effects.
+- **Canonical order.** Echo sorts the effects the evaluator emits; the order
+  in which evaluation produced them never reaches the identity. Each effect
+  has a primary slot: the node record for `EnsureNode` and `CreateNode`, the
+  atom for `ReplaceAtom`, and the edge for `EnsureEdge` and `ReplaceEdge`.
+  Effects sort by the primary slot's class (node record, then atom, then
+  edge), then by its id bytes, compared lexicographically. A tie can occur
+  only in a proposal that obstructs with `DuplicateEffectTarget`; it breaks
+  by effect kind (`EnsureNode`, `CreateNode`, `ReplaceAtom`, `EnsureEdge`,
+  `ReplaceEdge`), then by the effect's canonical encoding bytes: a kind tag,
+  fixed-width ids, and length-prefixed type and atom bytes. Sorting never
+  removes an effect, so duplicates stay visible to the one-effect-per-slot
+  rule.
 - **One effect per slot.** No two effects in one proposal may target the same
   slot: one node record, one node's atom, or one edge. Targets are compared
   by canonical slot identity (the node id, the node id's atom, or the edge
@@ -200,9 +217,15 @@ Rules:
   resolved each effect against it.
 - **Effect preconditions.** Each effect states what must hold for it to
   apply, whether or not the program read it:
-    - `CreateNode`: the node is absent;
-    - `EnsureNode` and `EnsureEdge`: the target is absent, or present with
-      identical content;
+    - `CreateNode`: the node record and its atom are both absent. If either
+      exists, including an atom without a node record, the effect obstructs
+      with `PreconditionMismatch`, as today's create-if-absent does;
+    - `EnsureNode`: the node record and its atom are both absent, or both
+      present with identical type and atom. Any other state, including a
+      record without an atom or an atom without a record, is
+      `ContentIdentityConflict`;
+    - `EnsureEdge`: the edge is absent, or present with identical endpoints
+      and type;
     - `ReplaceAtom`: the node's atom has the expected digest;
     - `ReplaceEdge`: the edge exists with the expected target;
     - `EnsureEdge` and `ReplaceEdge`: each endpoint the edge will name
@@ -220,7 +243,11 @@ Rules:
   is the idempotent create profile that Edict's I-022 requires before
   duplicate content-addressed creation can be lawful.
 - **Compare-before-replace.** `ReplaceAtom` and `ReplaceEdge` carry the value
-  they expect. A mismatch at commit is a stale-basis obstruction, not a merge.
+  they expect. A mismatch is a typed `PreconditionMismatch` obstruction, the
+  kind today's compare-and-set uses, with posture `Proposed`, `NotDerived`.
+  It is never a merge. It is distinct from `BasisChanged`, which reports a
+  dependency that changed after the origin (see
+  [Basis, budget, retries](#basis-budget-retries)).
 - **No deletes in this profile.** Persistent structures do not need them.
   Deletion needs its own design.
 - **Identity derivation is the program's.** Echo checks that each node and edge
@@ -286,13 +313,17 @@ Echo checks:
 - the witnessed read set, the precondition slots, and the proposal's target
   set lie inside the law;
 - counts do not exceed the declared maxima;
+- once validation has resolved each effect against the basis, the complete
+  write set, range keys included, and its counts lie inside the law. A range
+  key is known only after resolution: a `ReplaceEdge` whose basis edge has a
+  source or type outside the law fails here, before any patch exists;
 - the derived patch's actual footprint equals the proposal's write set (see
   [EffectProposal](#effectproposal)). The actual footprint is computed in the
   same slot model: each node upsert writes the node record, each attachment
   set writes the node's atom, and each edge upsert writes the edge and the
   range key of its source and type.
 
-The first two checks run before any patch is derived; a violation is a typed
+The first three checks run before any patch is derived; a violation is a typed
 `FootprintLawViolation` obstruction with patch tag `NotDerived`. The third can
 only run after derivation; a mismatch is a typed `FootprintMismatch`
 obstruction with patch tag `Derived`, recording the patch digest it compared.
@@ -307,7 +338,12 @@ An `Ensure` of a node or edge that already exists identically in the basis is
 a read, not a write, so Actions that share existing structure do not conflict.
 Two Actions in one Tick that both create the same new content-addressed node
 do write the same slot, and the existing rule makes the later one obstruct.
-This design adds no merge rule for identical writes. The rejected Action's
+This design adds no merge rule for identical writes. Every Action's write
+set, and so whether its `Ensure` is a read, is resolved against the Tick's
+commit parent, never against the writes of Actions accepted earlier in the
+same Tick. A later Action therefore cannot turn an earlier Action's new node
+into a read of its own, even under dependency-scoped validity, whose value
+comparison runs at the validation position. The rejected Action's
 outcome is final (see Retries); a new submission evaluated later finds the
 node in its basis, so its `Ensure` is a read and does not conflict.
 
@@ -366,21 +402,35 @@ held; this design validates only what the proposal adds or retargets.
       changed even if it was later restored.
     - **How a restored value is detected.** Comparing current values cannot
       see a change from A to B and back to A. The history check therefore
-      compares slots, not values: it reuses Echo's existing evidence,
-      `echo_operation_written_slots_v1` (`echo_operation.rs`), which collects
-      every slot written by the retained replay patches from the origin to
-      the commit parent. A dependency whose slot is in that set has changed,
-      whatever its value now. If any Tick in that interval has no retained
-      replay patch, the written set is unknown and the Action falls back to
-      the whole-frontier rule. Value comparison is used only at the
-      validation position, against the commit parent plus the writes of
-      earlier Actions in the same Tick. No new versioning system is added.
-    - **Order.** The history check runs immediately after evaluation and
-      before any validation of the proposal. If a dependency changed, the
-      Action obstructs with `BasisChanged` and keeps the evidence it has:
-      posture `Proposed` with patch tag `NotDerived` when evaluation produced
-      a proposal, otherwise `NoProposal`, and in both cases its witnessed read
-      set and the dependency it names as changed. No patch is derived from a
+      compares slots, not values: it uses the set of slots written by the
+      retained replay patches from the origin to the commit parent. A
+      dependency whose slot is in that set has changed, whatever its value
+      now. The set is derived from each patch's replay operations, in the
+      slot model of the actual footprint, never from its declared
+      `out_slots`, which a release build does not check against the
+      operations (see [Current implementation](#current-implementation)).
+      `echo_operation_written_slots_v1` must therefore project operations, or
+      verify that `out_slots` covers them exactly and treat any mismatch as
+      unknown. Value comparison is used only at the validation position,
+      against the commit parent plus the writes of earlier Actions in the
+      same Tick. No new versioning system is added.
+    - **Unknown history is decided before evaluation.** The written set
+      depends only on the origin and the commit parent, so Echo computes it
+      before evaluating the Action. If any Tick in the interval has no
+      retained replay patch, or its writes cannot be derived, the set is
+      unknown and the Action takes the whole-frontier rule at once: since the
+      origin is not the commit parent, it obstructs with whole-frontier
+      `BasisChanged`, posture `NoProposal`, empty read set, no evaluation.
+    - **Evaluation obstructions stand.** An evaluation that obstructs before
+      producing a proposal (`BudgetExceeded`, or an authored guard) keeps
+      that obstruction with posture `NoProposal`. Its later reads never ran
+      and it has no effects, so its dependency set is incomplete, and it is
+      never reclassified as `BasisChanged`. It commits nothing either way.
+    - **Order.** For a proposal, the history check runs immediately after
+      evaluation and before any validation. If a dependency changed, the
+      Action obstructs with `BasisChanged`, posture `Proposed` with patch tag
+      `NotDerived`, and keeps its witnessed read set and the dependency it
+      names as changed. No patch is derived from a
       proposal whose dependencies changed, so a proposal that would also have
       failed validation (for example `DuplicateEffectTarget`) still has one
       encodable outcome. Only when every dependency holds does validation run,
@@ -471,7 +521,7 @@ Each Action's receipt entry binds, in addition to its current fields:
         - `NotDerived` when no patch was derived: validation refused the
           proposal (`DanglingReference`, `ContentIdentityConflict`,
           `DuplicateEffectTarget`, `FootprintLawViolation`,
-          `IdentityLawViolation`, or a stale expected value), or a
+          `IdentityLawViolation`, or `PreconditionMismatch`), or a
           dependency-scoped `BasisChanged` was decided before validation. No
           write-set or patch digest is manufactured; an overwrite patch that
           `Ensure` forbids is never hashed;
@@ -489,7 +539,9 @@ Each Action's receipt entry binds, in addition to its current fields:
       mode, a compared-values digest over the values those dependencies were
       compared against at the validation position (the commit parent plus the
       writes of every earlier accepted Action), and, for a `BasisChanged`, the
-      first changed dependency in canonical order;
+      first changed dependency in canonical order. An evaluation obstruction
+      runs no dependency comparison, so its `Scoped` evidence is the origin
+      basis and validation position only;
 - for `NoProposal` and `Proposed`, consumed budget.
 
 The submission identity is present in every variant. An identified submission
@@ -555,11 +607,12 @@ new evidence. Verification is not re-admission.
   and then discarded.
 - An Action recorded as `Scoped` follows
   [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks):
-  whatever its outcome, recovery recomputes its complete dependency set
-  (every witnessed read and every effect precondition) and its validation at
-  the recorded position from retained history, and refuses a history whose
-  dependency-set digest, compared-values digest, changed dependency, or result
-  differs.
+  for every `Proposed` outcome, recovery recomputes its complete dependency
+  set (every witnessed read and every effect precondition), the written-slot
+  set from the replay operations, and its validation at the recorded
+  position from retained history, and refuses a history whose dependency-set
+  digest, compared-values digest, changed dependency, or result differs. For
+  an evaluation obstruction it re-evaluates at the origin.
 - An undecided Action stays the same pending submission and is evaluated when
   the scheduler next selects it.
 
@@ -577,17 +630,17 @@ The bridge keeps both and adds the outgoing-edge range keys and precondition
 reads to the reconstructed composition. The scoped-validity recomputation
 above likewise applies to every row recorded as `Scoped`.
 
-| Outcome                                                                                                                                                                   | Posture                                   | Existing check                                                            | Added                                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Committed                                                                                                                                                                 | `Proposed`, `Derived`                     | replay patch; reconstruct preparation; compare identities                 | effects bound; read-set digest; patch digest equals the replayed patch                                                                                                               |
-| `RejectedFootprintConflict`                                                                                                                                               | `Proposed`, `Derived`                     | reconstruct preparation; compare identities; recompute recorded blockers  | effects bound; read-set digest; blockers include range-key conflicts                                                                                                                 |
-| Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, stale expected value) | `Proposed`, `NotDerived`                  | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                               |
-| Obstructed by `FootprintMismatch` (after derivation)                                                                                                                      | `Proposed`, `Derived`                     | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                             |
-| `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                 | `Proposed`, `Derived`                     | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                       |
-| `BudgetExceeded` during evaluation, or an authored guard                                                                                                                  | `NoProposal`                              | re-evaluate; compare pre-decision evidence                                | re-evaluation again yields no proposal; read-set digest                                                                                                                              |
-| `BasisChanged`, whole-frontier (before evaluation)                                                                                                                        | `NoProposal`                              | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set                                                                                                                            |
-| `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                   | `Proposed`, `NotDerived`, or `NoProposal` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound if `Proposed`; read-set digest; recompute the complete dependency set, witnessed reads and effect preconditions, and the changed dependency |
-| Any outcome of a `NotBridge` entry                                                                                                                                        | `NotBridge`                               | unchanged                                                                 | none; no bridge field present                                                                                                                                                        |
+| Outcome                                                                                                                                                                     | Posture                  | Existing check                                                            | Added                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Committed                                                                                                                                                                   | `Proposed`, `Derived`    | replay patch; reconstruct preparation; compare identities                 | effects bound; read-set digest; patch digest equals the replayed patch                                                                                                                                               |
+| `RejectedFootprintConflict`                                                                                                                                                 | `Proposed`, `Derived`    | reconstruct preparation; compare identities; recompute recorded blockers  | effects bound; read-set digest; blockers include range-key conflicts                                                                                                                                                 |
+| Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, `PreconditionMismatch`) | `Proposed`, `NotDerived` | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                                                               |
+| Obstructed by `FootprintMismatch` (after derivation)                                                                                                                        | `Proposed`, `Derived`    | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                                                             |
+| `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                   | `Proposed`, `Derived`    | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                                                       |
+| `BudgetExceeded` during evaluation, or an authored guard                                                                                                                    | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
+| `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                               | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set                                                                                                                                                            |
+| `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                     | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
+| Any outcome of a `NotBridge` entry                                                                                                                                          | `NotBridge`              | unchanged                                                                 | none; no bridge field present                                                                                                                                                                                        |
 
 ## Execution traces
 
@@ -619,13 +672,15 @@ replacement "there"}` at basis `c`.
 4. **Pure computation.** The guard `canonicalHead == H1` holds; range and
    boundaries check; the new bytes are `"hello there"`; the program derives ids
    `T2` and `H2` under its identity law.
-5. **Proposal**, in canonical order:
+5. **Proposal**, in canonical order: node records, then atoms, then edges.
+   Within a class the order follows id bytes, which these symbolic names do
+   not show.
     - `EnsureNode T2 {bytes "hello there", lineBreaks 0}`
     - `EnsureNode H2 {byteLength 11, lineCount 1, sequence 5}`
+    - `ReplaceAtom B expected digest(version 7), now {version 8}`
     - `EnsureEdge H2 -root-> T2`
     - `EnsureEdge H2 -anchor-> I`
     - `ReplaceEdge B -canonicalHead-> expected H1, now H2`
-    - `ReplaceAtom B expected digest(version 7), now {version 8}`
 6. **Validation.** The read and write sets lie inside the footprint law. Echo
    recomputes `T2` and `H2` from their atoms and children under the declared
    identity law; a mismatch would obstruct with `IdentityLawViolation`.
@@ -716,40 +771,44 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 
 Each behaviour below needs a test before implementation:
 
-| Property               | Test                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Atomicity              | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                                                                                                                                                                                                                                                                                                       |
-| Ensure identity        | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                                                                                                                                                                                                                                                                                                                  |
-| Witnessed footprint    | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                                                                                                                                                                                                                                                                                                      |
-| Stale basis            | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                                                                                                                                                                                                                                                                                                              |
-| Budget                 | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                                                                               |
-| Determinism            | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
-| Canonical slots        | Differently expressed effects on one slot (`EnsureEdge` and `ReplaceEdge` of one edge id; `CreateNode` and `ReplaceAtom` of one node) obstruct with `DuplicateEffectTarget`.                                                                                                                                                                                                                                  |
-| Write set              | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
-| Identity law           | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
-| Footprint stages       | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                                                                                                      |
-| Restored value (ABA)   | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`; with one replay patch in the interval missing, the Action falls back to the whole-frontier rule.                                                                                                                                                          |
-| Scoped preconditions   | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |
-| Retry basis            | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
-| Receipt digest v5      | A version-5 receipt digest changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                                                                         |
-| Proposal binding       | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                                 |
-| No-proposal evidence   | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                                                                                                                                      |
-| Recovery               | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                                                                                          |
-| Composition            | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                                                                            |
-| Shared structure       | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                                 |
-| Referential integrity  | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                                                                           |
-| Visibility             | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                                |
-| Witnessed reads        | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                                                                             |
-| Negative reads         | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it, including a fresh edge of the observed source and type with a new edge id when the observed set was empty (outgoing-edge range key).                                                                                                                                                                |
-| Edge-read basis        | An Action that read edges commits only onto its exact evaluation basis.                                                                                                                                                                                                                                                                                                                                       |
-| Final outcomes         | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                                                                                                                                       |
-| Duplicate resubmission | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                                                                                                                          |
-| Attribution            | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                                                                                                                                                                                                                                                                                                       |
-| One effect per slot    | Two effects on one slot (two `ReplaceAtom`, or `EnsureNode` plus `ReplaceAtom` of the same node) obstruct with `DuplicateEffectTarget`, posture `Proposed`, `NotDerived`.                                                                                                                                                                                                                                     |
-| Scoped basis change    | A dependency-scoped Action evaluated at its origin obstructs with `BasisChanged`, posture `Proposed` with `NotDerived`, and keeps its proposal, read set, and changed dependency when a dependency changed, even if its proposal would also fail validation; an unchanged dependency set lets it commit.                                                                                                      |
-| Receipt format         | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
-| Recovered evidence     | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
-| Pending recovery       | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                                        |
+| Property                      | Test                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atomicity                     | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                                                                                                                                                                                                                                                                                                       |
+| Ensure identity               | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                                                                                                                                                                                                                                                                                                                  |
+| Partial occupancy             | A node record without its atom, or an atom without its record: `CreateNode` obstructs with `PreconditionMismatch` and `EnsureNode` with `ContentIdentityConflict`; neither overwrites the orphan slot.                                                                                                                                                                                                        |
+| Witnessed footprint           | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                                                                                                                                                                                                                                                                                                      |
+| Stale basis                   | `ReplaceAtom` with a changed expected digest, or `ReplaceEdge` with a moved `expectedTo`, obstructs with `PreconditionMismatch`, posture `Proposed`, `NotDerived`, and no patch.                                                                                                                                                                                                                              |
+| Budget                        | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                                                                               |
+| Determinism                   | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
+| Canonical order               | Emitting the same effects in different orders yields the same canonical `EffectProposal` bytes and proposal identity.                                                                                                                                                                                                                                                                                         |
+| Canonical slots               | Differently expressed effects on one slot (`EnsureEdge` and `ReplaceEdge` of one edge id; `CreateNode` and `ReplaceAtom` of one node) obstruct with `DuplicateEffectTarget`.                                                                                                                                                                                                                                  |
+| Write set                     | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
+| Identity law                  | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
+| Footprint stages              | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`, and so does a `ReplaceEdge` whose basis edge's range key lies outside the law; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                       |
+| Restored value (ABA)          | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`, including when the intervening patch under-declared its `out_slots`; with one replay patch in the interval missing, the Action obstructs before evaluation as a whole-frontier `BasisChanged`, posture `NoProposal`, with an empty read set.              |
+| Scoped preconditions          | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |
+| Retry basis                   | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
+| Receipt digest v5             | A version-5 receipt digest changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                                                                         |
+| Proposal binding              | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                                 |
+| No-proposal evidence          | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                                                                                                                                      |
+| Recovery                      | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                                                                                          |
+| Composition                   | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                                                                            |
+| Shared structure              | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                                 |
+| Same-Tick identical create    | Two Actions, dependency-scoped included, that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                                       |
+| Referential integrity         | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                                                                           |
+| Visibility                    | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                                |
+| Witnessed reads               | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                                                                             |
+| Negative reads                | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it, including a fresh edge of the observed source and type with a new edge id when the observed set was empty (outgoing-edge range key).                                                                                                                                                                |
+| Edge-read basis               | An Action that read edges commits only onto its exact evaluation basis.                                                                                                                                                                                                                                                                                                                                       |
+| Final outcomes                | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                                                                                                                                       |
+| Duplicate resubmission        | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                                                                                                                          |
+| Attribution                   | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                                                                                                                                                                                                                                                                                                       |
+| One effect per slot           | Two effects on one slot (two `ReplaceAtom`, or `EnsureNode` plus `ReplaceAtom` of the same node) obstruct with `DuplicateEffectTarget`, posture `Proposed`, `NotDerived`.                                                                                                                                                                                                                                     |
+| Scoped basis change           | A dependency-scoped Action evaluated at its origin obstructs with `BasisChanged`, posture `Proposed` with `NotDerived`, and keeps its proposal, read set, and changed dependency when a dependency changed, even if its proposal would also fail validation; an unchanged dependency set lets it commit.                                                                                                      |
+| Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                                            |
+| Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
+| Recovered evidence            | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
+| Pending recovery              | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                                        |
 
 ## Open questions
 

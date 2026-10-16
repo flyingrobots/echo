@@ -1269,6 +1269,10 @@ struct AdmissionCoverageRequirement {
     /// Whether some restored tick has no attribution section, so the
     /// submissions it decided cannot be enumerated from history.
     unattributed_ticks: bool,
+    /// Runtime ingress events that the unattributed ticks themselves created,
+    /// with the writer head of each tick: the only evidence such a tick leaves
+    /// of what it decided.
+    legacy_ingress_events: BTreeSet<(WriterHeadKey, Hash)>,
 }
 
 // =============================================================================
@@ -2964,16 +2968,28 @@ impl WorldlineRuntime {
             let basis_len = provenance.len(*worldline_id)?;
             let mut attributed_submissions = BTreeSet::new();
             let mut unattributed_ticks = false;
+            let mut legacy_ingress_events = BTreeSet::new();
+            let event_type = crate::engine_impl::runtime_ingress_event_type();
             for tick in 0..basis_len {
                 let entry = provenance.entry(*worldline_id, WorldlineTick::from_raw(tick))?;
-                match entry
+                if let Some(attribution) = entry
                     .tick_receipt
                     .as_ref()
                     .and_then(crate::TickReceipt::attribution)
                 {
-                    Some(attribution) => attributed_submissions
-                        .extend(attribution.iter().map(|record| record.submission_id)),
-                    None => unattributed_ticks = true,
+                    attributed_submissions
+                        .extend(attribution.iter().map(|record| record.submission_id));
+                } else {
+                    unattributed_ticks = true;
+                    if let (Some(head_key), Some(patch)) = (entry.head_key, &entry.patch) {
+                        for op in &patch.ops {
+                            if let crate::WarpOp::UpsertNode { node, record } = op {
+                                if record.ty == event_type {
+                                    legacy_ingress_events.insert((head_key, node.local_id.0));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             restored.admission_coverage_pending.insert(
@@ -2982,6 +2998,7 @@ impl WorldlineRuntime {
                     basis_tick: WorldlineTick::from_raw(basis_len),
                     attributed_submissions,
                     unattributed_ticks,
+                    legacy_ingress_events,
                 },
             );
         }
@@ -3613,7 +3630,10 @@ impl WorldlineRuntime {
                 continue;
             }
             let legacy_ingress = if requirement.unattributed_ticks {
-                match self.committed_ingress_from_replayed_events(worldline_id) {
+                match self.committed_ingress_from_legacy_ticks(
+                    worldline_id,
+                    &requirement.legacy_ingress_events,
+                ) {
                     Some(ingress) => ingress,
                     None => continue,
                 }
@@ -3642,46 +3662,38 @@ impl WorldlineRuntime {
     /// Reconstructs committed ingress for a worldline whose restored history
     /// includes ticks older than attribution, or `None` when it is ambiguous.
     ///
-    /// Such a tick leaves no list of what it decided, but deciding a runtime
-    /// ingress materializes an event node keyed by its ingress id, which
-    /// replay restores. The ingress id does not name a head, so a node proves
-    /// a decision only when exactly one witnessed submission on the worldline
-    /// carries that ingress and it is not already known to be committed. When
-    /// several could be the one decided, Echo cannot tell which, and coverage
-    /// stays unestablished.
+    /// Such a tick leaves no list of what it decided. The evidence it does
+    /// leave is in its own patch: deciding a runtime ingress creates an event
+    /// node keyed by the ingress id, recorded under the tick's writer head. A
+    /// witnessed submission counts as decided only with that tick evidence for
+    /// its head and ingress. Final graph state is not evidence: a node with the
+    /// same id may come from the base state, or from identical content decided
+    /// on another head. So a submission whose ingress node exists without tick
+    /// evidence (or a correlation) is undetermined, and coverage stays
+    /// unestablished. A submission with no such node was not decided.
     #[cfg(any(
         test,
         all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
     ))]
-    fn committed_ingress_from_replayed_events(
+    fn committed_ingress_from_legacy_ticks(
         &self,
         worldline_id: WorldlineId,
+        events: &BTreeSet<(WriterHeadKey, Hash)>,
     ) -> Option<Vec<(WriterHeadKey, Hash)>> {
         let frontier = self.worldlines.get(&worldline_id)?;
         let state = frontier.state();
         let store = state.warp_state().store(&state.root().warp_id)?;
-        let mut by_ingress: BTreeMap<Hash, Vec<WriterHeadKey>> = BTreeMap::new();
-        for record in self.witnessed_submissions.values() {
-            if record.head_key.worldline_id == worldline_id
-                && store.node(&crate::NodeId(record.ingress_id)).is_some()
-            {
-                by_ingress
-                    .entry(record.ingress_id)
-                    .or_default()
-                    .push(record.head_key);
-            }
-        }
         let mut decided = Vec::new();
-        for (ingress_id, heads) in by_ingress {
-            let undetermined = heads
-                .iter()
-                .filter(|head_key| !state.contains_committed_ingress(head_key, &ingress_id))
-                .copied()
-                .collect::<Vec<_>>();
-            match (heads.len(), undetermined.as_slice()) {
-                (_, []) => {}
-                (1, [head_key]) => decided.push((*head_key, ingress_id)),
-                _ => return None,
+        for record in self.witnessed_submissions.values() {
+            if record.head_key.worldline_id != worldline_id
+                || state.contains_committed_ingress(&record.head_key, &record.ingress_id)
+            {
+                continue;
+            }
+            if events.contains(&(record.head_key, record.ingress_id)) {
+                decided.push((record.head_key, record.ingress_id));
+            } else if store.node(&crate::NodeId(record.ingress_id)).is_some() {
+                return None;
             }
         }
         Some(decided)
@@ -6832,6 +6844,94 @@ mod tests {
         restored.attest_complete_witnessed_submissions();
         assert!(matches!(
             restored.ingest(content(IngressTarget::ExactHead { key: other })),
+            Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+        ));
+    }
+
+    /// PR #888 review: final graph state is not commit evidence. A node whose
+    /// id equals a pending request's ingress id may already be in the base
+    /// state; without the restored tick having created it, the pending
+    /// request must not be marked committed (it could then never run).
+    #[test]
+    fn a_base_state_node_is_not_evidence_that_a_legacy_tick_decided_a_request() {
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let pending_bytes = toy_increment_intent(b"amount=44");
+        let colliding = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: wl(1),
+            },
+            kind,
+            pending_bytes.clone(),
+        )
+        .ingress_id();
+        let base = || {
+            let mut store = crate::GraphStore::default();
+            let root = make_node_id("root");
+            store.insert_node(
+                root,
+                NodeRecord {
+                    ty: make_type_id("world"),
+                },
+            );
+            store.insert_node(
+                NodeId(colliding),
+                NodeRecord {
+                    ty: make_type_id("app/thing"),
+                },
+            );
+            WorldlineState::from_root_store(store, root).unwrap()
+        };
+        let runtime_on = |state: WorldlineState| {
+            let mut runtime = WorldlineRuntime::new();
+            runtime.register_worldline(wl(1), state).unwrap();
+            register_head(
+                &mut runtime,
+                wl(1),
+                "default",
+                None,
+                true,
+                InboxPolicy::AcceptAll,
+            );
+            runtime
+        };
+        let mut source = runtime_on(base());
+        let mut engine = empty_engine();
+        engine.register_rule(toy_increment_contract_rule()).unwrap();
+        let worldline_id = wl(1);
+        accepted_submission(
+            source
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let pending = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            pending_bytes,
+        );
+        accepted_submission(source.ingest(pending.clone()).unwrap());
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let mut restored = runtime_on(base());
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(matches!(
+            restored.ingest(pending),
             Err(RuntimeError::AdmissionCoverageUnestablished { .. })
         ));
     }

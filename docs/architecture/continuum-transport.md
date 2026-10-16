@@ -83,6 +83,14 @@ transport adapter receives bytes
 -> tick + receipt / witness
 ```
 
+**Current status (#892).** This flow is not wired. Until comparable-basis
+transport is specified ([continuum#80](https://github.com/flyingrobots/continuum/issues/80))
+and the import is dispatched to its explicitly named receiving worldline,
+`dispatch_intent` refuses import intents with `NOT_SUPPORTED` and admits,
+stages and attributes nothing. It never substitutes the kernel's default
+worldline. The library evaluator (`import_suffix`) is unaffected and is not
+reachable from dispatch.
+
 The runtime must:
 
 1. Verify the source shell and bundle identities.

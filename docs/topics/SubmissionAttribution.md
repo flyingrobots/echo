@@ -209,7 +209,10 @@ submission its restored ticks attribute has retained envelope material (a
 partial restore stays obstructed), and releasing it records committed-ingress
 membership for those submissions, which replayed state does not carry; without
 it, `ingest` would put a request a tick had decided back into the inbox. After a
-normal host recovery admission is open.
+normal host recovery admission is open; if the attestation cannot release a
+worldline (its history attributes a submission the recovered acceptance log does
+not hold), recovery fails with `TrustedRuntimeWalError::AdmissionCoverageUnestablished`
+instead of opening a runtime that refuses admission.
 
 ### 4. A rebuildable index
 

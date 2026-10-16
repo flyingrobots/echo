@@ -209,6 +209,14 @@ pub enum TrustedRuntimeWalError {
         /// Submission whose retained records conflicted.
         submission_id: Hash,
     },
+    /// Recovered history attributes decisions to submissions the recovered
+    /// acceptance log does not cover, so admission coverage cannot be
+    /// established for that worldline.
+    #[error("trusted runtime WAL recovery cannot establish admission coverage for worldline {worldline_id:?}")]
+    AdmissionCoverageUnestablished {
+        /// Worldline whose restored history is not covered.
+        worldline_id: crate::WorldlineId,
+    },
     /// Recovery cannot restore an accepted submission without envelope material.
     #[error("trusted runtime WAL is missing retained envelope material for submission {submission_id:?}")]
     SubmissionEnvelopeMissing {
@@ -1423,6 +1431,12 @@ impl TrustedRuntimeHost {
         // envelope material, and restored a correlation for every decision the
         // WAL records, so the acceptance and decision logs are complete.
         restored_runtime.attest_complete_witnessed_submissions();
+        if let Some(worldline_id) = restored_runtime.admission_coverage_unestablished().first() {
+            return Err(TrustedRuntimeWalError::AdmissionCoverageUnestablished {
+                worldline_id: *worldline_id,
+            }
+            .into());
+        }
         validate_recovered_tick_decisions(&restored_runtime, &recovery.receipts)?;
 
         self.engine

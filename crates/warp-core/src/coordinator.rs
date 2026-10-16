@@ -3625,6 +3625,13 @@ impl WorldlineRuntime {
         }
     }
 
+    /// Worldlines whose restored history admission coverage does not yet
+    /// cover, in worldline order.
+    #[must_use]
+    pub fn admission_coverage_unestablished(&self) -> Vec<WorldlineId> {
+        self.admission_coverage_pending.keys().copied().collect()
+    }
+
     /// Refuses admission on a worldline whose restored history is not yet
     /// covered by restored witnessed submissions.
     fn check_admission_coverage(&self, worldline_id: WorldlineId) -> Result<(), RuntimeError> {
@@ -6580,6 +6587,10 @@ mod tests {
         ));
         restored.attest_complete_witnessed_submissions();
         assert_obstructed(&mut restored);
+        assert_eq!(
+            restored.admission_coverage_unestablished(),
+            vec![worldline_id]
+        );
 
         // A failed restore changes nothing.
         let mut corrupt = snapshot.records().to_vec();
@@ -6609,6 +6620,7 @@ mod tests {
             .unwrap();
         assert_obstructed(&mut restored);
         restored.attest_complete_witnessed_submissions();
+        assert!(restored.admission_coverage_unestablished().is_empty());
         match restored.ingest(committed.clone()).unwrap() {
             IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
             IngressDisposition::Accepted { .. } => panic!("a committed request must be a retry"),

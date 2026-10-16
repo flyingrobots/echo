@@ -228,6 +228,10 @@ impl ContractObstruction {
             } => Self::admission_obstruction(ContractObstructionSubject::Submission {
                 submission_id: *existing_submission_id,
             }),
+            RuntimeError::AdmissionCoverageUnestablished { .. } => Self::new(
+                ContractObstructionKind::MissingRetention,
+                ContractObstructionSubject::Unspecified,
+            ),
             RuntimeError::ContinuumOccurrenceCoverageUnavailable { submission_id, .. } => {
                 Self::new(
                     ContractObstructionKind::MissingRetention,

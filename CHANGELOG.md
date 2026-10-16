@@ -105,6 +105,18 @@
 
 ### Added
 
+- Restoring committed history without the witnessed submissions it accounts
+  for no longer reopens admission (#887). `restore_causal_runtime_history`
+  keeps the restored worldline readable, but `submit_intent`, `ingest` and
+  ticketed staging fail with `RuntimeError::AdmissionCoverageUnestablished`
+  until the trusted host attests, after WAL recovery, that the witnessed
+  submissions and receipt correlations it restored are its complete acceptance
+  and decision logs. The attestation releases a worldline only when every
+  submission its ticks attribute has retained material, and it covers only the
+  restores made before it; final graph state is never treated as evidence of
+  a decision. Before this, a runtime rebuilt from history alone accepted a resent
+  request as a new one, and `ingest` could re-queue a request an unticketed
+  tick had already decided. Normal host recovery is unaffected.
 - Echo preserves Continuum occurrence identity at admission (#880).
   `IngressEnvelope::continuum_occurred_intent` binds an intent to a
   `ContinuumOccurrence` (Continuum's occurrence key and applied digests), and

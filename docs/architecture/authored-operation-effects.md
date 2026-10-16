@@ -364,6 +364,17 @@ held; this design validates only what the proposal adds or retargets.
       including each edge endpoint. As the Action validity across ticks
       decision requires, a dependency that changed in that history counts as
       changed even if it was later restored.
+    - **How a restored value is detected.** Comparing current values cannot
+      see a change from A to B and back to A. The history check therefore
+      compares slots, not values: it reuses Echo's existing evidence,
+      `echo_operation_written_slots_v1` (`echo_operation.rs`), which collects
+      every slot written by the retained replay patches from the origin to
+      the commit parent. A dependency whose slot is in that set has changed,
+      whatever its value now. If any Tick in that interval has no retained
+      replay patch, the written set is unknown and the Action falls back to
+      the whole-frontier rule. Value comparison is used only at the
+      validation position, against the commit parent plus the writes of
+      earlier Actions in the same Tick. No new versioning system is added.
     - **Order.** The history check runs immediately after evaluation and
       before any validation of the proposal. If a dependency changed, the
       Action obstructs with `BasisChanged` and keeps the evidence it has:
@@ -717,6 +728,7 @@ Each behaviour below needs a test before implementation:
 | Write set              | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
 | Identity law           | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
 | Footprint stages       | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                                                                                                      |
+| Restored value (ABA)   | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`; with one replay patch in the interval missing, the Action falls back to the whole-frontier rule.                                                                                                                                                          |
 | Scoped preconditions   | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |
 | Retry basis            | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
 | Receipt digest v5      | A version-5 receipt digest changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                                                                         |

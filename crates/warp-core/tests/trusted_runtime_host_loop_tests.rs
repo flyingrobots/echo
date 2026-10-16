@@ -4348,3 +4348,79 @@ fn causal_requests_accepted_before_the_separated_recipe_survive_restart_and_rese
     drop(host);
     fs::remove_dir_all(&root).expect("WAL fixture cleanup succeeds");
 }
+
+/// PR #900 review: a runtime may hold accepted legacy causal material that a
+/// newly enabled WAL does not. A resend in the separated form resolves to that
+/// submission, and the WAL must record the retained (original-form) envelope
+/// under it, so the log still recovers.
+#[test]
+fn a_legacy_resolved_resend_records_the_retained_envelope() {
+    let legacy_root = legacy_causal_wal();
+    let (rt, lane) = runtime();
+    let mut recovered = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&legacy_root))
+        .expect("the frozen WAL recovers");
+    let pending = hex_hash(LEGACY_PENDING);
+    let snapshot = recovered
+        .runtime()
+        .witnessed_submission_persistence_snapshot()
+        .expect("snapshot");
+    let pending_only = warp_core::WitnessedSubmissionPersistenceSnapshot::new(
+        snapshot
+            .records()
+            .iter()
+            .filter(|record| record.submission.submission_id == pending)
+            .cloned()
+            .collect(),
+    );
+    drop(recovered);
+    fs::remove_dir_all(&legacy_root).expect("fixture cleanup");
+
+    // A host whose WAL has never seen the accepted legacy request, given that
+    // request through host-level reconfiguration of its runtime. (Enabling a
+    // WAL on a runtime that already holds it is refused.)
+    let fresh_root = temp_runtime_wal_dir("legacy-resolved-resend");
+    let (rt, _) = runtime();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&fresh_root))
+        .expect("a fresh WAL");
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .restore_witnessed_submission_persistence(pending_only)
+        .expect("legacy material restores");
+    let mut host = TrustedRuntimeHost::from_parts(parts);
+    let parent = causal_receipt_ref(lane, "legacy-parent", 41);
+    let resend = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::DefaultWriter { worldline_id: lane },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, b"amount=9").expect("EINT"),
+            vec![IngressCausalParent::TickReceipt {
+                receipt_ref: parent,
+            }],
+            ContinuumOccurrence::new([7; 32], [0xa7; 32]),
+        ))
+        .expect("the resend resolves to the legacy submission");
+    assert!(resend.duplicate);
+    assert_eq!(resend.submission_id, pending);
+    drop(host);
+
+    let (rt, _) = runtime();
+    let mut restarted = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&fresh_root))
+        .expect("the WAL recorded the retained envelope and recovers");
+    assert_eq!(
+        restarted
+            .runtime()
+            .witnessed_submission_envelope(&pending)
+            .expect("retained")
+            .identity_version(),
+        warp_core::IngressIdentityVersion::Original
+    );
+    drop(restarted);
+    fs::remove_dir_all(&fresh_root).expect("WAL cleanup");
+}

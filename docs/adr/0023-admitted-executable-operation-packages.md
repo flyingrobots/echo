@@ -10,6 +10,10 @@
 - **Superseded in part by:** the [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
   decision of 2026-10-14 (#837), for every exact-basis requirement below as it
   applies to Actions that meet that decision's conditions
+- **Superseded in part by:** the
+  [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)
+  decision of 2026-10-15, for the "Jedit rope-law closure" section and the
+  selection under "Alternatives for Expressing the Rope Law"
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -291,6 +295,13 @@ admission posture without adding broad authorization policy to this decision.
 
 ### Jedit rope-law closure
 
+> **Superseded in part (2026-10-15):** The rope law is now authored in
+> Jedit-owned Edict source rather than imported as a declarative executable
+> resource. See
+> [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+> The schema-declaration requirements and the prohibited forms below still
+> govern.
+
 For the first `ReplaceRange` vertical, Jedit will use a digest-locked canonical
 declarative executable semantic resource imported through a Jedit-owned Edict
 lawpack. This decision does not require Edict source to express the complete
@@ -371,7 +382,8 @@ and complete obstruction control.
 This is the preferable long-term authoring experience if repeated operations
 demonstrate that those constructs belong in Edict. It is rejected for the first
 vertical because the current compiler's initial lowerable subset is much
-smaller. Implementing the entire language surface before any hook-free
+smaller. (This route became the selected direction on 2026-10-15; see the
+superseding decision linked above.) Implementing the entire language surface before any hook-free
 operation runs would turn the first witness into a broad language and runtime design
 effort and would make `ReplaceRange` define unproven universal syntax.
 
@@ -383,8 +395,11 @@ identity through Core and target lowering, and generate canonical client and
 package artifacts. The persistent-rope execution law lives in declarative
 program bytes rather than native code.
 
-This route is selected. It is the smallest route that closes the execution
-proof chain without broad Edict expansion. It does not establish a permanent
+This route was selected on 2026-07-18 and was superseded on 2026-10-15 before
+it was implemented; see
+[Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+The original rationale follows. It is the smallest route that closes the
+execution proof chain without broad Edict expansion. It does not establish a permanent
 rule that complex Edict operations must be authored as external resources.
 Later Edict syntax may compile to the same target program boundary.
 

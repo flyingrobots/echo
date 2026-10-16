@@ -319,6 +319,77 @@ boundary.
 The host/WAL shell must be separated from `native_rule_bootstrap` before Jedit
 can delete the legacy feature without also losing executable operations.
 
+#### Application operation semantics authored in Edict source
+
+**Decision 2026-10-15 (proposed for review in
+[flyingrobots/jedit#302](https://github.com/flyingrobots/jedit/pull/302); tracks
+[flyingrobots/jedit#296](https://github.com/flyingrobots/jedit/issues/296)),
+superseding in part [ADR 0023](../adr/0023-admitted-executable-operation-packages.md):
+its "Jedit rope-law closure" section and its selection under "Alternatives for
+Expressing the Rope Law". Every other provision of ADR 0023 continues to
+govern.**
+
+Jedit's persistent-rope `ReplaceRange` law is authored in Jedit-owned Edict
+source and compiled by Edict. It is not imported as a declarative executable
+resource through a Jedit lawpack, and it is not delegated to a native or
+nominally generic sequence-splice capability.
+
+What does not change:
+
+- Echo still learns no editor, text, or rope vocabulary.
+- The prohibited forms listed under ADR 0023's rope-law closure remain
+  prohibited: Rust function pointers, callback coordinates, host trait
+  implementations, Jedit-supplied `MutationPlan`s, a native `replace-range`
+  intrinsic, and assertions that ambient code implements an operation.
+- Jedit must still publish one versioned canonical text-schema declaration
+  that binds the fact, edge, and attachment propositions, codecs, identity law,
+  and migration posture, and the package must bind it.
+- The evidence-grade table and the handwritten planner's role as test-only
+  differential evidence are unchanged.
+
+Evidence for the change, which ADR 0023 did not have on 2026-07-18:
+
+- The declarative resource route was never implemented. No crate in this
+  repository decodes or evaluates such a resource, so the route that was chosen
+  for speed has not delivered a witness.
+- Edict source has since grown on its main branch: proven unsigned subtraction,
+  bounded byte length, slice, and concatenation, and first-order source
+  functions compiled into authenticated Core. Echo now evaluates those
+  functions in its pure and bounded-read evaluators (#753). The source route is
+  no longer the empty-handed alternative ADR 0023 rejected.
+- Neither route can produce a committed rope today, for the same reason: no
+  admitted path turns an evaluated Edict operation into graph writes. The
+  admitted programs remain single-node compare-and-set and create-if-absent of
+  caller-supplied bytes. That gap is generic, and it gates every route equally.
+- A resource format rich enough to carry rope splitting, joining, balancing,
+  and obstruction control would itself be an unreviewed second law language.
+  Authoring in Edict keeps one language for application behavior.
+
+Consequences:
+
+- The generic evaluation-to-effect boundary must be designed and reviewed
+  before it is implemented; the proposal is
+  [Authored Operation Effects](../architecture/authored-operation-effects.md).
+  Evaluation proposes effects; it never performs
+  them. Echo witnesses the actual read and write dependencies, validates basis,
+  identity, budget, and authority, and commits all proposed effects atomically
+  within the existing WAL and recovery law, or none. This decision does not
+  approve an opaque patch authority.
+- Edict language features are added only when complete authored source
+  demonstrates the need. Isolated probes do not justify a feature.
+- A native sequence-splice capability is rejected unless the complete authored
+  implementation demonstrates either a fundamental expressiveness gap that no
+  small, general language feature closes, or a measured resource problem that
+  no generic runtime optimization solves without changing authored semantics.
+  Even then, the logical splice contract must be separated from its
+  implementation strategy, and the capability requires its own design review.
+- Rope completion requires two acceptance targets. The first is semantic
+  correctness: an Edict-authored `ReplaceRange`, possibly over an inefficient
+  representation, commits correct bytes with canonical evidence. The second is
+  persistent-rope correctness: path copying, retained identity for unaffected
+  subtrees, preserved invariants, and bounded work. The first does not complete
+  the rope.
+
 ## Footprint Honesty
 
 Generated footprints are compile-time claims. Runtime footprint checking in

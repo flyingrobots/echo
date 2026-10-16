@@ -87,8 +87,21 @@ envelope material, so a recovered mapping is complete.
 
 `ContinuumOccurrence::from_occurred_digests` also checks a presented
 `occurredDigest` against Continuum's law, SHA-256 of
-`{"appliedDigest":"sha256:…","occurrenceKeyDigest":"sha256:…"}`. Echo does not
-recompute the occurrence key; issuer and local id stay with Continuum, which
-validates them when it builds the reference. Echo adds no nonce.
+`{"appliedDigest":"sha256:…","occurrenceKeyDigest":"sha256:…"}`. That check
+covers only the relationship between the three digests: it does not
+authenticate the issuer, and it does not prove that the applied digest
+describes the intent bytes being admitted. Echo does not recompute the
+occurrence key; issuer and local id stay with Continuum, which validates them
+when it builds the reference. Echo adds no nonce.
+
+Retained occurrence material is immutable. Because the applied digest is not
+part of the ingress ID, a restored record can carry the submission ID of an
+existing submission with a different applied digest; restore refuses it, as
+it refuses two records in one snapshot that disagree, and changes nothing.
+Record-only replay (`replay_witnessed_submissions`) restores submissions
+without envelopes, so the mapping cannot be known complete. Until their
+envelopes are restored, admitting any occurrence on that worldline fails with
+`RuntimeError::ContinuumOccurrenceCoverageUnavailable`: unknown coverage is
+not an unused key. Ingress without an occurrence is unaffected.
 
 Decision record: [#880](https://github.com/flyingrobots/echo/issues/880).

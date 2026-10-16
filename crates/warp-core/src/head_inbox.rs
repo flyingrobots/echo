@@ -201,6 +201,11 @@ impl ContinuumOccurrence {
     /// Accepts a Continuum `OccurredIntent`'s digests after checking that its
     /// `occurredDigest` binds exactly this occurrence key and applied digest.
     ///
+    /// This checks only the relationship between the three digests. It does
+    /// not authenticate the issuer, and it does not prove that the applied
+    /// digest describes the intent bytes Echo is asked to admit; the
+    /// admitting boundary owns both.
+    ///
     /// # Errors
     ///
     /// Returns [`ContinuumOccurrenceError::OccurredDigestMismatch`] when the

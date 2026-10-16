@@ -117,8 +117,14 @@
   such envelopes are retained as `EINGR003` and the mapping is rebuilt from
   them. Local submission identity is unchanged, and envelopes without an
   occurrence are still retained as `EINGR002`.
-  `ContinuumOccurrence::from_occurred_digests` checks an `occurredDigest`
-  against Continuum's law.
+  Restoring retained material that changes a submission's occurrence is
+  refused and changes nothing. After record-only replay, which restores
+  submissions without envelopes, occurrence admission on that worldline fails
+  with `RuntimeError::ContinuumOccurrenceCoverageUnavailable` until the
+  envelopes are restored. `ContinuumOccurrence::from_occurred_digests` checks
+  that an `occurredDigest` binds its occurrence key and applied digest; it
+  does not authenticate the issuer or check the applied digest against the
+  intent bytes.
 - Every new scheduler tick commits an attribution section in its tick
   receipt: one record per accepted submission the tick decided, naming the
   receipt entries that carry its decision, or recording that no rule matched

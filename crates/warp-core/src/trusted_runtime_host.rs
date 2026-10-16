@@ -1419,8 +1419,9 @@ impl TrustedRuntimeHost {
             &recovery.provenance_entries,
             &recovery.receipt_correlations,
         )?;
-        // Recovery restored every acceptance the WAL holds and refused missing
-        // envelope material, so the witnessed submissions are complete.
+        // Recovery restored every acceptance the WAL holds, refused missing
+        // envelope material, and restored a correlation for every decision the
+        // WAL records, so the acceptance and decision logs are complete.
         restored_runtime.attest_complete_witnessed_submissions();
         validate_recovered_tick_decisions(&restored_runtime, &recovery.receipts)?;
 

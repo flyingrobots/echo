@@ -31,6 +31,15 @@
   atomic visibility (one parent patch or one obstruction) still governs, and
   every other Action keeps ADR 0023 unchanged. Each superseded passage is
   marked in ADR 0023.
+- **Supersedes in part:** for bridge Actions only, ADR 0025's requirements
+  that a successful evaluation return one complete prepared candidate and
+  that an evaluation obstruction return a lawpack-qualified coordinate. A
+  bridge evaluation returns an `EffectProposal`. Its program is compiled
+  from Edict source and binds no lawpack resource, so its typed obstruction
+  is qualified by the admitted package and installed-operation identities
+  instead. ADR 0025's other requirements,
+  including that neither result mutates the parent, still govern. The
+  superseded clause is marked in ADR 0025.
 - **Related:** [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md),
   [Generated Rule Authorship](../topics/GeneratedRules.md),
   [WAL](../topics/WAL.md)
@@ -245,9 +254,13 @@ Rules:
       `PreconditionMismatch`. An orphan atom without its record therefore
       never satisfies a `ReplaceAtom`;
     - `ReplaceEdge`: the edge exists with the expected target;
-    - `EnsureEdge` and `ReplaceEdge`: each endpoint the edge will name
-      (`from` and `to`, or the retargeted edge's source and the new `to`)
-      exists, unless the same proposal creates it.
+    - a creating `EnsureEdge` and every `ReplaceEdge`: each endpoint the
+      edge will name (`from` and `to`, or the retargeted edge's source and
+      the new `to`) exists, unless the same proposal creates it. An
+      `EnsureEdge` that finds an identical edge is a read; it adds and
+      retargets nothing, so its endpoints are not checked, as invariant 4
+      and [Visibility and referential integrity](#visibility-and-referential-integrity)
+      limit endpoint checks to edges the proposal introduces or retargets;
 
     Every precondition slot is a read in the Action's footprint, is checked by
     validation, and belongs to the dependency set of a dependency-scoped Action
@@ -428,9 +441,8 @@ held; this design validates only what the proposal adds or retargets.
       operations (see [Current implementation](#current-implementation)).
       `echo_operation_written_slots_v1` must therefore project operations, or
       verify that `out_slots` covers them exactly and treat any mismatch as
-      unknown. Value comparison is used only at the validation position,
-      against the commit parent plus the writes of earlier Actions in the
-      same Tick. No new versioning system is added.
+      unknown. Value comparison is used only at validation, as the next
+      bullet orders it. No new versioning system is added.
     - **Unknown history is decided before evaluation.** The written set
       depends only on the origin and the commit parent, so Echo computes it
       before evaluating the Action. If any Tick in the interval has no
@@ -450,9 +462,22 @@ held; this design validates only what the proposal adds or retargets.
       names as changed. No patch is derived from a
       proposal whose dependencies changed, so a proposal that would also have
       failed validation (for example `DuplicateEffectTarget`) still has one
-      encodable outcome. Only when every dependency holds does validation run,
-      at the Action's validation position. Echo never validates a delayed
-      Action without its actual dependencies.
+      encodable outcome. Only when every dependency holds does validation run.
+      Echo never validates a delayed Action without its actual dependencies.
+    - **Within one Tick, footprints before earlier writes.** Every check
+      before composition, preconditions and expected values included, runs
+      against the Tick's commit parent, never against writes accepted
+      earlier in the same Tick. Composition then reserves each candidate's
+      complete footprint (witnessed reads, precondition reads, and write
+      set) in canonical order, and any overlap with an earlier accepted
+      Action is `RejectedFootprintConflict` with its blockers, as the
+      [within-one-tick rule](../topics/GeneratedRules.md#action-validity-across-ticks)
+      requires. A candidate that overlaps nothing depends on no slot an
+      earlier Action wrote, so its values at the validation position (the
+      commit parent plus earlier accepted writes) equal its values at the
+      commit parent. A later Action that expects a value an earlier Action
+      replaced is therefore a footprint conflict, never a
+      `PreconditionMismatch`.
 - **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
   effect adds a fixed write cost. Exhausting any evaluation limit obstructs
   with `BudgetExceeded`, posture `NoProposal`, and no patch. A proposal whose

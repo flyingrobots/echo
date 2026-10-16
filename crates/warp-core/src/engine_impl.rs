@@ -54,11 +54,6 @@ use crate::ContractInverseHandler;
 use std::sync::Arc;
 
 const RUNTIME_INGRESS_EVENT_TYPE: &str = "runtime/ingress/event";
-
-/// Type id of the event node a runtime ingress decision materializes.
-pub(crate) fn runtime_ingress_event_type() -> crate::TypeId {
-    make_type_id(RUNTIME_INGRESS_EVENT_TYPE)
-}
 const RUNTIME_INGRESS_KIND_EDGE_TYPE: &str = "runtime/ingress/intent_kind";
 const RUNTIME_INGRESS_KIND_NODE_TYPE: &str = "runtime/ingress/intent_kind_node";
 

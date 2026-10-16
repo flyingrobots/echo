@@ -119,11 +119,11 @@
   keeps the restored worldline readable, but `submit_intent`, `ingest` and
   ticketed staging fail with `RuntimeError::AdmissionCoverageUnestablished`
   until the trusted host attests, after WAL recovery, that the witnessed
-  submissions it restored are its complete acceptance log. The attestation
-  releases a worldline only when every submission its ticks attribute has
-  retained material and committed ingress for older, unattributed ticks can be
-  reconstructed without ambiguity, and it covers only the restores made before
-  it. Before this, a runtime rebuilt from history alone accepted a resent
+  submissions and receipt correlations it restored are its complete acceptance
+  and decision logs. The attestation releases a worldline only when every
+  submission its ticks attribute has retained material, and it covers only the
+  restores made before it; final graph state is never treated as evidence of
+  a decision. Before this, a runtime rebuilt from history alone accepted a resent
   request as a new one, and `ingest` could re-queue a request an unticketed
   tick had already decided. Normal host recovery is unaffected.
 - Echo preserves Continuum occurrence identity at admission (#880).

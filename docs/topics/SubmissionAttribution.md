@@ -193,30 +193,26 @@ permission to admit again.
 
 No snapshot can prove itself complete. It can omit a request that a tick older
 than attribution decided, or an accepted request still undecided at the basis
-(for example a Continuum occurrence whose key would then be reusable). Only the
-owner of the acceptance log can vouch for that, so restoring a snapshot never
-reopens admission by itself. The trusted host attests that the witnessed
-submissions it restored are its complete acceptance log after recovering from
-its WAL, which holds every acceptance and refuses missing envelope material. The
-attestation releases only the requirements pending when it is made; history
-restored later needs its own. It releases a worldline only when:
+(for example a Continuum occurrence whose key would then be reusable), and final
+graph state is no evidence of what a tick decided. So restoring a snapshot never
+reopens admission by itself. The trusted host attests, after recovering from
+its WAL, that the witnessed submissions it restored are its complete acceptance
+log and the receipt correlations it restored are its complete decision log: the
+WAL holds every acceptance and a recorded decision for every decided
+submission, and recovery refuses missing material. Correlations restore
+committed ingress for the submissions they name, and every other witnessed
+submission is undecided.
 
-- every submission its restored ticks attribute has retained envelope
-  material (a partial restore stays obstructed); and
-- for ticks older than attribution, committed ingress can be reconstructed
-  without ambiguity. Such a tick leaves no list of what it decided; its own
-  patch is the evidence: deciding an ingress creates an event node keyed by
-  the ingress id, recorded under the tick's writer head. A submission counts as
-  decided only with that tick evidence for its head and ingress. Final graph
-  state is not evidence (a node with the same id may come from the base state,
-  or from identical content decided on another head), so a submission whose
-  ingress node exists without tick evidence or a correlation keeps coverage
-  unestablished.
-
-Releasing a worldline restores committed-ingress membership for those
-submissions, which replayed state does not carry; without it, `ingest` would put
-a request an unticketed tick had decided back into the inbox. After a normal
-host recovery admission is open.
+The attestation releases only the requirements pending when it is made; history
+restored later needs its own. It releases a worldline only when every
+submission its restored ticks attribute has retained envelope material (a
+partial restore stays obstructed), and releasing it records committed-ingress
+membership for those submissions, which replayed state does not carry; without
+it, `ingest` would put a request a tick had decided back into the inbox. After a
+normal host recovery admission is open; if the attestation cannot release a
+worldline (its history attributes a submission the recovered acceptance log does
+not hold), recovery fails with `TrustedRuntimeWalError::AdmissionCoverageUnestablished`
+instead of opening a runtime that refuses admission.
 
 ### 4. A rebuildable index
 

@@ -204,10 +204,13 @@ restored later needs its own. It releases a worldline only when:
 - every submission its restored ticks attribute has retained envelope
   material (a partial restore stays obstructed); and
 - for ticks older than attribution, committed ingress can be reconstructed
-  without ambiguity. Deciding an ingress materializes an event node keyed by
-  its ingress id, but the id does not name a head, so a node proves a decision
-  only when exactly one witnessed submission on the worldline carries that
-  ingress and is not already known committed. Otherwise coverage stays
+  without ambiguity. Such a tick leaves no list of what it decided; its own
+  patch is the evidence: deciding an ingress creates an event node keyed by
+  the ingress id, recorded under the tick's writer head. A submission counts as
+  decided only with that tick evidence for its head and ingress. Final graph
+  state is not evidence (a node with the same id may come from the base state,
+  or from identical content decided on another head), so a submission whose
+  ingress node exists without tick evidence or a correlation keeps coverage
   unestablished.
 
 Releasing a worldline restores committed-ingress membership for those

@@ -128,11 +128,14 @@ submissions its copied ticks attribute. Admission on a strand with no binding of
 its own walks the fork ancestry, and an ancestor's binding counts only when its
 submission is in that set, so nested forks inherit through every level with
 each level's fork tick as the bound. Unknown coverage on an ancestor obstructs
-admission. A prefix tick older than attribution proves a decision only through
-the runtime ingress event node it created (matched by head id, since forking
-rewrites copied heads onto the child); a bound request with no event node in the
-copied state was not decided there, and one with a node but no tick evidence
-obstructs. A strand registered without forking has no recorded prefix and
+admission. A prefix tick older than attribution does not say what it decided, so
+there the evidence is the submission's receipt correlation, from the decision
+log the trusted host attests complete (#887): it counts only when it lies on the
+ancestor at or before the last tick the child inherits, and a bound submission
+without one was not decided. Final graph state is never treated as evidence. (An
+occurrence cannot have been decided by such a tick in practice: occurrence
+envelopes exist only since #880, and every writer since #873 attributes its
+ticks.) A strand registered without forking has no recorded prefix and
 obstructs occurrence admission (`AdmissionCoverageUnestablished`): an unknown
 causal past is not an empty one. Redelivery returns the same original decision
 however the parent advances, and changes no retained receipt on either lane. Reconciling occurrences admitted independently on divergent

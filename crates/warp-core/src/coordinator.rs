@@ -274,6 +274,22 @@ pub enum RuntimeError {
         /// A witnessed submission on it without retained envelope material.
         submission_id: Hash,
     },
+    /// Committed history of this worldline was restored, but Echo has not yet
+    /// established which submissions that history accounts for.
+    ///
+    /// Restoring history alone keeps inspection and audit working. Admission
+    /// stays obstructed until a complete witnessed-submission restore covers
+    /// every submission the restored ticks attribute; until then Echo cannot
+    /// tell a resent request from a new one.
+    #[error(
+        "admission coverage is not established on worldline {worldline_id:?} through restored tick {basis_tick:?}"
+    )]
+    AdmissionCoverageUnestablished {
+        /// Worldline whose history was restored.
+        worldline_id: WorldlineId,
+        /// Frontier tick of the restored basis.
+        basis_tick: WorldlineTick,
+    },
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -1242,6 +1258,16 @@ pub struct ForkStrandReceipt {
     pub retention_posture: RetentionPosture,
 }
 
+/// What must hold before admission resumes on a worldline whose committed
+/// history was restored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AdmissionCoverageRequirement {
+    /// Frontier tick of the restored basis.
+    basis_tick: WorldlineTick,
+    /// Submissions the restored ticks attribute; each needs retained material.
+    attributed_submissions: BTreeSet<Hash>,
+}
+
 // =============================================================================
 // WorldlineRuntime
 // =============================================================================
@@ -1287,6 +1313,15 @@ pub struct WorldlineRuntime {
     /// Witnessed submissions, by worldline, whose envelope material is absent,
     /// so the occurrence mapping cannot be known complete on that worldline.
     submissions_without_envelope: BTreeSet<(WorldlineId, Hash)>,
+    /// Worldlines whose committed history was restored before admission
+    /// coverage was established through the restored basis.
+    admission_coverage_pending: BTreeMap<WorldlineId, AdmissionCoverageRequirement>,
+    /// Whether a witnessed-submission persistence snapshot has been restored.
+    ///
+    /// Only that snapshot accounts for submissions accepted but undecided at
+    /// the restored basis, and for submissions decided by ticks older than
+    /// attribution.
+    witnessed_persistence_restored: bool,
     /// Ticketed runtime ingress records keyed by deterministic event id.
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
@@ -2873,6 +2908,8 @@ impl WorldlineRuntime {
         self.witnessed_submission_envelopes.extend(staged_envelopes);
         self.continuum_occurrence_bindings
             .extend(staged_occurrences);
+        self.witnessed_persistence_restored = true;
+        self.release_established_admission_coverage();
         Ok(())
     }
 
@@ -2909,7 +2946,7 @@ impl WorldlineRuntime {
             recovered_global_tick = recovered_global_tick.max(entry.commit_global_tick);
         }
 
-        for worldline_id in touched_worldlines {
+        for worldline_id in touched_worldlines.iter().copied() {
             let base_state = restored
                 .worldlines
                 .get(&worldline_id)
@@ -2927,6 +2964,30 @@ impl WorldlineRuntime {
                 ));
         }
         restored.global_tick = recovered_global_tick;
+
+        for worldline_id in &touched_worldlines {
+            let basis_len = provenance.len(*worldline_id)?;
+            let mut attributed_submissions = BTreeSet::new();
+            for tick in 0..basis_len {
+                let entry = provenance.entry(*worldline_id, WorldlineTick::from_raw(tick))?;
+                if let Some(attribution) = entry
+                    .tick_receipt
+                    .as_ref()
+                    .and_then(crate::TickReceipt::attribution)
+                {
+                    attributed_submissions
+                        .extend(attribution.iter().map(|record| record.submission_id));
+                }
+            }
+            restored.admission_coverage_pending.insert(
+                *worldline_id,
+                AdmissionCoverageRequirement {
+                    basis_tick: WorldlineTick::from_raw(basis_len),
+                    attributed_submissions,
+                },
+            );
+        }
+        restored.release_established_admission_coverage();
 
         for persisted in correlations {
             restored.restore_receipt_correlation(persisted)?;
@@ -3170,6 +3231,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_admission_coverage(head_key.worldline_id)?;
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
@@ -3279,6 +3341,7 @@ impl WorldlineRuntime {
                 submission_id,
             ));
         }
+        self.check_admission_coverage(head_key.worldline_id)?;
         // The applied digest is not part of the ingress id, so occurrence
         // material must be checked here, before the staged-duplicate return.
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
@@ -3457,6 +3520,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_admission_coverage(head_key.worldline_id)?;
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
@@ -3506,6 +3570,60 @@ impl WorldlineRuntime {
                 })
             }
             InboxIngestResult::Rejected => Err(RuntimeError::RejectedByPolicy(head_key)),
+        }
+    }
+
+    /// Releases coverage requirements that restored witnessed material now
+    /// meets, and records the committed ingress those ticks account for.
+    ///
+    /// Retry detection for decided work reads committed-ingress membership,
+    /// which replayed state does not carry, so establishing coverage also
+    /// restores it for every submission the restored ticks attribute.
+    fn release_established_admission_coverage(&mut self) {
+        if !self.witnessed_persistence_restored {
+            return;
+        }
+        let established = self
+            .admission_coverage_pending
+            .iter()
+            .filter(|(_, requirement)| {
+                requirement
+                    .attributed_submissions
+                    .iter()
+                    .all(|submission_id| {
+                        self.witnessed_submission_envelopes
+                            .contains_key(submission_id)
+                    })
+            })
+            .map(|(worldline_id, _)| *worldline_id)
+            .collect::<Vec<_>>();
+        for worldline_id in established {
+            let Some(requirement) = self.admission_coverage_pending.remove(&worldline_id) else {
+                continue;
+            };
+            for submission_id in requirement.attributed_submissions {
+                let Some(record) = self.witnessed_submissions.get(&submission_id).cloned() else {
+                    continue;
+                };
+                if let Some(frontier) = self.worldlines.frontier_mut(&record.head_key.worldline_id)
+                {
+                    frontier
+                        .state_mut()
+                        .record_committed_ingress(record.head_key, [record.ingress_id]);
+                }
+            }
+        }
+    }
+
+    /// Refuses admission on a worldline whose restored history is not yet
+    /// covered by restored witnessed submissions.
+    fn check_admission_coverage(&self, worldline_id: WorldlineId) -> Result<(), RuntimeError> {
+        match self.admission_coverage_pending.get(&worldline_id) {
+            Some(requirement) => Err(RuntimeError::AdmissionCoverageUnestablished {
+                worldline_id,
+                basis_tick: requirement.basis_tick,
+            }),
+            None => Ok(()),
         }
     }
 
@@ -4049,6 +4167,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
         | RuntimeError::ContinuumOccurrenceConflict { .. }
         | RuntimeError::ContinuumOccurrenceCoverageUnavailable { .. }
+        | RuntimeError::AdmissionCoverageUnestablished { .. }
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -4822,6 +4941,14 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
             hasher.update(b"continuum-occurrence-coverage-unavailable");
             hasher.update(worldline_id.as_bytes());
             hasher.update(submission_id);
+        }
+        RuntimeError::AdmissionCoverageUnestablished {
+            worldline_id,
+            basis_tick,
+        } => {
+            hasher.update(b"admission-coverage-unestablished");
+            hasher.update(worldline_id.as_bytes());
+            hash_worldline_tick(&mut hasher, *basis_tick);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
@@ -6331,6 +6458,137 @@ mod tests {
             runtime.ingest_ticketed_invocation(&authority, original, &ticket, original_envelope),
             Ok(TicketedRuntimeIngressDisposition::Duplicate { .. })
         ));
+    }
+
+    /// Issue #887: restoring committed history alone keeps inspection working
+    /// but cannot tell a resent request from a new one, so every admission
+    /// entry point is obstructed until a complete witnessed restore covers the
+    /// restored basis. A partial or failed restore does not unlock admission.
+    #[test]
+    fn history_only_restore_obstructs_admission_until_coverage_is_established() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let committed = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        let first = accepted_submission(source.ingest(committed.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let second = accepted_submission(
+            source
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    toy_increment_intent(b"amount=43"),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let entries = (0..2)
+            .map(|tick| provenance.entry(worldline_id, wt(tick)).unwrap())
+            .collect::<Vec<_>>();
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        assert_eq!(
+            restored.global_tick(),
+            source.global_tick(),
+            "history reads back"
+        );
+
+        let is_obstructed = |error: RuntimeError| {
+            matches!(
+                error,
+                RuntimeError::AdmissionCoverageUnestablished {
+                    worldline_id: obstructed,
+                    basis_tick,
+                } if obstructed == worldline_id && basis_tick == wt(2)
+            )
+        };
+        let fresh = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            b"never submitted".to_vec(),
+        );
+        let assert_obstructed = |runtime: &mut WorldlineRuntime| {
+            assert!(is_obstructed(
+                runtime.ingest(committed.clone()).unwrap_err()
+            ));
+            assert!(is_obstructed(
+                runtime.submit_intent(committed.clone()).unwrap_err()
+            ));
+            assert!(is_obstructed(
+                runtime.submit_intent(fresh.clone()).unwrap_err()
+            ));
+        };
+        assert_obstructed(&mut restored);
+        assert_eq!(restored.witnessed_submission_count(), 0);
+
+        // A restore missing a submission the history attributes is partial.
+        let partial = WitnessedSubmissionPersistenceSnapshot::new(
+            snapshot
+                .records()
+                .iter()
+                .filter(|record| record.submission.submission_id != second)
+                .cloned()
+                .collect(),
+        );
+        restored
+            .restore_witnessed_submission_persistence(partial)
+            .unwrap();
+        assert_obstructed(&mut restored);
+        let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
+        assert!(is_obstructed(
+            restored
+                .ingest_ticketed_invocation(&authority, first, &test_ticket(12), committed.clone())
+                .unwrap_err()
+        ));
+
+        // A failed restore changes nothing.
+        let mut corrupt = snapshot.records().to_vec();
+        let last = corrupt.len() - 1;
+        corrupt[last].envelope = fresh.clone();
+        assert!(restored
+            .restore_witnessed_submission_persistence(WitnessedSubmissionPersistenceSnapshot::new(
+                corrupt
+            ))
+            .is_err());
+        assert_obstructed(&mut restored);
+        assert_eq!(restored.witnessed_submission_count(), 1);
+
+        // A complete restore establishes coverage: a resend is a retry again.
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        match restored.ingest(committed).unwrap() {
+            IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
+            IngressDisposition::Accepted { .. } => panic!("a committed request must be a retry"),
+        }
+        accepted_submission(restored.ingest(fresh).unwrap());
+    }
+
+    fn test_ticket(seed: u8) -> crate::OpticAdmissionTicket {
+        crate::OpticAdmissionTicket {
+            kind: crate::OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+            artifact_handle: crate::OpticArtifactHandle {
+                kind: crate::OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+                id: format!("test-ticket-{seed}"),
+            },
+            artifact_hash: format!("artifact-{seed}"),
+            operation_id: format!("operation-{seed}"),
+            requirements_digest: format!("requirements-{seed}"),
+            canonical_variables_digest: vec![seed],
+            basis_request_digest: [seed; 32],
+            aperture_request_digest: [seed.wrapping_add(1); 32],
+            budget_request_digest: [seed.wrapping_add(2); 32],
+            law_witness_digest: [seed.wrapping_add(3); 32],
+            ticket_digest: [seed.wrapping_add(4); 32],
+        }
     }
 
     /// Issue #880: Echo preserves Continuum occurrence identity at admission.

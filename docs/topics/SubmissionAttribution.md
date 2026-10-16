@@ -181,6 +181,26 @@ code 4), and full host recovery requires every recorded decision to equal the
 decision the restored receipt yields, so a log cannot assert a no-match that the
 sealed attribution does not, or the reverse.
 
+**Admission coverage after a history restore (#887).** Restoring committed
+history does not tell Echo which requests it has accepted: idempotence lives in
+witnessed submission records, not in replayed state. So
+`restore_causal_runtime_history` leaves each restored worldline readable but
+records that admission coverage is not yet established through its restored
+basis. Until it is, every admission entry point on that worldline
+(`submit_intent`, `ingest` and ticketed staging) fails with
+`RuntimeError::AdmissionCoverageUnestablished`; missing knowledge never grants
+permission to admit again. Coverage is established when a witnessed-submission
+persistence snapshot has been restored and every submission that the restored
+ticks attribute has retained envelope material. Establishing it also restores
+committed-ingress membership for those submissions, which replayed state does
+not carry; without it, `ingest` would put a request decided by an unticketed
+tick back into the inbox. A snapshot missing one of them,
+records restored without envelopes, or a failed restore leaves admission
+obstructed. Ticks older than attribution cannot be checked this way; for them,
+and for submissions still undecided at the basis, the restored snapshot is the
+authority. The trusted host restores the complete snapshot from its WAL and
+refuses missing envelope material, so after a normal recovery admission is open.
+
 ### 4. A rebuildable index
 
 Because attribution is committed, the five correlation maps are a cache:

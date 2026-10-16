@@ -308,8 +308,11 @@ admission posture without adding broad authorization policy to this decision.
 > **No longer required:** the declarative resource and lawpack named in the
 > first paragraph; the fifth required binding (the rope-law resource
 > coordinate and digest); the lawpack and `EchoOperationProgramV1` steps of the
-> binding chain and the paragraph after it; and the paragraphs on what makes
-> the resource acceptable and who owns it.
+> binding chain and the paragraph after it; the paragraphs on what makes
+> the resource acceptable and who owns it; and, outside this section, the
+> lawpack-resource binding in the evidence-grade table, the rope-law resource
+> and generic resource binding in Jurisdiction, and the executable-resource
+> binding in Consequences, each marked where it appears.
 >
 > **Still governing:** the versioned canonical text-schema declaration and its
 > first four required bindings; the package's binding of that declaration's
@@ -440,6 +443,12 @@ the following grades.
 | Repeated evaluation by the same Echo evaluator                                                                | Deterministic self-validation                                                                                         | The implementation is repeatable for the tested basis and inputs; it is not an independent implementation.                                               |
 | Receipt/WAL round-trip and fresh-host reconstruction                                                          | Deterministic self-validation                                                                                         | Retained bytes reconstruct the same installed and execution identities without callbacks.                                                                |
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> "lawpack resource" in the target-verifier row above. The row's check now
+> covers the admitted package and Target IR to the program compiled from
+> Jedit's Edict source, with the same evidence grade. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
+
 A separate verifier crate is not, by itself, independently implemented
 conformance evidence. This decision does not claim formal refinement, complete
 semantic equivalence, a clean-room Echo interpreter, or a proof that all
@@ -452,6 +461,11 @@ named; agreement is asserted at the canonical output and patch boundary, not
 by comparing two wrappers around the same algorithm.
 
 ## Jurisdiction
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: Jedit
+> owns the `ReplaceRange` law as Edict source rather than a rope-law resource,
+> and Edict's generic resource binding is no longer part of this operation's
+> route. See the [Jedit rope-law closure](#jedit-rope-law-closure) banner.
 
 - **Jedit** owns `ReplaceRange.edict`, the rope-law resource, fact schemas,
   codec/identity law, operation semantics, and the differential oracle corpus.
@@ -500,7 +514,11 @@ by comparing two wrappers around the same algorithm.
   category rather than a callback-bearing provider revision.
 - Edict needs fixed-width and explicit-basis operation support plus exact
   executable-resource binding; this decision does not require a general
-  recursive language.
+  recursive language. (Superseded in part, effective when
+  flyingrobots/echo#889 merges: the rope law no longer needs
+  executable-resource binding; Edict gains language features only when the
+  authored source demonstrates the need. See the
+  [Jedit rope-law closure](#jedit-rope-law-closure) banner.)
 - The first program format preserves contained-execution obligations without
   claiming durable child lanes, child ticks, wormholes, or universal WARP wire
   status.

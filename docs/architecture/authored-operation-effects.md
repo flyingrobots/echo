@@ -79,12 +79,24 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
   accepted (`crates/warp-core/src/echo_operation.rs`). These are Action-batch
   composition limits, not Tick limits: `WarpTickPatchV1::new` accepts an
   operation vector of any length.
-- Recovery re-derives each committed and footprint-conflicted Action's
-  preparation from the recovered parent state and refuses history whose
-  package, invocation, basis, private-evaluation, patch, result, footprint, or
-  preparation identity differs from the recorded outcome; obstructed Actions
-  are re-evaluated and their pre-decision evidence compared
-  (`crates/warp-core/src/trusted_runtime_host.rs`, ADR 0025).
+- Recovery verifies each decided Action by outcome class
+  (`crates/warp-core/src/trusted_runtime_host.rs`, ADR 0025). First, for
+  every class, it recomputes the Action's basis posture against the scheduler
+  Tick's parent and refuses history where the recorded posture disagrees.
+  Then:
+    - **Committed and `RejectedFootprintConflict`:** it reconstructs the
+      preparation from the recovered parent state and refuses history whose
+      package, installed-operation, invocation, basis, private-evaluation,
+      patch, result, footprint, or preparation identity differs from the
+      recorded evidence.
+    - **Obstructed `BasisChanged`:** it verifies the invocation-admission
+      evidence and the recomputed basis posture. It does not re-evaluate the
+      Action.
+    - **Other obstructions:** it re-evaluates the Action and requires the same
+      pre-decision evidence, except that a scheduler-assigned `BudgetExceeded`
+      (an Action-batch limit, decided after a successful evaluation) is
+      accepted as a reconstructed preparation and verified when recovery
+      reconstructs the whole Action batch's composition.
 - The state root is a full walk of the reachable graph on every commit. See the
   open state-root decision in
   [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md#open-decisions-that-bound-these-laws).
@@ -241,12 +253,15 @@ coordinate after shows the new head with everything it reaches.
   Action is never re-stamped as if it had been evaluated against a later basis.
 - **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
   effect adds a fixed write cost. Exhausting any evaluation limit obstructs
-  with `BudgetExceeded`, no proposal, and no patch. A proposal whose derived
-  patch alone exceeds the Action-batch operation limit
-  (`ACTION_BATCH_OPERATION_LIMIT_V1`) obstructs the same way rather than
-  splitting across Ticks. A proposal that fits alone but not beside the
-  Actions already accepted into the batch is handled by the existing batch
-  rule, which obstructs that candidate in this batch.
+  with `BudgetExceeded`, posture `NoProposal`, and no patch. A proposal whose
+  derived patch alone exceeds the Action-batch operation limit
+  (`ACTION_BATCH_OPERATION_LIMIT_V1`) also obstructs with `BudgetExceeded` and
+  no committed patch, rather than splitting across Ticks, but its posture is
+  `Proposed`: the proposal exists, so its identity, write-set digest, and
+  derived patch digest are recorded, not discarded. A proposal that fits alone
+  but not beside the Actions already accepted into the batch is handled by the
+  existing batch rule, which obstructs that candidate in this batch, likewise
+  with posture `Proposed`.
 - **Retries.** A decided outcome is final. An Action is identified by its
   submission (see Identity and existing contracts); once it is decided
   (committed, obstructed, or `RejectedFootprintConflict`), its outcome,
@@ -327,14 +342,19 @@ new evidence. Verification is not re-admission.
   receipt and its attribution section, so the recovered evidence is exactly
   the evidence that was committed. Recovered state comes from the committed
   patch, never from a re-derived proposal.
-- As recovery already does for committed and footprint-conflicted Actions
-  (`trusted_runtime_host.rs`, ADR 0025), it re-derives each decided Action's
-  evaluation over the recovered parent state and compares the result with the
-  recorded receipt entry: the proposal posture and, where present, the
-  proposal identity, the read-set and write-set digests, and the derived patch
-  digest, in addition to the identities compared today. An obstructed Action's
-  pre-decision evidence is compared the same way. Any disagreement refuses the
-  history.
+- Recovery keeps the per-class verification described in
+  [Current implementation](#current-implementation) and adds the new evidence
+  to whatever each class already compares:
+    - where recovery reconstructs a preparation (committed and
+      `RejectedFootprintConflict`), or accepts one for a scheduler-assigned
+      `BudgetExceeded` and verifies it through the batch composition, it also
+      compares posture `Proposed`, the proposal identity, the read-set and
+      write-set digests, and the derived patch digest;
+    - where it re-evaluates an obstruction, it also compares the posture and
+      the read-set digest, and for `Proposed` the proposal digests;
+    - where it does not re-evaluate (`BasisChanged`), it verifies only the
+      evidence that class verifies today, and adds no re-evaluation.
+      Any disagreement refuses the history.
 - The comparison never changes a decision. The recorded outcome, receipt, and
   attribution stand as written; a re-derived proposal is checked against them
   and then discarded.
@@ -463,29 +483,29 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 
 Each behaviour below needs a test before implementation:
 
-| Property               | Test                                                                                                                                                                                                                                                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Atomicity              | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                                                                                                                                                                                              |
-| Ensure identity        | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                                                                                                                                                                                                         |
-| Witnessed footprint    | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                                                                                                                                                                                             |
-| Stale basis            | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                                                                                                                                                                                                     |
-| Budget                 | Exhausting steps or bytes obstructs with `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with no patch.                                                                                                                                                |
-| Determinism            | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts. |
-| No-proposal evidence   | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                             |
-| Recovery               | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                 |
-| Composition            | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                   |
-| Shared structure       | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                        |
-| Referential integrity  | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                  |
-| Visibility             | No published coordinate shows a retargeted head without every node and edge it reaches.                                                                                                                                                                                                              |
-| Witnessed reads        | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                    |
-| Negative reads         | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it.                                                                                                                                                                                            |
-| Edge-read basis        | An Action that read edges commits only onto its exact evaluation basis.                                                                                                                                                                                                                              |
-| Final outcomes         | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                              |
-| Duplicate resubmission | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                 |
-| Attribution            | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                                                                                                                                                                                              |
-| Receipt format         | Ticks written before the new entry format recover unchanged; new Ticks declare the new format.                                                                                                                                                                                                       |
-| Recovered evidence     | Recovery replays the committed patch, re-derives each decided Action's evaluation, and accepts the history only when the proposal posture, proposal identity, read-set, write-set, and patch digests equal those recorded; a tampered digest refuses the history, and no recorded outcome changes.   |
-| Pending recovery       | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                               |
+| Property               | Test                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atomicity              | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                                                                                                                                                                                                                                            |
+| Ensure identity        | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                                                                                                                                                                                                                                                       |
+| Witnessed footprint    | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                                                                                                                                                                                                                                           |
+| Stale basis            | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                                                                                                                                                                                                                                                   |
+| Budget                 | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                    |
+| Determinism            | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                               |
+| No-proposal evidence   | An evaluation that obstructs before proposing records `NoProposal` with its read-set digest and no proposal, write-set, or patch digest.                                                                                                                                                                                                           |
+| Recovery               | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                               |
+| Composition            | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                 |
+| Shared structure       | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                      |
+| Referential integrity  | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                |
+| Visibility             | No published coordinate shows a retargeted head without every node and edge it reaches.                                                                                                                                                                                                                                                            |
+| Witnessed reads        | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                  |
+| Negative reads         | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it.                                                                                                                                                                                                                                          |
+| Edge-read basis        | An Action that read edges commits only onto its exact evaluation basis.                                                                                                                                                                                                                                                                            |
+| Final outcomes         | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                                                                            |
+| Duplicate resubmission | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                                                               |
+| Attribution            | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                                                                                                                                                                                                                                            |
+| Receipt format         | Ticks written before the new entry format recover unchanged; new Ticks declare the new format.                                                                                                                                                                                                                                                     |
+| Recovered evidence     | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a `BasisChanged` obstruction is not re-evaluated, and no recorded outcome changes. |
+| Pending recovery       | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                             |
 
 ## Open questions
 

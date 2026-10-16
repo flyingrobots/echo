@@ -228,7 +228,17 @@ impl ContractObstruction {
             } => Self::admission_obstruction(ContractObstructionSubject::Submission {
                 submission_id: *existing_submission_id,
             }),
-            RuntimeError::AdmissionCoverageUnestablished { .. } => Self::new(
+            RuntimeError::IngressIdentityAlias { submission_id } => {
+                Self::admission_obstruction(ContractObstructionSubject::Submission {
+                    submission_id: *submission_id,
+                })
+            }
+            RuntimeError::IngressIdentityAmbiguous { .. }
+            | RuntimeError::OriginalCausalIdentityNotAdmissible { .. } => {
+                Self::admission_obstruction(ContractObstructionSubject::Unspecified)
+            }
+            RuntimeError::OriginalIngressIdentityUnverifiable { .. }
+            | RuntimeError::AdmissionCoverageUnestablished { .. } => Self::new(
                 ContractObstructionKind::MissingRetention,
                 ContractObstructionSubject::Unspecified,
             ),

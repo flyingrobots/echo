@@ -59,8 +59,13 @@ identity of Decision 1:
 
 ```text
 content_id = ingress id of the same kind, bytes and causal parents
-ingress_id = BLAKE3("ingress:continuum-occurrence:v1\0" || occurrence_key || content_id)
+ingress_id = BLAKE3("echo.ingress.continuum-occurrence.v1\0" || occurrence_key || content_id)
 ```
+
+The occurrence domain deliberately does not begin with `"ingress:"`. A local
+intent hashes `"ingress:" || kind || bytes`, and its kind may be any 32 bytes,
+so a domain with that prefix could be reproduced exactly by a crafted local
+intent and give it an occurrence's ingress ID.
 
 The submission ID keeps its formula,
 `H("echo.intent-submission.v0", worldline, head, ingress_id)`, so it remains

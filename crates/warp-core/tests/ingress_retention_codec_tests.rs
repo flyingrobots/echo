@@ -332,3 +332,30 @@ fn retained_ingress_round_trips_a_continuum_occurrence() {
         Err(IngressEnvelopeDecodeError::TrailingBytes)
     );
 }
+
+/// Code review of #884: the occurrence hash input must not be reproducible by
+/// a local intent. Local ingress hashes `"ingress:" || kind || bytes`, and the
+/// kind is any 32 bytes, so an occurrence domain beginning with `"ingress:"`
+/// would let a crafted local intent take an occurrence's ingress id.
+#[test]
+fn a_local_intent_cannot_take_an_occurrence_ingress_id() {
+    let occurred = occurred_envelope(continuum_occurrence("prefix"), b"content");
+    let key = occurred
+        .occurrence()
+        .expect("occurred envelope carries its occurrence")
+        .occurrence_key_digest();
+    let old_domain = b"ingress:continuum-occurrence:v1\0";
+    let mut kind = [0u8; 32];
+    kind[..24].copy_from_slice(&old_domain[8..]);
+    kind[24..].copy_from_slice(&key[..8]);
+    let mut bytes = key[8..].to_vec();
+    bytes.extend_from_slice(&occurred.content_ingress_id());
+    let crafted = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter {
+            worldline_id: WorldlineId::from_bytes(digest("worldline")),
+        },
+        warp_core::IntentKind::from_hash(kind),
+        bytes,
+    );
+    assert_ne!(crafted.ingress_id(), occurred.ingress_id());
+}

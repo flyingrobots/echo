@@ -27,7 +27,9 @@ const RETAINED_INGRESS_ENVELOPE_MAGIC_V2: &[u8; 8] = b"EINGR002";
 /// Retained envelope format that also carries a Continuum occurrence.
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V3: &[u8; 8] = b"EINGR003";
 /// Ingress id domain for a Continuum occurrence of content-addressed intent.
-const CONTINUUM_OCCURRENCE_INGRESS_DOMAIN: &[u8] = b"ingress:continuum-occurrence:v1\0";
+///
+/// It must not begin with `"ingress:"`; see [`compute_ingress_id`].
+const CONTINUUM_OCCURRENCE_INGRESS_DOMAIN: &[u8] = b"echo.ingress.continuum-occurrence.v1\0";
 
 // =============================================================================
 // IntentKind
@@ -812,8 +814,11 @@ impl<'a> RetainedIngressCursor<'a> {
 /// separate versioned domain with explicit lengths so the same contract bytes
 /// cited against different receipt evidence cannot collapse as duplicates.
 /// A Continuum occurrence wraps that content identity:
-/// `BLAKE3("ingress:continuum-occurrence:v1\0" || occurrence_key || content_id)`,
-/// so distinct occurrences of identical content are distinct ingress.
+/// `BLAKE3("echo.ingress.continuum-occurrence.v1\0" || occurrence_key || content_id)`,
+/// so distinct occurrences of identical content are distinct ingress. The
+/// occurrence domain differs from `"ingress:"` at its first byte: local ingress
+/// hashes `"ingress:" || kind || bytes` with an arbitrary 32-byte kind, so any
+/// domain beginning with `"ingress:"` could be reproduced by a local intent.
 fn compute_ingress_id(
     kind: &IntentKind,
     bytes: &[u8],

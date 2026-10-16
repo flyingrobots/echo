@@ -274,6 +274,22 @@ pub enum RuntimeError {
         /// A witnessed submission on it without retained envelope material.
         submission_id: Hash,
     },
+    /// Committed history of this worldline was restored, but Echo has not yet
+    /// established which submissions that history accounts for.
+    ///
+    /// Restoring history alone keeps inspection and audit working. Admission
+    /// stays obstructed until a complete witnessed-submission restore covers
+    /// every submission the restored ticks attribute; until then Echo cannot
+    /// tell a resent request from a new one.
+    #[error(
+        "admission coverage is not established on worldline {worldline_id:?} through restored tick {basis_tick:?}"
+    )]
+    AdmissionCoverageUnestablished {
+        /// Worldline whose history was restored.
+        worldline_id: WorldlineId,
+        /// Frontier tick of the restored basis.
+        basis_tick: WorldlineTick,
+    },
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -612,7 +628,7 @@ impl SchedulerFaultRecoveryAuthority {
 }
 
 /// Result of accepting an intent into witnessed ingress history.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IntentSubmissionDisposition {
     /// Echo recorded a new witnessed submission without entering runtime ingress.
     Accepted {
@@ -637,6 +653,77 @@ pub enum IntentSubmissionDisposition {
         /// identity can be derived from replayed committed state.
         submission_generation: IngressSubmissionGeneration,
     },
+    /// The Continuum occurrence is already present in the causal past this
+    /// worldline inherited at its fork basis.
+    ///
+    /// This is an idempotency result, not an admission: no submission is
+    /// created on this worldline and nothing is written. `inherited` names the
+    /// original submission and the evidence for where the act already exists.
+    AlreadyPresentInInheritedHistory {
+        /// Content-addressed ingress id that was presented.
+        ingress_id: Hash,
+        /// Resolved writer head on the inheriting worldline.
+        head_key: WriterHeadKey,
+        /// The original submission and its inheritance evidence.
+        inherited: Box<InheritedSubmission>,
+    },
+}
+
+/// Decision evidence in a strand's copied prefix.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct InheritedPrefix {
+    /// Submissions the prefix's attributed ticks decided.
+    attributed: BTreeSet<Hash>,
+    /// Whether the prefix has ticks older than attribution, so it cannot
+    /// enumerate everything it decided.
+    unattributed_ticks: bool,
+}
+
+impl InheritedPrefix {
+    /// Whether the prefix proves `submission_id` was decided in it.
+    ///
+    /// An attributed tick names its decisions. A tick older than attribution
+    /// does not, so for those the evidence is the submission's receipt
+    /// correlation, whose coordinate must lie on `ancestor_id` at or before
+    /// `cap`, the last tick of that ancestor the child inherits. The ancestor's
+    /// own coverage gate guarantees its decision log is complete, so a
+    /// submission without a correlation was not decided. Final graph state is
+    /// never treated as evidence.
+    fn proves_decided(
+        &self,
+        runtime: &WorldlineRuntime,
+        submission_id: Hash,
+        ancestor_id: WorldlineId,
+        cap: WorldlineTick,
+    ) -> bool {
+        if self.attributed.contains(&submission_id) {
+            return true;
+        }
+        self.unattributed_ticks
+            && runtime
+                .receipt_correlation_for_submission(&submission_id)
+                .is_some_and(|correlation| {
+                    correlation.causal_receipt_ref.worldline_id == ancestor_id
+                        && correlation.causal_receipt_ref.worldline_tick_after.as_u64()
+                            <= cap.as_u64().saturating_add(1)
+                })
+    }
+}
+
+/// An occurrence's original submission, found in a worldline's inherited past.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InheritedSubmission {
+    /// Original witnessed submission that admitted the occurrence.
+    pub submission_id: Hash,
+    /// Writer head the original submission belongs to.
+    pub origin_head_key: WriterHeadKey,
+    /// Generation of the original submission.
+    pub submission_generation: IngressSubmissionGeneration,
+    /// Fork basis of the inheriting worldline, through which the original
+    /// decision is part of its causal past.
+    pub fork_basis_ref: crate::ForkBasisRef,
+    /// Receipt of the original decision, when it was ticketed.
+    pub causal_receipt_ref: Option<CausalTickReceiptRef>,
 }
 
 /// App-facing submission handle returned after Echo accepts or recognizes an
@@ -654,8 +741,35 @@ pub struct IntentSubmissionHandle {
     pub submission_id: Hash,
     /// Echo-owned intake/correlation generation.
     pub submission_generation: IngressSubmissionGeneration,
-    /// `true` when Echo had already witnessed this semantic submission.
+    /// `true` when Echo had already witnessed this semantic submission,
+    /// including when it is present in inherited history.
     pub duplicate: bool,
+    /// Fork basis through which the submission is inherited, when the
+    /// occurrence was found in the worldline's inherited past. `head_key` and
+    /// `submission_id` then name the original submission.
+    pub inherited_through: Option<InheritedThrough>,
+}
+
+/// Compact identity of the fork basis an inherited submission is reached
+/// through: the source worldline, the last copied tick and its commit hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InheritedThrough {
+    /// Source worldline of the fork.
+    pub source_lane_id: WorldlineId,
+    /// Last tick of the copied prefix.
+    pub fork_tick: WorldlineTick,
+    /// Commit hash at `fork_tick`.
+    pub commit_hash: Hash,
+}
+
+impl From<crate::ForkBasisRef> for InheritedThrough {
+    fn from(basis: crate::ForkBasisRef) -> Self {
+        Self {
+            source_lane_id: basis.source_lane_id,
+            fork_tick: basis.fork_tick,
+            commit_hash: basis.commit_hash,
+        }
+    }
 }
 
 impl From<IntentSubmissionDisposition> for IntentSubmissionHandle {
@@ -672,6 +786,7 @@ impl From<IntentSubmissionDisposition> for IntentSubmissionHandle {
                 submission_id,
                 submission_generation,
                 duplicate: false,
+                inherited_through: None,
             },
             IntentSubmissionDisposition::Duplicate {
                 ingress_id,
@@ -684,13 +799,26 @@ impl From<IntentSubmissionDisposition> for IntentSubmissionHandle {
                 submission_id,
                 submission_generation,
                 duplicate: true,
+                inherited_through: None,
+            },
+            IntentSubmissionDisposition::AlreadyPresentInInheritedHistory {
+                ingress_id,
+                inherited,
+                ..
+            } => Self {
+                ingress_id,
+                head_key: inherited.origin_head_key,
+                submission_id: inherited.submission_id,
+                submission_generation: inherited.submission_generation,
+                duplicate: true,
+                inherited_through: Some(inherited.fork_basis_ref.into()),
             },
         }
     }
 }
 
 /// Result of ingesting an envelope into the runtime.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IngressDisposition {
     /// The envelope was admitted to the resolved head inbox.
     Accepted {
@@ -714,6 +842,20 @@ pub enum IngressDisposition {
         /// Existing submission generation, or zero when only the duplicate
         /// identity can be derived from replayed committed state.
         submission_generation: IngressSubmissionGeneration,
+    },
+    /// The Continuum occurrence is already present in the causal past this
+    /// worldline inherited at its fork basis.
+    ///
+    /// This is an idempotency result, not an admission: no submission is
+    /// created on this worldline and nothing is written. `inherited` names the
+    /// original submission and the evidence for where the act already exists.
+    AlreadyPresentInInheritedHistory {
+        /// Content-addressed ingress id that was presented.
+        ingress_id: Hash,
+        /// Resolved writer head on the inheriting worldline.
+        head_key: WriterHeadKey,
+        /// The original submission and its inheritance evidence.
+        inherited: Box<InheritedSubmission>,
     },
 }
 
@@ -1242,6 +1384,16 @@ pub struct ForkStrandReceipt {
     pub retention_posture: RetentionPosture,
 }
 
+/// What must hold before admission resumes on a worldline whose committed
+/// history was restored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AdmissionCoverageRequirement {
+    /// Frontier tick of the restored basis.
+    basis_tick: WorldlineTick,
+    /// Submissions the restored ticks attribute; each needs retained material.
+    attributed_submissions: BTreeSet<Hash>,
+}
+
 // =============================================================================
 // WorldlineRuntime
 // =============================================================================
@@ -1287,6 +1439,15 @@ pub struct WorldlineRuntime {
     /// Witnessed submissions, by worldline, whose envelope material is absent,
     /// so the occurrence mapping cannot be known complete on that worldline.
     submissions_without_envelope: BTreeSet<(WorldlineId, Hash)>,
+    /// What each strand child worldline's copied prefix proves was decided in
+    /// its causal past at its fork basis.
+    ///
+    /// Computed from the child's provenance when the strand forks, live or
+    /// during recovery. Undecided submissions at the basis are not included.
+    inherited_prefixes: BTreeMap<WorldlineId, InheritedPrefix>,
+    /// Worldlines whose committed history was restored before admission
+    /// coverage was established through the restored basis.
+    admission_coverage_pending: BTreeMap<WorldlineId, AdmissionCoverageRequirement>,
     /// Ticketed runtime ingress records keyed by deterministic event id.
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
@@ -2510,6 +2671,26 @@ impl WorldlineRuntime {
                     request.fork_tick,
                     request.child_worldline_id,
                 )?;
+                // The child's causal past is exactly its copied prefix; its
+                // decided submissions are those that prefix attributes.
+                let mut inherited = InheritedPrefix::default();
+                for tick in 0..provenance.len(request.child_worldline_id)? {
+                    let entry = provenance
+                        .entry(request.child_worldline_id, WorldlineTick::from_raw(tick))?;
+                    if let Some(attribution) = entry
+                        .tick_receipt
+                        .as_ref()
+                        .and_then(crate::TickReceipt::attribution)
+                    {
+                        inherited
+                            .attributed
+                            .extend(attribution.iter().map(|record| record.submission_id));
+                    } else {
+                        inherited.unattributed_ticks = true;
+                    }
+                }
+                self.inherited_prefixes
+                    .insert(request.child_worldline_id, inherited);
 
                 let child_target_tick = request.fork_tick.checked_increment().ok_or(
                     RuntimeError::FrontierTickOverflow(request.child_worldline_id),
@@ -2909,7 +3090,7 @@ impl WorldlineRuntime {
             recovered_global_tick = recovered_global_tick.max(entry.commit_global_tick);
         }
 
-        for worldline_id in touched_worldlines {
+        for worldline_id in touched_worldlines.iter().copied() {
             let base_state = restored
                 .worldlines
                 .get(&worldline_id)
@@ -2927,6 +3108,29 @@ impl WorldlineRuntime {
                 ));
         }
         restored.global_tick = recovered_global_tick;
+
+        for worldline_id in &touched_worldlines {
+            let basis_len = provenance.len(*worldline_id)?;
+            let mut attributed_submissions = BTreeSet::new();
+            for tick in 0..basis_len {
+                let entry = provenance.entry(*worldline_id, WorldlineTick::from_raw(tick))?;
+                if let Some(attribution) = entry
+                    .tick_receipt
+                    .as_ref()
+                    .and_then(crate::TickReceipt::attribution)
+                {
+                    attributed_submissions
+                        .extend(attribution.iter().map(|record| record.submission_id));
+                }
+            }
+            restored.admission_coverage_pending.insert(
+                *worldline_id,
+                AdmissionCoverageRequirement {
+                    basis_tick: WorldlineTick::from_raw(basis_len),
+                    attributed_submissions,
+                },
+            );
+        }
 
         for persisted in correlations {
             restored.restore_receipt_correlation(persisted)?;
@@ -3170,7 +3374,17 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_admission_coverage(head_key.worldline_id)?;
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
+        if let Some(inherited) = self.inherited_continuum_occurrence(head_key, &envelope)? {
+            return Ok(
+                IntentSubmissionDisposition::AlreadyPresentInInheritedHistory {
+                    ingress_id,
+                    head_key,
+                    inherited,
+                },
+            );
+        }
 
         if self
             .worldlines
@@ -3269,11 +3483,13 @@ impl WorldlineRuntime {
         envelope: IngressEnvelope,
         contract: Option<crate::InstalledInvocationEvidence>,
     ) -> Result<TicketedRuntimeIngressDisposition, RuntimeError> {
+        let head_key = self.resolve_target(envelope.target())?;
+        // Missing restored evidence must not read as an unknown submission.
+        self.check_admission_coverage(head_key.worldline_id)?;
         let Some(submission) = self.witnessed_submissions.get(&submission_id) else {
             return Err(RuntimeError::UnknownIntentSubmission(submission_id));
         };
         let ingress_id = envelope.ingress_id();
-        let head_key = self.resolve_target(envelope.target())?;
         if submission.ingress_id != ingress_id || submission.head_key != head_key {
             return Err(RuntimeError::TicketedIngressSubmissionMismatch(
                 submission_id,
@@ -3457,7 +3673,15 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_admission_coverage(head_key.worldline_id)?;
         self.check_continuum_occurrence_binding(head_key, &envelope)?;
+        if let Some(inherited) = self.inherited_continuum_occurrence(head_key, &envelope)? {
+            return Ok(IngressDisposition::AlreadyPresentInInheritedHistory {
+                ingress_id,
+                head_key,
+                inherited,
+            });
+        }
 
         if self
             .worldlines
@@ -3507,6 +3731,210 @@ impl WorldlineRuntime {
             }
             InboxIngestResult::Rejected => Err(RuntimeError::RejectedByPolicy(head_key)),
         }
+    }
+
+    /// Records a trusted host's attestation that what it restored is its
+    /// complete record, and releases the coverage requirements pending now
+    /// that this establishes.
+    ///
+    /// The attestation states two facts no snapshot can prove about itself:
+    /// the restored witnessed submissions are the complete acceptance log, and
+    /// the restored receipt correlations are the complete decision log. A
+    /// snapshot can omit an accepted request still undecided at the basis
+    /// (for example a Continuum occurrence whose key would then be reusable),
+    /// and a tick older than attribution cannot say what it decided; final
+    /// graph state is no evidence of either. The trusted host can vouch: its
+    /// WAL holds every acceptance and a recorded decision for every decided
+    /// submission, and recovery refuses missing material. Correlations restore
+    /// committed ingress for the submissions they name; every other witnessed
+    /// submission is undecided.
+    ///
+    /// The attestation covers only requirements pending when it is made;
+    /// history restored later needs its own. A requirement is released only
+    /// when every submission its ticks attribute has retained material, and
+    /// releasing it records committed ingress for those submissions, which
+    /// replayed state does not carry.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    pub(crate) fn attest_complete_witnessed_submissions(&mut self) {
+        let established = self
+            .admission_coverage_pending
+            .iter()
+            .filter(|(_, requirement)| {
+                requirement
+                    .attributed_submissions
+                    .iter()
+                    .all(|submission_id| {
+                        self.witnessed_submission_envelopes
+                            .contains_key(submission_id)
+                    })
+            })
+            .map(|(worldline_id, _)| *worldline_id)
+            .collect::<Vec<_>>();
+        for worldline_id in established {
+            let Some(requirement) = self.admission_coverage_pending.remove(&worldline_id) else {
+                continue;
+            };
+            let attributed = requirement
+                .attributed_submissions
+                .iter()
+                .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
+                .map(|record| (record.head_key, record.ingress_id))
+                .collect::<Vec<_>>();
+            for (head_key, ingress_id) in attributed {
+                if let Some(frontier) = self.worldlines.frontier_mut(&head_key.worldline_id) {
+                    frontier
+                        .state_mut()
+                        .record_committed_ingress(head_key, [ingress_id]);
+                }
+            }
+        }
+    }
+
+    /// Worldlines whose restored history admission coverage does not yet
+    /// cover, in worldline order.
+    #[must_use]
+    pub fn admission_coverage_unestablished(&self) -> Vec<WorldlineId> {
+        self.admission_coverage_pending.keys().copied().collect()
+    }
+
+    /// Refuses admission on a worldline whose restored history is not yet
+    /// covered by restored witnessed submissions.
+    fn check_admission_coverage(&self, worldline_id: WorldlineId) -> Result<(), RuntimeError> {
+        match self.admission_coverage_pending.get(&worldline_id) {
+            Some(requirement) => Err(RuntimeError::AdmissionCoverageUnestablished {
+                worldline_id,
+                basis_tick: requirement.basis_tick,
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Finds an occurrence in the causal past a strand child inherited.
+    ///
+    /// Only consulted when this worldline has no binding of its own. Walks the
+    /// fork ancestry: an ancestor's binding counts only when its submission
+    /// was decided within the child's inherited prefix, so an occurrence
+    /// pending at the fork basis, or admitted after it, is not inherited.
+    /// Missing knowledge about an ancestor obstructs instead of admitting.
+    fn inherited_continuum_occurrence(
+        &self,
+        head_key: WriterHeadKey,
+        envelope: &IngressEnvelope,
+    ) -> Result<Option<Box<InheritedSubmission>>, RuntimeError> {
+        let Some(occurrence) = envelope.occurrence() else {
+            return Ok(None);
+        };
+        let key = occurrence.occurrence_key_digest();
+        if self
+            .continuum_occurrence_bindings
+            .contains_key(&(head_key.worldline_id, key))
+        {
+            return Ok(None);
+        }
+        let Some(strand) = self.strands.find_by_child_worldline(&head_key.worldline_id) else {
+            return Ok(None);
+        };
+        let fork_basis_ref = strand.fork_basis_ref;
+        // A strand registered without forking has no recorded prefix
+        // evidence; an unknown causal past is not an empty one.
+        let Some(inherited) = self.inherited_prefixes.get(&head_key.worldline_id) else {
+            return Err(RuntimeError::AdmissionCoverageUnestablished {
+                worldline_id: head_key.worldline_id,
+                basis_tick: fork_basis_ref
+                    .fork_tick
+                    .checked_increment()
+                    .unwrap_or(fork_basis_ref.fork_tick),
+            });
+        };
+        // Every strand relation in the ancestry must be backed by recorded
+        // prefix evidence (a fork, not a bare registration) before any
+        // ancestor's binding is trusted or followed.
+        let mut lineage = fork_basis_ref.source_lane_id;
+        for _ in 0..=self.strands.len() {
+            let Some(strand) = self.strands.find_by_child_worldline(&lineage) else {
+                break;
+            };
+            if !self.inherited_prefixes.contains_key(&lineage) {
+                return Err(RuntimeError::AdmissionCoverageUnestablished {
+                    worldline_id: lineage,
+                    basis_tick: strand
+                        .fork_basis_ref
+                        .fork_tick
+                        .checked_increment()
+                        .unwrap_or(strand.fork_basis_ref.fork_tick),
+                });
+            }
+            lineage = strand.fork_basis_ref.source_lane_id;
+        }
+        let mut ancestor = Some(fork_basis_ref.source_lane_id);
+        // The last tick of the current ancestor that the child inherits.
+        let mut cap = fork_basis_ref.fork_tick;
+        // Strands form a tree; the bound only guards against a malformed one.
+        for _ in 0..=self.strands.len() {
+            let Some(ancestor_id) = ancestor else {
+                break;
+            };
+            self.check_admission_coverage(ancestor_id)?;
+            match self
+                .continuum_occurrence_bindings
+                .get(&(ancestor_id, key))
+                .copied()
+            {
+                Some(submission_id)
+                    if inherited.proves_decided(self, submission_id, ancestor_id, cap) =>
+                {
+                    let same_binding = self
+                        .witnessed_submissions
+                        .get(&submission_id)
+                        .zip(self.witnessed_submission_envelopes.get(&submission_id))
+                        .filter(|(record, existing)| {
+                            record.ingress_id == envelope.ingress_id()
+                                && existing.occurrence() == Some(occurrence)
+                        })
+                        .map(|(record, _)| record.clone());
+                    let Some(record) = same_binding else {
+                        return Err(RuntimeError::ContinuumOccurrenceConflict {
+                            worldline_id: head_key.worldline_id,
+                            occurrence_key_digest: key,
+                            existing_submission_id: submission_id,
+                        });
+                    };
+                    return Ok(Some(Box::new(InheritedSubmission {
+                        submission_id,
+                        origin_head_key: record.head_key,
+                        submission_generation: record.submission_generation,
+                        fork_basis_ref,
+                        causal_receipt_ref: self
+                            .receipt_correlation_for_submission(&submission_id)
+                            .map(|correlation| correlation.causal_receipt_ref),
+                    })));
+                }
+                Some(_) => {}
+                None => {
+                    if let Some((_, submission_id)) = self
+                        .submissions_without_envelope
+                        .range((ancestor_id, [0; 32])..=(ancestor_id, [0xff; 32]))
+                        .next()
+                    {
+                        return Err(RuntimeError::ContinuumOccurrenceCoverageUnavailable {
+                            worldline_id: ancestor_id,
+                            submission_id: *submission_id,
+                        });
+                    }
+                }
+            }
+            let next = self.strands.find_by_child_worldline(&ancestor_id);
+            if let Some(strand) = next {
+                if strand.fork_basis_ref.fork_tick.as_u64() < cap.as_u64() {
+                    cap = strand.fork_basis_ref.fork_tick;
+                }
+            }
+            ancestor = next.map(|strand| strand.fork_basis_ref.source_lane_id);
+        }
+        Ok(None)
     }
 
     /// Applies Continuum's occurrence binding law at admission.
@@ -4049,6 +4477,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
         | RuntimeError::ContinuumOccurrenceConflict { .. }
         | RuntimeError::ContinuumOccurrenceCoverageUnavailable { .. }
+        | RuntimeError::AdmissionCoverageUnestablished { .. }
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -4453,6 +4882,11 @@ fn hash_strand_error(hasher: &mut blake3::Hasher, err: &StrandError) {
             hasher.update(b"already-exists");
             hasher.update(strand_id.as_bytes());
         }
+        StrandError::ChildWorldlineAlreadyRelated { child, existing } => {
+            hasher.update(b"child-worldline-already-related");
+            hash_worldline_id(hasher, child);
+            hasher.update(existing.as_bytes());
+        }
         StrandError::NotFound(strand_id) => {
             hasher.update(b"not-found");
             hasher.update(strand_id.as_bytes());
@@ -4822,6 +5256,14 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
             hasher.update(b"continuum-occurrence-coverage-unavailable");
             hasher.update(worldline_id.as_bytes());
             hasher.update(submission_id);
+        }
+        RuntimeError::AdmissionCoverageUnestablished {
+            worldline_id,
+            basis_tick,
+        } => {
+            hasher.update(b"admission-coverage-unestablished");
+            hasher.update(worldline_id.as_bytes());
+            hash_worldline_tick(&mut hasher, *basis_tick);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
@@ -5548,7 +5990,8 @@ mod tests {
         let ingress_id = envelope.ingress_id();
         let submission_id = match runtime.ingest(envelope).unwrap() {
             IngressDisposition::Accepted { submission_id, .. } => submission_id,
-            IngressDisposition::Duplicate { .. } => {
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("test envelope must be a new submission")
             }
         };
@@ -5926,7 +6369,8 @@ mod tests {
     fn accepted_submission(disposition: IngressDisposition) -> Hash {
         match disposition {
             IngressDisposition::Accepted { submission_id, .. } => submission_id,
-            IngressDisposition::Duplicate { .. } => {
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("expected a new submission, got a duplicate")
             }
         }
@@ -6041,7 +6485,10 @@ mod tests {
             IngressDisposition::Duplicate { submission_id, .. } => {
                 assert_eq!(submission_id, first_submission);
             }
-            IngressDisposition::Accepted { .. } => panic!("a retry must be a duplicate"),
+            IngressDisposition::Accepted { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
+                panic!("a retry must be a duplicate")
+            }
         }
         let retry_steps =
             SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
@@ -6145,7 +6592,8 @@ mod tests {
     fn accepted_intent(disposition: IntentSubmissionDisposition) -> Hash {
         match disposition {
             IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-            IntentSubmissionDisposition::Duplicate { .. } => {
+            IntentSubmissionDisposition::Duplicate { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("expected a new submission, got a duplicate")
             }
         }
@@ -6156,7 +6604,10 @@ mod tests {
             IntentSubmissionDisposition::Duplicate { submission_id, .. } => {
                 assert_eq!(submission_id, original, "redelivery names the submission");
             }
-            IntentSubmissionDisposition::Accepted { .. } => panic!("redelivery must be a retry"),
+            IntentSubmissionDisposition::Accepted { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
+                panic!("redelivery must be a retry")
+            }
         }
     }
 
@@ -6333,6 +6784,939 @@ mod tests {
         ));
     }
 
+    fn fork_child(
+        runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
+        source_lane_id: WorldlineId,
+        fork_tick: u64,
+        label: &str,
+        seed: u8,
+    ) -> (WorldlineId, crate::ForkBasisRef) {
+        let child_worldline_id = wl(seed);
+        let receipt = runtime
+            .fork_strand(
+                provenance,
+                ForkStrandRequest {
+                    strand_id: make_strand_id(label),
+                    source_lane_id,
+                    fork_tick: wt(fork_tick),
+                    child_worldline_id,
+                    writer_heads: vec![WriterHead::with_routing(
+                        WriterHeadKey {
+                            worldline_id: child_worldline_id,
+                            head_id: make_head_id(label),
+                        },
+                        PlaybackMode::Play,
+                        InboxPolicy::AcceptAll,
+                        None,
+                        true,
+                    )],
+                    retention_posture: test_retention_posture(10),
+                },
+            )
+            .unwrap();
+        (child_worldline_id, receipt.fork_basis_ref)
+    }
+
+    /// Issue #886: a strand inherits the occurrences decided in its causal
+    /// past at the fork basis. Redelivering one is an idempotency result that
+    /// admits nothing; reusing its key for other material is a conflict; an
+    /// occurrence pending at the basis or decided after it is admitted on the
+    /// child as usual. Nested forks inherit through every level.
+    #[test]
+    fn a_strand_inherits_the_occurrences_of_its_fork_basis() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId, key: u8, bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([key; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        let before_basis =
+            accepted_submission(runtime.ingest(occurred(source, 1, b"one")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        accepted_submission(runtime.ingest(occurred(source, 2, b"two")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        accepted_submission(runtime.ingest(occurred(source, 3, b"pending")).unwrap());
+
+        // Fork at tick 0: only the first occurrence is in the child's past.
+        let (child, child_basis) = fork_child(&mut runtime, &mut provenance, source, 0, "child", 2);
+        let assert_inherited =
+            |result: IngressDisposition, original: Hash, basis: crate::ForkBasisRef| match result {
+                IngressDisposition::AlreadyPresentInInheritedHistory { inherited, .. } => {
+                    assert_eq!(inherited.submission_id, original);
+                    assert_eq!(inherited.fork_basis_ref, basis);
+                }
+                other => panic!("expected an inherited occurrence, got {other:?}"),
+            };
+        let witnessed = runtime.witnessed_submission_count();
+        assert_inherited(
+            runtime.ingest(occurred(child, 1, b"one")).unwrap(),
+            before_basis,
+            child_basis,
+        );
+        assert!(matches!(
+            runtime.submit_intent(occurred(child, 1, b"one")).unwrap(),
+            IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { inherited, .. }
+                if inherited.submission_id == before_basis
+        ));
+        assert_eq!(
+            runtime.witnessed_submission_count(),
+            witnessed,
+            "an inherited occurrence admits nothing on the child"
+        );
+        assert!(matches!(
+            runtime.ingest(occurred(child, 1, b"other")),
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                worldline_id,
+                existing_submission_id,
+                ..
+            }) if worldline_id == child && existing_submission_id == before_basis
+        ));
+        // Decided after the basis, or pending at it: not inherited.
+        accepted_submission(runtime.ingest(occurred(child, 2, b"two")).unwrap());
+        accepted_submission(runtime.ingest(occurred(child, 3, b"pending")).unwrap());
+        let child_own = accepted_submission(runtime.ingest(occurred(child, 4, b"four")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        // A grandchild forked after the child's tick inherits through both levels.
+        let (grandchild, grandchild_basis) =
+            fork_child(&mut runtime, &mut provenance, child, 1, "grandchild", 3);
+        assert_inherited(
+            runtime.ingest(occurred(grandchild, 1, b"one")).unwrap(),
+            before_basis,
+            grandchild_basis,
+        );
+        assert_inherited(
+            runtime.ingest(occurred(grandchild, 4, b"four")).unwrap(),
+            child_own,
+            grandchild_basis,
+        );
+        assert!(matches!(
+            runtime.ingest(occurred(grandchild, 4, b"changed")),
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                existing_submission_id,
+                ..
+            }) if existing_submission_id == child_own
+        ));
+        // The grandchild forked from the child's tick 0 sees only the source's.
+        let (early, early_basis) = fork_child(
+            &mut runtime,
+            &mut provenance,
+            child,
+            0,
+            "early-grandchild",
+            4,
+        );
+        assert_inherited(
+            runtime.ingest(occurred(early, 1, b"one")).unwrap(),
+            before_basis,
+            early_basis,
+        );
+        accepted_submission(runtime.ingest(occurred(early, 4, b"four")).unwrap());
+    }
+
+    /// Owner conditions for #890: an inherited occurrence keeps resolving to
+    /// its decision at the fork basis however the parent advances; a parent
+    /// decision made after the fork never leaks into the strand, even for a
+    /// request already pending at the basis; and redelivery changes no
+    /// retained receipt on either lane.
+    #[test]
+    fn inherited_decisions_are_stable_and_post_fork_decisions_do_not_leak() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId, key: u8, bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([key; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        let decided = accepted_submission(runtime.ingest(occurred(source, 1, b"one")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        accepted_submission(runtime.ingest(occurred(source, 5, b"pending")).unwrap());
+        let (child, _) = fork_child(&mut runtime, &mut provenance, source, 0, "child", 2);
+        let inherited_now = |runtime: &mut WorldlineRuntime| match runtime
+            .ingest(occurred(child, 1, b"one"))
+            .unwrap()
+        {
+            IngressDisposition::AlreadyPresentInInheritedHistory { inherited, .. } => *inherited,
+            other => panic!("expected an inherited occurrence, got {other:?}"),
+        };
+        let at_fork = inherited_now(&mut runtime);
+        assert_eq!(at_fork.submission_id, decided);
+
+        // The parent advances: it decides the request pending at the basis
+        // and a new one.
+        accepted_submission(runtime.ingest(occurred(source, 6, b"later")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(provenance.len(source).unwrap(), 2);
+
+        let entries = |provenance: &ProvenanceService, worldline_id| {
+            (0..provenance.len(worldline_id).unwrap())
+                .map(|tick| provenance.entry(worldline_id, wt(tick)).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let (parent_before, child_before) =
+            (entries(&provenance, source), entries(&provenance, child));
+        assert_eq!(
+            inherited_now(&mut runtime),
+            at_fork,
+            "stable at the fork basis"
+        );
+        assert_eq!(entries(&provenance, source), parent_before);
+        assert_eq!(entries(&provenance, child), child_before);
+
+        // Decided on the parent after the fork: ordinary admission on the child.
+        accepted_submission(runtime.ingest(occurred(child, 5, b"pending")).unwrap());
+        accepted_submission(runtime.ingest(occurred(child, 6, b"later")).unwrap());
+    }
+
+    /// PR #890 review: a strand registered without forking has no recorded
+    /// prefix evidence. An unknown causal past is not an empty one, so an
+    /// occurrence admitted by its source obstructs instead of being admitted
+    /// again.
+    #[test]
+    fn a_strand_registered_without_forking_obstructs_occurrence_admission() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                b"one".to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(runtime.ingest(occurred(source)).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (_, fork_basis_ref) = fork_child(&mut runtime, &mut provenance, source, 0, "forked", 2);
+
+        let registered = wl(3);
+        runtime
+            .register_worldline(registered, WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            registered,
+            "registered",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .register_strand(
+                Strand::new(
+                    make_strand_id("registered"),
+                    fork_basis_ref,
+                    registered,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(11),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            runtime.ingest(occurred(registered)),
+            Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
+                if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: a strand forked from a registered-only strand has a
+    /// recorded prefix, but its parent's relation upward is unproven. The
+    /// ancestry walk must not follow it.
+    #[test]
+    fn an_unproven_intermediate_relation_obstructs_inheritance_through_it() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                b"one".to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(runtime.ingest(occurred(source)).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (_, fork_basis_ref) = fork_child(&mut runtime, &mut provenance, source, 0, "forked", 2);
+
+        // B claims to descend from the source, by registration only.
+        let registered = wl(3);
+        runtime
+            .register_worldline(registered, WorldlineState::empty())
+            .unwrap();
+        provenance
+            .register_worldline(registered, &WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            registered,
+            "registered",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .register_strand(
+                Strand::new(
+                    make_strand_id("registered"),
+                    fork_basis_ref,
+                    registered,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(11),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: registered,
+                    },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+
+        // C is forked properly from B, so it has a recorded prefix.
+        let (grandchild, _) = fork_child(
+            &mut runtime,
+            &mut provenance,
+            registered,
+            0,
+            "grandchild",
+            4,
+        );
+        assert!(matches!(
+            runtime.ingest(occurred(grandchild)),
+            Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
+                if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: the unproven intermediate may itself hold the binding;
+    /// its lineage must be validated before its binding is trusted.
+    #[test]
+    fn an_unproven_intermediate_binding_is_not_trusted() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                b"one".to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: source,
+                    },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (_, fork_basis_ref) = fork_child(&mut runtime, &mut provenance, source, 0, "forked", 2);
+
+        // B decides the occurrence itself, then claims descent by registration.
+        let registered = wl(3);
+        runtime
+            .register_worldline(registered, WorldlineState::empty())
+            .unwrap();
+        provenance
+            .register_worldline(registered, &WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            registered,
+            "registered",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        accepted_submission(runtime.ingest(occurred(registered)).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        runtime
+            .register_strand(
+                Strand::new(
+                    make_strand_id("registered"),
+                    fork_basis_ref,
+                    registered,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(11),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let (grandchild, _) = fork_child(
+            &mut runtime,
+            &mut provenance,
+            registered,
+            0,
+            "grandchild",
+            4,
+        );
+        assert!(matches!(
+            runtime.ingest(occurred(grandchild)),
+            Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
+                if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: a child worldline has exactly one causal past, so a
+    /// second strand relation for it is refused instead of letting lookups
+    /// pick one of two fork bases.
+    #[test]
+    fn a_child_worldline_cannot_belong_to_two_strands() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter {
+                        worldline_id: source,
+                    },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (child, fork_basis_ref) =
+            fork_child(&mut runtime, &mut provenance, source, 0, "child", 2);
+        let head = runtime
+            .resolve_target(&IngressTarget::DefaultWriter {
+                worldline_id: child,
+            })
+            .unwrap();
+        assert!(matches!(
+            runtime.register_strand(
+                Strand::new(
+                    make_strand_id("second-relation"),
+                    fork_basis_ref,
+                    child,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(12),
+                )
+                .unwrap(),
+            ),
+            Err(RuntimeError::Strand(StrandError::ChildWorldlineAlreadyRelated {
+                child: refused,
+                ..
+            })) if refused == child
+        ));
+    }
+
+    /// PR #890 review: a prefix tick older than attribution cannot say what it
+    /// decided. The evidence is the submission's receipt correlation (the
+    /// attested decision log): it counts only when it lies on the ancestor at
+    /// or before the last tick the child inherits. Without one the submission
+    /// was not decided; final graph state is never consulted.
+    #[test]
+    fn a_legacy_prefix_counts_only_correlated_decisions_within_the_cap() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let head_key = runtime
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let decision = |bytes: &[u8]| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(bytes),
+            )
+        };
+        let first = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            decision(b"amount=1"),
+            hash(91),
+        );
+        let second = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            decision(b"amount=2"),
+            hash(92),
+        );
+        let legacy = InheritedPrefix {
+            attributed: BTreeSet::new(),
+            unattributed_ticks: true,
+        };
+        // Decided at tick 0 and tick 1 of the ancestor.
+        assert!(legacy.proves_decided(&runtime, first.submission_id, worldline_id, wt(0)));
+        assert!(!legacy.proves_decided(&runtime, second.submission_id, worldline_id, wt(0)));
+        assert!(legacy.proves_decided(&runtime, second.submission_id, worldline_id, wt(1)));
+        // On another ancestor, or with no correlation, nothing is proven.
+        assert!(!legacy.proves_decided(&runtime, first.submission_id, wl(9), wt(5)));
+        assert!(!legacy.proves_decided(&runtime, hash(93), worldline_id, wt(5)));
+        // A fully attributed prefix relies on its attribution alone.
+        let attributed_only = InheritedPrefix {
+            attributed: BTreeSet::new(),
+            unattributed_ticks: false,
+        };
+        assert!(!attributed_only.proves_decided(
+            &runtime,
+            first.submission_id,
+            worldline_id,
+            wt(5)
+        ));
+    }
+
+    /// Issue #887: restoring committed history alone keeps inspection working
+    /// but cannot tell a resent request from a new one, so every admission
+    /// entry point is obstructed until a complete witnessed restore covers the
+    /// restored basis. A partial or failed restore does not unlock admission.
+    #[test]
+    fn history_only_restore_obstructs_admission_until_coverage_is_established() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let committed = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        let first = accepted_submission(source.ingest(committed.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let second = accepted_submission(
+            source
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    toy_increment_intent(b"amount=43"),
+                ))
+                .unwrap(),
+        );
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        // Accepted but undecided at the basis: no tick names it.
+        let occurrence_at = |bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([5; 32], [0xa5; 32]),
+            )
+        };
+        let pending = accepted_submission(source.ingest(occurrence_at(b"pending")).unwrap());
+        let entries = (0..2)
+            .map(|tick| provenance.entry(worldline_id, wt(tick)).unwrap())
+            .collect::<Vec<_>>();
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+        let without = |omitted: Hash| {
+            WitnessedSubmissionPersistenceSnapshot::new(
+                snapshot
+                    .records()
+                    .iter()
+                    .filter(|record| record.submission.submission_id != omitted)
+                    .cloned()
+                    .collect(),
+            )
+        };
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        assert_eq!(
+            restored.global_tick(),
+            source.global_tick(),
+            "history reads back"
+        );
+
+        let is_obstructed = |error: RuntimeError| {
+            matches!(
+                error,
+                RuntimeError::AdmissionCoverageUnestablished {
+                    worldline_id: obstructed,
+                    basis_tick,
+                } if obstructed == worldline_id && basis_tick == wt(2)
+            )
+        };
+        let fresh = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            b"never submitted".to_vec(),
+        );
+        let assert_obstructed = |runtime: &mut WorldlineRuntime| {
+            assert!(is_obstructed(
+                runtime.ingest(committed.clone()).unwrap_err()
+            ));
+            assert!(is_obstructed(
+                runtime.submit_intent(committed.clone()).unwrap_err()
+            ));
+            assert!(is_obstructed(
+                runtime.submit_intent(fresh.clone()).unwrap_err()
+            ));
+        };
+        assert_obstructed(&mut restored);
+        assert_eq!(restored.witnessed_submission_count(), 0);
+        // Staging reports missing coverage, not an unknown submission.
+        let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
+        assert!(is_obstructed(
+            restored
+                .ingest_ticketed_invocation(&authority, first, &test_ticket(13), committed.clone())
+                .unwrap_err()
+        ));
+
+        // A restore missing a submission the history attributes is partial:
+        // even an attestation cannot release it.
+        restored
+            .restore_witnessed_submission_persistence(without(second))
+            .unwrap();
+        assert_obstructed(&mut restored);
+        assert!(is_obstructed(
+            restored
+                .ingest_ticketed_invocation(&authority, first, &test_ticket(12), committed.clone())
+                .unwrap_err()
+        ));
+        restored.attest_complete_witnessed_submissions();
+        assert_obstructed(&mut restored);
+        assert_eq!(
+            restored.admission_coverage_unestablished(),
+            vec![worldline_id]
+        );
+
+        // A failed restore changes nothing.
+        let mut corrupt = snapshot.records().to_vec();
+        corrupt[1].envelope = fresh.clone();
+        assert!(restored
+            .restore_witnessed_submission_persistence(WitnessedSubmissionPersistenceSnapshot::new(
+                corrupt
+            ))
+            .is_err());
+        assert_obstructed(&mut restored);
+        assert_eq!(restored.witnessed_submission_count(), 2);
+
+        // Every attributed submission, but not the pending occurrence: a public
+        // snapshot cannot prove it omits nothing, so admission stays closed and
+        // the occurrence's key cannot be reused for other content.
+        restored
+            .restore_witnessed_submission_persistence(without(pending))
+            .unwrap();
+        assert_obstructed(&mut restored);
+        assert!(is_obstructed(
+            restored.ingest(occurrence_at(b"other")).unwrap_err()
+        ));
+
+        // The complete log, attested by its owner, establishes coverage.
+        restored
+            .restore_witnessed_submission_persistence(snapshot.clone())
+            .unwrap();
+        assert_obstructed(&mut restored);
+        restored.attest_complete_witnessed_submissions();
+        assert!(restored.admission_coverage_unestablished().is_empty());
+        match restored.ingest(committed.clone()).unwrap() {
+            IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
+            IngressDisposition::Accepted { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
+                panic!("a committed request must be a retry")
+            }
+        }
+        assert!(matches!(
+            restored.ingest(occurrence_at(b"other")),
+            Err(RuntimeError::ContinuumOccurrenceConflict { existing_submission_id, .. })
+                if existing_submission_id == pending
+        ));
+        accepted_submission(restored.ingest(fresh).unwrap());
+    }
+
+    /// PR #888 review: an attestation covers the restores made before it,
+    /// not history restored afterwards.
+    #[test]
+    fn an_attestation_covers_only_the_restores_before_it() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let committed = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        accepted_submission(source.ingest(committed.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let entries = vec![provenance.entry(worldline_id, wt(0)).unwrap()];
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(restored.ingest(committed.clone()).is_ok());
+
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        assert!(matches!(
+            restored.ingest(committed),
+            Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+        ));
+    }
+
+    /// PR #888 review: a tick older than attribution cannot say which
+    /// submissions it decided, so no public snapshot can prove coverage
+    /// across it; a snapshot omitting its request must not reopen admission.
+    /// Only a trusted host attesting its complete acceptance log can.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn unattributed_history_needs_an_attested_complete_acceptance_log() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let committed = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        accepted_submission(source.ingest(committed.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        let is_obstructed = |result: Result<IngressDisposition, RuntimeError>| {
+            matches!(
+                result,
+                Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+            )
+        };
+
+        // A snapshot that omits the committed request: nothing proves the gap.
+        restored
+            .restore_witnessed_submission_persistence(WitnessedSubmissionPersistenceSnapshot::new(
+                Vec::new(),
+            ))
+            .unwrap();
+        assert!(is_obstructed(restored.ingest(committed.clone())));
+        // Even the complete snapshot cannot prove itself complete.
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        assert!(is_obstructed(restored.ingest(committed)));
+
+        // The trusted host's attestation reopens admission. (Under its WAL every
+        // decided submission has a restored correlation; this unticketed tick
+        // has none, so the attestation would not be made for it in practice.)
+        restored.attest_complete_witnessed_submissions();
+        accepted_submission(
+            restored
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    b"after attestation".to_vec(),
+                ))
+                .unwrap(),
+        );
+    }
+
+    /// PR #888 review: an ingress id does not name its head, and final graph
+    /// state is no evidence of a decision. When a tick older than attribution
+    /// decided content on one head and identical content is pending on
+    /// another, the pending submission must not be marked committed (which
+    /// would strand it). Decisions come only from the attested decision log.
+    #[test]
+    fn identical_legacy_content_on_two_heads_does_not_strand_the_pending_one() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let other = register_head(
+            &mut source,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let content = |target: IngressTarget| {
+            IngressEnvelope::local_intent(
+                target,
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(TOY_INCREMENT_VARS),
+            )
+        };
+        accepted_submission(
+            source
+                .ingest(content(IngressTarget::DefaultWriter { worldline_id }))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        accepted_submission(
+            source
+                .ingest(content(IngressTarget::ExactHead { key: other }))
+                .unwrap(),
+        );
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(matches!(
+            restored
+                .ingest(content(IngressTarget::ExactHead { key: other }))
+                .unwrap(),
+            IngressDisposition::Accepted { .. }
+        ));
+    }
+
+    /// PR #888 review: final graph state is not commit evidence. A node whose
+    /// id equals a pending request's ingress id may already be in the base
+    /// state; the pending request must not be marked committed (it could then
+    /// never run).
+    #[test]
+    fn a_base_state_node_is_not_evidence_that_a_legacy_tick_decided_a_request() {
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let pending_bytes = toy_increment_intent(b"amount=44");
+        let colliding = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: wl(1),
+            },
+            kind,
+            pending_bytes.clone(),
+        )
+        .ingress_id();
+        let base = || {
+            let mut store = crate::GraphStore::default();
+            let root = make_node_id("root");
+            store.insert_node(
+                root,
+                NodeRecord {
+                    ty: make_type_id("world"),
+                },
+            );
+            store.insert_node(
+                NodeId(colliding),
+                NodeRecord {
+                    ty: make_type_id("app/thing"),
+                },
+            );
+            WorldlineState::from_root_store(store, root).unwrap()
+        };
+        let runtime_on = |state: WorldlineState| {
+            let mut runtime = WorldlineRuntime::new();
+            runtime.register_worldline(wl(1), state).unwrap();
+            register_head(
+                &mut runtime,
+                wl(1),
+                "default",
+                None,
+                true,
+                InboxPolicy::AcceptAll,
+            );
+            runtime
+        };
+        let mut source = runtime_on(base());
+        let mut engine = empty_engine();
+        engine.register_rule(toy_increment_contract_rule()).unwrap();
+        let worldline_id = wl(1);
+        accepted_submission(
+            source
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let pending = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            pending_bytes,
+        );
+        accepted_submission(source.ingest(pending.clone()).unwrap());
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let mut restored = runtime_on(base());
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(matches!(
+            restored.ingest(pending).unwrap(),
+            IngressDisposition::Accepted { .. }
+        ));
+    }
+
+    fn test_ticket(seed: u8) -> crate::OpticAdmissionTicket {
+        crate::OpticAdmissionTicket {
+            kind: crate::OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+            artifact_handle: crate::OpticArtifactHandle {
+                kind: crate::OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+                id: format!("test-ticket-{seed}"),
+            },
+            artifact_hash: format!("artifact-{seed}"),
+            operation_id: format!("operation-{seed}"),
+            requirements_digest: format!("requirements-{seed}"),
+            canonical_variables_digest: vec![seed],
+            basis_request_digest: [seed; 32],
+            aperture_request_digest: [seed.wrapping_add(1); 32],
+            budget_request_digest: [seed.wrapping_add(2); 32],
+            law_witness_digest: [seed.wrapping_add(3); 32],
+            ticket_digest: [seed.wrapping_add(4); 32],
+        }
+    }
+
     /// Issue #880: Echo preserves Continuum occurrence identity at admission.
     /// Identical content admitted as two occurrences is two submissions, each
     /// decided and attributed in the tick; redelivering an occurrence is a
@@ -6396,7 +7780,10 @@ mod tests {
                 IngressDisposition::Duplicate { submission_id, .. } => {
                     assert_eq!(submission_id, first, "redelivery returns the submission");
                 }
-                IngressDisposition::Accepted { .. } => panic!("redelivery must be a retry"),
+                IngressDisposition::Accepted { .. }
+                | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
+                    panic!("redelivery must be a retry")
+                }
             }
             let mut other_bytes = bytes.clone();
             other_bytes.extend_from_slice(b";other");
@@ -7553,7 +8940,8 @@ mod tests {
                 submission_id,
                 submission_generation,
             } => Some((ingress_id, head_key, submission_id, submission_generation)),
-            IngressDisposition::Duplicate { .. } => None,
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => None,
         };
         assert!(
             default_accepted.is_some(),
@@ -7572,7 +8960,8 @@ mod tests {
                 submission_id,
                 submission_generation,
             } => Some((ingress_id, head_key, submission_id, submission_generation)),
-            IngressDisposition::Duplicate { .. } => None,
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => None,
         };
         assert!(
             named_accepted.is_some(),
@@ -7650,7 +9039,8 @@ mod tests {
                 submission_generation,
                 ..
             } => Some((submission_id, submission_generation)),
-            IngressDisposition::Duplicate { .. } => None,
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => None,
         };
         assert!(
             first_accepted.is_some(),
@@ -7666,7 +9056,8 @@ mod tests {
                 submission_generation,
                 ..
             } => Some((submission_id, submission_generation)),
-            IngressDisposition::Accepted { .. } => None,
+            IngressDisposition::Accepted { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => None,
         };
         assert!(
             duplicate_posture.is_some(),
@@ -7753,7 +9144,8 @@ mod tests {
                 submission_generation,
                 ..
             } => (submission_id, submission_generation),
-            IntentSubmissionDisposition::Duplicate { .. } => {
+            IntentSubmissionDisposition::Duplicate { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("first submission should be accepted")
             }
         };
@@ -7838,7 +9230,8 @@ mod tests {
                 submission_generation,
                 ..
             } => (submission_id, submission_generation),
-            IntentSubmissionDisposition::Duplicate { .. } => {
+            IntentSubmissionDisposition::Duplicate { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("first submission should be accepted")
             }
         };
@@ -7893,7 +9286,8 @@ mod tests {
         );
         let submission_id = match runtime.submit_intent(env).unwrap() {
             IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-            IntentSubmissionDisposition::Duplicate { .. } => {
+            IntentSubmissionDisposition::Duplicate { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("first submission should be accepted")
             }
         };
@@ -8158,7 +9552,8 @@ mod tests {
         );
         let unrelated_submission_id = match runtime.submit_intent(unrelated_envelope).unwrap() {
             IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
-            IntentSubmissionDisposition::Duplicate { .. } => {
+            IntentSubmissionDisposition::Duplicate { .. }
+            | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("unrelated submission must be newly witnessed")
             }
         };
@@ -9595,7 +10990,8 @@ mod tests {
         let ingress_id = env_a.ingress_id();
         let submission_id = match runtime.ingest(env_a).unwrap() {
             IngressDisposition::Accepted { submission_id, .. } => submission_id,
-            IngressDisposition::Duplicate { .. } => {
+            IngressDisposition::Duplicate { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 unreachable!("first runtime ingress must be accepted")
             }
         };

@@ -1024,6 +1024,10 @@ impl KernelPort for WarpKernel {
                         Some(submission_id.to_vec()),
                         Some(submission_generation.as_u64()),
                     ),
+                    IngressDisposition::AlreadyPresentInInheritedHistory { inherited, .. } => (
+                        Some(inherited.submission_id.to_vec()),
+                        Some(inherited.submission_generation.as_u64()),
+                    ),
                 };
                 self.refresh_scheduler_status();
                 Ok(DispatchResponse {

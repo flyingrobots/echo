@@ -249,7 +249,8 @@ fn ticketed_invocation_ingests_runtime_envelope_without_ticking() {
     );
     let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some(submission) = accepted else {
@@ -327,7 +328,8 @@ fn ticketed_ingress_preserves_submission_and_ticket_identity() {
     );
     let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some(submission) = accepted else {
@@ -395,7 +397,8 @@ fn receipt_correlation_does_not_exist_before_scheduler_tick() {
     );
     let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some(submission) = accepted else {
@@ -463,7 +466,8 @@ fn witnessed_submission_outcome_observation_is_pending_without_tick() {
             submission_generation,
             ..
         } => Some((submission_id, submission_generation)),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some((submission, generation)) = accepted else {
@@ -497,7 +501,8 @@ fn ticketed_ingress_correlates_tick_receipt_after_scheduler_owned_tick() {
     );
     let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some(submission) = accepted else {
@@ -579,7 +584,8 @@ fn ticketed_submission_outcome_observation_is_decided_after_scheduler_tick() {
     );
     let accepted = match runtime.submit_intent(envelope.clone()).unwrap() {
         IntentSubmissionDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IntentSubmissionDisposition::Duplicate { .. } => None,
+        IntentSubmissionDisposition::Duplicate { .. }
+        | IntentSubmissionDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(accepted.is_some(), "first submission should be accepted");
     let Some(submission) = accepted else {
@@ -659,7 +665,8 @@ fn ticketed_ingress_rejects_legacy_pending_duplicate_without_correlation() {
 
     let accepted = match runtime.ingest(envelope.clone()).unwrap() {
         IngressDisposition::Accepted { submission_id, .. } => Some(submission_id),
-        IngressDisposition::Duplicate { .. } => None,
+        IngressDisposition::Duplicate { .. }
+        | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => None,
     };
     assert!(
         accepted.is_some(),

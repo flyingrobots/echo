@@ -105,6 +105,27 @@
 
 ### Added
 
+- A strand inherits the Continuum occurrences decided in its causal past
+  (#886). Redelivering such an occurrence to the strand returns
+  `AlreadyPresentInInheritedHistory` (from `submit_intent` and `ingest`)
+  naming the original submission, its head, the fork basis and its receipt
+  when ticketed; nothing is admitted and no acceptance is written.
+  `IntentSubmissionHandle` reports it as a duplicate with `inherited_through`
+  set. Reusing an inherited occurrence key for other material is an
+  occurrence conflict. Occurrences undecided at the fork basis, or decided
+  after it, are not inherited. Nested forks and restart preserve this.
+- Restoring committed history without the witnessed submissions it accounts
+  for no longer reopens admission (#887). `restore_causal_runtime_history`
+  keeps the restored worldline readable, but `submit_intent`, `ingest` and
+  ticketed staging fail with `RuntimeError::AdmissionCoverageUnestablished`
+  until the trusted host attests, after WAL recovery, that the witnessed
+  submissions and receipt correlations it restored are its complete acceptance
+  and decision logs. The attestation releases a worldline only when every
+  submission its ticks attribute has retained material, and it covers only the
+  restores made before it; final graph state is never treated as evidence of
+  a decision. Before this, a runtime rebuilt from history alone accepted a resent
+  request as a new one, and `ingest` could re-queue a request an unticketed
+  tick had already decided. Normal host recovery is unaffected.
 - Echo preserves Continuum occurrence identity at admission (#880).
   `IngressEnvelope::continuum_occurred_intent` binds an intent to a
   `ContinuumOccurrence` (Continuum's occurrence key and applied digests), and

@@ -7048,7 +7048,10 @@ mod tests {
         restored.attest_complete_witnessed_submissions();
         match restored.ingest(committed).unwrap() {
             IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
-            IngressDisposition::Accepted { .. } => panic!("a committed request must be a retry"),
+            IngressDisposition::Accepted { .. }
+            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
+                panic!("a committed request must be a retry")
+            }
         }
     }
 

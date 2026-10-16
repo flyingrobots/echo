@@ -188,7 +188,7 @@ EffectProposal {
     ReplaceEdge  { edge, expectedTo, to }  retarget an existing edge
   ]
   result                 compiler-declared application result bytes
-  cost                   steps, allocated bytes, read bytes, write bytes
+  cost                   steps, read bytes, write bytes; allocated bytes
 }
 ```
 
@@ -435,7 +435,8 @@ recorded obstruction:
    the target set, and the counts (`FootprintLawViolation`);
 7. effect preconditions, effect by effect in canonical order, and within an
    effect in the order its precondition list gives (`NodeMissing`,
-   `PreconditionMismatch`, `ContentIdentityConflict`, `DanglingReference`);
+   `PreconditionMismatch`, `ContentIdentityConflict`, `DanglingReference`,
+   or `BudgetExceeded` when a validation read exceeds the remaining budget);
 8. the footprint law over the resolved write set
    (`FootprintLawViolation`);
 9. patch derivation and the actual-footprint equality
@@ -552,12 +553,27 @@ held; this design validates only what the proposal adds or retargets.
       commit parent. A later Action that expects a value an earlier Action
       replaced is therefore a footprint conflict, never a
       `PreconditionMismatch`.
-- **Budget.** Evaluation is metered as `edict_pure` already meters it. Each
-  effect adds a fixed write cost, and an effect carrying an atom also charges
-  the atom's byte length against `write_bytes`, so a large payload cannot fit
-  a budget that would not cover its bytes. Exhausting any evaluation limit
-  obstructs with
-  `BudgetExceeded`, posture `NoProposal`, and no patch. A proposal whose derived
+- **Budget.** The delegated budget stays `EchoOperationBudgetV1`, with its
+  three axes: steps, read bytes, and write bytes. Evaluation is metered as
+  `edict_pure` already meters it. Each effect adds a fixed write cost, and an
+  effect carrying an atom also charges the atom's byte length against
+  `write_bytes`, so a large payload cannot fit a budget that would not cover
+  its bytes. Exhausting any evaluation limit obstructs with
+  `BudgetExceeded`, posture `NoProposal`, and no patch. Allocation is not a
+  delegated axis: `edict_pure` already bounds it by its own
+  `max_allocated_bytes`, the host ceiling intersected with the program's
+  declared maximum, and exceeding that is likewise `BudgetExceeded` with
+  `NoProposal`. The allocated bytes are recorded as evidence, never compared
+  against the delegated budget.
+- **Validation reads are charged.** A precondition check that reads a value
+  the program did not read charges that value's length against
+  `read_bytes` before hashing it, as today's compare-and-set charges the
+  current atom: a `ReplaceAtom` or `EnsureNode` hashes the current atom, and
+  an `EnsureEdge` or `ReplaceEdge` reads a fixed-size edge record. Charges
+  accrue in validation order, against the budget left after evaluation. A
+  check that would exceed it obstructs with `BudgetExceeded`, posture
+  `Proposed`, `NotDerived`, at that step of the validation order, before the
+  value is hashed. A proposal whose derived
   patch alone exceeds the Action-batch operation limit
   (`ACTION_BATCH_OPERATION_LIMIT_V1`) also obstructs with `BudgetExceeded` and
   no committed patch, rather than splitting across Ticks, but its posture is
@@ -641,7 +657,8 @@ Each Action's receipt entry binds, in addition to its current fields:
           proposal (`DanglingReference`, `ContentIdentityConflict`,
           `DuplicateEffectTarget`, `FootprintLawViolation`,
           `IdentityLawViolation`, `SchemaViolation`, `UnreachableWarp`,
-          `NodeMissing`, or `PreconditionMismatch`), or a
+          `NodeMissing`, `PreconditionMismatch`, or a `BudgetExceeded`
+          charged by a validation read), or a
           dependency-scoped `BasisChanged` was decided before validation. No
           write-set or patch digest is manufactured; an overwrite patch that
           `Ensure` forbids is never hashed;
@@ -654,34 +671,45 @@ Each Action's receipt entry binds, in addition to its current fields:
       basis; the recorded basis posture is its evidence;
     - `Scoped`: the evidence the
       [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
-      decision requires, namely the origin basis, the validation position, a
-      dependency-set digest over each dependency's descriptor and comparison
-      mode, a compared-values digest over the values those dependencies were
-      compared against at the validation position (the commit parent plus the
-      writes of every earlier accepted Action), and, for a `BasisChanged`, the
-      first changed dependency in canonical order. An evaluation obstruction
-      runs no dependency comparison, so its `Scoped` evidence is the origin
-      basis and validation position only. A dependency descriptor is its
-      slot, its kind, and its comparison mode, each a one-byte tag:
-        - kind: value present `0`, observed absent `1`, expected value `2`,
-          endpoint existence `3`;
-        - comparison mode: `ValueDigest` `0`, which compares the slot's value
-          digest (value present, expected value), and `Presence` `1`, which
-          compares only presence (observed absent, endpoint existence). These
-          are the two modes the Action validity decision supports;
-          revision-sensitive and identity-sensitive dependencies are refused
-          at admission and have no tag.
-        - order and encoding: a scoped Action reads no edge ranges (an edge
-          read keeps the whole-frontier rule), so its dependency slots are
-          node records, attachments (atoms and portals), and edges.
-          Descriptors sort by slot encoding
-          (defined in the canonical set encoding below), then kind tag, then
-          mode tag; each encodes as kind tag, slot encoding, mode tag; and
-          the dependency-set digest hashes them in that order;
+      decision requires: the origin basis, the validation position, and one
+      of three evidence forms, each recording only a comparison that actually
+      ran:
+        - `OriginOnly`, for an evaluation obstruction, which runs no
+          dependency comparison;
+        - `HistoryChanged`, for a dependency-scoped `BasisChanged`: the
+          dependency-set digest over each dependency's descriptor and
+          comparison mode, and the first changed dependency in canonical
+          order. Validation never ran, so no values were compared;
+        - `Compared`, for every Action that passed the history check,
+          whatever its later outcome: the dependency-set digest and a
+          compared-values digest over the dependency values the
+          pre-composition checks read at the commit parent. For an accepted
+          Action these equal its values at the validation position (the
+          commit parent plus the writes of every earlier accepted Action),
+          because composition admits no overlap; a
+          `RejectedFootprintConflict` is never compared at its validation
+          position;
 
 - for `NoProposal` and `Proposed`, consumed budget. When evaluation never
   ran (whole-frontier `BasisChanged`, including unknown history), it is zero
   on every axis, and recovery verifies that.
+
+**Dependency descriptors.** A dependency descriptor is its slot, its kind,
+and its comparison mode, each kind and mode a one-byte tag:
+
+- kind: value present `0`, observed absent `1`, expected value `2`, endpoint
+  existence `3`;
+- comparison mode: `ValueDigest` `0`, which compares the slot's value digest
+  (value present, expected value), and `Presence` `1`, which compares only
+  presence (observed absent, endpoint existence). These are the two modes the
+  Action validity decision supports; revision-sensitive and
+  identity-sensitive dependencies are refused at admission and have no tag.
+
+A scoped Action reads no edge ranges (an edge read keeps the whole-frontier
+rule), so its dependency slots are node records, attachments (atoms and
+portals), and edges. Descriptors sort by slot encoding (defined below), then
+kind tag, then mode tag; each encodes as kind tag, slot encoding, mode tag;
+and the dependency-set digest hashes them in that order.
 
 **Canonical set encoding.** The read-set, target-set, write-set,
 dependency-set, and compared-values digests each hash a set of slot entries,
@@ -699,12 +727,12 @@ records for the slot:
   as a list of edge id and target node id pairs, sorted by edge id and
   preceded by its count as a little-endian `u64`;
 - target set and write set: the slot alone;
-- dependency set: the descriptor encoding defined under the `Scoped` evidence
-  above;
+- dependency set: the descriptor encoding defined under
+  [Dependency descriptors](#evidence) above;
 - compared values: one entry per dependency, in canonical descriptor order,
   each the descriptor encoding, a presence tag (present or absent at the
-  validation position), and, when present, the 32-byte digest of the value
-  compared, encoded as for the read set.
+  commit parent, as the pre-composition checks read it), and, when present,
+  the 32-byte digest of the value compared, encoded as for the read set.
 
 Each digest is BLAKE3 over a domain tag naming the set and its version, the
 entry count as a little-endian `u64`, and the entries in order. Live
@@ -742,7 +770,7 @@ evaluated proposal, and the receipt keeps them distinct.
 4. the effect count as a little-endian `u64`, then each effect's canonical
    encoding (see [EffectProposal](#effectproposal)) in canonical order;
 5. the result: its length as a little-endian `u64`, then its bytes;
-6. the cost: steps, allocated bytes, read bytes, and write bytes, each a
+6. the cost: steps, read bytes, write bytes, and allocated bytes, each a
    little-endian `u64`.
 
 Effect kind tags are `EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`,
@@ -790,11 +818,13 @@ identities are 32 bytes. The section is:
 4. the validity tag (`WholeFrontier` `0`, `Scoped` `1`). For `Scoped`: the
    origin basis identity, the validation position (the Action's index in
    the Tick's canonical candidate order), and an evidence tag
-   (`OriginOnly` `0` for an evaluation obstruction, `Compared` `1`). For
-   `Compared`: the dependency-set digest, the compared-values digest, and an
-   option tag (`0` none, `1` some) followed for some by the changed
-   dependency's descriptor encoding;
-5. the consumed budget: steps, allocated bytes, read bytes, write bytes.
+   (`OriginOnly` `0`, `HistoryChanged` `1`, `Compared` `2`). For
+   `HistoryChanged`: the dependency-set digest and the changed dependency's
+   descriptor encoding. For `Compared`: the dependency-set digest and the
+   compared-values digest;
+5. the consumed budget against the delegated `EchoOperationBudgetV1` axes,
+   steps, read bytes, and write bytes, followed by the evaluator's allocated
+   bytes.
 
 Every tag is one byte. Receipt digest version 5 hashes, in place of each
 version-4 entry, that entry's version-4 bytes followed by its bridge section
@@ -837,14 +867,14 @@ new evidence. Verification is not re-admission.
   set (every witnessed read and every effect precondition) and the
   written-slot set from the replay operations. It then repeats what live
   execution did, in the same order: the history check, the pre-composition
-  checks against the commit parent, and the batch composition. Only for an
-  accepted Action does it compare values at the recorded validation
-  position, where they equal the commit parent's. A
-  `RejectedFootprintConflict` is verified through its preparation against
-  the commit parent and its recomputed blockers, never by validating it at
-  its validation position. Recovery refuses a history whose dependency-set
-  digest, compared-values digest, changed dependency, or result differs. For
-  an evaluation obstruction it re-evaluates at the origin.
+  checks against the commit parent, and the batch composition, and it
+  rebuilds the recorded evidence form from the comparisons those steps
+  actually make. A `RejectedFootprintConflict` is verified through its
+  preparation against the commit parent and its recomputed blockers, never
+  by validating it at its validation position. Recovery refuses a history
+  whose evidence form, dependency-set digest, compared-values digest,
+  changed dependency, or result differs. For an evaluation obstruction it
+  re-evaluates at the origin.
 - An undecided Action stays the same pending submission and is evaluated when
   the scheduler next selects it.
 
@@ -862,17 +892,17 @@ The bridge keeps both and adds the outgoing-edge range keys and precondition
 reads to the reconstructed composition. The scoped-validity recomputation
 above likewise applies to every row recorded as `Scoped`.
 
-| Outcome                                                                                                                                                                                                                          | Posture                  | Existing check                                                            | Added                                                                                                                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Committed                                                                                                                                                                                                                        | `Proposed`, `Derived`    | replay patch; reconstruct preparation; compare identities                 | effects bound; read-set digest; patch digest equals the replayed patch                                                                                                                                               |
-| `RejectedFootprintConflict`                                                                                                                                                                                                      | `Proposed`, `Derived`    | reconstruct preparation; compare identities; recompute recorded blockers  | effects bound; read-set digest; blockers include range-key conflicts                                                                                                                                                 |
-| Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, `SchemaViolation`, `UnreachableWarp`, `NodeMissing`, `PreconditionMismatch`) | `Proposed`, `NotDerived` | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                                                               |
-| Obstructed by `FootprintMismatch` (after derivation)                                                                                                                                                                             | `Proposed`, `Derived`    | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                                                             |
-| `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                                                                        | `Proposed`, `Derived`    | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                                                       |
-| `BudgetExceeded` during evaluation, or an authored guard                                                                                                                                                                         | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
-| `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                                                                                    | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
-| `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                                                                          | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
-| Any outcome of a `NotBridge` entry                                                                                                                                                                                               | `NotBridge`              | unchanged                                                                 | none; no bridge field present                                                                                                                                                                                        |
+| Outcome                                                                                                                                                                                                                                                            | Posture                  | Existing check                                                            | Added                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Committed                                                                                                                                                                                                                                                          | `Proposed`, `Derived`    | replay patch; reconstruct preparation; compare identities                 | effects bound; read-set digest; patch digest equals the replayed patch                                                                                                                                               |
+| `RejectedFootprintConflict`                                                                                                                                                                                                                                        | `Proposed`, `Derived`    | reconstruct preparation; compare identities; recompute recorded blockers  | effects bound; read-set digest; blockers include range-key conflicts                                                                                                                                                 |
+| Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, `SchemaViolation`, `UnreachableWarp`, `NodeMissing`, `PreconditionMismatch`, validation-read `BudgetExceeded`) | `Proposed`, `NotDerived` | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                                                               |
+| Obstructed by `FootprintMismatch` (after derivation)                                                                                                                                                                                                               | `Proposed`, `Derived`    | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                                                             |
+| `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                                                                                                          | `Proposed`, `Derived`    | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                                                       |
+| `BudgetExceeded` during evaluation, or an authored guard                                                                                                                                                                                                           | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
+| `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                                                                                                                      | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
+| `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                                                                                                            | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
+| Any outcome of a `NotBridge` entry                                                                                                                                                                                                                                 | `NotBridge`              | unchanged                                                                 | none; no bridge field present                                                                                                                                                                                        |
 
 ## Execution traces
 
@@ -1013,6 +1043,7 @@ Each behaviour below needs a test before implementation:
 | Stale basis                   | `ReplaceAtom` with a changed expected digest, or `ReplaceEdge` with a moved `expectedTo`, obstructs with `PreconditionMismatch`, posture `Proposed`, `NotDerived`, and no patch.                                                                                                                                                                                                                              |
 | Budget                        | Exhausting steps or bytes obstructs with `BudgetExceeded` and `NoProposal`; a proposal whose patch alone exceeds the Action-batch operation limit obstructs with `BudgetExceeded`, posture `Proposed` with its digests, and no committed patch.                                                                                                                                                               |
 | Atom write bytes              | A proposal whose atom bytes exceed the delegated `write_bytes` obstructs with `BudgetExceeded` and `NoProposal`; a whole-frontier `BasisChanged` records zero consumed budget.                                                                                                                                                                                                                                |
+| Validation read budget        | A `ReplaceAtom` of a stored atom larger than the remaining `read_bytes` obstructs with `BudgetExceeded`, posture `Proposed`, `NotDerived`, before hashing it; allocation beyond `edict_pure`'s `max_allocated_bytes` obstructs with `BudgetExceeded` and `NoProposal`.                                                                                                                                        |
 | Determinism                   | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
 | Canonical order               | Emitting the same effects in different orders yields the same canonical `EffectProposal` bytes and proposal identity.                                                                                                                                                                                                                                                                                         |
 | Encoding vectors              | Fixed byte vectors for the proposal encoding, every value digest, every set digest (including a descriptor list with both comparison modes), and an `EPRV0004` entry of each posture, validity, and evidence tag reproduce the specified bytes and receipt-v5 digests.                                                                                                                                        |
@@ -1026,6 +1057,7 @@ Each behaviour below needs a test before implementation:
 | Restored value (ABA)          | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`, including when the intervening patch under-declared its `out_slots`; with one replay patch in the interval missing, the Action obstructs before evaluation as a whole-frontier `BasisChanged`, posture `NoProposal`, with an empty read set.              |
 | Scoped preconditions          | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |
 | Scoped conflict recovery      | A scoped Action rejected because an earlier Action in its Tick replaced a value it expects recovers as `RejectedFootprintConflict`, not `PreconditionMismatch`.                                                                                                                                                                                                                                               |
+| Scoped evidence forms         | An evaluation obstruction records `OriginOnly`, a dependency-scoped `BasisChanged` records `HistoryChanged` with no compared values, and every other scoped outcome records `Compared` over commit-parent values; none is compared at a validation position that includes an earlier overlapping write.                                                                                                       |
 | Retry basis                   | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
 | Receipt digest v5             | A version-5 receipt digest changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                                                                         |
 | Proposal binding              | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                                 |

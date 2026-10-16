@@ -195,13 +195,15 @@ EffectProposal {
 Every `node` is an instance-scoped `NodeKey { warp_id, local_id }` and every
 `edge` an `EdgeKey`. An edge's `from`, `to`, and `expectedTo` are local node
 ids in the edge's own warp, because a `GraphStore` holds one warp and an
-`EdgeRecord`'s endpoints are local `NodeId`s within it. `type` is the node
-record's type. `atom` is an `AtomPayload { type_id, bytes }`: its `type_id`
-is a separate proposition from the node type, and the
-[two-plane law](../invariants/warp-two-plane-law.md) (L3) requires it in
-every encoding and digest that includes the bytes. `ReplaceAtom` replaces
-both the payload type and the bytes, and its `expectedAtomDigest` covers
-both.
+`EdgeRecord`'s endpoints are local `NodeId`s within it. For `EnsureNode` and
+`CreateNode`, `type` is the node record's type; for `EnsureEdge` it is the edge
+record's type (`EdgeRecord.ty`), validated against the edge types the schema
+admits, never against node types. `atom` is an
+`AtomPayload { type_id, bytes }`: its `type_id` is a separate proposition from
+the node type, and the
+[two-plane law](../invariants/warp-two-plane-law.md) (L3) requires it in every
+encoding and digest that includes the bytes. `ReplaceAtom` replaces both the
+payload type and the bytes, and its `expectedAtomDigest` covers both.
 
 Rules:
 
@@ -211,7 +213,7 @@ Rules:
   in which evaluation produced them never reaches the identity. Each effect
   has a primary slot: the node record for `EnsureNode` and `CreateNode`, the
   atom for `ReplaceAtom`, and the edge for `EnsureEdge` and `ReplaceEdge`.
-  Effects sort by the primary slot's class (node record, then atom, then
+  Effects sort by the primary slot's class (node record, then attachment, then
   edge), then by its warp id bytes, then its local id bytes, compared
   lexicographically. A tie can occur
   only in a proposal that obstructs with `DuplicateEffectTarget`; it breaks
@@ -236,13 +238,26 @@ Rules:
   keep only the last operation per key and silently drop effects the proposal
   identity names.
 - **Slots.** One canonical slot model serves the target set, the write set,
-  the read set, and the footprint. A slot is a node record, a node's atom
-  (its alpha attachment), an edge, or an outgoing-edge range key
-  `(source node, edge type)`. Every slot is instance-scoped: a node record or
-  atom by its `NodeKey`, an edge by its `EdgeKey`, and a range key by its
-  source `NodeKey`, so equal local ids in different warps are different
-  slots (see
-  [Witnessed reads](#witnessed-reads-over-a-bounded-slice)).
+  the read set, and the footprint. A slot is a node record, an attachment, an
+  edge, or an outgoing-edge range key `(source node, edge type)` (see
+  [Witnessed reads](#witnessed-reads-over-a-bounded-slice)). An attachment
+  slot is an `AttachmentKey`: an owner node or edge and a plane. A node's
+  atom is its alpha attachment. The same slot can instead hold a portal
+  (`AttachmentValue::Descend`), so a write of an atom and a read of a portal
+  on one node meet in one slot and conflict. Every slot is instance-scoped:
+  node records and node attachments by `NodeKey`, edges and edge attachments
+  by `EdgeKey`, and a range key by its source `NodeKey`, so equal local ids
+  in different warps are different slots.
+- **Portal chain.** When an effect or a read names a key in a descended
+  warp, the read set, the footprint, and a scoped Action's dependency set
+  include every portal attachment on the validated root-to-target
+  reachability chain, as
+  [Generated Rule Authorship](../topics/GeneratedRules.md) requires for
+  descended targets and as Echo's existing descent check already reads
+  them. Each is a `ValueDigest` dependency on its `Descend` target. A
+  co-scheduled write to a portal therefore conflicts, and a portal that
+  changed between origin and commit parent, even if restored, obstructs with
+  `BasisChanged`. Effects never write a portal.
 - **Target set.** The proposal's target set is the canonical set of slots its
   effects target: for `EnsureNode` and `CreateNode` the node record and its
   atom, for `ReplaceAtom` the atom, and for `EnsureEdge` and `ReplaceEdge` the
@@ -376,14 +391,14 @@ Echo checks:
   set writes the node's atom, and each edge upsert writes the edge and the
   range key of its source and type.
 
-The first three checks run before any patch is derived; a violation is a typed
-`FootprintLawViolation` obstruction with patch tag `NotDerived`. The fourth can
-only run after derivation; a mismatch is a typed `FootprintMismatch`
-obstruction with patch tag `Derived`, recording the patch digest it compared.
-Neither commits a patch. Independence between
-Actions in one Tick uses the witnessed footprints, including outgoing-edge
-range keys, under the existing rule: write against read or write conflicts,
-read against read does not.
+The first check yields a typed `SchemaViolation` obstruction; the second,
+third, and fourth yield a typed `FootprintLawViolation`. All four run before
+any patch is derived, with patch tag `NotDerived`. The fifth can only run after
+derivation; a mismatch is a typed `FootprintMismatch` obstruction with patch
+tag `Derived`, recording the patch digest it compared. Neither commits a patch.
+Independence between Actions in one Tick uses the witnessed footprints,
+including outgoing-edge range keys, under the existing rule: write against read
+or write conflicts, read against read does not.
 
 Reading a large shared subtree costs footprint entries but never conflicts.
 
@@ -622,7 +637,8 @@ Each Action's receipt entry binds, in addition to its current fields:
           at admission and have no tag.
         - order and encoding: a scoped Action reads no edge ranges (an edge
           read keeps the whole-frontier rule), so its dependency slots are
-          node records, atoms, and edges. Descriptors sort by slot encoding
+          node records, attachments (atoms and portals), and edges.
+          Descriptors sort by slot encoding
           (defined in the canonical set encoding below), then kind tag, then
           mode tag; each encodes as kind tag, slot encoding, mode tag; and
           the dependency-set digest hashes them in that order;
@@ -632,16 +648,18 @@ Each Action's receipt entry binds, in addition to its current fields:
 **Canonical set encoding.** The read-set, target-set, write-set,
 dependency-set, and compared-values digests each hash a set of slot entries,
 never a collection in discovery order. A slot encodes as its class tag followed
-by its identity: the warp id and local id of its `NodeKey` or `EdgeKey`, and
-for a range key the source `NodeKey` followed by the edge-type id, all at fixed
-width. Entries sort by slot class (node record, atom, edge, then range key),
-then by those identity bytes compared lexicographically. Each entry is the slot
-encoding followed by what that set records for the slot:
+by its identity, all at fixed width: for a node record, its `NodeKey` (warp id,
+then local id); for an edge, its `EdgeKey`; for an attachment, an owner tag
+(`0` node, `1` edge), the owner's key, and a plane tag (`0` alpha, `1` beta);
+for a range key, the source `NodeKey` followed by the edge-type id. Entries
+sort by slot class tag, then by those identity bytes compared
+lexicographically. Each entry is the slot encoding followed by what that set
+records for the slot:
 
 - read set: an outcome tag (`0` present, `1` absent) and, when present, the
-  32-byte value digest defined below; a
-  range read records the observed edges as a
-  count-prefixed list of edge id and target node id pairs, sorted by edge id;
+  32-byte value digest defined below; a range read records the observed edges
+  as a list of edge id and target node id pairs, sorted by edge id and
+  preceded by its count as a little-endian `u64`;
 - target set and write set: the slot alone;
 - dependency set: the descriptor encoding defined under the `Scoped` evidence
   above;
@@ -655,13 +673,16 @@ entry count as a little-endian `u64`, and the entries in order. Live
 execution and recovery therefore produce identical bytes whatever order an
 implementation visits slots in.
 
-Slot class tags are node record `0`, atom `1`, edge `2`, and range key `3`.
+Slot class tags are node record `0`, attachment `1`, edge `2`, and range key
+`3`.
 Ids, type ids, and warp ids are 32 bytes each. A present slot's value digest
 is BLAKE3 over a class-specific domain tag and its canonical fields:
 
 - node record: `echo.bridge.node-value.v1\0`, then the node type id;
-- atom: `echo.bridge.atom-value.v1\0`, then the `type_id`, the byte length as
-  a little-endian `u64`, and the bytes. `expectedAtomDigest` is this digest;
+- attachment: `echo.bridge.attachment-value.v1\0`, then for an atom tag `0`,
+  its `type_id`, its byte length as a little-endian `u64`, and its bytes, or
+  for a portal tag `1` and its target warp id. `expectedAtomDigest` is this
+  digest of the expected atom;
 - edge: `echo.bridge.edge-value.v1\0`, then the edge type id and the local
   `from` and `to` node ids.
 
@@ -749,9 +770,15 @@ new evidence. Verification is not re-admission.
 - An Action recorded as `Scoped` follows
   [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks):
   for every `Proposed` outcome, recovery recomputes its complete dependency
-  set (every witnessed read and every effect precondition), the written-slot
-  set from the replay operations, and its validation at the recorded
-  position from retained history, and refuses a history whose dependency-set
+  set (every witnessed read and every effect precondition) and the
+  written-slot set from the replay operations. It then repeats what live
+  execution did, in the same order: the history check, the pre-composition
+  checks against the commit parent, and the batch composition. Only for an
+  accepted Action does it compare values at the recorded validation
+  position, where they equal the commit parent's. A
+  `RejectedFootprintConflict` is verified through its preparation against
+  the commit parent and its recomputed blockers, never by validating it at
+  its validation position. Recovery refuses a history whose dependency-set
   digest, compared-values digest, changed dependency, or result differs. For
   an evaluation obstruction it re-evaluates at the origin.
 - An undecided Action stays the same pending submission and is evaluated when
@@ -884,8 +911,9 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 
 1. Each evaluates and validates on its own.
 2. Their write sets overlap on `B.canonicalHead`. In deterministic order the
-   first joins the Tick; the second gets `RejectedFootprintConflict`, with no
-   patch.
+   first joins the Tick; the second gets `RejectedFootprintConflict`. Its
+   posture is `Proposed` with a `Derived` patch, whose write-set and patch
+   digests are recorded, but no patch of it is committed.
 3. The second Action's `RejectedFootprintConflict` is its final outcome. If
    the application submits the edit again, that is a new submission with its
    own identity; evaluated at `t+1`, its basis shows `H2`, its guard fails, and
@@ -930,6 +958,7 @@ Each behaviour below needs a test before implementation:
 | Footprint stages              | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`, and so does a `ReplaceEdge` whose basis edge's range key lies outside the law; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                       |
 | Restored value (ABA)          | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`, including when the intervening patch under-declared its `out_slots`; with one replay patch in the interval missing, the Action obstructs before evaluation as a whole-frontier `BasisChanged`, posture `NoProposal`, with an empty read set.              |
 | Scoped preconditions          | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                                          |
+| Scoped conflict recovery      | A scoped Action rejected because an earlier Action in its Tick replaced a value it expects recovers as `RejectedFootprintConflict`, not `PreconditionMismatch`.                                                                                                                                                                                                                                               |
 | Retry basis                   | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
 | Receipt digest v5             | A version-5 receipt digest changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                                                                         |
 | Proposal binding              | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                                 |
@@ -939,6 +968,7 @@ Each behaviour below needs a test before implementation:
 | Shared structure              | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                                 |
 | Same-Tick identical create    | Two Actions, dependency-scoped included, that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                                       |
 | Referential integrity         | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                                                                           |
+| Portal chain                  | An effect in a descended warp records every portal on its root-to-target chain as a read; a co-scheduled portal retarget conflicts with it, and a portal changed and restored between origin and commit parent obstructs a scoped Action with `BasisChanged`.                                                                                                                                                 |
 | Visibility                    | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                                |
 | Witnessed reads               | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                                                                             |
 | Negative reads                | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it, including a fresh edge of the observed source and type with a new edge id when the observed set was empty (outgoing-edge range key).                                                                                                                                                                |

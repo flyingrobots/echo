@@ -7192,7 +7192,7 @@ mod tests {
         // Staging with the separated form stages the retained request.
         let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
         match runtime
-            .ingest_ticketed_invocation(&authority, legacy, &test_ticket(21), separated.clone())
+            .ingest_ticketed_invocation(&authority, legacy, &test_ticket(21), separated)
             .unwrap()
         {
             TicketedRuntimeIngressDisposition::Staged { record, .. } => {

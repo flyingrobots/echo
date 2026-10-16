@@ -26,6 +26,8 @@ returns the same identity without duplicating ledger state.
 
 Two intents are the same when their canonical bytes are byte-identical: `intent_id = H(intent_bytes)`. Sequence numbers, arrival time, and transport metadata are not identity.
 
+Refined by Decision 6 for intents admitted from Continuum: a declared Continuum occurrence is not transport metadata, and it is part of ingress identity. Local intents keep this rule unchanged.
+
 ## Decision 2: Ingress is idempotent per resolved writer head
 
 The pending inbox is keyed by `ingress_id` for the resolved writer head. Re-ingesting an already pending or already committed intent must not create a second live entry.
@@ -41,3 +43,52 @@ For a pending set: deduplicate by content identity, sort by ingress/id byte orde
 ## Decision 5: Ledgers are append-only; queues are maintenance state
 
 Ingress event records are immutable once committed. Processing an event removes or updates pending membership; it does not delete the historical event.
+
+## Decision 6: A Continuum occurrence is part of ingress identity
+
+Decision 1 makes content the identity of a local intent. Continuum separates
+*what* is intended from *which happening* it is: an `AppliedIntent` has an
+`appliedDigest`, and an `OccurredIntent` adds an `OccurrenceRef` whose
+`occurrenceKeyDigest = hash({ issuer, localId })`. Two occurrences of identical
+content are two acts, and Echo must not collapse them into one submission.
+
+An envelope built with `IngressEnvelope::continuum_occurred_intent` carries a
+`ContinuumOccurrence`: Continuum's occurrence key digest and applied digest,
+exactly as Continuum computed them. Its ingress identity wraps the content
+identity of Decision 1:
+
+```text
+content_id = ingress id of the same kind, bytes and causal parents
+ingress_id = BLAKE3("ingress:continuum-occurrence:v1\0" || occurrence_key || content_id)
+```
+
+The submission ID keeps its formula,
+`H("echo.intent-submission.v0", worldline, head, ingress_id)`, so it remains
+Echo's local submission identity, and attribution and outcome lookup name it
+as before. Envelopes without an occurrence keep their ingress and submission
+IDs unchanged; a local submission is never matched to an occurrence.
+
+Admission applies Continuum's binding law within the target worldline, which
+is the coordinate lineage an occurrence may be admitted to only once:
+
+| Presented again | Echo's answer |
+| --- | --- |
+| Same occurrence key, same content, applied digest and writer head | Retry: the existing submission (`Duplicate`) |
+| Different occurrence key, identical content | A separate submission, decided and attributed on its own |
+| Same occurrence key, different content, applied digest or writer head | `RuntimeError::ContinuumOccurrenceConflict`; nothing is admitted and the existing submission is unchanged |
+
+The admission mapping from `(worldline, occurrence key)` to submission is
+derived from retained envelope material. Retained envelopes with an occurrence
+use format `EINGR003` (the `EINGR002` layout followed by the two digests);
+envelopes without one are still written as `EINGR002`. Restoring witnessed
+submissions rebuilds the mapping and refuses two retained submissions that
+claim one occurrence. The trusted host refuses to reopen a WAL with missing
+envelope material, so a recovered mapping is complete.
+
+`ContinuumOccurrence::from_occurred_digests` also checks a presented
+`occurredDigest` against Continuum's law, SHA-256 of
+`{"appliedDigest":"sha256:…","occurrenceKeyDigest":"sha256:…"}`. Echo does not
+recompute the occurrence key; issuer and local id stay with Continuum, which
+validates them when it builds the reference. Echo adds no nonce.
+
+Decision record: [#880](https://github.com/flyingrobots/echo/issues/880).

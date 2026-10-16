@@ -35,6 +35,10 @@
 
 ### Changed
 
+- `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
+  It writes `EINGR002`, byte for byte as before, for an envelope without a
+  Continuum occurrence, and `EINGR003` for one with an occurrence.
+  `from_retained_bytes` reads `EINGR001` to `EINGR003`.
 - Commit hash v3 binds a tick's receipt digest, and through it the tick's
   attribution section, into the tick's commit identity (#873). Every new
   scheduler tick's receipt is commit-bound (receipt format 4, retained as
@@ -101,6 +105,20 @@
 
 ### Added
 
+- Echo preserves Continuum occurrence identity at admission (#880).
+  `IngressEnvelope::continuum_occurred_intent` binds an intent to a
+  `ContinuumOccurrence` (Continuum's occurrence key and applied digests), and
+  the occurrence key is hashed into the ingress ID. Two occurrences of
+  identical content are two submissions with their own decisions and
+  attribution; redelivering an occurrence returns its existing submission; and
+  reusing an occurrence key for other content, applied intent or writer head on
+  the same worldline is refused with
+  `RuntimeError::ContinuumOccurrenceConflict`. All three hold after restart:
+  such envelopes are retained as `EINGR003` and the mapping is rebuilt from
+  them. Local submission identity is unchanged, and envelopes without an
+  occurrence are still retained as `EINGR002`.
+  `ContinuumOccurrence::from_occurred_digests` checks an `occurredDigest`
+  against Continuum's law.
 - Every new scheduler tick commits an attribution section in its tick
   receipt: one record per accepted submission the tick decided, naming the
   receipt entries that carry its decision, or recording that no rule matched

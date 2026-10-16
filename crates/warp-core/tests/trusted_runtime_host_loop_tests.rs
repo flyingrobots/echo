@@ -26,16 +26,17 @@ use warp_core::{
     CausalAnchorAdmissionRequest, CausalAnchorAppRootRole, CausalAnchorCasRole,
     CausalAnchorPurpose, CausalAnchorRoot, CausalAnchorRootSupportGrant,
     CausalAnchorRootSupportPolicy, CausalAnchorSubject, CausalAnchorSupportError,
-    CausalFrontierRef, CausalTickReceiptRef, ContractMutationHandler, ContractOperationKind,
-    ContractPackageIdentity, ContractQueryObserver, ContractQueryObserverResult, EngineBuilder,
-    GlobalTick, GraphStore, GraphView, Hash, InboxPolicy, IngressCausalParent, IngressEnvelope,
-    IngressTarget, IntentOutcome, NodeId, NodeRecord, ObservationAt, ObservationCoordinate,
-    ObservationFrame, ObservationPayload, ObservationProjection, ObservationReadBudget,
-    ObservationRequest, ObserverPlanId, OpticAdmissionTicket, OpticArtifactHandle, PatternGraph,
-    PlaybackMode, ProvenanceStore, RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta,
-    TrustedRuntimeHost, TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig,
-    TrustedRuntimeWalError, TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime,
-    WorldlineState, WorldlineTick, WriterHead, WriterHeadKey, CAUSAL_ANCHOR_SCHEMA_VERSION,
+    CausalFrontierRef, CausalTickReceiptRef, ContinuumOccurrence, ContractMutationHandler,
+    ContractOperationKind, ContractPackageIdentity, ContractQueryObserver,
+    ContractQueryObserverResult, EngineBuilder, GlobalTick, GraphStore, GraphView, Hash,
+    InboxPolicy, IngressCausalParent, IngressEnvelope, IngressTarget, IntentOutcome, NodeId,
+    NodeRecord, ObservationAt, ObservationCoordinate, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationReadBudget, ObservationRequest, ObserverPlanId,
+    OpticAdmissionTicket, OpticArtifactHandle, PatternGraph, PlaybackMode, ProvenanceStore,
+    RuntimeError, RuntimeWalActivationGap, SchedulerKind, TickDelta, TrustedRuntimeHost,
+    TrustedRuntimeHostError, TrustedRuntimeWal, TrustedRuntimeWalConfig, TrustedRuntimeWalError,
+    TrustedRuntimeWalStoreKind, WarpOp, WorldlineId, WorldlineRuntime, WorldlineState,
+    WorldlineTick, WriterHead, WriterHeadKey, CAUSAL_ANCHOR_SCHEMA_VERSION,
     OPTIC_ADMISSION_TICKET_KIND, OPTIC_ARTIFACT_HANDLE_KIND,
 };
 
@@ -369,6 +370,21 @@ fn causal_eint_envelope(
             .into_iter()
             .map(|receipt_ref| IngressCausalParent::TickReceipt { receipt_ref })
             .collect(),
+    )
+}
+
+fn occurred_eint_envelope(
+    worldline_id: WorldlineId,
+    occurrence_key: u8,
+    applied_digest: Hash,
+    vars: &[u8],
+) -> IngressEnvelope {
+    IngressEnvelope::continuum_occurred_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("echo.intent/eint-v1"),
+        echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, vars).expect("EINT should pack"),
+        Vec::new(),
+        ContinuumOccurrence::new([occurrence_key; 32], applied_digest),
     )
 }
 
@@ -3980,4 +3996,124 @@ fn retained_fork_pending_commit_counts_against_capacity_before_new_label() {
         .is_err());
     drop(restored);
     fs::remove_dir_all(root).expect("owned fixture cleanup");
+}
+
+/// Issue #880: occurrence identity holds across restart and redelivery. One
+/// occurrence is committed and one is still pending when the host stops; after
+/// recovery each redelivery is a retry, each conflicting reuse of an
+/// occurrence key is refused, and nothing new is written to the WAL.
+#[test]
+fn continuum_occurrence_identity_survives_host_restart_and_redelivery() {
+    let wal_root = temp_runtime_wal_dir("continuum-occurrence");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+
+    let applied = [0xa1; 32];
+    let committed_envelope = occurred_eint_envelope(worldline_id, 1, applied, MUTATION_VARS);
+    let pending_envelope = occurred_eint_envelope(worldline_id, 2, applied, MUTATION_VARS);
+    let committed = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(committed_envelope.clone())
+        .expect("the first occurrence is accepted");
+    let pending = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(pending_envelope.clone())
+        .expect("a second occurrence of identical content is accepted");
+    assert!(!committed.duplicate && !pending.duplicate);
+    assert_ne!(
+        committed.submission_id, pending.submission_id,
+        "identical content in two occurrences is two submissions"
+    );
+    host.stage_installed_contract_submission(committed.submission_id, &admission_ticket(81))
+        .expect("the first occurrence is staged");
+    host.run_until_idle(4)
+        .expect("trusted host should tick until idle");
+    assert!(matches!(
+        host.app().observe_intent_outcome(&committed.submission_id),
+        IntentOutcome::Applied { .. }
+    ));
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut restarted = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the WAL holding occurrence-bound submissions recovers");
+    restarted
+        .register_contract_package(package())
+        .expect("host should reinstall package");
+    assert_eq!(
+        restarted
+            .runtime()
+            .witnessed_submission_envelope(&pending.submission_id)
+            .and_then(IngressEnvelope::occurrence),
+        pending_envelope.occurrence(),
+        "the occurrence survives in retained envelope material"
+    );
+
+    for (envelope, original) in [(committed_envelope, committed), (pending_envelope, pending)] {
+        let retry = restarted
+            .app()
+            .submit_intent_with_runtime_wal_ack(envelope)
+            .expect("redelivering an occurrence is a retry");
+        assert!(retry.duplicate);
+        assert_eq!(retry.submission_id, original.submission_id);
+    }
+
+    let conflict = |result: Result<_, TrustedRuntimeHostError>, key: u8, existing: Hash| {
+        matches!(
+            result,
+            Err(TrustedRuntimeHostError::Runtime(error))
+                if matches!(
+                    *error,
+                    RuntimeError::ContinuumOccurrenceConflict {
+                        worldline_id: conflict_worldline,
+                        occurrence_key_digest,
+                        existing_submission_id,
+                    } if conflict_worldline == worldline_id
+                        && occurrence_key_digest == [key; 32]
+                        && existing_submission_id == existing
+                )
+        )
+    };
+    assert!(conflict(
+        restarted
+            .app()
+            .submit_intent_with_runtime_wal_ack(occurred_eint_envelope(
+                worldline_id,
+                1,
+                applied,
+                b"amount=8",
+            )),
+        1,
+        committed.submission_id,
+    ));
+    assert!(conflict(
+        restarted
+            .app()
+            .submit_intent_with_runtime_wal_ack(occurred_eint_envelope(
+                worldline_id,
+                2,
+                [0xb2; 32],
+                MUTATION_VARS,
+            )),
+        2,
+        pending.submission_id,
+    ));
+    assert_eq!(
+        restarted
+            .runtime_wal()
+            .expect("runtime WAL should remain configured")
+            .submission_acceptance_count(),
+        2,
+        "neither a retry nor a conflict writes an acceptance"
+    );
+    drop(restarted);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");
 }

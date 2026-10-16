@@ -107,7 +107,9 @@ obstructed and the trusted host refuses to claim a complete replay.
 Transaction construction rejects any retained envelope whose submission or
 canonical-envelope identity disagrees with its acceptance record.
 Recovery requires exactly one acceptance frame and at most one retained
-envelope frame in each intake transaction.
+envelope frame in each intake transaction. An envelope that admits a Continuum
+occurrence is retained as `EINGR003`, which keeps the occurrence key and
+applied digest; recovery rebuilds the occurrence admission mapping from it.
 
 Seventh, a scheduler-tick transaction for ticketed runtime ingress retains the
 canonical local-commit provenance entry, its exact typed `TickReceipt`, and any

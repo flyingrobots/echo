@@ -241,6 +241,23 @@ pub enum RuntimeError {
     /// required to build a full persistence snapshot.
     #[error("witnessed intent submission envelope unavailable: {0:?}")]
     WitnessedSubmissionEnvelopeUnavailable(Hash),
+    /// A Continuum occurrence already admitted to this worldline was presented
+    /// again bound to different content, applied intent, or writer head.
+    ///
+    /// Continuum's binding law makes the same occurrence key with different
+    /// bound content an occurrence conflict. Echo refuses it and keeps the
+    /// existing submission unchanged.
+    #[error(
+        "continuum occurrence {occurrence_key_digest:?} on worldline {worldline_id:?} is already bound to submission {existing_submission_id:?}"
+    )]
+    ContinuumOccurrenceConflict {
+        /// Worldline whose admitted history already holds the occurrence.
+        worldline_id: WorldlineId,
+        /// Continuum occurrence key digest.
+        occurrence_key_digest: Hash,
+        /// Submission the occurrence is already bound to.
+        existing_submission_id: Hash,
+    },
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -1245,6 +1262,12 @@ pub struct WorldlineRuntime {
     /// Deterministic lookup from resolved semantic target and ingress id to
     /// witnessed submission id.
     submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
+    /// Admission mapping from a Continuum occurrence, scoped to its target
+    /// worldline, to the one witnessed submission that admits it.
+    ///
+    /// Derived from retained envelope material and rebuilt when submissions
+    /// are restored. Submissions without an occurrence have no entry.
+    continuum_occurrence_bindings: BTreeMap<(WorldlineId, Hash), Hash>,
     /// Ticketed runtime ingress records keyed by deterministic event id.
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
@@ -1534,8 +1557,19 @@ impl WorldlineRuntime {
         }
         self.pending_witnessed_submission_ids
             .remove(&handle.submission_id);
-        self.witnessed_submission_envelopes
-            .remove(&handle.submission_id);
+        if let Some(occurrence) = self
+            .witnessed_submission_envelopes
+            .remove(&handle.submission_id)
+            .and_then(|envelope| envelope.occurrence())
+        {
+            let key = (
+                handle.head_key.worldline_id,
+                occurrence.occurrence_key_digest(),
+            );
+            if self.continuum_occurrence_bindings.get(&key) == Some(&handle.submission_id) {
+                self.continuum_occurrence_bindings.remove(&key);
+            }
+        }
         self.next_submission_generation = marker.next_submission_generation;
     }
 
@@ -2730,6 +2764,7 @@ impl WorldlineRuntime {
     ) -> Result<(), RuntimeError> {
         let records = snapshot.into_records();
         let mut staged_envelopes = BTreeMap::new();
+        let mut staged_occurrences = BTreeMap::new();
 
         for record in &records {
             if record.envelope.ingress_id() != record.submission.ingress_id {
@@ -2750,11 +2785,31 @@ impl WorldlineRuntime {
             if !head.inbox().would_accept(&record.envelope) {
                 return Err(RuntimeError::RejectedByPolicy(head_key));
             }
+            if let Some(occurrence) = record.envelope.occurrence() {
+                let key = (head_key.worldline_id, occurrence.occurrence_key_digest());
+                let bound = self
+                    .continuum_occurrence_bindings
+                    .get(&key)
+                    .or_else(|| staged_occurrences.get(&key))
+                    .copied();
+                if let Some(existing_submission_id) = bound {
+                    if existing_submission_id != record.submission.submission_id {
+                        return Err(RuntimeError::ContinuumOccurrenceConflict {
+                            worldline_id: head_key.worldline_id,
+                            occurrence_key_digest: occurrence.occurrence_key_digest(),
+                            existing_submission_id,
+                        });
+                    }
+                }
+                staged_occurrences.insert(key, record.submission.submission_id);
+            }
             staged_envelopes.insert(record.submission.submission_id, record.envelope.clone());
         }
 
         self.replay_witnessed_submissions(records.into_iter().map(|record| record.submission))?;
         self.witnessed_submission_envelopes.extend(staged_envelopes);
+        self.continuum_occurrence_bindings
+            .extend(staged_occurrences);
         Ok(())
     }
 
@@ -3052,6 +3107,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
             .worldlines
@@ -3093,6 +3149,7 @@ impl WorldlineRuntime {
         }
 
         let record = self.record_witnessed_submission(head_key, ingress_id)?;
+        self.bind_continuum_occurrence(&record, &retained_envelope);
         self.witnessed_submission_envelopes
             .insert(record.submission_id, retained_envelope);
         Ok(IntentSubmissionDisposition::Accepted {
@@ -3334,6 +3391,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
             .worldlines
@@ -3362,6 +3420,7 @@ impl WorldlineRuntime {
         match outcome {
             InboxIngestResult::Accepted => {
                 let record = self.record_witnessed_submission(head_key, ingress_id)?;
+                self.bind_continuum_occurrence(&record, &retained_envelope);
                 self.witnessed_submission_envelopes
                     .insert(record.submission_id, retained_envelope);
                 Ok(IngressDisposition::Accepted {
@@ -3381,6 +3440,67 @@ impl WorldlineRuntime {
                 })
             }
             InboxIngestResult::Rejected => Err(RuntimeError::RejectedByPolicy(head_key)),
+        }
+    }
+
+    /// Applies Continuum's occurrence binding law at admission.
+    ///
+    /// An envelope without an occurrence, or with an occurrence this worldline
+    /// has not admitted, passes. Redelivering an admitted occurrence with the
+    /// same content, applied intent and writer head also passes: its ingress
+    /// id is unchanged, so the ordinary duplicate path returns the existing
+    /// submission. Any other reuse of the occurrence key is a conflict.
+    fn check_continuum_occurrence_binding(
+        &self,
+        head_key: WriterHeadKey,
+        envelope: &IngressEnvelope,
+    ) -> Result<(), RuntimeError> {
+        let Some(occurrence) = envelope.occurrence() else {
+            return Ok(());
+        };
+        let Some(existing_submission_id) = self
+            .continuum_occurrence_bindings
+            .get(&(head_key.worldline_id, occurrence.occurrence_key_digest()))
+            .copied()
+        else {
+            return Ok(());
+        };
+        let retry = self
+            .witnessed_submissions
+            .get(&existing_submission_id)
+            .zip(
+                self.witnessed_submission_envelopes
+                    .get(&existing_submission_id),
+            )
+            .is_some_and(|(record, existing)| {
+                record.head_key == head_key
+                    && record.ingress_id == envelope.ingress_id()
+                    && existing.occurrence() == Some(occurrence)
+            });
+        if retry {
+            Ok(())
+        } else {
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                worldline_id: head_key.worldline_id,
+                occurrence_key_digest: occurrence.occurrence_key_digest(),
+                existing_submission_id,
+            })
+        }
+    }
+
+    fn bind_continuum_occurrence(
+        &mut self,
+        record: &IntentSubmissionRecord,
+        envelope: &IngressEnvelope,
+    ) {
+        if let Some(occurrence) = envelope.occurrence() {
+            self.continuum_occurrence_bindings.insert(
+                (
+                    record.head_key.worldline_id,
+                    occurrence.occurrence_key_digest(),
+                ),
+                record.submission_id,
+            );
         }
     }
 
@@ -3849,6 +3969,7 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::IntentSubmissionReplayMismatch(_)
         | RuntimeError::ReceiptCorrelationReplayMismatch(_)
         | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
+        | RuntimeError::ContinuumOccurrenceConflict { .. }
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -4604,6 +4725,16 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => {
             hasher.update(b"witnessed-submission-envelope-unavailable");
             hasher.update(submission_id);
+        }
+        RuntimeError::ContinuumOccurrenceConflict {
+            worldline_id,
+            occurrence_key_digest,
+            existing_submission_id,
+        } => {
+            hasher.update(b"continuum-occurrence-conflict");
+            hasher.update(worldline_id.as_bytes());
+            hasher.update(occurrence_key_digest);
+            hasher.update(existing_submission_id);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
             hasher.update(b"unknown-intent-submission");
@@ -5882,6 +6013,147 @@ mod tests {
             .map(|record| record.submission_id)
             .collect::<Vec<_>>();
         assert_eq!(attributed, vec![repeat_submission]);
+    }
+
+    /// A submission retracted after a failed WAL commit was never admitted, so
+    /// its Continuum occurrence must not stay bound to it.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn a_rolled_back_submission_releases_its_continuum_occurrence() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let occurred = |bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let marker = runtime.intent_submission_rollback_marker();
+        let handle =
+            IntentSubmissionHandle::from(runtime.submit_intent(occurred(b"lost")).unwrap());
+        runtime.rollback_intent_submission(marker, &handle);
+
+        assert!(matches!(
+            runtime.submit_intent(occurred(b"kept")).unwrap(),
+            IntentSubmissionDisposition::Accepted { .. }
+        ));
+    }
+
+    /// Issue #880: Echo preserves Continuum occurrence identity at admission.
+    /// Identical content admitted as two occurrences is two submissions, each
+    /// decided and attributed in the tick; redelivering an occurrence is a
+    /// retry; reusing its key for other content, another applied intent or
+    /// another head is a typed conflict that leaves the submission unchanged.
+    #[test]
+    fn continuum_occurrences_of_identical_content_are_separate_attributable_submissions() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let other_head = register_head(
+            &mut runtime,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let bytes = toy_increment_intent(TOY_INCREMENT_VARS);
+        let applied = [0xa1; 32];
+        let occurred = |key: u8, bytes: &[u8], applied: Hash| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([key; 32], applied),
+            )
+        };
+        let is_conflict_with = |result: Result<IngressDisposition, RuntimeError>, existing| {
+            matches!(
+                result,
+                Err(RuntimeError::ContinuumOccurrenceConflict {
+                    worldline_id: conflict_worldline,
+                    occurrence_key_digest,
+                    existing_submission_id,
+                }) if conflict_worldline == worldline_id
+                    && occurrence_key_digest == [1; 32]
+                    && existing_submission_id == existing
+            )
+        };
+
+        let first = accepted_submission(runtime.ingest(occurred(1, &bytes, applied)).unwrap());
+        let second = accepted_submission(runtime.ingest(occurred(2, &bytes, applied)).unwrap());
+        assert_ne!(first, second, "two occurrences are two submissions");
+        let local = accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    bytes.clone(),
+                ))
+                .unwrap(),
+        );
+        assert!(
+            local != first && local != second,
+            "local content carries no occurrence and keeps its own submission"
+        );
+
+        let assert_retry_and_conflicts = |runtime: &mut WorldlineRuntime| {
+            match runtime.ingest(occurred(1, &bytes, applied)).unwrap() {
+                IngressDisposition::Duplicate { submission_id, .. } => {
+                    assert_eq!(submission_id, first, "redelivery returns the submission");
+                }
+                IngressDisposition::Accepted { .. } => panic!("redelivery must be a retry"),
+            }
+            let mut other_bytes = bytes.clone();
+            other_bytes.extend_from_slice(b";other");
+            assert!(is_conflict_with(
+                runtime.ingest(occurred(1, &other_bytes, applied)),
+                first
+            ));
+            assert!(is_conflict_with(
+                runtime.ingest(occurred(1, &bytes, [0xb2; 32])),
+                first
+            ));
+            assert!(is_conflict_with(
+                runtime.ingest(IngressEnvelope::continuum_occurred_intent(
+                    IngressTarget::ExactHead { key: other_head },
+                    kind,
+                    bytes.clone(),
+                    Vec::new(),
+                    crate::ContinuumOccurrence::new([1; 32], applied),
+                )),
+                first
+            ));
+        };
+        assert_retry_and_conflicts(&mut runtime);
+
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+        let mut attributed = retained_receipt(&provenance, worldline_id, 0)
+            .attribution()
+            .unwrap()
+            .iter()
+            .map(|record| record.submission_id)
+            .collect::<Vec<_>>();
+        attributed.sort_unstable();
+        let mut expected = vec![first, second, local];
+        expected.sort_unstable();
+        assert_eq!(
+            attributed, expected,
+            "each occurrence has its own attributed decision"
+        );
+
+        // The same distinctions hold once the submissions are committed.
+        assert_retry_and_conflicts(&mut runtime);
+        let retry_steps =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert!(
+            retry_steps.is_empty(),
+            "neither a retry nor a conflict commits"
+        );
     }
 
     /// The same tick as a legacy (receipt format 2) entry: no attribution

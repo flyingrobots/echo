@@ -119,7 +119,10 @@
   keeps the restored worldline readable, but `submit_intent`, `ingest` and
   ticketed staging fail with `RuntimeError::AdmissionCoverageUnestablished`
   until a witnessed-submission snapshot has been restored that covers every
-  submission the restored ticks attribute; establishing coverage also
+  submission the restored ticks attribute. History containing ticks older
+  than attribution additionally needs the trusted host's attestation that its
+  restored submissions are the complete acceptance log, which it makes after
+  WAL recovery. Establishing coverage also
   restores committed-ingress membership for them. Before this, a runtime
   rebuilt from history alone accepted a resent request as a new one, and
   even after a complete restore `ingest` re-queued a request that an

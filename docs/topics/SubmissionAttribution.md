@@ -196,10 +196,17 @@ committed-ingress membership for those submissions, which replayed state does
 not carry; without it, `ingest` would put a request decided by an unticketed
 tick back into the inbox. A snapshot missing one of them,
 records restored without envelopes, or a failed restore leaves admission
-obstructed. Ticks older than attribution cannot be checked this way; for them,
-and for submissions still undecided at the basis, the restored snapshot is the
-authority. The trusted host restores the complete snapshot from its WAL and
-refuses missing envelope material, so after a normal recovery admission is open.
+obstructed. A tick older than attribution cannot say which submissions it
+decided, so no snapshot can prove coverage across it: a worldline whose restored
+history contains one stays obstructed until a trusted host attests that the
+restored witnessed submissions are its complete acceptance log. The trusted host
+makes that attestation after recovering from its WAL, which holds every
+acceptance and refuses missing envelope material, so after a normal recovery
+admission is open. For such a worldline, committed-ingress membership is
+restored for each witnessed submission whose runtime ingress event node is in
+the replayed state, because deciding an ingress materializes that node. A submission accepted but still undecided at the basis is
+not in history at all; if a snapshot omits it, resubmitting it yields the same
+submission ID, not a second decided act.
 
 ### 4. A rebuildable index
 

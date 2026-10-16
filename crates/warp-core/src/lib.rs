@@ -534,14 +534,14 @@ pub use worldline::{
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
-    IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation, IntentOutcomeReceipt,
-    IntentSubmissionDisposition, IntentSubmissionHandle, IntentSubmissionRecord,
-    ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord, RuntimeError,
-    SchedulerCoordinator, SchedulerFaultGeneration, SchedulerFaultId, SchedulerFaultRecord,
-    SchedulerFaultRecoveryAuthority, SchedulerFaultScope, SchedulerFaultStatus, SchedulerRunId,
-    StepRecord, TicketedRuntimeIngressAuthority, TicketedRuntimeIngressDisposition,
-    TicketedRuntimeIngressRecord, WitnessedSubmissionPersistenceRecord,
-    WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
+    InheritedSubmission, InheritedThrough, IntentOutcome, IntentOutcomeDecision,
+    IntentOutcomeObservation, IntentOutcomeReceipt, IntentSubmissionDisposition,
+    IntentSubmissionHandle, IntentSubmissionRecord, ReceiptCorrelationPersistenceRecord,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
+    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
+    SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
+    TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord,
+    WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{
@@ -555,8 +555,8 @@ pub use head::{
 /// [`WorldlineRuntime::ingest`] with these types.
 pub use head_inbox::{
     make_intent_kind, ContinuumOccurrence, ContinuumOccurrenceError, HeadInbox, InboxAddress,
-    InboxPolicy, IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError, IngressPayload,
-    IngressTarget, IntentKind,
+    InboxPolicy, IngressCausalParent, IngressEnvelope, IngressEnvelopeDecodeError,
+    IngressIdentityVersion, IngressPayload, IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
 pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};

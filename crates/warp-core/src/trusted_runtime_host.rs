@@ -209,6 +209,14 @@ pub enum TrustedRuntimeWalError {
         /// Submission whose retained records conflicted.
         submission_id: Hash,
     },
+    /// Recovered history attributes decisions to submissions the recovered
+    /// acceptance log does not cover, so admission coverage cannot be
+    /// established for that worldline.
+    #[error("trusted runtime WAL recovery cannot establish admission coverage for worldline {worldline_id:?}")]
+    AdmissionCoverageUnestablished {
+        /// Worldline whose restored history is not covered.
+        worldline_id: crate::WorldlineId,
+    },
     /// Recovery cannot restore an accepted submission without envelope material.
     #[error("trusted runtime WAL is missing retained envelope material for submission {submission_id:?}")]
     SubmissionEnvelopeMissing {
@@ -1419,6 +1427,16 @@ impl TrustedRuntimeHost {
             &recovery.provenance_entries,
             &recovery.receipt_correlations,
         )?;
+        // Recovery restored every acceptance the WAL holds, refused missing
+        // envelope material, and restored a correlation for every decision the
+        // WAL records, so the acceptance and decision logs are complete.
+        restored_runtime.attest_complete_witnessed_submissions();
+        if let Some(worldline_id) = restored_runtime.admission_coverage_unestablished().first() {
+            return Err(TrustedRuntimeWalError::AdmissionCoverageUnestablished {
+                worldline_id: *worldline_id,
+            }
+            .into());
+        }
         validate_recovered_tick_decisions(&restored_runtime, &recovery.receipts)?;
 
         self.engine
@@ -6737,7 +6755,7 @@ impl TrustedRuntimeApp<'_> {
             return Err(RuntimeError::EchoOperationActionRequiresRuntimeWalAck);
         }
         let handle = self.host.runtime.submit_app_intent(envelope)?;
-        if self.host.runtime_wal.is_none() {
+        if self.host.runtime_wal.is_none() && handle.inherited_through.is_none() {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,
                 is_echo_operation_action,
@@ -6884,9 +6902,14 @@ impl TrustedRuntimeApp<'_> {
                 .rollback_intent_submission(submission_rollback, &handle);
             return Err(TrustedRuntimeHostError::RuntimeWalUnavailable);
         };
+        // An occurrence already in inherited history admits nothing here, so
+        // there is no acceptance to record.
+        if handle.inherited_through.is_some() {
+            return Ok(handle);
+        }
         if handle.duplicate
             && runtime_wal
-                .has_recorded_submission_acceptance(handle.submission_id, envelope.ingress_id())
+                .has_recorded_submission_acceptance(handle.submission_id, handle.ingress_id)
         {
             self.host.track_pending_echo_operation_action_v1(
                 handle.submission_id,
@@ -6894,6 +6917,27 @@ impl TrustedRuntimeApp<'_> {
             );
             return Ok(handle);
         }
+        // A resend that resolved to a submission accepted under the original
+        // identity recipe is recorded with that submission's retained
+        // envelope, so the WAL's identity matches the handle on recovery.
+        let envelope = if handle.ingress_id == envelope.ingress_id() {
+            envelope
+        } else {
+            match self
+                .host
+                .runtime
+                .witnessed_submission_envelope(&handle.submission_id)
+                .cloned()
+            {
+                Some(retained) => retained,
+                None => {
+                    return Err(RuntimeError::WitnessedSubmissionEnvelopeUnavailable(
+                        handle.submission_id,
+                    )
+                    .into())
+                }
+            }
+        };
         if let Err(error) = runtime_wal.record_submission_acceptance(&envelope, handle, sync) {
             if matches!(sync, CommitSync::Deferred) {
                 // Earlier records of this batch are appended and not synced.
@@ -8252,6 +8296,7 @@ mod tests {
             submission_id: [12; 32],
             submission_generation: IngressSubmissionGeneration::from_raw(1),
             duplicate: false,
+            inherited_through: None,
         };
         let record = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,
@@ -8365,6 +8410,7 @@ mod tests {
             submission_id: [21; 32],
             submission_generation: IngressSubmissionGeneration::from_raw(1),
             duplicate: false,
+            inherited_through: None,
         };
         let acceptance = SubmissionAcceptanceRecord {
             submission_id: handle.submission_id,

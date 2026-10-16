@@ -4117,3 +4117,310 @@ fn continuum_occurrence_identity_survives_host_restart_and_redelivery() {
     drop(restarted);
     fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");
 }
+
+/// Issue #886: after restart, a strand still inherits the occurrences of its
+/// fork basis. Redelivering one to the child names the original submission and
+/// writes no acceptance; reusing its key for other material is a conflict.
+#[test]
+fn a_strand_inherits_its_fork_basis_occurrences_across_restart() {
+    let root = temp_runtime_wal_dir("strand-occurrence-inheritance");
+    let (rt, lane) = runtime();
+    let head = *rt.heads().iter().next().expect("head").0;
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("wal");
+    host.register_contract_package(package()).expect("package");
+    let applied = [0xa1; 32];
+    let original = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(occurred_eint_envelope(lane, 1, applied, MUTATION_VARS))
+        .expect("submit");
+    host.stage_installed_contract_submission(original.submission_id, &admission_ticket(31))
+        .expect("stage");
+    host.run_until_idle(4).expect("commit");
+    let child = host
+        .fork_local_operation_strand_v1(head, "occurrence-child")
+        .expect("native fork");
+    drop(host);
+
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("recovery");
+    restored
+        .register_contract_package(package())
+        .expect("package");
+    let to_child = |key: u8, vars: &[u8]| {
+        IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::ExactHead { key: child },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, vars).expect("EINT should pack"),
+            Vec::new(),
+            ContinuumOccurrence::new([key; 32], applied),
+        )
+    };
+    let acceptances = restored
+        .runtime_wal()
+        .expect("wal")
+        .submission_acceptance_count();
+    let witnessed = restored.runtime().witnessed_submission_count();
+    let inherited = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(1, MUTATION_VARS))
+        .expect("an inherited occurrence is an idempotency result");
+    assert!(inherited.duplicate);
+    assert_eq!(inherited.submission_id, original.submission_id);
+    assert_eq!(inherited.head_key, original.head_key);
+    let fork = restored
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("retained strand")
+        .fork_basis_ref();
+    assert_eq!(inherited.inherited_through, Some(fork.into()));
+    assert_eq!(
+        restored
+            .runtime_wal()
+            .expect("wal")
+            .submission_acceptance_count(),
+        acceptances,
+        "an inherited occurrence writes no acceptance"
+    );
+    assert_eq!(restored.runtime().witnessed_submission_count(), witnessed);
+
+    let conflict = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(1, b"amount=8"))
+        .expect_err("reusing an inherited occurrence key for other content");
+    assert!(matches!(
+        conflict,
+        TrustedRuntimeHostError::Runtime(error) if matches!(
+            *error,
+            RuntimeError::ContinuumOccurrenceConflict { existing_submission_id, .. }
+                if existing_submission_id == original.submission_id
+        )
+    ));
+
+    let fresh = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(2, MUTATION_VARS))
+        .expect("an occurrence absent from the inherited past is admitted");
+    assert!(!fresh.duplicate && fresh.inherited_through.is_none());
+    assert_eq!(fresh.head_key, child);
+    drop(restored);
+    fs::remove_dir_all(&root).expect("WAL fixture cleanup succeeds");
+}
+
+const LEGACY_CAUSAL_SEGMENT: &[u8] =
+    include_bytes!("fixtures/legacy_causal_wal/segments/segment-00000000000000000001.ecwal");
+const LEGACY_CAUSAL_EPOCHS: &[u8] =
+    include_bytes!("fixtures/legacy_causal_wal/writer-epochs.ecwal");
+/// Decided causal submission in the frozen WAL, and its original ingress id.
+const LEGACY_DECIDED: &str = "2348e63b4cd2b630e659d9bcac2e5456d56c35c7a5f04f717d07820a113888f7";
+const LEGACY_DECIDED_INGRESS: &str =
+    "811015cf74795d042fc637d41d506024f538206586707d533fede984a2dddcbf";
+/// Pending causal Continuum occurrence in the frozen WAL.
+const LEGACY_PENDING: &str = "8879b31036123e5b70962a068958f51e379750627e13abecf5b585d43fdd3f63";
+
+fn hex_hash(value: &str) -> Hash {
+    hex::decode(value)
+        .expect("hex")
+        .try_into()
+        .expect("32 bytes")
+}
+
+/// A fresh copy of the frozen legacy causal WAL, checked against its digests.
+fn legacy_causal_wal() -> PathBuf {
+    use sha2::{Digest, Sha256};
+    assert_eq!(
+        hex::encode(Sha256::digest(LEGACY_CAUSAL_SEGMENT)),
+        "95a762b44e674e7612ea74aff516034cdab192c8700c6c75d0a76b6386894457"
+    );
+    assert_eq!(
+        hex::encode(Sha256::digest(LEGACY_CAUSAL_EPOCHS)),
+        "bdef26980af969e059f52c3a212ade94cc26329083020b8bd1119313877efc61"
+    );
+    let root = temp_runtime_wal_dir("legacy-causal");
+    fs::create_dir_all(root.join("segments")).expect("segments directory");
+    fs::write(
+        root.join("segments")
+            .join("segment-00000000000000000001.ecwal"),
+        LEGACY_CAUSAL_SEGMENT,
+    )
+    .expect("frozen segment copies");
+    fs::write(root.join("writer-epochs.ecwal"), LEGACY_CAUSAL_EPOCHS)
+        .expect("frozen epoch ledger copies");
+    root
+}
+
+/// Issue #885: restart, then resend. Requests a writer accepted before the
+/// separated causal recipe resolve to their original submissions when resent
+/// in the new form: no acceptance is written, the decided one does not run
+/// again, and the pending one is staged from its retained envelope and is
+/// decided once. A request with a changed parent is a new act.
+#[test]
+fn causal_requests_accepted_before_the_separated_recipe_survive_restart_and_resend() {
+    let root = legacy_causal_wal();
+    let (rt, lane) = runtime();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("the frozen WAL recovers");
+    host.register_contract_package(package()).expect("package");
+    let decided = hex_hash(LEGACY_DECIDED);
+    let pending = hex_hash(LEGACY_PENDING);
+    assert_eq!(
+        host.runtime()
+            .witnessed_submission_envelope(&decided)
+            .expect("retained")
+            .identity_version(),
+        warp_core::IngressIdentityVersion::Original
+    );
+    let acceptances = host
+        .runtime_wal()
+        .expect("wal")
+        .submission_acceptance_count();
+    let ticks = host.provenance().len(lane).expect("history");
+
+    let parent = causal_receipt_ref(lane, "legacy-parent", 41);
+    let resend = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(causal_eint_envelope(lane, vec![parent]))
+        .expect("a resend of the decided request");
+    assert!(resend.duplicate);
+    assert_eq!(resend.submission_id, decided);
+    assert_eq!(resend.ingress_id, hex_hash(LEGACY_DECIDED_INGRESS));
+    let pending_resend = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::DefaultWriter { worldline_id: lane },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, b"amount=9").expect("EINT"),
+            vec![IngressCausalParent::TickReceipt {
+                receipt_ref: parent,
+            }],
+            ContinuumOccurrence::new([7; 32], [0xa7; 32]),
+        ))
+        .expect("a resend of the pending occurrence");
+    assert!(pending_resend.duplicate);
+    assert_eq!(pending_resend.submission_id, pending);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("wal")
+            .submission_acceptance_count(),
+        acceptances,
+        "resends write no acceptance"
+    );
+    host.run_until_idle(4).expect("idle");
+    assert_eq!(
+        host.provenance().len(lane).expect("history"),
+        ticks,
+        "the decided request does not run again"
+    );
+
+    host.stage_installed_contract_submission(pending, &admission_ticket(62))
+        .expect("the pending request stages from its retained envelope");
+    host.run_until_idle(4).expect("commit");
+    assert_eq!(host.provenance().len(lane).expect("history"), ticks + 1);
+    // Decided once: the reference rule does not match `amount=9`.
+    let outcome = host.app().observe_intent_outcome(&pending);
+    assert!(
+        matches!(outcome, IntentOutcome::NoMatchingRule { submission_id, .. } if submission_id == pending),
+        "{outcome:?}"
+    );
+    host.run_until_idle(4).expect("idle");
+    assert_eq!(host.provenance().len(lane).expect("history"), ticks + 1);
+
+    let changed = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(causal_eint_envelope(
+            lane,
+            vec![causal_receipt_ref(lane, "another-parent", 42)],
+        ))
+        .expect("a changed parent is a new request");
+    assert!(!changed.duplicate);
+    assert_eq!(
+        host.runtime_wal()
+            .expect("wal")
+            .submission_acceptance_count(),
+        acceptances + 1
+    );
+    drop(host);
+    fs::remove_dir_all(&root).expect("WAL fixture cleanup succeeds");
+}
+
+/// PR #900 review: a runtime may hold accepted legacy causal material that a
+/// newly enabled WAL does not. A resend in the separated form resolves to that
+/// submission, and the WAL must record the retained (original-form) envelope
+/// under it, so the log still recovers.
+#[test]
+fn a_legacy_resolved_resend_records_the_retained_envelope() {
+    let legacy_root = legacy_causal_wal();
+    let (rt, lane) = runtime();
+    let mut recovered = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    recovered
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&legacy_root))
+        .expect("the frozen WAL recovers");
+    let pending = hex_hash(LEGACY_PENDING);
+    let snapshot = recovered
+        .runtime()
+        .witnessed_submission_persistence_snapshot()
+        .expect("snapshot");
+    let pending_only = warp_core::WitnessedSubmissionPersistenceSnapshot::new(
+        snapshot
+            .records()
+            .iter()
+            .filter(|record| record.submission.submission_id == pending)
+            .cloned()
+            .collect(),
+    );
+    drop(recovered);
+    fs::remove_dir_all(&legacy_root).expect("fixture cleanup");
+
+    // A host whose WAL has never seen the accepted legacy request, given that
+    // request through host-level reconfiguration of its runtime. (Enabling a
+    // WAL on a runtime that already holds it is refused.)
+    let fresh_root = temp_runtime_wal_dir("legacy-resolved-resend");
+    let (rt, _) = runtime();
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&fresh_root))
+        .expect("a fresh WAL");
+    let mut parts = host.into_parts();
+    parts
+        .runtime_mut()
+        .restore_witnessed_submission_persistence(pending_only)
+        .expect("legacy material restores");
+    let mut host = TrustedRuntimeHost::from_parts(parts);
+    let parent = causal_receipt_ref(lane, "legacy-parent", 41);
+    let resend = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::DefaultWriter { worldline_id: lane },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, b"amount=9").expect("EINT"),
+            vec![IngressCausalParent::TickReceipt {
+                receipt_ref: parent,
+            }],
+            ContinuumOccurrence::new([7; 32], [0xa7; 32]),
+        ))
+        .expect("the resend resolves to the legacy submission");
+    assert!(resend.duplicate);
+    assert_eq!(resend.submission_id, pending);
+    drop(host);
+
+    let (rt, _) = runtime();
+    let mut restarted = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&fresh_root))
+        .expect("the WAL recorded the retained envelope and recovers");
+    assert_eq!(
+        restarted
+            .runtime()
+            .witnessed_submission_envelope(&pending)
+            .expect("retained")
+            .identity_version(),
+        warp_core::IngressIdentityVersion::Original
+    );
+    drop(restarted);
+    fs::remove_dir_all(&fresh_root).expect("WAL cleanup");
+}

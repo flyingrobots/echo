@@ -6,8 +6,8 @@
 use warp_core::{
     make_head_id, make_intent_kind, CausalTickReceiptRef, ContinuumOccurrence,
     ContinuumOccurrenceError, GlobalTick, InboxAddress, IngressCausalParent, IngressEnvelope,
-    IngressEnvelopeDecodeError, IngressTarget, WorldlineId, WorldlineTick, WriterHeadKey,
-    CAUSAL_TICK_RECEIPT_REF_LEN,
+    IngressEnvelopeDecodeError, IngressIdentityVersion, IngressTarget, IntentKind, WorldlineId,
+    WorldlineTick, WriterHeadKey, CAUSAL_TICK_RECEIPT_REF_LEN,
 };
 
 const PARENT_COUNT_OFFSET: usize = 8 + 1 + 32;
@@ -358,4 +358,130 @@ fn a_local_intent_cannot_take_an_occurrence_ingress_id() {
         bytes,
     );
     assert_ne!(crafted.ingress_id(), occurred.ingress_id());
+}
+
+/// The original-recipe form of a separated causal envelope, as a request
+/// retained before #885 decodes: `EINGR004` is the `EINGR002` layout plus a
+/// trailing occurrence flag, so dropping the flag and relabelling gives the
+/// bytes the earlier writer produced.
+fn original_form(separated: &IngressEnvelope) -> IngressEnvelope {
+    let mut bytes = separated.to_retained_bytes();
+    assert_eq!(&bytes[..8], b"EINGR004");
+    assert_eq!(bytes.pop(), Some(0), "no occurrence");
+    bytes[..8].copy_from_slice(b"EINGR002");
+    IngressEnvelope::from_retained_bytes(&bytes).expect("an EINGR002 causal request decodes")
+}
+
+/// #885 alias demonstration. Under the original recipe a plain intent
+/// reproduces a causal intent's hash input byte for byte: the plain domain
+/// `"ingress:"` prefixes the causal domain `"ingress:causal:v2\0"`, and the
+/// plain kind is any 32 bytes. The construction is direct; it costs one
+/// envelope, no search. The separated recipe has no such alias.
+#[test]
+fn a_plain_intent_aliases_the_original_causal_recipe_but_not_the_separated_one() {
+    let worldline_id = WorldlineId::from_bytes(digest("worldline"));
+    let parent = receipt_ref(worldline_id, "alias-parent");
+    let kind = make_intent_kind("fixture.intent/causal");
+    let payload = b"causal payload".to_vec();
+    let separated = IngressEnvelope::local_intent_with_causal_parents(
+        IngressTarget::DefaultWriter { worldline_id },
+        kind,
+        payload.clone(),
+        vec![IngressCausalParent::TickReceipt {
+            receipt_ref: parent,
+        }],
+    );
+    assert_eq!(
+        separated.identity_version(),
+        IngressIdentityVersion::SeparatedCausal
+    );
+    let original = original_form(&separated);
+    assert_eq!(
+        original.identity_version(),
+        IngressIdentityVersion::Original
+    );
+    assert_ne!(original.ingress_id(), separated.ingress_id());
+
+    // "ingress:" || alias_kind || alias_bytes ==
+    // "ingress:causal:v2\0" || kind || len || bytes || count || "tick-receipt\0" || ref
+    let mut alias_kind = [0u8; 32];
+    alias_kind[..10].copy_from_slice(b"causal:v2\0");
+    alias_kind[10..].copy_from_slice(&kind.as_hash()[..22]);
+    let mut alias_bytes = kind.as_hash()[22..].to_vec();
+    alias_bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    alias_bytes.extend_from_slice(&payload);
+    alias_bytes.extend_from_slice(&1u64.to_le_bytes());
+    alias_bytes.extend_from_slice(b"tick-receipt\0");
+    alias_bytes.extend_from_slice(&parent.to_canonical_bytes());
+    let alias = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        IntentKind::from_hash(alias_kind),
+        alias_bytes,
+    );
+    assert_eq!(
+        alias.ingress_id(),
+        original.ingress_id(),
+        "the original recipe is aliased"
+    );
+    assert_ne!(
+        alias.ingress_id(),
+        separated.ingress_id(),
+        "the separated recipe is not"
+    );
+}
+
+#[test]
+fn retention_formats_keep_their_identity_versions() {
+    let worldline_id = WorldlineId::from_bytes(digest("worldline"));
+    let parents = vec![IngressCausalParent::TickReceipt {
+        receipt_ref: receipt_ref(worldline_id, "retained-parent"),
+    }];
+    let target = IngressTarget::DefaultWriter { worldline_id };
+    let kind = make_intent_kind("fixture.intent/causal");
+
+    // Plain intents keep EINGR002 and the original recipe.
+    let plain = IngressEnvelope::local_intent(target.clone(), kind, b"plain".to_vec());
+    assert_eq!(plain.identity_version(), IngressIdentityVersion::Original);
+    assert_eq!(&plain.to_retained_bytes()[..8], b"EINGR002");
+
+    // New causal requests are EINGR004 and round trip, with and without an
+    // occurrence.
+    let causal = IngressEnvelope::local_intent_with_causal_parents(
+        target.clone(),
+        kind,
+        b"c".to_vec(),
+        parents.clone(),
+    );
+    let occurred = IngressEnvelope::continuum_occurred_intent(
+        target,
+        kind,
+        b"c".to_vec(),
+        parents,
+        continuum_occurrence("causal"),
+    );
+    for envelope in [causal.clone(), occurred] {
+        let retained = envelope.to_retained_bytes();
+        assert_eq!(&retained[..8], b"EINGR004");
+        round_trip(envelope);
+    }
+
+    // The original form keeps its legacy bytes and identity exactly.
+    let original = original_form(&causal);
+    assert_eq!(&original.to_retained_bytes()[..8], b"EINGR002");
+    round_trip(original);
+
+    // An EINGR004 record must carry parents and a valid occurrence flag.
+    let mut bad_flag = causal.to_retained_bytes();
+    *bad_flag.last_mut().expect("flag byte") = 2;
+    assert_eq!(
+        IngressEnvelope::from_retained_bytes(&bad_flag),
+        Err(IngressEnvelopeDecodeError::NonCanonical)
+    );
+    let mut parentless = plain.to_retained_bytes();
+    parentless[..8].copy_from_slice(b"EINGR004");
+    parentless.push(0);
+    assert_eq!(
+        IngressEnvelope::from_retained_bytes(&parentless),
+        Err(IngressEnvelopeDecodeError::NonCanonical)
+    );
 }

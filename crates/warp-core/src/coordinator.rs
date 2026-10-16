@@ -1410,14 +1410,6 @@ pub struct WorldlineRuntime {
     /// Worldlines whose committed history was restored before admission
     /// coverage was established through the restored basis.
     admission_coverage_pending: BTreeMap<WorldlineId, AdmissionCoverageRequirement>,
-    /// Whether a witnessed-submission persistence snapshot has been restored.
-    witnessed_persistence_restored: bool,
-    /// Whether a trusted host has attested that the restored witnessed
-    /// submissions are its complete acceptance log.
-    ///
-    /// Ticks older than attribution cannot be checked against a snapshot, so
-    /// only this attestation establishes coverage across them.
-    witnessed_submissions_attested_complete: bool,
     /// Ticketed runtime ingress records keyed by deterministic event id.
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
@@ -3020,8 +3012,6 @@ impl WorldlineRuntime {
         self.witnessed_submission_envelopes.extend(staged_envelopes);
         self.continuum_occurrence_bindings
             .extend(staged_occurrences);
-        self.witnessed_persistence_restored = true;
-        self.release_established_admission_coverage();
         Ok(())
     }
 
@@ -3102,7 +3092,6 @@ impl WorldlineRuntime {
                 },
             );
         }
-        restored.release_established_admission_coverage();
 
         for persisted in correlations {
             restored.restore_receipt_correlation(persisted)?;
@@ -3705,95 +3694,120 @@ impl WorldlineRuntime {
         }
     }
 
-    /// Releases coverage requirements that restored witnessed material now
-    /// meets, and records the committed ingress those ticks account for.
+    /// Records a trusted host's attestation that the witnessed submissions it
+    /// restored are its complete acceptance log, and releases the coverage
+    /// requirements pending now that this establishes.
     ///
-    /// Retry detection for decided work reads committed-ingress membership,
-    /// which replayed state does not carry, so establishing coverage also
-    /// restores it for every submission the restored ticks attribute.
-    fn release_established_admission_coverage(&mut self) {
-        if !self.witnessed_persistence_restored {
-            return;
-        }
-        let established = self
+    /// No snapshot can prove itself complete: it can omit a request a tick
+    /// older than attribution decided, or an accepted request still undecided
+    /// at the restored basis. Only the owner of the acceptance log can vouch
+    /// for that. The trusted host does so after recovering from its WAL, which
+    /// holds every acceptance and refuses missing envelope material. The
+    /// attestation covers only requirements pending when it is made; history
+    /// restored later needs its own.
+    ///
+    /// A requirement is released only when every submission its ticks
+    /// attribute has retained material, and when committed ingress for its
+    /// unattributed ticks can be reconstructed without ambiguity. Releasing it
+    /// records committed ingress for those submissions, which replayed state
+    /// does not carry.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    pub(crate) fn attest_complete_witnessed_submissions(&mut self) {
+        let pending = self
             .admission_coverage_pending
-            .iter()
-            .filter(|(_, requirement)| {
-                (!requirement.unattributed_ticks || self.witnessed_submissions_attested_complete)
-                    && requirement
-                        .attributed_submissions
-                        .iter()
-                        .all(|submission_id| {
-                            self.witnessed_submission_envelopes
-                                .contains_key(submission_id)
-                        })
-            })
-            .map(|(worldline_id, _)| *worldline_id)
+            .keys()
+            .copied()
             .collect::<Vec<_>>();
-        for worldline_id in established {
+        for worldline_id in pending {
+            let Some(requirement) = self.admission_coverage_pending.get(&worldline_id) else {
+                continue;
+            };
+            if !requirement
+                .attributed_submissions
+                .iter()
+                .all(|submission_id| {
+                    self.witnessed_submission_envelopes
+                        .contains_key(submission_id)
+                })
+            {
+                continue;
+            }
+            let legacy_ingress = if requirement.unattributed_ticks {
+                match self.committed_ingress_from_replayed_events(worldline_id) {
+                    Some(ingress) => ingress,
+                    None => continue,
+                }
+            } else {
+                Vec::new()
+            };
             let Some(requirement) = self.admission_coverage_pending.remove(&worldline_id) else {
                 continue;
             };
-            if requirement.unattributed_ticks {
-                self.record_committed_ingress_from_replayed_events(worldline_id);
-            }
-            for submission_id in requirement.attributed_submissions {
-                let Some(record) = self.witnessed_submissions.get(&submission_id).cloned() else {
-                    continue;
-                };
-                if let Some(frontier) = self.worldlines.frontier_mut(&record.head_key.worldline_id)
-                {
+            let attributed = requirement
+                .attributed_submissions
+                .iter()
+                .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
+                .map(|record| (record.head_key, record.ingress_id))
+                .collect::<Vec<_>>();
+            for (head_key, ingress_id) in attributed.into_iter().chain(legacy_ingress) {
+                if let Some(frontier) = self.worldlines.frontier_mut(&head_key.worldline_id) {
                     frontier
                         .state_mut()
-                        .record_committed_ingress(record.head_key, [record.ingress_id]);
+                        .record_committed_ingress(head_key, [ingress_id]);
                 }
             }
         }
     }
 
-    /// Records committed ingress for this worldline's witnessed submissions
-    /// whose runtime ingress event is in its replayed state.
+    /// Reconstructs committed ingress for a worldline whose restored history
+    /// includes ticks older than attribution, or `None` when it is ambiguous.
     ///
-    /// A tick older than attribution leaves no list of what it decided, but
-    /// deciding a runtime ingress materializes an event node keyed by its
-    /// ingress id, and replay restores that node.
-    fn record_committed_ingress_from_replayed_events(&mut self, worldline_id: WorldlineId) {
-        let Some(frontier) = self.worldlines.get(&worldline_id) else {
-            return;
-        };
+    /// Such a tick leaves no list of what it decided, but deciding a runtime
+    /// ingress materializes an event node keyed by its ingress id, which
+    /// replay restores. The ingress id does not name a head, so a node proves
+    /// a decision only when exactly one witnessed submission on the worldline
+    /// carries that ingress and it is not already known to be committed. When
+    /// several could be the one decided, Echo cannot tell which, and coverage
+    /// stays unestablished.
+    #[cfg(any(
+        test,
+        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
+    ))]
+    fn committed_ingress_from_replayed_events(
+        &self,
+        worldline_id: WorldlineId,
+    ) -> Option<Vec<(WriterHeadKey, Hash)>> {
+        let frontier = self.worldlines.get(&worldline_id)?;
         let state = frontier.state();
-        let Some(store) = state.warp_state().store(&state.root().warp_id) else {
-            return;
-        };
-        let decided = self
-            .witnessed_submissions
-            .values()
-            .filter(|record| {
-                record.head_key.worldline_id == worldline_id
-                    && store.node(&crate::NodeId(record.ingress_id)).is_some()
-            })
-            .map(|record| (record.head_key, record.ingress_id))
-            .collect::<Vec<_>>();
-        if let Some(frontier) = self.worldlines.frontier_mut(&worldline_id) {
-            for (head_key, ingress_id) in decided {
-                frontier
-                    .state_mut()
-                    .record_committed_ingress(head_key, [ingress_id]);
+        let store = state.warp_state().store(&state.root().warp_id)?;
+        let mut by_ingress: BTreeMap<Hash, Vec<WriterHeadKey>> = BTreeMap::new();
+        for record in self.witnessed_submissions.values() {
+            if record.head_key.worldline_id == worldline_id
+                && store.node(&crate::NodeId(record.ingress_id)).is_some()
+            {
+                by_ingress
+                    .entry(record.ingress_id)
+                    .or_default()
+                    .push(record.head_key);
             }
         }
-    }
-
-    /// Records a trusted host's attestation that the restored witnessed
-    /// submissions are its complete acceptance log, and releases the coverage
-    /// this establishes.
-    ///
-    /// The trusted host makes it after recovering from its WAL, which holds
-    /// every acceptance and refuses missing envelope material. Nothing else
-    /// may: a public snapshot can be any subset of submissions.
-    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-    pub(crate) fn attest_complete_witnessed_submissions(&mut self) {
-        self.witnessed_submissions_attested_complete = true;
-        self.release_established_admission_coverage();
+        let mut decided = Vec::new();
+        for (ingress_id, heads) in by_ingress {
+            let undetermined = heads
+                .iter()
+                .filter(|head_key| !state.contains_committed_ingress(head_key, &ingress_id))
+                .copied()
+                .collect::<Vec<_>>();
+            match (heads.len(), undetermined.as_slice()) {
+                (_, []) => {}
+                (1, [head_key]) => decided.push((*head_key, ingress_id)),
+                _ => return None,
+            }
+        }
+        Some(decided)
     }
 
     /// Refuses admission on a worldline whose restored history is not yet
@@ -6903,10 +6917,31 @@ mod tests {
                 .unwrap(),
         );
         SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        // Accepted but undecided at the basis: no tick names it.
+        let occurrence_at = |bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([5; 32], [0xa5; 32]),
+            )
+        };
+        let pending = accepted_submission(source.ingest(occurrence_at(b"pending")).unwrap());
         let entries = (0..2)
             .map(|tick| provenance.entry(worldline_id, wt(tick)).unwrap())
             .collect::<Vec<_>>();
         let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+        let without = |omitted: Hash| {
+            WitnessedSubmissionPersistenceSnapshot::new(
+                snapshot
+                    .records()
+                    .iter()
+                    .filter(|record| record.submission.submission_id != omitted)
+                    .cloned()
+                    .collect(),
+            )
+        };
 
         let (mut restored, _engine, _) = toy_contract_runtime();
         restored
@@ -6953,17 +6988,10 @@ mod tests {
                 .unwrap_err()
         ));
 
-        // A restore missing a submission the history attributes is partial.
-        let partial = WitnessedSubmissionPersistenceSnapshot::new(
-            snapshot
-                .records()
-                .iter()
-                .filter(|record| record.submission.submission_id != second)
-                .cloned()
-                .collect(),
-        );
+        // A restore missing a submission the history attributes is partial:
+        // even an attestation cannot release it.
         restored
-            .restore_witnessed_submission_persistence(partial)
+            .restore_witnessed_submission_persistence(without(second))
             .unwrap();
         assert_obstructed(&mut restored);
         assert!(is_obstructed(
@@ -6971,31 +6999,85 @@ mod tests {
                 .ingest_ticketed_invocation(&authority, first, &test_ticket(12), committed.clone())
                 .unwrap_err()
         ));
+        restored.attest_complete_witnessed_submissions();
+        assert_obstructed(&mut restored);
 
         // A failed restore changes nothing.
         let mut corrupt = snapshot.records().to_vec();
-        let last = corrupt.len() - 1;
-        corrupt[last].envelope = fresh.clone();
+        corrupt[1].envelope = fresh.clone();
         assert!(restored
             .restore_witnessed_submission_persistence(WitnessedSubmissionPersistenceSnapshot::new(
                 corrupt
             ))
             .is_err());
         assert_obstructed(&mut restored);
-        assert_eq!(restored.witnessed_submission_count(), 1);
+        assert_eq!(restored.witnessed_submission_count(), 2);
 
-        // A complete restore establishes coverage: a resend is a retry again.
+        // Every attributed submission, but not the pending occurrence: a public
+        // snapshot cannot prove it omits nothing, so admission stays closed and
+        // the occurrence's key cannot be reused for other content.
         restored
-            .restore_witnessed_submission_persistence(snapshot)
+            .restore_witnessed_submission_persistence(without(pending))
             .unwrap();
-        match restored.ingest(committed).unwrap() {
+        assert_obstructed(&mut restored);
+        assert!(is_obstructed(
+            restored.ingest(occurrence_at(b"other")).unwrap_err()
+        ));
+
+        // The complete log, attested by its owner, establishes coverage.
+        restored
+            .restore_witnessed_submission_persistence(snapshot.clone())
+            .unwrap();
+        assert_obstructed(&mut restored);
+        restored.attest_complete_witnessed_submissions();
+        match restored.ingest(committed.clone()).unwrap() {
             IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
             IngressDisposition::Accepted { .. }
             | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
                 panic!("a committed request must be a retry")
             }
         }
+        assert!(matches!(
+            restored.ingest(occurrence_at(b"other")),
+            Err(RuntimeError::ContinuumOccurrenceConflict { existing_submission_id, .. })
+                if existing_submission_id == pending
+        ));
         accepted_submission(restored.ingest(fresh).unwrap());
+    }
+
+    /// PR #888 review: an attestation covers the restores made before it,
+    /// not history restored afterwards.
+    #[test]
+    fn an_attestation_covers_only_the_restores_before_it() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let committed = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            toy_increment_intent(TOY_INCREMENT_VARS),
+        );
+        accepted_submission(source.ingest(committed.clone()).unwrap());
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let entries = vec![provenance.entry(worldline_id, wt(0)).unwrap()];
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(restored.ingest(committed.clone()).is_ok());
+
+        restored
+            .restore_causal_runtime_history(&provenance, &entries, &[])
+            .unwrap();
+        assert!(matches!(
+            restored.ingest(committed),
+            Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+        ));
     }
 
     /// PR #888 review: a tick older than attribution cannot say which
@@ -7053,6 +7135,70 @@ mod tests {
                 panic!("a committed request must be a retry")
             }
         }
+    }
+
+    /// PR #888 review: an ingress id does not name its head. When a tick
+    /// older than attribution decided content on one head and identical
+    /// content is pending on another, the replayed event node cannot say
+    /// which was decided, so coverage stays unestablished instead of marking
+    /// the pending one committed (which would strand it).
+    #[test]
+    fn identical_legacy_content_on_two_heads_keeps_coverage_unestablished() {
+        let (mut source, mut engine, worldline_id) = toy_contract_runtime();
+        let other = register_head(
+            &mut source,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let content = |target: IngressTarget| {
+            IngressEnvelope::local_intent(
+                target,
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(TOY_INCREMENT_VARS),
+            )
+        };
+        accepted_submission(
+            source
+                .ingest(content(IngressTarget::DefaultWriter { worldline_id }))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        accepted_submission(
+            source
+                .ingest(content(IngressTarget::ExactHead { key: other }))
+                .unwrap(),
+        );
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut restored, _engine, _) = toy_contract_runtime();
+        register_head(
+            &mut restored,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(matches!(
+            restored.ingest(content(IngressTarget::ExactHead { key: other })),
+            Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+        ));
     }
 
     fn test_ticket(seed: u8) -> crate::OpticAdmissionTicket {

@@ -534,11 +534,11 @@ pub use worldline::{
 /// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
     ForkStrandReceipt, ForkStrandRequest, IngressDisposition, IngressSubmissionGeneration,
-    InheritedSubmission, IntentOutcome, IntentOutcomeDecision, IntentOutcomeObservation,
-    IntentOutcomeReceipt, IntentSubmissionDisposition, IntentSubmissionHandle,
-    IntentSubmissionRecord, ReceiptCorrelationPersistenceRecord, ReceiptCorrelationRecord,
-    RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration, SchedulerFaultId,
-    SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
+    InheritedSubmission, InheritedThrough, IntentOutcome, IntentOutcomeDecision,
+    IntentOutcomeObservation, IntentOutcomeReceipt, IntentSubmissionDisposition,
+    IntentSubmissionHandle, IntentSubmissionRecord, ReceiptCorrelationPersistenceRecord,
+    ReceiptCorrelationRecord, RuntimeError, SchedulerCoordinator, SchedulerFaultGeneration,
+    SchedulerFaultId, SchedulerFaultRecord, SchedulerFaultRecoveryAuthority, SchedulerFaultScope,
     SchedulerFaultStatus, SchedulerRunId, StepRecord, TicketedRuntimeIngressAuthority,
     TicketedRuntimeIngressDisposition, TicketedRuntimeIngressRecord,
     WitnessedSubmissionPersistenceRecord, WitnessedSubmissionPersistenceSnapshot, WorldlineRuntime,

@@ -706,6 +706,47 @@ pub enum IntentSubmissionDisposition {
     },
 }
 
+/// Decision evidence in a strand's copied prefix.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct InheritedPrefix {
+    /// Submissions the prefix's attributed ticks decided.
+    attributed: BTreeSet<Hash>,
+    /// Whether the prefix has ticks older than attribution, so it cannot
+    /// enumerate everything it decided.
+    unattributed_ticks: bool,
+}
+
+impl InheritedPrefix {
+    /// Whether the prefix proves `submission_id` was decided in it.
+    ///
+    /// An attributed tick names its decisions. A tick older than attribution
+    /// does not, so for those the evidence is the submission's receipt
+    /// correlation, whose coordinate must lie on `ancestor_id` at or before
+    /// `cap`, the last tick of that ancestor the child inherits. The ancestor's
+    /// own coverage gate guarantees its decision log is complete, so a
+    /// submission without a correlation was not decided. Final graph state is
+    /// never treated as evidence.
+    fn proves_decided(
+        &self,
+        runtime: &WorldlineRuntime,
+        submission_id: Hash,
+        ancestor_id: WorldlineId,
+        cap: WorldlineTick,
+    ) -> bool {
+        if self.attributed.contains(&submission_id) {
+            return true;
+        }
+        self.unattributed_ticks
+            && runtime
+                .receipt_correlation_for_submission(&submission_id)
+                .is_some_and(|correlation| {
+                    correlation.causal_receipt_ref.worldline_id == ancestor_id
+                        && correlation.causal_receipt_ref.worldline_tick_after.as_u64()
+                            <= cap.as_u64().saturating_add(1)
+                })
+    }
+}
+
 /// An occurrence's original submission, found in a worldline's inherited past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InheritedSubmission {
@@ -1388,9 +1429,6 @@ struct AdmissionCoverageRequirement {
     basis_tick: WorldlineTick,
     /// Submissions the restored ticks attribute; each needs retained material.
     attributed_submissions: BTreeSet<Hash>,
-    /// Whether some restored tick has no attribution section, so the
-    /// submissions it decided cannot be enumerated from history.
-    unattributed_ticks: bool,
 }
 
 // =============================================================================
@@ -1438,12 +1476,12 @@ pub struct WorldlineRuntime {
     /// Witnessed submissions, by worldline, whose envelope material is absent,
     /// so the occurrence mapping cannot be known complete on that worldline.
     submissions_without_envelope: BTreeSet<(WorldlineId, Hash)>,
-    /// Submissions that the inherited ticks of each strand child worldline
-    /// attribute: the decided part of its causal past at its fork basis.
+    /// What each strand child worldline's copied prefix proves was decided in
+    /// its causal past at its fork basis.
     ///
     /// Computed from the child's provenance when the strand forks, live or
     /// during recovery. Undecided submissions at the basis are not included.
-    inherited_decided_submissions: BTreeMap<WorldlineId, BTreeSet<Hash>>,
+    inherited_prefixes: BTreeMap<WorldlineId, InheritedPrefix>,
     /// Worldlines whose committed history was restored before admission
     /// coverage was established through the restored basis.
     admission_coverage_pending: BTreeMap<WorldlineId, AdmissionCoverageRequirement>,
@@ -2672,7 +2710,7 @@ impl WorldlineRuntime {
                 )?;
                 // The child's causal past is exactly its copied prefix; its
                 // decided submissions are those that prefix attributes.
-                let mut inherited = BTreeSet::new();
+                let mut inherited = InheritedPrefix::default();
                 for tick in 0..provenance.len(request.child_worldline_id)? {
                     let entry = provenance
                         .entry(request.child_worldline_id, WorldlineTick::from_raw(tick))?;
@@ -2681,10 +2719,14 @@ impl WorldlineRuntime {
                         .as_ref()
                         .and_then(crate::TickReceipt::attribution)
                     {
-                        inherited.extend(attribution.iter().map(|record| record.submission_id));
+                        inherited
+                            .attributed
+                            .extend(attribution.iter().map(|record| record.submission_id));
+                    } else {
+                        inherited.unattributed_ticks = true;
                     }
                 }
-                self.inherited_decided_submissions
+                self.inherited_prefixes
                     .insert(request.child_worldline_id, inherited);
 
                 let child_target_tick = request.fork_tick.checked_increment().ok_or(
@@ -3107,17 +3149,15 @@ impl WorldlineRuntime {
         for worldline_id in &touched_worldlines {
             let basis_len = provenance.len(*worldline_id)?;
             let mut attributed_submissions = BTreeSet::new();
-            let mut unattributed_ticks = false;
             for tick in 0..basis_len {
                 let entry = provenance.entry(*worldline_id, WorldlineTick::from_raw(tick))?;
-                match entry
+                if let Some(attribution) = entry
                     .tick_receipt
                     .as_ref()
                     .and_then(crate::TickReceipt::attribution)
                 {
-                    Some(attribution) => attributed_submissions
-                        .extend(attribution.iter().map(|record| record.submission_id)),
-                    None => unattributed_ticks = true,
+                    attributed_submissions
+                        .extend(attribution.iter().map(|record| record.submission_id));
                 }
             }
             restored.admission_coverage_pending.insert(
@@ -3125,7 +3165,6 @@ impl WorldlineRuntime {
                 AdmissionCoverageRequirement {
                     basis_tick: WorldlineTick::from_raw(basis_len),
                     attributed_submissions,
-                    unattributed_ticks,
                 },
             );
         }
@@ -3775,55 +3814,47 @@ impl WorldlineRuntime {
         }
     }
 
-    /// Records a trusted host's attestation that the witnessed submissions it
-    /// restored are its complete acceptance log, and releases the coverage
-    /// requirements pending now that this establishes.
+    /// Records a trusted host's attestation that what it restored is its
+    /// complete record, and releases the coverage requirements pending now
+    /// that this establishes.
     ///
-    /// No snapshot can prove itself complete: it can omit a request a tick
-    /// older than attribution decided, or an accepted request still undecided
-    /// at the restored basis. Only the owner of the acceptance log can vouch
-    /// for that. The trusted host does so after recovering from its WAL, which
-    /// holds every acceptance and refuses missing envelope material. The
-    /// attestation covers only requirements pending when it is made; history
-    /// restored later needs its own.
+    /// The attestation states two facts no snapshot can prove about itself:
+    /// the restored witnessed submissions are the complete acceptance log, and
+    /// the restored receipt correlations are the complete decision log. A
+    /// snapshot can omit an accepted request still undecided at the basis
+    /// (for example a Continuum occurrence whose key would then be reusable),
+    /// and a tick older than attribution cannot say what it decided; final
+    /// graph state is no evidence of either. The trusted host can vouch: its
+    /// WAL holds every acceptance and a recorded decision for every decided
+    /// submission, and recovery refuses missing material. Correlations restore
+    /// committed ingress for the submissions they name; every other witnessed
+    /// submission is undecided.
     ///
-    /// A requirement is released only when every submission its ticks
-    /// attribute has retained material, and when committed ingress for its
-    /// unattributed ticks can be reconstructed without ambiguity. Releasing it
-    /// records committed ingress for those submissions, which replayed state
-    /// does not carry.
+    /// The attestation covers only requirements pending when it is made;
+    /// history restored later needs its own. A requirement is released only
+    /// when every submission its ticks attribute has retained material, and
+    /// releasing it records committed ingress for those submissions, which
+    /// replayed state does not carry.
     #[cfg(any(
         test,
         all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
     ))]
     pub(crate) fn attest_complete_witnessed_submissions(&mut self) {
-        let pending = self
+        let established = self
             .admission_coverage_pending
-            .keys()
-            .copied()
+            .iter()
+            .filter(|(_, requirement)| {
+                requirement
+                    .attributed_submissions
+                    .iter()
+                    .all(|submission_id| {
+                        self.witnessed_submission_envelopes
+                            .contains_key(submission_id)
+                    })
+            })
+            .map(|(worldline_id, _)| *worldline_id)
             .collect::<Vec<_>>();
-        for worldline_id in pending {
-            let Some(requirement) = self.admission_coverage_pending.get(&worldline_id) else {
-                continue;
-            };
-            if !requirement
-                .attributed_submissions
-                .iter()
-                .all(|submission_id| {
-                    self.witnessed_submission_envelopes
-                        .contains_key(submission_id)
-                })
-            {
-                continue;
-            }
-            let legacy_ingress = if requirement.unattributed_ticks {
-                match self.committed_ingress_from_replayed_events(worldline_id) {
-                    Some(ingress) => ingress,
-                    None => continue,
-                }
-            } else {
-                Vec::new()
-            };
+        for worldline_id in established {
             let Some(requirement) = self.admission_coverage_pending.remove(&worldline_id) else {
                 continue;
             };
@@ -3833,7 +3864,7 @@ impl WorldlineRuntime {
                 .filter_map(|submission_id| self.witnessed_submissions.get(submission_id))
                 .map(|record| (record.head_key, record.ingress_id))
                 .collect::<Vec<_>>();
-            for (head_key, ingress_id) in attributed.into_iter().chain(legacy_ingress) {
+            for (head_key, ingress_id) in attributed {
                 if let Some(frontier) = self.worldlines.frontier_mut(&head_key.worldline_id) {
                     frontier
                         .state_mut()
@@ -3843,52 +3874,11 @@ impl WorldlineRuntime {
         }
     }
 
-    /// Reconstructs committed ingress for a worldline whose restored history
-    /// includes ticks older than attribution, or `None` when it is ambiguous.
-    ///
-    /// Such a tick leaves no list of what it decided, but deciding a runtime
-    /// ingress materializes an event node keyed by its ingress id, which
-    /// replay restores. The ingress id does not name a head, so a node proves
-    /// a decision only when exactly one witnessed submission on the worldline
-    /// carries that ingress and it is not already known to be committed. When
-    /// several could be the one decided, Echo cannot tell which, and coverage
-    /// stays unestablished.
-    #[cfg(any(
-        test,
-        all(feature = "native_rule_bootstrap", feature = "trusted_runtime")
-    ))]
-    fn committed_ingress_from_replayed_events(
-        &self,
-        worldline_id: WorldlineId,
-    ) -> Option<Vec<(WriterHeadKey, Hash)>> {
-        let frontier = self.worldlines.get(&worldline_id)?;
-        let state = frontier.state();
-        let store = state.warp_state().store(&state.root().warp_id)?;
-        let mut by_ingress: BTreeMap<Hash, Vec<WriterHeadKey>> = BTreeMap::new();
-        for record in self.witnessed_submissions.values() {
-            if record.head_key.worldline_id == worldline_id
-                && store.node(&crate::NodeId(record.ingress_id)).is_some()
-            {
-                by_ingress
-                    .entry(record.ingress_id)
-                    .or_default()
-                    .push(record.head_key);
-            }
-        }
-        let mut decided = Vec::new();
-        for (ingress_id, heads) in by_ingress {
-            let undetermined = heads
-                .iter()
-                .filter(|head_key| !state.contains_committed_ingress(head_key, &ingress_id))
-                .copied()
-                .collect::<Vec<_>>();
-            match (heads.len(), undetermined.as_slice()) {
-                (_, []) => {}
-                (1, [head_key]) => decided.push((*head_key, ingress_id)),
-                _ => return None,
-            }
-        }
-        Some(decided)
+    /// Worldlines whose restored history admission coverage does not yet
+    /// cover, in worldline order.
+    #[must_use]
+    pub fn admission_coverage_unestablished(&self) -> Vec<WorldlineId> {
+        self.admission_coverage_pending.keys().copied().collect()
     }
 
     /// Refuses admission on a worldline whose restored history is not yet
@@ -3925,15 +3915,24 @@ impl WorldlineRuntime {
         {
             return Ok(None);
         }
-        let (Some(strand), Some(inherited)) = (
-            self.strands.find_by_child_worldline(&head_key.worldline_id),
-            self.inherited_decided_submissions
-                .get(&head_key.worldline_id),
-        ) else {
+        let Some(strand) = self.strands.find_by_child_worldline(&head_key.worldline_id) else {
             return Ok(None);
         };
         let fork_basis_ref = strand.fork_basis_ref;
+        // A strand registered without forking has no recorded prefix
+        // evidence; an unknown causal past is not an empty one.
+        let Some(inherited) = self.inherited_prefixes.get(&head_key.worldline_id) else {
+            return Err(RuntimeError::AdmissionCoverageUnestablished {
+                worldline_id: head_key.worldline_id,
+                basis_tick: fork_basis_ref
+                    .fork_tick
+                    .checked_increment()
+                    .unwrap_or(fork_basis_ref.fork_tick),
+            });
+        };
         let mut ancestor = Some(fork_basis_ref.source_lane_id);
+        // The last tick of the current ancestor that the child inherits.
+        let mut cap = fork_basis_ref.fork_tick;
         // Strands form a tree; the bound only guards against a malformed one.
         for _ in 0..=self.strands.len() {
             let Some(ancestor_id) = ancestor else {
@@ -3945,7 +3944,9 @@ impl WorldlineRuntime {
                 .get(&(ancestor_id, key))
                 .copied()
             {
-                Some(submission_id) if inherited.contains(&submission_id) => {
+                Some(submission_id)
+                    if inherited.proves_decided(self, submission_id, ancestor_id, cap) =>
+                {
                     let same_binding = self
                         .witnessed_submissions
                         .get(&submission_id)
@@ -3983,10 +3984,13 @@ impl WorldlineRuntime {
                     }
                 }
             }
-            ancestor = self
-                .strands
-                .find_by_child_worldline(&ancestor_id)
-                .map(|strand| strand.fork_basis_ref.source_lane_id);
+            let next = self.strands.find_by_child_worldline(&ancestor_id);
+            if let Some(strand) = next {
+                if strand.fork_basis_ref.fork_tick.as_u64() < cap.as_u64() {
+                    cap = strand.fork_basis_ref.fork_tick;
+                }
+            }
+            ancestor = next.map(|strand| strand.fork_basis_ref.source_lane_id);
         }
         Ok(None)
     }
@@ -7303,6 +7307,176 @@ mod tests {
         ));
     }
 
+    /// Owner conditions for #890: an inherited occurrence keeps resolving to
+    /// its decision at the fork basis however the parent advances; a parent
+    /// decision made after the fork never leaks into the strand, even for a
+    /// request already pending at the basis; and redelivery changes no
+    /// retained receipt on either lane.
+    #[test]
+    fn inherited_decisions_are_stable_and_post_fork_decisions_do_not_leak() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId, key: u8, bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([key; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        let decided = accepted_submission(runtime.ingest(occurred(source, 1, b"one")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        accepted_submission(runtime.ingest(occurred(source, 5, b"pending")).unwrap());
+        let (child, _) = fork_child(&mut runtime, &mut provenance, source, 0, "child", 2);
+        let inherited_now = |runtime: &mut WorldlineRuntime| match runtime
+            .ingest(occurred(child, 1, b"one"))
+            .unwrap()
+        {
+            IngressDisposition::AlreadyPresentInInheritedHistory { inherited, .. } => *inherited,
+            other => panic!("expected an inherited occurrence, got {other:?}"),
+        };
+        let at_fork = inherited_now(&mut runtime);
+        assert_eq!(at_fork.submission_id, decided);
+
+        // The parent advances: it decides the request pending at the basis
+        // and a new one.
+        accepted_submission(runtime.ingest(occurred(source, 6, b"later")).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(provenance.len(source).unwrap(), 2);
+
+        let entries = |provenance: &ProvenanceService, worldline_id| {
+            (0..provenance.len(worldline_id).unwrap())
+                .map(|tick| provenance.entry(worldline_id, wt(tick)).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let (parent_before, child_before) =
+            (entries(&provenance, source), entries(&provenance, child));
+        assert_eq!(
+            inherited_now(&mut runtime),
+            at_fork,
+            "stable at the fork basis"
+        );
+        assert_eq!(entries(&provenance, source), parent_before);
+        assert_eq!(entries(&provenance, child), child_before);
+
+        // Decided on the parent after the fork: ordinary admission on the child.
+        accepted_submission(runtime.ingest(occurred(child, 5, b"pending")).unwrap());
+        accepted_submission(runtime.ingest(occurred(child, 6, b"later")).unwrap());
+    }
+
+    /// PR #890 review: a strand registered without forking has no recorded
+    /// prefix evidence. An unknown causal past is not an empty one, so an
+    /// occurrence admitted by its source obstructs instead of being admitted
+    /// again.
+    #[test]
+    fn a_strand_registered_without_forking_obstructs_occurrence_admission() {
+        let (mut runtime, mut engine, source) = toy_contract_runtime();
+        let occurred = |worldline_id: WorldlineId| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test/occurrence"),
+                b"one".to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let mut provenance = mirrored_provenance(&runtime);
+        accepted_submission(runtime.ingest(occurred(source)).unwrap());
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        let (_, fork_basis_ref) = fork_child(&mut runtime, &mut provenance, source, 0, "forked", 2);
+
+        let registered = wl(3);
+        runtime
+            .register_worldline(registered, WorldlineState::empty())
+            .unwrap();
+        let head = register_head(
+            &mut runtime,
+            registered,
+            "registered",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .register_strand(
+                Strand::new(
+                    make_strand_id("registered"),
+                    fork_basis_ref,
+                    registered,
+                    vec![head],
+                    Vec::new(),
+                    test_retention_posture(11),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            runtime.ingest(occurred(registered)),
+            Err(RuntimeError::AdmissionCoverageUnestablished { worldline_id, .. })
+                if worldline_id == registered
+        ));
+    }
+
+    /// PR #890 review: a prefix tick older than attribution cannot say what it
+    /// decided. The evidence is the submission's receipt correlation (the
+    /// attested decision log): it counts only when it lies on the ancestor at
+    /// or before the last tick the child inherits. Without one the submission
+    /// was not decided; final graph state is never consulted.
+    #[test]
+    fn a_legacy_prefix_counts_only_correlated_decisions_within_the_cap() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let head_key = runtime
+            .resolve_target(&IngressTarget::DefaultWriter { worldline_id })
+            .unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let decision = |bytes: &[u8]| {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                toy_increment_intent(bytes),
+            )
+        };
+        let first = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            decision(b"amount=1"),
+            hash(91),
+        );
+        let second = commit_ticketed_envelope(
+            &mut runtime,
+            &mut provenance,
+            &mut engine,
+            head_key,
+            decision(b"amount=2"),
+            hash(92),
+        );
+        let legacy = InheritedPrefix {
+            attributed: BTreeSet::new(),
+            unattributed_ticks: true,
+        };
+        // Decided at tick 0 and tick 1 of the ancestor.
+        assert!(legacy.proves_decided(&runtime, first.submission_id, worldline_id, wt(0)));
+        assert!(!legacy.proves_decided(&runtime, second.submission_id, worldline_id, wt(0)));
+        assert!(legacy.proves_decided(&runtime, second.submission_id, worldline_id, wt(1)));
+        // On another ancestor, or with no correlation, nothing is proven.
+        assert!(!legacy.proves_decided(&runtime, first.submission_id, wl(9), wt(5)));
+        assert!(!legacy.proves_decided(&runtime, hash(93), worldline_id, wt(5)));
+        // A fully attributed prefix relies on its attribution alone.
+        let attributed_only = InheritedPrefix {
+            attributed: BTreeSet::new(),
+            unattributed_ticks: false,
+        };
+        assert!(!attributed_only.proves_decided(
+            &runtime,
+            first.submission_id,
+            worldline_id,
+            wt(5)
+        ));
+    }
+
     /// Issue #887: restoring committed history alone keeps inspection working
     /// but cannot tell a resent request from a new one, so every admission
     /// entry point is obstructed until a complete witnessed restore covers the
@@ -7413,6 +7587,10 @@ mod tests {
         ));
         restored.attest_complete_witnessed_submissions();
         assert_obstructed(&mut restored);
+        assert_eq!(
+            restored.admission_coverage_unestablished(),
+            vec![worldline_id]
+        );
 
         // A failed restore changes nothing.
         let mut corrupt = snapshot.records().to_vec();
@@ -7442,6 +7620,7 @@ mod tests {
             .unwrap();
         assert_obstructed(&mut restored);
         restored.attest_complete_witnessed_submissions();
+        assert!(restored.admission_coverage_unestablished().is_empty());
         match restored.ingest(committed.clone()).unwrap() {
             IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
             IngressDisposition::Accepted { .. }
@@ -7505,7 +7684,7 @@ mod tests {
             make_intent_kind("echo.intent/eint-v1"),
             toy_increment_intent(TOY_INCREMENT_VARS),
         );
-        let first = accepted_submission(source.ingest(committed.clone()).unwrap());
+        accepted_submission(source.ingest(committed.clone()).unwrap());
         let mut provenance = mirrored_provenance(&source);
         SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
         let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
@@ -7537,25 +7716,30 @@ mod tests {
         restored
             .restore_witnessed_submission_persistence(snapshot)
             .unwrap();
-        assert!(is_obstructed(restored.ingest(committed.clone())));
+        assert!(is_obstructed(restored.ingest(committed)));
 
+        // The trusted host's attestation reopens admission. (Under its WAL every
+        // decided submission has a restored correlation; this unticketed tick
+        // has none, so the attestation would not be made for it in practice.)
         restored.attest_complete_witnessed_submissions();
-        match restored.ingest(committed).unwrap() {
-            IngressDisposition::Duplicate { submission_id, .. } => assert_eq!(submission_id, first),
-            IngressDisposition::Accepted { .. }
-            | IngressDisposition::AlreadyPresentInInheritedHistory { .. } => {
-                panic!("a committed request must be a retry")
-            }
-        }
+        accepted_submission(
+            restored
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    b"after attestation".to_vec(),
+                ))
+                .unwrap(),
+        );
     }
 
-    /// PR #888 review: an ingress id does not name its head. When a tick
-    /// older than attribution decided content on one head and identical
-    /// content is pending on another, the replayed event node cannot say
-    /// which was decided, so coverage stays unestablished instead of marking
-    /// the pending one committed (which would strand it).
+    /// PR #888 review: an ingress id does not name its head, and final graph
+    /// state is no evidence of a decision. When a tick older than attribution
+    /// decided content on one head and identical content is pending on
+    /// another, the pending submission must not be marked committed (which
+    /// would strand it). Decisions come only from the attested decision log.
     #[test]
-    fn identical_legacy_content_on_two_heads_keeps_coverage_unestablished() {
+    fn identical_legacy_content_on_two_heads_does_not_strand_the_pending_one() {
         let (mut source, mut engine, worldline_id) = toy_contract_runtime();
         let other = register_head(
             &mut source,
@@ -7608,8 +7792,98 @@ mod tests {
             .unwrap();
         restored.attest_complete_witnessed_submissions();
         assert!(matches!(
-            restored.ingest(content(IngressTarget::ExactHead { key: other })),
-            Err(RuntimeError::AdmissionCoverageUnestablished { .. })
+            restored
+                .ingest(content(IngressTarget::ExactHead { key: other }))
+                .unwrap(),
+            IngressDisposition::Accepted { .. }
+        ));
+    }
+
+    /// PR #888 review: final graph state is not commit evidence. A node whose
+    /// id equals a pending request's ingress id may already be in the base
+    /// state; the pending request must not be marked committed (it could then
+    /// never run).
+    #[test]
+    fn a_base_state_node_is_not_evidence_that_a_legacy_tick_decided_a_request() {
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let pending_bytes = toy_increment_intent(b"amount=44");
+        let colliding = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: wl(1),
+            },
+            kind,
+            pending_bytes.clone(),
+        )
+        .ingress_id();
+        let base = || {
+            let mut store = crate::GraphStore::default();
+            let root = make_node_id("root");
+            store.insert_node(
+                root,
+                NodeRecord {
+                    ty: make_type_id("world"),
+                },
+            );
+            store.insert_node(
+                NodeId(colliding),
+                NodeRecord {
+                    ty: make_type_id("app/thing"),
+                },
+            );
+            WorldlineState::from_root_store(store, root).unwrap()
+        };
+        let runtime_on = |state: WorldlineState| {
+            let mut runtime = WorldlineRuntime::new();
+            runtime.register_worldline(wl(1), state).unwrap();
+            register_head(
+                &mut runtime,
+                wl(1),
+                "default",
+                None,
+                true,
+                InboxPolicy::AcceptAll,
+            );
+            runtime
+        };
+        let mut source = runtime_on(base());
+        let mut engine = empty_engine();
+        engine.register_rule(toy_increment_contract_rule()).unwrap();
+        let worldline_id = wl(1);
+        accepted_submission(
+            source
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    toy_increment_intent(TOY_INCREMENT_VARS),
+                ))
+                .unwrap(),
+        );
+        let mut provenance = mirrored_provenance(&source);
+        SchedulerCoordinator::super_tick(&mut source, &mut provenance, &mut engine).unwrap();
+        let pending = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            pending_bytes,
+        );
+        accepted_submission(source.ingest(pending.clone()).unwrap());
+        let legacy_entry = without_attribution(provenance.entry(worldline_id, wt(0)).unwrap());
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let mut restored = runtime_on(base());
+        let mut legacy_provenance = mirrored_provenance(&restored);
+        legacy_provenance
+            .append_local_commit(legacy_entry.clone())
+            .unwrap();
+        restored
+            .restore_causal_runtime_history(&legacy_provenance, &[legacy_entry], &[])
+            .unwrap();
+        restored
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        restored.attest_complete_witnessed_submissions();
+        assert!(matches!(
+            restored.ingest(pending).unwrap(),
+            IngressDisposition::Accepted { .. }
         ));
     }
 

@@ -95,13 +95,6 @@
 
 ### Changed
 
-- Proposed, for review, that Jedit's rope law be authored in Edict source,
-  superseding ADR 0023's declarative rope-law resource choice
-  ([Generated Rule Authorship](docs/topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)),
-  and a design for turning evaluated Edict operations into validated, atomic
-  graph effects
-  ([Authored Operation Effects](docs/architecture/authored-operation-effects.md)).
-  Documentation only; no runtime behavior changed.
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
   It writes `EINGR002`, byte for byte as before, for an envelope without a
   Continuum occurrence, and `EINGR003` for one with an occurrence.

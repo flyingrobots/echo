@@ -75,6 +75,14 @@ the same content on the same head returns the existing submission as a
 different content: different intent bytes, or a causal parent citing earlier
 history. Either one changes the ingress ID and so creates a new submission.
 
+**Continuum occurrences.** An intent admitted from Continuum carries its
+occurrence key, which Echo hashes into the ingress ID
+([canonical inbox sequencing, Decision 6](../spec/canonical-inbox-sequencing.md)).
+Two Continuum occurrences of identical content are therefore two submissions,
+and the section attributes each decision to its own occurrence. Redelivering
+an occurrence is a retry; reusing its key for different content is refused as
+an occurrence conflict, not recorded (#880).
+
 ## Sealing: how a tick builds its section
 
 The section is built from each tick's own decision process, never from a

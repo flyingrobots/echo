@@ -222,6 +222,20 @@ impl ContractObstruction {
             | RuntimeError::TicketedIngressDuplicateRuntimeIngress { .. } => {
                 Self::admission_obstruction(ContractObstructionSubject::Unspecified)
             }
+            RuntimeError::ContinuumOccurrenceConflict {
+                existing_submission_id,
+                ..
+            } => Self::admission_obstruction(ContractObstructionSubject::Submission {
+                submission_id: *existing_submission_id,
+            }),
+            RuntimeError::ContinuumOccurrenceCoverageUnavailable { submission_id, .. } => {
+                Self::new(
+                    ContractObstructionKind::MissingRetention,
+                    ContractObstructionSubject::Submission {
+                        submission_id: *submission_id,
+                    },
+                )
+            }
             RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => Self::new(
                 ContractObstructionKind::MissingRetention,
                 ContractObstructionSubject::Submission {

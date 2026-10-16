@@ -241,6 +241,39 @@ pub enum RuntimeError {
     /// required to build a full persistence snapshot.
     #[error("witnessed intent submission envelope unavailable: {0:?}")]
     WitnessedSubmissionEnvelopeUnavailable(Hash),
+    /// A Continuum occurrence already admitted to this worldline was presented
+    /// again bound to different content, applied intent, or writer head.
+    ///
+    /// Continuum's binding law makes the same occurrence key with different
+    /// bound content an occurrence conflict. Echo refuses it and keeps the
+    /// existing submission unchanged.
+    #[error(
+        "continuum occurrence {occurrence_key_digest:?} on worldline {worldline_id:?} is already bound to submission {existing_submission_id:?}"
+    )]
+    ContinuumOccurrenceConflict {
+        /// Worldline whose admitted history already holds the occurrence.
+        worldline_id: WorldlineId,
+        /// Continuum occurrence key digest.
+        occurrence_key_digest: Hash,
+        /// Submission the occurrence is already bound to.
+        existing_submission_id: Hash,
+    },
+    /// Echo cannot apply Continuum's occurrence binding law on this worldline
+    /// because a witnessed submission there lacks its retained envelope.
+    ///
+    /// Record-only replay restores submissions without envelope material, so
+    /// Echo cannot tell which occurrences they admitted. Unknown coverage is
+    /// not an unused occurrence key: occurrence admission stays obstructed
+    /// until the envelopes are restored.
+    #[error(
+        "continuum occurrence coverage unavailable on worldline {worldline_id:?}: submission {submission_id:?} has no retained envelope"
+    )]
+    ContinuumOccurrenceCoverageUnavailable {
+        /// Worldline whose occurrence coverage is incomplete.
+        worldline_id: WorldlineId,
+        /// A witnessed submission on it without retained envelope material.
+        submission_id: Hash,
+    },
     /// Ticketed runtime ingress referenced a submission Echo has not witnessed.
     #[error("unknown intent submission: {0:?}")]
     UnknownIntentSubmission(Hash),
@@ -1245,6 +1278,15 @@ pub struct WorldlineRuntime {
     /// Deterministic lookup from resolved semantic target and ingress id to
     /// witnessed submission id.
     submission_by_target: BTreeMap<(WriterHeadKey, Hash), Hash>,
+    /// Admission mapping from a Continuum occurrence, scoped to its target
+    /// worldline, to the one witnessed submission that admits it.
+    ///
+    /// Derived from retained envelope material and rebuilt when submissions
+    /// are restored. Submissions without an occurrence have no entry.
+    continuum_occurrence_bindings: BTreeMap<(WorldlineId, Hash), Hash>,
+    /// Witnessed submissions, by worldline, whose envelope material is absent,
+    /// so the occurrence mapping cannot be known complete on that worldline.
+    submissions_without_envelope: BTreeSet<(WorldlineId, Hash)>,
     /// Ticketed runtime ingress records keyed by deterministic event id.
     ticketed_runtime_ingress: BTreeMap<Hash, TicketedRuntimeIngressRecord>,
     /// Deterministic lookup from witnessed submission id to ticketed ingress.
@@ -1534,8 +1576,21 @@ impl WorldlineRuntime {
         }
         self.pending_witnessed_submission_ids
             .remove(&handle.submission_id);
-        self.witnessed_submission_envelopes
-            .remove(&handle.submission_id);
+        self.submissions_without_envelope
+            .remove(&(handle.head_key.worldline_id, handle.submission_id));
+        if let Some(occurrence) = self
+            .witnessed_submission_envelopes
+            .remove(&handle.submission_id)
+            .and_then(|envelope| envelope.occurrence())
+        {
+            let key = (
+                handle.head_key.worldline_id,
+                occurrence.occurrence_key_digest(),
+            );
+            if self.continuum_occurrence_bindings.get(&key) == Some(&handle.submission_id) {
+                self.continuum_occurrence_bindings.remove(&key);
+            }
+        }
         self.next_submission_generation = marker.next_submission_generation;
     }
 
@@ -2707,6 +2762,16 @@ impl WorldlineRuntime {
                 })
                 .copied(),
         );
+        self.submissions_without_envelope.extend(
+            staged_witnessed_submissions
+                .values()
+                .filter(|record| {
+                    !self
+                        .witnessed_submission_envelopes
+                        .contains_key(&record.submission_id)
+                })
+                .map(|record| (record.head_key.worldline_id, record.submission_id)),
+        );
         self.witnessed_submissions
             .extend(staged_witnessed_submissions);
         Ok(())
@@ -2730,6 +2795,7 @@ impl WorldlineRuntime {
     ) -> Result<(), RuntimeError> {
         let records = snapshot.into_records();
         let mut staged_envelopes = BTreeMap::new();
+        let mut staged_occurrences = BTreeMap::new();
 
         for record in &records {
             if record.envelope.ingress_id() != record.submission.ingress_id {
@@ -2750,11 +2816,63 @@ impl WorldlineRuntime {
             if !head.inbox().would_accept(&record.envelope) {
                 return Err(RuntimeError::RejectedByPolicy(head_key));
             }
+            // The applied digest is not part of the ingress id, so the same
+            // submission id can arrive with different occurrence material.
+            // Retained material for a submission is immutable.
+            if let Some(retained) = self
+                .witnessed_submission_envelopes
+                .get(&record.submission.submission_id)
+                .or_else(|| staged_envelopes.get(&record.submission.submission_id))
+            {
+                if retained != &record.envelope {
+                    return Err(
+                        match retained
+                            .occurrence()
+                            .or_else(|| record.envelope.occurrence())
+                        {
+                            Some(occurrence) => RuntimeError::ContinuumOccurrenceConflict {
+                                worldline_id: head_key.worldline_id,
+                                occurrence_key_digest: occurrence.occurrence_key_digest(),
+                                existing_submission_id: record.submission.submission_id,
+                            },
+                            None => RuntimeError::IntentSubmissionReplayMismatch(
+                                record.submission.submission_id,
+                            ),
+                        },
+                    );
+                }
+            }
+            if let Some(occurrence) = record.envelope.occurrence() {
+                let key = (head_key.worldline_id, occurrence.occurrence_key_digest());
+                let bound = self
+                    .continuum_occurrence_bindings
+                    .get(&key)
+                    .or_else(|| staged_occurrences.get(&key))
+                    .copied();
+                if let Some(existing_submission_id) = bound {
+                    if existing_submission_id != record.submission.submission_id {
+                        return Err(RuntimeError::ContinuumOccurrenceConflict {
+                            worldline_id: head_key.worldline_id,
+                            occurrence_key_digest: occurrence.occurrence_key_digest(),
+                            existing_submission_id,
+                        });
+                    }
+                }
+                staged_occurrences.insert(key, record.submission.submission_id);
+            }
             staged_envelopes.insert(record.submission.submission_id, record.envelope.clone());
         }
 
         self.replay_witnessed_submissions(records.into_iter().map(|record| record.submission))?;
+        for submission_id in staged_envelopes.keys() {
+            if let Some(record) = self.witnessed_submissions.get(submission_id) {
+                self.submissions_without_envelope
+                    .remove(&(record.head_key.worldline_id, *submission_id));
+            }
+        }
         self.witnessed_submission_envelopes.extend(staged_envelopes);
+        self.continuum_occurrence_bindings
+            .extend(staged_occurrences);
         Ok(())
     }
 
@@ -3052,6 +3170,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
             .worldlines
@@ -3093,6 +3212,7 @@ impl WorldlineRuntime {
         }
 
         let record = self.record_witnessed_submission(head_key, ingress_id)?;
+        self.bind_continuum_occurrence(&record, &retained_envelope);
         self.witnessed_submission_envelopes
             .insert(record.submission_id, retained_envelope);
         Ok(IntentSubmissionDisposition::Accepted {
@@ -3159,6 +3279,9 @@ impl WorldlineRuntime {
                 submission_id,
             ));
         }
+        // The applied digest is not part of the ingress id, so occurrence
+        // material must be checked here, before the staged-duplicate return.
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         let ticketed_ingress_id = derive_ticketed_runtime_ingress_id(
             submission_id,
@@ -3334,6 +3457,7 @@ impl WorldlineRuntime {
         let ingress_id = envelope.ingress_id();
         let retained_envelope = envelope.clone();
         let head_key = self.resolve_target(envelope.target())?;
+        self.check_continuum_occurrence_binding(head_key, &envelope)?;
 
         if self
             .worldlines
@@ -3362,6 +3486,7 @@ impl WorldlineRuntime {
         match outcome {
             InboxIngestResult::Accepted => {
                 let record = self.record_witnessed_submission(head_key, ingress_id)?;
+                self.bind_continuum_occurrence(&record, &retained_envelope);
                 self.witnessed_submission_envelopes
                     .insert(record.submission_id, retained_envelope);
                 Ok(IngressDisposition::Accepted {
@@ -3381,6 +3506,79 @@ impl WorldlineRuntime {
                 })
             }
             InboxIngestResult::Rejected => Err(RuntimeError::RejectedByPolicy(head_key)),
+        }
+    }
+
+    /// Applies Continuum's occurrence binding law at admission.
+    ///
+    /// An envelope without an occurrence, or with an occurrence this worldline
+    /// has not admitted, passes. Redelivering an admitted occurrence with the
+    /// same content, applied intent and writer head also passes: its ingress
+    /// id is unchanged, so the ordinary duplicate path returns the existing
+    /// submission. Any other reuse of the occurrence key is a conflict.
+    fn check_continuum_occurrence_binding(
+        &self,
+        head_key: WriterHeadKey,
+        envelope: &IngressEnvelope,
+    ) -> Result<(), RuntimeError> {
+        let Some(occurrence) = envelope.occurrence() else {
+            return Ok(());
+        };
+        let Some(existing_submission_id) = self
+            .continuum_occurrence_bindings
+            .get(&(head_key.worldline_id, occurrence.occurrence_key_digest()))
+            .copied()
+        else {
+            // No binding means an unused key only when every submission on
+            // this worldline has retained material the mapping was built from.
+            if let Some((_, submission_id)) = self
+                .submissions_without_envelope
+                .range((head_key.worldline_id, [0; 32])..=(head_key.worldline_id, [0xff; 32]))
+                .next()
+            {
+                return Err(RuntimeError::ContinuumOccurrenceCoverageUnavailable {
+                    worldline_id: head_key.worldline_id,
+                    submission_id: *submission_id,
+                });
+            }
+            return Ok(());
+        };
+        let retry = self
+            .witnessed_submissions
+            .get(&existing_submission_id)
+            .zip(
+                self.witnessed_submission_envelopes
+                    .get(&existing_submission_id),
+            )
+            .is_some_and(|(record, existing)| {
+                record.head_key == head_key
+                    && record.ingress_id == envelope.ingress_id()
+                    && existing.occurrence() == Some(occurrence)
+            });
+        if retry {
+            Ok(())
+        } else {
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                worldline_id: head_key.worldline_id,
+                occurrence_key_digest: occurrence.occurrence_key_digest(),
+                existing_submission_id,
+            })
+        }
+    }
+
+    fn bind_continuum_occurrence(
+        &mut self,
+        record: &IntentSubmissionRecord,
+        envelope: &IngressEnvelope,
+    ) {
+        if let Some(occurrence) = envelope.occurrence() {
+            self.continuum_occurrence_bindings.insert(
+                (
+                    record.head_key.worldline_id,
+                    occurrence.occurrence_key_digest(),
+                ),
+                record.submission_id,
+            );
         }
     }
 
@@ -3849,6 +4047,8 @@ fn scheduler_fault_scope_for_error(
         | RuntimeError::IntentSubmissionReplayMismatch(_)
         | RuntimeError::ReceiptCorrelationReplayMismatch(_)
         | RuntimeError::WitnessedSubmissionEnvelopeUnavailable(_)
+        | RuntimeError::ContinuumOccurrenceConflict { .. }
+        | RuntimeError::ContinuumOccurrenceCoverageUnavailable { .. }
         | RuntimeError::UnknownIntentSubmission(_)
         | RuntimeError::TicketedIngressSubmissionMismatch(_)
         | RuntimeError::TicketedIngressAlreadyStaged(_)
@@ -4603,6 +4803,24 @@ fn scheduler_error_cause_digest(err: &RuntimeError) -> Hash {
         }
         RuntimeError::WitnessedSubmissionEnvelopeUnavailable(submission_id) => {
             hasher.update(b"witnessed-submission-envelope-unavailable");
+            hasher.update(submission_id);
+        }
+        RuntimeError::ContinuumOccurrenceConflict {
+            worldline_id,
+            occurrence_key_digest,
+            existing_submission_id,
+        } => {
+            hasher.update(b"continuum-occurrence-conflict");
+            hasher.update(worldline_id.as_bytes());
+            hasher.update(occurrence_key_digest);
+            hasher.update(existing_submission_id);
+        }
+        RuntimeError::ContinuumOccurrenceCoverageUnavailable {
+            worldline_id,
+            submission_id,
+        } => {
+            hasher.update(b"continuum-occurrence-coverage-unavailable");
+            hasher.update(worldline_id.as_bytes());
             hasher.update(submission_id);
         }
         RuntimeError::UnknownIntentSubmission(submission_id) => {
@@ -5882,6 +6100,352 @@ mod tests {
             .map(|record| record.submission_id)
             .collect::<Vec<_>>();
         assert_eq!(attributed, vec![repeat_submission]);
+    }
+
+    /// A submission retracted after a failed WAL commit was never admitted, so
+    /// its Continuum occurrence must not stay bound to it.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[test]
+    fn a_rolled_back_submission_releases_its_continuum_occurrence() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let occurred = |bytes: &[u8]| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("echo.intent/eint-v1"),
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([1; 32], [0xa1; 32]),
+            )
+        };
+        let marker = runtime.intent_submission_rollback_marker();
+        let handle =
+            IntentSubmissionHandle::from(runtime.submit_intent(occurred(b"lost")).unwrap());
+        runtime.rollback_intent_submission(marker, &handle);
+
+        assert!(matches!(
+            runtime.submit_intent(occurred(b"kept")).unwrap(),
+            IntentSubmissionDisposition::Accepted { .. }
+        ));
+    }
+
+    fn occurrence_envelope(
+        worldline_id: WorldlineId,
+        bytes: &[u8],
+        applied: Hash,
+    ) -> IngressEnvelope {
+        IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("echo.intent/eint-v1"),
+            bytes.to_vec(),
+            Vec::new(),
+            crate::ContinuumOccurrence::new([1; 32], applied),
+        )
+    }
+
+    fn accepted_intent(disposition: IntentSubmissionDisposition) -> Hash {
+        match disposition {
+            IntentSubmissionDisposition::Accepted { submission_id, .. } => submission_id,
+            IntentSubmissionDisposition::Duplicate { .. } => {
+                panic!("expected a new submission, got a duplicate")
+            }
+        }
+    }
+
+    fn assert_retry_of(runtime: &mut WorldlineRuntime, envelope: IngressEnvelope, original: Hash) {
+        match runtime.submit_intent(envelope).unwrap() {
+            IntentSubmissionDisposition::Duplicate { submission_id, .. } => {
+                assert_eq!(submission_id, original, "redelivery names the submission");
+            }
+            IntentSubmissionDisposition::Accepted { .. } => panic!("redelivery must be a retry"),
+        }
+    }
+
+    /// PR #884 review: the applied digest is not part of the ingress id, so a
+    /// restored record with the same submission id can carry a different
+    /// applied digest. Restore must refuse it, whether the original is already
+    /// in the runtime or earlier in the same snapshot, and change nothing.
+    #[test]
+    fn restoring_changed_occurrence_material_is_refused_atomically() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let original_envelope = occurrence_envelope(worldline_id, b"content", [0xa1; 32]);
+        let altered_envelope = occurrence_envelope(worldline_id, b"content", [0xb2; 32]);
+        assert_eq!(
+            original_envelope.ingress_id(),
+            altered_envelope.ingress_id()
+        );
+        let original = accepted_intent(runtime.submit_intent(original_envelope.clone()).unwrap());
+        let snapshot = runtime.witnessed_submission_persistence_snapshot().unwrap();
+        let original_record = snapshot.records()[0].clone();
+        let altered_record = WitnessedSubmissionPersistenceRecord {
+            submission: original_record.submission.clone(),
+            envelope: altered_envelope,
+        };
+        let is_refusal = |result: Result<(), RuntimeError>| {
+            matches!(
+                result,
+                Err(RuntimeError::ContinuumOccurrenceConflict {
+                    existing_submission_id,
+                    ..
+                }) if existing_submission_id == original
+            )
+        };
+
+        // Into a populated runtime.
+        assert!(is_refusal(
+            runtime.restore_witnessed_submission_persistence(
+                WitnessedSubmissionPersistenceSnapshot::new(vec![altered_record.clone()])
+            )
+        ));
+        assert_eq!(
+            runtime
+                .witnessed_submission_envelope(&original)
+                .and_then(IngressEnvelope::occurrence),
+            original_envelope.occurrence(),
+            "the retained binding is unchanged"
+        );
+        assert_retry_of(&mut runtime, original_envelope.clone(), original);
+
+        // Within one snapshot, in either order.
+        for records in [
+            vec![original_record.clone(), altered_record.clone()],
+            vec![altered_record, original_record.clone()],
+        ] {
+            let (mut fresh, _engine, _) = toy_contract_runtime();
+            assert!(is_refusal(fresh.restore_witnessed_submission_persistence(
+                WitnessedSubmissionPersistenceSnapshot::new(records)
+            )));
+            assert_eq!(
+                fresh.witnessed_submission_count(),
+                0,
+                "nothing was restored"
+            );
+            fresh
+                .restore_witnessed_submission_persistence(
+                    WitnessedSubmissionPersistenceSnapshot::new(vec![original_record.clone()]),
+                )
+                .unwrap();
+            assert_retry_of(&mut fresh, original_envelope.clone(), original);
+        }
+    }
+
+    /// PR #884 review: record-only replay restores submissions without their
+    /// envelopes, so Echo cannot know which occurrences they admitted. Unknown
+    /// coverage must obstruct occurrence admission, not read as an unused key;
+    /// restoring the envelopes resumes ordinary retry and conflict behaviour.
+    #[test]
+    fn record_only_replay_obstructs_occurrence_admission_until_envelopes_return() {
+        let (mut source, _engine, worldline_id) = toy_contract_runtime();
+        let original_envelope = occurrence_envelope(worldline_id, b"content", [0xa1; 32]);
+        let original = accepted_intent(source.submit_intent(original_envelope.clone()).unwrap());
+        let records = source.witnessed_submission_replay_records();
+        let snapshot = source.witnessed_submission_persistence_snapshot().unwrap();
+
+        let (mut replayed, _engine, _) = toy_contract_runtime();
+        replayed.replay_witnessed_submissions(records).unwrap();
+        let is_obstruction = |result: Result<IntentSubmissionDisposition, RuntimeError>| {
+            matches!(
+                result,
+                Err(RuntimeError::ContinuumOccurrenceCoverageUnavailable {
+                    worldline_id: obstructed,
+                    submission_id,
+                }) if obstructed == worldline_id && submission_id == original
+            )
+        };
+        assert!(is_obstruction(replayed.submit_intent(occurrence_envelope(
+            worldline_id,
+            b"changed",
+            [0xa1; 32]
+        ))));
+        assert!(is_obstruction(
+            replayed.submit_intent(original_envelope.clone())
+        ));
+        assert_eq!(replayed.witnessed_submission_count(), 1);
+        // Ingress without an occurrence needs no occurrence coverage.
+        accepted_intent(
+            replayed
+                .submit_intent(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    make_intent_kind("echo.intent/eint-v1"),
+                    b"content".to_vec(),
+                ))
+                .unwrap(),
+        );
+
+        replayed
+            .restore_witnessed_submission_persistence(snapshot)
+            .unwrap();
+        assert_retry_of(&mut replayed, original_envelope, original);
+        assert!(matches!(
+            replayed.submit_intent(occurrence_envelope(worldline_id, b"changed", [0xa1; 32])),
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                existing_submission_id,
+                ..
+            }) if existing_submission_id == original
+        ));
+    }
+
+    /// Code review of #884: restaging a staged submission with a different
+    /// applied digest keeps the ingress id and ticketed ingress id, so the
+    /// ticketed duplicate path must apply the occurrence binding too.
+    #[test]
+    fn restaging_with_changed_occurrence_material_is_a_conflict() {
+        let (mut runtime, _engine, worldline_id) = toy_contract_runtime();
+        let original_envelope = occurrence_envelope(worldline_id, b"content", [0xa1; 32]);
+        let altered_envelope = occurrence_envelope(worldline_id, b"content", [0xb2; 32]);
+        let original = accepted_intent(runtime.submit_intent(original_envelope.clone()).unwrap());
+        let authority = TicketedRuntimeIngressAuthority::assume_runtime_owner();
+        let ticket = crate::OpticAdmissionTicket {
+            kind: crate::OPTIC_ADMISSION_TICKET_KIND.to_owned(),
+            artifact_handle: crate::OpticArtifactHandle {
+                kind: crate::OPTIC_ARTIFACT_HANDLE_KIND.to_owned(),
+                id: "occurrence-restage".to_owned(),
+            },
+            artifact_hash: "artifact".to_owned(),
+            operation_id: "operation".to_owned(),
+            requirements_digest: "requirements".to_owned(),
+            canonical_variables_digest: vec![7],
+            basis_request_digest: [7; 32],
+            aperture_request_digest: [8; 32],
+            budget_request_digest: [9; 32],
+            law_witness_digest: [10; 32],
+            ticket_digest: [11; 32],
+        };
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(
+                &authority,
+                original,
+                &ticket,
+                original_envelope.clone()
+            ),
+            Ok(TicketedRuntimeIngressDisposition::Staged { .. })
+        ));
+
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(&authority, original, &ticket, altered_envelope),
+            Err(RuntimeError::ContinuumOccurrenceConflict {
+                existing_submission_id,
+                ..
+            }) if existing_submission_id == original
+        ));
+        assert!(matches!(
+            runtime.ingest_ticketed_invocation(&authority, original, &ticket, original_envelope),
+            Ok(TicketedRuntimeIngressDisposition::Duplicate { .. })
+        ));
+    }
+
+    /// Issue #880: Echo preserves Continuum occurrence identity at admission.
+    /// Identical content admitted as two occurrences is two submissions, each
+    /// decided and attributed in the tick; redelivering an occurrence is a
+    /// retry; reusing its key for other content, another applied intent or
+    /// another head is a typed conflict that leaves the submission unchanged.
+    #[test]
+    fn continuum_occurrences_of_identical_content_are_separate_attributable_submissions() {
+        let (mut runtime, mut engine, worldline_id) = toy_contract_runtime();
+        let other_head = register_head(
+            &mut runtime,
+            worldline_id,
+            "other",
+            None,
+            false,
+            InboxPolicy::AcceptAll,
+        );
+        let kind = make_intent_kind("echo.intent/eint-v1");
+        let bytes = toy_increment_intent(TOY_INCREMENT_VARS);
+        let applied = [0xa1; 32];
+        let occurred = |key: u8, bytes: &[u8], applied: Hash| {
+            IngressEnvelope::continuum_occurred_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                kind,
+                bytes.to_vec(),
+                Vec::new(),
+                crate::ContinuumOccurrence::new([key; 32], applied),
+            )
+        };
+        let is_conflict_with = |result: Result<IngressDisposition, RuntimeError>, existing| {
+            matches!(
+                result,
+                Err(RuntimeError::ContinuumOccurrenceConflict {
+                    worldline_id: conflict_worldline,
+                    occurrence_key_digest,
+                    existing_submission_id,
+                }) if conflict_worldline == worldline_id
+                    && occurrence_key_digest == [1; 32]
+                    && existing_submission_id == existing
+            )
+        };
+
+        let first = accepted_submission(runtime.ingest(occurred(1, &bytes, applied)).unwrap());
+        let second = accepted_submission(runtime.ingest(occurred(2, &bytes, applied)).unwrap());
+        assert_ne!(first, second, "two occurrences are two submissions");
+        let local = accepted_submission(
+            runtime
+                .ingest(IngressEnvelope::local_intent(
+                    IngressTarget::DefaultWriter { worldline_id },
+                    kind,
+                    bytes.clone(),
+                ))
+                .unwrap(),
+        );
+        assert!(
+            local != first && local != second,
+            "local content carries no occurrence and keeps its own submission"
+        );
+
+        let assert_retry_and_conflicts = |runtime: &mut WorldlineRuntime| {
+            match runtime.ingest(occurred(1, &bytes, applied)).unwrap() {
+                IngressDisposition::Duplicate { submission_id, .. } => {
+                    assert_eq!(submission_id, first, "redelivery returns the submission");
+                }
+                IngressDisposition::Accepted { .. } => panic!("redelivery must be a retry"),
+            }
+            let mut other_bytes = bytes.clone();
+            other_bytes.extend_from_slice(b";other");
+            assert!(is_conflict_with(
+                runtime.ingest(occurred(1, &other_bytes, applied)),
+                first
+            ));
+            assert!(is_conflict_with(
+                runtime.ingest(occurred(1, &bytes, [0xb2; 32])),
+                first
+            ));
+            assert!(is_conflict_with(
+                runtime.ingest(IngressEnvelope::continuum_occurred_intent(
+                    IngressTarget::ExactHead { key: other_head },
+                    kind,
+                    bytes.clone(),
+                    Vec::new(),
+                    crate::ContinuumOccurrence::new([1; 32], applied),
+                )),
+                first
+            ));
+        };
+        assert_retry_and_conflicts(&mut runtime);
+
+        let mut provenance = mirrored_provenance(&runtime);
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+        let mut attributed = retained_receipt(&provenance, worldline_id, 0)
+            .attribution()
+            .unwrap()
+            .iter()
+            .map(|record| record.submission_id)
+            .collect::<Vec<_>>();
+        attributed.sort_unstable();
+        let mut expected = vec![first, second, local];
+        expected.sort_unstable();
+        assert_eq!(
+            attributed, expected,
+            "each occurrence has its own attributed decision"
+        );
+
+        // The same distinctions hold once the submissions are committed.
+        assert_retry_and_conflicts(&mut runtime);
+        let retry_steps =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert!(
+            retry_steps.is_empty(),
+            "neither a retry nor a conflict commits"
+        );
     }
 
     /// The same tick as a legacy (receipt format 2) entry: no attribution

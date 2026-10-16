@@ -24,6 +24,12 @@ use crate::{CausalTickReceiptRef, CAUSAL_TICK_RECEIPT_REF_LEN};
 
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V1: &[u8; 8] = b"EINGR001";
 const RETAINED_INGRESS_ENVELOPE_MAGIC_V2: &[u8; 8] = b"EINGR002";
+/// Retained envelope format that also carries a Continuum occurrence.
+const RETAINED_INGRESS_ENVELOPE_MAGIC_V3: &[u8; 8] = b"EINGR003";
+/// Ingress id domain for a Continuum occurrence of content-addressed intent.
+///
+/// It must not begin with `"ingress:"`; see [`compute_ingress_id`].
+const CONTINUUM_OCCURRENCE_INGRESS_DOMAIN: &[u8] = b"echo.ingress.continuum-occurrence.v1\0";
 
 // =============================================================================
 // IntentKind
@@ -161,6 +167,123 @@ impl IngressCausalParent {
 }
 
 // =============================================================================
+// ContinuumOccurrence
+// =============================================================================
+
+/// Continuum occurrence identity of an intent admitted from Continuum.
+///
+/// Continuum separates *what* is intended (`AppliedIntent`, identified by its
+/// `appliedDigest`) from *which happening* it is (`OccurrenceRef`, identified
+/// by `occurrenceKeyDigest = hash({ issuer, localId })`). Echo keeps both
+/// SHA-256 digests exactly as Continuum computed them. It does not recompute
+/// the occurrence key: the issuer and local id stay in Continuum.
+///
+/// Continuum's binding law decides what a repeated key means: the same key
+/// with the same applied digest is a retry, the same key with a different
+/// applied digest is an occurrence conflict, and a different key is a separate
+/// occurrence. See `docs/spec/canonical-inbox-sequencing.md`, Decision 6.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ContinuumOccurrence {
+    occurrence_key_digest: Hash,
+    applied_digest: Hash,
+}
+
+impl ContinuumOccurrence {
+    /// Binds a Continuum occurrence key to the applied intent it occurred as.
+    ///
+    /// Both values are the raw 32 bytes of Continuum's `sha256:` digests.
+    #[must_use]
+    pub const fn new(occurrence_key_digest: Hash, applied_digest: Hash) -> Self {
+        Self {
+            occurrence_key_digest,
+            applied_digest,
+        }
+    }
+
+    /// Accepts a Continuum `OccurredIntent`'s digests after checking that its
+    /// `occurredDigest` binds exactly this occurrence key and applied digest.
+    ///
+    /// This checks only the relationship between the three digests. It does
+    /// not authenticate the issuer, and it does not prove that the applied
+    /// digest describes the intent bytes Echo is asked to admit; the
+    /// admitting boundary owns both.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContinuumOccurrenceError::OccurredDigestMismatch`] when the
+    /// occurred digest is not Continuum's digest of the other two.
+    pub fn from_occurred_digests(
+        occurrence_key_digest: Hash,
+        applied_digest: Hash,
+        occurred_digest: Hash,
+    ) -> Result<Self, ContinuumOccurrenceError> {
+        let occurrence = Self::new(occurrence_key_digest, applied_digest);
+        let expected = occurrence.occurred_digest();
+        if expected != occurred_digest {
+            return Err(ContinuumOccurrenceError::OccurredDigestMismatch {
+                expected,
+                found: occurred_digest,
+            });
+        }
+        Ok(occurrence)
+    }
+
+    /// Returns Continuum's occurrence key digest.
+    #[must_use]
+    pub const fn occurrence_key_digest(&self) -> Hash {
+        self.occurrence_key_digest
+    }
+
+    /// Returns Continuum's applied intent digest bound to this occurrence.
+    #[must_use]
+    pub const fn applied_digest(&self) -> Hash {
+        self.applied_digest
+    }
+
+    /// Computes Continuum's `occurredDigest` for this binding.
+    ///
+    /// Continuum hashes the canonical JSON
+    /// `{"appliedDigest":"sha256:<hex>","occurrenceKeyDigest":"sha256:<hex>"}`
+    /// (keys sorted, no whitespace) with SHA-256.
+    #[must_use]
+    pub fn occurred_digest(&self) -> Hash {
+        use sha2::{Digest as _, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(b"{\"appliedDigest\":\"sha256:");
+        hasher.update(lower_hex(&self.applied_digest));
+        hasher.update(b"\",\"occurrenceKeyDigest\":\"sha256:");
+        hasher.update(lower_hex(&self.occurrence_key_digest));
+        hasher.update(b"\"}");
+        hasher.finalize().into()
+    }
+}
+
+/// Error returned when Continuum occurrence material is not self-consistent.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum ContinuumOccurrenceError {
+    /// The occurred digest does not bind the occurrence key and applied digest.
+    #[error(
+        "continuum occurred digest {found:?} does not bind the occurrence (expected {expected:?})"
+    )]
+    OccurredDigestMismatch {
+        /// Digest Continuum's law gives for the occurrence key and applied digest.
+        expected: Hash,
+        /// Digest that was presented.
+        found: Hash,
+    },
+}
+
+fn lower_hex(bytes: &Hash) -> [u8; 64] {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = [0u8; 64];
+    for (index, byte) in bytes.iter().enumerate() {
+        out[index * 2] = DIGITS[usize::from(byte >> 4)];
+        out[index * 2 + 1] = DIGITS[usize::from(byte & 0x0f)];
+    }
+    out
+}
+
+// =============================================================================
 // IngressEnvelope
 // =============================================================================
 
@@ -169,10 +292,12 @@ impl IngressCausalParent {
 /// All inbound work flows through this envelope model:
 /// - content-addressed by `ingress_id` for idempotence,
 /// - deterministically routed via `target`,
-/// - causally linked via `causal_parents`.
+/// - causally linked via `causal_parents`,
+/// - optionally bound to one Continuum occurrence via `occurrence`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IngressEnvelope {
-    /// Content address of this envelope (BLAKE3 of payload).
+    /// Content address of this envelope (BLAKE3 of payload, causal parents
+    /// and, when present, the Continuum occurrence key).
     ingress_id: Hash,
     /// Routing target.
     target: IngressTarget,
@@ -180,6 +305,8 @@ pub struct IngressEnvelope {
     causal_parents: Vec<IngressCausalParent>,
     /// The payload.
     payload: IngressPayload,
+    /// Continuum occurrence this envelope admits, if it came from Continuum.
+    occurrence: Option<ContinuumOccurrence>,
 }
 
 impl IngressEnvelope {
@@ -203,11 +330,47 @@ impl IngressEnvelope {
         target: IngressTarget,
         intent_kind: IntentKind,
         intent_bytes: Vec<u8>,
+        causal_parents: Vec<IngressCausalParent>,
+    ) -> Self {
+        Self::build(target, intent_kind, intent_bytes, causal_parents, None)
+    }
+
+    /// Creates an intent that admits one Continuum occurrence.
+    ///
+    /// The ingress id hashes the occurrence key together with the content
+    /// identity a local intent of the same kind, bytes and causal parents would
+    /// have. Two distinct occurrences of identical content therefore become
+    /// two distinct submissions, and redelivering one occurrence is an
+    /// idempotent retry. Envelopes without an occurrence keep their existing
+    /// identity.
+    #[must_use]
+    pub fn continuum_occurred_intent(
+        target: IngressTarget,
+        intent_kind: IntentKind,
+        intent_bytes: Vec<u8>,
+        causal_parents: Vec<IngressCausalParent>,
+        occurrence: ContinuumOccurrence,
+    ) -> Self {
+        Self::build(
+            target,
+            intent_kind,
+            intent_bytes,
+            causal_parents,
+            Some(occurrence),
+        )
+    }
+
+    fn build(
+        target: IngressTarget,
+        intent_kind: IntentKind,
+        intent_bytes: Vec<u8>,
         mut causal_parents: Vec<IngressCausalParent>,
+        occurrence: Option<ContinuumOccurrence>,
     ) -> Self {
         causal_parents.sort_unstable();
         causal_parents.dedup();
-        let ingress_id = compute_ingress_id(&intent_kind, &intent_bytes, &causal_parents);
+        let ingress_id =
+            compute_ingress_id(&intent_kind, &intent_bytes, &causal_parents, occurrence);
         Self {
             ingress_id,
             target,
@@ -216,6 +379,7 @@ impl IngressEnvelope {
                 intent_kind,
                 intent_bytes,
             },
+            occurrence,
         }
     }
 
@@ -223,6 +387,25 @@ impl IngressEnvelope {
     #[must_use]
     pub fn ingress_id(&self) -> Hash {
         self.ingress_id
+    }
+
+    /// Returns the Continuum occurrence this envelope admits, if any.
+    #[must_use]
+    pub fn occurrence(&self) -> Option<ContinuumOccurrence> {
+        self.occurrence
+    }
+
+    /// Returns the content identity of this envelope without its occurrence.
+    ///
+    /// For an envelope without an occurrence this equals [`Self::ingress_id`].
+    #[must_use]
+    pub fn content_ingress_id(&self) -> Hash {
+        match &self.payload {
+            IngressPayload::LocalIntent {
+                intent_kind,
+                intent_bytes,
+            } => compute_ingress_id(intent_kind, intent_bytes, &self.causal_parents, None),
+        }
     }
 
     /// Returns the routing target for this envelope.
@@ -262,10 +445,19 @@ impl IngressEnvelope {
     /// These bytes preserve the canonical claim needed for restart replay. The
     /// ingress id remains the semantic content address; this retention codec is
     /// a storage format and does not replace that identity law.
+    ///
+    /// An envelope without a Continuum occurrence is written as `EINGR002`,
+    /// byte for byte as before. An envelope with one is written as `EINGR003`:
+    /// the `EINGR002` layout followed by the occurrence key digest and the
+    /// applied digest.
     #[must_use]
-    pub fn to_retained_bytes_v2(&self) -> Vec<u8> {
+    pub fn to_retained_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V2);
+        out.extend_from_slice(if self.occurrence.is_some() {
+            RETAINED_INGRESS_ENVELOPE_MAGIC_V3
+        } else {
+            RETAINED_INGRESS_ENVELOPE_MAGIC_V2
+        });
         match &self.target {
             IngressTarget::DefaultWriter { worldline_id } => {
                 out.push(1);
@@ -310,6 +502,10 @@ impl IngressEnvelope {
                 out.extend_from_slice(intent_bytes);
             }
         }
+        if let Some(occurrence) = &self.occurrence {
+            out.extend_from_slice(&occurrence.occurrence_key_digest);
+            out.extend_from_slice(&occurrence.applied_digest);
+        }
         out
     }
 
@@ -323,8 +519,11 @@ impl IngressEnvelope {
         let magic = bytes
             .get(..RETAINED_INGRESS_ENVELOPE_MAGIC_V2.len())
             .ok_or(IngressEnvelopeDecodeError::UnexpectedEof)?;
+        if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V3 {
+            return Self::from_retained_bytes_v2_or_v3(bytes, RETAINED_INGRESS_ENVELOPE_MAGIC_V3);
+        }
         if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V2 {
-            return Self::from_retained_bytes_v2(bytes);
+            return Self::from_retained_bytes_v2_or_v3(bytes, RETAINED_INGRESS_ENVELOPE_MAGIC_V2);
         }
         if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V1 {
             return Self::from_retained_bytes_v1(bytes);
@@ -332,11 +531,13 @@ impl IngressEnvelope {
         Err(IngressEnvelopeDecodeError::InvalidMagic)
     }
 
-    fn from_retained_bytes_v2(bytes: &[u8]) -> Result<Self, IngressEnvelopeDecodeError> {
+    /// Decodes `EINGR002`, or `EINGR003`, which appends a Continuum occurrence.
+    fn from_retained_bytes_v2_or_v3(
+        bytes: &[u8],
+        magic: &[u8; 8],
+    ) -> Result<Self, IngressEnvelopeDecodeError> {
         let mut cursor = RetainedIngressCursor::new(bytes);
-        if cursor.read_exact(RETAINED_INGRESS_ENVELOPE_MAGIC_V2.len())?
-            != RETAINED_INGRESS_ENVELOPE_MAGIC_V2
-        {
+        if cursor.read_exact(magic.len())? != magic {
             return Err(IngressEnvelopeDecodeError::InvalidMagic);
         }
         let target = match cursor.read_u8()? {
@@ -393,17 +594,26 @@ impl IngressEnvelope {
                 let intent_kind = IntentKind::from_hash(cursor.read_hash()?);
                 let intent_len = cursor.read_len()?;
                 let intent_bytes = cursor.read_exact(intent_len)?.to_vec();
-                Self::local_intent_with_causal_parents(
+                let occurrence = if magic == RETAINED_INGRESS_ENVELOPE_MAGIC_V3 {
+                    Some(ContinuumOccurrence::new(
+                        cursor.read_hash()?,
+                        cursor.read_hash()?,
+                    ))
+                } else {
+                    None
+                };
+                Self::build(
                     target,
                     intent_kind,
                     intent_bytes,
                     causal_parents,
+                    occurrence,
                 )
             }
             tag => return Err(IngressEnvelopeDecodeError::UnknownPayloadTag(tag)),
         };
         cursor.finish()?;
-        if envelope.to_retained_bytes_v2() != bytes {
+        if envelope.to_retained_bytes() != bytes {
             return Err(IngressEnvelopeDecodeError::NonCanonical);
         }
         Ok(envelope)
@@ -471,7 +681,7 @@ impl IngressEnvelope {
             );
         }
         let envelope = Self::local_intent(target, intent_kind, intent_bytes);
-        let mut canonical = envelope.to_retained_bytes_v2();
+        let mut canonical = envelope.to_retained_bytes();
         canonical[..RETAINED_INGRESS_ENVELOPE_MAGIC_V1.len()]
             .copy_from_slice(RETAINED_INGRESS_ENVELOPE_MAGIC_V1);
         if canonical != bytes {
@@ -485,7 +695,12 @@ impl IngressEnvelope {
             IngressPayload::LocalIntent {
                 intent_kind,
                 intent_bytes,
-            } => compute_ingress_id(intent_kind, intent_bytes, &self.causal_parents),
+            } => compute_ingress_id(
+                intent_kind,
+                intent_bytes,
+                &self.causal_parents,
+                self.occurrence,
+            ),
         }
     }
 
@@ -598,11 +813,26 @@ impl<'a> RetainedIngressCursor<'a> {
 /// `BLAKE3("ingress:" || kind_hash || bytes)` identity. Causal intents use a
 /// separate versioned domain with explicit lengths so the same contract bytes
 /// cited against different receipt evidence cannot collapse as duplicates.
+/// A Continuum occurrence wraps that content identity:
+/// `BLAKE3("echo.ingress.continuum-occurrence.v1\0" || occurrence_key || content_id)`,
+/// so distinct occurrences of identical content are distinct ingress. The
+/// occurrence domain differs from `"ingress:"` at its first byte: local ingress
+/// hashes `"ingress:" || kind || bytes` with an arbitrary 32-byte kind, so any
+/// domain beginning with `"ingress:"` could be reproduced by a local intent.
 fn compute_ingress_id(
     kind: &IntentKind,
     bytes: &[u8],
     causal_parents: &[IngressCausalParent],
+    occurrence: Option<ContinuumOccurrence>,
 ) -> Hash {
+    if let Some(occurrence) = occurrence {
+        let content_id = compute_ingress_id(kind, bytes, causal_parents, None);
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(CONTINUUM_OCCURRENCE_INGRESS_DOMAIN);
+        hasher.update(&occurrence.occurrence_key_digest);
+        hasher.update(&content_id);
+        return hasher.finalize().into();
+    }
     let mut hasher = blake3::Hasher::new();
     if !causal_parents.is_empty() {
         hasher.update(b"ingress:causal:v2\0");

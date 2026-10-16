@@ -7103,7 +7103,7 @@ fn submission_envelope_record(
         canonical_envelope_digest: envelope.ingress_id(),
         submission_generation: handle.submission_generation.as_u64(),
         head_key: handle.head_key,
-        retained_envelope_bytes: envelope.to_retained_bytes_v2(),
+        retained_envelope_bytes: envelope.to_retained_bytes(),
     }
 }
 
@@ -8977,7 +8977,7 @@ fn recovered_submission_material_index_root(
                 .as_u64()
                 .to_le_bytes(),
         );
-        let retained_bytes = record.envelope.to_retained_bytes_v2();
+        let retained_bytes = record.envelope.to_retained_bytes();
         hasher.update(&(retained_bytes.len() as u64).to_le_bytes());
         hasher.update(&retained_bytes);
     }

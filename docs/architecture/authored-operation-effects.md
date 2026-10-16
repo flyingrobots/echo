@@ -214,29 +214,75 @@ coordinate after shows the new head with everything it reaches.
   `BudgetExceeded`, no proposal, and no patch. A proposal that would exceed the
   Tick's operation cap obstructs the same way rather than splitting.
 - **Retries.** A decided outcome is final. An Action is identified by its
-  submission; once it is decided (committed, obstructed, or
-  `RejectedFootprintConflict`), its outcome, receipt, and attribution never
-  change, and a later success is never written over an earlier conflict. A
-  retry is a new submission with its own identity and attribution, evaluated
-  against whatever basis is current when the scheduler selects it, and it may
-  reach a different outcome. Echo does not retry on its own; whether to submit
-  again is the application's decision.
+  submission (see Identity and existing contracts); once it is decided
+  (committed, obstructed, or `RejectedFootprintConflict`), its outcome,
+  receipt, and attribution never change, and a later success is never written
+  over an earlier conflict. Echo's intake already enforces this: resubmitting
+  identical content on the same head returns the existing submission as a
+  `Duplicate`, with its original outcome and no new Tick. A real new attempt
+  must differ, for example an invocation rebased onto the new head, or a
+  causal parent citing the earlier outcome; that difference makes it a new
+  submission with its own identity and attribution, evaluated against whatever
+  basis is current when the scheduler selects it. Echo does not retry on its
+  own; whether to submit again is the application's decision.
 - **Pending is not retried.** An Action that was never decided, for example
   one whose Tick was lost in a crash before its WAL record, remains the same
   submission. Recovery re-evaluates it; that is not a retry, because no
   outcome was ever recorded for it.
 
+## Identity and existing contracts
+
+The bridge adds evidence, not a new identity root or a new authority path. Each
+step below already exists except the proposal, which is evidence inside one
+decision:
+
+| Object     | Identity                                                                                                                              | Owner                                                                                                                             | Status             |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Submission | `submission_id = H("echo.intent-submission.v0", worldline, head, ingress_id)`; a Continuum occurrence key is hashed into `ingress_id` | [Submission Attribution](../topics/SubmissionAttribution.md), [canonical inbox sequencing](../spec/canonical-inbox-sequencing.md) | existing           |
+| Action     | admitted package and projected invocation                                                                                             | ADR 0023, ADR 0025                                                                                                                | existing           |
+| Proposal   | `H(Action, evaluation basis, canonical EffectProposal)`; deterministic, so re-evaluating an undecided Action reproduces it            | this design                                                                                                                       | new, evidence only |
+| Decision   | committed, obstructed, or `RejectedFootprintConflict`, recorded once in the Tick's attribution section by `submission_id`             | Submission Attribution                                                                                                            | existing           |
+
+Consequences:
+
+- **Admission** is unchanged: the bridge runs inside scheduler-owned Tick
+  construction after ordinary admission, and adds checks; it removes none.
+- **Attribution** is unchanged: an Action batch already attributes each
+  candidate to its own receipt entry. The proposal identity and digests below
+  ride in that entry; the attribution section still names only submissions.
+- **Durability** is unchanged: the decided-Tick WAL record (`EPRV0003`) is the
+  only persistence. Proposals are never retained apart from their Tick.
+
 ## Evidence
 
-The receipt binds, in addition to its current fields:
+Each Action's receipt entry binds, in addition to its current fields:
 
 - the proposal identity;
-- the witnessed read-set digest and the write-set digest;
+- the witnessed read-set digest, including observed absences, and the
+  write-set digest;
 - the derived patch digest;
 - consumed budget.
 
-The decided-Tick WAL record is the only durability mechanism. This design adds
-no second persistence path.
+These fields change the receipt entry's encoding, which commit hash v3 binds.
+They therefore need a new receipt entry format version, introduced under the
+same rules as Submission Attribution's format table: existing formats and
+retained legacy ticks stay readable and unchanged, and a Tick written with the
+new format says so.
+
+Recovery:
+
+- A decided Tick is recovered from its WAL record by replaying its patch.
+  Echo then checks the patch digest and the commit hash, which binds the
+  receipt and its attribution section, so the recovered evidence is exactly
+  the evidence that was committed.
+- Recovery does not re-evaluate decided Actions. Their read sets and proposals
+  are evidence about a past evaluation, not inputs to replay.
+- An Action admitted under the scoped validity of
+  [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
+  follows that decision: recovery recomputes its validation at the recorded
+  position from retained history and refuses a history whose result differs.
+- An undecided Action is re-evaluated as the same submission, and determinism
+  makes it reproduce the same proposal.
 
 ## Execution traces
 
@@ -343,24 +389,28 @@ propose `ReplaceEdge B -canonicalHead-> expected H1`.
 
 Each behaviour below needs a test before implementation:
 
-| Property              | Test                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Atomicity             | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                  |
-| Ensure identity       | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                             |
-| Witnessed footprint   | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                 |
-| Stale basis           | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                         |
-| Budget                | Exhausting steps, bytes, or the Tick operation cap obstructs with no proposal committed.                                 |
-| Determinism           | Same package, invocation, and basis give byte-identical proposals and receipts.                                          |
-| Recovery              | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.     |
-| Composition           | Two Actions with disjoint witnessed write sets on one basis commit in one Tick; overlapping ones obstruct the later one. |
-| Shared structure      | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                            |
-| Referential integrity | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`.                   |
-| Visibility            | No published coordinate shows a retargeted head without every node and edge it reaches.                                  |
-| Witnessed reads       | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.        |
-| Negative reads        | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it.                |
-| Edge-read basis       | An Action that read edges commits only onto its exact evaluation basis.                                                  |
-| Final outcomes        | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.  |
-| Pending recovery      | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                   |
+| Property               | Test                                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Atomicity              | A failure on the last effect of a multi-node proposal leaves the parent state root and patch unchanged.                    |
+| Ensure identity        | Identical existing node: no patch entry. Different existing node: `ContentIdentityConflict`.                               |
+| Witnessed footprint    | A program that reads a slot outside its law obstructs, even if its writes are in bounds.                                   |
+| Stale basis            | `ReplaceEdge` with a moved `expectedTo` obstructs with no patch.                                                           |
+| Budget                 | Exhausting steps, bytes, or the Tick operation cap obstructs with no proposal committed.                                   |
+| Determinism            | Same package, invocation, and basis give byte-identical proposals and receipts.                                            |
+| Recovery               | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.       |
+| Composition            | Two Actions with disjoint witnessed write sets on one basis commit in one Tick; overlapping ones obstruct the later one.   |
+| Shared structure       | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                              |
+| Referential integrity  | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`.                     |
+| Visibility             | No published coordinate shows a retargeted head without every node and edge it reaches.                                    |
+| Witnessed reads        | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.          |
+| Negative reads         | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it.                  |
+| Edge-read basis        | An Action that read edges commits only onto its exact evaluation basis.                                                    |
+| Final outcomes         | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.    |
+| Duplicate resubmission | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.       |
+| Attribution            | Every Action in a bridge Tick appears once in the attribution section, mapped to its own receipt entry.                    |
+| Receipt format         | Ticks written before the new entry format recover unchanged; new Ticks declare the new format.                             |
+| Recovered evidence     | A recovered Tick's proposal identity, read-set, write-set, and patch digests equal those committed, without re-evaluation. |
+| Pending recovery       | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                     |
 
 ## Open questions
 

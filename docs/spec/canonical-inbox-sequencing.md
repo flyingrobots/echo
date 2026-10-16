@@ -128,7 +128,14 @@ submissions its copied ticks attribute. Admission on a strand with no binding of
 its own walks the fork ancestry, and an ancestor's binding counts only when its
 submission is in that set, so nested forks inherit through every level with
 each level's fork tick as the bound. Unknown coverage on an ancestor obstructs
-admission. Reconciling occurrences admitted independently on divergent
+admission. A prefix tick older than attribution proves a decision only through
+the runtime ingress event node it created (matched by head id, since forking
+rewrites copied heads onto the child); a bound request with no event node in the
+copied state was not decided there, and one with a node but no tick evidence
+obstructs. A strand registered without forking has no recorded prefix and
+obstructs occurrence admission (`AdmissionCoverageUnestablished`): an unknown
+causal past is not an empty one. Redelivery returns the same original decision
+however the parent advances, and changes no retained receipt on either lane. Reconciling occurrences admitted independently on divergent
 branches is a separate merge question.
 
 Decision record: [#880](https://github.com/flyingrobots/echo/issues/880).

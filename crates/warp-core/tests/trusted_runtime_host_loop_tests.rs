@@ -4117,3 +4117,97 @@ fn continuum_occurrence_identity_survives_host_restart_and_redelivery() {
     drop(restarted);
     fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");
 }
+
+/// Issue #886: after restart, a strand still inherits the occurrences of its
+/// fork basis. Redelivering one to the child names the original submission and
+/// writes no acceptance; reusing its key for other material is a conflict.
+#[test]
+fn a_strand_inherits_its_fork_basis_occurrences_across_restart() {
+    let root = temp_runtime_wal_dir("strand-occurrence-inheritance");
+    let (rt, lane) = runtime();
+    let head = *rt.heads().iter().next().expect("head").0;
+    let mut host = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("wal");
+    host.register_contract_package(package()).expect("package");
+    let applied = [0xa1; 32];
+    let original = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(occurred_eint_envelope(lane, 1, applied, MUTATION_VARS))
+        .expect("submit");
+    host.stage_installed_contract_submission(original.submission_id, &admission_ticket(31))
+        .expect("stage");
+    host.run_until_idle(4).expect("commit");
+    let child = host
+        .fork_local_operation_strand_v1(head, "occurrence-child")
+        .expect("native fork");
+    drop(host);
+
+    let (rt, _) = runtime();
+    let mut restored = TrustedRuntimeHost::new(rt, empty_engine()).expect("host");
+    restored
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&root))
+        .expect("recovery");
+    restored
+        .register_contract_package(package())
+        .expect("package");
+    let to_child = |key: u8, vars: &[u8]| {
+        IngressEnvelope::continuum_occurred_intent(
+            IngressTarget::ExactHead { key: child },
+            make_intent_kind("echo.intent/eint-v1"),
+            echo_wasm_abi::pack_intent_v1(MUTATION_OP_ID, vars).expect("EINT should pack"),
+            Vec::new(),
+            ContinuumOccurrence::new([key; 32], applied),
+        )
+    };
+    let acceptances = restored
+        .runtime_wal()
+        .expect("wal")
+        .submission_acceptance_count();
+    let witnessed = restored.runtime().witnessed_submission_count();
+    let inherited = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(1, MUTATION_VARS))
+        .expect("an inherited occurrence is an idempotency result");
+    assert!(inherited.duplicate);
+    assert_eq!(inherited.submission_id, original.submission_id);
+    assert_eq!(inherited.head_key, original.head_key);
+    let fork = restored
+        .runtime()
+        .strands()
+        .find_by_child_worldline(&child.worldline_id)
+        .expect("retained strand")
+        .fork_basis_ref();
+    assert_eq!(inherited.inherited_through, Some(fork.into()));
+    assert_eq!(
+        restored
+            .runtime_wal()
+            .expect("wal")
+            .submission_acceptance_count(),
+        acceptances,
+        "an inherited occurrence writes no acceptance"
+    );
+    assert_eq!(restored.runtime().witnessed_submission_count(), witnessed);
+
+    let conflict = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(1, b"amount=8"))
+        .expect_err("reusing an inherited occurrence key for other content");
+    assert!(matches!(
+        conflict,
+        TrustedRuntimeHostError::Runtime(error) if matches!(
+            *error,
+            RuntimeError::ContinuumOccurrenceConflict { existing_submission_id, .. }
+                if existing_submission_id == original.submission_id
+        )
+    ));
+
+    let fresh = restored
+        .app()
+        .submit_intent_with_runtime_wal_ack(to_child(2, MUTATION_VARS))
+        .expect("an occurrence absent from the inherited past is admitted");
+    assert!(!fresh.duplicate && fresh.inherited_through.is_none());
+    assert_eq!(fresh.head_key, child);
+    drop(restored);
+    fs::remove_dir_all(&root).expect("WAL fixture cleanup succeeds");
+}

@@ -109,4 +109,26 @@ envelopes are restored, admitting any occurrence on that worldline fails with
 `RuntimeError::ContinuumOccurrenceCoverageUnavailable`: unknown coverage is
 not an unused key. Ingress without an occurrence is unaffected.
 
+**Strands inherit occurrences ([#886](https://github.com/flyingrobots/echo/issues/886)).**
+A strand's causal past is the prefix it copied at its fork basis
+(`ForkBasisRef`: source worldline and fork tick). An act already present in
+that past does not become a new act because the worldline changed, so the
+occurrence lineage of a strand includes its inherited prefix:
+
+| Presented on the strand | Echo's answer |
+| --- | --- |
+| Occurrence decided in the inherited prefix, same binding | `AlreadyPresentInInheritedHistory`, naming the original submission, its head, the fork basis and its receipt when ticketed; nothing is admitted or written |
+| Same inherited occurrence key, different binding | `RuntimeError::ContinuumOccurrenceConflict` |
+| Occurrence absent from the inherited prefix | Ordinary admission on the strand |
+| Occurrence decided on the source after the fork basis | Not inherited |
+| Occurrence accepted on the source but undecided at the fork basis | Not inherited: acceptance before the fork is not part of its causal past |
+
+When a strand forks, live or while recovery replays the fork, Echo records the
+submissions its copied ticks attribute. Admission on a strand with no binding of
+its own walks the fork ancestry, and an ancestor's binding counts only when its
+submission is in that set, so nested forks inherit through every level with
+each level's fork tick as the bound. Unknown coverage on an ancestor obstructs
+admission. Reconciling occurrences admitted independently on divergent
+branches is a separate merge question.
+
 Decision record: [#880](https://github.com/flyingrobots/echo/issues/880).

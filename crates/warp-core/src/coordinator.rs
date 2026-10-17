@@ -5905,16 +5905,19 @@ impl SchedulerCoordinator {
                             .frontier_mut(&key.worldline_id)
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                         // The engine rewrites the graph outside the journal.
-                        runtime_before
-                            .state_journal_mut(key.worldline_id)?
-                            .retain_copy(frontier.state().warp_state());
-                        engine
+                        // The commit's touch log is its undo record, handed to
+                        // the journal once the commit stands.
+                        let (outcome, touches) = engine
                             .commit_attributed_with_state(
                                 frontier.state_mut(),
                                 &admitted,
                                 &admitted_submission_ids(*key, &admitted),
                             )
-                            .map_err(RuntimeError::from)?
+                            .map_err(RuntimeError::from)?;
+                        runtime_before
+                            .state_journal_mut(key.worldline_id)?
+                            .push_touches(touches);
+                        outcome
                     };
                     (snapshot, patch, receipt)
                 };
@@ -5929,16 +5932,19 @@ impl SchedulerCoordinator {
                         .frontier_mut(&key.worldline_id)
                         .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                     // The engine rewrites the graph outside the journal.
-                    runtime_before
-                        .state_journal_mut(key.worldline_id)?
-                        .retain_copy(frontier.state().warp_state());
-                    engine
+                    // The commit's touch log is its undo record, handed to
+                    // the journal once the commit stands.
+                    let (outcome, touches) = engine
                         .commit_attributed_with_state(
                             frontier.state_mut(),
                             &admitted,
                             &admitted_submission_ids(*key, &admitted),
                         )
-                        .map_err(RuntimeError::from)?
+                        .map_err(RuntimeError::from)?;
+                    runtime_before
+                        .state_journal_mut(key.worldline_id)?
+                        .push_touches(touches);
+                    outcome
                 };
                 let tick_receipt_digest = receipt.digest();
 

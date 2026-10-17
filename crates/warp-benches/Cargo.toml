@@ -42,5 +42,9 @@ harness = false
 name = "materialization_hotpath"
 harness = false
 
+[[bench]]
+name = "commit_hub_bucket"
+harness = false
+
 [lints]
 workspace = true

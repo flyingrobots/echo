@@ -209,6 +209,27 @@ Rules:
 
 - **Effects are the only writes.** The proposal contains no prepared patch.
   Echo derives the patch from the effects.
+- **Patch constructor.** The derived patch is built by
+  `WarpTickPatchV1::new`, as the fixed-profile path builds its patch, with
+  these arguments:
+    - `policy_id`: the scheduler's policy id for the Tick;
+    - `rule_pack_id`: the installed-operation identity;
+    - `commit_status`: `Committed`;
+    - `in_slots`: every node, edge, and attachment slot in the read set, the
+      precondition and resolution slots, and the portal chains. A range key
+      has no `SlotId` form, so it is not listed here; the write-set and
+      read-set digests cover it;
+    - `out_slots`: the write set's node, edge, and attachment slots;
+    - `ops`, in canonical effect order: `UpsertNode` then `SetAttachment` for
+      a creating `EnsureNode` or `CreateNode`, and nothing for an identical
+      `EnsureNode`; `SetAttachment` for `ReplaceAtom`; `UpsertEdge` for a
+      creating `EnsureEdge`, and nothing for an identical one; and
+      `UpsertEdge` with the same id and the new target for `ReplaceEdge`.
+
+    The constructor sorts and deduplicates slots and operations itself. The
+    patch digest is `WarpTickPatchV1::digest` of that value, which hashes every
+    argument above.
+
 - **Canonical order.** Echo sorts the effects the evaluator emits; the order in
   which evaluation produced them never reaches the identity. Each effect has a
   primary slot: the node record for `EnsureNode` and `CreateNode`, the atom for
@@ -374,7 +395,7 @@ a digest alone could not be executed. One law is defined:
     All ids are 32 bytes. A content node's id therefore commits to its content
     and its children, as Jim's rope requires, and no later effect can make it
     stale. A program computes the same BLAKE3 inputs; Edict must expose them
-    before a tag `2` package can be produced.
+    before an effect package can be produced.
 
 ## Witnessed reads over a bounded slice
 
@@ -490,12 +511,6 @@ graph-schema = {
 }
 node-type = { "addressing": 0 / 1, "atom_types": [* id] }  ; 0 content, 1 mutable
 endpoint-pair = [source: id, target: id]
-program-v2-effect = {
-  "schema": "echo.operation-program/v2", "tag": 2,
-  "compiled_program": bstr, "target_ir_identity": id,
-  "evaluator_profile_identity": id, "identity_law": uint,
-  "graph_schema": bstr, "footprint_law": bstr, "max_input_bytes": uint,
-}
 id = bstr .size 32
 ```
 
@@ -619,10 +634,15 @@ recorded obstruction:
    proposal's own node effects. An endpoint step 2 found absent has no type
    and is skipped here;
 6. the identity law (`IdentityLawViolation`);
-7. the footprint law, now that every slot is known: the witnessed read set,
-   every precondition slot (including a `ReplaceEdge`'s resolved source),
-   the target set, the resolved write set with its range keys, and their
-   counts (`FootprintLawViolation`);
+7. the footprint law, now that every slot is known (`FootprintLawViolation`).
+   The witnessed read set must lie inside the law's read permissions, by the
+   type each read records. The target set and the resolved write set, with
+   its range keys, must lie inside its write permissions. The counts must not
+   exceed its maxima. Precondition and resolution slots (targets, endpoints,
+   sources, and buckets that step 2 read) are implied by an effect, not read
+   by the program. Each is authorized by the write permission of the effect
+   that implies it, never by `read_node_types`, so an absent endpoint needs
+   no expected type: it passes here and is `DanglingReference` at step 8;
 8. the remaining effect preconditions, effect by effect in canonical order,
    and within an effect in the order its precondition list gives
    (`PreconditionMismatch`, `ContentIdentityConflict`, `DanglingReference`,
@@ -849,81 +869,89 @@ Consequences:
   persistence. Proposals are never retained apart from their Tick. The record
   gains a new layout version for the new evidence (see Evidence).
 - **Package version.** `ExecutableOperationPackageV1` embeds
-  `EchoOperationSemanticClosureV1`, which requires a lawpack coordinate and
-  binds `lawpack_identity` into its canonical bytes and identities. A
-  source-compiled bridge package therefore uses new versions,
-  `ExecutableOperationPackageV2` and `EchoOperationSemanticClosureV2`. They
-  are identical to V1 except in three respects:
-    - the lawpack binding is optional: the semantic closure's map carries
-      its `lawpack` entry (the V1 coordinate and identity) or omits it. A
-      fixed-profile program (tags `0` and `1` below) requires the entry, as
-      ADR 0023 requires today; an `EdictEffectProgram` (tag `2`) requires its
-      absence. Admission refuses any other combination, so no sentinel
-      lawpack is fabricated and no fixed profile loses its lawpack;
-    - the program is an `EchoOperationProgramV2`, because
-      `EchoOperationProgramV1` has only the two fixed profiles. Like every
-      package value it is an `edict.canonical-cbor/v1` map with a `tag`
-      entry. Tags `0` and `1` are those profiles, with their V1 entries. Tag
-      `2` is `EdictEffectProgram`, whose entries are `compiled_program` (the
-      compiled bytes), `target_ir_identity`,
-      `evaluator_profile_identity` (the evaluator ABI and intrinsic
-      profile), `identity_law` (an unsigned integer naming an
-      [identity law](#identity-laws); unknown values are refused),
-      `graph_schema` (canonical bytes, below), `footprint_law` (its
-      canonical bytes), and `max_input_bytes`. The key `schema` keeps its V1
-      role as the format discriminator, with the value
-      `echo.operation-program/v2`; the exact map is `program-v2-effect` in
-      [Set encoding](#set-encoding), and no other key may appear.
-      Identities are 32-byte byte strings. The `graph_schema` is an
-      `edict.canonical-cbor/v1` map that Echo executes, not only a digest:
-      with the [set encoding](#set-encoding) above;
-      `node_types` maps each admitted node type id to its `addressing`
-      (`content` or `mutable`, which the [identity law](#identity-laws)
-      reads) and the set of atom `type_id`s it may carry, and `edge_types` maps
-      each admitted edge type id to the set of admitted (source node type,
-      target node type) pairs. Validation step 5 reads these relations directly.
-      Admission refuses a package unless the program's entries agree with the
-      rest of the package: `target_ir_identity` must equal the semantic
-      closure's Target IR identity, `evaluator_profile_identity` must equal the
-      identity of the package's interpreter and intrinsic profiles, and the
-      digest of `graph_schema` under `echo.operation-schema/v1` must equal the
-      closure's schema digest. No artifact is attested under one identity and
-      executed under another. The evaluator dispatches on the tag: `0` and `1`
-      run today's profiles unchanged, and `2` runs the compiled program through
-      the bridge this document defines;
-    - the invocation is an `EchoOperationInvocationV2`, the V1 canonical
-      CBOR map with its kind extended to a tagged union: tags `0` and `1`
-      are the V1 compare-and-set and create-if-absent kinds with their V1
-      fields, and tag `2` is `EdictInput`, which carries no anchored node or
-      replacement and instead requires `application_input_bytes`. Those are
-      the program's input in `edict.canonical-cbor/v1`. Admission checks
-      only what it can check without a schema language: that the bytes are
-      canonical `edict.canonical-cbor/v1` and no longer than the program's
-      `max_input_bytes` entry. The input's shape is the compiled program's to
-      check, as its first act; a malformed input obstructs evaluation with
-      the authored `InputRejected`, posture `NoProposal`. The package's input
-      schema identity remains evidence of the intended shape, not an
-      admission check. Admission
-      dispatches on the program tag: a tag `2` program admits only tag `2`
-      invocations and the fixed profiles only their own kinds, so no
-      invocation crosses between them. The V2 invocation identity has its own
-      domain.
+  `EchoOperationSemanticClosureV1`, which requires `lawpack_coordinate` and
+  `lawpack_identity`, and `EchoOperationProgramV1`, which has only the two
+  fixed profiles. A source-compiled bridge package therefore uses
+  `ExecutableOperationPackageV2`. Fixed-profile programs and invocations are
+  not re-encoded: they keep their V1 maps, schema strings, and identities
+  byte for byte. V2 adds exactly this:
+    - **Package.** The V1 package map with `schema` set to
+      `echo.operation-package/v2`, `semantic_closure` set to a
+      `closure-v2`, and `program` set to an effect program. Every other key,
+      and its value shape, is as in V1.
+    - **Semantic closure.** The V1 closure map, with `lawpack_coordinate` and
+      `lawpack_identity` both omitted. A V2 package carries only an effect
+      program, which requires their absence, so no sentinel lawpack is
+      fabricated. A fixed-profile program stays in a V1 package with its
+      lawpack, as ADR 0023 requires today. The closure has no identity of its
+      own; its bytes are part of the package's.
+    - **Effect program.** A new map, `program-v2-effect` below. Like a V1
+      program, it carries `interpreter_profile_identity` and
+      `intrinsic_profile_identity`, and admission requires each to equal the
+      package's value of the same name. Its other entries are:
+        - `compiled_program`, the compiled bytes;
+        - `target_ir_identity`, which must equal the closure's;
+        - `identity_law`, an unsigned integer naming an
+          [identity law](#identity-laws); unknown values are refused;
+        - `graph_schema`, the canonical bytes of a `graph-schema`;
+        - `footprint_law`, the canonical bytes of a `footprint-law`;
+        - `max_input_bytes`.
 
-    V2 changes only the version suffix of each Echo-owned schema string and
-    hash domain. The canonical maps carry the schema strings
-    `echo.operation-package/v2`, `echo.operation-program/v2`, and
-    `echo.operation-invocation/v2`. Identities hash the domains
-    `echo:operation-package:v2\0`, `echo:operation-program:v2\0`,
-    `echo:operation-invocation:v2\0`, `echo:operation-invocation-bytes:v2\0`,
-    `echo:operation-installation:v2\0`,
-    `echo:operation-package-admission:v2\0`, and
-    `echo:operation-invocation-admission:v2\0`, in place of the V1 domains
-    of the same names. Every other domain is unchanged. The semantic closure
-    is the producer's artifact and keeps the identity its producer defines;
-    a V2 package binds it exactly as a V1 package does. So V2 program,
-    package, invocation, and installed-operation identities never coincide
-    with V1 identities, and V1 encoding, validation, and identities are
-    unchanged.
+        The digest of `graph_schema` under `echo.operation-schema/v1` must
+        equal the closure's `application_schema_identity`. The `graph_schema`
+        is a map that Echo executes, not only a digest. `node_types` maps each
+        admitted node type to its addressing, which the
+        [identity law](#identity-laws) reads, and its atom types. `edge_types`
+        maps each admitted edge type to its (source node type, target node
+        type) pairs. Validation step 5 reads these relations directly. No
+        artifact is attested under one identity and executed under another.
+
+    - **Effect invocation.** A new map, `invocation-v2-effect` below. It
+      carries the V1 invocation's common entries other than the anchored
+      node and replacement (`authority_grant_identity`, `delegated_budget`,
+      `evaluation_basis`, `operation_coordinate`, `package_id`), plus the
+      required `application_input_bytes`, the program's input in
+      `edict.canonical-cbor/v1`. Admission checks only what it can check
+      without a schema language: that the bytes are canonical and no longer
+      than the program's `max_input_bytes`. The input's shape is the compiled
+      program's to check, as its first act; a malformed input obstructs
+      evaluation with the authored `InputRejected`, posture `NoProposal`. An
+      effect program admits only effect invocations, and a fixed profile only
+      its own V1 invocations, so no invocation crosses between them.
+
+    ```text
+    closure-v2 = {
+      "application_schema_coordinate": tstr, "application_schema_identity": id,
+      "canonical_meaning_identity": id, "core_identity": id,
+      "edict_source_identity": id, "target_ir_identity": id,
+    }
+    program-v2-effect = {
+      "schema": "echo.operation-program/v2", "kind": "edict-effect-program/v1",
+      "interpreter_profile_identity": id, "intrinsic_profile_identity": id,
+      "compiled_program": bstr, "target_ir_identity": id,
+      "identity_law": uint, "graph_schema": bstr, "footprint_law": bstr,
+      "max_input_bytes": uint,
+    }
+    invocation-v2-effect = {
+      "schema": "echo.operation-invocation/v2",
+      "authority_grant_identity": id, "delegated_budget": budget-v1,
+      "evaluation_basis": evaluation-basis-v1, "operation_coordinate": tstr,
+      "package_id": id, "application_input_bytes": bstr,
+    }
+    ; budget-v1 and evaluation-basis-v1 are the V1 values, unchanged.
+    ```
+
+    No other key may appear in any of these maps. A V2 package, effect program,
+    and effect invocation hash their identities under
+    `echo:operation-package:v2\0`, `echo:operation-program:v2\0`, and
+    `echo:operation-invocation:v2\0`. Their invocation-bytes digest, package
+    admission, invocation admission, and installation identities use
+    `echo:operation-invocation-bytes:v2\0`,
+    `echo:operation-package-admission:v2\0`,
+    `echo:operation-invocation-admission:v2\0`, and
+    `echo:operation-installation:v2\0`. Every other domain is unchanged. So V2
+    identities never coincide with V1 identities, and V1 encoding, validation,
+    and identities are unchanged.
 
 ## Evidence
 
@@ -1263,9 +1291,12 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
   the `EPRV0003` payload that follows that record's own magic, byte for byte,
   then zero padding to an 8-byte boundary, then a bridge table of one
   `BridgeEntryRow` per receipt entry, in entry order, then the result blob:
-  its length as a little-endian `u64`, then each committed bridge Action's
-  exact result bytes in entry order, then zero padding to an 8-byte
-  boundary. Each row's `result` range addresses the blob, which carries the
+  its length as a little-endian `u64`, then the blob. The blob follows the
+  image rule above: each committed bridge Action's exact result bytes, in
+  entry order, each run starting 8-byte aligned from the blob's start, with
+  zero bytes between runs and none after the last. The length counts the
+  padding between runs. The record ends with the blob. Each row's `result`
+  range addresses the blob, which carries the
   result bytes ADR 0025 requires in the Receipt. Only the magic differs from
   `EPRV0003` before the table, so the unchanged `EPRV0003` decoder never sees
   an `EPRV0004` record. The table is indexable in place.
@@ -1536,10 +1567,10 @@ Each behaviour below needs a test before implementation:
 | Scoped basis change           | A dependency-scoped Action evaluated at its origin obstructs with `BasisChanged`, posture `Proposed` with `NotDerived`, and keeps its proposal, read set, and changed dependency when a dependency changed, even if its proposal would also fail validation; an unchanged dependency set lets it commit.                                                                                         |
 | Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                               |
 | Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; a Tick containing a bridge Action is written as `EPRV0004`, with its fixed-profile Actions as all-zero `NotBridge` rows; a Tick of fixed-profile Actions alone stays `EPRV0003` and receipt digest version 4; a history mixing both formats recovers.                                                                    |
-| Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with no `lawpack` entry and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                            |
-| Lawpack by program            | A V2 package whose fixed-profile program omits the lawpack, or whose `EdictEffectProgram` carries one, is refused at admission.                                                                                                                                                                                                                                                                  |
-| Invocation version            | An `EdictInput` (tag `2`) invocation is admitted only for an `EdictEffectProgram` package and is refused for a fixed profile, and a fixed-profile kind is refused for a tag `2` program.                                                                                                                                                                                                         |
-| Input bounds                  | An `EdictInput` that is not canonical CBOR, or longer than `max_input_bytes`, is refused at admission; a well-formed input of the wrong shape obstructs evaluation with `InputRejected` and `NoProposal`.                                                                                                                                                                                        |
+| Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with a `closure-v2` (no lawpack keys) and a `program-v2-effect`, and its identities use the `v2` domains; a fixed-profile package keeps its V1 bytes and identities exactly.                                                                                                                                                 |
+| Lawpack by program            | A V2 package whose closure carries `lawpack_coordinate` or `lawpack_identity`, or whose program is a fixed profile, is refused at admission.                                                                                                                                                                                                                                                     |
+| Invocation version            | An effect invocation (`invocation-v2-effect`) is admitted only for an effect-program package, and a V1 invocation only for its own fixed profile.                                                                                                                                                                                                                                                |
+| Input bounds                  | An effect invocation whose `application_input_bytes` is not canonical CBOR, or is longer than `max_input_bytes`, is refused at admission; a well-formed one of the wrong shape obstructs evaluation with `InputRejected`.                                                                                                                                                                        |
 | Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                       |
 | -----------------------       | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                                                                                                       |
 | Pending recovery              | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                           |
@@ -1563,7 +1594,7 @@ Each behaviour below needs a test before implementation:
 | Topology eligibility          | An Action whose package's law admits an edge write or a content-node write commits only onto its exact evaluation basis, including when this invocation writes only atoms.                                                                                                                                                                                                                       |
 | Mutable-source alias          | A creating `EnsureEdge` or a `ReplaceEdge` from a mutable source that already has another edge of the same type, under any id, obstructs with `IdentityLawViolation`.                                                                                                                                                                                                                            |
 | Beta portal                   | An effect or read reached only through an edge-owned portal obstructs at step 1 with `FootprintLawViolation`.                                                                                                                                                                                                                                                                                    |
-| Program map                   | A tag `2` program map with `schema` set to anything but `echo.operation-program/v2`, or with any key outside the exact map, is refused at admission.                                                                                                                                                                                                                                             |
+| Program map                   | An effect program map whose `schema` or `kind` differs from `program-v2-effect`, that has any other key, or whose profile identities differ from the package's, is refused at admission.                                                                                                                                                                                                         |
 
 ## Open questions
 

@@ -9,11 +9,17 @@
 //! The allocation witness (`echo-alloc-witness`, `commit_hub_bucket`) proves a
 //! commit does not copy the hub's adjacency bucket. This measures time.
 //!
-//! Every case has the same graph size: `LEAVES` leaf nodes plus the hub, and
-//! exactly `LEAVES` edges. Only the split changes: the hub has `d` edges, and
-//! the other `LEAVES - d` edges run between leaves, one per source. So any
-//! cost that follows the whole graph, such as hashing the state root, is the
-//! same in every case, and a difference between cases is the hub's degree.
+//! Every case has the same graph: `LEAVES` leaves, the hub, and a counterweight
+//! node, with exactly `LEAVES` edges from exactly two sources. The hub has `d`
+//! of them and the counterweight the other `LEAVES - d`. Nodes, edges, and
+//! non-empty buckets are all constant, so any cost that follows the graph's
+//! size or shape, such as hashing the state root, is the same in every case;
+//! a difference between cases is the hub's degree.
+//!
+//! Each timed iteration gets a freshly built store rather than a clone, so
+//! buckets keep the capacity they grew to, as they do in a running engine
+//! (a clone's buckets have no spare capacity, which would make every push
+//! copy its bucket).
 //!
 //! Two groups:
 //! - `hub_bucket`: the bucket operation alone on a `GraphStore`, with no
@@ -24,8 +30,8 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Benchmark
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, ConflictPolicy, EdgeId, EdgeRecord,
-    Engine, GraphStore, ExecutionGraphView, Footprint, GraphView, Hash, NodeId, NodeRecord, PatternGraph,
-    RewriteRule, RuleExecutor, TickDelta, WarpOp,
+    Engine, ExecutionGraphView, Footprint, GraphStore, GraphView, Hash, NodeId, NodeRecord,
+    PatternGraph, RewriteRule, RuleExecutor, TickDelta, WarpOp,
 };
 
 const ADD: &str = "bench/hub/add-edge";
@@ -33,7 +39,7 @@ const DELETE: &str = "bench/hub/delete-edge";
 /// Leaf nodes, and total edges, in every case.
 const LEAVES: usize = 16_000;
 /// Hub degrees measured.
-const DEGREES: [usize; 3] = [16, 1_000, 16_000];
+const DEGREES: [usize; 3] = [16, 1_000, LEAVES - 16];
 
 fn hub() -> NodeId {
     make_node_id("bench/hub")
@@ -105,24 +111,26 @@ fn delete_edge(view: &mut ExecutionGraphView<'_, '_>, _n: &NodeId, delta: &mut T
     });
 }
 
+fn counterweight() -> NodeId {
+    make_node_id("bench/hub/counterweight")
+}
+
 fn leaf(i: usize) -> NodeId {
     make_node_id(&format!("bench/hub/leaf/{i}"))
 }
 
-/// Fills `store` with the hub, `LEAVES` leaves, and `LEAVES` edges, `degree`
-/// of them from the hub.
+/// Fills `store` with the hub, the counterweight, `LEAVES` leaves, and
+/// `LEAVES` edges: `degree` from the hub and the rest from the counterweight.
 fn fill(store: &mut GraphStore, degree: usize) {
     let ty = make_type_id("bench/hub/entity");
     store.insert_node(hub(), NodeRecord { ty });
+    store.insert_node(counterweight(), NodeRecord { ty });
     for i in 0..LEAVES {
         store.insert_node(leaf(i), NodeRecord { ty });
     }
     for i in 0..LEAVES {
-        let (from, to) = if i < degree {
-            (hub(), leaf(i))
-        } else {
-            (leaf(i), leaf((i + 1) % LEAVES))
-        };
+        let from = if i < degree { hub() } else { counterweight() };
+        let to = leaf(i);
         store.insert_edge(
             from,
             EdgeRecord {
@@ -153,11 +161,14 @@ fn engine_with_hub(degree: usize) -> Engine {
 fn bench_hub_bucket(c: &mut Criterion) {
     let mut group = c.benchmark_group("hub_bucket");
     for degree in DEGREES {
-        let mut base = GraphStore::default();
-        fill(&mut base, degree);
+        let built = move || {
+            let mut store = GraphStore::default();
+            fill(&mut store, degree);
+            store
+        };
         group.bench_function(BenchmarkId::new("add", degree), |b| {
             b.iter_batched(
-                || base.clone(),
+                built,
                 |mut store| {
                     store.insert_edge(
                         hub(),
@@ -175,7 +186,7 @@ fn bench_hub_bucket(c: &mut Criterion) {
         });
         group.bench_function(BenchmarkId::new("delete", degree), |b| {
             b.iter_batched(
-                || base.clone(),
+                built,
                 |mut store| {
                     black_box(store.delete_edge_exact(hub(), first_edge()));
                     store

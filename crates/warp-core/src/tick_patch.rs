@@ -1381,10 +1381,16 @@ pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
         }
     }
 
-    // Per-instance skeleton and attachment-plane diffs.
+    // Per-instance skeleton and attachment-plane diffs, visiting only the
+    // stores this recording touched, so the cost follows them rather than
+    // how many instances exist. Replaced stores are diffed whole. Every
+    // other store in `begun` reports its touched slots; a store enters
+    // `begun` once per epoch, when its log starts, and can only start again
+    // after a replacement, which puts it in `replaced_stores` instead. The
+    // final sort fixes the order.
     let empty = GraphStore::default();
-    for (warp_id, after_store) in &after.stores {
-        if let Some(prior) = log.replaced_stores.get(warp_id) {
+    for (warp_id, prior) in &log.replaced_stores {
+        if let Some(after_store) = after.stores.get(warp_id) {
             diff_instance(
                 &mut ops,
                 *warp_id,
@@ -1393,14 +1399,22 @@ pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
                 &skip_node_upserts,
                 &skip_attachment_ops,
             );
-        } else if after.store_is_current(after_store) {
-            diff_touched_instance(
-                &mut ops,
-                *warp_id,
-                after_store,
-                &skip_node_upserts,
-                &skip_attachment_ops,
-            );
+        }
+    }
+    for warp_id in &log.begun {
+        if log.replaced_stores.contains_key(warp_id) {
+            continue;
+        }
+        if let Some(after_store) = after.stores.get(warp_id) {
+            if after.store_is_current(after_store) {
+                diff_touched_instance(
+                    &mut ops,
+                    *warp_id,
+                    after_store,
+                    &skip_node_upserts,
+                    &skip_attachment_ops,
+                );
+            }
         }
     }
 
@@ -2881,6 +2895,30 @@ mod touched_diff_tests {
         apply(&mut state, &Write::OpenChild { parent: 0 });
         apply(&mut state, &Write::ReplaceChildStore { node: 3 });
         assert_eq!(touched_diff(&state), diff_state(&before, &state));
+    }
+
+    /// A recording abandoned without an end must not leave a store log
+    /// running: starting the next recording ends every log the abandoned one
+    /// began, so later writes outside any recording keep no priors.
+    #[test]
+    fn an_abandoned_recording_leaves_no_store_log_running() {
+        let mut state = seeded_state(&[]);
+        state.begin_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 1, ty: 0 });
+        // Abandoned: the next recording begins without an end, then ends
+        // having touched nothing.
+        state.begin_touch_log();
+        state.end_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 2, ty: 0 });
+        let store = state.store(&root_warp()).unwrap();
+        assert!(
+            !store.touched.recording,
+            "the abandoned store log still records"
+        );
+        assert!(
+            store.touched.nodes.is_empty(),
+            "priors kept outside any recording"
+        );
     }
 
     /// At epoch exhaustion the counter restarts at 1 only after every store

@@ -164,13 +164,31 @@ impl WarpState {
     ///
     /// Stores start their own logs lazily, on first write access, so this
     /// costs nothing per store.
+    ///
+    /// A recording abandoned without an end (an aborted commit) is ended
+    /// here first, so none of its store logs keeps recording.
     pub(crate) fn begin_touch_log(&mut self) {
+        let begun = self.end_begun_store_logs();
         let epoch = self.next_touch_epoch();
         self.touched = StateTouchLog {
             recording: true,
             epoch,
+            begun,
             ..StateTouchLog::default()
         };
+    }
+
+    /// Ends every store log started in the current epoch and returns the
+    /// emptied `begun` list, keeping its capacity for the next recording.
+    fn end_begun_store_logs(&mut self) -> Vec<WarpId> {
+        let mut begun = std::mem::take(&mut self.touched.begun);
+        for warp_id in &begun {
+            if let Some(store) = self.stores.get_mut(warp_id) {
+                store.end_touch_log();
+            }
+        }
+        begun.clear();
+        begun
     }
 
     /// The next recording epoch. Epochs only grow, so a store log from an
@@ -189,15 +207,11 @@ impl WarpState {
 
     /// Stops recording touches and discards every log started in this epoch.
     pub(crate) fn end_touch_log(&mut self) {
-        let begun = std::mem::take(&mut self.touched.begun);
-        for warp_id in begun {
-            if let Some(store) = self.stores.get_mut(&warp_id) {
-                store.end_touch_log();
-            }
-        }
+        let begun = self.end_begun_store_logs();
         let epoch = self.touched.epoch;
         self.touched = StateTouchLog {
             epoch,
+            begun,
             ..StateTouchLog::default()
         };
     }

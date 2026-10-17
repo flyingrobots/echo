@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Public scheduler and recovery witnesses for an actual Edict compiler output.
 #![cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
-#![allow(clippy::expect_used, clippy::panic, unsafe_code)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use bytes::Bytes;
 use echo_edict_canonical::{
@@ -21,42 +21,11 @@ use warp_core::{
     make_type_id, make_warp_id, AtomPayload, AttachmentValue, EchoOperationActionOutcomeV1,
     EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EngineBuilder, GraphStore,
-    InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind,
-    TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime,
-    WorldlineState, WriterHead, WriterHeadKey,
+    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
+    EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord,
+    PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
-
-/// Counts bytes requested on a thread while that thread has counting on.
-///
-/// Counting is per thread, so tests running in parallel never add to another
-/// test's measurement.
-struct ThreadCountingAllocator;
-
-std::thread_local! {
-    static COUNTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static COUNTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-// SAFETY: every call is forwarded unchanged to the system allocator; the
-// counter does not affect what is allocated or freed.
-unsafe impl std::alloc::GlobalAlloc for ThreadCountingAllocator {
-    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
-        if COUNTING.get() {
-            COUNTED.set(COUNTED.get() + layout.size());
-        }
-        // SAFETY: `layout` is the caller's layout, passed through.
-        unsafe { std::alloc::System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
-        // SAFETY: `ptr` and `layout` are the caller's, passed through.
-        unsafe { std::alloc::System.dealloc(ptr, layout) }
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: ThreadCountingAllocator = ThreadCountingAllocator;
 
 const OPERATION: &str = "examples.cas_echo@1.updateCell";
 const KEY: &str = "cell";
@@ -883,27 +852,46 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     assert_eq!(fixture.value(), INITIAL);
 }
 
-/// Preparing an Action copies its installed operation. That copy must share
-/// the installed package's bytes and projection rather than duplicating them,
-/// so each Action costs a few pointers, not the package's size (#903, E1).
+/// Preparing an Action must share its installed operation's package bytes
+/// and result projection with the registry, not copy them, so each Action
+/// costs a few pointers rather than the package's size (#903, E1). This runs
+/// the real admission and preparation path.
 #[test]
-fn an_action_shares_its_installed_package_instead_of_copying_it() {
+fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
     let mut fixture = Fixture::new(true);
     fixture.install();
-    let installed = fixture
+    let invocation = fixture.invocation(INITIAL, initial_digest(), initial_digest(), "updated");
+    let admitted = fixture
+        .host
+        .admit_echo_operation_invocation_v1(&policy(), &invocation)
+        .expect("invocation admitted");
+    let EchoOperationPreparationV1::Prepared(prepared) =
+        fixture.host.prepare_echo_operation_v1(admitted)
+    else {
+        panic!("the valid invocation prepares");
+    };
+    let registered = fixture
         .host
         .engine()
         .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
         .expect("installed");
-    let package_len = installed.canonical_package_bytes().len();
-    COUNTED.set(0);
-    COUNTING.set(true);
-    let copy = installed.clone();
-    COUNTING.set(false);
-    std::hint::black_box(copy);
-    let copied = COUNTED.get();
     assert!(
-        copied * 8 < package_len,
-        "copying the installed operation allocated {copied} bytes for a {package_len}-byte package"
+        std::ptr::eq(
+            prepared.installed().canonical_package_bytes().as_ptr(),
+            registered.canonical_package_bytes().as_ptr()
+        ),
+        "preparation copied the package bytes"
+    );
+    assert!(
+        std::ptr::eq(
+            prepared
+                .installed()
+                .application_result_projection()
+                .expect("prepared projection"),
+            registered
+                .application_result_projection()
+                .expect("the CAS package installs a projection")
+        ),
+        "preparation copied the result projection"
     );
 }

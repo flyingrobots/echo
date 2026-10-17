@@ -4951,6 +4951,13 @@ pub struct PreparedEchoOperationV1 {
 }
 
 impl PreparedEchoOperationV1 {
+    /// Returns the installed operation this preparation evaluated. It shares
+    /// the installed package's bytes and projection with the registry.
+    #[must_use]
+    pub const fn installed(&self) -> &InstalledEchoOperationV1 {
+        &self.installed
+    }
+
     /// Returns the exact basis on which private evaluation occurred.
     #[must_use]
     pub const fn evaluation_basis(&self) -> &EchoOperationEvaluationBasisV1 {

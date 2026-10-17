@@ -2805,6 +2805,40 @@ mod touched_diff_tests {
         Ok(())
     }
 
+    /// Rolling back a tick that replaced a store puts the original store
+    /// back exactly.
+    #[test]
+    fn a_replaced_store_rolls_back_exactly() {
+        let mut state = seeded_state(&[Write::OpenChild { parent: 0 }]);
+        let twin = state.clone();
+        state.begin_touch_log();
+        apply(&mut state, &Write::ReplaceChildStore { node: 4 });
+        apply(&mut state, &Write::InsertNode { node: 5, ty: 1 });
+        state.restore_touches();
+        assert_same_content(&state, &twin).expect("exact rollback");
+    }
+
+    /// Two ticks taken one after the other and undone in reverse order give
+    /// back the original state, and the epoch counter never moves backwards.
+    #[test]
+    fn repeated_rollbacks_undo_in_lifo_order() {
+        let mut state = seeded_state(&[Write::InsertNode { node: 1, ty: 0 }]);
+        let original = state.clone();
+        state.begin_touch_log();
+        apply(&mut state, &Write::UpsertEdge { edge: 0, from: 0, to: 1, ty: 0 });
+        apply(&mut state, &Write::SetNodeAtom { node: 1, bytes: 1 });
+        let first = state.take_touches();
+        state.begin_touch_log();
+        apply(&mut state, &Write::DeleteCascade { node: 1 });
+        apply(&mut state, &Write::InsertNode { node: 2, ty: 1 });
+        let second = state.take_touches();
+        let epoch_before = state.touched.epoch;
+        state.restore_from(second);
+        state.restore_from(first);
+        assert!(state.touched.epoch > epoch_before, "the epoch counter only grows");
+        assert_same_content(&state, &original).expect("exact LIFO rollback");
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(2048))]
 

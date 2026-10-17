@@ -42,11 +42,13 @@
   reachable nodes than a `u32` position can name), which allocates as before.
   The hashed bytes are unchanged, and the state root is independent of the
   scratch's history. The memory is reused, not bounded: it keeps its peak size
-  (about 144 bytes per reachable node) until the engine is dropped. Before,
+  (about 144 bytes per reachable node, plus 8 bytes per edge of the largest
+  reachable edge bucket) until the engine is dropped. Before,
   every commit allocated in proportion to the reachable graph (about 4 MB at
   16,000 reachable entities). Reachability finds each node once, with one
   membership probe per edge, then sorts once: O(edges + n log n) at any graph
-  depth. Commit time is still proportional to the reachable graph, because the
+  depth. A traversal that falls back to the ordered walk costs
+  O(edges log n). Commit time is still proportional to the reachable graph, because the
   state root is defined as one hash over it. The membership table is a
   hand-written hash table; `ban-nondeterminism.sh` now flags such tables, and
   this one carries a narrow waiver stating why it cannot affect output.

@@ -88,7 +88,9 @@ pub struct Snapshot {
 ///
 /// **Memory.** The buffers are reused, not bounded: they keep the peak size
 /// they reach (about 144 bytes per reachable node: the discovery list, the
-/// sorted list, and two table slots per node) for the engine's lifetime, and
+/// sorted list, and two table slots per node; plus 8 bytes per edge of the
+/// largest reachable edge bucket, which `edge_order` holds) for the engine's
+/// lifetime, and
 /// are reclaimed only when the engine is dropped. Once warm, a commit's state
 /// root allocates nothing, except when the membership table falls back to the
 /// ordered walk (ids that collide pathologically, or more reachable nodes than
@@ -100,7 +102,9 @@ pub struct Snapshot {
 /// by a deterministic mix of every byte of the node key. It is never iterated, so its layout
 /// cannot reach any output; the canonical order comes from sorting `found`
 /// into `reachable` once traversal ends. Traversal is O(edges), and the sort
-/// O(n log n), whatever the graph's depth.
+/// O(n log n), whatever the graph's depth. The ordered fallback inserts every
+/// edge target into a `BTreeSet`, so a traversal that falls back costs
+/// O(edges log n).
 #[derive(Default)]
 pub(crate) struct StateRootScratch {
     /// Reached nodes, in discovery order; also the BFS queue.
@@ -167,22 +171,11 @@ pub(crate) fn compute_state_root_with(
         scratch.fell_back = !table_complete;
     }
     let StateRootScratch {
-        found,
-        index: membership,
         reachable,
         warps,
         edge_order,
         ..
     } = scratch;
-    // One probe per edge target when the table holds this traversal, a
-    // binary search in the sorted set after a fallback.
-    let is_reachable = |key: &NodeKey| {
-        if table_complete {
-            membership.contains(found, key)
-        } else {
-            reachable.binary_search(key).is_ok()
-        }
-    };
 
     let mut hasher = Hasher::new();
     hasher.update(domain::STATE_ROOT_V1);
@@ -222,19 +215,17 @@ pub(crate) fn compute_state_root_with(
         }
 
         // Edges: per reachable source bucket, ascending source, sorted by
-        // EdgeId, filtered to reachable targets. Edge ids are unique, so an
+        // EdgeId. Both walks reach every target of every edge they process,
+        // and they process every reachable source, so every edge here already
+        // has a reachable target; the reference walk's target filter is
+        // always true and is not repeated. Edge ids are unique, so an
         // unstable sort gives the same order without a merge buffer.
         for key in in_warp {
             let Some(edges) = store.edges_from.get(&key.local_id) else {
                 continue;
             };
             edge_order.clear();
-            edge_order.extend((0..edges.len()).filter(|&position| {
-                is_reachable(&NodeKey {
-                    warp_id: *warp_id,
-                    local_id: edges[position].to,
-                })
-            }));
+            edge_order.extend(0..edges.len());
             edge_order.sort_unstable_by_key(|&index| edges[index].id.0);
 
             hasher.update(&key.local_id.0);
@@ -255,8 +246,9 @@ pub(crate) fn compute_state_root_with(
 /// The state root's membership accelerator, kept in its own module so the
 /// compiler enforces what the determinism waiver promises: its slot arrays
 /// are private here, and the only operations outside it are starting a
-/// traversal, inserting a key, and testing membership. There is no iterator
-/// and no slice accessor, so no caller can observe the table's layout.
+/// traversal and inserting a key (which reports whether it was new). There is
+/// no iterator, no slice accessor, and no lookup, so no caller can observe the
+/// table's layout.
 mod membership {
     use crate::ident::NodeKey;
 
@@ -338,22 +330,6 @@ mod membership {
                 return 0;
             }
             home_slot(key, mask)
-        }
-
-        /// Whether `key` was inserted in this traversal.
-        pub(super) fn contains(&self, found: &[NodeKey], key: &NodeKey) -> bool {
-            if self.tags.is_empty() {
-                return false;
-            }
-            let mask = self.tags.len() - 1;
-            let mut slot = self.home(key, mask);
-            while self.is_current(slot) {
-                if found[(self.tags[slot] - 1) as usize] == *key {
-                    return true;
-                }
-                slot = (slot + 1) & mask;
-            }
-            false
         }
 
         fn is_current(&self, slot: usize) -> bool {

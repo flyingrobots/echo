@@ -26,6 +26,36 @@ pub enum DeleteNodeError {
     HasIncomingEdges,
 }
 
+/// Prior values of the slots written while a [`GraphStore`] records touches.
+///
+/// Each slot's value is captured the first time the slot is written after
+/// recording begins, so the log holds, for exactly the slots that may have
+/// changed, the value they had when recording began. A tick's delta is then
+/// computed over those slots alone instead of over a copy of the whole graph
+/// (see `tick_patch::touched_diff`). The log is bookkeeping, never part of the
+/// store's content: a clone starts with an empty, idle log, and `Debug` does
+/// not print it.
+#[derive(Default)]
+pub(crate) struct TouchLog {
+    pub(crate) recording: bool,
+    pub(crate) nodes: BTreeMap<NodeId, Option<NodeRecord>>,
+    pub(crate) node_attachments: BTreeMap<NodeId, Option<AttachmentValue>>,
+    pub(crate) edges: BTreeMap<EdgeId, Option<EdgeRecord>>,
+    pub(crate) edge_attachments: BTreeMap<EdgeId, Option<AttachmentValue>>,
+}
+
+impl Clone for TouchLog {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for TouchLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TouchLog")
+    }
+}
+
 /// In-memory graph storage for the spike.
 ///
 /// The production engine will eventually swap in a content-addressed store,
@@ -61,6 +91,8 @@ pub struct GraphStore {
     /// This enables efficient maintenance of [`GraphStore::edges_to`] during
     /// edge migration and deletion.
     pub(crate) edge_to_index: BTreeMap<EdgeId, NodeId>,
+    /// Prior values of the slots written since recording began.
+    pub(crate) touched: TouchLog,
 }
 
 impl Default for GraphStore {
@@ -82,6 +114,103 @@ impl GraphStore {
             edge_attachments: BTreeMap::new(),
             edge_index: BTreeMap::new(),
             edge_to_index: BTreeMap::new(),
+            touched: TouchLog::default(),
+        }
+    }
+
+    /// Starts recording touches with an empty log.
+    pub(crate) fn begin_touch_log(&mut self) {
+        self.touched = TouchLog {
+            recording: true,
+            ..TouchLog::default()
+        };
+    }
+
+    /// Stops recording touches and discards the log.
+    pub(crate) fn end_touch_log(&mut self) {
+        self.touched = TouchLog::default();
+    }
+
+    /// Returns the edge record with `id`, wherever it is stored.
+    pub(crate) fn edge_record(&self, id: &EdgeId) -> Option<&EdgeRecord> {
+        let from = self.edge_index.get(id)?;
+        self.edges_from.get(from)?.iter().find(|e| e.id == *id)
+    }
+
+    fn touch_node(&mut self, id: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.touched.nodes.entry(id) {
+                slot.insert(self.nodes.get(&id).cloned());
+            }
+        }
+    }
+
+    fn touch_node_attachment(&mut self, id: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.node_attachments.entry(id)
+            {
+                slot.insert(self.node_attachments.get(&id).cloned());
+            }
+        }
+    }
+
+    fn touch_edge(&mut self, id: EdgeId) {
+        if self.touched.recording && !self.touched.edges.contains_key(&id) {
+            let prior = self.edge_record(&id).cloned();
+            self.touched.edges.insert(id, prior);
+        }
+    }
+
+    fn touch_edge_attachment(&mut self, id: EdgeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.edge_attachments.entry(id)
+            {
+                slot.insert(self.edge_attachments.get(&id).cloned());
+            }
+        }
+    }
+
+    /// Restores every touched slot to its prior value, then stops recording.
+    ///
+    /// Used only to recover a store's content as of the start of recording
+    /// when the store itself is about to be dropped or replaced, so the order
+    /// of edges within a bucket is not preserved.
+    pub(crate) fn revert_touches(&mut self) {
+        let log = std::mem::take(&mut self.touched);
+        for (id, prior) in log.edges {
+            if let Some(record) = prior {
+                // Upsert moves the edge back to its prior bucket if needed and
+                // leaves its attachment slot alone.
+                self.upsert_edge_record(record.from, record);
+            } else {
+                // Deleting an edge clears its attachment slot; keep that slot
+                // as it is, since the attachment log restores it.
+                let attachment = self.edge_attachments.get(&id).cloned();
+                if let Some(from) = self.edge_index.get(&id).copied() {
+                    self.delete_edge_exact(from, id);
+                }
+                if let Some(attachment) = attachment {
+                    self.edge_attachments.insert(id, attachment);
+                }
+            }
+        }
+        for (id, prior) in log.nodes {
+            match prior {
+                Some(record) => {
+                    self.nodes.insert(id, record);
+                }
+                None => {
+                    self.nodes.remove(&id);
+                }
+            }
+        }
+        for (id, prior) in log.node_attachments {
+            self.set_node_attachment(id, prior);
+        }
+        for (id, prior) in log.edge_attachments {
+            self.set_edge_attachment(id, prior);
         }
     }
 
@@ -121,6 +250,7 @@ impl GraphStore {
 
     /// Returns a mutable reference to the node's attachment value (if any).
     pub fn node_attachment_mut(&mut self, id: &NodeId) -> Option<&mut AttachmentValue> {
+        self.touch_node_attachment(*id);
         self.node_attachments.get_mut(id)
     }
 
@@ -134,6 +264,7 @@ impl GraphStore {
 
     /// Returns a mutable reference to a node when it exists.
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeRecord> {
+        self.touch_node(*id);
         self.nodes.get_mut(id)
     }
 
@@ -141,6 +272,7 @@ impl GraphStore {
     ///
     /// Passing `None` clears any existing attachment.
     pub fn set_node_attachment(&mut self, id: NodeId, value: Option<AttachmentValue>) {
+        self.touch_node_attachment(id);
         match value {
             None => {
                 self.node_attachments.remove(&id);
@@ -172,6 +304,7 @@ impl GraphStore {
 
     /// Returns a mutable reference to the edge's attachment value (if any).
     pub fn edge_attachment_mut(&mut self, id: &EdgeId) -> Option<&mut AttachmentValue> {
+        self.touch_edge_attachment(*id);
         self.edge_attachments.get_mut(id)
     }
 
@@ -179,6 +312,7 @@ impl GraphStore {
     ///
     /// Passing `None` clears any existing attachment.
     pub fn set_edge_attachment(&mut self, id: EdgeId, value: Option<AttachmentValue>) {
+        self.touch_edge_attachment(id);
         match value {
             None => {
                 self.edge_attachments.remove(&id);
@@ -191,6 +325,7 @@ impl GraphStore {
 
     /// Inserts or replaces a node in the store.
     pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.touch_node(id);
         self.nodes.insert(id, record);
     }
 
@@ -222,6 +357,7 @@ impl GraphStore {
         }
         let edge_id = edge.id;
         let to = edge.to;
+        self.touch_edge(edge_id);
         let prev_from = self.edge_index.insert(edge_id, from);
         let prev_to = self.edge_to_index.insert(edge_id, to);
         if let Some(prev_from) = prev_from {
@@ -293,9 +429,26 @@ impl GraphStore {
     /// This operation is not transactional on its own. If used during a transaction,
     /// the caller must ensure consistency with the transaction's isolation guarantees.
     pub fn delete_node_cascade(&mut self, node: NodeId) -> bool {
-        if self.nodes.remove(&node).is_none() {
+        if !self.nodes.contains_key(&node) {
             return false;
         }
+        if self.touched.recording {
+            self.touch_node(node);
+            self.touch_node_attachment(node);
+            let incident: Vec<EdgeId> = self
+                .edges_from
+                .get(&node)
+                .into_iter()
+                .flatten()
+                .map(|e| e.id)
+                .chain(self.edges_to.get(&node).into_iter().flatten().copied())
+                .collect();
+            for id in incident {
+                self.touch_edge(id);
+                self.touch_edge_attachment(id);
+            }
+        }
+        self.nodes.remove(&node);
         self.node_attachments.remove(&node);
 
         // Remove outgoing edges (the bucket).
@@ -405,6 +558,8 @@ impl GraphStore {
         }
 
         // Safe to delete: remove node and its attachment
+        self.touch_node(node);
+        self.touch_node_attachment(node);
         self.nodes.remove(&node);
         self.node_attachments.remove(&node);
 
@@ -431,6 +586,8 @@ impl GraphStore {
             );
             return false;
         };
+        self.touch_edge(edge_id);
+        self.touch_edge_attachment(edge_id);
         let Some(edges) = self.edges_from.get_mut(&from) else {
             debug_assert!(
                 false,

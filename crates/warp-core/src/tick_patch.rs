@@ -1197,6 +1197,7 @@ fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
 /// - Instance iteration is deterministic (`BTreeMap`).
 /// - The returned ops are canonicalized by `WarpOp::sort_key` and are suitable
 ///   for both replay ordering and `patch_digest` hashing.
+#[cfg(any(test, feature = "delta_validate"))]
 pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     let mut ops: Vec<WarpOp> = Vec::new();
     let mut portal_warps: std::collections::BTreeSet<WarpId> = std::collections::BTreeSet::new();
@@ -1287,6 +1288,225 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
 
     ops.sort_by_key(WarpOp::sort_key);
     ops
+}
+
+/// The delta from the start of touch recording to `after`, computed over the
+/// touched slots only.
+///
+/// Returns exactly what `diff_state` returns for the state as it was when
+/// `WarpState::begin_touch_log` ran and `after`. A slot that was never
+/// touched holds its prior value, so it contributes no op to either; for every
+/// touched slot the prior value is in the log, and the rules below are
+/// `diff_state`'s rules applied to that slot. Warps whose store was created,
+/// replaced, or removed are diffed as whole stores, as `diff_state` does.
+pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
+    let log = &after.touched;
+    let mut ops: Vec<WarpOp> = Vec::new();
+    let mut portal_warps: std::collections::BTreeSet<WarpId> = std::collections::BTreeSet::new();
+    let mut skip_node_upserts: std::collections::BTreeSet<NodeKey> =
+        std::collections::BTreeSet::new();
+    let mut skip_attachment_ops: std::collections::BTreeSet<AttachmentKey> =
+        std::collections::BTreeSet::new();
+
+    // Portal authoring: an instance that did not exist before, as in
+    // `diff_state`.
+    for (warp_id, prior) in &log.instances {
+        if prior.is_some() {
+            continue;
+        }
+        let Some(inst_after) = after.instances.get(warp_id) else {
+            continue;
+        };
+        let Some(parent_key) = inst_after.parent else {
+            continue;
+        };
+        let Some(parent_value) = attachment_value_for_key(after, &parent_key) else {
+            continue;
+        };
+        if parent_value != &AttachmentValue::Descend(*warp_id) {
+            continue;
+        }
+        let Some(child_store) = after.store(warp_id) else {
+            continue;
+        };
+        let Some(root_record) = child_store.node(&inst_after.root_node) else {
+            continue;
+        };
+        ops.push(WarpOp::OpenPortal {
+            key: parent_key,
+            child_warp: *warp_id,
+            child_root: inst_after.root_node,
+            init: PortalInit::Empty {
+                root_record: root_record.clone(),
+            },
+        });
+        portal_warps.insert(*warp_id);
+        skip_node_upserts.insert(NodeKey {
+            warp_id: *warp_id,
+            local_id: inst_after.root_node,
+        });
+        skip_attachment_ops.insert(parent_key);
+    }
+
+    // WarpInstances: deletions and upserts.
+    for (warp_id, prior) in &log.instances {
+        match (prior, after.instances.get(warp_id)) {
+            (Some(_), None) => ops.push(WarpOp::DeleteWarpInstance { warp_id: *warp_id }),
+            (None, Some(inst_after)) => {
+                if !portal_warps.contains(warp_id) {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
+                    });
+                }
+            }
+            (Some(inst_before), Some(inst_after)) => {
+                if inst_before != inst_after {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
+                    });
+                }
+            }
+            (None, None) => {}
+        }
+    }
+
+    // Per-instance skeleton and attachment-plane diffs.
+    let empty = GraphStore::default();
+    for (warp_id, after_store) in &after.stores {
+        if let Some(prior) = log.replaced_stores.get(warp_id) {
+            diff_instance(
+                &mut ops,
+                *warp_id,
+                prior.as_ref().unwrap_or(&empty),
+                after_store,
+                &skip_node_upserts,
+                &skip_attachment_ops,
+            );
+        } else {
+            diff_touched_instance(
+                &mut ops,
+                *warp_id,
+                after_store,
+                &skip_node_upserts,
+                &skip_attachment_ops,
+            );
+        }
+    }
+
+    ops.sort_by_key(WarpOp::sort_key);
+    ops
+}
+
+/// `diff_instance` over one store's touched slots.
+fn diff_touched_instance(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    after: &GraphStore,
+    skip_node_upserts: &std::collections::BTreeSet<NodeKey>,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
+    let log = &after.touched;
+    // Nodes, as `diff_nodes`.
+    for (id, prior) in &log.nodes {
+        let node = NodeKey {
+            warp_id,
+            local_id: *id,
+        };
+        if skip_node_upserts.contains(&node) {
+            continue;
+        }
+        match (prior, after.nodes.get(id)) {
+            (Some(_), None) => ops.push(WarpOp::DeleteNode { node }),
+            (None, Some(rec_after)) => ops.push(WarpOp::UpsertNode {
+                node,
+                record: rec_after.clone(),
+            }),
+            (Some(rec_before), Some(rec_after)) => {
+                if rec_before != rec_after {
+                    ops.push(WarpOp::UpsertNode {
+                        node,
+                        record: rec_after.clone(),
+                    });
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    // Node attachments, as `diff_node_attachments`: only for nodes that
+    // exist afterwards.
+    for (id, prior) in &log.node_attachments {
+        if !after.nodes.contains_key(id) {
+            continue;
+        }
+        let after_val = after.node_attachment(id);
+        if prior.as_ref() == after_val {
+            continue;
+        }
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: *id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
+    // Edges, as `diff_edges`.
+    for (id, prior) in &log.edges {
+        match (prior, after.edge_record(id)) {
+            (Some(rec_before), None) => ops.push(WarpOp::DeleteEdge {
+                warp_id,
+                from: rec_before.from,
+                edge_id: *id,
+            }),
+            (None, Some(rec_after)) => ops.push(WarpOp::UpsertEdge {
+                warp_id,
+                record: rec_after.clone(),
+            }),
+            (Some(rec_before), Some(rec_after)) => {
+                if rec_before == rec_after {
+                    continue;
+                }
+                if rec_before.from != rec_after.from {
+                    ops.push(WarpOp::DeleteEdge {
+                        warp_id,
+                        from: rec_before.from,
+                        edge_id: *id,
+                    });
+                }
+                ops.push(WarpOp::UpsertEdge {
+                    warp_id,
+                    record: rec_after.clone(),
+                });
+            }
+            (None, None) => {}
+        }
+    }
+    // Edge attachments, as `diff_edge_attachments`: only for edges that exist
+    // afterwards.
+    for (id, prior) in &log.edge_attachments {
+        if !after.has_edge(id) {
+            continue;
+        }
+        let after_val = after.edge_attachment(id);
+        if prior.as_ref() == after_val {
+            continue;
+        }
+        let key = AttachmentKey::edge_beta(EdgeKey {
+            warp_id,
+            local_id: *id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
 }
 
 fn diff_instance(
@@ -2290,5 +2510,290 @@ mod tests {
                 value: Some(AttachmentValue::Descend(child_warp)),
             },
         ));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod touched_diff_tests {
+    use bytes::Bytes;
+    use proptest::prelude::*;
+
+    use super::{diff_state, touched_diff};
+    use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
+    use crate::graph::GraphStore;
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id, NodeKey};
+    use crate::record::{EdgeRecord, NodeRecord};
+    use crate::warp_state::{WarpInstance, WarpState};
+
+    /// One write through a mutation path that a tick can take.
+    #[derive(Debug, Clone)]
+    enum Write {
+        InsertNode { node: u8, ty: u8 },
+        TouchNodeMut { node: u8, ty: u8 },
+        DeleteCascade { node: u8 },
+        DeleteIsolated { node: u8 },
+        UpsertEdge { edge: u8, from: u8, to: u8, ty: u8 },
+        DeleteEdge { edge: u8, from: u8 },
+        SetNodeAtom { node: u8, bytes: u8 },
+        ClearNodeAttachment { node: u8 },
+        NodeAttachmentMut { node: u8, bytes: u8 },
+        SetEdgeAtom { edge: u8, bytes: u8 },
+        EdgeAttachmentMut { edge: u8, bytes: u8 },
+        TakeAndReinsert,
+        ReplaceChildStore { node: u8 },
+        DeleteChild,
+        OpenChild { parent: u8 },
+    }
+
+    fn atom(byte: u8) -> AttachmentValue {
+        AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("touch/atom"),
+            Bytes::from(vec![byte]),
+        ))
+    }
+
+    fn write() -> impl Strategy<Value = Write> {
+        let n = 0u8..6;
+        prop_oneof![
+            (n.clone(), 0u8..2).prop_map(|(node, ty)| Write::InsertNode { node, ty }),
+            (n.clone(), 0u8..2).prop_map(|(node, ty)| Write::TouchNodeMut { node, ty }),
+            n.clone().prop_map(|node| Write::DeleteCascade { node }),
+            n.clone().prop_map(|node| Write::DeleteIsolated { node }),
+            (0u8..5, n.clone(), n.clone(), 0u8..2)
+                .prop_map(|(edge, from, to, ty)| Write::UpsertEdge { edge, from, to, ty }),
+            (0u8..5, n.clone()).prop_map(|(edge, from)| Write::DeleteEdge { edge, from }),
+            (n.clone(), 0u8..3).prop_map(|(node, bytes)| Write::SetNodeAtom { node, bytes }),
+            n.clone()
+                .prop_map(|node| Write::ClearNodeAttachment { node }),
+            (n.clone(), 0u8..3).prop_map(|(node, bytes)| Write::NodeAttachmentMut { node, bytes }),
+            (0u8..5, 0u8..3).prop_map(|(edge, bytes)| Write::SetEdgeAtom { edge, bytes }),
+            (0u8..5, 0u8..3).prop_map(|(edge, bytes)| Write::EdgeAttachmentMut { edge, bytes }),
+            Just(Write::TakeAndReinsert),
+            n.clone().prop_map(|node| Write::ReplaceChildStore { node }),
+            Just(Write::DeleteChild),
+            n.prop_map(|parent| Write::OpenChild { parent }),
+        ]
+    }
+
+    fn node(i: u8) -> crate::ident::NodeId {
+        make_node_id(&format!("touch/node/{i}"))
+    }
+
+    fn edge(i: u8) -> crate::ident::EdgeId {
+        make_edge_id(&format!("touch/edge/{i}"))
+    }
+
+    fn ty(i: u8) -> crate::ident::TypeId {
+        make_type_id(&format!("touch/type/{i}"))
+    }
+
+    fn root_warp() -> crate::ident::WarpId {
+        make_warp_id("touch/root")
+    }
+
+    fn child_warp() -> crate::ident::WarpId {
+        make_warp_id("touch/child")
+    }
+
+    fn apply(state: &mut WarpState, write: &Write) {
+        let root = root_warp();
+        match *write {
+            Write::InsertNode { node: n, ty: t } => {
+                state
+                    .store_mut(&root)
+                    .unwrap()
+                    .insert_node(node(n), NodeRecord { ty: ty(t) });
+            }
+            Write::TouchNodeMut { node: n, ty: t } => {
+                if let Some(record) = state.store_mut(&root).unwrap().node_mut(&node(n)) {
+                    record.ty = ty(t);
+                }
+            }
+            Write::DeleteCascade { node: n } => {
+                state.store_mut(&root).unwrap().delete_node_cascade(node(n));
+            }
+            Write::DeleteIsolated { node: n } => {
+                let _ = state
+                    .store_mut(&root)
+                    .unwrap()
+                    .delete_node_isolated(node(n));
+            }
+            Write::UpsertEdge {
+                edge: e,
+                from,
+                to,
+                ty: t,
+            } => {
+                let store = state.store_mut(&root).unwrap();
+                if store.node(&node(from)).is_some() && store.node(&node(to)).is_some() {
+                    store.insert_edge(
+                        node(from),
+                        EdgeRecord {
+                            id: edge(e),
+                            from: node(from),
+                            to: node(to),
+                            ty: ty(t),
+                        },
+                    );
+                }
+            }
+            Write::DeleteEdge { edge: e, from } => {
+                state
+                    .store_mut(&root)
+                    .unwrap()
+                    .delete_edge_exact(node(from), edge(e));
+            }
+            Write::SetNodeAtom { node: n, bytes } => {
+                state
+                    .store_mut(&root)
+                    .unwrap()
+                    .set_node_attachment(node(n), Some(atom(bytes)));
+            }
+            Write::ClearNodeAttachment { node: n } => {
+                state
+                    .store_mut(&root)
+                    .unwrap()
+                    .set_node_attachment(node(n), None);
+            }
+            Write::NodeAttachmentMut { node: n, bytes } => {
+                if let Some(value) = state
+                    .store_mut(&root)
+                    .unwrap()
+                    .node_attachment_mut(&node(n))
+                {
+                    *value = atom(bytes);
+                }
+            }
+            Write::SetEdgeAtom { edge: e, bytes } => {
+                state
+                    .store_mut(&root)
+                    .unwrap()
+                    .set_edge_attachment(edge(e), Some(atom(bytes)));
+            }
+            Write::EdgeAttachmentMut { edge: e, bytes } => {
+                if let Some(value) = state
+                    .store_mut(&root)
+                    .unwrap()
+                    .edge_attachment_mut(&edge(e))
+                {
+                    *value = atom(bytes);
+                }
+            }
+            Write::TakeAndReinsert => {
+                let instance = state.instance(&root).unwrap().clone();
+                let store = state.take_or_create_store(root);
+                state.upsert_instance(instance, store);
+            }
+            Write::ReplaceChildStore { node: n } => {
+                if let Some(instance) = state.instance(&child_warp()).cloned() {
+                    let mut store = GraphStore::new(child_warp());
+                    store.insert_node(instance.root_node, NodeRecord { ty: ty(0) });
+                    store.insert_node(node(n), NodeRecord { ty: ty(1) });
+                    state.upsert_instance(instance, store);
+                }
+            }
+            Write::DeleteChild => {
+                state.delete_instance(&child_warp());
+            }
+            Write::OpenChild { parent } => {
+                if state.instance(&child_warp()).is_some()
+                    || state.store(&root).unwrap().node(&node(parent)).is_none()
+                {
+                    return;
+                }
+                let key = AttachmentKey::node_alpha(NodeKey {
+                    warp_id: root,
+                    local_id: node(parent),
+                });
+                let child_root = make_node_id("touch/child/root");
+                let mut store = state.take_or_create_store(child_warp());
+                store.insert_node(child_root, NodeRecord { ty: ty(0) });
+                state.upsert_instance(
+                    WarpInstance {
+                        warp_id: child_warp(),
+                        root_node: child_root,
+                        parent: Some(key),
+                    },
+                    store,
+                );
+                state.store_mut(&root).unwrap().set_node_attachment(
+                    node(parent),
+                    Some(AttachmentValue::Descend(child_warp())),
+                );
+            }
+        }
+    }
+
+    fn seeded_state(setup: &[Write]) -> WarpState {
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: root_warp(),
+                root_node: node(0),
+                parent: None,
+            },
+            GraphStore::new(root_warp()),
+        );
+        state
+            .store_mut(&root_warp())
+            .unwrap()
+            .insert_node(node(0), NodeRecord { ty: ty(0) });
+        for write in setup {
+            apply(&mut state, write);
+        }
+        state
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2048))]
+
+        /// The touched-slot delta equals the full-state diff for any history
+        /// of writes before recording and any writes while recording.
+        #[test]
+        fn touched_delta_equals_full_diff(
+            setup in proptest::collection::vec(write(), 0..24),
+            tick in proptest::collection::vec(write(), 0..24),
+        ) {
+            let mut state = seeded_state(&setup);
+            let before = state.clone();
+            state.begin_touch_log();
+            for write in &tick {
+                apply(&mut state, write);
+            }
+            prop_assert_eq!(touched_diff(&state), diff_state(&before, &state));
+        }
+
+        /// Reverting a store's touches recovers its content at the start of
+        /// recording, as far as the diff can see.
+        #[test]
+        fn reverted_touches_recover_prior_content(
+            setup in proptest::collection::vec(write(), 0..24),
+            tick in proptest::collection::vec(write(), 0..24),
+        ) {
+            let mut state = seeded_state(&setup);
+            let before = state.clone();
+            state.begin_touch_log();
+            for write in &tick {
+                apply(&mut state, write);
+            }
+            if let Some(store) = state.stores.get_mut(&root_warp()) {
+                if store.touched.recording {
+                    store.revert_touches();
+                    let empty = GraphStore::new(root_warp());
+                    let prior = before.store(&root_warp()).unwrap_or(&empty);
+                    let mut ops = Vec::new();
+                    super::diff_instance(
+                        &mut ops,
+                        root_warp(),
+                        prior,
+                        store,
+                        &std::collections::BTreeSet::new(),
+                        &std::collections::BTreeSet::new(),
+                    );
+                    prop_assert!(ops.is_empty(), "reverted store differs: {ops:?}");
+                }
+            }
+        }
     }
 }

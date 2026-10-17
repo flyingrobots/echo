@@ -109,6 +109,10 @@ name = "installed_contract_registry_tests"
 required-features = ["native_rule_bootstrap"]
 
 [[test]]
+name = "commit_allocation"
+required-features = ["native_rule_bootstrap"]
+
+[[test]]
 name = "installed_contract_intent_pipeline_tests"
 required-features = ["native_rule_bootstrap", "host_test"]
 

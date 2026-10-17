@@ -115,11 +115,21 @@ fn commit_cost_does_not_grow_with_untouched_graph_size() {
     // A `delta_validate` build copies the whole state to cross-check every
     // delta, by design; the measurement is about ordinary builds.
     if warp_core::DELTA_VALIDATE {
+        // The performance lane sets ECHO_ALLOC_WITNESS_REQUIRED: there a
+        // skipped witness would prove nothing, so it fails instead.
+        assert!(
+            std::env::var_os("ECHO_ALLOC_WITNESS_REQUIRED").is_none(),
+            "the allocation witness must run on an ordinary build here"
+        );
         eprintln!("not measured: warp-core is built with delta_validate");
         return;
     }
     let small = commit_bytes(1_000);
     let large = commit_bytes(16_000);
+    assert!(
+        small > 0,
+        "the allocator measured nothing; the witness did not run"
+    );
     // Sixteen times the untouched graph must not cost sixteen times the
     // bytes. Anything proportional to the graph, such as copying the state
     // to diff it afterwards, fails this.

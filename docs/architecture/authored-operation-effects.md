@@ -218,12 +218,9 @@ Rules:
   lexicographically. A tie can occur
   only in a proposal that obstructs with `DuplicateEffectTarget`; it breaks
   by effect kind (`EnsureNode`, `CreateNode`, `ReplaceAtom`, `EnsureEdge`,
-  `ReplaceEdge`), then by the effect's canonical encoding bytes. That
-  encoding includes every field of the effect, expected values included: a
-  kind tag, then each field in the order the effect lists it, with each
-  instance-scoped key as its warp id then its local id, ids, type ids, and
-  digests at fixed width, and an atom as its `type_id`, its byte length as a
-  little-endian `u64`, then its bytes. Sorting never
+  `ReplaceEdge`), then by the effect's `EffectRow` bytes, then by its atom
+  bytes (see [Encoding and memory](#encoding-and-memory)); every field of
+  the effect, expected values included, is in those bytes. Sorting never
   removes an effect, so duplicates stay visible to the one-effect-per-slot
   rule.
 - **One effect per slot.** No two effects in one proposal may target the same
@@ -725,8 +722,10 @@ Each Action's receipt entry binds, in addition to its current fields:
       decision requires: the origin basis, the validation position, and one
       of three evidence forms, each recording only a comparison that actually
       ran:
-        - `OriginOnly`, for an evaluation obstruction, which runs no
-          dependency comparison;
+        - `OriginOnly`, for every outcome decided before the history check:
+          an evaluation obstruction, or a failure of resolution (step 1 of
+          the [Validation order](#validation-order)). No dependency
+          comparison ran;
         - `HistoryChanged`, for a dependency-scoped `BasisChanged`: the
           dependency-set digest over each dependency's descriptor and
           comparison mode, and the first changed dependency in canonical
@@ -749,8 +748,8 @@ Each Action's receipt entry binds, in addition to its current fields:
   ran (whole-frontier `BasisChanged`, including unknown history), it is zero
   on every axis, and recovery verifies that.
 
-**Dependency descriptors.** A dependency descriptor is its slot, its kind,
-and its comparison mode, each kind and mode a one-byte tag:
+**Dependency kinds and modes.** A dependency is its slot, its kind, and its
+comparison mode:
 
 - kind: value present `0`, observed absent `1`, expected value `2`, endpoint
   existence `3`;
@@ -762,46 +761,10 @@ and its comparison mode, each kind and mode a one-byte tag:
 
 A scoped Action reads no edge ranges (an edge read keeps the whole-frontier
 rule), so its dependency slots are node records, attachments (atoms and
-portals), and edges. Descriptors sort by slot encoding (defined below), then
-kind tag, then mode tag; each encodes as kind tag, slot encoding, mode tag;
-and the dependency-set digest hashes them in that order.
+portals), and edges.
 
-**Canonical set encoding.** The read-set, target-set, write-set,
-dependency-set, and compared-values digests each hash a set of slot entries,
-never a collection in discovery order. A slot encodes as its class tag followed
-by its identity, all at fixed width: for a node record, its `NodeKey` (warp id,
-then local id); for an edge, its `EdgeKey`; for an attachment, an owner tag
-(`0` node, `1` edge), the owner's key, and a plane tag (`0` alpha, `1` beta);
-for a range key, the source `NodeKey` followed by the edge-type id. Entries
-sort by slot class tag, then by those identity bytes compared
-lexicographically. Each entry is the slot encoding followed by what that set
-records for the slot:
-
-- read set: for a node record, attachment, or edge slot, an outcome tag
-  (`0` present, `1` absent) and, when present, the 32-byte value digest
-  defined below. A range-key slot has no outcome tag and no value digest:
-  its entry is the slot encoding, then the observed edge count as a
-  little-endian `u64`, then that many pairs of edge local id and target node
-  local id, 32 bytes each, sorted by edge id. An empty range is a count of
-  zero, never an absent outcome;
-- target set and write set: the slot alone;
-- dependency set: the descriptor encoding defined under
-  [Dependency descriptors](#evidence) above;
-- compared values: one entry per dependency, in canonical descriptor order,
-  each the descriptor encoding, a presence tag (`0` present, `1` absent at
-  the commit parent as the pre-composition checks read it, or `2` not
-  compared), and, for `0`, the 32-byte digest of the value compared, encoded
-  as for the read set.
-
-Each digest is BLAKE3 over a domain tag naming the set and its version, the
-entry count as a little-endian `u64`, and the entries in order. Live
-execution and recovery therefore produce identical bytes whatever order an
-implementation visits slots in.
-
-Slot class tags are node record `0`, attachment `1`, edge `2`, and range key
-`3`.
-Ids, type ids, and warp ids are 32 bytes each. A present slot's value digest
-is BLAKE3 over a class-specific domain tag and its canonical fields:
+**Value digests.** A present slot's value digest is BLAKE3 over a
+class-specific domain tag and its canonical fields:
 
 - node record: `echo.bridge.node-value.v1\0`, then the node type id;
 - attachment: `echo.bridge.attachment-value.v1\0`, then for an atom tag `0`,
@@ -811,29 +774,17 @@ is BLAKE3 over a class-specific domain tag and its canonical fields:
 - edge: `echo.bridge.edge-value.v1\0`, then the edge type id and the local
   `from` and `to` node ids.
 
-The set digests use the domain tags `echo.bridge.read-set.v1\0`,
-`echo.bridge.target-set.v1\0`, `echo.bridge.write-set.v1\0`,
-`echo.bridge.dependency-set.v1\0`, and `echo.bridge.compared-values.v1\0`.
+The read-set, target-set, write-set, dependency-set, and compared-values
+digests, and the byte images they hash, are defined in
+[Encoding and memory](#encoding-and-memory).
 
 The submission identity is present in every variant. An identified submission
 whose evaluation produced no proposal is a different evidence state from an
 evaluated proposal, and the receipt keeps them distinct.
 
-**Proposal encoding.** The proposal identity is BLAKE3 over
-`echo.bridge.effect-proposal.v1\0` followed by:
-
-1. the Action: its installed-operation identity and its canonical invocation
-   digest, as ADR 0023 binds them;
-2. the evaluation basis: the `EchoOperationEvaluationBasisV1` identity;
-3. the read-set digest, which stands for `readSet`;
-4. the effect count as a little-endian `u64`, then each effect's canonical
-   encoding (see [EffectProposal](#effectproposal)) in canonical order;
-5. the result: its length as a little-endian `u64`, then its bytes;
-6. the cost: steps, read bytes, write bytes, and allocated bytes, each a
-   little-endian `u64`.
-
-Effect kind tags are `EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`,
-`EnsureEdge` `3`, and `ReplaceEdge` `4`.
+**Proposal identity.** The proposal identity is BLAKE3 over
+`echo.bridge.effect-proposal.v1\0` followed by the proposal's canonical
+image, defined in [Encoding and memory](#encoding-and-memory).
 
 The proposal identity is `H(Action, evaluation basis, canonical
 EffectProposal)` in this encoding, and the canonical `EffectProposal` contains
@@ -863,54 +814,12 @@ have different receipt identities, and a version-4 receipt identity never
 changes meaning. Ticks that mix bridge and `NotBridge` entries encode in
 `EPRV0004` without fabricated evidence.
 
-**Receipt layout.** An `EPRV0004` entry is the `EPRV0003` entry fields,
-unchanged, followed by a bridge section preceded by its byte length as a
-little-endian `u64`. Integers are little-endian `u64` and digests and
-identities are 32 bytes. The section is:
-
-1. the posture tag: `NotBridge` `0`, `NoProposal` `1`, `Proposed` `2`. A
-   `NotBridge` section ends here;
-2. for `Proposed`: the proposal identity, the target-set digest, and the
-   patch tag (`NotDerived` `0`, `Derived` `1`), followed for `Derived` by
-   the write-set digest and the patch digest;
-3. the read-set digest;
-4. the validity tag (`WholeFrontier` `0`, `Scoped` `1`). For `Scoped`: the
-   origin basis identity, the validation position (the Action's index in
-   the Tick's canonical candidate order), and an evidence tag
-   (`OriginOnly` `0`, `HistoryChanged` `1`, `Compared` `2`). For
-   `HistoryChanged`: the dependency-set digest and the changed dependency's
-   descriptor encoding. For `Compared`: the dependency-set digest and the
-   compared-values digest;
-5. the consumed budget against the delegated `EchoOperationBudgetV1` axes,
-   steps, read bytes, and write bytes, followed by the evaluator's allocated
-   bytes;
-6. the outcome coordinate: `0` none (committed, or
-   `RejectedFootprintConflict`), `1` a bridge obstruction kind followed by
-   its one-byte code, or `2` an authored obstruction (such as
-   `BasisNotCanonical`) followed by its 32-byte package-declared obstruction
-   identity, qualified by the package and installed operation as the ADR
-   0025 supersession states. Bridge kind codes are `BasisChanged` `0`,
-   `BudgetExceeded` `1`, `DuplicateEffectTarget` `2`, `IdentityLawViolation`
-   `3`, `UnreachableWarp` `4`, `SchemaViolation` `5`, `FootprintLawViolation`
-   `6`, `NodeMissing` `7`, `PreconditionMismatch` `8`,
-   `ContentIdentityConflict` `9`, `DanglingReference` `10`, and
-   `FootprintMismatch` `11`.
-
-Every tag is one byte. The receipt digest version 5 preimage is the version-4
-preimage with two changes: its leading version tag, a little-endian `u16` in
-the same position as versions 2 through 4, is `5`; and each entry's version-4
-bytes are followed by its bridge section exactly as `EPRV0004` retains it,
-length included. An `EPRV0004` decoder refuses a section whose length disagrees
-with its contents or that carries trailing bytes.
-
-**Retained Action outcome.** Today's `EOACT003` record writes an obstruction
-as a code from `EchoOperationObstructionKindV1`, which has none of the
-bridge kinds and no authored obstruction. A bridge Action's retained outcome
-is therefore written as `EOACT004`: the `EOACT003` layout with its one-byte
-obstruction kind replaced by the outcome coordinate above. Fixed-profile
-Actions keep `EOACT003`, its decoder is unchanged, and each record decodes
-by its own magic. Recovery requires the `EOACT004` coordinate to equal the
-receipt's bridge-section coordinate.
+**Receipt and outcome records.** The `EPRV0004` bridge table, the receipt
+digest version 5 preimage, and the `EOACT004` retained Action outcome are
+defined in [Encoding and memory](#encoding-and-memory). Fixed-profile
+Actions keep `EOACT003`, its decoder is unchanged, and each record decodes by
+its own magic. Recovery requires the `EOACT004` outcome coordinate to equal
+the receipt's bridge-row coordinate.
 The implementation adds this row to
 [Submission Attribution's format table](../topics/SubmissionAttribution.md#format-binding-and-legacy)
 when it lands:
@@ -983,6 +892,117 @@ above likewise applies to every row recorded as `Scoped`.
 | `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                                                                                                                      | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
 | `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                                                                                                            | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
 | Any outcome of a `NotBridge` entry                                                                                                                                                                                                                                 | `NotBridge`              | unchanged                                                                 | none; no bridge field present                                                                                                                                                                                        |
+
+## Encoding and memory
+
+Every bridge record is a zero-copy image in the style of Echo's WSC snapshot
+format (`crates/warp-core/src/wsc/`). It is read in place through a view that
+a validator has checked, and it is never hydrated into owned structures. The
+rules:
+
+- **Rows.** Every fixed-size row is `#[repr(C)]` and `bytemuck` `Pod` and
+  `Zeroable`, with explicit padding fields. Integers are little-endian, ids
+  and digests are 32 bytes, and every row size is a multiple of 8 bytes.
+- **Images.** An image is an 8-byte magic, a fixed header, and sections of
+  rows, each section starting 8-byte aligned. Variable-length bytes live in
+  a trailing blob section and are addressed by a 16-byte `Range`
+  (`start_le`, `len_le`), WSC's range row.
+- **One canonical image per value.** Rows appear in the sort order given
+  below. Padding, and every field a row's tags make unused, are zero. Blob
+  bytes are packed in row order, each run starting 8-byte aligned, with zero
+  bytes between runs and none after the last. Two images of one value are
+  therefore byte-identical, and every digest below is BLAKE3 over a domain
+  tag and exact image bytes.
+- **Validation before trust.** A reader checks the magic, the sizes,
+  alignment, tags, zero padding and zero unused fields, sort order, range
+  bounds, and blob packing before using a view. Any failure refuses the
+  history. Validation runs in place and allocates nothing.
+
+**Rows.**
+
+| Row              | Bytes | Fields, in order                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SlotRow`        | 104   | `class` u8 (node record `0`, attachment `1`, edge `2`, range key `3`); `owner` u8 (attachment: node `0`, edge `1`); `plane` u8 (attachment: alpha `0`, beta `1`); 5 padding bytes; `warp_id`; `local_id` (the node, edge, attachment owner, or range source); `edge_type` (range key only)                                                                                                                                          |
+| `ReadRow`        | 160   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`); 7 padding bytes; `value_digest` (present only); `pairs` (`Range` into the pair section; range only)                                                                                                                                                                                                                                                          |
+| `EdgePairRow`    | 64    | `edge_local_id`; `target_local_id`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `EffectRow`      | 280   | `kind` u8 (`EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`, `EnsureEdge` `3`, `ReplaceEdge` `4`); 7 padding bytes; `key_warp_id`; `key_local_id`; `type_id` (node type, or `EnsureEdge`'s edge type); `atom_type_id`; `atom` (`Range` into the blob); `expected_digest` (`ReplaceAtom`); `from_local_id` (`EnsureEdge`); `to_local_id` (`EnsureEdge`, and `ReplaceEdge`'s new target); `expected_to_local_id` (`ReplaceEdge`) |
+| `DependencyRow`  | 152   | `slot` (`SlotRow`); `kind` u8; `mode` u8; 6 padding bytes, which together with `slot` form the 112-byte descriptor; `compared` u8 (present `0`, absent `1`, not compared `2`); 7 padding bytes; `compared_digest` (present only)                                                                                                                                                                                                    |
+| `OutcomeRow`     | 40    | `outcome` u8 (none `0`, bridge kind `1`, authored `2`); `code` u8 (the bridge kind code); 6 padding bytes; `authored_id` (authored only)                                                                                                                                                                                                                                                                                            |
+| `BridgeEntryRow` | 448   | `posture`, `patch`, `validity`, and `evidence` tags, u8 each; `outcome` and `code` as in `OutcomeRow`; 2 padding bytes; `proposal_id`; `target_set`; `write_set`; `patch_digest`; `read_set`; `origin_basis`; `dependency_set`; `compared_values`; `changed_dependency` (a 112-byte descriptor); `authored_id`; `validation_position` u64; `steps`, `read_bytes`, `write_bytes`, and `allocated_bytes`, u64 each                    |
+
+Tags not defined above use the values given in [Evidence](#evidence):
+posture `NotBridge` `0`, `NoProposal` `1`, `Proposed` `2`; patch `NotDerived`
+`0`, `Derived` `1`; validity `WholeFrontier` `0`, `Scoped` `1`; evidence
+`OriginOnly` `0`, `HistoryChanged` `1`, `Compared` `2`. Bridge kind codes are
+`BasisChanged` `0`, `BudgetExceeded` `1`, `DuplicateEffectTarget` `2`,
+`IdentityLawViolation` `3`, `UnreachableWarp` `4`, `SchemaViolation` `5`,
+`FootprintLawViolation` `6`, `NodeMissing` `7`, `PreconditionMismatch` `8`,
+`ContentIdentityConflict` `9`, `DanglingReference` `10`, and
+`FootprintMismatch` `11`. A `NotBridge` row is all zero after its posture.
+
+**Sort orders.** `SlotRow`s sort by `class`, `warp_id`, `local_id`,
+`edge_type`, `owner`, then `plane`, so a set's rows are in slot order.
+`ReadRow`s and `DependencyRow`s sort by their slot, and `DependencyRow`s with
+one slot by `kind`, then `mode`. A range's `EdgePairRow`s are contiguous,
+sorted by `edge_local_id`, and the ranges follow `ReadRow` order. `EffectRow`s
+follow the canonical effect order in [EffectProposal](#effectproposal).
+
+**Images and digests.**
+
+- **Proposal** (magic `EBPRP001`): after the magic, a 192-byte header holding
+  the installed-operation identity, the canonical invocation digest, the
+  `EchoOperationEvaluationBasisV1` identity, the read-set digest, the cost
+  (`steps`, `read_bytes`, `write_bytes`, `allocated_bytes`), the result as a
+  `Range` into the blob, the effect count, and the blob length; then the
+  `EffectRow`s; then the blob, holding the atoms in effect order and then the
+  result. The proposal identity is BLAKE3 over
+  `echo.bridge.effect-proposal.v1\0` and the image.
+- **Sets.** The read-set digest is BLAKE3 over `echo.bridge.read-set.v1\0`,
+  the `ReadRow` count as a little-endian `u64`, the `ReadRow`s, the
+  `EdgePairRow` count, and the `EdgePairRow`s. The target-set and write-set
+  digests hash their domain tags (`echo.bridge.target-set.v1\0`,
+  `echo.bridge.write-set.v1\0`), the count, and the `SlotRow`s. The
+  dependency-set digest hashes `echo.bridge.dependency-set.v1\0`, the count,
+  and each `DependencyRow`'s 112-byte descriptor. The compared-values digest
+  hashes `echo.bridge.compared-values.v1\0`, the count, and the whole
+  `DependencyRow`s.
+- **`EPRV0004`**: the `EPRV0003` record, unchanged, followed by an 8-byte
+  aligned bridge table of one `BridgeEntryRow` per receipt entry, in entry
+  order. The table is indexable in place.
+- **Receipt digest version 5**: the version-4 preimage with its leading
+  little-endian `u16` version tag set to `5`, in the same position as
+  versions 2 through 4, followed by the bridge table bytes exactly as
+  `EPRV0004` retains them.
+- **`EOACT004`**: the `EOACT003` layout with its one-byte obstruction kind
+  replaced by an `OutcomeRow`.
+
+**Memory.** The bridge allocates nothing on its hot path:
+
+- **One reused arena per scheduler.** The scheduler owns a bridge arena that
+  is reset, never freed, at each Tick boundary, as it already reuses its
+  radix `scratch` buffer. Every working structure is a typed region in it:
+  the recording view's `ReadRow`s and `EdgePairRow`s, the emitted
+  `EffectRow`s and blob, the `DependencyRow`s and `SlotRow`s, the proposal
+  images, and the bridge table.
+- **Built in final form.** Records are written in place as their final
+  images. Hashing, the WAL append, and receipt construction read those bytes
+  directly; nothing is copied into intermediate structures.
+- **Capacity fixed before evaluation.** Each region's size is a pure
+  function of the selected candidates' declared footprint-law maxima and
+  delegated budgets, bounded by the existing batch limits (64 candidates,
+  128 operations). The arena grows, if at all, after selection and before
+  evaluation. Evaluation, validation, derivation, and composition never
+  allocate.
+- **No host-dependent decisions.** Arena capacity never changes which
+  Actions a Tick contains or how they are decided. If the host cannot grow
+  the arena, the Tick fails as a host fault and nothing is decided, as on a
+  crash before the WAL record, rather than obstructing an Action.
+- **Recovery reads views.** Recovery validates retained images in place and
+  reads them through views; it rebuilds proposals in the same arena to
+  compare them, and allocates nothing per Action.
+
+`allocated_bytes` remains `edict_pure`'s metered evaluator allocation, which
+is evidence about the program, not about host memory.
 
 ## Execution traces
 
@@ -1128,7 +1148,10 @@ Each behaviour below needs a test before implementation:
 | Budget-stopped evidence       | A scoped proposal whose validation read exhausts the budget records `Compared` with that dependency, and every later one, as not compared; no value past the stop is hashed.                                                                                                                                                                                                                                  |
 | Determinism                   | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
 | Canonical order               | Emitting the same effects in different orders yields the same canonical `EffectProposal` bytes and proposal identity.                                                                                                                                                                                                                                                                                         |
-| Encoding vectors              | Fixed byte vectors for the proposal encoding, every value digest, every set digest (including a descriptor list with both comparison modes), and an `EPRV0004` entry of each posture, validity, and evidence tag reproduce the specified bytes and receipt-v5 digests.                                                                                                                                        |
+| Encoding vectors              | Fixed byte vectors for every row, the proposal image, every set digest, a bridge table with each posture, validity, evidence, and outcome tag, and `EOACT004` reproduce the specified bytes, sizes, and receipt-v5 digests.                                                                                                                                                                                   |
+| In-place validation           | Each image validates and reads through a view without heap allocation; an image with nonzero padding, a nonzero unused field, an unsorted section, an out-of-bounds range, or loosely packed blob bytes is refused.                                                                                                                                                                                           |
+| No hot-path allocation        | With an allocation-counting allocator, a warmed-up Tick of bridge Actions performs zero heap allocations during evaluation, validation, derivation, and composition, and recovery of that Tick allocates nothing per Action.                                                                                                                                                                                  |
+| Arena independence            | The same Ticks decided on hosts with different initial arena capacities produce byte-identical receipts, WAL records, and state roots.                                                                                                                                                                                                                                                                        |
 | Range-read entries            | An empty observed range encodes as a range entry with count zero, never as an absent outcome, and a nonempty range's entry matches the specified layout byte for byte.                                                                                                                                                                                                                                        |
 | Canonical slots               | Differently expressed effects on one slot (`EnsureEdge` and `ReplaceEdge` of one edge id; `CreateNode` and `ReplaceAtom` of one node) obstruct with `DuplicateEffectTarget`.                                                                                                                                                                                                                                  |
 | Write set                     | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
@@ -1146,6 +1169,7 @@ Each behaviour below needs a test before implementation:
 | Origin resolution             | A scoped `ReplaceEdge` whose program never read the edge, and whose source node is deleted and recreated between origin and commit parent while the edge is unchanged, obstructs with `BasisChanged`, because resolution at the origin put the source in its dependency set.                                                                                                                                  |
 | Scoped conflict recovery      | A scoped Action rejected because an earlier Action in its Tick replaced a value it expects recovers as `RejectedFootprintConflict`, not `PreconditionMismatch`.                                                                                                                                                                                                                                               |
 | Scoped evidence forms         | An evaluation obstruction records `OriginOnly`, a dependency-scoped `BasisChanged` records `HistoryChanged` with no compared values, and every other scoped outcome records `Compared` over commit-parent values; none is compared at a validation position that includes an earlier overlapping write.                                                                                                       |
+| Resolution failure evidence   | A scoped `ReplaceEdge` whose edge is missing at its origin records `OriginOnly` with `PreconditionMismatch`; recovery reproduces it without running the history check.                                                                                                                                                                                                                                        |
 | Retry basis                   | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                                        |
 | Receipt digest v5             | A version-5 receipt digest begins with the little-endian `u16` `5` and changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                             |
 | Proposal binding              | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                                 |

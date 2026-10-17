@@ -2033,10 +2033,25 @@ impl Engine {
         #[cfg(any(test, feature = "delta_validate"))]
         let state_before = self.state.clone();
 
-        #[cfg(any(test, feature = "delta_validate"))]
-        let applied = self.apply_reserved_rewrites(reserved_rewrites, &state_before);
-        #[cfg(not(any(test, feature = "delta_validate")))]
-        let applied = self.apply_reserved_rewrites(reserved_rewrites);
+        // Rule executors run here. If one panics, the recording ends with
+        // this scope, before the panic leaves the commit, so no store log
+        // keeps capturing priors for writes made outside any tick.
+        let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            #[cfg(any(test, feature = "delta_validate"))]
+            let applied = self.apply_reserved_rewrites(reserved_rewrites, &state_before);
+            #[cfg(not(any(test, feature = "delta_validate")))]
+            let applied = self.apply_reserved_rewrites(reserved_rewrites);
+            applied
+        }));
+        let applied = match applied {
+            Ok(applied) => applied,
+            Err(panic) => {
+                if owns_touch_log {
+                    self.state.end_touch_log();
+                }
+                std::panic::resume_unwind(panic);
+            }
+        };
         if applied.is_err() && owns_touch_log {
             self.state.end_touch_log();
         }

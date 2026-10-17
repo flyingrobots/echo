@@ -60,6 +60,8 @@ impl Clone for WarpStateTouches {
         Self {
             state: StateTouchLog {
                 recording: false,
+                epoch: self.state.epoch,
+                begun: self.state.begun.clone(),
                 instances: self.state.instances.clone(),
                 replaced_stores: self.state.replaced_stores.clone(),
             },
@@ -193,7 +195,24 @@ impl WarpState {
     /// they were (or removed again); every other store restores its own
     /// touched slots and buckets; instances get their prior records back.
     pub(crate) fn restore_touches(&mut self) {
-        let log = std::mem::take(&mut self.touched);
+        let epoch = self.touched.epoch;
+        let log = std::mem::replace(
+            &mut self.touched,
+            StateTouchLog {
+                epoch,
+                ..StateTouchLog::default()
+            },
+        );
+        for warp_id in &log.begun {
+            if log.replaced_stores.contains_key(warp_id) {
+                continue;
+            }
+            if let Some(store) = self.stores.get_mut(warp_id) {
+                if store_is_current(store, epoch) {
+                    store.restore_touches();
+                }
+            }
+        }
         for (warp_id, prior) in log.replaced_stores {
             match prior {
                 Some(store) => {
@@ -202,11 +221,6 @@ impl WarpState {
                 None => {
                     self.stores.remove(&warp_id);
                 }
-            }
-        }
-        for store in self.stores.values_mut() {
-            if store.touched.recording {
-                store.restore_touches();
             }
         }
         for (warp_id, prior) in log.instances {
@@ -221,18 +235,27 @@ impl WarpState {
         }
     }
 
-    /// Stops recording and moves every log out, so the touches can be undone
-    /// later with [`Self::restore_from`].
+    /// Stops recording and moves every log of this epoch out, so the touches
+    /// can be undone later with [`Self::restore_from`].
     pub(crate) fn take_touches(&mut self) -> WarpStateTouches {
+        let epoch = self.touched.epoch;
         let mut stores = BTreeMap::new();
-        for (warp_id, store) in &mut self.stores {
-            let mut log = std::mem::take(&mut store.touched);
-            if log.recording {
-                log.recording = false;
-                stores.insert(*warp_id, log);
+        for warp_id in &self.touched.begun {
+            if let Some(store) = self.stores.get_mut(warp_id) {
+                if store_is_current(store, epoch) {
+                    let mut log = std::mem::take(&mut store.touched);
+                    log.recording = false;
+                    stores.insert(*warp_id, log);
+                }
             }
         }
-        let mut state = std::mem::take(&mut self.touched);
+        let mut state = std::mem::replace(
+            &mut self.touched,
+            StateTouchLog {
+                epoch,
+                ..StateTouchLog::default()
+            },
+        );
         state.recording = false;
         WarpStateTouches { state, stores }
     }
@@ -240,13 +263,20 @@ impl WarpState {
     /// Undoes `touches`, taken earlier by [`Self::take_touches`], restoring
     /// the state as it was when those touches began. Any later writes must
     /// already have been undone.
+    ///
+    /// The logs are re-stamped with a fresh epoch, so the counter never moves
+    /// backwards and no stale store log can be mistaken for a current one.
     pub(crate) fn restore_from(&mut self, touches: WarpStateTouches) {
         let WarpStateTouches { mut state, stores } = touches;
+        let epoch = self.touched.epoch.wrapping_add(1);
         state.recording = true;
+        state.epoch = epoch;
+        state.begun = stores.keys().copied().collect();
         self.touched = state;
         for (warp_id, mut log) in stores {
             if let Some(store) = self.stores.get_mut(&warp_id) {
                 log.recording = true;
+                log.epoch = epoch;
                 store.touched = log;
             }
         }
@@ -269,8 +299,15 @@ impl WarpState {
         if let std::collections::btree_map::Entry::Vacant(slot) =
             self.touched.replaced_stores.entry(warp_id)
         {
+            let epoch = self.touched.epoch;
             slot.insert(prior.map(|mut store| {
-                store.restore_touches();
+                // Only a log from this epoch holds this tick's priors; a
+                // stale one belongs to an aborted recording and is dropped.
+                if store_is_current(&store, epoch) {
+                    store.restore_touches();
+                } else {
+                    store.end_touch_log();
+                }
                 store
             }));
         }

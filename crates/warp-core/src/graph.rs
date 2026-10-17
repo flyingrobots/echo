@@ -96,6 +96,7 @@ impl TouchLog {
     pub(crate) fn duplicate(&self) -> Self {
         Self {
             recording: self.recording,
+            epoch: self.epoch,
             nodes: self.nodes.clone(),
             node_attachments: self.node_attachments.clone(),
             edges: self.edges.clone(),

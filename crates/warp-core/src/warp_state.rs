@@ -136,12 +136,26 @@ impl WarpState {
     /// Stores start their own logs lazily, on first write access, so this
     /// costs nothing per store.
     pub(crate) fn begin_touch_log(&mut self) {
-        let epoch = self.touched.epoch.wrapping_add(1);
+        let epoch = self.next_touch_epoch();
         self.touched = StateTouchLog {
             recording: true,
             epoch,
             ..StateTouchLog::default()
         };
+    }
+
+    /// The next recording epoch. Epochs only grow, so a store log from an
+    /// earlier recording can never match the current one. When the counter
+    /// would overflow, every store's log is cleared once and counting
+    /// restarts at 1, so no surviving log can carry a reused epoch.
+    fn next_touch_epoch(&mut self) -> u64 {
+        if let Some(epoch) = self.touched.epoch.checked_add(1) {
+            return epoch;
+        }
+        for store in self.stores.values_mut() {
+            store.end_touch_log();
+        }
+        1
     }
 
     /// Stops recording touches and discards every log started in this epoch.

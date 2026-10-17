@@ -408,6 +408,10 @@ jobs:
               run: cargo test -p warp-math --features golden_prng --test prng_golden_regression
             - name: cargo test (feature-gated targets no other step runs)
               run: cargo test -p warp-core --features native_rule_bootstrap --test installed_contract_registry_tests
+            - name: cargo test (allocation witnesses, ordinary build)
+              env:
+                  ECHO_ALLOC_WITNESS_REQUIRED: "1"
+              run: cargo test -p echo-alloc-witness
             - name: cargo test (warp-core commit touch log)
               run: cargo test -p warp-core --features native_rule_bootstrap --test commit_touch_log
 

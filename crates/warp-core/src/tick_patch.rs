@@ -2745,6 +2745,58 @@ mod touched_diff_tests {
         state
     }
 
+    /// The diff of a later recording, measured from the state at its own
+    /// start, whatever earlier recordings left behind.
+    fn diff_from(before: &WarpState, after: &WarpState) -> Vec<super::WarpOp> {
+        diff_state(before, after)
+    }
+
+    /// An aborted recording (begun, written, never ended) must not leak into
+    /// the next one: the next recording sees only its own writes.
+    #[test]
+    fn an_aborted_recording_does_not_leak_into_the_next() {
+        let mut state = seeded_state(&[]);
+        state.begin_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 1, ty: 0 });
+        // Aborted: no end. The next recording starts here.
+        let before = state.clone();
+        state.begin_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 2, ty: 0 });
+        assert_eq!(touched_diff(&state), diff_from(&before, &state));
+    }
+
+    /// A store removed and reinserted within one recording is diffed against
+    /// its content at the start.
+    #[test]
+    fn a_store_removed_and_reinserted_is_diffed_from_its_start() {
+        let mut state = seeded_state(&[Write::OpenChild { parent: 0 }]);
+        let before = state.clone();
+        state.begin_touch_log();
+        apply(&mut state, &Write::DeleteChild);
+        apply(&mut state, &Write::OpenChild { parent: 0 });
+        apply(&mut state, &Write::ReplaceChildStore { node: 3 });
+        assert_eq!(touched_diff(&state), diff_state(&before, &state));
+    }
+
+    /// At epoch exhaustion the counter restarts at 1 only after every store
+    /// log is cleared, so a stale log stamped with epoch 1 cannot be read as
+    /// current.
+    #[test]
+    fn epoch_exhaustion_never_revives_a_stale_log() {
+        let mut state = seeded_state(&[]);
+        // A stale log at epoch 1, left by an aborted recording.
+        state.begin_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 1, ty: 0 });
+        assert_eq!(state.touched.epoch, 1);
+        // The counter is about to overflow.
+        state.touched.epoch = u64::MAX;
+        let before = state.clone();
+        state.begin_touch_log();
+        assert_eq!(state.touched.epoch, 1, "the counter restarts at 1");
+        apply(&mut state, &Write::InsertNode { node: 2, ty: 0 });
+        assert_eq!(touched_diff(&state), diff_state(&before, &state));
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(2048))]
 

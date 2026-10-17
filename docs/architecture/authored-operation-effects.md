@@ -492,11 +492,13 @@ type in every node and atom `ReadRow`'s `read_type` field: the record's actual
 type when the read finds one, and the type the read named when it finds nothing.
 The footprint law's `read_node_types` or `atom_types` decides from that field
 whether each read is permitted, live and on recovery alike. An atom read of an
-alpha slot that holds a portal (`Descend`) has the outcome `portal`: the
-program sees the portal, never an atom. Its row has a zero `read_type` and the
-portal's attachment value digest as `subject`. It is authorized when the slot's
-owner node type is in `portal_owner_types`, and it is a `ValueDigest`
-dependency like any present value. A first
+alpha slot that holds a portal (`Descend`) has the outcome `portal`: the program
+sees the portal, never an atom. The view also reads the slot owner's node
+record, charged as a node-record read, and records the owner's node type as the
+row's `read_type`, with the portal's attachment value digest as `subject`. The
+read is authorized when that type is in `portal_owner_types`, decided from the
+row alone, live and on recovery. The portal is a `ValueDigest` dependency, and
+the owner record is a resolved-record dependency, like any present value. A first
 implementation may still sit on today's fully materialized worldline state, but
 nothing in this contract may rely on that.
 
@@ -945,7 +947,10 @@ Consequences:
     - **Package.** The V1 package map with `schema` set to
       `echo.operation-package/v2`, `semantic_closure` set to a
       `closure-v2`, and `program` set to an effect program. Every other key,
-      and its value shape, is as in V1. Where V1 derives a package identity
+      and its value shape, is as in V1, except that the optional
+      `application_result_projection` must be absent: an effect program's
+      application result is its own output, which `result_identity` binds,
+      so no projection can compete with it. Where V1 derives a package identity
       field from its program, V2 fixes it for the effect program, using V1's
       `profile_digest` (BLAKE3 over `echo:operation-profile:v1\0` and the
       length-prefixed label), and admission requires each equality:
@@ -991,7 +996,10 @@ Consequences:
           [identity law](#identity-laws); unknown values are refused;
         - `graph_schema`, the canonical bytes of a `graph-schema`;
         - `footprint_law`, the canonical bytes of a `footprint-law`;
-        - `max_input_bytes`;
+        - `max_input_bytes` and `max_result_bytes`, each at most 65,536, the
+          application input and result ceilings ADR 0025 sets. A result
+          longer than `max_result_bytes` obstructs evaluation with
+          `BudgetExceeded`, posture `NoProposal`;
         - `max_allocated_bytes`, the program's declared allocation ceiling,
           at most `EFFECT_ALLOCATION_CEILING_V1`, which bounds evaluation and
           sizes the scheduler's evaluation arena;
@@ -1047,8 +1055,8 @@ Consequences:
       "interpreter_profile_identity": id, "intrinsic_profile_identity": id,
       "compiled_program": bstr, "target_ir_identity": id,
       "identity_law": uint, "graph_schema": bstr, "footprint_law": bstr,
-      "max_input_bytes": uint, "max_allocated_bytes": uint,
-      "output_type": tstr,
+      "max_input_bytes": uint, "max_result_bytes": uint,
+      "max_allocated_bytes": uint, "output_type": tstr,
     }
     invocation-v2-effect = {
       "schema": "echo.operation-invocation/v2",
@@ -1341,7 +1349,7 @@ rules:
 | Row              | Bytes | Fields, in order                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SlotRow`        | 104   | `class` u8 (node record `0`, attachment `1`, edge `2`, range key `3`); `owner` u8 (attachment: node `0`, edge `1`); `plane` u8 (attachment: alpha `0`, beta `1`); 5 padding bytes; `warp_id`; `local_id` (the node, edge, attachment owner, or range source); `edge_type` (range key only)                                                                                                                                                                                   |
-| `ReadRow`        | 192   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`, portal `3`); 7 padding bytes; `read_type`, 32 bytes: the type that authorizes the read, the record's node type or atom `type_id` when present and the type the read named when absent, zero for a range or a portal; `subject`, 32 bytes: the value digest when present or a portal, zero otherwise; `pairs` (`Range` into the pair section; range only)                                               |
+| `ReadRow`        | 192   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`, portal `3`); 7 padding bytes; `read_type`, 32 bytes: the type that authorizes the read, the record's node type or atom `type_id` when present and the type the read named when absent, the owner's node type for a portal, and zero for a range; `subject`, 32 bytes: the value digest when present or a portal, zero otherwise; `pairs` (`Range` into the pair section; range only)                   |
 | `EdgePairRow`    | 64    | `edge_local_id`; `target_local_id`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `EffectRow`      | 280   | `kind` u8 (`EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`, `EnsureEdge` `3`, `ReplaceEdge` `4`); 7 padding bytes; `key_warp_id`; `key_local_id`; `type_id` (node type, or `EnsureEdge`'s edge type); `atom_type_id`; `atom` (`Range` into the blob); `expected_digest` (`ReplaceAtom`); `from_local_id` (`EnsureEdge`); `to_local_id` (`EnsureEdge`, and `ReplaceEdge`'s new target); `expected_to_local_id` (`ReplaceEdge`)                                          |
 | `DependencyRow`  | 152   | `slot` (`SlotRow`); `kind` u8; `mode` u8; 6 padding bytes, which together with `slot` form the 112-byte descriptor; `compared` u8 (present `0`, absent `1`, not compared `2`); 7 padding bytes; `compared_digest` (present only)                                                                                                                                                                                                                                             |
@@ -1777,7 +1785,9 @@ Each behaviour below needs a test before implementation:
 | Evaluation-only proposal cost   | The same evaluation at the same origin has the same proposal identity whether validation stops at the history check or runs to the end.                                                                                                                                                                                                                                                          |
 | Allocation ceiling profile      | A program declaring more than `EFFECT_ALLOCATION_CEILING_V1` is refused at admission; a host that cannot provide the declared bytes fails the Tick as a host fault, never obstructing the Action.                                                                                                                                                                                                |
 | Range-type refusal recovery     | An evaluation-time `FootprintLawViolation` for an undeclared range type recovers as `NoProposal` by re-evaluation, with the same read set.                                                                                                                                                                                                                                                       |
-| Portal atom read                | An atom read of a slot holding a portal records outcome `portal` with the portal's digest; it is refused unless the owner's type is in `portal_owner_types`.                                                                                                                                                                                                                                     |
+| Portal atom read                | An atom read of a slot holding a portal records outcome `portal`, the owner's node type as `read_type`, and the portal's digest; it is refused unless that type is in `portal_owner_types`, decided from the row alone.                                                                                                                                                                          |
+| Inherited ceilings              | An effect program declaring `max_input_bytes` or `max_result_bytes` above 65,536 is refused at admission; a longer result obstructs with `BudgetExceeded`, `NoProposal`.                                                                                                                                                                                                                         |
+| No result projection            | A V2 package carrying `application_result_projection` is refused at admission.                                                                                                                                                                                                                                                                                                                   |
 
 ## Open questions
 

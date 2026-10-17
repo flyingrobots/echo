@@ -977,33 +977,46 @@ pub fn build_work_units(
 
     let mut units = Vec::new();
 
-    for (warp_id, mut items) in sorted {
-        // Group by shard without a table of every shard: a stable sort by
-        // shard id gives the shards in ascending order with each shard's items
-        // in input order, exactly as `partition_into_shards` does.
-        items.sort_by_key(|item| shard_of(&item.scope));
-        let mut start = 0;
-        while start < items.len() {
-            let shard = shard_of(&items[start].scope);
-            let len = items[start..]
-                .iter()
-                .position(|item| shard_of(&item.scope) != shard)
-                .unwrap_or(items.len() - start);
-            // A warp whose items all share one shard (the common case) moves
-            // its vector into the unit instead of copying it.
-            let unit_items = if len == items.len() {
-                std::mem::take(&mut items)
-            } else {
-                items[start..start + len].to_vec()
-            };
+    for (warp_id, items) in sorted {
+        // Group by shard in two linear passes, with the per-shard counts and
+        // unit indexes on the stack rather than a heap table of every shard.
+        // Units come out in ascending shard order, each holding its items in
+        // input order, exactly as `partition_into_shards` gives them.
+        let mut counts = [0usize; NUM_SHARDS];
+        for item in &items {
+            counts[shard_of(&item.scope)] += 1;
+        }
+        let occupied = counts.iter().filter(|&&count| count > 0).count();
+        if occupied == 0 {
+            continue;
+        }
+        if occupied == 1 {
+            // Every item shares one shard (the common case): the vector moves
+            // into the unit uncopied.
             units.push(WorkUnit {
                 warp_id,
-                items: unit_items,
+                items,
                 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
                 #[cfg(not(feature = "unsafe_graph"))]
                 guards: Vec::new(),
             });
-            start += len;
+            continue;
+        }
+        let mut unit_of = [usize::MAX; NUM_SHARDS];
+        for (shard, &count) in counts.iter().enumerate() {
+            if count > 0 {
+                unit_of[shard] = units.len();
+                units.push(WorkUnit {
+                    warp_id,
+                    items: Vec::with_capacity(count),
+                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                    #[cfg(not(feature = "unsafe_graph"))]
+                    guards: Vec::new(),
+                });
+            }
+        }
+        for item in items {
+            units[unit_of[shard_of(&item.scope)]].items.push(item);
         }
     }
 

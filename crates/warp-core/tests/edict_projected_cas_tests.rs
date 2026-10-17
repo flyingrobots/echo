@@ -894,4 +894,11 @@ fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
         ),
         "preparation copied the result projection"
     );
+    assert!(
+        std::ptr::eq(
+            prepared.installed().admission_policy(),
+            registered.admission_policy()
+        ),
+        "preparation copied the admission policy and its operation coordinate"
+    );
 }

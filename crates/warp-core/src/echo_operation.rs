@@ -2518,7 +2518,7 @@ pub struct InstalledEchoOperationV1 {
         Option<std::sync::Arc<EchoOperationApplicationResultProjectionV1>>,
     canonical_package_bytes: std::sync::Arc<[u8]>,
     admission_policy_id: Hash,
-    admission_policy: EchoOperationAdmissionPolicyV1,
+    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicyV1>,
 }
 
 impl InstalledEchoOperationV1 {
@@ -2576,7 +2576,14 @@ impl InstalledEchoOperationV1 {
         self.lawpack_identity
     }
 
-    /// Returns the exact retained package bytes.
+    /// Returns the admission policy installed with the package. Every
+    /// prepared Action shares it with the registry.
+    #[must_use]
+    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicyV1 {
+        &self.admission_policy
+    }
+
+    /// Returns the exact canonical package bytes retained at installation.
     #[must_use]
     pub fn canonical_package_bytes(&self) -> &[u8] {
         &self.canonical_package_bytes
@@ -2678,7 +2685,7 @@ pub(crate) fn installed_from_admitted(
             .map(std::sync::Arc::new),
         canonical_package_bytes: admitted.canonical_package_bytes.into(),
         admission_policy_id: admitted.admission_policy_id,
-        admission_policy: admitted.admission_policy,
+        admission_policy: std::sync::Arc::new(admitted.admission_policy),
     };
     installed.installed_operation_id = installed_operation_id(&installed);
     Ok(installed)

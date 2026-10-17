@@ -82,7 +82,9 @@ pub struct Snapshot {
 ///
 /// An engine keeps one and passes it to every commit, so computing the state
 /// root allocates nothing once these buffers have grown to the reachable
-/// graph's size. Its contents never outlive a call and never affect the hash.
+/// graph's size, unless node ids collide pathologically in the membership
+/// table, when that commit falls back to the allocating ordered walk. Its
+/// contents never outlive a call and never affect the hash.
 ///
 /// Traversal finds each node once: `found` lists reached nodes in discovery
 /// order and doubles as the BFS queue, and `index` answers membership in one
@@ -112,6 +114,9 @@ pub(crate) struct StateRootScratch {
     /// Whether the last traversal fell back to the ordered walk.
     #[cfg(test)]
     fell_back: bool,
+    /// Warps listed during traversal, before deduplication.
+    #[cfg(test)]
+    warp_pushes: usize,
 }
 
 impl std::fmt::Debug for StateRootScratch {
@@ -402,17 +407,6 @@ fn position_tag(position: usize) -> u32 {
     })
 }
 
-/// Sorts and deduplicates `warps` once it has doubled since its last
-/// compaction, so it stays proportional to the distinct warps it holds, not
-/// to the portals that reached them.
-fn compact_if_doubled(warps: &mut Vec<WarpId>, compacted_len: &mut usize) {
-    if warps.len() >= (*compacted_len).max(32) * 2 {
-        warps.sort_unstable();
-        warps.dedup();
-        *compacted_len = warps.len();
-    }
-}
-
 /// Fills `scratch.reachable` and `scratch.warps` with the graph reachable from
 /// `root`, following edges and `Descend` portals on nodes and edges, breadth
 /// first. Returns `false`, with the scratch unfinished, when the membership
@@ -428,6 +422,8 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
         probes,
         #[cfg(test)]
         cleared,
+        #[cfg(test)]
+        warp_pushes,
         ..
     } = scratch;
     found.clear();
@@ -439,7 +435,6 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
     index.begin();
     warps.clear();
     warps.push(root.warp_id);
-    let mut warps_compacted = 1;
     let walked = (|| -> Option<()> {
         index.insert(
             found,
@@ -464,16 +459,17 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
                                index: &mut MembershipTable,
                                #[cfg(test)] probes: &mut usize|
              -> Option<()> {
-                warps.push(child_warp);
-                compact_if_doubled(warps, &mut warps_compacted);
                 let Some(child) = state.instance(&child_warp) else {
+                    // A missing instance contributes nothing to the hash.
                     debug_assert!(
                         false,
                         "descend referenced missing warp instance metadata: {child_warp:?}"
                     );
                     return Some(());
                 };
-                index.insert(
+                // A warp is listed when its root is first reached, which
+                // happens once however many portals name it.
+                if index.insert(
                     found,
                     NodeKey {
                         warp_id: child_warp,
@@ -481,7 +477,13 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
                     },
                     #[cfg(test)]
                     probes,
-                )?;
+                )? {
+                    warps.push(child_warp);
+                    #[cfg(test)]
+                    {
+                        *warp_pushes += 1;
+                    }
+                }
                 Some(())
             };
             for edge in store.edges_from(&current.local_id) {
@@ -1877,6 +1879,68 @@ mod reachability_work {
             "reaching a {N}-node chain made {} membership probes; O(n) allows {bound}",
             scratch.probes
         );
+    }
+
+    /// Many portals naming the same few warps list each warp once, so their
+    /// number never adds sorting work.
+    #[test]
+    fn repeated_portals_list_each_warp_once() {
+        use crate::attachment::AttachmentValue;
+        const EDGES: usize = 4_096;
+        let ty = make_type_id("reachability-work/ty");
+        let root_warp = make_warp_id("reachability-work/portals/root");
+        let child = |w: usize| make_warp_id(&format!("reachability-work/portals/child/{w}"));
+        let node = |i: usize| make_node_id(&format!("reachability-work/portals/node/{i}"));
+        let mut root_store = GraphStore::new(root_warp);
+        root_store.insert_node(node(0), NodeRecord { ty });
+        for i in 1..=EDGES {
+            root_store.insert_node(node(i), NodeRecord { ty });
+            let edge = make_edge_id(&format!("reachability-work/portals/edge/{i}"));
+            root_store.insert_edge(
+                node(0),
+                EdgeRecord {
+                    id: edge,
+                    from: node(0),
+                    to: node(i),
+                    ty,
+                },
+            );
+            root_store.set_edge_attachment(edge, Some(AttachmentValue::Descend(child(i % 2))));
+        }
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: root_warp,
+                root_node: node(0),
+                parent: None,
+            },
+            root_store,
+        );
+        for w in 0..2 {
+            let child_root = make_node_id(&format!("reachability-work/portals/child-root/{w}"));
+            let mut store = GraphStore::new(child(w));
+            store.insert_node(child_root, NodeRecord { ty });
+            state.upsert_instance(
+                WarpInstance {
+                    warp_id: child(w),
+                    root_node: child_root,
+                    parent: None,
+                },
+                store,
+            );
+        }
+        let root = NodeKey {
+            warp_id: root_warp,
+            local_id: node(0),
+        };
+        let mut scratch = StateRootScratch::default();
+        let hash = compute_state_root_with(&state, &root, &mut scratch);
+        assert!(
+            scratch.warp_pushes <= 3,
+            "{EDGES} portals to 2 warps listed {} warps before deduplication",
+            scratch.warp_pushes
+        );
+        assert_eq!(hash, super::compute_state_root_reference(&state, &root));
     }
 
     /// Ids chosen to collide in the membership table cannot make a commit

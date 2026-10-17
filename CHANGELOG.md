@@ -37,7 +37,8 @@
 
 - An engine keeps the state root's working memory across commits, so a
   commit's state-root hash allocates nothing once that memory has grown to the
-  reachable graph. The hashed bytes are unchanged. Before, every commit
+  reachable graph, unless node ids collide pathologically, when that commit
+  falls back to the original ordered walk and its allocation. The hashed bytes are unchanged. Before, every commit
   allocated in proportion to the reachable graph (about 4 MB at 16,000
   reachable entities). Reachability finds each node once, with one membership
   probe per edge into a reused table that is never iterated, then sorts once:

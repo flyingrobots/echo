@@ -583,3 +583,10 @@ pub trait AtomView<'a>: Sized {
         Self::parse(payload.bytes.as_ref())
     }
 }
+
+/// Whether this build cross-checks every tick delta against a whole-state
+/// copy (`delta_validate`). Allocation witnesses outside this crate read it:
+/// such a build copies the state on purpose, so their measurement does not
+/// apply to it.
+#[doc(hidden)]
+pub const DELTA_VALIDATE: bool = cfg!(feature = "delta_validate");

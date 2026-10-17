@@ -132,14 +132,14 @@ Echo learns no application vocabulary. A proposal is nodes, edges, and atoms.
       Action.
     - **Other obstructions:** it re-evaluates the Action and requires the same
       pre-decision evidence, except that a scheduler-assigned `BudgetExceeded`
-      (an Action-batch limit, decided after a successful evaluation) is
-      accepted as a reconstructed preparation and verified through the batch
-      reconstruction below.
-      Finally, for every Action Tick and every outcome class, it reconstructs the
-      whole Action batch's composition over the recovered parent state and refuses
-      history where any reconstructed outcome differs from the recorded one; for
-      each `RejectedFootprintConflict` it also recomputes the blocking earlier
-      Actions and requires them to equal the recorded blockers.
+      (an Action-batch limit, decided after a successful evaluation) is accepted
+      as a reconstructed preparation and verified through the batch
+      reconstruction below. Finally, for every Action Tick and every outcome
+      class, it reconstructs the whole Action batch's composition over the
+      recovered parent state and refuses history where any reconstructed outcome
+      differs from the recorded one; for each `RejectedFootprintConflict` it
+      also recomputes the blocking earlier Actions and requires them to equal
+      the recorded blockers.
 - `echo_operation_written_slots_v1` collects the slots written between an
   origin and a commit parent by unioning each retained replay patch's
   `out_slots`. `WarpTickPatchV1::new` accepts `out_slots` independently of
@@ -327,13 +327,19 @@ a digest alone could not be executed. One law is defined:
 - **`1`, `ContentAddressV1`.** It covers the ids a proposal creates: the node
   of each `EnsureNode` and `CreateNode`, and the edge of each `EnsureEdge`.
   `ReplaceAtom` and `ReplaceEdge` name existing ids and are not recomputed.
-  A record created under this law is immutable: replacing a node's atom or
-  an edge's target would leave an id that no longer addresses its content.
-  So a `ReplaceAtom` or `ReplaceEdge` whose target's id equals
-  `ContentAddressV1` of its current content obstructs with
-  `IdentityLawViolation`. Mutable records, such as an application's anchor
-  node (the buffer `B` in the trace), have ids that are not content
-  addresses and may be replaced.
+  The law applies by node type, as the package's schema marks it. Each node
+  type is either content-addressed or mutable, and the record's type, which
+  every record carries, decides; no creation history is needed.
+    - A node of a content-addressed type must be created through
+      `EnsureNode` with its `ContentAddressV1` id, and it is immutable. A
+      `ReplaceAtom` of it, or a `ReplaceEdge` of an edge whose source is of
+      such a type, obstructs with `IdentityLawViolation`, since its id would
+      no longer address its content.
+    - A node of a mutable type, such as an application's anchor (the buffer
+      `B` in the trace), has a program-chosen id. It may only be created by
+      `CreateNode`, which requires the id to be absent, and it may be
+      replaced. An `EnsureNode` of a mutable type is an
+      `IdentityLawViolation`.
     - An edge id is BLAKE3 over `echo.bridge.edge-id.v1\0`, the warp id, the
       `from` local id, the edge type id, and the `to` local id.
     - A node id is BLAKE3 over `echo.bridge.node-id.v1\0`, the warp id, the
@@ -393,7 +399,8 @@ and a high-degree node cannot force an allocation the budget did not cover.
 
 These dependency kinds follow the
 [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
-decision (#837). Value and single-key absence dependencies are the kinds that decision
+decision (#837). Value and single-key absence dependencies are the kinds that
+decision
 supports. A read of outgoing edges by type is a topology dependency, which that
 decision does not yet support. Eligibility is decided statically at admission,
 never by the branch an evaluation takes: an Action whose package's footprint law
@@ -418,8 +425,12 @@ parameters. It is an `edict.canonical-cbor/v1` map with these entries:
 `atom_types` (the atom `type_id`s it may read or write), `range_edge_types`
 (edge types it may read as outgoing ranges; empty makes it eligible for
 scoped validity), `write_edge_types`, and the unsigned counts `max_reads`,
-`max_writes`, and `max_range_edges` (per range read). Its canonical bytes are
-part of the program's identity. At validation Echo checks:
+`max_writes`, and `max_range_edges` (per range read), and `portal_owner_types`
+(node types whose alpha portals an effect in a descended warp may cross; empty
+confines the package to its root warp). Each portal on a validated chain must
+be owned by a node of one of these types, or validation obstructs with
+`FootprintLawViolation`. Its canonical bytes are part of the program's
+identity. At validation Echo checks:
 
 - every node type, atom `type_id`, and edge type an effect writes is admitted
   by the package's typed graph and attachment schema, which ADR 0023 requires
@@ -476,7 +487,10 @@ recorded obstruction:
    (`UnreachableWarp`). A warp unreachable at a scoped Action's origin
    obstructs even if a later Tick made it reachable, and a reachable warp's
    portal chain is already in its dependency set, so step 3 catches any
-   change to it. It runs first, so a key in a missing warp is never
+   change to it. Each portal crossed costs one step and 64 `read_bytes`,
+   charged before it is read, in canonical effect order and root first; a
+   crossing the remaining budget cannot cover obstructs with
+   `BudgetExceeded`. It runs first, so a key in a missing warp is never
    reported as a missing record;
 2. resolution at the evaluation basis (for a scoped Action, its origin): in
    canonical effect order, read and charge the facts the effects do not
@@ -731,11 +745,14 @@ Consequences:
       `evaluator_profile_identity` (the evaluator ABI and intrinsic
       profile), `identity_law` (an unsigned integer naming an
       [identity law](#identity-laws); unknown values are refused),
-      `schema` (canonical bytes, below), and `footprint_law` (its canonical
-      bytes). Identities are 32-byte byte strings. The `schema` is an
+      `schema` (canonical bytes, below), `footprint_law` (its canonical
+      bytes), and `max_input_bytes`. Identities are 32-byte byte strings. The
+      `schema` is an
       `edict.canonical-cbor/v1` map that Echo executes, not only a digest:
-      `node_types` maps each admitted node type id to the set of atom
-      `type_id`s it may carry, and `edge_types` maps each admitted edge type
+      `node_types` maps each admitted node type id to its `addressing`
+      (`content` or `mutable`, which the [identity law](#identity-laws)
+      reads) and the set of atom `type_id`s it may carry, and `edge_types` maps
+      each admitted edge type
       id to the set of admitted (source node type, target node type) pairs.
       Validation steps 6 and 7 read these relations directly.
       Admission refuses a package unless the program's entries agree with the
@@ -752,8 +769,14 @@ Consequences:
       are the V1 compare-and-set and create-if-absent kinds with their V1
       fields, and tag `2` is `EdictInput`, which carries no anchored node or
       replacement and instead requires `application_input_bytes`. Those are
-      the program's input in `edict.canonical-cbor/v1`, validated at
-      admission against the package's input schema identity. Admission
+      the program's input in `edict.canonical-cbor/v1`. Admission checks
+      only what it can check without a schema language: that the bytes are
+      canonical `edict.canonical-cbor/v1` and no longer than the program's
+      `max_input_bytes` entry. The input's shape is the compiled program's to
+      check, as its first act; a malformed input obstructs evaluation with
+      the authored `InputRejected`, posture `NoProposal`. The package's input
+      schema identity remains evidence of the intended shape, not an
+      admission check. Admission
       dispatches on the program tag: a tag `2` program admits only tag `2`
       invocations and the fixed profiles only their own kinds, so no
       invocation crosses between them. The V2 invocation identity has its own
@@ -1258,8 +1281,10 @@ Each behaviour below needs a test before implementation:
 | Write set                     | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
 | Identity law                  | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
 | Content address               | Under `ContentAddressV1`, a node id equal to the specified BLAKE3 over its type, atom, and proposal-created children, and an edge id over its endpoints and type, pass; any other id obstructs with `IdentityLawViolation`; fixed vectors pin both derivations.                                                                                                                                               |
+| Addressing by type            | A `ReplaceAtom` of a node whose type the schema marks content-addressed, or an `EnsureNode` of a mutable type, obstructs with `IdentityLawViolation`; a `ReplaceAtom` of a mutable-type node commits.                                                                                                                                                                                                         |
 | Unreachable warp              | An effect naming a key in a missing warp, or in a warp no valid portal chain reaches, obstructs with `UnreachableWarp`, posture `Proposed`, `NotDerived`.                                                                                                                                                                                                                                                     |
 | Origin reachability           | A scoped Action naming a warp unreachable at its origin obstructs with `UnreachableWarp` even when an intervening Tick created the portal that reaches it.                                                                                                                                                                                                                                                    |
+| Portal permission and cost    | An effect in a descended warp whose chain crosses a portal owned by a type outside `portal_owner_types` obstructs with `FootprintLawViolation`; a chain whose crossings exceed the remaining budget obstructs with `BudgetExceeded` at step 1.                                                                                                                                                                |
 | Schema                        | An effect whose node type, atom `type_id`, or edge type the package's schema does not admit obstructs with `SchemaViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                   |
 | Resolved schema               | A `ReplaceEdge` whose basis edge type the schema does not admit, or a `ReplaceAtom` whose owner node type does not admit the new atom type, obstructs with `SchemaViolation` after its record is read and charged.                                                                                                                                                                                            |
 | Endpoint types                | A creating `EnsureEdge` or a `ReplaceEdge` whose source or target node type the schema does not admit for that edge type obstructs with `SchemaViolation`, after its endpoint records are read and charged.                                                                                                                                                                                                   |
@@ -1298,6 +1323,7 @@ Each behaviour below needs a test before implementation:
 | Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with no `lawpack` entry and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                                         |
 | Lawpack by program            | A V2 package whose fixed-profile program omits the lawpack, or whose `EdictEffectProgram` carries one, is refused at admission.                                                                                                                                                                                                                                                                               |
 | Invocation version            | An `EdictInput` (tag `2`) invocation is admitted only for an `EdictEffectProgram` package and is refused for a fixed profile, and a fixed-profile kind is refused for a tag `2` program.                                                                                                                                                                                                                      |
+| Input bounds                  | An `EdictInput` that is not canonical CBOR, or longer than `max_input_bytes`, is refused at admission; a well-formed input of the wrong shape obstructs evaluation with `InputRejected` and `NoProposal`.                                                                                                                                                                                                     |
 | Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                                    |
 | Recovered evidence            | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
 | Pending recovery              | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                                        |

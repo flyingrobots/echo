@@ -209,20 +209,20 @@ Rules:
 
 - **Effects are the only writes.** The proposal contains no prepared patch.
   Echo derives the patch from the effects.
-- **Canonical order.** Echo sorts the effects the evaluator emits; the order
-  in which evaluation produced them never reaches the identity. Each effect
-  has a primary slot: the node record for `EnsureNode` and `CreateNode`, the
-  atom for `ReplaceAtom`, and the edge for `EnsureEdge` and `ReplaceEdge`.
-  Effects sort by the primary slot's class (node record, then attachment, then
-  edge), then by its warp id bytes, then its local id bytes, compared
-  lexicographically. A tie can occur
-  only in a proposal that obstructs with `DuplicateEffectTarget`; it breaks
-  by effect kind (`EnsureNode`, `CreateNode`, `ReplaceAtom`, `EnsureEdge`,
-  `ReplaceEdge`), then by the effect's `EffectRow` bytes, then by its atom
-  bytes (see [Encoding and memory](#encoding-and-memory)); every field of
-  the effect, expected values included, is in those bytes. Sorting never
-  removes an effect, so duplicates stay visible to the one-effect-per-slot
-  rule.
+- **Canonical order.** Echo sorts the effects the evaluator emits; the order in
+  which evaluation produced them never reaches the identity. Each effect has a
+  primary slot: the node record for `EnsureNode` and `CreateNode`, the atom for
+  `ReplaceAtom`, and the edge for `EnsureEdge` and `ReplaceEdge`. Effects sort
+  by the primary slot's class (node record, then attachment, then edge), then by
+  its warp id bytes, then its local id bytes, compared lexicographically. A tie
+  can occur only in a proposal that obstructs with `DuplicateEffectTarget`; it
+  breaks by effect kind (`EnsureNode`, `CreateNode`, `ReplaceAtom`,
+  `EnsureEdge`, `ReplaceEdge`), then by the effect's `EffectRow` bytes with its
+  `atom` range zeroed, then by its atom bytes (see [Encoding and
+  memory](#encoding-and-memory)); every semantic field of the effect, expected
+  values included, is in those bytes. Blob ranges are assigned only after
+  sorting, so emission order never reaches them. Sorting never removes an
+  effect, so duplicates stay visible to the one-effect-per-slot rule.
 - **One effect per slot.** No two effects in one proposal may target the same
   slot: one node record, one node's atom, or one edge. Targets are compared
   by canonical slot identity (the node id, the node id's atom, or the edge
@@ -350,6 +350,16 @@ type)`. A range read claims it as a read. Every effect that creates or
 retargets an edge with that source and type claims it as a write, in addition
 to the edge id. Independence treats range keys like every other key: a write
 against a read or write conflicts.
+
+A range read is metered before it materializes anything. The view first
+takes the range's edge count from the source node's bucket, without copying
+an edge, and charges one step and 64 `read_bytes` per edge (one edge local id
+and one target local id). If the count exceeds the footprint law's maximum
+for that edge type, or the charge exceeds the remaining budget, evaluation
+obstructs with `BudgetExceeded`, posture `NoProposal`, before any edge is
+copied. Otherwise the view writes the range's `EdgePairRow`s directly into
+the arena. Consumed cost and the read set therefore depend only on the basis,
+and a high-degree node cannot force an allocation the budget did not cover.
 
 These dependency kinds follow the
 [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
@@ -671,7 +681,18 @@ Consequences:
       length as a little-endian `u64`. Identities are 32 bytes each. The
       evaluator dispatches on the tag: `0` and `1` run today's profiles
       unchanged, and `2` runs the compiled program through the bridge this
-      document defines.
+      document defines;
+    - the invocation is an `EchoOperationInvocationV2`, the V1 canonical
+      CBOR map with its kind extended to a tagged union: tags `0` and `1`
+      are the V1 compare-and-set and create-if-absent kinds with their V1
+      fields, and tag `2` is `EdictInput`, which carries no anchored node or
+      replacement and instead requires `application_input_bytes`. Those are
+      the program's input in `edict.canonical-cbor/v1`, validated at
+      admission against the package's input schema identity. Admission
+      dispatches on the program tag: a tag `2` program admits only tag `2`
+      invocations and the fixed profiles only their own kinds, so no
+      invocation crosses between them. The V2 invocation identity has its own
+      domain.
 
     V2 canonical bytes carry their own version domain tags, so V2 program,
     package, installed-operation, and semantic-closure identities never
@@ -753,10 +774,13 @@ comparison mode:
 
 - kind: value present `0`, observed absent `1`, expected value `2`, endpoint
   existence `3`;
-- comparison mode: `ValueDigest` `0`, which compares the slot's value digest
-  (value present, expected value), and `Presence` `1`, which compares only
-  presence (observed absent, endpoint existence). These are the two modes the
-  Action validity decision supports; revision-sensitive and
+- comparison mode: `ValueDigest` `0`, a payload-value dependency that
+  compares the slot's value digest, and `Absence` `1`, a single-key absence
+  dependency. These are exactly the two kinds the Action validity decision
+  admits. Value present, expected value, and endpoint existence use
+  `ValueDigest`: an endpoint's dependency is on its node record's value, so
+  it holds only while the node exists with that value. Observed absent uses
+  `Absence`. Positive presence alone is not a mode. Revision-sensitive and
   identity-sensitive dependencies are refused at admission and have no tag.
 
 A scoped Action reads no edge ranges (an edge read keeps the whole-frontier
@@ -966,15 +990,23 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
   and each `DependencyRow`'s 112-byte descriptor. The compared-values digest
   hashes `echo.bridge.compared-values.v1\0`, the count, and the whole
   `DependencyRow`s.
-- **`EPRV0004`**: the `EPRV0003` record, unchanged, followed by an 8-byte
-  aligned bridge table of one `BridgeEntryRow` per receipt entry, in entry
-  order. The table is indexable in place.
+- **`EPRV0004`**: the eight ASCII bytes `EPRV0004` as the record magic, then
+  the `EPRV0003` payload that follows that record's own magic, byte for byte,
+  then zero padding to an 8-byte boundary, then a bridge table of one
+  `BridgeEntryRow` per receipt entry, in entry order. Only the magic differs
+  from `EPRV0003` before the table, so the unchanged `EPRV0003` decoder never
+  sees an `EPRV0004` record. The table is indexable in place.
 - **Receipt digest version 5**: the version-4 preimage with its leading
   little-endian `u16` version tag set to `5`, in the same position as
   versions 2 through 4, followed by the bridge table bytes exactly as
   `EPRV0004` retains them.
-- **`EOACT004`**: the `EOACT003` layout with its one-byte obstruction kind
-  replaced by an `OutcomeRow`.
+- **`EOACT004`**: the eight ASCII bytes `EOACT004`, then the `EOACT003`
+  layout with one change per variant. Every variant writes an `OutcomeRow`
+  immediately after its one-byte variant tag (committed `1`, obstructed `2`,
+  conflict `3`). For committed and conflict, it is the all-zero row, outcome
+  none; for obstructed, it replaces `EOACT003`'s one-byte obstruction kind.
+  The coordinate is always encoded, never derived, and recovery requires
+  the decoder to read the zero row for committed and conflict.
 
 **Memory.** The bridge allocates nothing on its hot path:
 
@@ -987,10 +1019,11 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
 - **Built in final form.** Records are written in place as their final
   images. Hashing, the WAL append, and receipt construction read those bytes
   directly; nothing is copied into intermediate structures.
-- **Capacity fixed before evaluation.** Each region's size is a pure
-  function of the selected candidates' declared footprint-law maxima and
-  delegated budgets, bounded by the existing batch limits (64 candidates,
-  128 operations). The arena grows, if at all, after selection and before
+- **Capacity fixed before evaluation.** Each region's size is a pure function of
+  the selected candidates' declared footprint-law maxima, delegated budgets, and
+  the program's `max_allocated_bytes`, which bounds the result bytes the blob
+  must also hold, all bounded by the existing batch limits (64 candidates, 128
+  operations). The arena grows, if at all, after selection and before
   evaluation. Evaluation, validation, derivation, and composition never
   allocate.
 - **No host-dependent decisions.** Arena capacity never changes which
@@ -1148,6 +1181,7 @@ Each behaviour below needs a test before implementation:
 | Budget-stopped evidence       | A scoped proposal whose validation read exhausts the budget records `Compared` with that dependency, and every later one, as not compared; no value past the stop is hashed.                                                                                                                                                                                                                                  |
 | Determinism                   | Same package, invocation, and evaluation basis give byte-identical proposals, proposal identities, read-set and write-set digests, and derived patches, whether the Action is evaluated alone or beside other Actions. Receipts and composite patches are compared only for identical Tick contexts.                                                                                                          |
 | Canonical order               | Emitting the same effects in different orders yields the same canonical `EffectProposal` bytes and proposal identity.                                                                                                                                                                                                                                                                                         |
+| Blob-independent order        | Two same-kind duplicate effects on one slot with different atoms produce the same canonical image and proposal identity whichever order they were emitted in.                                                                                                                                                                                                                                                 |
 | Encoding vectors              | Fixed byte vectors for every row, the proposal image, every set digest, a bridge table with each posture, validity, evidence, and outcome tag, and `EOACT004` reproduce the specified bytes, sizes, and receipt-v5 digests.                                                                                                                                                                                   |
 | In-place validation           | Each image validates and reads through a view without heap allocation; an image with nonzero padding, a nonzero unused field, an unsorted section, an out-of-bounds range, or loosely packed blob bytes is refused.                                                                                                                                                                                           |
 | No hot-path allocation        | With an allocation-counting allocator, a warmed-up Tick of bridge Actions performs zero heap allocations during evaluation, validation, derivation, and composition, and recovery of that Tick allocates nothing per Action.                                                                                                                                                                                  |
@@ -1183,6 +1217,7 @@ Each behaviour below needs a test before implementation:
 | Visibility                    | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                                |
 | Witnessed reads               | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                                                                             |
 | Negative reads                | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it, including a fresh edge of the observed source and type with a new edge id when the observed set was empty (outgoing-edge range key).                                                                                                                                                                |
+| Range metering                | A range read over a node with more edges than the law's maximum, or than the remaining budget covers, obstructs with `BudgetExceeded` and `NoProposal` before copying any edge; an admissible range charges one step and 64 read bytes per edge.                                                                                                                                                              |
 | Edge-read basis               | An Action that read edges commits only onto its exact evaluation basis.                                                                                                                                                                                                                                                                                                                                       |
 | Final outcomes                | A rejected Action's outcome, receipt, and attribution are unchanged after a later submission of the same edit succeeds.                                                                                                                                                                                                                                                                                       |
 | Duplicate resubmission        | Resubmitting a decided Action's identical content returns `Duplicate` with the original outcome and commits no Tick.                                                                                                                                                                                                                                                                                          |
@@ -1192,14 +1227,16 @@ Each behaviour below needs a test before implementation:
 | Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                                            |
 | Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
 | Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with lawpack tag `0` and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                                            |
+| Invocation version            | An `EdictInput` (tag `2`) invocation is admitted only for an `EdictEffectProgram` package and is refused for a fixed profile, and a fixed-profile kind is refused for a tag `2` program.                                                                                                                                                                                                                      |
 | Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                                    |
 | Recovered evidence            | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
 | Pending recovery              | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                                        |
 
 ## Open questions
 
-- How `edict_read` exposes outgoing edges by type, and how a bounded closure
-  read guided by a pure Edict selector is expressed and budgeted.
+- How `edict_read` exposes outgoing edges by type to Edict source, and how a
+  bounded closure read guided by a pure Edict selector is expressed and
+  budgeted. The metering of a single range read is defined above.
 - Whether the footprint law is per-invocation or per-package with parameters.
 - Which domain-separated hash Edict source can call to derive ids.
 - Whether proposals larger than the Action-batch operation limit should ever

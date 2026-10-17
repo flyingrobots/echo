@@ -451,10 +451,13 @@ and complete obstruction control.
 This is the preferable long-term authoring experience if repeated operations
 demonstrate that those constructs belong in Edict. It is rejected for the first
 vertical because the current compiler's initial lowerable subset is much
-smaller. (The superseding decision linked above selects this route, effective
-when flyingrobots/echo#889 merges.) Implementing the entire language surface before any hook-free
+smaller. Implementing the entire language surface before any hook-free
 operation runs would turn the first witness into a broad language and runtime design
 effort and would make `ReplaceRange` define unproven universal syntax.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> superseding decision linked in this record's header selects this route,
+> Edict source, for the rope law. The rejection above is kept as written.
 
 ### Bind a canonical declarative executable resource from a Jedit lawpack
 
@@ -464,13 +467,15 @@ identity through Core and target lowering, and generate canonical client and
 package artifacts. The persistent-rope execution law lives in declarative
 program bytes rather than native code.
 
-This route was selected on 2026-07-18 and was never implemented. The selection
-is superseded, effective when flyingrobots/echo#889 merges; see
-[Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
-The original rationale follows. It is the smallest route that closes the
-execution proof chain without broad Edict expansion. It does not establish a permanent
+This route is selected. It is the smallest route that closes the execution
+proof chain without broad Edict expansion. It does not establish a permanent
 rule that complex Edict operations must be authored as external resources.
 Later Edict syntax may compile to the same target program boundary.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: this
+> selection was never implemented and is superseded by
+> [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+> The selection and its rationale above are kept as written.
 
 ## Verification Evidence Grades
 
@@ -564,11 +569,7 @@ by comparing two wrappers around the same algorithm.
   category rather than a callback-bearing provider revision.
 - Edict needs fixed-width and explicit-basis operation support plus exact
   executable-resource binding; this decision does not require a general
-  recursive language. (Superseded in part, effective when
-  flyingrobots/echo#889 merges: the rope law no longer needs
-  executable-resource binding; Edict gains language features only when the
-  authored source demonstrates the need. See the
-  [Jedit rope-law closure](#jedit-rope-law-closure) banner.)
+  recursive language.
 - The first program format preserves contained-execution obligations without
   claiming durable child lanes, child ticks, wormholes, or universal WARP wire
   status.
@@ -583,6 +584,11 @@ by comparing two wrappers around the same algorithm.
   cross-basis transport remain separately witnessed future operations.
 - The existing Jedit planner becomes migration evidence rather than production
   execution authority.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> rope law no longer needs executable-resource binding, and Edict gains
+> language features only when the authored source demonstrates the need. See
+> the [Jedit rope-law closure](#jedit-rope-law-closure) banner.
 
 ## Non-Goals
 

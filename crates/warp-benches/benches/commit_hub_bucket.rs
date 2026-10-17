@@ -12,6 +12,11 @@
 //! one finds and removes it from a `Vec`, which is O(degree). A time ratio
 //! near 1 between degrees means the commit is independent of bucket size; a
 //! ratio that tracks degree marks the remaining O(degree) step.
+//!
+//! Each case names the hub degree `d` and the graph's leaf count `n`. Cases
+//! with the same `n` isolate the bucket; cases with the same `d` isolate the
+//! rest of the commit, such as hashing the state root, which still reads the
+//! whole graph.
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{
@@ -22,7 +27,8 @@ use warp_core::{
 
 const ADD: &str = "bench/hub/add-edge";
 const DELETE: &str = "bench/hub/delete-edge";
-const DEGREES: [usize; 2] = [1_000, 16_000];
+/// `(degree, leaves)`: the hub links to the first `degree` of `leaves`.
+const CASES: [(usize, usize); 3] = [(1_000, 1_000), (1_000, 16_000), (16_000, 16_000)];
 
 fn hub() -> NodeId {
     make_node_id("bench/hub")
@@ -94,8 +100,9 @@ fn delete_edge(view: &mut ExecutionGraphView<'_, '_>, _n: &NodeId, delta: &mut T
     });
 }
 
-/// An engine whose hub already has `degree` outbound edges.
-fn engine_with_hub(degree: usize) -> Engine {
+/// An engine with `leaves` leaf nodes, whose hub already has outbound edges
+/// to the first `degree` of them.
+fn engine_with_hub(degree: usize, leaves: usize) -> Engine {
     let mut engine = build_motion_demo_engine();
     engine.register_rule(rule(ADD, add_edge)).expect("add rule");
     engine
@@ -107,9 +114,12 @@ fn engine_with_hub(degree: usize) -> Engine {
         .state_mut()
         .store_mut(&make_warp_id("root"))
         .expect("root store");
-    for i in 0..degree {
+    for i in 0..leaves {
         let leaf = make_node_id(&format!("bench/hub/leaf/{i}"));
         store.insert_node(leaf, NodeRecord { ty });
+        if i >= degree {
+            continue;
+        }
         store.insert_edge(
             hub(),
             EdgeRecord {
@@ -126,11 +136,12 @@ fn engine_with_hub(degree: usize) -> Engine {
 fn bench_hub_commit(c: &mut Criterion) {
     let mut group = c.benchmark_group("commit_hub_bucket");
     for (op, rule_name) in [("add", ADD), ("delete", DELETE)] {
-        for degree in DEGREES {
-            group.bench_with_input(BenchmarkId::new(op, degree), &degree, |b, &degree| {
+        for (degree, leaves) in CASES {
+            let id = BenchmarkId::new(op, format!("d{degree}-n{leaves}"));
+            group.bench_function(id, |b| {
                 b.iter_batched(
                     || {
-                        let mut engine = engine_with_hub(degree);
+                        let mut engine = engine_with_hub(degree, leaves);
                         let tx = engine.begin();
                         engine.apply(tx, rule_name, &hub()).expect("rule applies");
                         (engine, tx)

@@ -29,6 +29,7 @@
 //!   here and add a migration note in the determinism spec.
 //! - The in-memory store uses `BTreeMap`, which guarantees deterministic key
 //!   iteration. For vectors (edge lists), we sort explicitly by `EdgeId`.
+#[cfg(test)]
 use std::collections::{BTreeSet, VecDeque};
 
 use blake3::Hasher;
@@ -36,6 +37,7 @@ use blake3::Hasher;
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
 use crate::domain;
 use crate::ident::{Hash, NodeKey, WarpId};
+#[cfg(test)]
 use crate::record::EdgeRecord;
 use crate::tx::TxId;
 use crate::warp_state::WarpState;
@@ -77,8 +79,234 @@ pub struct Snapshot {
     pub tx: TxId,
 }
 
-/// Computes the canonical state root hash (graph only).
+/// Reusable working memory for [`compute_state_root_with`].
+///
+/// An engine keeps one and passes it to every commit, so computing the state
+/// root allocates nothing once these buffers have grown to the reachable
+/// graph's size. Its contents never outlive a call and never affect the hash.
+#[derive(Default)]
+pub(crate) struct StateRootScratch {
+    /// Every reachable node, sorted.
+    reachable: Vec<NodeKey>,
+    /// The nodes found in the previous BFS level.
+    frontier: Vec<NodeKey>,
+    /// The nodes found in the current BFS level, not yet in `reachable`.
+    next: Vec<NodeKey>,
+    /// Merge target for `reachable` and `next`.
+    merged: Vec<NodeKey>,
+    /// Every reachable warp, sorted.
+    warps: Vec<WarpId>,
+    /// One bucket's reachable edges, as positions in the bucket.
+    edge_order: Vec<usize>,
+}
+
+impl std::fmt::Debug for StateRootScratch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StateRootScratch")
+    }
+}
+
+/// Computes the canonical state root hash (graph only), with temporary working
+/// memory. Hot paths call [`compute_state_root_with`] and keep the scratch.
 pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
+    compute_state_root_with(state, root, &mut StateRootScratch::default())
+}
+
+/// Computes the canonical state root hash (graph only), using `scratch` for
+/// all working memory.
+///
+/// The hash covers the reachable graph in a fixed order: reachable warps
+/// ascending, then in each warp its instance header, its reachable nodes by
+/// ascending `NodeId`, and the bucket of each reachable source by ascending
+/// source, its edges to reachable targets sorted by `EdgeId`. Only the
+/// reachable set enters the hash, never the order in which it was found.
+pub(crate) fn compute_state_root_with(
+    state: &WarpState,
+    root: &NodeKey,
+    scratch: &mut StateRootScratch,
+) -> Hash {
+    collect_reachable(state, root, scratch);
+    let StateRootScratch {
+        reachable,
+        warps,
+        edge_order,
+        ..
+    } = scratch;
+
+    let mut hasher = Hasher::new();
+    hasher.update(domain::STATE_ROOT_V1);
+    hasher.update(&(root.warp_id).0);
+    hasher.update(&(root.local_id).0);
+
+    for warp_id in warps.iter() {
+        let Some(instance) = state.instance(warp_id) else {
+            debug_assert!(false, "missing warp instance metadata: {warp_id:?}");
+            continue;
+        };
+        let Some(store) = state.store(warp_id) else {
+            debug_assert!(false, "missing warp store for instance: {warp_id:?}");
+            continue;
+        };
+
+        // Instance header: bind metadata into the deterministic boundary.
+        hasher.update(&(instance.warp_id).0);
+        hasher.update(&(instance.root_node).0);
+        hash_attachment_key_opt(&mut hasher, instance.parent.as_ref());
+
+        // `reachable` is sorted by warp, then local id, so this warp's nodes
+        // are one ascending run.
+        let start = reachable.partition_point(|key| key.warp_id < *warp_id);
+        let end = reachable.partition_point(|key| key.warp_id <= *warp_id);
+        let in_warp = &reachable[start..end];
+
+        // Nodes: ascending NodeId order. A reachable key with no record (a
+        // dangling edge target) contributes nothing.
+        for key in in_warp {
+            let Some(node) = store.nodes.get(&key.local_id) else {
+                continue;
+            };
+            hasher.update(&key.local_id.0);
+            hasher.update(&(node.ty).0);
+            hash_attachment_value_opt(&mut hasher, store.node_attachment(&key.local_id));
+        }
+
+        // Edges: per reachable source bucket, ascending source, sorted by
+        // EdgeId, filtered to reachable targets. Edge ids are unique, so an
+        // unstable sort gives the same order without a merge buffer.
+        for key in in_warp {
+            let Some(edges) = store.edges_from.get(&key.local_id) else {
+                continue;
+            };
+            edge_order.clear();
+            edge_order.extend((0..edges.len()).filter(|&index| {
+                reachable
+                    .binary_search(&NodeKey {
+                        warp_id: *warp_id,
+                        local_id: edges[index].to,
+                    })
+                    .is_ok()
+            }));
+            edge_order.sort_unstable_by_key(|&index| edges[index].id.0);
+
+            hasher.update(&key.local_id.0);
+            hasher.update(&(edge_order.len() as u64).to_le_bytes());
+            for &index in edge_order.iter() {
+                let edge = &edges[index];
+                hasher.update(&(edge.id).0);
+                hasher.update(&(edge.ty).0);
+                hasher.update(&(edge.to).0);
+                hash_attachment_value_opt(&mut hasher, store.edge_attachment(&edge.id));
+            }
+        }
+    }
+
+    hasher.finalize().into()
+}
+
+/// Fills `scratch.reachable` and `scratch.warps` with the graph reachable from
+/// `root`, following edges and `Descend` portals on nodes and edges, level by
+/// level. Membership is a binary search in the sorted `reachable`, which each
+/// level's new nodes are merged into.
+fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootScratch) {
+    let StateRootScratch {
+        reachable,
+        frontier,
+        next,
+        merged,
+        warps,
+        ..
+    } = scratch;
+    reachable.clear();
+    frontier.clear();
+    warps.clear();
+    reachable.push(*root);
+    warps.push(root.warp_id);
+    frontier.push(*root);
+
+    while !frontier.is_empty() {
+        next.clear();
+        for current in frontier.iter() {
+            let Some(store) = state.store(&current.warp_id) else {
+                debug_assert!(
+                    false,
+                    "reachable traversal referenced missing warp store: {:?}",
+                    current.warp_id
+                );
+                continue;
+            };
+            for edge in store.edges_from(&current.local_id) {
+                let to = NodeKey {
+                    warp_id: current.warp_id,
+                    local_id: edge.to,
+                };
+                if reachable.binary_search(&to).is_err() {
+                    next.push(to);
+                }
+                if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id)
+                {
+                    reach_descend(state, *child_warp, warps, reachable, next);
+                }
+            }
+            if let Some(AttachmentValue::Descend(child_warp)) =
+                store.node_attachment(&current.local_id)
+            {
+                reach_descend(state, *child_warp, warps, reachable, next);
+            }
+        }
+        next.sort_unstable();
+        next.dedup();
+
+        // Merge this level into `reachable`, keeping it sorted.
+        merged.clear();
+        let (mut a, mut b) = (0, 0);
+        while a < reachable.len() && b < next.len() {
+            if reachable[a] < next[b] {
+                merged.push(reachable[a]);
+                a += 1;
+            } else {
+                merged.push(next[b]);
+                b += 1;
+            }
+        }
+        merged.extend_from_slice(&reachable[a..]);
+        merged.extend_from_slice(&next[b..]);
+        std::mem::swap(reachable, merged);
+        std::mem::swap(frontier, next);
+    }
+}
+
+/// Marks `child_warp` reachable and queues its root node unless already
+/// reachable.
+fn reach_descend(
+    state: &WarpState,
+    child_warp: WarpId,
+    warps: &mut Vec<WarpId>,
+    reachable: &[NodeKey],
+    next: &mut Vec<NodeKey>,
+) {
+    if let Err(at) = warps.binary_search(&child_warp) {
+        warps.insert(at, child_warp);
+    }
+    let Some(child) = state.instance(&child_warp) else {
+        debug_assert!(
+            false,
+            "descend referenced missing warp instance metadata: {child_warp:?}"
+        );
+        return;
+    };
+    let child_root = NodeKey {
+        warp_id: child_warp,
+        local_id: child.root_node,
+    };
+    if reachable.binary_search(&child_root).is_err() {
+        next.push(child_root);
+    }
+}
+
+/// The state root as first written, kept to prove [`compute_state_root_with`]
+/// computes the same bytes.
+#[cfg(test)]
+fn compute_state_root_reference(state: &WarpState, root: &NodeKey) -> Hash {
     // 1) Determine reachable nodes across instances via deterministic BFS.
     let (reachable_warps, reachable_nodes) = collect_reachable_graph(state, root);
 
@@ -158,6 +386,7 @@ pub(crate) fn compute_state_root_for_warp_state(state: &WarpState, root: &NodeKe
     compute_state_root(state, root)
 }
 
+#[cfg(test)]
 fn collect_reachable_graph(
     state: &WarpState,
     root: &NodeKey,
@@ -334,6 +563,7 @@ pub fn compute_commit_hash_for_receipt(
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.
 
+#[cfg(test)]
 fn enqueue_descend(
     state: &WarpState,
     child_warp: WarpId,
@@ -1214,5 +1444,154 @@ mod tests {
             actual_hex, expected_hex,
             "golden vector mismatch - wire format may have changed!\nexpected: {expected_hex}\nactual:   {actual_hex}"
         );
+    }
+}
+
+#[cfg(test)]
+mod state_root_equivalence {
+    use bytes::Bytes;
+    use proptest::prelude::*;
+
+    use super::{compute_state_root_reference, compute_state_root_with, StateRootScratch};
+    use crate::attachment::{AtomPayload, AttachmentValue};
+    use crate::graph::GraphStore;
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id, NodeKey, WarpId};
+    use crate::record::{EdgeRecord, NodeRecord};
+    use crate::warp_state::{WarpInstance, WarpState};
+
+    const WARPS: u8 = 3;
+
+    #[derive(Debug, Clone)]
+    enum Write {
+        Node { warp: u8, node: u8 },
+        Edge { warp: u8, id: u8, from: u8, to: u8 },
+        Atom { warp: u8, node: u8, bytes: u8 },
+        NodeDescend { warp: u8, node: u8, child: u8 },
+        EdgeDescend { warp: u8, id: u8, child: u8 },
+    }
+
+    fn warp(w: u8) -> WarpId {
+        make_warp_id(&format!("state-root-eq/warp/{w}"))
+    }
+
+    fn node(w: u8, n: u8) -> crate::ident::NodeId {
+        make_node_id(&format!("state-root-eq/{w}/node/{n}"))
+    }
+
+    fn edge(w: u8, e: u8) -> crate::ident::EdgeId {
+        make_edge_id(&format!("state-root-eq/{w}/edge/{e}"))
+    }
+
+    fn write() -> impl Strategy<Value = Write> {
+        let w = 0..WARPS;
+        let n = 0u8..10;
+        prop_oneof![
+            (w.clone(), n.clone()).prop_map(|(warp, node)| Write::Node { warp, node }),
+            (w.clone(), 0u8..16, n.clone(), n.clone())
+                .prop_map(|(warp, id, from, to)| Write::Edge { warp, id, from, to }),
+            (w.clone(), n.clone(), 0u8..3).prop_map(|(warp, node, bytes)| Write::Atom {
+                warp,
+                node,
+                bytes
+            }),
+            (w.clone(), n, 1..WARPS).prop_map(|(warp, node, child)| Write::NodeDescend {
+                warp,
+                node,
+                child
+            }),
+            (w, 0u8..16, 1..WARPS).prop_map(|(warp, id, child)| Write::EdgeDescend {
+                warp,
+                id,
+                child
+            }),
+        ]
+    }
+
+    /// A state of `WARPS` instances, each rooted at its node 0, after
+    /// `writes`. Edges may dangle, portals may form cycles, and warps may be
+    /// unreachable.
+    fn state(writes: &[Write]) -> WarpState {
+        let ty = make_type_id("state-root-eq/ty");
+        let mut stores: Vec<GraphStore> = (0..WARPS)
+            .map(|w| {
+                let mut store = GraphStore::new(warp(w));
+                store.insert_node(node(w, 0), NodeRecord { ty });
+                store
+            })
+            .collect();
+        for write in writes {
+            match *write {
+                Write::Node { warp: w, node: n } => {
+                    stores[usize::from(w)].insert_node(node(w, n), NodeRecord { ty });
+                }
+                Write::Edge {
+                    warp: w,
+                    id,
+                    from,
+                    to,
+                } => stores[usize::from(w)].insert_edge(
+                    node(w, from),
+                    EdgeRecord {
+                        id: edge(w, id),
+                        from: node(w, from),
+                        to: node(w, to),
+                        ty,
+                    },
+                ),
+                Write::Atom {
+                    warp: w,
+                    node: n,
+                    bytes,
+                } => stores[usize::from(w)].set_node_attachment(
+                    node(w, n),
+                    Some(AttachmentValue::Atom(AtomPayload::new(
+                        ty,
+                        Bytes::from(vec![bytes; usize::from(bytes)]),
+                    ))),
+                ),
+                Write::NodeDescend {
+                    warp: w,
+                    node: n,
+                    child,
+                } => stores[usize::from(w)]
+                    .set_node_attachment(node(w, n), Some(AttachmentValue::Descend(warp(child)))),
+                Write::EdgeDescend { warp: w, id, child } => stores[usize::from(w)]
+                    .set_edge_attachment(edge(w, id), Some(AttachmentValue::Descend(warp(child)))),
+            }
+        }
+        let mut state = WarpState::new();
+        for (w, store) in (0..WARPS).zip(stores) {
+            state.upsert_instance(
+                WarpInstance {
+                    warp_id: warp(w),
+                    root_node: node(w, 0),
+                    parent: None,
+                },
+                store,
+            );
+        }
+        state
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2048))]
+
+        /// The scratch-based state root hashes exactly the bytes the original
+        /// does, including when one scratch is reused across different states.
+        #[test]
+        fn scratch_state_root_matches_the_reference(
+            first in proptest::collection::vec(write(), 0..48),
+            second in proptest::collection::vec(write(), 0..48),
+        ) {
+            let root = NodeKey { warp_id: warp(0), local_id: node(0, 0) };
+            let mut scratch = StateRootScratch::default();
+            for writes in [&first, &second, &first] {
+                let state = state(writes);
+                prop_assert_eq!(
+                    compute_state_root_with(&state, &root, &mut scratch),
+                    compute_state_root_reference(&state, &root)
+                );
+            }
+        }
     }
 }

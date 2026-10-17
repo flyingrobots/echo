@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Committing a tick must cost what the tick touched, not what the graph
-//! holds.
+//! Committing a tick must not copy the graph to compute its delta: its
+//! allocation must not grow with entities the tick did not touch.
+//!
+//! The entities here have no edges, so they are not reachable from the root
+//! and the state root never walks them. `commit_reachable_allocation.rs`
+//! covers reachable entities.
 //!
 //! This file holds one test and its own allocator, so that nothing else in
 //! the process allocates while the measurement runs.

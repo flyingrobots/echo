@@ -644,21 +644,26 @@ recorded obstruction:
    alpha atom slot, and the target edge record of each `EnsureEdge`, present or
    absent, which decides whether the effect writes or only confirms; for an
    `EnsureNode` whose content-typed target exists, a scan of that node's whole
-   outgoing bucket and a hash of its atom, which the identity law needs; for
-   every node the proposal creates, its outgoing bucket's length, which must be
-   zero, since a node cannot be created over edges a non-bridge writer left
-   under its id (`PreconditionMismatch` otherwise); each `ReplaceAtom`'s node
-   record; each `ReplaceEdge`'s edge record; the source node record of every
-   `EnsureEdge` and `ReplaceEdge`, whose type selects the edge-id rule, and,
-   when that source is mutable, its whole outgoing bucket for the alias check;
-   and the target node record of a creating `EnsureEdge` or a `ReplaceEdge`,
-   each unless the proposal creates that node. Charges follow [Validation
-   reads](#basis-budget-retries). Failures are `NodeMissing` for a
-   `ReplaceAtom`'s missing node, `PreconditionMismatch` for a missing edge, or
-   `BudgetExceeded`; whether a present target matches is decided at step 8, and
-   a missing endpoint is reported as `DanglingReference` there. Every record
-   read here is a dependency (kind `4`): `ValueDigest` when present and
-   `Absence` when absent, so step 3 catches a target or endpoint that an
+   outgoing bucket and a hash of its atom. Those are compared with the proposal
+   here: an existing node whose type, atom, or outgoing edges differ from what
+   the proposal gives it is `ContentIdentityConflict` at this step, so the
+   identity law at step 6 sees only content that matches. For every node the
+   proposal creates, its outgoing bucket's length, which must be zero, since a
+   node cannot be created over edges a non-bridge writer left under its id
+   (`PreconditionMismatch` otherwise); each `ReplaceAtom`'s node record and
+   current alpha value, hashed so its type and digest are known before the
+   footprint law; each `ReplaceEdge`'s edge record; the source node record of
+   every `EnsureEdge` and `ReplaceEdge`, whose type selects the edge-id rule,
+   and, when that source is mutable, its whole outgoing bucket for the alias
+   check; and the target node record of a creating `EnsureEdge` or a
+   `ReplaceEdge`, each unless the proposal creates that node. Charges follow
+   [Validation reads](#basis-budget-retries). Failures are `NodeMissing` for a
+   `ReplaceAtom`'s missing node, `PreconditionMismatch` for a missing edge,
+   `ContentIdentityConflict` for an existing content node that differs from the
+   proposal, or `BudgetExceeded`; whether a present target matches is decided at
+   step 8, and a missing endpoint is reported as `DanglingReference` there.
+   Every record read here is a dependency (kind `4`): `ValueDigest` when present
+   and `Absence` when absent, so step 3 catches a target or endpoint that an
    intervening Tick created, changed, or removed. After this step the complete
    write set is known;
 3. the dependency-scoped history check, for a scoped Action
@@ -688,12 +693,12 @@ recorded obstruction:
    no type and passes here (an absent endpoint is `DanglingReference` at step
    8):
 
-    | Effect                     | Its write requires                                         | Each present implied record requires                                                                               |
-    | -------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-    | `EnsureNode`, `CreateNode` | node type in `write_node_types`; atom type in `atom_types` | the existing target's node type in `read_node_types`; its atom type in `atom_types`                                |
-    | `ReplaceAtom`              | new atom type in `atom_types`                              | owner node type in `read_node_types`; current atom type in `atom_types`                                            |
-    | `EnsureEdge`               | edge type in `write_edge_types`                            | source and target node types in `read_node_types`; bucket edges' types in `write_edge_types` or `range_edge_types` |
-    | `ReplaceEdge`              | edge type in `write_edge_types`                            | source, old and new target node types in `read_node_types`; bucket edges as for `EnsureEdge`                       |
+    | Effect                     | Its write requires                                         | Each present implied record requires                                                                                                                             |
+    | -------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `EnsureNode`, `CreateNode` | node type in `write_node_types`; atom type in `atom_types` | the existing target's node type in `read_node_types`; its atom type in `atom_types`; each scanned bucket edge's type in `write_edge_types` or `range_edge_types` |
+    | `ReplaceAtom`              | new atom type in `atom_types`                              | owner node type in `read_node_types`; current atom type in `atom_types`                                                                                          |
+    | `EnsureEdge`               | edge type in `write_edge_types`                            | source and target node types in `read_node_types`; bucket edges' types in `write_edge_types` or `range_edge_types`                                               |
+    | `ReplaceEdge`              | edge type in `write_edge_types`                            | source and new target node types in `read_node_types` (the old target is never read); bucket edges as for `EnsureEdge`                                           |
 
     So an Action that only replaces atoms of existing nodes needs no
     `write_node_types`, as dependency-scoped validity requires;
@@ -887,8 +892,9 @@ held; this design validates only what the proposal adds or retargets.
   step 2 charges each resolved record, including every Ensure and Create target
   with its alpha slot, every edge source, and the outgoing bucket of an existing
   content node, per edge, with that node's atom, hashed at step 2 because the
-  identity law at step 6 recomputes the node's id from it; and step 8 charges
-  only the atom it hashes for `ReplaceAtom`'s expected digest. Charges come from
+  identity law at step 6 recomputes the node's id from it, and each
+  `ReplaceAtom`'s current alpha value, whose digest step 8 then compares
+  without charging again; step 8 charges nothing of its own. Charges come from
   the budget left after evaluation. A read the remaining budget cannot cover
   obstructs with `BudgetExceeded`, posture `Proposed`, `NotDerived`, at that
   step. The receipt's consumed budget is evaluation and validation together;
@@ -1843,6 +1849,9 @@ Each behaviour below needs a test before implementation:
 | Effect budget ceilings          | A package ceiling or delegated budget above `EFFECT_BUDGET_CEILING_V1` is refused at admission; a program emitting a 1,025th effect, even an identical `Ensure`, obstructs with `BudgetExceeded`, `NoProposal`.                                                                                                                                                                                  |
 | Chain charged once              | A read whose portal chain the view resolved and charged is not charged again at step 1; a budget covering one traversal suffices.                                                                                                                                                                                                                                                                |
 | Implied-read permissions        | A `ReplaceAtom` whose owner's node type is in `read_node_types` but not `write_node_types` passes the footprint law; one whose owner type is in neither obstructs with `FootprintLawViolation`.                                                                                                                                                                                                  |
+| Content-scan permissions        | Adopting an existing content node whose bucket holds an edge type outside `write_edge_types` and `range_edge_types` obstructs with `FootprintLawViolation`.                                                                                                                                                                                                                                      |
+| Content mismatch first          | An `EnsureNode` of an existing content node whose atom differs from the proposal's obstructs at step 2 with `ContentIdentityConflict`, never `IdentityLawViolation`.                                                                                                                                                                                                                             |
+| ReplaceAtom current atom        | A `ReplaceAtom` whose current atom type is outside `atom_types` obstructs at step 7 with `FootprintLawViolation`; its alpha value is read and charged at step 2.                                                                                                                                                                                                                                 |
 
 ## Open questions
 

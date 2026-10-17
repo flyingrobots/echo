@@ -3,14 +3,18 @@
 
 # Benchmark Scene Fixtures
 
-Status: design, approved by the owner on 2026-10-17. Nothing here is
-implemented yet. Written by Claude from the sources listed at the end.
+Status: design. The direction was approved by the owner on 2026-10-17; this
+revision tightens the fixture contract after an external review the owner
+supplied the same day. Nothing here is implemented yet. Written by Claude from
+the sources listed at the end.
 
-This document defines a suite of scene fixtures: reproducible worlds, intent
-streams and history operations that serve as baselines for Echo's benchmarking
-work, now and later. Each fixture is modeled on a real use of Echo, or on a
-shape that a real use would produce, so that a change measured against the
-suite is measured against workloads Echo is meant to serve.
+> A performance improvement counts only when the workload is unchanged and
+> every declared semantic obligation still holds.
+
+This document defines a suite of scene fixtures for Echo's benchmarking work,
+now and later. A fixture is a declared world, what happens to it, what is done
+with its history, and what must be true afterwards. Each fixture is modeled on
+a real use of Echo, or on a shape a real use would produce.
 
 ## Why a suite
 
@@ -22,66 +26,241 @@ benches, and a hub-degree case (`commit_hub_bucket`). No current bench has a
 child warp, a deep tree, cross-links, large attachments, structural churn, a
 strand, a replay, or a suffix exchange.
 
-The state-root timing study (`docs/benchmarks/state-root-timing-study.md`,
-on the local branch `docs/state-root-timing-study`) showed why that matters.
+The state-root timing study (`docs/benchmarks/state-root-timing-study.md`, on
+the local branch `docs/state-root-timing-study`) shows why scene shape and run
+conditions have to travel with every number:
 
-- The walk's cost per node rose from about 50 ns at 1,000 cells to about
-  300 ns at 300,000.
-- A widely cited figure, 102 ms at 100,000 cells, turned out to describe a
-  contended machine. The quiet figure was 65–72 ms.
-
-A number without its scene shape and its run conditions is not a baseline.
+- On one star-shaped scene and one machine, the observed cost per node of the
+  walk rose from about 50 ns at 1,000 cells to about 300 ns at 300,000. That
+  is an observation about that scene, not a law; the suite measures nodes,
+  edges, bytes and topology separately so that it can be tested.
+- A widely cited figure, 102 ms at 100,000 cells, was reproduced only under
+  concurrent memory-heavy load. The quiet figure was 65–72 ms.
 
 Echo's own framing raises the bar further. The README says causal history is
 primary and "everything else is derived"; `docs/architecture/there-is-no-graph.md`
-says the graph is "a coordinate chart over witnessed causal history". A suite
+calls the graph "a coordinate chart over witnessed causal history". A suite
 that only builds graphs and times their roots measures one reading and none of
-the history. Each fixture here therefore has three parts.
+the history. Echo's particular risk is an optimization that keeps the visible
+state while making the history less faithful. The fixture contract below is
+designed to make that trade impossible to hide.
 
-## The shape of a fixture
+## The fixture contract
+
+### Three parts, and the obligations they carry
 
 ```text
-fixture = scene × intent stream × history operation
+fixture = scene × intent stream × history operation, plus declared outcomes
 ```
 
 - **Scene**: the world before measurement: warps, nodes, edges, attachments.
-- **Intent stream**: what is submitted per tick, by how many writer heads,
-  with what footprints, contention and rejection rate.
+- **Intent stream**: what is submitted, by which writer heads, with what
+  footprints, skew and arrival pattern, and where the logical tick
+  boundaries fall.
 - **History operation**: what is done with the resulting history: nothing
-  (steady ticking), replay or restore, reads at earlier coordinates, strands
-  forked and settled or discarded, or suffix export and import between runtimes.
+  (steady ticking), replay or restore, readings at earlier coordinates,
+  strands forked and settled or discarded, or suffix export and import.
+- **Declared outcomes**: what must hold after the run (see
+  [Validation](#validation)).
 
-The same scene can be measured under several intent streams and history
-operations. A game world, for example, can be measured ticking, rolling back
-or replaying.
+### Three identities, kept separate
+
+| Identity | Defined by | Changes when |
+| --- | --- | --- |
+| **Workload identity** | The fixture manifest (below) | The workload changes. Never because Echo changed |
+| **Expected-result identity** | Declared outcomes, and any goldens under a named root-format version | Echo's promised semantics or a format version change, with an explanation |
+| **Run identity** | Implementation revision, build, environment, machine conditions, raw samples | Every run |
+
+An Echo optimization changes the run identity. It must not silently change
+the workload identity, and it may change the expected-result identity only
+through an explained, versioned change. "Updated the snapshots" is not an
+explanation.
+
+### The manifest
+
+Each fixture has a versioned manifest that fixes the workload independently of
+Echo's implementation:
+
+- generator version, seed, pseudo-random algorithm and sampling rules;
+- resolved dimensions: nodes, edges, warps, attachment bytes, ticks, writer
+  heads, readers, history operations;
+- submission order or delivery rules, including logical tick boundaries;
+- the admission, retention, checkpoint and durability settings in force;
+- initialization method: direct scene construction, or history built by
+  operations (replay fixtures need the latter; see below);
+- the evidence class of the fixture (observed, modeled or exploratory) and
+  pinned source revisions for any application it models;
+- the declared outcomes.
+
+Manifests are small and checked in. Bulk scenes are generated from them.
+
+**Randomness.** `StdRng` and `SmallRng` in `rand` carry no reproducibility
+guarantee across versions or platforms, and `warp-core` has no `rand`
+dependency; adding one would change `Cargo.lock`, which the provider package
+binds. Fixtures therefore use a small pseudo-random generator defined in the
+repository (for example SplitMix64), with published test vectors, and
+documented sampling rules for every distribution they draw from (uniform,
+Zipf, and so on). A generator change bumps the manifest's generator version.
+
+### Requested and realized dimensions
+
+A fixture records the dimensions it was asked for, the dimensions it realized,
+and the reason for any difference. A workload is never shrunk silently to fit
+a limit; a refusal is a recorded outcome.
+
+Size tiers are explicit tuples, not labels. "100k entities" says little when
+each entity owns component nodes and a child warp. Every tier bounds total
+nodes, total edges, warps, payload bytes, history length and peak live
+strands. Example for F6:
+
+| Tier | Entities | Total nodes | Total edges | Child warps | Payload bytes | Ticks | Peak strands |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| S | 1,000 | ≤ 10,000 | ≤ 12,000 | 1,000 | ≤ 0.5 MB | 600 | 0 |
+| M | 10,000 | ≤ 100,000 | ≤ 120,000 | 10,000 | ≤ 5 MB | 600 | 0 |
+| L | 100,000 | ≤ 1,000,000 | ≤ 1,200,000 | 100,000 | ≤ 50 MB | 600 | 0 |
+
+The figures are illustrative; each fixture's first implementation sets and
+pins its own.
+
+### Two concurrency modes
+
+| Mode | Purpose | Required control |
+| --- | --- | --- |
+| **Fixed causal workload** | Compare implementations and execution profiles | Same declared inputs, causal constraints and promised outcome equivalence on every run |
+| **Concurrent arrival workload** | Measure admission, queueing and contention | A declared arrival process, captured deliveries, and complete outcome accounting |
+
+In both modes the workload is generated before execution. Worker scheduling
+must never decide which random numbers are consumed and thereby produce a
+different workload.
+
+**Overlap is an input; rejection is an outcome.** A fixture declares
+footprints, skew and arrival patterns, and reports the conflict and refusal
+rates it realized. Exact expected rejection counts belong only to cases
+constructed to produce them.
+
+### Validation
+
+Generator conformance is tested independently: test vectors for the
+pseudo-random generator, and pinned realized dimensions for each manifest.
+
+Every measured execution then validates its declared outcomes, outside the
+timed region. Outcomes cover whatever the fixture exercises:
+
+- accepted, refused and deferred operations;
+- readings at declared checkpoints;
+- replay and restore results;
+- settlement results;
+- import behavior.
+
+**Identical final state does not establish identical causal history.** An
+`A → B → A` workload can expose a history bug while leaving the final value
+unchanged, so validation checks history-level outcomes (receipts, commit
+identities, readings at earlier coordinates), not only the final root.
+
+State-root goldens remain useful within an explicit root-format version. Small
+cases also need expectations that do not come from Echo itself: hand-computed
+values, or invariants stated in the manifest. Shared generators are good;
+shared mistakes are still mistakes.
+
+A capability a fixture needs but Echo does not yet support is marked
+**unsupported** in the result. A stubbed operation must never report an
+impressive zero.
+
+### Construction method
+
+Direct scene construction (building a `GraphStore` and wrapping it in a
+`WorldlineState`) is valid for isolated microbenchmarks of reading costs.
+Fixtures that replay, restore, read earlier coordinates or exchange suffixes
+need real history built by admitted operations. The manifest records which
+method was used, and a result never mixes them silently.
+
+### Retained evidence
+
+Bulk scenes are regenerated, not stored. Small evidence is checked in:
+manifests, generator test vectors, expected outcomes, and minimized regression
+traces. Regenerating a million-node world is sensible; a twelve-operation bug
+reproducer should be kept.
+
+## Measurement contract
+
+### End-to-end, then components
+
+Every fixture reports an **end-to-end measurement**, plus **clearly defined
+component measurements** that explain it. Commit, receipts, roots and the log
+can be nested or overlapping costs, so each component declares its boundary
+and whether it is contained in another.
+
+Every benchmark declares:
+
+- what starts and stops the clock;
+- whether queueing, materialization, allocation and storage synchronization
+  are inside it;
+- whether it measures cold execution, warmed execution, or continuing history
+  growth;
+- that setup, validation and reset happen outside measurement;
+- whether the build is normal or an instrumented diagnostic build.
+
+The uninstrumented result is authoritative for performance claims. Diagnostic
+splits, such as walk against hash, come from instrumented builds and explain
+the result; they are never the claim.
+
+### Repetition and comparison
+
+Results come from repeated samples, and baseline and candidate runs are
+interleaved in the same session, so a change in machine conditions affects
+both. A single quiet baseline does not establish that conditions stayed
+comparable. Each result reports its sample count and distribution.
+
+### Work accounting
+
+Latency without a denominator can reward dropping work. Each run reports, as
+applicable:
+
+- submitted, admitted, committed, refused, deferred and unfinished work;
+- useful throughput: completed declared work per unit time;
+- for sustained workloads, queue growth and latency distributions with sample
+  counts;
+- for history-heavy fixtures, peak memory, retained history bytes, checkpoint
+  bytes, and bytes transferred.
+
+### Run conditions
+
+Each result records the commit, toolchain, build profile, environment (native
+or VM, with CPU and memory limits), what else was running, and the interleaved
+baseline. The timing study found that load average does not reveal
+memory-bandwidth contention: concurrent memory-heavy work raised a 66 ms root
+to 93–119 ms while the load average looked ordinary.
 
 ## Properties every fixture declares
 
-A fixture sets these deliberately and prints them next to its results.
-
 | Property | Why it matters |
 | --- | --- |
-| Reachable size N | The walk and hash grow faster than N |
+| Reachable size: nodes, edges, bytes, separately | The study observed per-node cost rising with scene size on one shape |
 | Shape: fan-out, depth, cycles, nodes reached by many paths | Walk queue, revisits, edge filter |
 | Warp nesting: count and depth, on nodes and on edges | The walk enters `Descend` on both; no current bench has one |
 | Attachment bytes: inline, or a reference to content held outside the graph | Hash bytes against hash structure |
-| Writes per tick: count, attachment-only or structural, local or scattered | Incremental-root designs treat attachment-only changes and structural changes differently |
-| Contention: random overlap, or many writers piling onto a few targets | Conflicts and rejections |
-| Churn and unreachable fraction | Deleted subgraphs leave the root but stay in the store |
+| Writes per tick: count, attachment-only or structural, local or scattered | Incremental-root designs treat these differently |
+| Footprints, skew and arrival pattern | Inputs; conflict and refusal rates are outputs |
+| Retention obligations: worldlines, strands, pinned readings | What may and may not be reclaimed |
 | Readers: count, view size, pinned coordinate | Readings under concurrent writes |
 | History: length, strands, suffix size | Log, replay and transport costs |
 
 ## Fixture catalog
 
-Fixtures are grouped by priority. Tier 1 models the applications that already
-plan to run on Echo, by their own records. Tier 2 adds distinct shapes from
-other intended uses. Tier 3 holds synthetic controls that vary one property at
-a time. Sizes are proposals; each fixture has S, M and L tiers so that one
-binary can run quickly in CI and at full size on a quiet machine.
+Fixtures are grouped by priority and labeled by **evidence class**:
+
+- **Observed**: derived from a recorded workload of the application.
+- **Modeled**: derived from the application's code or design, not from a
+  recorded workload.
+- **Exploratory**: a shape worth measuring, not yet tied to a concrete user.
+
+The catalog is a direction and a backlog, not a list of release gates. A small
+gate set is chosen from it (see [Sequence](#proposed-sequence-of-changes));
+broader sweeps run on dedicated machines.
 
 ### Tier 1: Echo's first users
 
-#### F1. XYPH planning
+#### F1. XYPH planning (modeled)
 
 XYPH is an agentic planning substrate. Its README says it is moving toward
 being a native Continuum participant, with work recorded as receipt-bearing,
@@ -90,7 +269,7 @@ capability-bound transitions.
 - **Scene.** A rooted DAG, the "Genealogy of Intent": human-authorized intent
   roots → quests → acceptance criteria → evidence. Settlement records (Scrolls)
   are attached to finished quests. Provenance chains are long; every quest
-  traces to an intent. Tiers: 1k / 10k / 100k quests.
+  traces to an intent.
 - **Intent stream.** Agents ask for the next quest and claim it. A claim is
   exclusive, so many agents pile onto the few quests that are ready at once.
   Capability-bound actions declare their reads, writes and spend before they
@@ -99,10 +278,12 @@ capability-bound transitions.
   participants that diverge and exchange suffixes.
 - **Reads.** Read-dominated. `briefing`, `next` and `context` compute derived
   judgments (`nextLawfulActions`, `blockingReasons`) over bounded views.
+- **Outcomes.** Exactly one claimant per quest; every claim refusal accounted
+  for; settled quests carry their evidence.
 - **Stresses.** Writers piling onto the same targets, read-heavy bounded
   views, provenance depth, settlement.
 
-#### F2. Dojo claims and JIT context
+#### F2. Dojo claims and JIT context (modeled)
 
 Dojo's ADR-0003 makes Echo its causal runtime.
 
@@ -114,12 +295,17 @@ Dojo's ADR-0003 makes Echo its causal runtime.
 - **History and reads.** Many short-lived agents, each given a bounded view
   (the JIT context payload) at a pinned coordinate while writes continue.
   Interactive latency is the budget.
+- **Boundaries.** Bounded readings below, at and above the 65,536-node view
+  limit, with the expected behavior of each specified; large scenes also
+  serve legitimately small readings.
 - **Stresses.** Nested small trees with hubs, payloads by reference, many
   concurrent bounded readers.
 
-#### F3. Graft: code over time
+#### F3. Graft: code over time (modeled)
 
-Modeled on Graft's indexer (`src/warp/index-head.ts`).
+Modeled on Graft's indexer (`src/warp/index-head.ts`). Whole-file subtree
+replacement is **the modeled indexing strategy**; its inclusion here does not
+endorse it as the ideal long-term design.
 
 - **Scene.** A directory tree 5–10 levels deep → files → 10–100 symbols per
   file, with one 1–100 KB AST payload per file. Cross-file `references` and
@@ -128,142 +314,163 @@ Modeled on Graft's indexer (`src/warp/index-head.ts`).
 - **Intent stream.** Per commit, one file's subtree is replaced: its symbols
   deleted and re-added, in batches of at most 64 files. Every file in a commit
   also writes the shared `dir:` and `commit:` nodes.
-- **History.** Long; reads of a file's history at earlier commits.
+- **History.** Long; readings of a file at earlier commits.
 - **Stresses.** Structural subtree replacement, large payloads, hot shared
   nodes, deep trees, nested warps (F3b).
 
-#### F4. jedit: collaborative structured editing
+#### F4. Structured editing (modeled; jedit fidelity pending)
 
-`docs/NORTHSTAR.md` names jedit as the immediate product pressure. Its
-app-facing surface is `optic.applyIntent(...)` and `optic.textWindow(...)`.
+`docs/NORTHSTAR.md` names jedit as the immediate product pressure, with an
+app-facing surface of `optic.applyIntent(...)` and `optic.textWindow(...)`.
+Until jedit's operations and representation are settled, this fixture is
+named "structured editing" and does not claim jedit coverage; it adopts
+jedit's model when one exists.
 
 - **Scene.** A document tree (sections → paragraphs → runs) with ordered
   siblings.
 - **Intent stream.** Several writers editing near the same place; speculative
   edits as strands.
-- **Reads.** `textWindow` readings over the region each writer is viewing.
+- **Reads.** Windowed readings over the region each writer is viewing.
 - **History.** Offline edits merged by suffix import.
 - **Stresses.** Ordered-list edits, local contention, windowed readings,
   strands.
 
-#### F5. Think: thought capture
+#### F5. Think: append and replay (modeled from an observed census)
 
-Modeled on the census of a real Think store in git-warp's
-`docs/READINGS_AND_OPTICS.md`, and the append shape it prescribes.
+Based on the census of a real Think store in git-warp's
+`docs/READINGS_AND_OPTICS.md`, and the append shape it prescribes. It is
+labeled census-derived, and is compared with Think's implementation when that
+is available; that comparison does not block it.
 
 - **Scene.** A few bucket nodes (day or topic) with a wide star of entries
-  under each; tiny payloads; sparse cross-links between entries.
+  under each; tiny payloads; sparse cross-links between entries. History is
+  built by admitted operations, not direct construction.
 - **Intent stream.** One append per tick, with an empty read set.
-- **History.** Long: 100k+ ticks. Operation: full replay.
+- **History operation.** Replay of the whole history; readings at earlier
+  coordinates.
+- **Outcomes.** The replayed history reproduces every receipt and commit
+  identity, and each checkpoint reading matches.
 - **Regression variant.** One page node rewritten on every append, the
   anti-pattern the census found, whose patches grew quadratically.
 - **Stresses.** Log growth, replay, wide buckets.
 
-### Tier 2: other intended uses with distinct shapes
+### Tier 2: other uses with distinct shapes
 
-| Fixture | Scene | Intent stream | History operation | Stresses |
-| --- | --- | --- | --- | --- |
-| **F6. Real-time game** | Regions → entities → component nodes (32–64 B); an NPC behavior tree in a child warp each; short-lived collision edges; 1k / 10k / 100k entities | 10–30% of entities move (attachment-only); spawns, despawns, region moves | Steady 60 Hz ticking; replay | Many writes per tick, attachment-only path, many small warps, 16.67 ms frame |
-| **F6r. Rollback** | F6 | F6 plus late inputs | Re-simulate the last k ticks in a strand per late input | Strand fork and settle per frame |
-| **F7. Web server** | Large cold user and session store; static routing tree; a short-lived subgraph per request | Many writer heads; hot keys on a Zipf distribution | Steady; create/delete churn | Churn, unreachable fraction, hot keys, inbox budgets |
-| **F8. Build pipeline** | DAG with heavy fan-in and long chains | A source changes; invalidation spreads along reverse edges | Provenance reads at earlier coordinates | Reverse index, cascading writes, nodes reached by many paths |
-| **F9. Compiler: edges that contain graphs** | Module → functions, each with a control-flow child warp → blocks → instruction trees; transformation passes as `Descend` on edges | A pass rewrites one function's interior | Steady | Deep nesting, `Descend` on edges, thousands of small warps |
-| **F10. Physics constraints** | Bodies and joints; dense and cyclic (ragdolls, chains, stacks) | The solver touches each body's neighborhood | Steady | Cycles, naturally high footprint overlap |
-| **F11. Ledger / contract host** | Accounts in a star; receipts as an append-only log | Two-account transfers with hot accounts on a Zipf distribution | Audit reads far back | Two-key footprints, conflict rate set by skew, retention |
-| **F12. Local-first sync** | Any Tier 1 scene | 2–10 runtimes diverge for m ticks | Suffix export and import with a set conflict rate | Transport, import admission, conflicts at import |
-| **F13. Counterfactual planner** | Any scene | Fork 10–1,000 strands at one tick | Run each n ticks, settle one, discard the rest | Strand creation, divergence, settlement |
+| Fixture | Class | Scene | Intent stream | History operation | Stresses |
+| --- | --- | --- | --- | --- | --- |
+| **F6. Real-time game** | exploratory | Regions → entities → component nodes (32–64 B); an NPC behavior tree in a child warp each; short-lived collision edges | 10–30% of entities move (attachment-only); spawns, despawns, region moves | Steady ticking; replay | Many writes per tick, attachment-only path, many small warps |
+| **F6r. Rollback** | exploratory, non-gating | F6 | F6 plus late inputs | Re-simulate the last k ticks in a strand per late input | Strand fork and settle per frame |
+| **F7. Web server** | exploratory | Large cold user and session store; static routing tree; a short-lived subgraph per request | Many writer heads; hot keys on a Zipf distribution | Steady; create/delete churn | Churn, unreachable storage, hot keys, inbox budgets |
+| **F8. Build pipeline** | exploratory | DAG with heavy fan-in and long chains | A source changes; invalidation spreads along reverse edges | Provenance readings at earlier coordinates | Reverse index, cascading writes, nodes reached by many paths |
+| **F9. Compiler-shaped transformation** | exploratory | Module → functions, each with a control-flow child warp → blocks → instruction trees; passes as `Descend` on edges | A pass rewrites one function's interior | Steady | Deep nesting, `Descend` on edges, thousands of small warps |
+| **F10. Overlapping neighborhood operations** | exploratory | Bodies and joints; dense and cyclic | Each operation touches one body's neighborhood | Steady | Cycles, naturally high footprint overlap |
+| **F11. Ledger / contract host** | exploratory | Accounts in a star; receipts as an append-only log | Two-account transfers with hot accounts on a Zipf distribution | Audit readings far back | Two-key footprints, conflict rate set by skew, retention |
+| **F12. Local-first sync** | modeled (XYPH, F4) | Any Tier 1 scene | 2–10 runtimes diverge for m ticks | Suffix export and import with a declared overlap | Transport, import admission, conflicts at import |
+| **F13. Counterfactual planner** | exploratory | Any scene | Fork 10–1,000 strands at one tick | Run each n ticks, settle one, discard the rest | Strand creation, divergence, settlement |
+
+Notes on Tier 2:
+
+- **F6 frame budget.** 16.67 ms is the application's whole frame at 60 Hz,
+  not Echo's. F6 declares an Echo budget per run, and reports single-tick
+  execution time and sustained 60 Hz service separately.
+- **F6r rollback** stays exploratory and non-gating until late-input
+  admission, branch isolation, handling of external effects, and settlement
+  are specified. Until then it does not claim rollback-netcode coverage.
+- **F9 and F10** measure graph operations with compiler and physics shapes.
+  They do not claim to measure compilers or physics unless representative
+  work of that kind is implemented.
 
 ### Tier 3: synthetic controls
 
-Each control varies one property and holds the rest at the star scene's
-defaults. They let a regression in a use-case fixture be traced to its cause.
+Controls rarely vary literally one property: changing a tree's branching
+factor also changes its depth. Each control therefore declares its
+**manipulated parameter**, holds the rest at the star scene's defaults where
+possible, and reports every property that changed as a result.
 
-| Control | Varied | Values |
-| --- | --- | --- |
-| C1. Star | (baseline: today's `action_scene`) | 1k–300k cells |
-| C2. Chain | Depth | up to N |
-| C3. Balanced tree | Branching factor | 2, 8, 64 |
-| C4. Random DAG | Density, nodes reached by many paths | sparse, dense |
-| C5. Unreachable fraction | Leftovers in the store | 0%, 50%, 90% |
-| C6. Nested warps | Nesting depth, child-warp count | depth 1–8; 1–10k warps |
-| C7. Attachment size | Inline bytes | 8 B, 1 KB, 64 KB |
-| C8. Hub degree | One node's edge count | (exists: `commit_hub_bucket`) |
+| Control | Manipulated | Values | Co-varying, reported |
+| --- | --- | --- | --- |
+| C1. Star | (baseline: reproduces today's `action_scene` exactly) | 1k–300k cells | — |
+| C2. Chain | Depth | up to N | Fan-out falls to 1 |
+| C3. Balanced tree | Branching factor | 2, 8, 64 | Depth |
+| C4. Random DAG | Density | sparse, dense | Paths per node, depth |
+| C5. Unreachable storage | Unreachable bytes, at fixed reachable size | 0×, 1×, 9× the reachable store | Total store size |
+| C6. Nested warps | Nesting depth; child-warp count | depth 1–8; 1–10k warps | Nodes per warp |
+| C7. Attachment size | Inline bytes | 8 B, 1 KB, 64 KB | Total payload bytes |
+| C8. Hub degree | One node's edge count | (exists: `commit_hub_bucket`) | — |
 
-## What every run reports
-
-Each run reports these as separate lines, not one total:
-
-- admission and scheduling;
-- commit;
-- state root, split into walk and hash;
-- receipts;
-- write-ahead log;
-- replay or restore;
-- readings (with view size);
-- strand and transport operations, where used.
-
-Alongside them, each run reports the fixture's declared properties (above) and
-its run conditions:
-
-- commit, toolchain and build profile;
-- environment (native or VM, with CPU and memory limits);
-- what else was running on the machine;
-- a quiet baseline taken in the same session.
-
-The timing study showed that load average alone does not reveal memory-bandwidth
-contention. Concurrent memory-heavy work raised a 66 ms root to 93–119 ms
-while the load average looked ordinary.
+**C5 and retention.** "Unreachable from the measured root" does not mean "safe
+to reclaim": another worldline, a strand or a pinned reading may still need
+that material. C5 names the root against which reachability is measured and
+the retention obligations still in force, and holds reachable size fixed
+while unreachable storage grows, so only one side of the experiment changes.
 
 ## Implementation principles
 
-- **Generated, not stored.** Each fixture is a deterministic generator taking
-  a seed and a size tier, and producing the scene and the intent stream.
-  Fixtures are rebuilt from code; no fixture data is checked in.
-- **Self-describing.** A generator prints its realized statistics: N, depth,
-  warp count, attachment bytes, writes per tick, unreachable fraction.
-- **Checked once, then trusted.** Each generator has a test that pins its
-  statistics and its initial state root for each tier and seed. A change to a
-  generator is a visible test change, not a silent baseline shift.
+- **Generated from checked-in manifests.** Bulk scenes are rebuilt from code
+  and a manifest; small evidence (manifests, vectors, outcomes, minimized
+  traces) is checked in.
+- **Self-describing.** A generator prints its requested and realized
+  dimensions.
+- **Validated on every run.** Declared outcomes are checked outside the timed
+  region on every measured execution; generator conformance is tested
+  separately.
 - **Shared by benches and tests.** The same generators can feed determinism
   tests, so a benchmark scene is also a correctness scene.
-- **No probe in the deterministic path.** Timing splits such as walk versus
-  hash use diagnostic patches or feature-gated instrumentation, never
-  `Instant` or `eprintln!` in shipped code.
+- **No probe in the deterministic path.** Timing splits use diagnostic
+  patches or feature-gated instrumentation, never `Instant` or `eprintln!` in
+  shipped code.
 
 ## Proposed sequence of changes
 
-Each step builds and passes the existing checks on its own. Dependencies are
-stated as "needs".
+Each step builds and passes the existing checks on its own.
 
-1. **Fixture framework, plus controls C1–C7.** Generator trait, seed and tier
-   handling, statistics output, pinned-statistics tests. C1 must reproduce
-   today's `action_scene` exactly, so existing results stay comparable.
-   Needs: nothing.
-2. **F3 Graft and F6 game.** Together they cover structural churn,
-   attachment-only churn, nested warps and large payloads, the largest gaps.
-   Needs: 1.
-3. **Run reporting.** The per-cost report lines and the run-conditions record.
-   Needs: 1. Independent of 2.
-4. **F1 XYPH and F2 Dojo.** Needs 1 for the scenes. Reader-heavy measurement
-   needs a bounded-reading harness; that harness is part of this step.
-5. **History operations: replay and reads at earlier coordinates.** Then
-   F5 Think and F11 ledger, which depend on them. Needs: 1.
-6. **Strands: F6r rollback and F13 planner.** Needs: 1, and 2 for F6r.
-7. **Transport: F12 local-first sync, then F4 jedit's merge path.** Needs: 1.
-8. **Remaining Tier 2: F7, F8, F9, F10.** One fixture per change. Needs: 1.
+1. **Thin complete slice.** Manifest format, the in-repository pseudo-random
+   generator with test vectors, C1 reproducing today's `action_scene`
+   exactly, outcome validation, the measurement and reporting contract, and a
+   small F5 append-and-replay scenario built by admitted operations. This
+   proves the framework supports all three parts of a fixture. The first
+   **gate set** is C1 and F5-S. Needs: nothing.
+2. **Root and mutation coverage.** C6 with nested warps on both nodes and
+   edges, C5 unreachable storage, C7 attachment sizes, then F3 and F6. Needs: 1.
+3. **Consumer readings.** F1, F2 and F4 against concrete models, with
+   bounded-reading behavior verified at and around the view limit. The
+   bounded-reading harness is built and validated first. Needs: 1.
+4. **Strands and transport.** Each harness is built and validated before the
+   scenarios that use it: then F6r, F12 and F13. Needs: 1; F6r also needs 2.
 
-## Open questions
+The rest of the catalog is backlog, added one fixture per change.
 
-- **Crate location.** The trusted-host benches live in `warp-core` because
-  their dependencies would change `Cargo.lock`, which the provider package
-  binds. Should fixtures live there too, or in a new crate with that
-  constraint handled separately?
-- **jedit's document model.** F4 should copy jedit's model rather than invent
-  one. Is there a concrete one to follow yet?
-- **Rollback.** Is rollback netcode (F6r) an intended game use, or is replay
-  the extent of it?
-- **Think's source.** F5 is based on git-warp's census, not on Think's code,
-  which was not available when this was written.
+## Later ideas
+
+- **History twins.** Pairs with the same final state but different required
+  history: direct assignment against `A → B → A`, fresh work against
+  redelivery, or different causal provenance. Each pair names which
+  observations must agree and which must differ. Echo already distinguishes
+  them in commit identities and receipts even where the state root agrees.
+  This tests directly whether an optimization erased a distinction the
+  runtime promises to keep.
+- **Cost trajectories.** Measure across a scenario's lifetime: before churn,
+  after churn, while readings are pinned, after pins are released, and after
+  lawful reclamation. A single endpoint can hide a steadily worsening system.
+- **Contract-preserving minimization.** Reduce a failing fixture while keeping
+  the relevant witness (the causal dependency, nested warp, conflict or pinned
+  reading), or, for a performance regression, a statistically repeatable
+  slowdown.
+- **Result capsules.** Package each published result with its manifest,
+  implementation revision, expected and observed outcomes, raw samples and
+  environment record, so that someone else can inspect and rerun it.
+
+## Decisions on earlier open questions
+
+These follow the external review's recommendations; the owner may override
+them.
+
+| Question | Decision |
+| --- | --- |
+| Crate location | Start within the existing bench and test support arrangement, which preserves the provider's `Cargo.lock` constraint. Extract a crate only when concrete sharing needs justify it, after checking the lockfile impact. |
+| jedit model | Use jedit's actual operations and representation. Until they are settled, F4 is "structured editing" with jedit fidelity pending. |
+| Rollback | F6r is exploratory and non-gating until its semantics are specified. |
+| Think source | F5 proceeds as a census-derived workload and is compared with Think's implementation when available. |
 
 ## Sources
 
@@ -279,12 +486,14 @@ stated as "needs".
 - Graft at `9b399de4`: `src/warp/index-head.ts`, `src/warp/ast-emitter.ts`,
   `src/echo/structural-history-client.ts`.
 - git-warp: `docs/READINGS_AND_OPTICS.md`, the census of a real Think store.
-- XYPH: the README on GitHub (`flyingrobots/xyph`).
+- XYPH: the README on GitHub (`flyingrobots/xyph`), default branch at `f2e6d267` when this revision was written.
 - Dojo: a documentation snapshot of 2026-10-09, including ADR-0003, the JIT
   Context Builder design and the Contextual Claims specification.
 - James Ross, *CΩMPUTER: The Geometry of All Possible Machines* (2025),
-  prologue and chapters 1–3: build pipelines, physics constraint graphs,
-  behavior trees, compilers, and edges that contain graphs.
+  prologue and chapters 1–3.
 - The state-root timing study of 2026-10-17
   (`docs/benchmarks/state-root-timing-study.md`, local branch
   `docs/state-root-timing-study`).
+- An external review of the first revision of this document, supplied by the
+  owner on 2026-10-17. It cites the Rust Rand Book on reproducibility and
+  Google Benchmark's documentation on random interleaving.

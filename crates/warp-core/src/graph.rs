@@ -38,6 +38,9 @@ pub enum DeleteNodeError {
 #[derive(Default)]
 pub(crate) struct TouchLog {
     pub(crate) recording: bool,
+    /// The state's recording epoch this log belongs to. A log from an older
+    /// epoch (left by an aborted commit) is stale and is never read.
+    pub(crate) epoch: u64,
     pub(crate) nodes: BTreeMap<NodeId, Option<NodeRecord>>,
     pub(crate) node_attachments: BTreeMap<NodeId, Option<AttachmentValue>>,
     pub(crate) edges: BTreeMap<EdgeId, Option<EdgeRecord>>,
@@ -173,9 +176,10 @@ impl GraphStore {
     }
 
     /// Starts recording touches with an empty log.
-    pub(crate) fn begin_touch_log(&mut self) {
+    pub(crate) fn begin_touch_log(&mut self, epoch: u64) {
         self.touched = TouchLog {
             recording: true,
+            epoch,
             ..TouchLog::default()
         };
     }

@@ -1393,7 +1393,7 @@ pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
                 &skip_node_upserts,
                 &skip_attachment_ops,
             );
-        } else {
+        } else if after.store_is_current(after_store) {
             diff_touched_instance(
                 &mut ops,
                 *warp_id,

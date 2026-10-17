@@ -82,10 +82,22 @@ impl Clone for WarpStateTouches {
 #[derive(Default)]
 pub(crate) struct StateTouchLog {
     pub(crate) recording: bool,
+    /// Incremented by every `begin_touch_log`; never reset, so a store log
+    /// from an earlier recording can be told apart from a current one.
+    pub(crate) epoch: u64,
+    /// The stores whose logs were started in this epoch, in start order.
+    /// Only these are read, ended, or restored, so the cost follows the
+    /// stores a tick touches, not how many exist.
+    pub(crate) begun: Vec<WarpId>,
     pub(crate) instances: BTreeMap<WarpId, Option<WarpInstance>>,
     /// Warps whose store was created, replaced, or removed, with the store's
     /// content as of the start of recording (`None` when it had no store).
     pub(crate) replaced_stores: BTreeMap<WarpId, Option<GraphStore>>,
+}
+
+/// Whether `store`'s log was started in recording `epoch`.
+fn store_is_current(store: &GraphStore, epoch: u64) -> bool {
+    store.touched.recording && store.touched.epoch == epoch
 }
 
 impl Clone for StateTouchLog {
@@ -131,27 +143,47 @@ impl WarpState {
 
     /// Returns a mutable skeleton store for `warp_id` (if present).
     pub fn store_mut(&mut self, warp_id: &WarpId) -> Option<&mut GraphStore> {
-        self.stores.get_mut(warp_id)
+        let store = self.stores.get_mut(warp_id)?;
+        if self.touched.recording && !store_is_current(store, self.touched.epoch) {
+            // First write access in this epoch: start this store's log,
+            // replacing any stale one.
+            store.begin_touch_log(self.touched.epoch);
+            self.touched.begun.push(*warp_id);
+        }
+        Some(store)
     }
 
-    /// Removes and returns the store for `warp_id` if it exists; otherwise returns a new empty store.
-    /// Starts recording touches on the state and every store.
+    /// Whether `store` carries a log from the current recording epoch.
+    pub(crate) fn store_is_current(&self, store: &GraphStore) -> bool {
+        self.touched.recording && store_is_current(store, self.touched.epoch)
+    }
+
+    /// Starts recording touches on the state.
+    ///
+    /// Stores start their own logs lazily, on first write access, so this
+    /// costs nothing per store.
     pub(crate) fn begin_touch_log(&mut self) {
+        let epoch = self.touched.epoch.wrapping_add(1);
         self.touched = StateTouchLog {
             recording: true,
+            epoch,
             ..StateTouchLog::default()
         };
-        for store in self.stores.values_mut() {
-            store.begin_touch_log();
-        }
     }
 
-    /// Stops recording touches and discards every log.
+    /// Stops recording touches and discards every log started in this epoch.
     pub(crate) fn end_touch_log(&mut self) {
-        self.touched = StateTouchLog::default();
-        for store in self.stores.values_mut() {
-            store.end_touch_log();
+        let begun = std::mem::take(&mut self.touched.begun);
+        for warp_id in begun {
+            if let Some(store) = self.stores.get_mut(&warp_id) {
+                store.end_touch_log();
+            }
         }
+        let epoch = self.touched.epoch;
+        self.touched = StateTouchLog {
+            epoch,
+            ..StateTouchLog::default()
+        };
     }
 
     /// Restores the state exactly as it was when recording began, then stops
@@ -251,7 +283,11 @@ impl WarpState {
     /// would lose the prior values of its touched slots.
     #[must_use]
     pub(crate) fn take_or_create_store(&mut self, warp_id: WarpId) -> GraphStore {
-        if let Some(store) = self.stores.remove(&warp_id) {
+        if let Some(mut store) = self.stores.remove(&warp_id) {
+            if self.touched.recording && !store_is_current(&store, self.touched.epoch) {
+                store.begin_touch_log(self.touched.epoch);
+                self.touched.begun.push(warp_id);
+            }
             return store;
         }
         if self.touched.recording {
@@ -274,7 +310,7 @@ impl WarpState {
             self.touch_instance(instance.warp_id);
             // A store that is not recording did not come from this state
             // during recording, so it replaces whatever was there.
-            if !store.touched.recording {
+            if !store_is_current(&store, self.touched.epoch) {
                 let prior = self.stores.remove(&instance.warp_id);
                 self.keep_replaced_store(instance.warp_id, prior);
             }

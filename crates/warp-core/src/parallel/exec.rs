@@ -27,7 +27,7 @@ use crate::rule::{ExecuteFn, ObservedExecuteFn, RuleExecutor};
 use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
 
-use super::shard::{partition_into_shards, NUM_SHARDS};
+use super::shard::{partition_into_shards, shard_of, NUM_SHARDS};
 
 /// How virtual shards are assigned to workers during parallel execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -977,18 +977,33 @@ pub fn build_work_units(
 
     let mut units = Vec::new();
 
-    for (warp_id, items) in sorted {
-        let shards = partition_into_shards(&items);
-        for shard in shards {
-            if !shard.items.is_empty() {
-                units.push(WorkUnit {
-                    warp_id,
-                    items: shard.items,
-                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-                    #[cfg(not(feature = "unsafe_graph"))]
-                    guards: Vec::new(),
-                });
-            }
+    for (warp_id, mut items) in sorted {
+        // Group by shard without a table of every shard: a stable sort by
+        // shard id gives the shards in ascending order with each shard's items
+        // in input order, exactly as `partition_into_shards` does.
+        items.sort_by_key(|item| shard_of(&item.scope));
+        let mut start = 0;
+        while start < items.len() {
+            let shard = shard_of(&items[start].scope);
+            let len = items[start..]
+                .iter()
+                .position(|item| shard_of(&item.scope) != shard)
+                .unwrap_or(items.len() - start);
+            // A warp whose items all share one shard (the common case) moves
+            // its vector into the unit instead of copying it.
+            let unit_items = if len == items.len() {
+                std::mem::take(&mut items)
+            } else {
+                items[start..start + len].to_vec()
+            };
+            units.push(WorkUnit {
+                warp_id,
+                items: unit_items,
+                #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                #[cfg(not(feature = "unsafe_graph"))]
+                guards: Vec::new(),
+            });
+            start += len;
         }
     }
 
@@ -1318,6 +1333,59 @@ mod tests {
     /// is what makes posture necessary: the two lanes produce different
     /// evidence for identical behaviour, so the evidence must say which lane
     /// produced it.
+    /// `build_work_units` groups items into the same units, in the same order,
+    /// as partitioning each warp into every shard does, without building a
+    /// table of all shards.
+    #[test]
+    fn work_units_match_shard_partitioning() {
+        use super::super::shard::partition_into_shards;
+        use super::build_work_units;
+        use crate::make_warp_id;
+
+        fn noop(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {}
+
+        let item = |sequence: u32, scope_byte: u8, spread: u8| {
+            let mut scope = [0u8; 32];
+            scope[0] = scope_byte;
+            scope[1] = spread;
+            ExecItem::new(sequence, noop, NodeId(scope), OpOrigin::default())
+        };
+        // Items over a few shards, several per shard, out of shard order.
+        let warp_a: Vec<ExecItem> = (0..60u8)
+            .map(|i| item(u32::from(i), [7u8, 3, 250, 3, 7, 0][usize::from(i % 6)], i))
+            .collect();
+        let warp_b: Vec<ExecItem> = (0..5u8).map(|i| item(100 + u32::from(i), 42, i)).collect();
+        let a = make_warp_id("work-units/a");
+        let b = make_warp_id("work-units/b");
+
+        let units = build_work_units([(b, warp_b.clone()), (a, warp_a.clone())]);
+
+        let mut expected = Vec::new();
+        let mut warps = [(a, warp_a), (b, warp_b)];
+        warps.sort_by_key(|(warp_id, _)| *warp_id);
+        for (warp_id, items) in warps {
+            for shard in partition_into_shards(&items) {
+                if !shard.items.is_empty() {
+                    expected.push((warp_id, shard.items));
+                }
+            }
+        }
+        assert_eq!(units.len(), expected.len());
+        for (unit, (warp_id, items)) in units.iter().zip(&expected) {
+            assert_eq!(unit.warp_id, *warp_id);
+            let got: Vec<(u32, NodeId)> = unit
+                .items
+                .iter()
+                .map(|item| (item.evidence_sequence, item.scope))
+                .collect();
+            let want: Vec<(u32, NodeId)> = items
+                .iter()
+                .map(|item| (item.evidence_sequence, item.scope))
+                .collect();
+            assert_eq!(got, want);
+        }
+    }
+
     #[test]
     fn serial_execution_is_an_unobserved_lane() {
         use crate::{ActualFootprint, ActualFootprintPosture, ExecutionGraphView, Footprint};

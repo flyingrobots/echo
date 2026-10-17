@@ -133,6 +133,10 @@ crates:
     class: DET_NONCRITICAL
     owner_role: "CI Engineer"
     paths: ["crates/echo-dry-tests/**"]
+  echo-alloc-witness:
+    class: DET_NONCRITICAL
+    owner_role: "CI Engineer"
+    paths: ["crates/echo-alloc-witness/**"]
 
 policy:
   require_full_classification: true

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+[package]
+name = "echo-alloc-witness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license.workspace = true
+repository.workspace = true
+rust-version = "1.96.0"
+description = "Allocation witnesses for Echo's hot paths, outside the runtime crates"
+readme = "README.md"
+keywords = ["echo", "testing", "allocation"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+
+[dev-dependencies]
+warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
+echo-dry-tests = { workspace = true }
+blake3 = "1"

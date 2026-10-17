@@ -41,6 +41,48 @@ pub struct WarpInstance {
 pub struct WarpState {
     pub(crate) stores: BTreeMap<WarpId, GraphStore>,
     pub(crate) instances: BTreeMap<WarpId, WarpInstance>,
+    /// Instance-level touches since recording began.
+    pub(crate) touched: StateTouchLog,
+}
+
+/// Instance-level counterpart of [`crate::graph::TouchLog`].
+///
+/// Records each instance's prior record on first change, and the prior
+/// content of every store created, replaced, or removed while recording.
+/// Those warps are diffed as whole stores; every other store reports its own
+/// touched slots. Like the store log, it is bookkeeping: a clone starts idle
+/// and `Debug` does not print it.
+#[derive(Default)]
+pub(crate) struct StateTouchLog {
+    pub(crate) recording: bool,
+    /// Incremented by every `begin_touch_log`; never reset, so a store log
+    /// from an earlier recording can be told apart from a current one.
+    pub(crate) epoch: u64,
+    /// The stores whose logs were started in this epoch, in start order.
+    /// Only these are read, ended, or restored, so the cost follows the
+    /// stores a tick touches, not how many exist.
+    pub(crate) begun: Vec<WarpId>,
+    pub(crate) instances: BTreeMap<WarpId, Option<WarpInstance>>,
+    /// Warps whose store was created, replaced, or removed, with the store's
+    /// content as of the start of recording (`None` when it had no store).
+    pub(crate) replaced_stores: BTreeMap<WarpId, Option<GraphStore>>,
+}
+
+/// Whether `store`'s log was started in recording `epoch`.
+fn store_is_current(store: &GraphStore, epoch: u64) -> bool {
+    store.touched.recording && store.touched.epoch == epoch
+}
+
+impl Clone for StateTouchLog {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for StateTouchLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StateTouchLog")
+    }
 }
 
 impl WarpState {
@@ -74,15 +116,118 @@ impl WarpState {
 
     /// Returns a mutable skeleton store for `warp_id` (if present).
     pub fn store_mut(&mut self, warp_id: &WarpId) -> Option<&mut GraphStore> {
-        self.stores.get_mut(warp_id)
+        let store = self.stores.get_mut(warp_id)?;
+        if self.touched.recording && !store_is_current(store, self.touched.epoch) {
+            // First write access in this epoch: start this store's log,
+            // replacing any stale one.
+            store.begin_touch_log(self.touched.epoch);
+            self.touched.begun.push(*warp_id);
+        }
+        Some(store)
     }
 
-    /// Removes and returns the store for `warp_id` if it exists; otherwise returns a new empty store.
+    /// Whether `store` carries a log from the current recording epoch.
+    pub(crate) fn store_is_current(&self, store: &GraphStore) -> bool {
+        self.touched.recording && store_is_current(store, self.touched.epoch)
+    }
+
+    /// Starts recording touches on the state.
+    ///
+    /// Stores start their own logs lazily, on first write access, so this
+    /// costs nothing per store.
+    ///
+    /// A recording abandoned without an end (an aborted commit) is ended
+    /// here first, so none of its store logs keeps recording.
+    pub(crate) fn begin_touch_log(&mut self) {
+        let begun = self.end_begun_store_logs();
+        let epoch = self.next_touch_epoch();
+        self.touched = StateTouchLog {
+            recording: true,
+            epoch,
+            begun,
+            ..StateTouchLog::default()
+        };
+    }
+
+    /// Ends every store log started in the current epoch and returns the
+    /// emptied `begun` list, keeping its capacity for the next recording.
+    fn end_begun_store_logs(&mut self) -> Vec<WarpId> {
+        let mut begun = std::mem::take(&mut self.touched.begun);
+        for warp_id in &begun {
+            if let Some(store) = self.stores.get_mut(warp_id) {
+                store.end_touch_log();
+            }
+        }
+        begun.clear();
+        begun
+    }
+
+    /// The next recording epoch. Epochs only grow, so a store log from an
+    /// earlier recording can never match the current one. When the counter
+    /// would overflow, every store's log is cleared once and counting
+    /// restarts at 1, so no surviving log can carry a reused epoch.
+    fn next_touch_epoch(&mut self) -> u64 {
+        if let Some(epoch) = self.touched.epoch.checked_add(1) {
+            return epoch;
+        }
+        for store in self.stores.values_mut() {
+            store.end_touch_log();
+        }
+        1
+    }
+
+    /// Stops recording touches and discards every log started in this epoch.
+    pub(crate) fn end_touch_log(&mut self) {
+        let begun = self.end_begun_store_logs();
+        let epoch = self.touched.epoch;
+        self.touched = StateTouchLog {
+            epoch,
+            begun,
+            ..StateTouchLog::default()
+        };
+    }
+
+    fn touch_instance(&mut self, warp_id: WarpId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.instances.entry(warp_id)
+            {
+                slot.insert(self.instances.get(&warp_id).cloned());
+            }
+        }
+    }
+
+    /// Keeps `prior`, the store being dropped for `warp_id`, as that warp's
+    /// content at the start of recording, unless one is already kept.
+    fn keep_replaced_store(&mut self, warp_id: WarpId, prior: Option<GraphStore>) {
+        if let std::collections::btree_map::Entry::Vacant(slot) =
+            self.touched.replaced_stores.entry(warp_id)
+        {
+            slot.insert(prior.map(|mut store| {
+                store.revert_touches();
+                store
+            }));
+        }
+    }
+
+    /// Removes the store for `warp_id`, or creates an empty one.
+    ///
+    /// While touches are recorded, a store taken here must be returned through
+    /// [`Self::upsert_instance`]: its log travels with it, and dropping it
+    /// would lose the prior values of its touched slots.
     #[must_use]
     pub(crate) fn take_or_create_store(&mut self, warp_id: WarpId) -> GraphStore {
-        self.stores
-            .remove(&warp_id)
-            .unwrap_or_else(|| GraphStore::new(warp_id))
+        if let Some(mut store) = self.stores.remove(&warp_id) {
+            if self.touched.recording && !store_is_current(&store, self.touched.epoch) {
+                store.begin_touch_log(self.touched.epoch);
+                self.touched.begun.push(warp_id);
+            }
+            return store;
+        }
+        if self.touched.recording {
+            self.keep_replaced_store(warp_id, None);
+        }
+        GraphStore::new(warp_id)
     }
 
     /// Inserts or replaces the store and metadata for a warp instance.
@@ -95,6 +240,15 @@ impl WarpState {
         );
         // Canonicalize the store's warp id to the instance id (the instance metadata is the source of truth).
         store.warp_id = instance.warp_id;
+        if self.touched.recording {
+            self.touch_instance(instance.warp_id);
+            // A store that is not recording did not come from this state
+            // during recording, so it replaces whatever was there.
+            if !store_is_current(&store, self.touched.epoch) {
+                let prior = self.stores.remove(&instance.warp_id);
+                self.keep_replaced_store(instance.warp_id, prior);
+            }
+        }
         self.stores.insert(instance.warp_id, store);
         self.instances.insert(instance.warp_id, instance);
     }
@@ -103,8 +257,13 @@ impl WarpState {
     ///
     /// Returns `true` if the instance existed.
     pub(crate) fn delete_instance(&mut self, warp_id: &WarpId) -> bool {
+        self.touch_instance(*warp_id);
         let existed = self.instances.remove(warp_id).is_some();
-        let store_existed = self.stores.remove(warp_id).is_some();
+        let removed_store = self.stores.remove(warp_id);
+        let store_existed = removed_store.is_some();
+        if self.touched.recording {
+            self.keep_replaced_store(*warp_id, removed_store);
+        }
         debug_assert_eq!(
             existed, store_existed,
             "WarpState stores/instances desynced for warp_id: {warp_id:?}"

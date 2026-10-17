@@ -46,7 +46,7 @@ use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, Sch
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::telemetry::{NullTelemetrySink, TelemetrySink};
 use crate::tick_delta::OpOrigin;
-use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
+use crate::tick_patch::{SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
 use crate::worldline_state::WorldlineState;
@@ -498,6 +498,10 @@ pub struct Engine {
     /// Per-Action footprints from the latest execution attempt that unwound.
     /// It committed nothing; this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
+    /// Whether a runtime batch's guard owns the state's touch log. A commit
+    /// outside a runtime batch always starts a fresh log, so a log left behind
+    /// by an aborted commit never leaks into a later patch.
+    runtime_batch_touch_log: bool,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay.
     initial_state: Arc<WarpState>,
@@ -541,6 +545,7 @@ impl<T> SavedField<T> {
         }
     }
 
+    #[cfg(any(test, feature = "delta_validate"))]
     fn as_ref(&self, label: &'static str) -> &T {
         match self {
             Self::Present(value) => value,
@@ -575,6 +580,9 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         let saved_engine_state =
             std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
         let state_before_runtime_commit = engine.state.clone();
+        // The tick's delta is computed from the slots it touches, from here on.
+        engine.state.begin_touch_log();
+        engine.runtime_batch_touch_log = true;
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
         engine.current_root = state.root;
@@ -631,12 +639,15 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         }
     }
 
+    #[cfg(any(test, feature = "delta_validate"))]
     fn state_before_runtime_commit(&self) -> &WarpState {
         self.state_before_runtime_commit
             .as_ref("runtime commit guard missing pre-commit state")
     }
 
     fn finish_success(&mut self) {
+        self.engine.state.end_touch_log();
+        self.engine.runtime_batch_touch_log = false;
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
@@ -695,6 +706,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         if !self.armed {
             return;
         }
+        self.engine.runtime_batch_touch_log = false;
 
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: self
@@ -948,6 +960,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1149,6 +1162,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1890,19 +1904,25 @@ impl Engine {
                 }
             }
 
-            let (mut snapshot, mut receipt, patch) = guard.engine.commit_with_receipt(tx)?;
+            // The touch log began when the guard entered, so this patch's ops
+            // are the whole runtime batch's delta: ingress materialization
+            // and the commit together.
+            let (mut snapshot, mut receipt, combined_patch) =
+                guard.engine.commit_with_receipt(tx)?;
+            #[cfg(any(test, feature = "delta_validate"))]
+            assert_eq!(
+                combined_patch.ops(),
+                crate::tick_patch::diff_state(
+                    guard.state_before_runtime_commit(),
+                    &guard.engine.state
+                )
+                .as_slice(),
+                "the touched-slot delta must equal the full-state diff"
+            );
             if submission_ids.is_some() {
                 receipt = seal_runtime_attribution(receipt, &decided)?;
                 snapshot.decision_digest = receipt.digest();
             }
-            let combined_patch = WarpTickPatchV1::new(
-                patch.policy_id(),
-                patch.rule_pack_id(),
-                patch.commit_status(),
-                patch.in_slots().to_vec(),
-                patch.out_slots().to_vec(),
-                diff_state(guard.state_before_runtime_commit(), &guard.engine.state),
-            );
             snapshot.patch_digest = combined_patch.digest();
             // An attributed tick's commit hash binds its receipt (v3); an
             // engine-direct commit has no section and keeps v2 (#873).
@@ -1980,18 +2000,44 @@ impl Engine {
         // Deterministic digest of the ordered rewrites we will apply.
         let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
-        // Capture pre-state for delta patch construction.
-        // PERF: Full state clone; consider COW or incremental tracking for large graphs.
+        // The delta is computed from the slots this tick touches. A runtime
+        // batch's guard has already begun the log, so its delta also covers
+        // the batch's ingress materialization. Otherwise this commit owns the
+        // log and starts it fresh, discarding anything an aborted commit left.
+        let owns_touch_log = !self.runtime_batch_touch_log;
+        if owns_touch_log {
+            self.state.begin_touch_log();
+        }
+        // Validation builds compare the delta against a full copy.
+        #[cfg(any(test, feature = "delta_validate"))]
         let state_before = self.state.clone();
 
+        // Rule executors run here. If one panics, the recording ends with
+        // this scope, before the panic leaves the commit, so no store log
+        // keeps capturing priors for writes made outside any tick.
+        let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            #[cfg(any(test, feature = "delta_validate"))]
+            let applied = self.apply_reserved_rewrites(reserved_rewrites, &state_before);
+            #[cfg(not(any(test, feature = "delta_validate")))]
+            let applied = self.apply_reserved_rewrites(reserved_rewrites);
+            applied
+        }));
+        let applied = match applied {
+            Ok(applied) => applied,
+            Err(panic) => {
+                if owns_touch_log {
+                    self.state.end_touch_log();
+                }
+                std::panic::resume_unwind(panic);
+            }
+        };
+        if applied.is_err() && owns_touch_log {
+            self.state.end_touch_log();
+        }
         #[cfg(feature = "delta_validate")]
-        let delta_ops = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
-        #[cfg(all(any(test, feature = "delta_validate"), not(feature = "delta_validate")))]
-        let _ = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
-        #[cfg(not(any(test, feature = "delta_validate")))]
-        self.apply_reserved_rewrites(reserved_rewrites)?;
+        let delta_ops = applied?;
+        #[cfg(not(feature = "delta_validate"))]
+        let _ = applied?;
 
         // Finalize materialization bus and store results.
         // Note: Rules don't emit yet (requires executor signature change), but the
@@ -2009,7 +2055,18 @@ impl Engine {
         self.last_materialization_errors = mat_report.errors;
 
         // Delta tick patch (Paper III boundary artifact).
-        let ops = diff_state(&state_before, &self.state);
+        let ops = crate::tick_patch::touched_diff(&self.state);
+        #[cfg(any(test, feature = "delta_validate"))]
+        if owns_touch_log {
+            assert_eq!(
+                ops,
+                crate::tick_patch::diff_state(&state_before, &self.state),
+                "the touched-slot delta must equal the full-state diff"
+            );
+        }
+        if owns_touch_log {
+            self.state.end_touch_log();
+        }
         let patch = WarpTickPatchV1::new(
             policy_id,
             rule_pack_id,

@@ -2502,7 +2502,8 @@ pub struct InstalledEchoOperationV1 {
     installed_operation_id: InstalledEchoOperationIdV1,
     package_id: EchoOperationPackageIdV1,
     package_admission_id: EchoOperationPackageAdmissionIdV1,
-    operation_coordinate: String,
+    // Shared, not copied, by every prepared Action (#903).
+    operation_coordinate: std::sync::Arc<str>,
     semantic_identity: Hash,
     lawpack_identity: Hash,
     target_profile_identity: Hash,
@@ -2513,10 +2514,11 @@ pub struct InstalledEchoOperationV1 {
     budget_ceiling: EchoOperationBudgetV1,
     program_id: EchoOperationProgramIdV1,
     program: EchoOperationProgramV1,
-    application_result_projection: Option<EchoOperationApplicationResultProjectionV1>,
-    canonical_package_bytes: Vec<u8>,
+    application_result_projection:
+        Option<std::sync::Arc<EchoOperationApplicationResultProjectionV1>>,
+    canonical_package_bytes: std::sync::Arc<[u8]>,
     admission_policy_id: Hash,
-    admission_policy: EchoOperationAdmissionPolicyV1,
+    admission_policy: std::sync::Arc<EchoOperationAdmissionPolicyV1>,
 }
 
 impl InstalledEchoOperationV1 {
@@ -2556,10 +2558,10 @@ impl InstalledEchoOperationV1 {
 
     /// Returns the compiler-owned application-result projection when installed.
     #[must_use]
-    pub const fn application_result_projection(
+    pub fn application_result_projection(
         &self,
     ) -> Option<&EchoOperationApplicationResultProjectionV1> {
-        self.application_result_projection.as_ref()
+        self.application_result_projection.as_deref()
     }
 
     /// Returns the semantic identity bound by the admitted package.
@@ -2574,7 +2576,14 @@ impl InstalledEchoOperationV1 {
         self.lawpack_identity
     }
 
-    /// Returns the exact retained package bytes.
+    /// Returns the admission policy installed with the package. Every
+    /// prepared Action shares it with the registry.
+    #[must_use]
+    pub fn admission_policy(&self) -> &EchoOperationAdmissionPolicyV1 {
+        &self.admission_policy
+    }
+
+    /// Returns the exact canonical package bytes retained at installation.
     #[must_use]
     pub fn canonical_package_bytes(&self) -> &[u8] {
         &self.canonical_package_bytes
@@ -2660,7 +2669,7 @@ pub(crate) fn installed_from_admitted(
         installed_operation_id: InstalledEchoOperationIdV1([0; 32]),
         package_id: admitted.package_id,
         package_admission_id: admitted.admission_id,
-        operation_coordinate: package.operation_coordinate,
+        operation_coordinate: package.operation_coordinate.into(),
         semantic_identity: package.semantic_closure.canonical_meaning_identity,
         lawpack_identity: package.semantic_closure.lawpack_identity,
         target_profile_identity: package.target_profile_identity,
@@ -2671,10 +2680,12 @@ pub(crate) fn installed_from_admitted(
         budget_ceiling: package.budget_ceiling,
         program_id: package.program.identity()?,
         program: package.program,
-        application_result_projection: package.application_result_projection,
-        canonical_package_bytes: admitted.canonical_package_bytes,
+        application_result_projection: package
+            .application_result_projection
+            .map(std::sync::Arc::new),
+        canonical_package_bytes: admitted.canonical_package_bytes.into(),
         admission_policy_id: admitted.admission_policy_id,
-        admission_policy: admitted.admission_policy,
+        admission_policy: std::sync::Arc::new(admitted.admission_policy),
     };
     installed.installed_operation_id = installed_operation_id(&installed);
     Ok(installed)
@@ -2695,7 +2706,7 @@ pub(crate) fn retain_installation_v1(
         ),
         (
             "package_bytes",
-            CanonicalValueV1::Bytes(installed.canonical_package_bytes.clone()),
+            CanonicalValueV1::Bytes(installed.canonical_package_bytes.to_vec()),
         ),
         (
             "package_admission_id",
@@ -2790,7 +2801,7 @@ pub(crate) fn install_recovered_v1(
         ));
     }
     if operations
-        .get(&installed.operation_coordinate)
+        .get(&*installed.operation_coordinate)
         .is_some_and(|existing| *existing != installed.package_id)
     {
         return Err(installation_error(
@@ -2798,7 +2809,10 @@ pub(crate) fn install_recovered_v1(
             "recovered operation coordinate conflicts with installed package",
         ));
     }
-    operations.insert(installed.operation_coordinate.clone(), installed.package_id);
+    operations.insert(
+        installed.operation_coordinate.to_string(),
+        installed.package_id,
+    );
     packages.insert(installed.package_id, installed.clone());
     Ok(installed)
 }
@@ -3638,7 +3652,7 @@ fn admit_invocation_static_v1<'a>(
             "claimed executable operation package is not installed",
         )
     })?;
-    if invocation.operation_coordinate != installed.operation_coordinate {
+    if invocation.operation_coordinate != *installed.operation_coordinate {
         return Err(invocation_admission_error(
             EchoOperationInvocationAdmissionErrorKindV1::OperationCoordinateMismatch,
             "invocation operation coordinate differs from installed package",
@@ -3651,7 +3665,7 @@ fn admit_invocation_static_v1<'a>(
         ));
     }
     match (
-        installed.application_result_projection.as_ref(),
+        installed.application_result_projection.as_deref(),
         invocation.application_input_bytes.as_deref(),
     ) {
         (Some(projection), Some(application_input_bytes)) => projection
@@ -4944,6 +4958,13 @@ pub struct PreparedEchoOperationV1 {
 }
 
 impl PreparedEchoOperationV1 {
+    /// Returns the installed operation this preparation evaluated. It shares
+    /// the installed package's bytes and projection with the registry.
+    #[must_use]
+    pub const fn installed(&self) -> &InstalledEchoOperationV1 {
+        &self.installed
+    }
+
     /// Returns the exact basis on which private evaluation occurred.
     #[must_use]
     pub const fn evaluation_basis(&self) -> &EchoOperationEvaluationBasisV1 {
@@ -5081,7 +5102,7 @@ pub(crate) fn prepare_operation_v1(
         return obstruction(EchoOperationObstructionKindV1::OperationUnavailable);
     };
     if installed.package_id != package_id
-        || installed.operation_coordinate != admitted.invocation.operation_coordinate
+        || *installed.operation_coordinate != *admitted.invocation.operation_coordinate
         || installed.installed_operation_id != admitted.installed_operation_id
     {
         return obstruction(EchoOperationObstructionKindV1::OperationUnavailable);
@@ -5307,7 +5328,7 @@ pub(crate) fn prepare_operation_v1(
         &admitted.invocation.replacement_bytes,
     );
     let application_result = match (
-        installed.application_result_projection.as_ref(),
+        installed.application_result_projection.as_deref(),
         admitted.invocation.application_input_bytes.as_deref(),
     ) {
         (Some(projection), Some(application_input_bytes)) => {
@@ -6226,7 +6247,7 @@ pub(crate) fn validate_receipt_installation_v1(
         && receipt.installed_operation_id == installed.installed_operation_id;
     let package_policy_matches =
         receipt.package_admission_policy_id == installed.admission_policy_id;
-    let semantic_evidence_matches = receipt.operation_coordinate == installed.operation_coordinate
+    let semantic_evidence_matches = receipt.operation_coordinate == *installed.operation_coordinate
         && receipt.semantic_identity == installed.semantic_identity
         && receipt.lawpack_identity == installed.lawpack_identity
         && receipt.target_profile_identity == installed.target_profile_identity
@@ -6247,7 +6268,7 @@ pub(crate) fn validate_receipt_installation_v1(
             .consumed_budget
             .fits_within(receipt.delegated_budget);
     let application_result_matches = match (
-        installed.application_result_projection.as_ref(),
+        installed.application_result_projection.as_deref(),
         receipt.prepared_application_result.as_ref(),
     ) {
         (None, None) => true,
@@ -6279,7 +6300,7 @@ pub(crate) fn validate_receipt_application_result_v1(
 ) -> Result<(), EchoOperationArtifactErrorV1> {
     let invocation = EchoOperationInvocationV1::from_canonical_bytes(canonical_invocation_bytes)?;
     let result_matches = match (
-        installed.application_result_projection.as_ref(),
+        installed.application_result_projection.as_deref(),
         receipt.prepared_application_result.as_ref(),
         invocation.application_input_bytes.as_deref(),
     ) {
@@ -7025,7 +7046,7 @@ fn build_receipt(
         package_id: prepared.installed.package_id,
         package_admission_id: prepared.installed.package_admission_id,
         installed_operation_id: prepared.installed.installed_operation_id,
-        operation_coordinate: prepared.installed.operation_coordinate.clone(),
+        operation_coordinate: prepared.installed.operation_coordinate.to_string(),
         semantic_identity: prepared.installed.semantic_identity,
         lawpack_identity: prepared.installed.lawpack_identity,
         target_profile_identity: prepared.installed.target_profile_identity,
@@ -8322,10 +8343,10 @@ mod tests {
             text_value("application_input_expected_value_digest_path"),
             projection_path_value(&["expected".to_owned()]),
         ));
-        installed.application_result_projection = Some(
+        installed.application_result_projection = Some(std::sync::Arc::new(
             EchoOperationApplicationResultProjectionV1::from_value(projection_value)
                 .expect("CAS digest projection decodes"),
-        );
+        ));
         invocation.application_input_bytes = Some(
             encode_canonical_cbor_v1(&map_value([
                 ("key", text_value("fixture-key")),
@@ -9199,7 +9220,7 @@ mod tests {
         }
         let substituted_policy = EchoOperationAdmissionPolicyV1::exact(
             installed.package_id,
-            installed.operation_coordinate.clone(),
+            installed.operation_coordinate.to_string(),
             installed.authority_profile_identity,
             EchoOperationBudgetV1::new(9, 512, 512),
         );
@@ -9279,7 +9300,7 @@ mod tests {
             package_id: installed.package_id,
             package_admission_id: installed.package_admission_id,
             installed_operation_id: installed.installed_operation_id,
-            operation_coordinate: installed.operation_coordinate.clone(),
+            operation_coordinate: installed.operation_coordinate.to_string(),
             semantic_identity: installed.semantic_identity,
             lawpack_identity: installed.lawpack_identity,
             target_profile_identity: installed.target_profile_identity,

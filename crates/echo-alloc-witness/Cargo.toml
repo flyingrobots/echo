@@ -17,6 +17,10 @@ categories = ["development-tools::testing"]
 [dependencies]
 
 [dev-dependencies]
-warp-core = { workspace = true, features = ["native_rule_bootstrap"] }
+warp-core = { workspace = true, features = ["native_rule_bootstrap", "trusted_runtime"] }
 echo-dry-tests = { workspace = true }
+echo-edict-canonical = { workspace = true }
 blake3 = "1"
+bytes = "1.0"
+hex = "0.4"
+sha2 = "0.10"

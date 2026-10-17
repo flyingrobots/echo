@@ -1300,6 +1300,12 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
 /// `diff_state`'s rules applied to that slot. Warps whose store was created,
 /// replaced, or removed are diffed as whole stores, as `diff_state` does.
 pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
+    touched_diff_visiting(after, |_| {})
+}
+
+/// [`touched_diff`], calling `visit_store` for every store it examines, so a
+/// test can count the work without any shared state.
+fn touched_diff_visiting(after: &WarpState, mut visit_store: impl FnMut(WarpId)) -> Vec<WarpOp> {
     let log = &after.touched;
     let mut ops: Vec<WarpOp> = Vec::new();
     let mut portal_warps: std::collections::BTreeSet<WarpId> = std::collections::BTreeSet::new();
@@ -1379,6 +1385,7 @@ pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
     // final sort fixes the order.
     let empty = GraphStore::default();
     for (warp_id, prior) in &log.replaced_stores {
+        visit_store(*warp_id);
         if let Some(after_store) = after.stores.get(warp_id) {
             diff_instance(
                 &mut ops,
@@ -1394,6 +1401,7 @@ pub(crate) fn touched_diff(after: &WarpState) -> Vec<WarpOp> {
         if log.replaced_stores.contains_key(warp_id) {
             continue;
         }
+        visit_store(*warp_id);
         if let Some(after_store) = after.stores.get(warp_id) {
             if after.store_is_current(after_store) {
                 diff_touched_instance(
@@ -2790,6 +2798,40 @@ mod touched_diff_tests {
         apply(&mut state, &Write::OpenChild { parent: 0 });
         apply(&mut state, &Write::ReplaceChildStore { node: 3 });
         assert_eq!(touched_diff(&state), diff_state(&before, &state));
+    }
+
+    /// Stores `touched_diff` examines when a recording writes only the root
+    /// store of a state holding `untouched` other instances.
+    fn stores_examined(untouched: u8) -> usize {
+        let mut state = seeded_state(&[]);
+        for i in 0..untouched {
+            let warp_id = make_warp_id(&format!("touch/untouched/{i}"));
+            let root_node = make_node_id(&format!("touch/untouched/{i}/root"));
+            let mut store = GraphStore::new(warp_id);
+            store.insert_node(root_node, NodeRecord { ty: ty(0) });
+            state.upsert_instance(
+                WarpInstance {
+                    warp_id,
+                    root_node,
+                    parent: None,
+                },
+                store,
+            );
+        }
+        state.begin_touch_log();
+        apply(&mut state, &Write::InsertNode { node: 1, ty: 0 });
+        let mut examined = 0;
+        let _ = super::touched_diff_visiting(&state, |_| examined += 1);
+        examined
+    }
+
+    /// The commit delta's work follows the stores a recording touched, not how
+    /// many instances exist. No allocation counter sees this, since a scan
+    /// over untouched stores allocates nothing; the visit count does.
+    #[test]
+    fn the_delta_examines_only_touched_stores() {
+        assert_eq!(stores_examined(0), 1);
+        assert_eq!(stores_examined(64), 1, "untouched instances were examined");
     }
 
     /// A recording abandoned without an end must not leave a store log

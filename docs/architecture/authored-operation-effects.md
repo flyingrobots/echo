@@ -313,9 +313,13 @@ Rules:
       edge will name (`from` and `to`, or the retargeted edge's source and
       the new `to`) exists, unless the same proposal creates it. An
       `EnsureEdge` that finds an identical edge is a read; it adds and
-      retargets nothing, so its endpoints are not checked, as invariant 4
-      and [Visibility and referential integrity](#visibility-and-referential-integrity)
-      limit endpoint checks to edges the proposal introduces or retargets;
+      retargets nothing, so its target is not checked, as invariant 4 and
+      [Visibility and referential integrity](#visibility-and-referential-integrity)
+      limit endpoint checks to edges the proposal introduces or retargets.
+      Its source must still exist, because the identity law reads the
+      source's type to check the edge's id; a missing source is
+      `DanglingReference` at step 8, for an identical `EnsureEdge` as for a
+      creating one;
 
     Every precondition slot is a read in the Action's footprint, is checked by
     validation, and belongs to the dependency set of a dependency-scoped Action
@@ -481,11 +485,13 @@ footprint law is found at validation step 7 (`FootprintLawViolation`,
 `Proposed`, `NotDerived`).
 
 A read that may find nothing names the type it expects: a node read names a node
-type, and an atom read names an atom `type_id`. The view records that type with
-an absent outcome (in the `ReadRow`'s `subject` field), so the footprint law's
-`read_node_types` or `atom_types` decides whether the probe is permitted, live
-and on recovery alike. A first implementation may still sit on today's fully
-materialized worldline state, but nothing in this contract may rely on that.
+type, and an atom read names an atom `type_id`. The view records the authorizing
+type in every node and atom `ReadRow`'s `read_type` field: the record's actual
+type when the read finds one, and the type the read named when it finds nothing.
+The footprint law's `read_node_types` or `atom_types` decides from that field
+whether each read is permitted, live and on recovery alike. A first
+implementation may still sit on today's fully materialized worldline state, but
+nothing in this contract may rely on that.
 
 ## Footprint law
 
@@ -799,10 +805,19 @@ held; this design validates only what the proposal adds or retargets.
   not cover its bytes. Exhausting any evaluation limit obstructs with
   `BudgetExceeded`, posture `NoProposal`, and no patch. Allocation is not a
   delegated axis: `edict_pure` already bounds it by its own
-  `max_allocated_bytes`, the host ceiling intersected with the program's
-  declared maximum, and exceeding that is likewise `BudgetExceeded` with
-  `NoProposal`. The allocated bytes are recorded as evidence, never compared
-  against the delegated budget.
+  `max_allocated_bytes`, the host ceiling intersected with the
+  `max_allocated_bytes` the program map declares, and exceeding that is likewise
+  `BudgetExceeded` with `NoProposal`. The allocated bytes are recorded as
+  evidence, never compared against the delegated budget.
+- **Evaluation reads are charged.** The recording view charges each read
+  before it resolves it, in the order the program makes them. A node-record
+  read costs one step and 64 `read_bytes`, present or absent. An atom read
+  costs one step and 64 `read_bytes`, plus the atom's byte length when it is
+  present, so a large atom cannot be read beyond the budget. Range reads are
+  charged as [Witnessed reads](#witnessed-reads-over-a-bounded-slice) states.
+  A read the remaining budget cannot cover obstructs with `BudgetExceeded`,
+  posture `NoProposal`, before anything is read; its charge is not added to
+  the consumed budget, which records every charge made before it.
 - **Validation reads are charged.** Every slot validation reads is charged
   once per Action, before it is read, at the first step that reads it, and
   never again: a node record or an atom's presence costs one step and 64
@@ -893,8 +908,24 @@ Consequences:
           `echo.operation-target.edict-effect/v1`;
         - `application_basis_schema_identity` is the profile digest of
           `echo.operation.basis.edict-effect/v1`;
+        - `input_schema_identity`, `result_schema_identity`, and
+          `obstruction_schema_identity` are the profile digests of
+          `echo.operation.input.edict-effect/v1`,
+          `echo.operation.result.edict-effect/v1`, and
+          `echo.operation.obstruction.edict-effect/v1`;
+        - `result_interpretation_identity` and
+          `obstruction_interpretation_identity` are the profile digests of
+          `echo.operation.result-interpretation.edict-effect/v1` and
+          `echo.operation.obstruction-interpretation.edict-effect/v1`;
+        - `evaluation_basis_schema_identity` is the profile digest of
+          `echo.operation.evaluation-basis/v1`, as in V1;
         - `footprint_contract_identity` is the `v2` footprint-law digest
           below.
+
+        Together with the profile identities the program carries, this fixes
+        every identity field of the package. `obstruction_coordinate` and
+        `operation_coordinate` remain the application's text, as in V1.
+
     - **Semantic closure.** The V1 closure map, with `lawpack_coordinate` and
       `lawpack_identity` both omitted. A V2 package carries only an effect
       program, which requires their absence, so no sentinel lawpack is
@@ -912,6 +943,9 @@ Consequences:
         - `graph_schema`, the canonical bytes of a `graph-schema`;
         - `footprint_law`, the canonical bytes of a `footprint-law`;
         - `max_input_bytes`;
+        - `max_allocated_bytes`, the program's declared allocation ceiling,
+          which evaluation intersects with the host's ceiling and which sizes
+          the scheduler's evaluation arena;
         - `output_type`, the compiler-declared output type coordinate of the
           program's application result, which `result_identity` hashes.
 
@@ -964,7 +998,8 @@ Consequences:
       "interpreter_profile_identity": id, "intrinsic_profile_identity": id,
       "compiled_program": bstr, "target_ir_identity": id,
       "identity_law": uint, "graph_schema": bstr, "footprint_law": bstr,
-      "max_input_bytes": uint, "output_type": tstr,
+      "max_input_bytes": uint, "max_allocated_bytes": uint,
+      "output_type": tstr,
     }
     invocation-v2-effect = {
       "schema": "echo.operation-invocation/v2",
@@ -1251,7 +1286,7 @@ rules:
 | Row              | Bytes | Fields, in order                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SlotRow`        | 104   | `class` u8 (node record `0`, attachment `1`, edge `2`, range key `3`); `owner` u8 (attachment: node `0`, edge `1`); `plane` u8 (attachment: alpha `0`, beta `1`); 5 padding bytes; `warp_id`; `local_id` (the node, edge, attachment owner, or range source); `edge_type` (range key only)                                                                                                                                                                                   |
-| `ReadRow`        | 160   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`); 7 padding bytes; `subject`, 32 bytes: the value digest when present, when absent, the expected node type id for a node-record slot or the expected atom `type_id` for an attachment slot; zero for a range; `pairs` (`Range` into the pair section; range only)                                                                                                                                       |
+| `ReadRow`        | 192   | `slot` (`SlotRow`); `outcome` u8 (present `0`, absent `1`, range `2`); 7 padding bytes; `read_type`, 32 bytes: the type that authorizes the read, the record's node type or atom `type_id` when present and the type the read named when absent, zero for a range; `subject`, 32 bytes: the value digest when present, zero otherwise; `pairs` (`Range` into the pair section; range only)                                                                                   |
 | `EdgePairRow`    | 64    | `edge_local_id`; `target_local_id`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `EffectRow`      | 280   | `kind` u8 (`EnsureNode` `0`, `CreateNode` `1`, `ReplaceAtom` `2`, `EnsureEdge` `3`, `ReplaceEdge` `4`); 7 padding bytes; `key_warp_id`; `key_local_id`; `type_id` (node type, or `EnsureEdge`'s edge type); `atom_type_id`; `atom` (`Range` into the blob); `expected_digest` (`ReplaceAtom`); `from_local_id` (`EnsureEdge`); `to_local_id` (`EnsureEdge`, and `ReplaceEdge`'s new target); `expected_to_local_id` (`ReplaceEdge`)                                          |
 | `DependencyRow`  | 152   | `slot` (`SlotRow`); `kind` u8; `mode` u8; 6 padding bytes, which together with `slot` form the 112-byte descriptor; `compared` u8 (present `0`, absent `1`, not compared `2`); 7 padding bytes; `compared_digest` (present only)                                                                                                                                                                                                                                             |
@@ -1663,6 +1698,11 @@ Each behaviour below needs a test before implementation:
 | Effect profiles                 | A V2 package whose `target_profile_identity` or `application_basis_schema_identity` is not the specified profile digest is refused at admission.                                                                                                                                                                                                                                                 |
 | Effect basis binding            | An effect invocation whose `application_basis_value_identity` is not the digest of its own `application_input_bytes` is refused at admission.                                                                                                                                                                                                                                                    |
 | Outcome row projection          | An `EOACT004` record whose `OutcomeRow` differs from the projection of its receipt-bound `BridgeEntryRow` is refused by recovery.                                                                                                                                                                                                                                                                |
+| Identical edge source           | An identical `EnsureEdge` whose source no longer exists obstructs at step 8 with `DanglingReference`.                                                                                                                                                                                                                                                                                            |
+| Allocation ceiling              | An effect program map without `max_allocated_bytes` is refused; evaluation uses its intersection with the host ceiling.                                                                                                                                                                                                                                                                          |
+| Inherited identities            | A V2 package whose input, result, obstruction, interpretation, or evaluation-basis identity differs from its specified profile digest is refused at admission.                                                                                                                                                                                                                                   |
+| Evaluation read charges         | Node, absent, and atom reads charge one step and 64 `read_bytes`, plus the atom length when present; a read the budget cannot cover obstructs before reading, uncharged.                                                                                                                                                                                                                         |
+| Read types                      | A present read is authorized by the record's actual type in `read_type`, an absent one by the type it named; recovery reproduces both decisions from the read set.                                                                                                                                                                                                                               |
 
 ## Open questions
 

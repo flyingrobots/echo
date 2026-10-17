@@ -683,11 +683,21 @@ recorded obstruction:
    step rechecks it from the recorded rows, as recovery does. The target set
    and the resolved write set, with
    its range keys, must lie inside its write permissions. The counts must not
-   exceed its maxima. Precondition and resolution slots (targets, endpoints,
-   sources, and buckets that step 2 read) are implied by an effect, not read
-   by the program. Each is authorized by the write permission of the effect
-   that implies it, never by `read_node_types`, so an absent endpoint needs
-   no expected type: it passes here and is `DanglingReference` at step 8;
+   exceed its maxima. Each effect is permitted, and the slots it implies are
+   authorized, exactly as this table gives; an implied slot found absent needs
+   no type and passes here (an absent endpoint is `DanglingReference` at step
+   8):
+
+    | Effect                     | Its write requires                                         | Each present implied record requires                                                                               |
+    | -------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+    | `EnsureNode`, `CreateNode` | node type in `write_node_types`; atom type in `atom_types` | the existing target's node type in `read_node_types`; its atom type in `atom_types`                                |
+    | `ReplaceAtom`              | new atom type in `atom_types`                              | owner node type in `read_node_types`; current atom type in `atom_types`                                            |
+    | `EnsureEdge`               | edge type in `write_edge_types`                            | source and target node types in `read_node_types`; bucket edges' types in `write_edge_types` or `range_edge_types` |
+    | `ReplaceEdge`              | edge type in `write_edge_types`                            | source, old and new target node types in `read_node_types`; bucket edges as for `EnsureEdge`                       |
+
+    So an Action that only replaces atoms of existing nodes needs no
+    `write_node_types`, as dependency-scoped validity requires;
+
 8. the remaining effect preconditions, effect by effect in canonical order,
    and within an effect in the order its precondition list gives
    (`PreconditionMismatch`, `ContentIdentityConflict`, `DanglingReference`,
@@ -828,7 +838,14 @@ held; this design validates only what the proposal adds or retargets.
       replaced is therefore a footprint conflict, never a
       `PreconditionMismatch`.
 - **Budget.** The delegated budget stays `EchoOperationBudgetV1`, with its three
-  axes: steps, read bytes, and write bytes. Evaluation is metered as
+  axes: steps, read bytes, and write bytes. For an effect program, admission
+  refuses a package ceiling or delegated budget above the effect profile's
+  fixed `EFFECT_BUDGET_CEILING_V1`: 1,048,576 steps, 64 MiB of `read_bytes`, and
+  16 MiB of `write_bytes`. A proposal also holds at most 1,024 effects
+  (`EFFECT_COUNT_CEILING_V1`), counted at emission, whether or not they write;
+  the 1,025th obstructs evaluation with `BudgetExceeded`, posture `NoProposal`.
+  Every region the arena sizes from a budget or a count is therefore bounded,
+  and sizing arithmetic cannot overflow. Evaluation is metered as
   `edict_pure` already meters it. Each effect is charged when emitted, whatever
   validation later resolves: one step, plus `write_bytes` of 64 and the atom's
   byte length for `EnsureNode`, `CreateNode`, and `ReplaceAtom` (the charge
@@ -864,7 +881,9 @@ held; this design validates only what the proposal adds or retargets.
   whole bucket before any edge is inspected; a bucket length read alone costs
   one step and 64 `read_bytes`. A scan the remaining budget cannot cover
   obstructs before inspecting anything, and its charge is not added. So step 1
-  charges portals and their owners' records, for effect and read keys alike,
+  charges the portals and owners' records of effect-key chains the view did
+  not already walk; a chain the view resolved for a read was charged then and is
+  reused without another charge,
   step 2 charges each resolved record, including every Ensure and Create target
   with its alpha slot, every edge source, and the outgoing bucket of an existing
   content node, per edge, with that node's atom, hashed at step 2 because the
@@ -1740,7 +1759,7 @@ Each behaviour below needs a test before implementation:
 | Shared structure                | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                    |
 | Same-Tick identical create      | Two Actions that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                                                       |
 | Referential integrity           | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                                                              |
-| Portal chain                    | An effect in a descended warp records every portal on its root-to-target chain as a read; a co-scheduled portal retarget conflicts with it, and a portal changed and restored between origin and commit parent obstructs a scoped Action with `BasisChanged`.                                                                                                                                    |
+| Portal chain                    | An effect in a descended warp records every portal on its root-to-target chain as a footprint and dependency entry, never as a witnessed read; a co-scheduled portal retarget conflicts with it, and a portal changed and restored between origin and commit parent obstructs a scoped Action with `BasisChanged`.                                                                               |
 | Visibility                      | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                   |
 | Witnessed reads                 | The receipt's read set equals the slots the view resolved, including for a program that reads and then obstructs.                                                                                                                                                                                                                                                                                |
 | Negative reads                  | An Action that observed a node, atom, or edge set absent obstructs when a co-scheduled Action creates it, including a fresh edge of the observed source and type with a new edge id when the observed set was empty (outgoing-edge range key).                                                                                                                                                   |
@@ -1821,6 +1840,9 @@ Each behaviour below needs a test before implementation:
 | Footprint law ceilings          | A footprint law with `max_reads` above 4,096, `max_writes` above 256, or `max_range_edges` above 65,536 is refused at admission; the arena is sized from the maxima clamped by the delegated budget.                                                                                                                                                                                             |
 | ReplaceAtom over a portal       | A `ReplaceAtom` whose alpha slot holds a portal obstructs with `PreconditionMismatch` before derivation, even when its expected digest names the portal.                                                                                                                                                                                                                                         |
 | Output type coordinate          | An effect program whose `output_type` is empty or longer than 1,024 bytes is refused at admission.                                                                                                                                                                                                                                                                                               |
+| Effect budget ceilings          | A package ceiling or delegated budget above `EFFECT_BUDGET_CEILING_V1` is refused at admission; a program emitting a 1,025th effect, even an identical `Ensure`, obstructs with `BudgetExceeded`, `NoProposal`.                                                                                                                                                                                  |
+| Chain charged once              | A read whose portal chain the view resolved and charged is not charged again at step 1; a budget covering one traversal suffices.                                                                                                                                                                                                                                                                |
+| Implied-read permissions        | A `ReplaceAtom` whose owner's node type is in `read_node_types` but not `write_node_types` passes the footprint law; one whose owner type is in neither obstructs with `FootprintLawViolation`.                                                                                                                                                                                                  |
 
 ## Open questions
 

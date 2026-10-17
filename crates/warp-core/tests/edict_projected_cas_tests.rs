@@ -21,10 +21,10 @@ use warp_core::{
     make_type_id, make_warp_id, AtomPayload, AttachmentValue, EchoOperationActionOutcomeV1,
     EchoOperationAdmissionPolicyV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
-    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EngineBuilder, GraphStore,
-    InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord, PlaybackMode, SchedulerKind,
-    TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId, WorldlineRuntime,
-    WorldlineState, WriterHead, WriterHeadKey,
+    EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
+    EngineBuilder, GraphStore, InboxPolicy, IngressTarget, NodeId, NodeKey, NodeRecord,
+    PlaybackMode, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeWalConfig, TypeId, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
 
 const OPERATION: &str = "examples.cas_echo@1.updateCell";
@@ -850,4 +850,55 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
         .installed_echo_operation_package_v1(id)
         .is_none());
     assert_eq!(fixture.value(), INITIAL);
+}
+
+/// Preparing an Action must share its installed operation's package bytes
+/// and result projection with the registry, not copy them, so each Action
+/// costs a few pointers rather than the package's size (#903, E1). This runs
+/// the real admission and preparation path.
+#[test]
+fn a_prepared_action_shares_its_installed_package_instead_of_copying_it() {
+    let mut fixture = Fixture::new(true);
+    fixture.install();
+    let invocation = fixture.invocation(INITIAL, initial_digest(), initial_digest(), "updated");
+    let admitted = fixture
+        .host
+        .admit_echo_operation_invocation_v1(&policy(), &invocation)
+        .expect("invocation admitted");
+    let EchoOperationPreparationV1::Prepared(prepared) =
+        fixture.host.prepare_echo_operation_v1(admitted)
+    else {
+        panic!("the valid invocation prepares");
+    };
+    let registered = fixture
+        .host
+        .engine()
+        .installed_echo_operation_package_v1(echo_operation_package_id_v1(&package()))
+        .expect("installed");
+    assert!(
+        std::ptr::eq(
+            prepared.installed().canonical_package_bytes().as_ptr(),
+            registered.canonical_package_bytes().as_ptr()
+        ),
+        "preparation copied the package bytes"
+    );
+    assert!(
+        std::ptr::eq(
+            prepared
+                .installed()
+                .application_result_projection()
+                .expect("prepared projection"),
+            registered
+                .application_result_projection()
+                .expect("the CAS package installs a projection")
+        ),
+        "preparation copied the result projection"
+    );
+    assert!(
+        std::ptr::eq(
+            prepared.installed().admission_policy(),
+            registered.admission_policy()
+        ),
+        "preparation copied the admission policy and its operation coordinate"
+    );
 }

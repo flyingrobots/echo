@@ -3,9 +3,10 @@
 
 # Benchmark Scene Fixtures
 
-Status: design. The direction was approved by the owner on 2026-10-17; this
-revision tightens the fixture contract after an external review the owner
-supplied the same day. Nothing here is implemented yet. Written by Claude from
+Status: design, approved for implementation. The direction was approved by
+the owner on 2026-10-17; two external reviews the owner supplied the same day
+tightened the fixture contract. The first implementation slice lands with this
+revision. Written by Claude from
 the sources listed at the end.
 
 > A performance improvement counts only when the workload is unchanged and
@@ -76,6 +77,20 @@ the workload identity, and it may change the expected-result identity only
 through an explained, versioned change. "Updated the snapshots" is not an
 explanation.
 
+One manifest file may hold all of a fixture's declarations, but the fields
+that feed each digest are separated explicitly:
+
+```text
+workload_id    = digest(canonical workload specification)
+expectation_id = digest(workload_id + assertions + output format versions)
+```
+
+Expected roots, receipts and other goldens belong to the expectation part and
+never enter the workload digest, so changing a golden cannot change the
+workload. Small conformance cases also pin a digest of the generated logical
+scene and script: identical dimensions do not establish an identical workload,
+because a graph can be rewired without changing its node or edge count.
+
 ### The manifest
 
 Each fixture has a versioned manifest that fixes the workload independently of
@@ -90,7 +105,7 @@ Echo's implementation:
   operations (replay fixtures need the latter; see below);
 - the evidence class of the fixture (observed, modeled or exploratory) and
   pinned source revisions for any application it models;
-- the declared outcomes.
+- the declared outcomes, in the expectation part (above).
 
 Manifests are small and checked in. Bulk scenes are generated from them.
 
@@ -98,9 +113,12 @@ Manifests are small and checked in. Bulk scenes are generated from them.
 guarantee across versions or platforms, and `warp-core` has no `rand`
 dependency; adding one would change `Cargo.lock`, which the provider package
 binds. Fixtures therefore use a small pseudo-random generator defined in the
-repository (for example SplitMix64), with published test vectors, and
-documented sampling rules for every distribution they draw from (uniform,
-Zipf, and so on). A generator change bumps the manifest's generator version.
+repository (for example SplitMix64), with published test vectors. Test vectors
+fix the output sequence only, so the mappings built on it are pinned too:
+bounded integers, shuffles and any other distribution, with their arithmetic
+and boundary behavior. Only the distributions the implemented fixtures need
+are built; Zipf, for example, arrives with the first workload that uses it. A
+generator or mapping change bumps the manifest's generator version.
 
 ### Requested and realized dimensions
 
@@ -129,9 +147,11 @@ pins its own.
 | **Fixed causal workload** | Compare implementations and execution profiles | Same declared inputs, causal constraints and promised outcome equivalence on every run |
 | **Concurrent arrival workload** | Measure admission, queueing and contention | A declared arrival process, captured deliveries, and complete outcome accounting |
 
-In both modes the workload is generated before execution. Worker scheduling
-must never decide which random numbers are consumed and thereby produce a
-different workload.
+In both modes the workload is generated before execution, as a logical
+script. Values the runtime produces, such as commit identities or returned
+handles, are not predicted: a later step refers to the result of an earlier
+named step through an explicit binding. Worker scheduling must never decide
+which random numbers are consumed and thereby produce a different workload.
 
 **Overlap is an input; rejection is an outcome.** A fixture declares
 footprints, skew and arrival patterns, and reports the conflict and refusal
@@ -162,9 +182,32 @@ cases also need expectations that do not come from Echo itself: hand-computed
 values, or invariants stated in the manifest. Shared generators are good;
 shared mistakes are still mistakes.
 
-A capability a fixture needs but Echo does not yet support is marked
-**unsupported** in the result. A stubbed operation must never report an
-impressive zero.
+### Result classes and gates
+
+Every execution is classified:
+
+| Class | Meaning | May enter a performance comparison |
+| --- | --- | --- |
+| **Valid** | Generator conformance, required capability coverage and every declared outcome hold. An expected refusal that occurs is a valid outcome | Yes |
+| **Invalid** | A declared outcome failed | No; timings are kept for diagnosis only |
+| **Unsupported** | A required capability is missing. It never counts as passing coverage | No |
+| **Incomplete** | The run stopped before its declared work finished | No; timings are kept for diagnosis only |
+
+A stubbed operation must never report an impressive zero.
+
+Gates are two separate policies:
+
+- **Correctness gate:** generator conformance, required capability coverage
+  and declared outcomes pass. This gate is enabled first.
+- **Performance gate:** a specified comparison protocol finds an actionable
+  regression. It becomes blocking only once its environment, comparison method
+  and tolerance are established.
+
+Before any speedup is computed, a comparison eligibility check confirms the
+same workload identity, compatible expectations, the same measurement
+boundaries and execution settings, and valid results on both sides. When they
+differ it names the difference ("durability policy changed") instead of
+printing a percentage.
 
 ### Construction method
 
@@ -216,12 +259,18 @@ comparable. Each result reports its sample count and distribution.
 Latency without a denominator can reward dropping work. Each run reports, as
 applicable:
 
-- submitted, admitted, committed, refused, deferred and unfinished work;
+- operation occurrences and delivery attempts, separately: one accepted
+  occurrence delivered ten times is one useful commit, not ten;
+- submitted, admitted, committed, refused, deferred and unfinished work. These
+  are stages a unit of work passes through, not disjoint buckets to sum;
 - useful throughput: completed declared work per unit time;
 - for sustained workloads, queue growth and latency distributions with sample
   counts;
 - for history-heavy fixtures, peak memory, retained history bytes, checkpoint
-  bytes, and bytes transferred.
+  bytes, and bytes transferred. Memory figures name their boundary: the
+  pre-generated script and the validator can be large, so harness memory is
+  reported separately where possible, and combined process memory is labeled
+  as such.
 
 ### Run conditions
 
@@ -278,8 +327,12 @@ capability-bound transitions.
   participants that diverge and exchange suffixes.
 - **Reads.** Read-dominated. `briefing`, `next` and `context` compute derived
   judgments (`nextLawfulActions`, `blockingReasons`) over bounded views.
-- **Outcomes.** Exactly one claimant per quest; every claim refusal accounted
-  for; settled quests carry their evidence.
+- **Outcomes.** At most one active claim per quest within the receiving
+  history and the claim's lifetime, with the rule for independent branches
+  scoped explicitly. Exactly one winner is required only in constructed cases
+  where a successful claim is expected; zero successes can be legitimate when
+  no request is lawful or admissible. Every refusal is accounted for, and
+  settled quests carry their evidence.
 - **Stresses.** Writers piling onto the same targets, read-heavy bounded
   views, provenance depth, settlement.
 
@@ -346,10 +399,22 @@ is available; that comparison does not block it.
   under each; tiny payloads; sparse cross-links between entries. History is
   built by admitted operations, not direct construction.
 - **Intent stream.** One append per tick, with an empty read set.
-- **History operation.** Replay of the whole history; readings at earlier
-  coordinates.
-- **Outcomes.** The replayed history reproduces every receipt and commit
-  identity, and each checkpoint reading matches.
+- **History operation.** Replay of the whole history, and readings at earlier
+  coordinates. "Replay" names one of three different experiments, and F5
+  declares which it runs:
+
+  | Operation | What it establishes |
+  | --- | --- |
+  | Re-execute admitted operations | Execution reproduces the required effects and evidence |
+  | Apply retained patches | Recorded transitions reconstruct the required readings |
+  | Restore stored records | Persistence preserves and retrieves the required records |
+
+  Reading an original receipt back does not show that replay independently
+  reproduced it; that is a persistence check, which supports a different claim.
+  The mechanisms F5 uses, and the equality checked for each, are listed under
+  [F5 in the first slice](#f5-in-the-first-slice).
+- **Outcomes.** For each replay mechanism used, its declared equalities hold,
+  and each checkpoint reading matches.
 - **Regression variant.** One page node rewritten on every append, the
   anti-pattern the census found, whose patches grew quadratically.
 - **Stresses.** Log growth, replay, wide buckets.
@@ -424,12 +489,12 @@ while unreachable storage grows, so only one side of the experiment changes.
 
 Each step builds and passes the existing checks on its own.
 
-1. **Thin complete slice.** Manifest format, the in-repository pseudo-random
-   generator with test vectors, C1 reproducing today's `action_scene`
-   exactly, outcome validation, the measurement and reporting contract, and a
-   small F5 append-and-replay scenario built by admitted operations. This
-   proves the framework supports all three parts of a fixture. The first
-   **gate set** is C1 and F5-S. Needs: nothing.
+1. **Thin complete slice (landed; see [The first slice](#the-first-slice)).**
+   Manifest format, the in-repository pseudo-random generator with test
+   vectors, C1 reproducing today's `action_scene` exactly, outcome
+   validation, the reporting contract, and a small F5 append-and-replay
+   scenario built by admitted operations. The first correctness gate is C1
+   and F5-S. Needs: nothing.
 2. **Root and mutation coverage.** C6 with nested warps on both nodes and
    edges, C5 unreachable storage, C7 attachment sizes, then F3 and F6. Needs: 1.
 3. **Consumer readings.** F1, F2 and F4 against concrete models, with
@@ -440,15 +505,75 @@ Each step builds and passes the existing checks on its own.
 
 The rest of the catalog is backlog, added one fixture per change.
 
+## The first slice
+
+This revision lands step 1. Everything below is implemented and checked by
+`crates/warp-core/tests/scene_fixture_tests.rs`, which CI runs with
+`native_rule_bootstrap,trusted_runtime`.
+
+| Part | Where | What it establishes |
+| --- | --- | --- |
+| Generator | `benches/support/fixtures/prng.rs` | SplitMix64 output vectors, cross-checked against an independent implementation; the bounded-integer mapping pinned separately, including a bound above 2^63 |
+| Manifests | `benches/support/fixtures/manifest.rs` | `workload_id` and `expectation_id` digested separately, with `edict.canonical-cbor/v1`; a test shows a golden change leaves `workload_id` unchanged |
+| Result classes | `benches/support/fixtures/outcome.rs` | Valid, invalid, unsupported and incomplete; only valid results are comparable |
+| C1 | `benches/support/fixtures/star.rs` | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root |
+| F5 | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated |
+| Runner | `benches/scene_fixtures.rs` | Repeated, classified rounds; a summary only when every round is valid |
+
+### F5 in the first slice
+
+- **Construction.** Each append is an intent submitted through
+  `TrustedRuntimeHost`, admitted as an installed native contract package, and
+  committed in its own tick. One rule writes the entry node, its payload
+  attachment and the bucket-to-entry edge. Buckets are linked to the root, so
+  entries are inside the state root.
+- **Replay mechanism: applying retained patches.**
+  `ProvenanceService::replay_worldline_state` rebuilds the worldline from the
+  initial state; Echo checks each tick's state root, patch digest and commit
+  hash as it applies them. The fixture then checks that the rebuilt root
+  equals the live root.
+- **Readings at earlier coordinates.** `replay_worldline_state_at` at evenly
+  spaced ticks; each rebuilt root must equal the root recorded when that tick
+  committed.
+- **Not covered, and reported as such.** Re-executing admitted operations:
+  Echo has no re-execution path for native-rule intents on `main`. Restoring
+  stored records: WAL recovery is not wired into this fixture yet.
+- **Outcomes, with expectations from the tier rather than from Echo.** Every
+  append committed and none refused; exactly one admitted append per
+  consecutive tick; every entry present with its scripted payload and an edge
+  from its bucket; the last recorded root equals the live root; the pinned
+  script digest matches.
+- **Canaries.** The test feeds the validator a missing accepted operation, an
+  incorrect historical reading, a failed replay, a duplicated authored
+  effect, a missing entry, unfinished work, and a workload other than the
+  pinned one. Each is classified invalid or incomplete and is never
+  comparable.
+- **Clocks.** `append` covers submit, admit and tick for every append, with
+  envelopes built beforehand. `replay` covers the full patch replay.
+  Validation, outcome collection and checkpoint readings are outside both. The
+  runner is a normal build; it does not measure memory yet.
+
+Gates after this slice: the **correctness gate** is the conformance test
+above. The **performance gate** is not enabled; its environment, comparison
+protocol and tolerance are not yet established.
+
 ## Later ideas
 
-- **History twins.** Pairs with the same final state but different required
-  history: direct assignment against `A → B → A`, fresh work against
-  redelivery, or different causal provenance. Each pair names which
-  observations must agree and which must differ. Echo already distinguishes
-  them in commit identities and receipts even where the state root agrees.
-  This tests directly whether an optimization erased a distinction the
-  runtime promises to keep.
+- **History twins (first among these).** Pairs with the same final state but
+  different required history, such as direct assignment against `A → B → A`,
+  or different causal provenance. Each pair names which observations must
+  agree and which must differ. Two cases need different invariants:
+    - **Distinct occurrences with identical payloads** must keep whatever
+      distinction the occurrence contract requires.
+    - **Redelivery of an already accepted occurrence** follows the retry and
+      idempotency contract and must not create a second authored effect just
+      because it arrived again. Delivery acknowledgements or retry
+      diagnostics may differ without implying a new causal operation.
+- **Validator canaries.** Feed the validator deliberately wrong small results:
+  a missing accepted operation, an incorrect historical reading, a duplicated
+  authored effect after redelivery. Each must become an invalid result and be
+  excluded from comparisons. This tests the mechanism that protects every
+  later benchmark claim.
 - **Cost trajectories.** Measure across a scenario's lifetime: before churn,
   after churn, while readings are pinned, after pins are released, and after
   lawful reclamation. A single endpoint can hide a steadily worsening system.
@@ -485,7 +610,8 @@ them.
       `crates/warp-benches/benches`.
 - Graft at `9b399de4`: `src/warp/index-head.ts`, `src/warp/ast-emitter.ts`,
   `src/echo/structural-history-client.ts`.
-- git-warp: `docs/READINGS_AND_OPTICS.md`, the census of a real Think store.
+- git-warp at `4889004e`: `docs/READINGS_AND_OPTICS.md`, the census of a real
+  Think store.
 - XYPH: the README on GitHub (`flyingrobots/xyph`), default branch at `f2e6d267` when this revision was written.
 - Dojo: a documentation snapshot of 2026-10-09, including ADR-0003, the JIT
   Context Builder design and the Contextual Claims specification.
@@ -494,6 +620,6 @@ them.
 - The state-root timing study of 2026-10-17
   (`docs/benchmarks/state-root-timing-study.md`, local branch
   `docs/state-root-timing-study`).
-- An external review of the first revision of this document, supplied by the
-  owner on 2026-10-17. It cites the Rust Rand Book on reproducibility and
-  Google Benchmark's documentation on random interleaving.
+- Two external reviews of earlier revisions of this document, supplied by the
+  owner on 2026-10-17. The first cites the Rust Rand Book on reproducibility
+  and Google Benchmark's documentation on random interleaving.

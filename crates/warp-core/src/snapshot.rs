@@ -29,7 +29,6 @@
 //!   here and add a migration note in the determinism spec.
 //! - The in-memory store uses `BTreeMap`, which guarantees deterministic key
 //!   iteration. For vectors (edge lists), we sort explicitly by `EdgeId`.
-#[cfg(test)]
 use std::collections::{BTreeSet, VecDeque};
 
 use blake3::Hasher;
@@ -110,6 +109,9 @@ pub(crate) struct StateRootScratch {
     /// Table slots cleared to start traversals, so a test can bound it.
     #[cfg(test)]
     cleared: usize,
+    /// Whether the last traversal fell back to the ordered walk.
+    #[cfg(test)]
+    fell_back: bool,
 }
 
 impl std::fmt::Debug for StateRootScratch {
@@ -137,13 +139,37 @@ pub(crate) fn compute_state_root_with(
     root: &NodeKey,
     scratch: &mut StateRootScratch,
 ) -> Hash {
-    collect_reachable(state, root, scratch);
+    let table_complete = collect_reachable(state, root, scratch);
+    if !table_complete {
+        // Ids that collide pathologically in the membership table: take the
+        // ordered walk instead, which reaches the same set (and allocates).
+        let (ordered_warps, ordered_nodes) = collect_reachable_graph(state, root);
+        scratch.warps.clear();
+        scratch.warps.extend(ordered_warps);
+        scratch.reachable.clear();
+        scratch.reachable.extend(ordered_nodes);
+    }
+    #[cfg(test)]
+    {
+        scratch.fell_back = !table_complete;
+    }
     let StateRootScratch {
+        found,
+        index: membership,
         reachable,
         warps,
         edge_order,
         ..
     } = scratch;
+    // One probe per edge target when the table holds this traversal, a
+    // binary search in the sorted set after a fallback.
+    let is_reachable = |key: &NodeKey| {
+        if table_complete {
+            membership.contains(found, key)
+        } else {
+            reachable.binary_search(key).is_ok()
+        }
+    };
 
     let mut hasher = Hasher::new();
     hasher.update(domain::STATE_ROOT_V1);
@@ -190,13 +216,11 @@ pub(crate) fn compute_state_root_with(
                 continue;
             };
             edge_order.clear();
-            edge_order.extend((0..edges.len()).filter(|&index| {
-                reachable
-                    .binary_search(&NodeKey {
-                        warp_id: *warp_id,
-                        local_id: edges[index].to,
-                    })
-                    .is_ok()
+            edge_order.extend((0..edges.len()).filter(|&position| {
+                is_reachable(&NodeKey {
+                    warp_id: *warp_id,
+                    local_id: edges[position].to,
+                })
             }));
             edge_order.sort_unstable_by_key(|&index| edges[index].id.0);
 
@@ -255,7 +279,17 @@ struct MembershipTable {
     /// The current traversal's generation; never `0`, which marks a slot
     /// never written.
     generation: u32,
+    /// Sends every key to slot `0`, so a test can drive the collision
+    /// fallback.
+    #[cfg(test)]
+    force_collisions: bool,
 }
+
+/// The longest probe run the membership table accepts. Honest ids, BLAKE3
+/// output by convention, almost never run past a handful of slots at load
+/// one half. Ids chosen to collide can, and then the traversal falls back to
+/// the ordered walk rather than probing quadratically.
+const MAX_PROBE_RUN: usize = 64;
 
 impl MembershipTable {
     /// Starts a traversal: every slot written before reads as empty. On the
@@ -271,6 +305,32 @@ impl MembershipTable {
         self.generations.len()
     }
 
+    // `self` matters only to the test-only collision switch.
+    #[cfg_attr(not(test), allow(clippy::unused_self))]
+    fn home(&self, key: &NodeKey, mask: usize) -> usize {
+        #[cfg(test)]
+        if self.force_collisions {
+            return 0;
+        }
+        home_slot(key, mask)
+    }
+
+    /// Whether `key` was inserted in this traversal.
+    fn contains(&self, found: &[NodeKey], key: &NodeKey) -> bool {
+        if self.tags.is_empty() {
+            return false;
+        }
+        let mask = self.tags.len() - 1;
+        let mut slot = self.home(key, mask);
+        while self.is_current(slot) {
+            if found[(self.tags[slot] - 1) as usize] == *key {
+                return true;
+            }
+            slot = (slot + 1) & mask;
+        }
+        false
+    }
+
     fn is_current(&self, slot: usize) -> bool {
         self.generations[slot] == self.generation
     }
@@ -282,13 +342,15 @@ impl MembershipTable {
 
     /// Adds `key` to `found` unless it is already there, and reports whether
     /// it was new. One probe sequence per call; the table grows, rehashing
-    /// from `found`, only when `found` would exceed half its length.
+    /// from `found`, only when `found` would exceed half its length. Returns
+    /// `None` when a probe run passes [`MAX_PROBE_RUN`]: the keys collide
+    /// pathologically, and the caller must fall back to the ordered walk.
     fn insert(
         &mut self,
         found: &mut Vec<NodeKey>,
         key: NodeKey,
         #[cfg(test)] probes: &mut usize,
-    ) -> bool {
+    ) -> Option<bool> {
         if (found.len() + 1) * 2 > self.tags.len() {
             let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
             self.generations.clear();
@@ -297,16 +359,21 @@ impl MembershipTable {
             self.tags.resize(length, 0);
             let mask = length - 1;
             for (position, existing) in found.iter().enumerate() {
-                let mut slot = home_slot(existing, mask);
+                let mut slot = self.home(existing, mask);
+                let mut run = 0;
                 while self.is_current(slot) {
+                    run += 1;
+                    if run > MAX_PROBE_RUN {
+                        return None;
+                    }
                     slot = (slot + 1) & mask;
                 }
                 self.set(slot, position);
             }
         }
         let mask = self.tags.len() - 1;
-        let mut slot = home_slot(&key, mask);
-        loop {
+        let mut slot = self.home(&key, mask);
+        for _ in 0..=MAX_PROBE_RUN {
             #[cfg(test)]
             {
                 *probes += 1;
@@ -314,13 +381,14 @@ impl MembershipTable {
             if !self.is_current(slot) {
                 self.set(slot, found.len());
                 found.push(key);
-                return true;
+                return Some(true);
             }
             if found[(self.tags[slot] - 1) as usize] == key {
-                return false;
+                return Some(false);
             }
             slot = (slot + 1) & mask;
         }
+        None
     }
 }
 
@@ -347,8 +415,10 @@ fn compact_if_doubled(warps: &mut Vec<WarpId>, compacted_len: &mut usize) {
 
 /// Fills `scratch.reachable` and `scratch.warps` with the graph reachable from
 /// `root`, following edges and `Descend` portals on nodes and edges, breadth
-/// first.
-fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootScratch) {
+/// first. Returns `false`, with the scratch unfinished, when the membership
+/// table meets a pathological probe run; the caller then uses the ordered
+/// walk.
+fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootScratch) -> bool {
     let StateRootScratch {
         found,
         index,
@@ -370,84 +440,94 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
     warps.clear();
     warps.push(root.warp_id);
     let mut warps_compacted = 1;
-    index.insert(
-        found,
-        *root,
-        #[cfg(test)]
-        probes,
-    );
-
-    let mut head = 0;
-    while head < found.len() {
-        let current = found[head];
-        head += 1;
-        let Some(store) = state.store(&current.warp_id) else {
-            debug_assert!(
-                false,
-                "reachable traversal referenced missing warp store: {:?}",
-                current.warp_id
-            );
-            continue;
-        };
-        let mut descend = |child_warp: WarpId,
-                           found: &mut Vec<NodeKey>,
-                           index: &mut MembershipTable,
-                           #[cfg(test)] probes: &mut usize| {
-            warps.push(child_warp);
-            compact_if_doubled(warps, &mut warps_compacted);
-            let Some(child) = state.instance(&child_warp) else {
+    let walked = (|| -> Option<()> {
+        index.insert(
+            found,
+            *root,
+            #[cfg(test)]
+            probes,
+        )?;
+        let mut head = 0;
+        while head < found.len() {
+            let current = found[head];
+            head += 1;
+            let Some(store) = state.store(&current.warp_id) else {
                 debug_assert!(
                     false,
-                    "descend referenced missing warp instance metadata: {child_warp:?}"
+                    "reachable traversal referenced missing warp store: {:?}",
+                    current.warp_id
                 );
-                return;
+                continue;
             };
-            index.insert(
-                found,
-                NodeKey {
-                    warp_id: child_warp,
-                    local_id: child.root_node,
-                },
-                #[cfg(test)]
-                probes,
-            );
-        };
-        for edge in store.edges_from(&current.local_id) {
-            index.insert(
-                found,
-                NodeKey {
-                    warp_id: current.warp_id,
-                    local_id: edge.to,
-                },
-                #[cfg(test)]
-                probes,
-            );
-            if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id) {
+            let mut descend = |child_warp: WarpId,
+                               found: &mut Vec<NodeKey>,
+                               index: &mut MembershipTable,
+                               #[cfg(test)] probes: &mut usize|
+             -> Option<()> {
+                warps.push(child_warp);
+                compact_if_doubled(warps, &mut warps_compacted);
+                let Some(child) = state.instance(&child_warp) else {
+                    debug_assert!(
+                        false,
+                        "descend referenced missing warp instance metadata: {child_warp:?}"
+                    );
+                    return Some(());
+                };
+                index.insert(
+                    found,
+                    NodeKey {
+                        warp_id: child_warp,
+                        local_id: child.root_node,
+                    },
+                    #[cfg(test)]
+                    probes,
+                )?;
+                Some(())
+            };
+            for edge in store.edges_from(&current.local_id) {
+                index.insert(
+                    found,
+                    NodeKey {
+                        warp_id: current.warp_id,
+                        local_id: edge.to,
+                    },
+                    #[cfg(test)]
+                    probes,
+                )?;
+                if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id)
+                {
+                    descend(
+                        *child_warp,
+                        found,
+                        index,
+                        #[cfg(test)]
+                        probes,
+                    )?;
+                }
+            }
+            if let Some(AttachmentValue::Descend(child_warp)) =
+                store.node_attachment(&current.local_id)
+            {
                 descend(
                     *child_warp,
                     found,
                     index,
                     #[cfg(test)]
                     probes,
-                );
+                )?;
             }
         }
-        if let Some(AttachmentValue::Descend(child_warp)) = store.node_attachment(&current.local_id)
-        {
-            descend(
-                *child_warp,
-                found,
-                index,
-                #[cfg(test)]
-                probes,
-            );
-        }
+        Some(())
+    })();
+    if walked.is_none() {
+        return false;
     }
     warps.sort_unstable();
     warps.dedup();
     reachable.clear();
     reachable.extend_from_slice(found);
     reachable.sort_unstable();
+    true
 }
 
 /// The state root as first written, kept to prove [`compute_state_root_with`]
@@ -533,7 +613,10 @@ pub(crate) fn compute_state_root_for_warp_state(state: &WarpState, root: &NodeKe
     compute_state_root(state, root)
 }
 
-#[cfg(test)]
+/// The reachable warps and nodes, by an ordered breadth-first walk. It
+/// allocates its sets, so the engine uses it only as the fallback when the
+/// membership table meets a pathological probe run (see
+/// [`MembershipTable::insert`]); it also backs the test-only reference.
 fn collect_reachable_graph(
     state: &WarpState,
     root: &NodeKey,
@@ -710,7 +793,6 @@ pub fn compute_commit_hash_for_receipt(
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.
 
-#[cfg(test)]
 fn enqueue_descend(
     state: &WarpState,
     child_warp: WarpId,
@@ -1795,6 +1877,57 @@ mod reachability_work {
             "reaching a {N}-node chain made {} membership probes; O(n) allows {bound}",
             scratch.probes
         );
+    }
+
+    /// Ids chosen to collide in the membership table cannot make a commit
+    /// quadratic: past [`super::MAX_PROBE_RUN`] the traversal falls back to the
+    /// ordered walk, and the state root is unchanged.
+    #[test]
+    fn colliding_ids_fall_back_to_the_ordered_walk() {
+        const N: usize = 4_096;
+        let warp_id = make_warp_id("reachability-work/collide");
+        let ty = make_type_id("reachability-work/ty");
+        let node = |i: usize| make_node_id(&format!("reachability-work/collide/{i}"));
+        let mut store = GraphStore::new(warp_id);
+        for i in 0..N {
+            store.insert_node(node(i), NodeRecord { ty });
+        }
+        for i in 1..N {
+            store.insert_edge(
+                node(0),
+                EdgeRecord {
+                    id: make_edge_id(&format!("reachability-work/collide/edge/{i}")),
+                    from: node(0),
+                    to: node(i),
+                    ty,
+                },
+            );
+        }
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id,
+                root_node: node(0),
+                parent: None,
+            },
+            store,
+        );
+        let root = NodeKey {
+            warp_id,
+            local_id: node(0),
+        };
+        let mut scratch = StateRootScratch::default();
+        scratch.index.force_collisions = true;
+        let hash = compute_state_root_with(&state, &root, &mut scratch);
+        assert!(scratch.fell_back, "colliding ids did not take the fallback");
+        // The table gives up within one probe run per key, before N matters.
+        let bound = (super::MAX_PROBE_RUN + 1) * (super::MAX_PROBE_RUN + 2);
+        assert!(
+            scratch.probes <= bound,
+            "{N} colliding ids made {} probes; the fallback allows {bound}, independent of N",
+            scratch.probes
+        );
+        assert_eq!(hash, super::compute_state_root_reference(&state, &root));
     }
 
     /// A walk of a small graph after a large one clears nothing: the

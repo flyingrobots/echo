@@ -84,11 +84,22 @@ fn noop_rule() -> RewriteRule {
     }
 }
 
-fn engine_with_entities(n: usize) -> (Engine, NodeId) {
+/// How the entities hang off the root.
+#[derive(Clone, Copy, Debug)]
+enum Shape {
+    /// Every entity is a child of the root: one wide BFS level.
+    Star,
+    /// The entities form one chain from the root: `n` levels of one node.
+    Chain,
+    /// All but one entity are children of the root, and the last hangs off
+    /// one of them: a wide level, then a narrow one.
+    WideThenNarrow,
+}
+
+fn engine_with_entities(n: usize, shape: Shape) -> (Engine, NodeId) {
     let mut engine = build_motion_demo_engine();
     engine.register_rule(noop_rule()).expect("rule registers");
     let ty = make_type_id("entity");
-    let mut first = None;
     let root_key = engine.root_key();
     let root = root_key.local_id;
     let link = make_type_id("commit-allocation/link");
@@ -96,26 +107,32 @@ fn engine_with_entities(n: usize) -> (Engine, NodeId) {
         .state_mut()
         .store_mut(&root_key.warp_id)
         .expect("root store");
+    let id = |i: usize| make_node_id(&format!("commit-allocation-{i}"));
     for i in 0..n {
-        let id = make_node_id(&format!("commit-allocation-{i}"));
-        store.insert_node(id, NodeRecord { ty });
+        store.insert_node(id(i), NodeRecord { ty });
+        let from = match shape {
+            Shape::Star => root,
+            Shape::Chain if i == 0 => root,
+            Shape::Chain => id(i - 1),
+            Shape::WideThenNarrow if i + 1 < n => root,
+            Shape::WideThenNarrow => id(0),
+        };
         store.insert_edge(
-            root,
+            from,
             warp_core::EdgeRecord {
                 id: warp_core::make_edge_id(&format!("commit-allocation-edge-{i}")),
-                from: root,
-                to: id,
+                from,
+                to: id(i),
                 ty: link,
             },
         );
-        first.get_or_insert(id);
     }
-    (engine, first.expect("at least one entity"))
+    (engine, id(0))
 }
 
 /// Bytes allocated by one commit of one rewrite, after a warm-up commit.
-fn commit_bytes(entities: usize) -> usize {
-    let (mut engine, scope) = engine_with_entities(entities);
+fn commit_bytes(entities: usize, shape: Shape) -> usize {
+    let (mut engine, scope) = engine_with_entities(entities, shape);
     for measured in [false, true] {
         let tx = engine.begin();
         engine.apply(tx, RULE_NAME, &scope).expect("rule applies");
@@ -142,17 +159,19 @@ fn commit_cost_does_not_grow_with_untouched_reachable_graph_size() {
         eprintln!("not measured: warp-core is built with delta_validate");
         return;
     }
-    let small = commit_bytes(1_000);
-    let large = commit_bytes(16_000);
-    assert!(
-        small > 0,
-        "the allocator measured nothing; the witness did not run"
-    );
-    // Sixteen times the untouched graph must not cost sixteen times the
-    // bytes. Anything proportional to the graph, such as copying the state
-    // to diff it afterwards, fails this.
-    assert!(
-        large < small * 2,
-        "commit allocated {large} bytes with 16000 reachable entities but {small} with 1000"
-    );
+    // One warm-up commit must size the state root's working memory for any
+    // shape: a deep chain, or a wide level followed by a narrow one.
+    for shape in [Shape::Star, Shape::Chain, Shape::WideThenNarrow] {
+        let small = commit_bytes(1_000, shape);
+        let large = commit_bytes(16_000, shape);
+        assert!(
+            small > 0,
+            "the allocator measured nothing; the witness did not run"
+        );
+        assert!(
+            large < small * 2,
+            "{shape:?}: commit allocated {large} bytes with 16000 reachable entities but {small} \
+             with 1000"
+        );
+    }
 }

@@ -374,14 +374,14 @@ a digest alone could not be executed. One law is defined:
       `echo.bridge.edge-id.v1\0`, the warp id, the `from` local id, the edge
       type id, and the `to` local id. It is immutable, like its source.
     - An edge from a mutable node has the slot id BLAKE3 over
-      `echo.bridge.slot-edge-id.v1\0`, the warp id, the `from` local id, and
-      the edge type id: one edge per source and type, whose id stays the same
-      when a `ReplaceEdge` retargets it. A creating `EnsureEdge` of it must
-      carry that id. Because a non-bridge writer can store an edge under any
-      id, step 2 reads the source's whole outgoing bucket, charged per edge
-      like a range read, for every `EnsureEdge` and `ReplaceEdge` from a
-      mutable source. Any other edge of the same type from that source is an
-      alias, and the effect obstructs with `IdentityLawViolation`.
+      `echo.bridge.slot-edge-id.v1\0`, the warp id, the `from` local id, and the
+      edge type id: one edge per source and type, whose id stays the same when a
+      `ReplaceEdge` retargets it. A creating `EnsureEdge` of it must carry that
+      id. Because a non-bridge writer can store an edge under any id, step 2
+      scans the source's whole outgoing bucket (see [Validation
+      reads](#basis-budget-retries)) for every `EnsureEdge` and `ReplaceEdge`
+      from a mutable source. Any other edge of the same type from that source is
+      an alias, and the effect obstructs with `IdentityLawViolation`.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal
@@ -466,14 +466,16 @@ was evaluated against, when its package's footprint law admits any of:
   edge from a mutable source requires that no other edge of its type leave
   that source, and that depends on the source's whole bucket;
 - a write of a content-addressed node type. Adopting an existing content node
-  requires its whole outgoing edge set to match.
+  requires its whole outgoing edge set to match;
+- node creation (a non-empty `write_node_types`). Creating a node requires its
+  outgoing bucket to be empty, which depends on the whole bucket.
 
 Each of these is a topology dependency: a write from outside the bridge (the
 unrestricted `UpsertEdge` path) can add an edge to a bucket without changing any
 single slot a scoped Action recorded. Every other bridge Action is eligible for
-dependency-scoped validity, and its writes are node records and atoms of mutable
-types. Widening that requires sound edge-set tracking under #837, not a looser
-rule here.
+dependency-scoped validity; its writes are atoms of existing mutable nodes.
+Widening that requires sound edge-set tracking under #837, not a looser rule
+here.
 
 The view resolves each slot on demand from the basis, as
 [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md)
@@ -501,8 +503,12 @@ Every set-valued field in a footprint law or a schema is a CBOR array of
 distinct elements in strictly ascending order. An id is a 32-byte byte string,
 ordered bytewise. A pair is a two-element array ordered by its first element,
 then its second. Admission refuses a law or schema with an unsorted or
-duplicated set, rather than normalizing it. Map keys are text strings, ordered
-as `edict.canonical-cbor/v1` orders them. The complete shapes, in CDDL, are:
+duplicated set, rather than normalizing it. Record maps (`footprint-law`,
+`graph-schema`, `node-type`) have the fixed text keys shown. The id-keyed maps
+`node_types` and `edge_types` have 32-byte byte-string keys, each id at most
+once. `edict.canonical-cbor/v1` orders map keys by their encoded bytes, which
+for these equal-length keys is bytewise order of the ids. The complete shapes,
+in CDDL, are:
 
 ```text
 footprint-law = {
@@ -536,8 +542,10 @@ warp). Each portal on a validated chain must be owned by a node of one of these
 types, or validation obstructs with `FootprintLawViolation`. The bridge does not
 traverse edge-owned (beta) portals: an edge has no node type for this law to
 admit, so a chain crossing one is `FootprintLawViolation` at step 1, before any
-owner record is read. The counts are over distinct slots, after deduplication:
-`max_reads` bounds the witnessed read set, where one range read is one slot (its
+owner record is read. The counts are taken after deduplication:
+`max_reads` bounds the rows of the witnessed read set (one per slot, or one per
+named type for an absent slot read under several types; see the sort orders in
+[Encoding and memory](#encoding-and-memory)), where one range read is one row (its
 range key) and its edges are bounded by `max_range_edges`; `max_writes` bounds
 the resolved write set after Ensure resolution, range keys included, so an
 identical Ensure adds nothing. Validation reads are bounded by the budget, not
@@ -614,8 +622,11 @@ recorded obstruction:
    target of each `EnsureNode` and `CreateNode`, both its node record and its
    alpha atom slot, and the target edge record of each `EnsureEdge`, present or
    absent, which decides whether the effect writes or only confirms; for an
-   `EnsureNode` whose content-typed target exists, that node's whole outgoing
-   bucket, charged per edge like a range read, which the identity law needs;
+   `EnsureNode` whose content-typed target exists, a scan of that node's whole
+   outgoing bucket, which the identity law needs; for every node the proposal
+   creates, its outgoing bucket's length, which must be zero, since a node
+   cannot be created over edges a non-bridge writer left under its id
+   (`PreconditionMismatch` otherwise);
    each `ReplaceAtom`'s node record; each `ReplaceEdge`'s edge record; the
    source node record of every `EnsureEdge` and `ReplaceEdge`, whose type
    selects the edge-id rule, and, when that source is mutable, its whole
@@ -823,7 +834,12 @@ held; this design validates only what the proposal adds or retargets.
   never again: a node record or an atom's presence costs one step and 64
   `read_bytes`, an edge record one step and 128 `read_bytes`, and hashing an
   atom's value adds its byte length. A slot the program's view already read
-  is not charged again, since its value is known. So step 1 charges portals
+  is not charged again, since its value is known. A bucket scan reads every
+  edge in the bucket as a full edge record, one step and 128 `read_bytes`
+  each, and is charged for the whole bucket before any edge is inspected; a
+  bucket length read alone costs one step and 64 `read_bytes`. A scan the
+  remaining budget cannot cover obstructs before inspecting anything, and
+  its charge is not added. So step 1 charges portals
   and their owners' records, for effect and read keys alike, step 2 charges
   each resolved record, including every Ensure and Create target with its
   alpha slot, every edge source, and the outgoing bucket of an existing
@@ -934,8 +950,12 @@ Consequences:
       own; its bytes are part of the package's.
     - **Effect program.** A new map, `program-v2-effect` below. Like a V1
       program, it carries `interpreter_profile_identity` and
-      `intrinsic_profile_identity`, and admission requires each to equal the
-      package's value of the same name. Its other entries are:
+      `intrinsic_profile_identity`. Admission requires each to equal the
+      package's value of the same name and the profile Echo implements for
+      effect programs: the profile digests of
+      `echo.operation-interpreter.edict-effect/v1` and
+      `echo.operation-intrinsics.edict-effect/v1`. Any other value is
+      refused as an unsupported profile, as in V1. Its other entries are:
         - `compiled_program`, the compiled bytes;
         - `target_ir_identity`, which must equal the closure's;
         - `identity_law`, an unsigned integer naming an
@@ -1018,9 +1038,15 @@ Consequences:
     `echo:operation-invocation-bytes:v2\0`,
     `echo:operation-package-admission:v2\0`,
     `echo:operation-invocation-admission:v2\0`, and
-    `echo:operation-installation:v2\0`. Every other domain is unchanged. So V2
-    identities never coincide with V1 identities, and V1 encoding, validation,
-    and identities are unchanged.
+    `echo:operation-installation:v2\0`. Every other domain is unchanged. The
+    retained installation record of a V2 package is the V1 installation map
+    (`admission_policy`, `admission_policy_id`, `installed_operation_id`,
+    `package_admission_id`, `package_bytes`, `package_id`, `schema`) with
+    `schema` set to `echo.operation-installation/v2`. Recovery dispatches on
+    `schema`: `v1` decodes `package_bytes` with the V1 package decoder and
+    identity recipes, and `v2` with the V2 ones; any other value is refused. So
+    V2 identities never coincide with V1 identities, and V1 encoding,
+    validation, and identities are unchanged.
 
 ## Evidence
 
@@ -1341,7 +1367,12 @@ start: the blob in bytes, and the `EdgePairRow` section in rows.
 
 **Sort orders.** `SlotRow`s sort by `class`, `warp_id`, `local_id`,
 `edge_type`, `owner`, then `plane`, so a set's rows are in slot order.
-`ReadRow`s and `DependencyRow`s sort by their slot, and `DependencyRow`s with
+`ReadRow`s sort by their slot, then by `read_type`. A slot the program reads
+more than once under different named types while it is absent has one row per
+named type, each authorized on its own, so a permitted type cannot mask a
+forbidden probe; repeated reads with the same type are one row. A present slot
+has one row, under its actual type. `max_reads` counts rows. `DependencyRow`s
+sort by their slot, and `DependencyRow`s with
 one slot by `kind`, then `mode`. A range's `EdgePairRow`s are contiguous,
 sorted by `edge_local_id`, and the ranges follow `ReadRow` order. `EffectRow`s
 follow the canonical effect order in [EffectProposal](#effectproposal).
@@ -1630,12 +1661,12 @@ Each behaviour below needs a test before implementation:
 | Footprint stages                | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`, and so does a `ReplaceEdge` whose basis edge's range key lies outside the law; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                          |
 | Resolved footprint              | A `ReplaceEdge` whose resolved source node lies outside the footprint law obstructs with `FootprintLawViolation`.                                                                                                                                                                                                                                                                                |
 | Restored value (ABA)            | A dependency written A to B and back to A between origin and commit parent is found through the written-slot set and obstructs with `BasisChanged`, including when the intervening patch under-declared its `out_slots`; with one replay patch in the interval missing, the Action obstructs before evaluation as a whole-frontier `BasisChanged`, posture `NoProposal`, with an empty read set. |
-| Scoped preconditions            | A dependency-scoped Action whose `ReplaceAtom` expected value, or one of whose edge endpoints, changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read that slot; recovery reproduces the outcome and its changed dependency.                                                                                             |
-| Origin resolution               | A scoped `ReplaceEdge` whose program never read the edge, and whose source node is deleted and recreated between origin and commit parent while the edge is unchanged, obstructs with `BasisChanged`, because resolution at the origin put the source in its dependency set.                                                                                                                     |
+| Scoped preconditions            | A dependency-scoped Action whose `ReplaceAtom` expected value changed and was restored between its origin and the commit parent obstructs with `BasisChanged`, though the program never read it.                                                                                                                                                                                                 |
+| Origin resolution               | A scoped `ReplaceAtom` whose program never read its node, and whose node is deleted and recreated between origin and commit parent with the same atom, obstructs with `BasisChanged`, because resolution at the origin recorded the node record as a dependency.                                                                                                                                 |
 | Scoped conflict recovery        | A scoped Action rejected because an earlier Action in its Tick replaced a value it expects recovers as `RejectedFootprintConflict`, not `PreconditionMismatch`.                                                                                                                                                                                                                                  |
 | Scoped evidence forms           | An evaluation obstruction records `OriginOnly`, a dependency-scoped `BasisChanged` records `HistoryChanged` with no compared values, and every other scoped outcome records `Compared` over commit-parent values; none is compared at a validation position that includes an earlier overlapping write.                                                                                          |
 | OriginOnly recovery             | A scoped proposal that fails reachability or resolution is recovered by replaying only that failure, with no dependency set rebuilt.                                                                                                                                                                                                                                                             |
-| Resolution failure evidence     | A scoped `ReplaceEdge` whose edge is missing at its origin records `OriginOnly` with `PreconditionMismatch`; recovery reproduces it without running the history check.                                                                                                                                                                                                                           |
+| Resolution failure evidence     | A scoped `ReplaceAtom` whose node is missing at its origin records `OriginOnly` with `NodeMissing`; recovery reproduces it without running the history check.                                                                                                                                                                                                                                    |
 | Retry basis                     | A new submission selected after the head advanced is evaluated at its recorded basis, not at the selection-time state.                                                                                                                                                                                                                                                                           |
 | Receipt digest v5               | A version-5 receipt digest begins with the little-endian `u16` `5` and changes when any bridge field changes, including the validation position, a dependency's comparison mode, or a compared value; version-4 receipt identities are unchanged.                                                                                                                                                |
 | Proposal binding                | For every `Proposed` outcome class in the recovery matrix, including rejected ones, altering one recorded effect-derived digest or the proposal identity refuses the history.                                                                                                                                                                                                                    |
@@ -1643,7 +1674,7 @@ Each behaviour below needs a test before implementation:
 | Recovery                        | Crash before and after the decided-Tick WAL record; fresh-host recovery reproduces the same state root and receipts.                                                                                                                                                                                                                                                                             |
 | Composition                     | Two Actions with independent witnessed footprints (neither writes a slot the other reads or writes) commit in one Tick. A write/write overlap obstructs the later one, and so does a write/read overlap: A reads X and writes Y, B writes X and Z.                                                                                                                                               |
 | Shared structure                | Two Actions that `Ensure` the same node already present in the basis both commit in one Tick.                                                                                                                                                                                                                                                                                                    |
-| Same-Tick identical create      | Two Actions, dependency-scoped included, that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                          |
+| Same-Tick identical create      | Two Actions that both `Ensure` the same node absent at the commit parent: the later obstructs with `RejectedFootprintConflict` instead of reading the earlier one's write.                                                                                                                                                                                                                       |
 | Referential integrity           | An edge to a node neither in the basis nor created by the proposal obstructs with `DanglingReference`; a pre-existing dangling edge elsewhere in the basis does not obstruct an unrelated proposal.                                                                                                                                                                                              |
 | Portal chain                    | An effect in a descended warp records every portal on its root-to-target chain as a read; a co-scheduled portal retarget conflicts with it, and a portal changed and restored between origin and commit parent obstructs a scoped Action with `BasisChanged`.                                                                                                                                    |
 | Visibility                      | No published coordinate shows a retargeted head without every node and edge the proposal introduced; pre-existing structure the head reaches is not validated.                                                                                                                                                                                                                                   |
@@ -1667,14 +1698,14 @@ Each behaviour below needs a test before implementation:
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                                                                                                       |
 | Pending recovery                | An Action lost with its Tick before the WAL record is recovered as the same submission, not a new one.                                                                                                                                                                                                                                                                                           |
 | Ensure resolution               | An `EnsureNode` whose identical target already exists is a read, not a write, and the footprint law checks the write set without it; its target read is charged at step 2.                                                                                                                                                                                                                       |
-| Absent endpoint history         | A scoped Action whose edge endpoint was absent at its origin and created by an intervening Tick obstructs with `BasisChanged`, through the endpoint's `Absence` dependency.                                                                                                                                                                                                                      |
+| Absent endpoint history         | An Action whose package admits edge writes keeps the whole-frontier rule, so an endpoint absent at its evaluation basis and created by a later Tick never lets it commit onto that later basis; it obstructs with whole-frontier `BasisChanged`.                                                                                                                                                 |
 | Bridge result                   | A committed bridge Action's exact result bytes are retained in `EPRV0004` and `EOACT004` and bound by `result_identity`; recovery refuses re-evaluated bytes that differ.                                                                                                                                                                                                                        |
-| Absent probe row                | An absent `ReadRow` carries its expected node type in `subject`, and the image validator accepts it.                                                                                                                                                                                                                                                                                             |
+| Absent probe row                | An absent `ReadRow` carries its expected type in `read_type` and a zero `subject`, and the image validator accepts it.                                                                                                                                                                                                                                                                           |
 | Set encoding                    | A footprint law or schema with an unsorted or duplicated set is refused at admission; two packages declaring the same sets have identical bytes.                                                                                                                                                                                                                                                 |
 | Portal owner dependency         | A delayed scoped Action whose portal owner's node type changed in an intervening Tick obstructs with `BasisChanged`; the owner read is charged at step 1.                                                                                                                                                                                                                                        |
 | Existing edge identity          | A `ReplaceEdge` of a basis edge whose id is not its slot id under `ContentAddressV1` obstructs with `IdentityLawViolation`.                                                                                                                                                                                                                                                                      |
 | Unreachable records             | A keyed read of a record that a prior Tick made unreachable resolves identically live and after recovery, because the record stays until a patch deletes it.                                                                                                                                                                                                                                     |
-| Alpha slot dependency           | A scoped `EnsureNode` whose target's alpha slot changed in an intervening Tick, with its node record unchanged, obstructs with `BasisChanged`.                                                                                                                                                                                                                                                   |
+| Alpha slot dependency           | A scoped `ReplaceAtom` whose owner node record changed in an intervening Tick, with its atom unchanged, obstructs with `BasisChanged` through the resolved node-record dependency.                                                                                                                                                                                                               |
 | Absent atom probe               | An absent atom read records its expected atom `type_id`; a probe for a type outside `atom_types` obstructs at step 7 with `FootprintLawViolation`.                                                                                                                                                                                                                                               |
 | Content-node adoption           | An `EnsureNode` of an existing content node is adopted only when that node's record, atom, and outgoing edges recompute to its id; a node stored under another id obstructs with `IdentityLawViolation`.                                                                                                                                                                                         |
 | Schema shape                    | A footprint law or schema with an unknown, missing, or reordered key, or a node-type entry of any other shape, is refused at admission.                                                                                                                                                                                                                                                          |
@@ -1703,6 +1734,12 @@ Each behaviour below needs a test before implementation:
 | Inherited identities            | A V2 package whose input, result, obstruction, interpretation, or evaluation-basis identity differs from its specified profile digest is refused at admission.                                                                                                                                                                                                                                   |
 | Evaluation read charges         | Node, absent, and atom reads charge one step and 64 `read_bytes`, plus the atom length when present; a read the budget cannot cover obstructs before reading, uncharged.                                                                                                                                                                                                                         |
 | Read types                      | A present read is authorized by the record's actual type in `read_type`, an absent one by the type it named; recovery reproduces both decisions from the read set.                                                                                                                                                                                                                               |
+| Orphan bucket                   | Creating a node whose id already has an outgoing bucket left by a non-bridge writer obstructs with `PreconditionMismatch`; a law admitting node creation keeps the whole-frontier rule.                                                                                                                                                                                                          |
+| Supported profiles              | An effect program and package that agree on any interpreter or intrinsic profile other than the specified effect profiles are refused at admission.                                                                                                                                                                                                                                              |
+| Id-keyed maps                   | A graph schema whose `node_types` or `edge_types` keys are out of bytewise order, or repeat an id, is refused at admission.                                                                                                                                                                                                                                                                      |
+| Repeated absent reads           | Reading one absent slot under a permitted and a forbidden type yields two rows and `FootprintLawViolation`; reading it twice under one type yields one row.                                                                                                                                                                                                                                      |
+| V2 installation record          | A retained V2 installation uses schema `echo.operation-installation/v2` and recovers through the V2 decoder; a record with any other schema is refused.                                                                                                                                                                                                                                          |
+| Bucket scan charge              | A bucket scan charges one step and 128 `read_bytes` per edge for the whole bucket before inspecting any; a scan the budget cannot cover obstructs uncharged.                                                                                                                                                                                                                                     |
 
 ## Open questions
 

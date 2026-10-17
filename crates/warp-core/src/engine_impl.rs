@@ -558,6 +558,8 @@ struct RuntimeCommitStateGuard<'a> {
     engine: &'a mut Engine,
     state: &'a mut WorldlineState,
     saved_engine_state: SavedField<WarpState>,
+    /// Validation builds keep a full copy to check the delta and the restore.
+    #[cfg(any(test, feature = "delta_validate"))]
     state_before_runtime_commit: SavedField<WarpState>,
     saved_state_root: NodeKey,
     saved_root: NodeKey,
@@ -579,8 +581,10 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
         let saved_engine_state =
             std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
+        #[cfg(any(test, feature = "delta_validate"))]
         let state_before_runtime_commit = engine.state.clone();
-        // The tick's delta is computed from the slots it touches, from here on.
+        // The tick's delta and its undo point both come from the slots it
+        // touches, from here on. The guard always starts a fresh log.
         engine.state.begin_touch_log();
         engine.runtime_batch_touch_log = true;
         let saved_state_root = state.root;
@@ -621,6 +625,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             engine,
             state,
             saved_engine_state: SavedField::new(saved_engine_state),
+            #[cfg(any(test, feature = "delta_validate"))]
             state_before_runtime_commit: SavedField::new(state_before_runtime_commit),
             saved_state_root,
             saved_root,
@@ -645,9 +650,10 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             .as_ref("runtime commit guard missing pre-commit state")
     }
 
-    fn finish_success(&mut self) {
-        self.engine.state.end_touch_log();
+    fn finish_success(&mut self) -> crate::warp_state::WarpStateTouches {
+        // The touch log is the tick's undo record: hand it to the caller.
         self.engine.runtime_batch_touch_log = false;
+        let touches = self.engine.state.take_touches();
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
@@ -700,6 +706,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             .take("runtime commit guard missing saved live transactions");
         self.engine.bus.clear();
         self.armed = false;
+        touches
     }
 
     fn restore_error(&mut self) {
@@ -709,9 +716,21 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         self.engine.runtime_batch_touch_log = false;
 
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
-            warp_state: self
-                .state_before_runtime_commit
-                .take("runtime commit guard missing pre-commit state"),
+            warp_state: {
+                // Undo this tick's writes from its touch log, exactly.
+                self.engine.state.restore_touches();
+                #[cfg(any(test, feature = "delta_validate"))]
+                assert_eq!(
+                    format!("{:?}", self.engine.state),
+                    format!(
+                        "{:?}",
+                        self.state_before_runtime_commit
+                            .take("runtime commit guard missing pre-commit state")
+                    ),
+                    "a restored touch log must give back the exact pre-commit state"
+                );
+                std::mem::take(&mut self.engine.state)
+            },
             root: self.saved_state_root,
             initial_state: std::mem::replace(
                 &mut self.engine.initial_state,
@@ -1851,7 +1870,9 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
     ) -> Result<CommitOutcome, EngineError> {
+        // No undo journal is kept here, so the commit's touch log is dropped.
         self.commit_runtime_batch(state, admitted, None)
+            .map(|(outcome, _touches)| outcome)
     }
 
     /// Commits a batch of admitted submissions and seals the tick's
@@ -1867,7 +1888,7 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
         submission_ids: &[Hash],
-    ) -> Result<CommitOutcome, EngineError> {
+    ) -> Result<(CommitOutcome, crate::warp_state::WarpStateTouches), EngineError> {
         if admitted.len() != submission_ids.len() {
             return Err(EngineError::TickAttributionMismatch(
                 "the submission list is not parallel to the admitted batch",
@@ -1881,7 +1902,7 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
         submission_ids: Option<&[Hash]>,
-    ) -> Result<CommitOutcome, EngineError> {
+    ) -> Result<(CommitOutcome, crate::warp_state::WarpStateTouches), EngineError> {
         let mut guard = RuntimeCommitStateGuard::enter(self, state);
 
         let result = (|| {
@@ -1950,8 +1971,8 @@ impl Engine {
 
         match result {
             Ok(outcome) => {
-                guard.finish_success();
-                Ok(outcome)
+                let touches = guard.finish_success();
+                Ok((outcome, touches))
             }
             Err(err) => Err(err),
         }

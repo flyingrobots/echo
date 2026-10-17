@@ -631,8 +631,10 @@ pub(crate) struct WorldlineFrontierRollback {
     frontier: WorldlineFrontier,
     tick_history_len: usize,
     state_journal: StateJournal,
-    /// The graph at capture, kept only to check the journal in debug builds.
-    #[cfg(debug_assertions)]
+    /// The graph at capture, kept only to check the journal in test and
+    /// `delta_validate` builds. Ordinary builds, debug included, never copy
+    /// the graph per tick (#903).
+    #[cfg(any(test, feature = "delta_validate"))]
     graph_at_capture: WarpState,
 }
 
@@ -677,7 +679,7 @@ impl WorldlineFrontier {
             },
             tick_history_len: self.state.tick_history.len(),
             state_journal: StateJournal::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(any(test, feature = "delta_validate"))]
             graph_at_capture: self.state.warp_state.clone(),
         }
     }
@@ -706,8 +708,8 @@ impl WorldlineFrontier {
         }
         let mut warp_state = std::mem::take(&mut self.state.warp_state);
         marker.state_journal.restore(&mut warp_state);
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(
+        #[cfg(any(test, feature = "delta_validate"))]
+        assert_eq!(
             format!("{warp_state:?}"),
             format!("{:?}", marker.graph_at_capture),
             "a graph mutation after the rollback marker was not journaled"

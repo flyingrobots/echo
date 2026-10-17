@@ -1,0 +1,15 @@
+diff --git a/crates/warp-core/src/graph.rs b/crates/warp-core/src/graph.rs
+index 249981c8..b7cf57b2 100644
+--- a/crates/warp-core/src/graph.rs
++++ b/crates/warp-core/src/graph.rs
+@@ -262,6 +262,10 @@ impl GraphStore {
+     }
+ 
+     fn out_push(&mut self, node: NodeId, edge: EdgeRecord) {
++        // REGRESSION (reintroduced on purpose): copy the whole bucket.
++        if self.touched.recording {
++            std::hint::black_box(self.edges_from.get(&node).cloned());
++        }
+         let created = !self.edges_from.contains_key(&node);
+         self.edges_from.entry(node).or_default().push(edge);
+         self.log_bucket(BucketUndo::FromPushed { node, created });

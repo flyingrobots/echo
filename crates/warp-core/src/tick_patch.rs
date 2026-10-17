@@ -503,6 +503,8 @@ enum ReplacedSlot {
     Node(NodeKey, Option<NodeRecord>),
     /// The attachment value before an attachment write.
     Attachment(AttachmentKey, Option<AttachmentValue>),
+    /// Every write of an engine commit, as its touch log.
+    Touches(Box<crate::warp_state::WarpStateTouches>),
 }
 
 impl StateJournal {
@@ -510,10 +512,18 @@ impl StateJournal {
     ///
     /// Call this before a mutation that does not go through
     /// [`apply_ops_journaled`].
+    #[cfg(test)]
     pub(crate) fn retain_copy(&mut self, state: &WarpState) {
         if self.prior_state.is_none() {
             self.prior_state = Some((self.replaced.len(), Box::new(state.clone())));
         }
+    }
+
+    /// Records an engine commit's writes as one entry, from the commit's touch
+    /// log, so that undoing the journal undoes the commit exactly and in
+    /// order with the slot writes around it, without copying the state.
+    pub(crate) fn push_touches(&mut self, touches: crate::warp_state::WarpStateTouches) {
+        self.replaced.push(ReplacedSlot::Touches(Box::new(touches)));
     }
 
     /// Restores the state that existed when the journal was empty.
@@ -551,6 +561,7 @@ impl StateJournal {
                         }
                     }
                 },
+                Some(ReplacedSlot::Touches(touches)) => state.restore_from(*touches),
                 None => return,
             }
         }
@@ -2540,6 +2551,7 @@ mod tests {
 mod touched_diff_tests {
     use bytes::Bytes;
     use proptest::prelude::*;
+    use proptest::test_runner::TestCaseError;
 
     use super::{diff_state, touched_diff};
     use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
@@ -2767,6 +2779,99 @@ mod touched_diff_tests {
         state
     }
 
+    /// Structural equality of everything that can affect later behavior:
+    /// instances, and per store every map, every adjacency bucket in order,
+    /// and both edge indexes. Allocation capacity and addresses are ignored.
+    fn assert_same_content(a: &WarpState, b: &WarpState) -> Result<(), TestCaseError> {
+        prop_assert_eq!(&a.instances, &b.instances);
+        prop_assert_eq!(
+            a.stores.keys().collect::<Vec<_>>(),
+            b.stores.keys().collect::<Vec<_>>()
+        );
+        for (warp_id, sa) in &a.stores {
+            let sb = &b.stores[warp_id];
+            prop_assert_eq!(&sa.nodes, &sb.nodes);
+            prop_assert_eq!(&sa.node_attachments, &sb.node_attachments);
+            prop_assert_eq!(&sa.edge_attachments, &sb.edge_attachments);
+            prop_assert_eq!(&sa.edges_from, &sb.edges_from);
+            prop_assert_eq!(&sa.edges_to, &sb.edges_to);
+            prop_assert_eq!(&sa.edge_index, &sb.edge_index);
+            prop_assert_eq!(&sa.edge_to_index, &sb.edge_to_index);
+        }
+        Ok(())
+    }
+
+    /// Applies `next` to both states while recording and requires the same
+    /// delta, the same content, and the same state root afterwards.
+    fn assert_same_future(
+        a: &mut WarpState,
+        b: &mut WarpState,
+        next: &[Write],
+    ) -> Result<(), TestCaseError> {
+        a.begin_touch_log();
+        b.begin_touch_log();
+        for write in next {
+            apply(a, write);
+            apply(b, write);
+        }
+        prop_assert_eq!(touched_diff(a), touched_diff(b));
+        a.end_touch_log();
+        b.end_touch_log();
+        assert_same_content(a, b)?;
+        for (warp_id, store) in &a.stores {
+            prop_assert_eq!(
+                store.canonical_state_hash(),
+                b.stores[warp_id].canonical_state_hash()
+            );
+        }
+        Ok(())
+    }
+
+    /// Rolling back a tick that replaced a store puts the original store
+    /// back exactly.
+    #[test]
+    fn a_replaced_store_rolls_back_exactly() {
+        let mut state = seeded_state(&[Write::OpenChild { parent: 0 }]);
+        let twin = state.clone();
+        state.begin_touch_log();
+        apply(&mut state, &Write::ReplaceChildStore { node: 4 });
+        apply(&mut state, &Write::InsertNode { node: 5, ty: 1 });
+        state.restore_touches();
+        assert_same_content(&state, &twin).expect("exact rollback");
+    }
+
+    /// Two ticks taken one after the other and undone in reverse order give
+    /// back the original state, and the epoch counter never moves backwards.
+    #[test]
+    fn repeated_rollbacks_undo_in_lifo_order() {
+        let mut state = seeded_state(&[Write::InsertNode { node: 1, ty: 0 }]);
+        let original = state.clone();
+        state.begin_touch_log();
+        apply(
+            &mut state,
+            &Write::UpsertEdge {
+                edge: 0,
+                from: 0,
+                to: 1,
+                ty: 0,
+            },
+        );
+        apply(&mut state, &Write::SetNodeAtom { node: 1, bytes: 1 });
+        let first = state.take_touches();
+        state.begin_touch_log();
+        apply(&mut state, &Write::DeleteCascade { node: 1 });
+        apply(&mut state, &Write::InsertNode { node: 2, ty: 1 });
+        let second = state.take_touches();
+        let epoch_before = state.touched.epoch;
+        state.restore_from(second);
+        state.restore_from(first);
+        assert!(
+            state.touched.epoch > epoch_before,
+            "the epoch counter only grows"
+        );
+        assert_same_content(&state, &original).expect("exact LIFO rollback");
+    }
+
     /// The diff of a later recording, measured from the state at its own
     /// start, whatever earlier recordings left behind.
     fn diff_from(before: &WarpState, after: &WarpState) -> Vec<super::WarpOp> {
@@ -2896,36 +3001,48 @@ mod touched_diff_tests {
             prop_assert_eq!(touched_diff(&state), diff_state(&before, &state));
         }
 
-        /// Reverting a store's touches recovers its content at the start of
-        /// recording, as far as the diff can see.
+        /// Restoring the touches gives back exactly the state as it was when
+        /// recording began, compared structurally: every map, the order of
+        /// every adjacency bucket, both edge indexes, and every instance.
+        /// Then the restored state must behave like the original: a further
+        /// tick on both yields the same delta, content, and state root.
         #[test]
-        fn reverted_touches_recover_prior_content(
+        fn restored_touches_give_back_the_exact_prior_state(
             setup in proptest::collection::vec(write(), 0..24),
             tick in proptest::collection::vec(write(), 0..24),
+            next in proptest::collection::vec(write(), 0..24),
         ) {
             let mut state = seeded_state(&setup);
-            let before = state.clone();
+            let mut twin = state.clone();
             state.begin_touch_log();
             for write in &tick {
                 apply(&mut state, write);
             }
-            if let Some(store) = state.stores.get_mut(&root_warp()) {
-                if store.touched.recording {
-                    store.revert_touches();
-                    let empty = GraphStore::new(root_warp());
-                    let prior = before.store(&root_warp()).unwrap_or(&empty);
-                    let mut ops = Vec::new();
-                    super::diff_instance(
-                        &mut ops,
-                        root_warp(),
-                        prior,
-                        store,
-                        &std::collections::BTreeSet::new(),
-                        &std::collections::BTreeSet::new(),
-                    );
-                    prop_assert!(ops.is_empty(), "reverted store differs: {ops:?}");
-                }
+            state.restore_touches();
+            prop_assert!(!state.touched.recording);
+            assert_same_content(&state, &twin)?;
+            assert_same_future(&mut state, &mut twin, &next)?;
+        }
+
+        /// Touches moved out after a tick and undone later restore the same
+        /// exact state, with the same future.
+        #[test]
+        fn taken_touches_restore_the_exact_prior_state(
+            setup in proptest::collection::vec(write(), 0..24),
+            tick in proptest::collection::vec(write(), 0..24),
+            next in proptest::collection::vec(write(), 0..24),
+        ) {
+            let mut state = seeded_state(&setup);
+            let mut twin = state.clone();
+            state.begin_touch_log();
+            for write in &tick {
+                apply(&mut state, write);
             }
+            let touches = state.take_touches();
+            prop_assert!(!state.touched.recording);
+            state.restore_from(touches);
+            assert_same_content(&state, &twin)?;
+            assert_same_future(&mut state, &mut twin, &next)?;
         }
     }
 }

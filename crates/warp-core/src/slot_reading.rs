@@ -283,13 +283,11 @@ pub(crate) fn materialized_slot(state: &WarpState, slot: SlotId) -> Option<SlotR
                 .and_then(|store| store.node(&node.local_id))
                 .cloned(),
         ),
-        SlotId::Edge(edge) => SlotReading::Edge(state.store(&edge.warp_id).and_then(|store| {
-            let from = store.edge_index.get(&edge.local_id)?;
-            store
-                .edges_from(from)
-                .find(|record| record.id == edge.local_id)
-                .cloned()
-        })),
+        SlotId::Edge(edge) => SlotReading::Edge(
+            state
+                .store(&edge.warp_id)
+                .and_then(|store| store.edge_record(&edge.local_id)),
+        ),
         SlotId::Attachment(key) if !key.is_plane_valid() => return None,
         SlotId::Attachment(key) => SlotReading::Attachment(match key.owner {
             AttachmentOwner::Node(node) => state

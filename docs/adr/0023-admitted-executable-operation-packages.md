@@ -10,6 +10,22 @@
 - **Superseded in part by:** the [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
   decision of 2026-10-14 (#837), for every exact-basis requirement below as it
   applies to Actions that meet that decision's conditions
+- **Superseded in part by:** the
+  [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source)
+  decision, accepted 2026-10-15 and effective when
+  [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
+  to `main`, for the declarative-resource and lawpack requirements that
+  assume the rope law is an imported resource, in this ADR's rope-law
+  closure, package binding, package obligations, evidence grades,
+  Jurisdiction, and Consequences (enumerated in the "Jedit rope-law closure"
+  banner), and the selection under "Alternatives for Expressing the Rope Law"
+- **Superseded in part by:**
+  [Authored Operation Effects](../architecture/authored-operation-effects.md),
+  effective when [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889)
+  merges to `main`, for bridge Actions only: the prepared-evaluation outcome
+  (a successful evaluation exposes one patch; the closed
+  `PreparedEchoOperationOutcomeV1`; no patch digest on `Obstructed`), marked
+  where it appears
 
 > **Scheduler lifecycle amendment:** This ADR established exact package,
 > invocation, private-evaluation, and recovery semantics. ADR 0025 supersedes
@@ -101,6 +117,13 @@ Edict intent / admitted executable-operation package
 → binds the exact EchoOperationProgramV1 bytes and digest
 ```
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> lawpack step applies only to a program whose executable meaning is imported
+> from a lawpack resource. A program compiled from Edict source, such as
+> Jedit's `ReplaceRange`, goes from the canonical semantic closure directly to
+> the exact program bytes and digest, and binds no lawpack resource. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
+
 The admitted Edict operation supplies the public operation coordinate,
 invocation and result schemas, basis contract, budget and footprint contract,
 authority requirements, result and obstruction interpretation, and the
@@ -136,6 +159,13 @@ Every `ExecutableOperationPackageV1` must canonically bind:
 - result and obstruction interpretation;
 - one evaluator ABI and intrinsic-profile identity.
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> lawpack resource coordinate and digest are bound only by a package whose
+> program is imported from a lawpack resource. A package whose program is
+> compiled from Edict source binds no lawpack resource; every other
+> obligation above still applies to it. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
+
 Every bound `EchoOperationProgramV1` must canonically bind its executable
 meaning:
 
@@ -158,6 +188,18 @@ internal steps. That state is not parent history. A successful evaluation
 exposes one normal Echo patch; an obstructed evaluation exposes no parent
 mutation. Version 1 retains an execution or trace identity sufficient to bind
 later evidence without claiming that a durable child worldline already exists.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: for
+> bridge Actions, whose compiled Edict program proposes effects, the
+> evaluation and outcome contract here is replaced by
+> [Authored Operation Effects](../architecture/authored-operation-effects.md).
+> A bridge evaluation yields an `EffectProposal` or a typed obstruction rather
+> than a patch, Echo derives the patch afterwards in the same Tick
+> construction, and the receipt posture defined there replaces
+> `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
+> patch digest that was never committed. Atomic visibility, one parent patch
+> or one obstruction, still governs. The original text is preserved and still
+> governs every other Action.
 
 The program may use generic primitives for typed graph access, canonical scalar
 operations, checked `u64` arithmetic, bounded byte manipulation, UTF-8
@@ -220,6 +262,18 @@ An `Obstructed` outcome never enters parent commit or scheduler composition and
 never carries a patch digest. It may produce retained typed execution evidence,
 but it does not claim a committed consequence.
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: for
+> bridge Actions, whose compiled Edict program proposes effects, the
+> evaluation and outcome contract here is replaced by
+> [Authored Operation Effects](../architecture/authored-operation-effects.md).
+> A bridge evaluation yields an `EffectProposal` or a typed obstruction rather
+> than a patch, Echo derives the patch afterwards in the same Tick
+> construction, and the receipt posture defined there replaces
+> `PreparedEchoOperationOutcomeV1`; some obstructed postures record a derived
+> patch digest that was never committed. Atomic visibility, one parent patch
+> or one obstruction, still governs. The original text is preserved and still
+> governs every other Action.
+>
 > **Superseded in part (2026-10-14, #837):** for Actions that meet the
 > conditions of [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks),
 > the exact-basis requirement here is replaced by dependency-scoped validity.
@@ -290,6 +344,32 @@ silently replaced by package or program identity. This requirement binds the
 admission posture without adding broad authorization policy to this decision.
 
 ### Jedit rope-law closure
+
+> **Superseded in part,** effective when
+> [flyingrobots/echo#889](https://github.com/flyingrobots/echo/pull/889) merges
+> to `main`. The rope law is authored in Jedit-owned Edict source rather than
+> imported as a declarative executable resource. See
+> [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+> The text below is kept as written, for its reasoning.
+>
+> **No longer required:** the declarative resource and lawpack named in the
+> first paragraph; the fifth required binding (the rope-law resource
+> coordinate and digest); the lawpack and `EchoOperationProgramV1` steps of the
+> binding chain and the paragraph after it; the paragraphs on what makes
+> the resource acceptable and who owns it; and, outside this section, the
+> lawpack step of the package binding direction and the lawpack obligation in
+> "First-version execution obligations" (both now apply only to a program
+> imported from a lawpack resource), the
+> lawpack-resource binding in the evidence-grade table, the rope-law resource
+> and generic resource binding in Jurisdiction, and the executable-resource
+> binding in Consequences, each marked where it appears.
+>
+> **Still governing:** the versioned canonical text-schema declaration and its
+> first four required bindings; the package's binding of that declaration's
+> coordinate and digest, with the typed schema-closure refusal, applied to the
+> package's compiled Edict program in place of the lawpack and subordinate
+> program; the prohibited forms, which the compiled Edict program may not
+> contain or resolve to; and the handwritten planner's test-only role.
 
 For the first `ReplaceRange` vertical, Jedit will use a digest-locked canonical
 declarative executable semantic resource imported through a Jedit-owned Edict
@@ -375,6 +455,10 @@ smaller. Implementing the entire language surface before any hook-free
 operation runs would turn the first witness into a broad language and runtime design
 effort and would make `ReplaceRange` define unproven universal syntax.
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> superseding decision linked in this record's header selects this route,
+> Edict source, for the rope law. The rejection above is kept as written.
+
 ### Bind a canonical declarative executable resource from a Jedit lawpack
 
 This route adds only the Edict prerequisites needed to type the real operation,
@@ -387,6 +471,11 @@ This route is selected. It is the smallest route that closes the execution
 proof chain without broad Edict expansion. It does not establish a permanent
 rule that complex Edict operations must be authored as external resources.
 Later Edict syntax may compile to the same target program boundary.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: this
+> selection was never implemented and is superseded by
+> [Application operation semantics authored in Edict source](../topics/GeneratedRules.md#application-operation-semantics-authored-in-edict-source).
+> The selection and its rationale above are kept as written.
 
 ## Verification Evidence Grades
 
@@ -409,6 +498,12 @@ the following grades.
 | Repeated evaluation by the same Echo evaluator                                                                | Deterministic self-validation                                                                                         | The implementation is repeatable for the tested basis and inputs; it is not an independent implementation.                                               |
 | Receipt/WAL round-trip and fresh-host reconstruction                                                          | Deterministic self-validation                                                                                         | Retained bytes reconstruct the same installed and execution identities without callbacks.                                                                |
 
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> "lawpack resource" in the target-verifier row above. The row's check now
+> covers the admitted package and Target IR to the program compiled from
+> Jedit's Edict source, with the same evidence grade. See the
+> [Jedit rope-law closure](#jedit-rope-law-closure) banner.
+
 A separate verifier crate is not, by itself, independently implemented
 conformance evidence. This decision does not claim formal refinement, complete
 semantic equivalence, a clean-room Echo interpreter, or a proof that all
@@ -421,6 +516,11 @@ named; agreement is asserted at the canonical output and patch boundary, not
 by comparing two wrappers around the same algorithm.
 
 ## Jurisdiction
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: Jedit
+> owns the `ReplaceRange` law as Edict source rather than a rope-law resource,
+> and Edict's generic resource binding is no longer part of this operation's
+> route. See the [Jedit rope-law closure](#jedit-rope-law-closure) banner.
 
 - **Jedit** owns `ReplaceRange.edict`, the rope-law resource, fact schemas,
   codec/identity law, operation semantics, and the differential oracle corpus.
@@ -484,6 +584,11 @@ by comparing two wrappers around the same algorithm.
   cross-basis transport remain separately witnessed future operations.
 - The existing Jedit planner becomes migration evidence rather than production
   execution authority.
+
+> **Superseded in part,** effective when flyingrobots/echo#889 merges: the
+> rope law no longer needs executable-resource binding, and Edict gains
+> language features only when the authored source demonstrates the need. See
+> the [Jedit rope-law closure](#jedit-rope-law-closure) banner.
 
 ## Non-Goals
 

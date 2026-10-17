@@ -33,6 +33,66 @@
   combined booleans its caller supplied and checked nothing; the gate list is
   tracked in #858.
 
+- Removed the provisional caller-authoritative causal-anchor API:
+  `CausalAnchorRequest`, `CausalAnchorFact::from_request`, public admitted-fact
+  fields, and raw admitted-identity constructors. Applications now submit a
+  `CausalAnchorAdmissionRequest` and treat the returned Echo fact, receipt, and
+  identities as opaque. This is an intentional breaking Rust API correction;
+  preserving the old surface would let callers manufacture Echo authority.
+- Removed the abandoned Method system: its workspace crate and `xtask`
+  commands, checked-in backlog, cycles, retrospectives, status ledgers, process
+  manuals, and generated task graphs. Current architecture now lives in
+  canonical topics/specs/invariants, durable decisions live in ADRs, and live
+  work/status lives in GitHub.
+- Removed the superseded `docs/design/` packet corpus and the retired TTD
+  counterfactual-creation invariant after promoting current doctrine into
+  canonical topics, ADRs, architecture documents, specifications, and tests.
+- Removed the remaining architecture drift/future packets and dated benchmark
+  reports after preserving the retained-reading storage and proof boundary in
+  ADR 0020. Benchmark instructions now keep methodology in source docs and
+  measurements in generated artifacts and pull requests.
+- Deleted zombie crates with no consumers (recoverable from git history):
+  `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
+  and `echo-session-proto` (the TTD stack now lives with `warp-ttd`), plus
+  `echo-config-fs` (desktop app-shell fossil) and the
+  `packages/ttd-protocol-ts` generated consumer.
+- Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
+  ports) and the `echo-dry-tests` in-memory config fake that existed only to
+  test its trait; no other crate consumed either.
+- Removed the unused `echo-wasm-abi::ttd` module and its public `PrivacyMask`,
+  `SessionToken`, and `TtdError` exports after the owning TTD/session stack was
+  retired. This is a breaking Rust API removal for unknown external consumers.
+- Deleted `cargo xtask wesley` (existed only to sync the removed TTD
+  protocol consumer artifacts).
+- Deleted stale point-in-time audit reports under `docs/audit/` and
+  `docs/audits/`.
+- Removed the deleted crates from workspace members, CI clippy lanes,
+  `det-policy.yaml`, `scripts/verify-local.sh`, and the unordered-ABI
+  allowlist.
+- Removed the VitePress docs-site toolchain from active repo tooling: npm
+  scripts, Make targets, tracked docs-site config, the dead browser-open helper,
+  and VitePress/Mermaid dependencies are gone.
+- Removed the broken `warp-core/serde` feature and the gated `Serializable*`
+  wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
+  or `ciborium` dependencies; authoritative core serialization must stay in
+  explicit canonical boundary encoders rather than general serde derives.
+- Removed the legacy `ttd-browser` crate from Echo's active workspace. The
+  release browser/runtime boundary now stays centered on `warp-wasm` and
+  `echo-wasm-abi`; debugger session semantics and browser delivery adapters
+  belong in `warp-ttd`.
+- `docs/METHODOLOGY.md` — 5x Duty Model (never practiced; see graveyard).
+- 17 unimplemented future spec files (see graveyard).
+- `docs/march-16.plan.md` — stale planning scratchpad.
+- `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
+  by design review.
+- Old plans, book (LaTeX), and research artifacts. All remain recoverable from
+  Git history.
+- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
+  has been removed. The C ABI approach was abandoned in favor of Rust plugin
+  extension via `RewriteRule` trait registration and Rhai scripting. See
+  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
+  downstream code that depended on the C FFI surface.
+
 ### Changed
 
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
@@ -102,6 +162,159 @@
   the host store's counts, which start at zero when the store opens, rather
   than cumulative counts for the thread. `recover_filesystem_store` counts
   nothing.
+
+- `ExecItem` constructors require an explicit canonical evidence sequence.
+  Manually assembled work units no longer silently reuse a per-rule match
+  index as the execution sequence. Engine callers pass the existing batch-wide
+  enumeration directly, preserving scheduler order.
+
+- Echo and Edict share exact `bunny-num` 0.6.0 for the canonical signed Q32.32
+  foundation. `warp-math` exposes Bunny's checked type and delegates existing
+  `DFix64` arithmetic and motion conversions while preserving saturation,
+  ties-to-even, raw payload bytes, and the separate legacy ABI truncation policy.
+  This does not add fixed-point language syntax or runtime operation profiles.
+- The general Rust toolchain and numerical consumer MSRVs are 1.96.0. Independent
+  leaves and authenticated provider component producers retain their explicit
+  1.90.0 policy; the outer component driver uses 1.96.0. The MSRV guard also
+  validates a final policy row without a newline and reads package MSRVs only
+  from `[package]`, excluding metadata. The standalone host witness selects
+  Rust 1.96.0 locally, and the guard rejects a missing or stale nested pin.
+
+- Public installed-contract evidence fields on runtime ingress, receipt
+  correlation, outcome, and WAL state-delta carriers now use
+  `Option<InstalledInvocationEvidence>` instead of
+  `Option<ContractEvidenceIdentity>`. This is an intentional pre-1.0 source
+  compatibility change: legacy callers wrap with `LegacyContract` or `.into()`
+  and inspect with `legacy_contract()`, while provider callers inspect
+  `provider_v1()`. The enum is non-exhaustive to match the extensible wire-tag
+  family, so direct downstream matches require a wildcard arm. The legacy tag-1
+  WAL encoding remains byte-identical.
+- The public `RuntimeError` enum now includes
+  `InstalledContractIntentKindMismatch` and
+  `UnsupportedInstalledProviderContractMutation`, and the public
+  `ContractInverseObstruction` enum now includes `ProviderTargetUnsupported`.
+  These are intentional pre-1.0 source-compatibility additions: downstream
+  exhaustive matches must handle the new variants (or use an appropriate
+  wildcard arm).
+- `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
+  `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
+  `import_registration_descriptor(...)` accepts
+  `OperationRegistrationDescriptor`. Source consumers using Wesley's former
+  `OpticArtifact` or `OpticRegistrationDescriptor` names must update when they
+  adopt the corresponding Wesley 0.3 prerelease; Echo's runtime-local optic
+  artifact types and handles are unchanged.
+- Provider semantic-source, generation-input, and contract-pack `Display`
+  diagnostics now render explicit kebab-case failure labels instead of Rust
+  `Debug` variant spellings. Typed error enums remain the programmatic
+  contract, while human/CLI diagnostics no longer move when Rust variants are
+  refactored.
+- Restored the durable ADR 0001–0011 namespace and moved the post-Method
+  decisions to ADR 0012–0019, preserving the meaning of existing source
+  citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
+  collided ADR identifiers.
+- Recorded the WSC, CAS, semantic reading identity, and optional proof boundary
+  as ADR 0020 without carrying forward the source packet's implementation
+  roadmap or application-specific checkpoint design.
+- Replaced the opaque numeric determinism claim-pack generator with an honest
+  gate over upstream job results and exact artifact payload presence. The
+  executable suites remain the authority for what passed.
+- Replaced the frozen root architecture and advanced guides with explicit
+  supersession signposts to the living no-graph architecture, topics,
+  specifications, invariants, and ADRs.
+- Echo 1.0 release eligibility now depends only on Continuum participant
+  conformance, networked causal suffix exchange, and release integrity. Edict,
+  `jedit`, and any particular generated package remain downstream compatibility
+  work and no longer gate the Echo release.
+- Echo 1.0 planning references now point at the cross-repository Continuum
+  Stack Convergence Project instead of the retired Echo-only Project.
+- Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as
+  GitHub Actions-owned by default, while keeping a maintainer opt-in through
+  `VERIFY_LOCAL_FULL_TESTS=1` for intentional local full-suite runs.
+- `warp-core` renamed the generated contract package host API from
+  `install_contract_package(...)` to `register_contract_package(...)` so the
+  trusted-runtime boundary reads as explicit runtime-owned registration instead
+  of process-global installation.
+- `warp-core` sealed braid member lookup now requires authority-bound sealed
+  query material, redacts non-public blinding material from debug output, and
+  keeps hidden-member commitments stable across parent frontier movement.
+- `warp-core` settlement planning now rejects non-`Shared` strands before
+  producing import candidates. Author-only/debugger strand suffixes can remain
+  real causal work, but they cannot enter base shared history without an
+  explicit shared admission posture. Settlement compare remains local
+  revelation/inspection only: it can inspect a locally held strand suffix
+  without promoting, planning, admitting, or settling it.
+- `warp-core` settlement plural artifacts and retained braid shells now carry
+  the source strand posture instead of hard-coding author-only posture for
+  shared settlement records.
+- Local determinism tooling now fails closed around
+  `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
+  boundary guard is mandatory, runs through `bash` rather than executable mode,
+  works without `rg`, rejects table-form serde/ciborium dependencies, and
+  blocks direct, grouped, multiline, or aliased canonical ABI serialization
+  imports outside explicit `warp-core` boundary modules.
+- The nondeterminism guard now shares the same `rg`/Perl fallback scanner,
+  supports `DETERMINISM_FORCE_NO_RG=1` regression coverage, catches namespace
+  imports and alias calls for `std::env`, `std::fs`, and `std::process`, bans
+  `std::thread::available_parallelism`, and replaces file-wide allowlists with
+  rule-scoped waivers for build/native filesystem boundaries and test fixtures.
+- `warp-core` engine and scheduler state now use ordered `BTreeMap`/`BTreeSet`
+  storage instead of `HashMap`, `HashSet`, or `FxHashMap` in deterministic core
+  paths. WAL filesystem tests also recreate stale deterministic fixture roots
+  before use so previous local residue cannot change the test outcome.
+- `warp-core` engine construction now defaults to deterministic serial
+  execution instead of reading `ECHO_WORKERS` or host CPU availability. Callers
+  can still opt into parallel execution explicitly with
+  `EngineBuilder::workers(...)` or worker-count constructors.
+- `echo-cli wal submission-posture` now exposes generic read-only recovery JSON
+  for one submission id and canonical envelope digest. The output reports retry
+  posture, recovered submission posture, receipt digest, and ticket digest
+  without importing any application nouns into Echo.
+- Runtime WAL-backed scheduler ticks now roll back all tick WAL evidence from a
+  failed multi-head scheduler pass, treat missing or mismatched receipt
+  correlation evidence as an invariant error instead of a normal obstruction,
+  and bind runtime recovery certificates to rebuilt submission and receipt
+  indexes.
+- `warp-wasm` no longer contains the legacy Stack Witness 0001
+  `createBuffer`/`replaceRange`/`textWindow` shortcut. QueryView requests now
+  route through the generic installed contract observer boundary only; without
+  an installed observer, WASM `observe(...)` returns `UNSUPPORTED_QUERY`
+  instead of materializing hardcoded text bytes.
+- `warp-core` structured binding tests no longer use rope/text-shaped fixture
+  names. The executable examples now exercise generic authored scopes, heads,
+  segments, and markers so core test fixtures do not imply built-in editor
+  semantics.
+- The canonical pre-push hook now runs the narrowest changed-file Rust witness
+  instead of reusing the broader local PR gate. Rust module edits map to exact
+  `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
+  map to exact `--test <target>` invocations, and tooling edits stay on local
+  shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
+  remains available through `make verify-pr`, `make verify-full`, and CI. The
+  selector now avoids fake zero-test module filters for source files without
+  inline tests, maps `src/bin/*.rs` edits to exact binary targets, and preserves
+  required features for gated integration tests.
+- Deterministic math now lives in a slim `warp-math` workspace crate.
+  `warp-core` keeps the existing `warp_core::math::*` compatibility surface as
+  a re-export, while `warp-geom` depends directly on `warp-math` instead of
+  pulling in all of `warp-core`. Math-only integration tests, deterministic
+  trig golden vectors, PRNG golden regression, and the LUT generator moved with
+  the math crate.
+- CI and local verification now split broad clippy coverage into explicit
+  library, binary, and selected integration-test lanes instead of invoking one
+  monolithic cargo pass. The `warp-core` runtime inbox test target is now an
+  explicit lint lane with the same `native_rule_bootstrap,host_test` features
+  used by the ticketed-ingress regression suite.
+- Local verification now treats rustdoc warnings as CI-owned by default.
+  `scripts/verify-local.sh` skips local rustdoc lanes unless
+  `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
+  on faster edit-loop witnesses while preserving CI rustdoc coverage.
+- Tooling-only full verification now selects focused hook regression scripts by
+  changed file family, so a `scripts/verify-local.sh` edit runs the verify-local
+  hook regression without also running unrelated runtime-schema, PR-status, or
+  timing hook tests.
+- Local hook regression tests are now CI-owned by default. The local full gate
+  skips hook tests unless `VERIFY_LOCAL_HOOK_TESTS=1` is set, and the opt-in
+  hook-test lane clears verifier override variables before launching nested
+  hook regressions.
 
 ### Added
 
@@ -262,199 +475,6 @@
 - An isolated experimental Echo–Keep identity bridge checks both independent hash laws and exact byte length from one bounded stream. It leaves the default CAS dependency graph unchanged.
 
 - A fallible complete-object CAS port stages and verifies exact bytes before atomic destination promotion. Memory and disk adapters share conformance checks; existing APIs remain compatible and no durability or authenticated absence is claimed.
-
-### Fixed
-
-- `dispatch_intent` no longer stages a witnessed suffix import against the
-  kernel's default worldline (#892). It ignored the request's receiving
-  worldline and recorded `Staged` without the bundle and basis checks the
-  library performs. Until comparable-basis transport exists, import intents
-  are refused with `NOT_SUPPORTED` and nothing is admitted, staged or
-  attributed.
-
-- A tick that decides a submission no rule matched now commits and recovers
-  under the WAL (#873). The WAL tick decision gains `NoMatchingRule` (code 4),
-  recovery maps it to `RecoveredSubmissionPosture::DecidedNoMatchingRule`, and
-  a retry reports `SubmissionRetryPosture::AlreadyDecidedNoMatchingRule`.
-  Before, such a tick failed with `TickOutcomeUnavailable` and could not be
-  recorded at all. Older WALs never contain the code.
-- `Footprint::independent` no longer treats an unpopulated `factor_mask` as
-  partition evidence. The mask fast path now applies only when both masks are
-  non-zero; a zero placeholder on either side falls through to the node, edge,
-  attachment, and port set checks. Previously two zero-mask footprints with
-  conflicting writes compared as independent. Nothing in the engine calls it
-  today (the scheduler never consults the mask), but it is public API. A
-  union of footprints (`union_assign`) also stays unpopulated when either side
-  with claims is unpopulated, so a composite cannot look fully masked.
-- A tick with the in-memory WAL no longer costs time in proportion to the
-  whole log. The host copied the in-memory log, its catalog and its indexes
-  before every tick so it could undo a failed one; at 8,000 updates a tick
-  took 13.5 ms. It now marks the log's end and, only if a tick fails,
-  truncates back to the mark and rebuilds what is derived from the log. In
-  `wal_record_cost` the in-memory update now costs about 0.22 ms at 500 and at
-  8,000 updates of history.
-
-- A commit record whose storage sync failed is no longer acknowledged. The
-  record can be readable without being durable; a trusted host used to
-  re-read the log after the error and treat what it found as committed, for
-  submissions, scheduler ticks, causal anchors, operation installations and
-  operation ticks. The filesystem store now refuses further writes after any
-  failure while a commit record is written or synced, and the host takes the
-  work back and refuses further WAL work with `StorageFailed` until the WAL
-  is reopened, as batched submission already did. An error that arrives after
-  a successful sync is still reconciled from the log.
-
-- A trusted host takes the filesystem WAL writer lease before it runs
-  writable recovery. It used to recover first and take the lease afterwards,
-  so a second host that opened a log with a live writer could drop that
-  writer's in-progress tail by rewriting its segment files, and only then be
-  refused. The second host is now refused at the lease and modifies nothing.
-
-- The canonical CBOR decoder in `echo-wasm-abi` no longer reserves memory in
-  proportion to a length its input claims, and no longer recurses without
-  bound. A header that claims more array elements, map entries or string
-  bytes than the input has left is refused with `Incomplete`, and the
-  comparison is made before the length is narrowed, so 32-bit and 64-bit
-  targets refuse the same inputs. A container reserves at most a few slots
-  before its elements are decoded, so nested headers cannot multiply the
-  memory a request asks for. Nesting deeper than
-  `MAX_CANONICAL_NESTING_DEPTH` (128) is refused, by the encoder as well, so
-  bytes it returns always decode. Before, a nine-byte request could abort the
-  process.
-
-- Writable WAL recovery no longer removes committed records in order to drop
-  an uncommitted tail. It rebuilt the whole log by deleting every segment
-  file and re-appending what it kept, so a crash in between lost all
-  committed history; it also synced the WAL root instead of the directory
-  that holds the segments, and collapsed rotated segments into the first.
-  Each segment that loses records is now rebuilt in a scratch file and
-  swapped in by one rename, a segment with nothing to drop is not touched,
-  an emptied trailing segment is removed, and the containing directory is
-  synced. A crash at any step leaves the same committed history.
-
-- A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
-
-- A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
-
-- A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
-
-- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
-
-- A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
-
-- A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.
-
-- A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
-
-- Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.
-
-- A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.
-
-- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted. Admission likewise refuses an expected-digest path that is empty or overlaps the key or replacement path.
-
-- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the structurally separate verifier enforces the same boundary.
-
-- Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
-
-- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
-
-- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
-
-- Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
-
-- Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.
-
-- The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
-
-- Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
-
-- The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.
-
-- `xtask run-edict-operation` runs outside Git and resolves relative artifact and WAL paths from the caller directory. Repository maintenance commands retain their Git-root behavior.
-
-- `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.
-
-- `ReadView::at` validates the aperture and derives the selected current frontier
-  basis with one state hash. `ReadView::new` still checks an independently
-  selected expected basis. Both retain the same aperture and trust boundaries.
-
-- Public bounded-read compiler timeouts retain partial stdout/stderr and the
-  original timeout as the failure cause.
-
-- Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
-  Named structural types starting with `U` now reach ordinary type lookup, as
-  they already do in independent verification and runtime parsing.
-
-- Private read evaluation identifies the input by its verified `arg.0` identity.
-  Reordering a package's local declarations no longer changes input selection.
-
-- Read-provider lawpack validation remains separate from the pure profile's
-  empty-effect requirement, preserving read acceptance and pure-effect refusal
-  after integration of the strengthened pure-provider checks.
-
-- The bounded-read public compiler witness preserves return status and raw
-  streams when malformed or non-object JSONL prevents structured validation.
-
-- Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
-  in feature-enabled CI and opt-in local routes, including shared parser edits.
-
-- Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
-  compiler and fresh-output runtime witnesses require a continuously guarded
-  reusable worker; pre/post measurements alone are not budget enforcement.
-
-- Generated provider helpers bind the bounded-read schema publication, including
-  its exact schema identity in the helper contract and derivation materials.
-
-- Byte-equality fixture reproduction guidance now requires guarded reusable
-  compiler storage and preserves the limits of its frozen provider evidence.
-
-- Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
-  in the feature-enabled CI and opt-in local test routes. Selecting the target
-  without the feature can no longer produce a zero-test success.
-
-- The ordered-publication compiler witness retains the return code and raw
-  streams when unexpected output violates JSONL, instead of hiding the compiler
-  result behind a JSON decoding or non-object error.
-
-- Removed the unguarded ordered-publication image-build recipe. Its test-only
-  witness requires a guarded reusable worker with copied sources and accounted
-  compiler output; the supported runner remains separate follow-up work.
-
-- Provider artifact generation rejects a contract publication whose exact
-  schema or manifest differs from the generation input. Cross-publication calls
-  can no longer emit artifacts with misleading input provenance.
-
-- The filesystem WAL writer lease now attempts an explicit unlock when its
-  owning guard drops. A retained duplicate descriptor no longer extends a
-  successfully released lease and blocks immediate writer takeover. Live-writer
-  exclusion and the successor's independent lease remain enforced.
-
-- Native pure executable-package providers now enforce the compiler-owned
-  projection artifact, node, path, text, and exact-field bounds. The pure output
-  budget remains Core-declared; the anchored route's fixed output ceiling is
-  not applied to pure programs. Both independently reproduced checked components
-  include these bounds.
-- Native pure executable-package providers now require an adapter profile with
-  empty `semanticEffects` and a nonempty `budgetObligation` before constructing
-  or accepting a no-effects package. Effectful profiles remain unsupported on
-  this route. Both checked components include this validation.
-- The native pure executable-package lowerer and verifier now validate source
-  artifacts before dispatch: the source reference must match Core's coordinate,
-  and its canonical value must be a UTF-8 byte string. Rebinding an invalid
-  source's digest no longer bypasses these checks. Both checked components
-  include this validation.
-- The pure executable-package verifier now compares the application
-  result projection with the authored Core result and its output contract.
-  A digest-bound projection could previously select another field or binding,
-  omit a field, or change its output type or budget and still be accepted.
-  The independently reproduced checked component includes this check.
-- The Edict executable-package verifier now refuses pure-v1 Target IR
-  that changes Core let bindings, results, input constraints, or basis, or
-  introduces extra intents or requirements. Exact package reconstruction alone
-  could accept an independently rebound but semantically inconsistent pair.
-  The native verifier and checked WASM package carry the same relation check.
-
-### Added
 
 - Generic source-owned Edict functions execute through both private pure and
   bounded-read evaluation with fresh lexical frames, ordered argument evaluation,
@@ -1964,224 +1984,196 @@ Applied, Rejected, Obstructed}` with receipt evidence and typed contract
 - Three graveyard entries (BOAW naming, 5x Duty Model, unimplemented
   future specs).
 
-### Removed
-
-- Removed the provisional caller-authoritative causal-anchor API:
-  `CausalAnchorRequest`, `CausalAnchorFact::from_request`, public admitted-fact
-  fields, and raw admitted-identity constructors. Applications now submit a
-  `CausalAnchorAdmissionRequest` and treat the returned Echo fact, receipt, and
-  identities as opaque. This is an intentional breaking Rust API correction;
-  preserving the old surface would let callers manufacture Echo authority.
-- Removed the abandoned Method system: its workspace crate and `xtask`
-  commands, checked-in backlog, cycles, retrospectives, status ledgers, process
-  manuals, and generated task graphs. Current architecture now lives in
-  canonical topics/specs/invariants, durable decisions live in ADRs, and live
-  work/status lives in GitHub.
-- Removed the superseded `docs/design/` packet corpus and the retired TTD
-  counterfactual-creation invariant after promoting current doctrine into
-  canonical topics, ADRs, architecture documents, specifications, and tests.
-- Removed the remaining architecture drift/future packets and dated benchmark
-  reports after preserving the retained-reading storage and proof boundary in
-  ADR 0020. Benchmark instructions now keep methodology in source docs and
-  measurements in generated artifacts and pull requests.
-- Deleted zombie crates with no consumers (recoverable from git history):
-  `echo-wasm-bindings` (browser demo kernel), `echo-ttd`, `ttd-protocol-rs`,
-  and `echo-session-proto` (the TTD stack now lives with `warp-ttd`), plus
-  `echo-config-fs` (desktop app-shell fossil) and the
-  `packages/ttd-protocol-ts` generated consumer.
-- Deleted `echo-app-core` (desktop app-shell fossil: toasts, prefs, config
-  ports) and the `echo-dry-tests` in-memory config fake that existed only to
-  test its trait; no other crate consumed either.
-- Removed the unused `echo-wasm-abi::ttd` module and its public `PrivacyMask`,
-  `SessionToken`, and `TtdError` exports after the owning TTD/session stack was
-  retired. This is a breaking Rust API removal for unknown external consumers.
-- Deleted `cargo xtask wesley` (existed only to sync the removed TTD
-  protocol consumer artifacts).
-- Deleted stale point-in-time audit reports under `docs/audit/` and
-  `docs/audits/`.
-- Removed the deleted crates from workspace members, CI clippy lanes,
-  `det-policy.yaml`, `scripts/verify-local.sh`, and the unordered-ABI
-  allowlist.
-- Removed the VitePress docs-site toolchain from active repo tooling: npm
-  scripts, Make targets, tracked docs-site config, the dead browser-open helper,
-  and VitePress/Mermaid dependencies are gone.
-- Removed the broken `warp-core/serde` feature and the gated `Serializable*`
-  wrapper exports. `warp-core` no longer declares direct `serde`, `serde-value`,
-  or `ciborium` dependencies; authoritative core serialization must stay in
-  explicit canonical boundary encoders rather than general serde derives.
-- Removed the legacy `ttd-browser` crate from Echo's active workspace. The
-  release browser/runtime boundary now stays centered on `warp-wasm` and
-  `echo-wasm-abi`; debugger session semantics and browser delivery adapters
-  belong in `warp-ttd`.
-- `docs/METHODOLOGY.md` — 5x Duty Model (never practiced; see graveyard).
-- 17 unimplemented future spec files (see graveyard).
-- `docs/march-16.plan.md` — stale planning scratchpad.
-- `docs/plans/parallel-merge-and-footprint-optimizations.md` — superseded
-  by design review.
-- Old plans, book (LaTeX), and research artifacts. All remain recoverable from
-  Git history.
-- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
-  has been removed. The C ABI approach was abandoned in favor of Rust plugin
-  extension via `RewriteRule` trait registration and Rhai scripting. See
-  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
-  downstream code that depended on the C FFI surface.
-
-### Changed
-
-- `ExecItem` constructors require an explicit canonical evidence sequence.
-  Manually assembled work units no longer silently reuse a per-rule match
-  index as the execution sequence. Engine callers pass the existing batch-wide
-  enumeration directly, preserving scheduler order.
-
-- Echo and Edict share exact `bunny-num` 0.6.0 for the canonical signed Q32.32
-  foundation. `warp-math` exposes Bunny's checked type and delegates existing
-  `DFix64` arithmetic and motion conversions while preserving saturation,
-  ties-to-even, raw payload bytes, and the separate legacy ABI truncation policy.
-  This does not add fixed-point language syntax or runtime operation profiles.
-- The general Rust toolchain and numerical consumer MSRVs are 1.96.0. Independent
-  leaves and authenticated provider component producers retain their explicit
-  1.90.0 policy; the outer component driver uses 1.96.0. The MSRV guard also
-  validates a final policy row without a newline and reads package MSRVs only
-  from `[package]`, excluding metadata. The standalone host witness selects
-  Rust 1.96.0 locally, and the guard rejects a missing or stale nested pin.
-
-- Public installed-contract evidence fields on runtime ingress, receipt
-  correlation, outcome, and WAL state-delta carriers now use
-  `Option<InstalledInvocationEvidence>` instead of
-  `Option<ContractEvidenceIdentity>`. This is an intentional pre-1.0 source
-  compatibility change: legacy callers wrap with `LegacyContract` or `.into()`
-  and inspect with `legacy_contract()`, while provider callers inspect
-  `provider_v1()`. The enum is non-exhaustive to match the extensible wire-tag
-  family, so direct downstream matches require a wildcard arm. The legacy tag-1
-  WAL encoding remains byte-identical.
-- The public `RuntimeError` enum now includes
-  `InstalledContractIntentKindMismatch` and
-  `UnsupportedInstalledProviderContractMutation`, and the public
-  `ContractInverseObstruction` enum now includes `ProviderTargetUnsupported`.
-  These are intentional pre-1.0 source-compatibility additions: downstream
-  exhaustive matches must handle the new variants (or use an appropriate
-  wildcard arm).
-- `echo-wesley-gen` now follows Wesley's operation-neutral adapter names:
-  `import_runtime_optic_artifact(...)` accepts `OperationArtifact`, and
-  `import_registration_descriptor(...)` accepts
-  `OperationRegistrationDescriptor`. Source consumers using Wesley's former
-  `OpticArtifact` or `OpticRegistrationDescriptor` names must update when they
-  adopt the corresponding Wesley 0.3 prerelease; Echo's runtime-local optic
-  artifact types and handles are unchanged.
-- Provider semantic-source, generation-input, and contract-pack `Display`
-  diagnostics now render explicit kebab-case failure labels instead of Rust
-  `Debug` variant spellings. Typed error enums remain the programmatic
-  contract, while human/CLI diagnostics no longer move when Rust variants are
-  refactored.
-- Restored the durable ADR 0001–0011 namespace and moved the post-Method
-  decisions to ADR 0012–0019, preserving the meaning of existing source
-  citations. CI now rejects missing, duplicate, non-contiguous, unindexed, or
-  collided ADR identifiers.
-- Recorded the WSC, CAS, semantic reading identity, and optional proof boundary
-  as ADR 0020 without carrying forward the source packet's implementation
-  roadmap or application-specific checkpoint design.
-- Replaced the opaque numeric determinism claim-pack generator with an honest
-  gate over upstream job results and exact artifact payload presence. The
-  executable suites remain the authority for what passed.
-- Replaced the frozen root architecture and advanced guides with explicit
-  supersession signposts to the living no-graph architecture, topics,
-  specifications, invariants, and ADRs.
-- Echo 1.0 release eligibility now depends only on Continuum participant
-  conformance, networked causal suffix exchange, and release integrity. Edict,
-  `jedit`, and any particular generated package remain downstream compatibility
-  work and no longer gate the Echo release.
-- Echo 1.0 planning references now point at the cross-repository Continuum
-  Stack Convergence Project instead of the retired Echo-only Project.
-- Local `scripts/verify-local.sh full` now treats broad Cargo test lanes as
-  GitHub Actions-owned by default, while keeping a maintainer opt-in through
-  `VERIFY_LOCAL_FULL_TESTS=1` for intentional local full-suite runs.
-- `warp-core` renamed the generated contract package host API from
-  `install_contract_package(...)` to `register_contract_package(...)` so the
-  trusted-runtime boundary reads as explicit runtime-owned registration instead
-  of process-global installation.
-- `warp-core` sealed braid member lookup now requires authority-bound sealed
-  query material, redacts non-public blinding material from debug output, and
-  keeps hidden-member commitments stable across parent frontier movement.
-- `warp-core` settlement planning now rejects non-`Shared` strands before
-  producing import candidates. Author-only/debugger strand suffixes can remain
-  real causal work, but they cannot enter base shared history without an
-  explicit shared admission posture. Settlement compare remains local
-  revelation/inspection only: it can inspect a locally held strand suffix
-  without promoting, planning, admitting, or settling it.
-- `warp-core` settlement plural artifacts and retained braid shells now carry
-  the source strand posture instead of hard-coding author-only posture for
-  shared settlement records.
-- Local determinism tooling now fails closed around
-  `scripts/check-warp-core-serialization-boundaries.sh`. The serialization
-  boundary guard is mandatory, runs through `bash` rather than executable mode,
-  works without `rg`, rejects table-form serde/ciborium dependencies, and
-  blocks direct, grouped, multiline, or aliased canonical ABI serialization
-  imports outside explicit `warp-core` boundary modules.
-- The nondeterminism guard now shares the same `rg`/Perl fallback scanner,
-  supports `DETERMINISM_FORCE_NO_RG=1` regression coverage, catches namespace
-  imports and alias calls for `std::env`, `std::fs`, and `std::process`, bans
-  `std::thread::available_parallelism`, and replaces file-wide allowlists with
-  rule-scoped waivers for build/native filesystem boundaries and test fixtures.
-- `warp-core` engine and scheduler state now use ordered `BTreeMap`/`BTreeSet`
-  storage instead of `HashMap`, `HashSet`, or `FxHashMap` in deterministic core
-  paths. WAL filesystem tests also recreate stale deterministic fixture roots
-  before use so previous local residue cannot change the test outcome.
-- `warp-core` engine construction now defaults to deterministic serial
-  execution instead of reading `ECHO_WORKERS` or host CPU availability. Callers
-  can still opt into parallel execution explicitly with
-  `EngineBuilder::workers(...)` or worker-count constructors.
-- `echo-cli wal submission-posture` now exposes generic read-only recovery JSON
-  for one submission id and canonical envelope digest. The output reports retry
-  posture, recovered submission posture, receipt digest, and ticket digest
-  without importing any application nouns into Echo.
-- Runtime WAL-backed scheduler ticks now roll back all tick WAL evidence from a
-  failed multi-head scheduler pass, treat missing or mismatched receipt
-  correlation evidence as an invariant error instead of a normal obstruction,
-  and bind runtime recovery certificates to rebuilt submission and receipt
-  indexes.
-- `warp-wasm` no longer contains the legacy Stack Witness 0001
-  `createBuffer`/`replaceRange`/`textWindow` shortcut. QueryView requests now
-  route through the generic installed contract observer boundary only; without
-  an installed observer, WASM `observe(...)` returns `UNSUPPORTED_QUERY`
-  instead of materializing hardcoded text bytes.
-- `warp-core` structured binding tests no longer use rope/text-shaped fixture
-  names. The executable examples now exercise generic authored scopes, heads,
-  segments, and markers so core test fixtures do not imply built-in editor
-  semantics.
-- The canonical pre-push hook now runs the narrowest changed-file Rust witness
-  instead of reusing the broader local PR gate. Rust module edits map to exact
-  `cargo test -p <crate> --lib <module>::tests` slices, integration-test edits
-  map to exact `--test <target>` invocations, and tooling edits stay on local
-  shell smoke checks. Broader clippy, rustdoc, package, and workspace coverage
-  remains available through `make verify-pr`, `make verify-full`, and CI. The
-  selector now avoids fake zero-test module filters for source files without
-  inline tests, maps `src/bin/*.rs` edits to exact binary targets, and preserves
-  required features for gated integration tests.
-- Deterministic math now lives in a slim `warp-math` workspace crate.
-  `warp-core` keeps the existing `warp_core::math::*` compatibility surface as
-  a re-export, while `warp-geom` depends directly on `warp-math` instead of
-  pulling in all of `warp-core`. Math-only integration tests, deterministic
-  trig golden vectors, PRNG golden regression, and the LUT generator moved with
-  the math crate.
-- CI and local verification now split broad clippy coverage into explicit
-  library, binary, and selected integration-test lanes instead of invoking one
-  monolithic cargo pass. The `warp-core` runtime inbox test target is now an
-  explicit lint lane with the same `native_rule_bootstrap,host_test` features
-  used by the ticketed-ingress regression suite.
-- Local verification now treats rustdoc warnings as CI-owned by default.
-  `scripts/verify-local.sh` skips local rustdoc lanes unless
-  `VERIFY_LOCAL_RUSTDOC=1` is set, keeping pre-push and full local gates focused
-  on faster edit-loop witnesses while preserving CI rustdoc coverage.
-- Tooling-only full verification now selects focused hook regression scripts by
-  changed file family, so a `scripts/verify-local.sh` edit runs the verify-local
-  hook regression without also running unrelated runtime-schema, PR-status, or
-  timing hook tests.
-- Local hook regression tests are now CI-owned by default. The local full gate
-  skips hook tests unless `VERIFY_LOCAL_HOOK_TESTS=1` is set, and the opt-in
-  hook-test lane clears verifier override variables before launching nested
-  hook regressions.
-
 ### Fixed
+
+- `dispatch_intent` no longer stages a witnessed suffix import against the
+  kernel's default worldline (#892). It ignored the request's receiving
+  worldline and recorded `Staged` without the bundle and basis checks the
+  library performs. Until comparable-basis transport exists, import intents
+  are refused with `NOT_SUPPORTED` and nothing is admitted, staged or
+  attributed.
+
+- A tick that decides a submission no rule matched now commits and recovers
+  under the WAL (#873). The WAL tick decision gains `NoMatchingRule` (code 4),
+  recovery maps it to `RecoveredSubmissionPosture::DecidedNoMatchingRule`, and
+  a retry reports `SubmissionRetryPosture::AlreadyDecidedNoMatchingRule`.
+  Before, such a tick failed with `TickOutcomeUnavailable` and could not be
+  recorded at all. Older WALs never contain the code.
+- `Footprint::independent` no longer treats an unpopulated `factor_mask` as
+  partition evidence. The mask fast path now applies only when both masks are
+  non-zero; a zero placeholder on either side falls through to the node, edge,
+  attachment, and port set checks. Previously two zero-mask footprints with
+  conflicting writes compared as independent. Nothing in the engine calls it
+  today (the scheduler never consults the mask), but it is public API. A
+  union of footprints (`union_assign`) also stays unpopulated when either side
+  with claims is unpopulated, so a composite cannot look fully masked.
+- A tick with the in-memory WAL no longer costs time in proportion to the
+  whole log. The host copied the in-memory log, its catalog and its indexes
+  before every tick so it could undo a failed one; at 8,000 updates a tick
+  took 13.5 ms. It now marks the log's end and, only if a tick fails,
+  truncates back to the mark and rebuilds what is derived from the log. In
+  `wal_record_cost` the in-memory update now costs about 0.22 ms at 500 and at
+  8,000 updates of history.
+
+- A commit record whose storage sync failed is no longer acknowledged. The
+  record can be readable without being durable; a trusted host used to
+  re-read the log after the error and treat what it found as committed, for
+  submissions, scheduler ticks, causal anchors, operation installations and
+  operation ticks. The filesystem store now refuses further writes after any
+  failure while a commit record is written or synced, and the host takes the
+  work back and refuses further WAL work with `StorageFailed` until the WAL
+  is reopened, as batched submission already did. An error that arrives after
+  a successful sync is still reconciled from the log.
+
+- A trusted host takes the filesystem WAL writer lease before it runs
+  writable recovery. It used to recover first and take the lease afterwards,
+  so a second host that opened a log with a live writer could drop that
+  writer's in-progress tail by rewriting its segment files, and only then be
+  refused. The second host is now refused at the lease and modifies nothing.
+
+- The canonical CBOR decoder in `echo-wasm-abi` no longer reserves memory in
+  proportion to a length its input claims, and no longer recurses without
+  bound. A header that claims more array elements, map entries or string
+  bytes than the input has left is refused with `Incomplete`, and the
+  comparison is made before the length is narrowed, so 32-bit and 64-bit
+  targets refuse the same inputs. A container reserves at most a few slots
+  before its elements are decoded, so nested headers cannot multiply the
+  memory a request asks for. Nesting deeper than
+  `MAX_CANONICAL_NESTING_DEPTH` (128) is refused, by the encoder as well, so
+  bytes it returns always decode. Before, a nine-byte request could abort the
+  process.
+
+- Writable WAL recovery no longer removes committed records in order to drop
+  an uncommitted tail. It rebuilt the whole log by deleting every segment
+  file and re-appending what it kept, so a crash in between lost all
+  committed history; it also synced the WAL root instead of the directory
+  that holds the segments, and collapsed rotated segments into the first.
+  Each segment that loses records is now rebuilt in a scratch file and
+  swapped in by one rename, a segment with nothing to drop is not touched,
+  an emptied trailing segment is removed, and the containing directory is
+  synced. A crash at any step leaves the same committed history.
+
+- A worldline frontier retains the state root computed by its last executable-operation Action commit and returns it without hashing until the graph is next accessed mutably. An Action tick after the first now hashes the whole reachable state once instead of twice. Debug builds hash again to check each retained root, so they do not get the saving. The graph field of `WorldlineState` is private to its module so that every mutation goes through the accessor that drops the retained root.
+
+- A filesystem WAL writer that takes over an existing log syncs its segment files before reading them as recovered history. A record that an earlier writer wrote and never synced was readable after reopen and was reported as a durable acceptance; a later power loss could still lose it.
+
+- A scheduler pass that commits executable-operation Actions hashes the worldline's whole reachable state twice instead of three times. The root before the commit is the root the pass already computed for the frontier basis; the commit no longer computes it again.
+
+- A scheduler pass resolves a writer head's frontier basis once instead of once per admitted executable-operation Action. Resolving it hashes the whole reachable state, so a tick's cost grew with Actions times graph size. The bases produced are unchanged.
+
+- A scheduler pass builds and digests its retained WAL state delta once per commit instead of once per admitted Action. The WAL bytes are unchanged.
+
+- A scheduler pass that commits executable-operation Actions no longer copies the worldline's graph. The commit wrote its patch to a copy of the graph and then replaced the original, and the pass's rollback marker held a second copy. The patch is now written in place and each replaced value is journaled before its write; rollback restores from the journal. This applies to patches of node upserts and non-portal attachment writes. A patch that changes graph structure, and a pass that runs native rules through the engine, still retains one copy. Debug builds keep a copy to check the journal.
+
+- A worldline's initial boundary is shared instead of copied. It never changes after construction, but every scheduler rollback marker, replay checkpoint and replay base cloned the whole graph it holds. Tick cost on a large graph drops by roughly a fifth; the remaining graph-proportional copies are the live state itself.
+
+- Scheduler rollback checkpoints no longer copy a worldline's committed tick history or committed-ingress ledger on every SuperTick. A checkpoint records the history length and the attempt journals the ingress ids it adds; rollback truncates and removes them. The trusted host no longer clones the runtime, provenance and retained Action outcomes before every tick, or the runtime before every WAL-acknowledged submission: a completed scheduler pass returns an undo handle, and Action staging and submissions are journaled. Rollback results are unchanged; tick and submission cost no longer grow with committed history.
+
+- A strict filesystem WAL commit no longer rewrites and syncs the writer-epoch ledger and its directory after syncing the commit record. The commit record remains the durability boundary; reopening already derives each epoch's final commit from the segment. Each transaction now forces one sync instead of three. The on-disk formats are unchanged.
+
+- Package admission rejects result projections whose expected-digest binding conflicts with the selected mutation program, before they can occupy an installed operation coordinate. Recovery applies the same rule to retained installations: a WAL that holds such a hand-built package is refused rather than reinstalled. Echo's providers never emitted that shape, and no invocation of it could be admitted. Admission likewise refuses an expected-digest path that is empty or overlaps the key or replacement path.
+
+- Both executable mutation providers refuse transformed effect arguments instead of silently projecting the caller input into a different mutation. Direct application-input arguments remain supported; the structurally separate verifier enforces the same boundary.
+
+- Retained local fork retries reconcile durable topology after uncertain appends, preserving the original basis and preventing duplicate fork records.
+
+- Observation slots preflight their canonical byte bound and charge execution reads before copying Atom payloads.
+
+- Private Edict runtime decoding resolves named integer types through their declared width, matching source-function provider acceptance.
+
+- Filesystem writer takeover preserves unused LSNs after empty epochs and refuses unreconciled tails before changing the epoch ledger.
+
+- Incremental snapshot state roots now include the existing v1 domain separator and agree with canonical snapshot hashing. Previously emitted incorrect accumulator roots are not migrated.
+
+- The SPDX checker preserves Markdown frontmatter when it checks or repairs license headers.
+
+- Action WAL recovery reuses ordered verified replay cursors instead of retaining a full state for each basis tick. It preserves basis, Tick, result, obstruction and conflict checks, including delayed stale bases.
+
+- The generic operation runner names typed obstruction kinds, footprint conflicts, and missing outcomes in bounded summaries. It omits raw outcome records and invocation data on both Action error paths.
+
+- `xtask run-edict-operation` runs outside Git and resolves relative artifact and WAL paths from the caller directory. Repository maintenance commands retain their Git-root behavior.
+
+- `WorldlineState::state_root` documentation now states its reachable-state boundary. Detached create-if-absent writes remain bound by patch and commit identities. Hash bytes are unchanged.
+
+- `ReadView::at` validates the aperture and derives the selected current frontier
+  basis with one state hash. `ReadView::new` still checks an independently
+  selected expected basis. Both retain the same aperture and trust boundaries.
+
+- Public bounded-read compiler timeouts retain partial stdout/stderr and the
+  original timeout as the failure cause.
+
+- Bounded-read lowering recognizes only the exact unsigned primitive coordinates.
+  Named structural types starting with `U` now reach ordinary type lookup, as
+  they already do in independent verification and runtime parsing.
+
+- Private read evaluation identifies the input by its verified `arg.0` identity.
+  Reordering a package's local declarations no longer changes input selection.
+
+- Read-provider lawpack validation remains separate from the pure profile's
+  empty-effect requirement, preserving read acceptance and pure-effect refusal
+  after integration of the strengthened pure-provider checks.
+
+- The bounded-read public compiler witness preserves return status and raw
+  streams when malformed or non-object JSONL prevents structured validation.
+
+- Bounded-read evaluator tests now require `trusted_runtime` in Cargo and run
+  in feature-enabled CI and opt-in local routes, including shared parser edits.
+
+- Removed the bounded-read witness's unguarded image/entrypoint recipe. Public
+  compiler and fresh-output runtime witnesses require a continuously guarded
+  reusable worker; pre/post measurements alone are not budget enforcement.
+
+- Generated provider helpers bind the bounded-read schema publication, including
+  its exact schema identity in the helper contract and derivation materials.
+
+- Byte-equality fixture reproduction guidance now requires guarded reusable
+  compiler storage and preserves the limits of its frozen provider evidence.
+
+- Byte-equality evaluator tests now require `trusted_runtime` in Cargo and run
+  in the feature-enabled CI and opt-in local test routes. Selecting the target
+  without the feature can no longer produce a zero-test success.
+
+- The ordered-publication compiler witness retains the return code and raw
+  streams when unexpected output violates JSONL, instead of hiding the compiler
+  result behind a JSON decoding or non-object error.
+
+- Removed the unguarded ordered-publication image-build recipe. Its test-only
+  witness requires a guarded reusable worker with copied sources and accounted
+  compiler output; the supported runner remains separate follow-up work.
+
+- Provider artifact generation rejects a contract publication whose exact
+  schema or manifest differs from the generation input. Cross-publication calls
+  can no longer emit artifacts with misleading input provenance.
+
+- The filesystem WAL writer lease now attempts an explicit unlock when its
+  owning guard drops. A retained duplicate descriptor no longer extends a
+  successfully released lease and blocks immediate writer takeover. Live-writer
+  exclusion and the successor's independent lease remain enforced.
+
+- Native pure executable-package providers now enforce the compiler-owned
+  projection artifact, node, path, text, and exact-field bounds. The pure output
+  budget remains Core-declared; the anchored route's fixed output ceiling is
+  not applied to pure programs. Both independently reproduced checked components
+  include these bounds.
+- Native pure executable-package providers now require an adapter profile with
+  empty `semanticEffects` and a nonempty `budgetObligation` before constructing
+  or accepting a no-effects package. Effectful profiles remain unsupported on
+  this route. Both checked components include this validation.
+- The native pure executable-package lowerer and verifier now validate source
+  artifacts before dispatch: the source reference must match Core's coordinate,
+  and its canonical value must be a UTF-8 byte string. Rebinding an invalid
+  source's digest no longer bypasses these checks. Both checked components
+  include this validation.
+- The pure executable-package verifier now compares the application
+  result projection with the authored Core result and its output contract.
+  A digest-bound projection could previously select another field or binding,
+  omit a field, or change its output type or budget and still be accepted.
+  The independently reproduced checked component includes this check.
+- The Edict executable-package verifier now refuses pure-v1 Target IR
+  that changes Core let bindings, results, input constraints, or basis, or
+  introduces extra intents or requirements. Exact package reconstruction alone
+  could accept an independently rebound but semantically inconsistent pair.
+  The native verifier and checked WASM package carry the same relation check.
 
 - Filesystem writer leases explicitly unlock when their owner leaves scope,
   so a descriptor briefly inherited by a concurrent child process cannot keep

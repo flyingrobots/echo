@@ -49,7 +49,7 @@ Ingress event records are immutable once committed. Processing an event removes 
 ## Decision 6: A Continuum occurrence is part of ingress identity
 
 Decision 1 makes content the identity of a local intent. Continuum separates
-*what* is intended from *which happening* it is: an `AppliedIntent` has an
+_what_ is intended from _which happening_ it is: an `AppliedIntent` has an
 `appliedDigest`, and an `OccurredIntent` adds an `OccurrenceRef` whose
 `occurrenceKeyDigest = hash({ issuer, localId })`. Two occurrences of identical
 content are two acts, and Echo must not collapse them into one submission.
@@ -78,10 +78,10 @@ IDs unchanged; a local submission is never matched to an occurrence.
 Admission applies Continuum's binding law within the target worldline, which
 is the coordinate lineage an occurrence may be admitted to only once:
 
-| Presented again | Echo's answer |
-| --- | --- |
-| Same occurrence key, same content, applied digest and writer head | Retry: the existing submission (`Duplicate`) |
-| Different occurrence key, identical content | A separate submission, decided and attributed on its own |
+| Presented again                                                       | Echo's answer                                                                                             |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Same occurrence key, same content, applied digest and writer head     | Retry: the existing submission (`Duplicate`)                                                              |
+| Different occurrence key, identical content                           | A separate submission, decided and attributed on its own                                                  |
 | Same occurrence key, different content, applied digest or writer head | `RuntimeError::ContinuumOccurrenceConflict`; nothing is admitted and the existing submission is unchanged |
 
 The admission mapping from `(worldline, occurrence key)` to submission is
@@ -117,13 +117,13 @@ A strand's causal past is the prefix it copied at its fork basis
 that past does not become a new act because the worldline changed, so the
 occurrence lineage of a strand includes its inherited prefix:
 
-| Presented on the strand | Echo's answer |
-| --- | --- |
-| Occurrence decided in the inherited prefix, same binding | `AlreadyPresentInInheritedHistory`, naming the original submission, its head, the fork basis and its receipt when ticketed; nothing is admitted or written |
-| Same inherited occurrence key, different binding | `RuntimeError::ContinuumOccurrenceConflict` |
-| Occurrence absent from the inherited prefix | Ordinary admission on the strand |
-| Occurrence decided on the source after the fork basis | Not inherited |
-| Occurrence accepted on the source but undecided at the fork basis | Not inherited: acceptance before the fork is not part of its causal past |
+| Presented on the strand                                           | Echo's answer                                                                                                                                              |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Occurrence decided in the inherited prefix, same binding          | `AlreadyPresentInInheritedHistory`, naming the original submission, its head, the fork basis and its receipt when ticketed; nothing is admitted or written |
+| Same inherited occurrence key, different binding                  | `RuntimeError::ContinuumOccurrenceConflict`                                                                                                                |
+| Occurrence absent from the inherited prefix                       | Ordinary admission on the strand                                                                                                                           |
+| Occurrence decided on the source after the fork basis             | Not inherited                                                                                                                                              |
+| Occurrence accepted on the source but undecided at the fork basis | Not inherited: acceptance before the fork is not part of its causal past                                                                                   |
 
 When a strand forks, live or while recovery replays the fork, Echo records the
 submissions its copied ticks attribute. Admission on a strand with no binding of
@@ -158,12 +158,12 @@ IDs, and the genuine request is treated as its duplicate.
 
 Every envelope now records its `IngressIdentityVersion`:
 
-| Recipe | Version | Domain | Retained as |
-| --- | --- | --- | --- |
-| Plain intent | `Original` (unchanged) | `ingress:` | `EINGR002` (`EINGR003` with an occurrence) |
-| Causal intent, accepted before #885 | `Original` | `ingress:causal:v2\0` | `EINGR002` / `EINGR003` |
-| Causal intent, new | `SeparatedCausal` | `echo.ingress.causal.v3\0` | `EINGR004` |
-| Continuum occurrence | as its content | `echo.ingress.continuum-occurrence.v1\0` | per content |
+| Recipe                              | Version                | Domain                                   | Retained as                                |
+| ----------------------------------- | ---------------------- | ---------------------------------------- | ------------------------------------------ |
+| Plain intent                        | `Original` (unchanged) | `ingress:`                               | `EINGR002` (`EINGR003` with an occurrence) |
+| Causal intent, accepted before #885 | `Original`             | `ingress:causal:v2\0`                    | `EINGR002` / `EINGR003`                    |
+| Causal intent, new                  | `SeparatedCausal`      | `echo.ingress.causal.v3\0`               | `EINGR004`                                 |
+| Continuum occurrence                | as its content         | `echo.ingress.continuum-occurrence.v1\0` | per content                                |
 
 `EINGR001` to `EINGR003` are retention formats whose identity interpretation is
 frozen: they decode to `Original`, including ordinary plain intents, and keep
@@ -184,12 +184,12 @@ recipe arrives in the separated form, with a different ingress id. Exact legacy
 matches take precedence over creating a separated submission, so a resend never
 becomes a second act:
 
-| Found for the request's original-recipe id on its head | Echo's answer |
-| --- | --- |
+| Found for the request's original-recipe id on its head                                                                        | Echo's answer                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | A retained submission whose envelope states the same kind, bytes, causal parents, occurrence (both digests) and resolved head | That submission (`Duplicate`, with its original ingress id); staging uses its retained envelope |
-| A retained submission whose envelope states something else (an alias) | Not a retry and no reservation: ordinary separated admission |
-| A submission without retained envelope material, or committed ingress without a submission | `RuntimeError::OriginalIngressIdentityUnverifiable` |
-| Both a legacy and a separated submission of the same request | `RuntimeError::IngressIdentityAmbiguous` |
+| A retained submission whose envelope states something else (an alias)                                                         | Not a retry and no reservation: ordinary separated admission                                    |
+| A submission without retained envelope material, or committed ingress without a submission                                    | `RuntimeError::OriginalIngressIdentityUnverifiable`                                             |
+| Both a legacy and a separated submission of the same request                                                                  | `RuntimeError::IngressIdentityAmbiguous`                                                        |
 
 The same comparison applies to occurrence retries and to occurrences a strand
 inherits. The recipe, the retention layout and this lookup are Echo's own; any

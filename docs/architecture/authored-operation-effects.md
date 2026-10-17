@@ -487,8 +487,13 @@ by the view before its value reaches the program: a node, atom, or portal read
 whose type (as `read_type` records it) is outside the law's read permissions,
 or that would take the read set past `max_reads`, obstructs evaluation at once
 with `FootprintLawViolation`, posture `NoProposal`, and the program never sees
-the value. So a forbidden value can never shape an evaluation obstruction,
-whatever exit the program takes after the read.
+the value. A read of a key in a descended warp first resolves its
+root-to-target chain, as validation step 1 does for effect keys: each portal
+crossed is charged, its owner authorized against `portal_owner_types`, and an
+unreachable warp obstructs evaluation with `UnreachableWarp`, posture
+`NoProposal`, before anything in it is read. So a forbidden or unreachable
+value can never shape an evaluation obstruction, whatever exit the program takes
+after the read.
 
 A read that may find nothing names the type it expects: a node read names a node
 type, and an atom read names an atom `type_id`. The view records the authorizing
@@ -634,24 +639,23 @@ recorded obstruction:
    alpha atom slot, and the target edge record of each `EnsureEdge`, present or
    absent, which decides whether the effect writes or only confirms; for an
    `EnsureNode` whose content-typed target exists, a scan of that node's whole
-   outgoing bucket, which the identity law needs; for every node the proposal
-   creates, its outgoing bucket's length, which must be zero, since a node
-   cannot be created over edges a non-bridge writer left under its id
-   (`PreconditionMismatch` otherwise);
-   each `ReplaceAtom`'s node record; each `ReplaceEdge`'s edge record; the
-   source node record of every `EnsureEdge` and `ReplaceEdge`, whose type
-   selects the edge-id rule, and, when that source is mutable, its whole
-   outgoing bucket for the alias check; and the target node record of a creating
-   `EnsureEdge` or a `ReplaceEdge`, each unless the proposal creates that node.
-   Charges follow
-   [Validation reads](#basis-budget-retries). Failures are `NodeMissing` for
-   a `ReplaceAtom`'s missing node, `PreconditionMismatch` for a missing edge,
-   or `BudgetExceeded`; whether a present target matches is decided at
-   step 8, and a missing endpoint is reported as `DanglingReference` there.
-   Every record read here is a dependency (kind `4`): `ValueDigest` when
-   present and `Absence` when absent, so step 3 catches a target or endpoint
-   that an intervening Tick created, changed, or removed. After this step the
-   complete write set is known;
+   outgoing bucket and a hash of its atom, which the identity law needs; for
+   every node the proposal creates, its outgoing bucket's length, which must be
+   zero, since a node cannot be created over edges a non-bridge writer left
+   under its id (`PreconditionMismatch` otherwise); each `ReplaceAtom`'s node
+   record; each `ReplaceEdge`'s edge record; the source node record of every
+   `EnsureEdge` and `ReplaceEdge`, whose type selects the edge-id rule, and,
+   when that source is mutable, its whole outgoing bucket for the alias check;
+   and the target node record of a creating `EnsureEdge` or a `ReplaceEdge`,
+   each unless the proposal creates that node. Charges follow [Validation
+   reads](#basis-budget-retries). Failures are `NodeMissing` for a
+   `ReplaceAtom`'s missing node, `PreconditionMismatch` for a missing edge, or
+   `BudgetExceeded`; whether a present target matches is decided at step 8, and
+   a missing endpoint is reported as `DanglingReference` there. Every record
+   read here is a dependency (kind `4`): `ValueDigest` when present and
+   `Absence` when absent, so step 3 catches a target or endpoint that an
+   intervening Tick created, changed, or removed. After this step the complete
+   write set is known;
 3. the dependency-scoped history check, for a scoped Action
    (`BasisChanged`);
 4. one effect per slot (`DuplicateEffectTarget`);
@@ -845,24 +849,23 @@ held; this design validates only what the proposal adds or retargets.
   A read the remaining budget cannot cover obstructs with `BudgetExceeded`,
   posture `NoProposal`, before anything is read; its charge is not added to
   the consumed budget, which records every charge made before it.
-- **Validation reads are charged.** Every slot validation reads is charged
-  once per Action, before it is read, at the first step that reads it, and
-  never again: a node record or an atom's presence costs one step and 64
-  `read_bytes`, an edge record one step and 128 `read_bytes`, and hashing an
-  atom's value adds its byte length. A slot the program's view already read
-  is not charged again, since its value is known. A bucket scan reads every
-  edge in the bucket as a full edge record, one step and 128 `read_bytes`
-  each, and is charged for the whole bucket before any edge is inspected; a
-  bucket length read alone costs one step and 64 `read_bytes`. A scan the
-  remaining budget cannot cover obstructs before inspecting anything, and
-  its charge is not added. So step 1 charges portals
-  and their owners' records, for effect and read keys alike, step 2 charges
-  each resolved record, including every Ensure and Create target with its
-  alpha slot, every edge source, and the outgoing bucket of an existing
-  content node, per edge, and step 8 charges only the atoms it hashes,
-  for `ReplaceAtom`'s expected digest and an existing `EnsureNode`'s
-  identical-content check. Charges come from the
-  budget left after evaluation. A read the remaining budget cannot cover
+- **Validation reads are charged.** Every slot validation reads is charged once
+  per Action, before it is read, at the first step that reads it, and never
+  again: a node record or an atom's presence costs one step and 64 `read_bytes`,
+  an edge record one step and 128 `read_bytes`, and hashing an atom's value adds
+  its byte length. A slot the program's view already read is not charged again,
+  since its value is known. A bucket scan reads every edge in the bucket as a
+  full edge record, one step and 128 `read_bytes` each, and is charged for the
+  whole bucket before any edge is inspected; a bucket length read alone costs
+  one step and 64 `read_bytes`. A scan the remaining budget cannot cover
+  obstructs before inspecting anything, and its charge is not added. So step 1
+  charges portals and their owners' records, for effect and read keys alike,
+  step 2 charges each resolved record, including every Ensure and Create target
+  with its alpha slot, every edge source, and the outgoing bucket of an existing
+  content node, per edge, with that node's atom, hashed at step 2 because the
+  identity law at step 6 recomputes the node's id from it; and step 8 charges
+  only the atom it hashes for `ReplaceAtom`'s expected digest. Charges come from
+  the budget left after evaluation. A read the remaining budget cannot cover
   obstructs with `BudgetExceeded`, posture `Proposed`, `NotDerived`, at that
   step. The receipt's consumed budget is evaluation and validation together;
   `allocated_bytes` is evaluation alone.
@@ -915,7 +918,12 @@ decision:
 Consequences:
 
 - **Admission** is unchanged: the bridge runs inside scheduler-owned Tick
-  construction after ordinary admission, and adds checks; it removes none.
+  construction after ordinary admission, and adds checks; it removes none. V1
+  admission refuses a package ceiling or delegated budget below the program's
+  `minimum_budget()`. An effect program's minimum budget is fixed: one step and
+  zero bytes on each byte axis, the least that can evaluate anything. Admission
+  applies it exactly as V1 does, and everything above it is decided by
+  evaluation (`BudgetExceeded`), never by admission.
 - **Attribution** is unchanged: an Action batch already attributes each
   candidate to its own receipt entry. The proposal identity and digests below
   ride in that entry; the attribution section still names only submissions.
@@ -1500,9 +1508,11 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
   images. Hashing, the WAL append, and receipt construction read those bytes
   directly; nothing is copied into intermediate structures.
 - **Capacity fixed before evaluation.** Each region's size is a pure function of
-  the selected candidates' declared footprint-law maxima, delegated budgets, and
-  the program's `max_allocated_bytes`, which bounds the result bytes the blob
-  must also hold, sized per candidate from its own declared maxima, never from
+  the selected candidates' declared footprint-law maxima, delegated budgets, the
+  program's `max_allocated_bytes`, and its `max_result_bytes`, which bounds the
+  result bytes the blob must also hold independently of allocation (a result
+  can carry bytes the program never allocated, such as its input). Each is
+  sized per candidate from its own declared maxima, never from
   the 128-operation batch limit, so a candidate whose patch exceeds that limit
   is still derived in place and then rejected with `BudgetExceeded`. The
   64-candidate limit bounds how many such candidates a Tick selects. The arena
@@ -1794,6 +1804,10 @@ Each behaviour below needs a test before implementation:
 | Inherited ceilings              | An effect program declaring `max_input_bytes` or `max_result_bytes` above 65,536 is refused at admission; a longer result obstructs with `BudgetExceeded`, `NoProposal`.                                                                                                                                                                                                                         |
 | No result projection            | A V2 package carrying `application_result_projection` is refused at admission.                                                                                                                                                                                                                                                                                                                   |
 | Reads authorized before use     | A program that reads a node outside its law, then fails an authored guard or exhausts its budget, obstructs with `FootprintLawViolation` at that read; the forbidden value never reaches its obstruction or `authored_id`.                                                                                                                                                                       |
+| Result capacity                 | A program with a small `max_allocated_bytes` returning input bytes up to `max_result_bytes` fits the pre-sized arena; evaluation never grows it.                                                                                                                                                                                                                                                 |
+| Read reachability               | A read through an unreachable warp, or a chain with a forbidden portal owner, obstructs evaluation at that read with `UnreachableWarp` or `FootprintLawViolation`, `NoProposal`, before the value is visible.                                                                                                                                                                                    |
+| Content hash charge             | Adopting an existing content node charges its atom hash at step 2; a budget that cannot cover it obstructs there, before the identity law runs.                                                                                                                                                                                                                                                  |
+| Effect minimum budget           | An effect package ceiling or delegated budget below one step is refused at admission; any budget of at least one step is admitted, and shortfalls are `BudgetExceeded` at evaluation.                                                                                                                                                                                                            |
 
 ## Open questions
 

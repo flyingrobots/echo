@@ -154,11 +154,6 @@ impl WarpState {
         }
     }
 
-    /// Whether touches are being recorded.
-    pub(crate) fn is_recording_touches(&self) -> bool {
-        self.touched.recording
-    }
-
     /// Restores the state exactly as it was when recording began, then stops
     /// recording.
     ///

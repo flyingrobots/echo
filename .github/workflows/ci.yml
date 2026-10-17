@@ -408,8 +408,8 @@ jobs:
               run: cargo test -p warp-math --features golden_prng --test prng_golden_regression
             - name: cargo test (feature-gated targets no other step runs)
               run: cargo test -p warp-core --features native_rule_bootstrap --test installed_contract_registry_tests
-            - name: cargo test (warp-core commit allocation)
-              run: cargo test -p warp-core --features native_rule_bootstrap --test commit_allocation
+            - name: cargo test (warp-core commit touch log)
+              run: cargo test -p warp-core --features native_rule_bootstrap --test commit_touch_log
 
     test:
         name: Tests

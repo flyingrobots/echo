@@ -498,6 +498,10 @@ pub struct Engine {
     /// Per-Action footprints from the latest execution attempt that unwound.
     /// It committed nothing; this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
+    /// Whether a runtime batch's guard owns the state's touch log. A commit
+    /// outside a runtime batch always starts a fresh log, so a log left behind
+    /// by an aborted commit never leaks into a later patch.
+    runtime_batch_touch_log: bool,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay.
     initial_state: Arc<WarpState>,
@@ -554,9 +558,6 @@ struct RuntimeCommitStateGuard<'a> {
     engine: &'a mut Engine,
     state: &'a mut WorldlineState,
     saved_engine_state: SavedField<WarpState>,
-    /// Whether this guard began the touch log, rather than a caller that is
-    /// keeping its own undo point (the scheduler coordinator).
-    owns_touch_log: bool,
     /// Validation builds keep a full copy to check the delta and the restore.
     #[cfg(any(test, feature = "delta_validate"))]
     state_before_runtime_commit: SavedField<WarpState>,
@@ -583,12 +584,9 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         #[cfg(any(test, feature = "delta_validate"))]
         let state_before_runtime_commit = engine.state.clone();
         // The tick's delta and its undo point both come from the slots it
-        // touches, from here on. A caller that keeps its own undo point has
-        // begun the log already, with nothing written since.
-        let owns_touch_log = !engine.state.is_recording_touches();
-        if owns_touch_log {
-            engine.state.begin_touch_log();
-        }
+        // touches, from here on. The guard always starts a fresh log.
+        engine.state.begin_touch_log();
+        engine.runtime_batch_touch_log = true;
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
         engine.current_root = state.root;
@@ -627,7 +625,6 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             engine,
             state,
             saved_engine_state: SavedField::new(saved_engine_state),
-            owns_touch_log,
             #[cfg(any(test, feature = "delta_validate"))]
             state_before_runtime_commit: SavedField::new(state_before_runtime_commit),
             saved_state_root,
@@ -653,11 +650,10 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             .as_ref("runtime commit guard missing pre-commit state")
     }
 
-    fn finish_success(&mut self) {
-        // A caller keeping its own undo point takes the log over.
-        if self.owns_touch_log {
-            self.engine.state.end_touch_log();
-        }
+    fn finish_success(&mut self) -> crate::warp_state::WarpStateTouches {
+        // The touch log is the tick's undo record: hand it to the caller.
+        self.engine.runtime_batch_touch_log = false;
+        let touches = self.engine.state.take_touches();
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
@@ -710,12 +706,14 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             .take("runtime commit guard missing saved live transactions");
         self.engine.bus.clear();
         self.armed = false;
+        touches
     }
 
     fn restore_error(&mut self) {
         if !self.armed {
             return;
         }
+        self.engine.runtime_batch_touch_log = false;
 
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: {
@@ -981,6 +979,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1182,6 +1181,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1870,7 +1870,9 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
     ) -> Result<CommitOutcome, EngineError> {
+        // No undo journal is kept here, so the commit's touch log is dropped.
         self.commit_runtime_batch(state, admitted, None)
+            .map(|(outcome, _touches)| outcome)
     }
 
     /// Commits a batch of admitted submissions and seals the tick's
@@ -1886,7 +1888,7 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
         submission_ids: &[Hash],
-    ) -> Result<CommitOutcome, EngineError> {
+    ) -> Result<(CommitOutcome, crate::warp_state::WarpStateTouches), EngineError> {
         if admitted.len() != submission_ids.len() {
             return Err(EngineError::TickAttributionMismatch(
                 "the submission list is not parallel to the admitted batch",
@@ -1900,7 +1902,7 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
         submission_ids: Option<&[Hash]>,
-    ) -> Result<CommitOutcome, EngineError> {
+    ) -> Result<(CommitOutcome, crate::warp_state::WarpStateTouches), EngineError> {
         let mut guard = RuntimeCommitStateGuard::enter(self, state);
 
         let result = (|| {
@@ -1969,8 +1971,8 @@ impl Engine {
 
         match result {
             Ok(outcome) => {
-                guard.finish_success();
-                Ok(outcome)
+                let touches = guard.finish_success();
+                Ok((outcome, touches))
             }
             Err(err) => Err(err),
         }
@@ -2020,9 +2022,10 @@ impl Engine {
         let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
         // The delta is computed from the slots this tick touches. A runtime
-        // batch has already begun the log, so its delta also covers the
-        // batch's ingress materialization; otherwise this commit owns it.
-        let owns_touch_log = !self.state.is_recording_touches();
+        // batch's guard has already begun the log, so its delta also covers
+        // the batch's ingress materialization. Otherwise this commit owns the
+        // log and starts it fresh, discarding anything an aborted commit left.
+        let owns_touch_log = !self.runtime_batch_touch_log;
         if owns_touch_log {
             self.state.begin_touch_log();
         }
@@ -2030,14 +2033,17 @@ impl Engine {
         #[cfg(any(test, feature = "delta_validate"))]
         let state_before = self.state.clone();
 
-        #[cfg(feature = "delta_validate")]
-        let delta_ops = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
-        #[cfg(all(any(test, feature = "delta_validate"), not(feature = "delta_validate")))]
-        let _ = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
+        #[cfg(any(test, feature = "delta_validate"))]
+        let applied = self.apply_reserved_rewrites(reserved_rewrites, &state_before);
         #[cfg(not(any(test, feature = "delta_validate")))]
-        self.apply_reserved_rewrites(reserved_rewrites)?;
+        let applied = self.apply_reserved_rewrites(reserved_rewrites);
+        if applied.is_err() && owns_touch_log {
+            self.state.end_touch_log();
+        }
+        #[cfg(feature = "delta_validate")]
+        let delta_ops = applied?;
+        #[cfg(not(feature = "delta_validate"))]
+        let _ = applied?;
 
         // Finalize materialization bus and store results.
         // Note: Rules don't emit yet (requires executor signature change), but the

@@ -5905,17 +5905,15 @@ impl SchedulerCoordinator {
                             .frontier_mut(&key.worldline_id)
                             .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                         // The engine rewrites the graph outside the journal.
-                        // Its touch log is the undo point: begun here, and
-                        // handed to the journal once the commit stands.
-                        frontier.state_mut().warp_state_mut().begin_touch_log();
-                        let outcome = engine
+                        // The commit's touch log is its undo record, handed to
+                        // the journal once the commit stands.
+                        let (outcome, touches) = engine
                             .commit_attributed_with_state(
                                 frontier.state_mut(),
                                 &admitted,
                                 &admitted_submission_ids(*key, &admitted),
                             )
                             .map_err(RuntimeError::from)?;
-                        let touches = frontier.state_mut().warp_state_mut().take_touches();
                         runtime_before
                             .state_journal_mut(key.worldline_id)?
                             .push_touches(touches);
@@ -5934,17 +5932,15 @@ impl SchedulerCoordinator {
                         .frontier_mut(&key.worldline_id)
                         .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
                     // The engine rewrites the graph outside the journal.
-                    // Its touch log is the undo point: begun here, and
-                    // handed to the journal once the commit stands.
-                    frontier.state_mut().warp_state_mut().begin_touch_log();
-                    let outcome = engine
+                    // The commit's touch log is its undo record, handed to
+                    // the journal once the commit stands.
+                    let (outcome, touches) = engine
                         .commit_attributed_with_state(
                             frontier.state_mut(),
                             &admitted,
                             &admitted_submission_ids(*key, &admitted),
                         )
                         .map_err(RuntimeError::from)?;
-                    let touches = frontier.state_mut().warp_state_mut().take_touches();
                     runtime_before
                         .state_journal_mut(key.worldline_id)?
                         .push_touches(touches);

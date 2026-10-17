@@ -885,7 +885,16 @@ Consequences:
     - **Package.** The V1 package map with `schema` set to
       `echo.operation-package/v2`, `semantic_closure` set to a
       `closure-v2`, and `program` set to an effect program. Every other key,
-      and its value shape, is as in V1.
+      and its value shape, is as in V1. Where V1 derives a package identity
+      field from its program, V2 fixes it for the effect program, using V1's
+      `profile_digest` (BLAKE3 over `echo:operation-profile:v1\0` and the
+      length-prefixed label), and admission requires each equality:
+        - `target_profile_identity` is the profile digest of
+          `echo.operation-target.edict-effect/v1`;
+        - `application_basis_schema_identity` is the profile digest of
+          `echo.operation.basis.edict-effect/v1`;
+        - `footprint_contract_identity` is the `v2` footprint-law digest
+          below.
     - **Semantic closure.** The V1 closure map, with `lawpack_coordinate` and
       `lawpack_identity` both omitted. A V2 package carries only an effect
       program, which requires their absence, so no sentinel lawpack is
@@ -928,7 +937,15 @@ Consequences:
       node and replacement (`authority_grant_identity`, `delegated_budget`,
       `evaluation_basis`, `operation_coordinate`, `package_id`), plus the
       required `application_input_bytes`, the program's input in
-      `edict.canonical-cbor/v1`. Admission checks only what it can check
+      `edict.canonical-cbor/v1`. Its `evaluation_basis` names
+      the frontier exactly as V1 does, and V1's basis check resolves it
+      there. Its application basis is the input itself:
+      `application_basis_schema_identity` is the package's value above, and
+      `application_basis_value_identity` is BLAKE3 over
+      `echo:operation-edict-effect-basis:v1\0`, the input's length as a
+      little-endian `u64`, and the input bytes. Admission recomputes both and
+      refuses a mismatch, so the basis evidence is bound to the input the
+      program evaluates. Admission checks only what it can check
       without a schema language: that the bytes are canonical and no longer
       than the program's `max_input_bytes`. The input's shape is the compiled
       program's to check, as its first act; a malformed input obstructs
@@ -1352,10 +1369,13 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
     A bridge Action has no `EchoOperationReceiptV1` and no prepared candidate:
     its evidence is the `BridgeEntryRow`, which the receipt digest already
     binds. Committed and conflict variants carry the all-zero `OutcomeRow`.
-    Recovery requires the `OutcomeRow` and `BridgeEntryRow` to equal the
-    receipt's byte for byte, and the decision coordinate to name the sealed
-    Tick that holds that receipt entry at that member index. Fixed-profile
-    Actions keep `EOACT003`.
+    The `OutcomeRow` is not separately bound by the receipt: it must equal the
+    projection of the receipt-bound `BridgeEntryRow` (its `outcome`, `code`, and
+    `authored_id`, with zero padding). Recovery derives that projection and
+    refuses a record whose `OutcomeRow` differs before it publishes the outcome.
+    Recovery also requires the `BridgeEntryRow` to equal the receipt's byte for
+    byte, and the decision coordinate to name the sealed Tick that holds that
+    receipt entry at that member index. Fixed-profile Actions keep `EOACT003`.
 
 **Memory.** The bridge allocates nothing on its hot path:
 
@@ -1640,6 +1660,9 @@ Each behaviour below needs a test before implementation:
 | Candidate and composite patches | In a Tick with two accepted bridge Actions, each row's `patch_digest` is its own candidate patch, and the replay patch is their batch composition; recovery verifies both.                                                                                                                                                                                                                       |
 | Bridge decision coordinate      | Every `EOACT004` variant carries the 152-byte decision coordinate, and recovery refuses one that does not name the sealed Tick and member index of its receipt entry.                                                                                                                                                                                                                            |
 | Footprint maxima                | `max_reads` and `max_writes` count distinct slots after deduplication and Ensure resolution; an identical `EnsureNode` adds no write, and one range read counts as one read.                                                                                                                                                                                                                     |
+| Effect profiles                 | A V2 package whose `target_profile_identity` or `application_basis_schema_identity` is not the specified profile digest is refused at admission.                                                                                                                                                                                                                                                 |
+| Effect basis binding            | An effect invocation whose `application_basis_value_identity` is not the digest of its own `application_input_bytes` is refused at admission.                                                                                                                                                                                                                                                    |
+| Outcome row projection          | An `EOACT004` record whose `OutcomeRow` differs from the projection of its receipt-bound `BridgeEntryRow` is refused by recovery.                                                                                                                                                                                                                                                                |
 
 ## Open questions
 

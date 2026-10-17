@@ -352,7 +352,11 @@ a digest alone could not be executed. One law is defined:
       `echo.bridge.slot-edge-id.v1\0`, the warp id, the `from` local id, and
       the edge type id: one edge per source and type, whose id stays the same
       when a `ReplaceEdge` retargets it. A creating `EnsureEdge` of it must
-      carry that id.
+      carry that id. Because a non-bridge writer can store an edge under any
+      id, step 2 reads the source's whole outgoing bucket, charged per edge
+      like a range read, for every `EnsureEdge` and `ReplaceEdge` from a
+      mutable source. Any other edge of the same type from that source is an
+      alias, and the effect obstructs with `IdentityLawViolation`.
 
     An `EnsureNode` whose content-typed target already exists adopts it only
     if the existing node's record, atom, and complete outgoing edge set equal
@@ -428,12 +432,23 @@ decision (#837). Value and single-key absence dependencies are the kinds that
 decision
 supports. A read of outgoing edges by type is a topology dependency, which that
 decision does not yet support. Eligibility is decided statically at admission,
-never by the branch an evaluation takes: an Action whose package's footprint law
-admits any outgoing-edge range read keeps the whole-frontier rule, whether or
-not this invocation reads an edge, and commits only onto the exact basis it was
-evaluated against. Every other bridge Action is eligible for dependency-scoped
-validity. Widening that requires sound edge-set tracking under #837, not a
-looser rule here.
+never by the branch an evaluation takes. An Action keeps the whole-frontier
+rule, whatever this invocation does, and commits only onto the exact basis it
+was evaluated against, when its package's footprint law admits any of:
+
+- an outgoing-edge range read (a non-empty `range_edge_types`);
+- an edge write (a non-empty `write_edge_types`). Creating or retargeting an
+  edge from a mutable source requires that no other edge of its type leave
+  that source, and that depends on the source's whole bucket;
+- a write of a content-addressed node type. Adopting an existing content node
+  requires its whole outgoing edge set to match.
+
+Each of these is a topology dependency: a write from outside the bridge (the
+unrestricted `UpsertEdge` path) can add an edge to a bucket without changing any
+single slot a scoped Action recorded. Every other bridge Action is eligible for
+dependency-scoped validity, and its writes are node records and atoms of mutable
+types. Widening that requires sound edge-set tracking under #837, not a looser
+rule here.
 
 The view resolves each slot on demand from the basis, as
 [Sliced Readings and Copy-on-Write Strands](sliced-readings-and-copy-on-write-strands.md)
@@ -469,12 +484,18 @@ footprint-law = {
   "write_edge_types": [* id], "portal_owner_types": [* id],
   "max_reads": uint, "max_writes": uint, "max_range_edges": uint,
 }
-schema = {
+graph-schema = {
   "node_types": { * id => node-type },
   "edge_types": { * id => [* endpoint-pair] },
 }
 node-type = { "addressing": 0 / 1, "atom_types": [* id] }  ; 0 content, 1 mutable
 endpoint-pair = [source: id, target: id]
+program-v2-effect = {
+  "schema": "echo.operation-program/v2", "tag": 2,
+  "compiled_program": bstr, "target_ir_identity": id,
+  "evaluator_profile_identity": id, "identity_law": uint,
+  "graph_schema": bstr, "footprint_law": bstr, "max_input_bytes": uint,
+}
 id = bstr .size 32
 ```
 
@@ -489,10 +510,13 @@ parameters. It is an `edict.canonical-cbor/v1` map, in the exact shape that
 (edge types it may read as outgoing ranges; empty makes it eligible for
 scoped validity), `write_edge_types`, and the unsigned counts `max_reads`,
 `max_writes`, and `max_range_edges` (per range read), and `portal_owner_types`
-(node types whose alpha portals an effect in a descended warp may cross; empty
-confines the package to its root warp). Each portal on a validated chain must
-be owned by a node of one of these types, or validation obstructs with
-`FootprintLawViolation`. Its canonical bytes are part of the program's
+(node types whose alpha portals an effect or read in a descended warp may
+cross; empty confines the package to its root warp). Each portal on a
+validated chain must be owned by a node of one of these types, or validation
+obstructs with `FootprintLawViolation`. The bridge does not traverse
+edge-owned (beta) portals: an edge has no node type for this law to admit, so
+a chain crossing one is `FootprintLawViolation` at step 1, before any owner
+record is read. Its canonical bytes are part of the program's
 identity. At validation Echo checks:
 
 - every node type, atom `type_id`, and edge type an effect writes is admitted
@@ -562,16 +586,17 @@ recorded obstruction:
    including an owner whose type changed;
 2. resolution at the evaluation basis (for a scoped Action, its origin): in
    canonical effect order, read every record validation needs. That is the
-   target of each `EnsureNode` and `CreateNode`, both its node record and
-   its alpha atom slot, and the target edge record of each `EnsureEdge`,
-   present or absent, which decides whether the effect writes or only
-   confirms; for an `EnsureNode` whose content-typed target exists, that
-   node's whole outgoing bucket, charged per edge like a range read, which
-   the identity law needs; each `ReplaceAtom`'s node record; each
-   `ReplaceEdge`'s edge record; the source node record of every `EnsureEdge`
-   and `ReplaceEdge`, whose type selects the edge-id rule; and the target
-   node record of a creating `EnsureEdge` or a `ReplaceEdge`, each unless the
-   proposal creates that node. Charges follow
+   target of each `EnsureNode` and `CreateNode`, both its node record and its
+   alpha atom slot, and the target edge record of each `EnsureEdge`, present or
+   absent, which decides whether the effect writes or only confirms; for an
+   `EnsureNode` whose content-typed target exists, that node's whole outgoing
+   bucket, charged per edge like a range read, which the identity law needs;
+   each `ReplaceAtom`'s node record; each `ReplaceEdge`'s edge record; the
+   source node record of every `EnsureEdge` and `ReplaceEdge`, whose type
+   selects the edge-id rule, and, when that source is mutable, its whole
+   outgoing bucket for the alias check; and the target node record of a creating
+   `EnsureEdge` or a `ReplaceEdge`, each unless the proposal creates that node.
+   Charges follow
    [Validation reads](#basis-budget-retries). Failures are `NodeMissing` for
    a `ReplaceAtom`'s missing node, `PreconditionMismatch` for a missing edge,
    or `BudgetExceeded`; whether a present target matches is decided at
@@ -669,7 +694,7 @@ held; this design validates only what the proposal adds or retargets.
   bridge splits basis change in two:
     - **Whole-frontier `BasisChanged`,** decided before evaluation: the Action
       is not eligible for dependency-scoped validity (its footprint law admits
-      an edge-range read; see
+      a range read, an edge write, or a content-node write; see
       [Witnessed reads](#witnessed-reads-over-a-bounded-slice)) and its evaluation basis is
       no longer the commit parent. Posture `NoProposal`, empty read set, no
       evaluation.
@@ -844,26 +869,28 @@ Consequences:
       `evaluator_profile_identity` (the evaluator ABI and intrinsic
       profile), `identity_law` (an unsigned integer naming an
       [identity law](#identity-laws); unknown values are refused),
-      `schema` (canonical bytes, below), `footprint_law` (its canonical
-      bytes), and `max_input_bytes`. Identities are 32-byte byte strings. The
-      `schema` is an
+      `graph_schema` (canonical bytes, below), `footprint_law` (its
+      canonical bytes), and `max_input_bytes`. The key `schema` keeps its V1
+      role as the format discriminator, with the value
+      `echo.operation-program/v2`; the exact map is `program-v2-effect` in
+      [Set encoding](#set-encoding), and no other key may appear.
+      Identities are 32-byte byte strings. The `graph_schema` is an
       `edict.canonical-cbor/v1` map that Echo executes, not only a digest:
       with the [set encoding](#set-encoding) above;
       `node_types` maps each admitted node type id to its `addressing`
       (`content` or `mutable`, which the [identity law](#identity-laws)
       reads) and the set of atom `type_id`s it may carry, and `edge_types` maps
-      each admitted edge type
-      id to the set of admitted (source node type, target node type) pairs.
-      Validation step 5 reads these relations directly.
+      each admitted edge type id to the set of admitted (source node type,
+      target node type) pairs. Validation step 5 reads these relations directly.
       Admission refuses a package unless the program's entries agree with the
       rest of the package: `target_ir_identity` must equal the semantic
-      closure's Target IR identity, `evaluator_profile_identity` must equal
-      the identity of the package's interpreter and intrinsic profiles, and
-      the digest of `schema` under `echo.operation-schema/v1` must equal the
+      closure's Target IR identity, `evaluator_profile_identity` must equal the
+      identity of the package's interpreter and intrinsic profiles, and the
+      digest of `graph_schema` under `echo.operation-schema/v1` must equal the
       closure's schema digest. No artifact is attested under one identity and
-      executed under another. The evaluator dispatches on the
-      tag: `0` and `1` run today's profiles unchanged, and `2` runs the
-      compiled program through the bridge this document defines;
+      executed under another. The evaluator dispatches on the tag: `0` and `1`
+      run today's profiles unchanged, and `2` runs the compiled program through
+      the bridge this document defines;
     - the invocation is an `EchoOperationInvocationV2`, the V1 canonical
       CBOR map with its kind extended to a tagged union: tags `0` and `1`
       are the V1 compare-and-set and create-if-absent kinds with their V1
@@ -1533,6 +1560,10 @@ Each behaviour below needs a test before implementation:
 | Range inspection metering     | A range read over a bucket of many edges of other types is charged for every edge in the bucket and obstructs when the bucket length exceeds `max_range_edges`, even when no edge matches.                                                                                                                                                                                                       |
 | Existing edge source          | An identical `EnsureEdge` whose source exists reads and charges the source record, and the edge id is recomputed under the rule its type selects.                                                                                                                                                                                                                                                |
 | V2 domains                    | V2 package, program, invocation, and installed-operation identities use the `v2` schema strings and domains, and differ from V1 identities over the same content.                                                                                                                                                                                                                                |
+| Topology eligibility          | An Action whose package's law admits an edge write or a content-node write commits only onto its exact evaluation basis, including when this invocation writes only atoms.                                                                                                                                                                                                                       |
+| Mutable-source alias          | A creating `EnsureEdge` or a `ReplaceEdge` from a mutable source that already has another edge of the same type, under any id, obstructs with `IdentityLawViolation`.                                                                                                                                                                                                                            |
+| Beta portal                   | An effect or read reached only through an edge-owned portal obstructs at step 1 with `FootprintLawViolation`.                                                                                                                                                                                                                                                                                    |
+| Program map                   | A tag `2` program map with `schema` set to anything but `echo.operation-program/v2`, or with any key outside the exact map, is refused at admission.                                                                                                                                                                                                                                             |
 
 ## Open questions
 

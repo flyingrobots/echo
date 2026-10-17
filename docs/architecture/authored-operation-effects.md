@@ -319,6 +319,29 @@ Rules:
   typed `IdentityLawViolation` obstruction before any patch is derived. Echo
   does not invent ids.
 
+### Identity laws
+
+A package names its identity law by number, and Echo recomputes ids under it;
+a digest alone could not be executed. One law is defined:
+
+- **`1`, `ContentAddressV1`.** It covers the ids a proposal creates: the node
+  of each `EnsureNode` and `CreateNode`, and the edge of each `EnsureEdge`.
+  `ReplaceAtom` and `ReplaceEdge` name existing ids and are not recomputed.
+    - An edge id is BLAKE3 over `echo.bridge.edge-id.v1\0`, the warp id, the
+      `from` local id, the edge type id, and the `to` local id.
+    - A node id is BLAKE3 over `echo.bridge.node-id.v1\0`, the warp id, the
+      node type id, the attachment value digest of its atom (see
+      [Evidence](#evidence)), the number of its outgoing edges that the
+      proposal's `EnsureEdge` effects give it as a little-endian `u64`, and,
+      for each such edge sorted by edge type id and then `to` local id, the
+      edge type id and the `to` local id.
+
+    All ids are 32 bytes. A node's id therefore commits to its content and to
+    the children the same proposal links it to, as Jim's rope requires, and an
+    edge's id commits to its endpoints and type. A program computes the same
+    BLAKE3 inputs; Edict must expose them before a tag `2` package can be
+    produced.
+
 ## Witnessed reads over a bounded slice
 
 The program never declares what it read. Evaluation reaches state only through
@@ -435,12 +458,17 @@ decides the outcome, so a proposal that breaks several rules has exactly one
 recorded obstruction:
 
 1. resolution at the evaluation basis (for a scoped Action, its origin): in
-   canonical effect order, read and charge each `ReplaceAtom`'s node record
-   and each `ReplaceEdge`'s edge record, the facts those effects do not
-   carry (`NodeMissing` for a missing node, `PreconditionMismatch` for a
-   missing edge, or `BudgetExceeded` when the read exceeds the remaining
-   budget). The resolved records, and a `ReplaceEdge`'s source endpoint,
-   join the dependency set, so the history check sees them;
+   canonical effect order, read and charge the facts the effects do not
+   carry. That means each `ReplaceAtom`'s node record, each `ReplaceEdge`'s
+   edge record, and the node record of each endpoint of a creating
+   `EnsureEdge` or a `ReplaceEdge` that the proposal does not create. Each
+   node-record read costs one step and 64 `read_bytes`, and each edge-record
+   read one step and 128 `read_bytes`, the sizes of WSC's node and edge rows.
+   Failures are `NodeMissing` for a `ReplaceAtom`'s missing node,
+   `PreconditionMismatch` for a missing edge, or `BudgetExceeded` when a
+   read exceeds the remaining budget. A missing endpoint is recorded as
+   absent and reported as `DanglingReference` at step 9. The resolved
+   records join the dependency set, so the history check sees them;
 2. the dependency-scoped history check, for a scoped Action
    (`BasisChanged`);
 3. one effect per slot (`DuplicateEffectTarget`);
@@ -455,8 +483,11 @@ recorded obstruction:
    `CreateNode`, which carry both, the node type must admit the atom type
    (`SchemaViolation`);
 7. the schema over resolved types: a `ReplaceEdge`'s preserved edge type
-   must be admitted, and a `ReplaceAtom`'s owner node type must admit the
-   new atom type (`SchemaViolation`);
+   must be admitted; a `ReplaceAtom`'s owner node type must admit the new
+   atom type; and for every creating `EnsureEdge` and every `ReplaceEdge`,
+   the schema must admit the edge between its source and target node types,
+   taken from the resolved records or from the proposal's own node effects
+   (`SchemaViolation`);
 8. the footprint law, now that every slot is known: the witnessed read set,
    every precondition slot (including a `ReplaceEdge`'s resolved source),
    the target set, the resolved write set with its range keys, and their
@@ -667,21 +698,25 @@ Consequences:
   source-compiled bridge package therefore uses new versions,
   `ExecutableOperationPackageV2` and `EchoOperationSemanticClosureV2`. They
   are identical to V1 except in two fields:
-    - the lawpack binding is a tagged option: `0` absent, or `1` followed by
-      the V1 lawpack coordinate and identity. A bridge package writes `0`;
-      no sentinel lawpack is fabricated;
-    - the program is an `EchoOperationProgramV2`, a tagged union, because
-      `EchoOperationProgramV1` has only the two fixed profiles. Tags `0`
-      and `1` are those profiles, with their V1 fields in their V1 order.
-      Tag `2` is `EdictEffectProgram`, followed by: the compiled program
-      bytes, preceded by their length as a little-endian `u64`; the
-      compiler's Target IR identity; the evaluator ABI and
-      intrinsic-profile identity; the identity-law identity; the schema
-      identity; and the footprint law's canonical bytes, preceded by their
-      length as a little-endian `u64`. Identities are 32 bytes each. The
-      evaluator dispatches on the tag: `0` and `1` run today's profiles
-      unchanged, and `2` runs the compiled program through the bridge this
-      document defines;
+    - the lawpack binding is optional: the semantic closure's map carries
+      its `lawpack` entry (the V1 coordinate and identity) or omits it. A
+      fixed-profile program (tags `0` and `1` below) requires the entry, as
+      ADR 0023 requires today; an `EdictEffectProgram` (tag `2`) requires its
+      absence. Admission refuses any other combination, so no sentinel
+      lawpack is fabricated and no fixed profile loses its lawpack;
+    - the program is an `EchoOperationProgramV2`, because
+      `EchoOperationProgramV1` has only the two fixed profiles. Like every
+      package value it is an `edict.canonical-cbor/v1` map with a `tag`
+      entry. Tags `0` and `1` are those profiles, with their V1 entries. Tag
+      `2` is `EdictEffectProgram`, whose entries are `compiled_program` (the
+      compiled bytes), `target_ir_identity`,
+      `evaluator_profile_identity` (the evaluator ABI and intrinsic
+      profile), `identity_law` (an unsigned integer naming an
+      [identity law](#identity-laws); unknown values are refused),
+      `schema_identity`, and `footprint_law` (its canonical bytes).
+      Identities are 32-byte byte strings. The evaluator dispatches on the
+      tag: `0` and `1` run today's profiles unchanged, and `2` runs the
+      compiled program through the bridge this document defines;
     - the invocation is an `EchoOperationInvocationV2`, the V1 canonical
       CBOR map with its kind extended to a tagged union: tags `0` and `1`
       are the V1 compare-and-set and create-if-absent kinds with their V1
@@ -1190,10 +1225,12 @@ Each behaviour below needs a test before implementation:
 | Canonical slots               | Differently expressed effects on one slot (`EnsureEdge` and `ReplaceEdge` of one edge id; `CreateNode` and `ReplaceAtom` of one node) obstruct with `DuplicateEffectTarget`.                                                                                                                                                                                                                                  |
 | Write set                     | The derived patch's actual footprint equals the write set, including the atom slots of created nodes and the range key of every created or retargeted edge, so a committed `EnsureEdge` and `ReplaceEdge` pass the footprint check.                                                                                                                                                                           |
 | Identity law                  | A proposed node or edge id that does not match the package's identity law obstructs with `IdentityLawViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                                |
+| Content address               | Under `ContentAddressV1`, a node id equal to the specified BLAKE3 over its type, atom, and proposal-created children, and an edge id over its endpoints and type, pass; any other id obstructs with `IdentityLawViolation`; fixed vectors pin both derivations.                                                                                                                                               |
 | Unreachable warp              | An effect naming a key in a missing warp, or in a warp no valid portal chain reaches, obstructs with `UnreachableWarp`, posture `Proposed`, `NotDerived`.                                                                                                                                                                                                                                                     |
 | Origin reachability           | A scoped Action naming a warp unreachable at its origin obstructs with `UnreachableWarp` even when an intervening Tick created the portal that reaches it.                                                                                                                                                                                                                                                    |
 | Schema                        | An effect whose node type, atom `type_id`, or edge type the package's schema does not admit obstructs with `SchemaViolation`, posture `Proposed`, `NotDerived`, and recovery reproduces it.                                                                                                                                                                                                                   |
 | Resolved schema               | A `ReplaceEdge` whose basis edge type the schema does not admit, or a `ReplaceAtom` whose owner node type does not admit the new atom type, obstructs with `SchemaViolation` after its record is read and charged.                                                                                                                                                                                            |
+| Endpoint types                | A creating `EnsureEdge` or a `ReplaceEdge` whose source or target node type the schema does not admit for that edge type obstructs with `SchemaViolation`, after its endpoint records are read and charged.                                                                                                                                                                                                   |
 | Validation order              | A proposal that breaks several rules (for example a duplicate target, an unadmitted type, and a missing endpoint) records the obstruction of the earliest step in the validation order, live and on recovery.                                                                                                                                                                                                 |
 | Conflict before batch limit   | A candidate that both overlaps an earlier accepted Action and would exceed the batch operation limit records `RejectedFootprintConflict`, as today's scheduler does.                                                                                                                                                                                                                                          |
 | Footprint stages              | A target outside the footprint law obstructs with `FootprintLawViolation` and `NotDerived`, and so does a `ReplaceEdge` whose basis edge's range key lies outside the law; a derived patch whose footprint differs from the write set obstructs with `FootprintMismatch` and `Derived`.                                                                                                                       |
@@ -1227,6 +1264,7 @@ Each behaviour below needs a test before implementation:
 | Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                                            |
 | Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
 | Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with lawpack tag `0` and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                                            |
+| Lawpack by program            | A V2 package whose fixed-profile program omits the lawpack, or whose `EdictEffectProgram` carries one, is refused at admission.                                                                                                                                                                                                                                                                               |
 | Invocation version            | An `EdictInput` (tag `2`) invocation is admitted only for an `EdictEffectProgram` package and is refused for a fixed profile, and a fixed-profile kind is refused for a tag `2` program.                                                                                                                                                                                                                      |
 | Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                                    |
 | Recovered evidence            | For each outcome class, recovery performs that class's existing verification plus the new comparisons (posture, proposal identity, read-set, write-set, and patch digests where the class reconstructs or re-evaluates); a tampered digest refuses the history, a whole-frontier `BasisChanged` is not re-evaluated, the batch composition is reconstructed for every class, and no recorded outcome changes. |
@@ -1238,7 +1276,8 @@ Each behaviour below needs a test before implementation:
   bounded closure read guided by a pure Edict selector is expressed and
   budgeted. The metering of a single range read is defined above.
 - Whether the footprint law is per-invocation or per-package with parameters.
-- Which domain-separated hash Edict source can call to derive ids.
+- How Edict source exposes the `ContentAddressV1` inputs; the law itself
+  is defined above.
 - Whether proposals larger than the Action-batch operation limit should ever
   be committable. This design says no: such a proposal is still representable
   as evidence (`BudgetExceeded`, posture `Proposed` with a `Derived` patch, as

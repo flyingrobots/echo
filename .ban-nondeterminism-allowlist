@@ -47,3 +47,4 @@ std-env crates/warp-core/benches/wal_record_cost.rs benchmark driver reads its s
 time-instant crates/warp-core/benches/support/action_scene.rs benchmark driver measures elapsed time; it is not linked into the runtime and decides no history.
 std-env crates/warp-core/benches/support/action_scene.rs benchmark driver reads its settings from the environment; it is not linked into the runtime.
 std-fs crates/warp-core/benches/support/action_scene.rs benchmark driver creates and removes its own log directory; it is not linked into the runtime.
+hand-hashed-table crates/warp-core/src/snapshot.rs state-root membership accelerator in private mod membership, whose only operations are begin and insert (no iterator, slice accessor or lookup, enforced by the compiler); exact key equality, no seed; its contents, capacity, probe counts, generation and fallback cannot affect the state root, which is independent of scratch history (tested against the ordered reference).

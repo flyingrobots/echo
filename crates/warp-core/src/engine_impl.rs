@@ -502,6 +502,9 @@ pub struct Engine {
     /// outside a runtime batch always starts a fresh log, so a log left behind
     /// by an aborted commit never leaks into a later patch.
     runtime_batch_touch_log: bool,
+    /// Working memory for the state root, kept across commits so hashing the
+    /// reachable graph allocates nothing once it has grown to fit.
+    state_root_scratch: crate::snapshot::StateRootScratch,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay.
     initial_state: Arc<WarpState>,
@@ -980,6 +983,7 @@ impl Engine {
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
             runtime_batch_touch_log: false,
+            state_root_scratch: crate::snapshot::StateRootScratch::default(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1182,6 +1186,7 @@ impl Engine {
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
             runtime_batch_touch_log: false,
+            state_root_scratch: crate::snapshot::StateRootScratch::default(),
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -2098,7 +2103,11 @@ impl Engine {
         );
         let patch_digest = patch.digest();
 
-        let state_root = crate::snapshot::compute_state_root(&self.state, &self.current_root);
+        let state_root = crate::snapshot::compute_state_root_with(
+            &self.state,
+            &self.current_root,
+            &mut self.state_root_scratch,
+        );
 
         #[cfg(feature = "delta_validate")]
         {

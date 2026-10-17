@@ -235,7 +235,7 @@ pub(crate) fn op_kind_str(op: &WarpOp) -> &'static str {
 /// declare `from` in `n_write` in its footprint.
 ///
 /// **Why only `from`, not `to`?** Although `GraphStore` maintains reverse indexes
-/// (`edge_to_index`, `edges_to`) internally, the execution API ([`GraphView`]) only
+/// (`edge_index`, `edges_to`) internally, the execution API ([`GraphView`]) only
 /// exposes `edges_from()` — rules cannot observe incoming edges. Since `to` adjacency
 /// is not observable during execution, it doesn't require footprint declaration.
 pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {

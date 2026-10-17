@@ -1497,10 +1497,10 @@ fn diff_touched_instance(
             }),
             (None, Some(rec_after)) => ops.push(WarpOp::UpsertEdge {
                 warp_id,
-                record: rec_after.clone(),
+                record: rec_after,
             }),
             (Some(rec_before), Some(rec_after)) => {
-                if rec_before == rec_after {
+                if *rec_before == rec_after {
                     continue;
                 }
                 if rec_before.from != rec_after.from {
@@ -1512,7 +1512,7 @@ fn diff_touched_instance(
                 }
                 ops.push(WarpOp::UpsertEdge {
                     warp_id,
-                    record: rec_after.clone(),
+                    record: rec_after,
                 });
             }
             (None, None) => {}
@@ -2796,7 +2796,6 @@ mod touched_diff_tests {
             prop_assert_eq!(&sa.edges_from, &sb.edges_from);
             prop_assert_eq!(&sa.edges_to, &sb.edges_to);
             prop_assert_eq!(&sa.edge_index, &sb.edge_index);
-            prop_assert_eq!(&sa.edge_to_index, &sb.edge_to_index);
         }
         Ok(())
     }

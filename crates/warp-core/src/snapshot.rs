@@ -80,16 +80,24 @@ pub struct Snapshot {
 
 /// Reusable working memory for [`compute_state_root_with`].
 ///
-/// An engine keeps one and passes it to every commit, so computing the state
-/// root allocates nothing once these buffers have grown to the reachable
-/// graph's size, unless node ids collide pathologically in the membership
-/// table, when that commit falls back to the allocating ordered walk. Its
-/// contents never outlive a call and never affect the hash.
+/// **Invariant: the state root is independent of scratch history.** For the
+/// same state and root, every history of this scratch yields the root the
+/// ordered reference walk yields: fresh, warmed, after a larger graph, after
+/// collisions or a fallback, and across generation rollover. Nothing in the
+/// scratch is an input to state identity.
+///
+/// **Memory.** The buffers are reused, not bounded: they keep the peak size
+/// they reach (about 144 bytes per reachable node: the discovery list, the
+/// sorted list, and two table slots per node) for the engine's lifetime, and
+/// are reclaimed only when the engine is dropped. Once warm, a commit's state
+/// root allocates nothing, except when the membership table falls back to the
+/// ordered walk (ids that collide pathologically, or more reachable nodes than
+/// a `u32` position can name), which allocates as the walk always has.
 ///
 /// Traversal finds each node once: `found` lists reached nodes in discovery
 /// order and doubles as the BFS queue, and `index` answers membership in one
 /// probe. `index` is an open-addressing table of positions in `found`, keyed
-/// by the node key's own BLAKE3 bytes. It is never iterated, so its layout
+/// by a deterministic mix of every byte of the node key. It is never iterated, so its layout
 /// cannot reach any output; the canonical order comes from sorting `found`
 /// into `reachable` once traversal ends. Traversal is O(edges), and the sort
 /// O(n log n), whatever the graph's depth.
@@ -244,168 +252,212 @@ pub(crate) fn compute_state_root_with(
     hasher.finalize().into()
 }
 
-/// The table slot where `key`'s probe sequence starts. Every byte of the key
-/// is mixed in: node ids are conventionally BLAKE3 output, but nothing
-/// requires it, and ids that share leading bytes must not share a slot.
-fn home_slot(key: &NodeKey, mask: usize) -> usize {
-    let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
-    for word in key
-        .warp_id
-        .0
-        .chunks_exact(8)
-        .chain(key.local_id.0.chunks_exact(8))
-    {
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(word);
-        hash = (hash ^ u64::from_le_bytes(bytes)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+/// The state root's membership accelerator, kept in its own module so the
+/// compiler enforces what the determinism waiver promises: its slot arrays
+/// are private here, and the only operations outside it are starting a
+/// traversal, inserting a key, and testing membership. There is no iterator
+/// and no slice accessor, so no caller can observe the table's layout.
+mod membership {
+    use crate::ident::NodeKey;
+
+    /// The table slot where `key`'s probe sequence starts. Every byte of the key
+    /// is mixed in: node ids are conventionally BLAKE3 output, but nothing
+    /// requires it, and ids that share leading bytes must not share a slot.
+    fn home_slot(key: &NodeKey, mask: usize) -> usize {
+        let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
+        for word in key
+            .warp_id
+            .0
+            .chunks_exact(8)
+            .chain(key.local_id.0.chunks_exact(8))
+        {
+            let mut bytes = [0u8; 8];
+            bytes.copy_from_slice(word);
+            hash = (hash ^ u64::from_le_bytes(bytes)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            hash ^= hash >> 31;
+        }
+        hash = (hash ^ (hash >> 30)).wrapping_mul(0x94D0_49BB_1331_11EB);
         hash ^= hash >> 31;
-    }
-    hash = (hash ^ (hash >> 30)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    hash ^= hash >> 31;
-    // Truncation is the point: only the low bits select a slot.
-    #[allow(clippy::cast_possible_truncation)]
-    let slot = hash as usize;
-    slot & mask
-}
-
-/// Open-addressing membership over positions in `found`. Each slot carries
-/// the generation of the traversal that wrote it, and a slot from an earlier
-/// generation counts as empty. Starting a traversal is one increment, never a
-/// pass over the table, so a commit pays for the graph it reaches now, not
-/// for the largest graph the table ever held. Its length is a power of two,
-/// at least twice `found`'s.
-#[derive(Default)]
-struct MembershipTable {
-    /// The generation that wrote each slot.
-    generations: Vec<u32>,
-    /// One plus a position in `found`, valid when the slot's generation is
-    /// current.
-    tags: Vec<u32>,
-    /// The current traversal's generation; never `0`, which marks a slot
-    /// never written.
-    generation: u32,
-    /// Sends every key to slot `0`, so a test can drive the collision
-    /// fallback.
-    #[cfg(test)]
-    force_collisions: bool,
-}
-
-/// The longest probe run the membership table accepts. Honest ids, BLAKE3
-/// output by convention, almost never run past a handful of slots at load
-/// one half. Ids chosen to collide can, and then the traversal falls back to
-/// the ordered walk rather than probing quadratically.
-const MAX_PROBE_RUN: usize = 64;
-
-impl MembershipTable {
-    /// Starts a traversal: every slot written before reads as empty. On the
-    /// counter's wraparound, once in `2^32` traversals, the table is cleared.
-    /// Returns the number of slots cleared.
-    fn begin(&mut self) -> usize {
-        if let Some(generation) = self.generation.checked_add(1) {
-            self.generation = generation;
-            return 0;
-        }
-        self.generations.fill(0);
-        self.generation = 1;
-        self.generations.len()
+        // Truncation is the point: only the low bits select a slot.
+        #[allow(clippy::cast_possible_truncation)]
+        let slot = hash as usize;
+        slot & mask
     }
 
-    // `self` matters only to the test-only collision switch.
-    #[cfg_attr(not(test), allow(clippy::unused_self))]
-    fn home(&self, key: &NodeKey, mask: usize) -> usize {
+    /// Open-addressing membership over positions in `found`. Each slot carries
+    /// the generation of the traversal that wrote it, and a slot from an earlier
+    /// generation counts as empty. Starting a traversal is one increment, never a
+    /// pass over the table, so a commit pays for the graph it reaches now, not
+    /// for the largest graph the table ever held. Its length is a power of two,
+    /// at least twice `found`'s.
+    #[derive(Default)]
+    pub(super) struct MembershipTable {
+        /// The generation that wrote each slot.
+        generations: Vec<u32>,
+        /// One plus a position in `found`, valid when the slot's generation is
+        /// current.
+        tags: Vec<u32>,
+        /// The current traversal's generation; never `0`, which marks a slot
+        /// never written.
+        generation: u32,
+        /// Sends every key to slot `0`, so a test can drive the collision
+        /// fallback.
         #[cfg(test)]
-        if self.force_collisions {
-            return 0;
-        }
-        home_slot(key, mask)
+        force_collisions: bool,
+        /// Lowers the position limit, so a test can drive the representability
+        /// fallback without billions of nodes.
+        #[cfg(test)]
+        position_limit: Option<usize>,
     }
 
-    /// Whether `key` was inserted in this traversal.
-    fn contains(&self, found: &[NodeKey], key: &NodeKey) -> bool {
-        if self.tags.is_empty() {
-            return false;
-        }
-        let mask = self.tags.len() - 1;
-        let mut slot = self.home(key, mask);
-        while self.is_current(slot) {
-            if found[(self.tags[slot] - 1) as usize] == *key {
-                return true;
+    /// The longest probe run the membership table accepts. Honest ids, BLAKE3
+    /// output by convention, almost never run past a handful of slots at load
+    /// one half. Ids chosen to collide can, and then the traversal falls back to
+    /// the ordered walk rather than probing quadratically.
+    pub(super) const MAX_PROBE_RUN: usize = 64;
+
+    impl MembershipTable {
+        /// Starts a traversal: every slot written before reads as empty. On the
+        /// counter's wraparound, once in `2^32` traversals, the table is cleared.
+        /// Returns the number of slots cleared.
+        pub(super) fn begin(&mut self) -> usize {
+            if let Some(generation) = self.generation.checked_add(1) {
+                self.generation = generation;
+                return 0;
             }
-            slot = (slot + 1) & mask;
+            self.generations.fill(0);
+            self.generation = 1;
+            self.generations.len()
         }
-        false
-    }
 
-    fn is_current(&self, slot: usize) -> bool {
-        self.generations[slot] == self.generation
-    }
-
-    fn set(&mut self, slot: usize, position: usize) {
-        self.generations[slot] = self.generation;
-        self.tags[slot] = position_tag(position);
-    }
-
-    /// Adds `key` to `found` unless it is already there, and reports whether
-    /// it was new. One probe sequence per call; the table grows, rehashing
-    /// from `found`, only when `found` would exceed half its length. Returns
-    /// `None` when a probe run passes [`MAX_PROBE_RUN`]: the keys collide
-    /// pathologically, and the caller must fall back to the ordered walk.
-    fn insert(
-        &mut self,
-        found: &mut Vec<NodeKey>,
-        key: NodeKey,
-        #[cfg(test)] probes: &mut usize,
-    ) -> Option<bool> {
-        if (found.len() + 1) * 2 > self.tags.len() {
-            let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
-            self.generations.clear();
-            self.generations.resize(length, 0);
-            self.tags.clear();
-            self.tags.resize(length, 0);
-            let mask = length - 1;
-            for (position, existing) in found.iter().enumerate() {
-                let mut slot = self.home(existing, mask);
-                let mut run = 0;
-                while self.is_current(slot) {
-                    run += 1;
-                    if run > MAX_PROBE_RUN {
-                        return None;
-                    }
-                    slot = (slot + 1) & mask;
-                }
-                self.set(slot, position);
-            }
-        }
-        let mask = self.tags.len() - 1;
-        let mut slot = self.home(&key, mask);
-        for _ in 0..=MAX_PROBE_RUN {
+        // `self` matters only to the test-only collision switch.
+        #[cfg_attr(not(test), allow(clippy::unused_self))]
+        fn home(&self, key: &NodeKey, mask: usize) -> usize {
             #[cfg(test)]
-            {
-                *probes += 1;
+            if self.force_collisions {
+                return 0;
             }
-            if !self.is_current(slot) {
-                self.set(slot, found.len());
-                found.push(key);
-                return Some(true);
-            }
-            if found[(self.tags[slot] - 1) as usize] == key {
-                return Some(false);
-            }
-            slot = (slot + 1) & mask;
+            home_slot(key, mask)
         }
-        None
+
+        /// Whether `key` was inserted in this traversal.
+        pub(super) fn contains(&self, found: &[NodeKey], key: &NodeKey) -> bool {
+            if self.tags.is_empty() {
+                return false;
+            }
+            let mask = self.tags.len() - 1;
+            let mut slot = self.home(key, mask);
+            while self.is_current(slot) {
+                if found[(self.tags[slot] - 1) as usize] == *key {
+                    return true;
+                }
+                slot = (slot + 1) & mask;
+            }
+            false
+        }
+
+        fn is_current(&self, slot: usize) -> bool {
+            self.generations[slot] == self.generation
+        }
+
+        /// The table's encoding of `position` (one plus it), or `None` when the
+        /// position cannot be named: the table never aliases two positions, and
+        /// the caller falls back to the ordered walk instead.
+        // `self` matters only to the test-only position limit.
+        #[cfg_attr(not(test), allow(clippy::unused_self))]
+        fn tag_for(&self, position: usize) -> Option<u32> {
+            #[cfg(test)]
+            if self.position_limit.is_some_and(|limit| position >= limit) {
+                return None;
+            }
+            u32::try_from(position.checked_add(1)?).ok()
+        }
+
+        fn set(&mut self, slot: usize, tag: u32) {
+            self.generations[slot] = self.generation;
+            self.tags[slot] = tag;
+        }
+
+        /// Adds `key` to `found` unless it is already there, and reports whether
+        /// it was new. One probe sequence per call; the table grows, rehashing
+        /// from `found`, only when `found` would exceed half its length. Returns
+        /// `None` when a probe run passes [`MAX_PROBE_RUN`] (the keys collide
+        /// pathologically) or a position cannot be named: the caller must then
+        /// fall back to the ordered walk.
+        pub(super) fn insert(
+            &mut self,
+            found: &mut Vec<NodeKey>,
+            key: NodeKey,
+            #[cfg(test)] probes: &mut usize,
+        ) -> Option<bool> {
+            if (found.len() + 1) * 2 > self.tags.len() {
+                let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
+                self.generations.clear();
+                self.generations.resize(length, 0);
+                self.tags.clear();
+                self.tags.resize(length, 0);
+                let mask = length - 1;
+                for (position, existing) in found.iter().enumerate() {
+                    let mut slot = self.home(existing, mask);
+                    let mut run = 0;
+                    while self.is_current(slot) {
+                        run += 1;
+                        if run > MAX_PROBE_RUN {
+                            return None;
+                        }
+                        slot = (slot + 1) & mask;
+                    }
+                    let tag = self.tag_for(position)?;
+                    self.set(slot, tag);
+                }
+            }
+            let mask = self.tags.len() - 1;
+            let mut slot = self.home(&key, mask);
+            for _ in 0..=MAX_PROBE_RUN {
+                #[cfg(test)]
+                {
+                    *probes += 1;
+                }
+                if !self.is_current(slot) {
+                    let tag = self.tag_for(found.len())?;
+                    self.set(slot, tag);
+                    found.push(key);
+                    return Some(true);
+                }
+                if found[(self.tags[slot] - 1) as usize] == key {
+                    return Some(false);
+                }
+                slot = (slot + 1) & mask;
+            }
+            None
+        }
+
+        /// Sends every key to slot `0`, to drive the collision fallback.
+        #[cfg(test)]
+        pub(super) fn force_collisions(&mut self, on: bool) {
+            self.force_collisions = on;
+        }
+
+        /// Lowers the position limit, to drive the representability fallback.
+        #[cfg(test)]
+        pub(super) fn limit_positions(&mut self, limit: Option<usize>) {
+            self.position_limit = limit;
+        }
+
+        /// The current generation, and a way to set it near the wrap.
+        #[cfg(test)]
+        pub(super) fn generation(&self) -> u32 {
+            self.generation
+        }
+
+        #[cfg(test)]
+        pub(super) fn set_generation(&mut self, generation: u32) {
+            self.generation = generation;
+        }
     }
 }
 
-/// One plus `position`, the table's encoding of a position in `found`. A
-/// reachable graph is bounded far below `u32::MAX` nodes by memory; a larger
-/// one cannot be represented and is a broken invariant.
-fn position_tag(position: usize) -> u32 {
-    u32::try_from(position + 1).unwrap_or_else(|_| {
-        debug_assert!(false, "reachable graph exceeds u32::MAX nodes");
-        u32::MAX
-    })
-}
+use membership::MembershipTable;
 
 /// Fills `scratch.reachable` and `scratch.warps` with the graph reachable from
 /// `root`, following edges and `Descend` portals on nodes and edges, breadth
@@ -618,7 +670,7 @@ pub(crate) fn compute_state_root_for_warp_state(state: &WarpState, root: &NodeKe
 /// The reachable warps and nodes, by an ordered breadth-first walk. It
 /// allocates its sets, so the engine uses it only as the fallback when the
 /// membership table meets a pathological probe run (see
-/// [`MembershipTable::insert`]); it also backs the test-only reference.
+/// [`membership::MembershipTable::insert`]); it also backs the test-only reference.
 fn collect_reachable_graph(
     state: &WarpState,
     root: &NodeKey,
@@ -1824,6 +1876,104 @@ mod state_root_equivalence {
                 );
             }
         }
+
+        /// The state root is independent of scratch history: one scratch,
+        /// driven through any sequence of states and table conditions (the
+        /// collision fallback, the representability fallback, generation
+        /// rollover, and back to normal), always yields the reference root.
+        #[test]
+        fn state_root_is_independent_of_scratch_history(
+            steps in proptest::collection::vec(
+                (proptest::collection::vec(write(), 0..32), 0u8..4),
+                1..8,
+            ),
+        ) {
+            let root = NodeKey { warp_id: warp(0), local_id: node(0, 0) };
+            let mut scratch = StateRootScratch::default();
+            for (writes, condition) in &steps {
+                scratch.index.force_collisions(*condition == 1);
+                scratch.index.limit_positions((*condition == 2).then_some(2));
+                if *condition == 3 {
+                    // The next traversal wraps the generation counter.
+                    scratch.index.set_generation(u32::MAX);
+                }
+                let state = state(writes);
+                prop_assert_eq!(
+                    compute_state_root_with(&state, &root, &mut scratch),
+                    compute_state_root_reference(&state, &root)
+                );
+            }
+        }
+    }
+
+    /// Generation rollover clears the table once and changes no root: the
+    /// state roots before and after the wrap equal the reference.
+    #[test]
+    fn generation_rollover_changes_no_root() {
+        let root = NodeKey {
+            warp_id: warp(0),
+            local_id: node(0, 0),
+        };
+        let first = state(&[
+            Write::Node { warp: 0, node: 1 },
+            Write::Edge {
+                warp: 0,
+                id: 1,
+                from: 0,
+                to: 1,
+            },
+        ]);
+        let second = state(&[Write::Node { warp: 0, node: 2 }]);
+        let mut scratch = StateRootScratch::default();
+        assert_eq!(
+            compute_state_root_with(&first, &root, &mut scratch),
+            compute_state_root_reference(&first, &root)
+        );
+        scratch.index.set_generation(u32::MAX - 1);
+        for state in [&first, &second, &first, &second] {
+            assert_eq!(
+                compute_state_root_with(state, &root, &mut scratch),
+                compute_state_root_reference(state, &root)
+            );
+        }
+        assert!(
+            scratch.index.generation() < 4,
+            "the generation counter did not wrap"
+        );
+    }
+
+    /// A position the table cannot name falls back to the ordered walk
+    /// rather than aliasing an existing position.
+    #[test]
+    fn unrepresentable_positions_fall_back() {
+        let root = NodeKey {
+            warp_id: warp(0),
+            local_id: node(0, 0),
+        };
+        let writes: Vec<Write> = (1..10)
+            .flat_map(|n| {
+                [
+                    Write::Node { warp: 0, node: n },
+                    Write::Edge {
+                        warp: 0,
+                        id: n,
+                        from: 0,
+                        to: n,
+                    },
+                ]
+            })
+            .collect();
+        let state = state(&writes);
+        let mut scratch = StateRootScratch::default();
+        scratch.index.limit_positions(Some(4));
+        assert_eq!(
+            compute_state_root_with(&state, &root, &mut scratch),
+            compute_state_root_reference(&state, &root)
+        );
+        assert!(
+            scratch.fell_back,
+            "an unnameable position did not fall back"
+        );
     }
 }
 
@@ -1944,7 +2094,7 @@ mod reachability_work {
     }
 
     /// Ids chosen to collide in the membership table cannot make a commit
-    /// quadratic: past [`super::MAX_PROBE_RUN`] the traversal falls back to the
+    /// quadratic: past [`super::membership::MAX_PROBE_RUN`] the traversal falls back to the
     /// ordered walk, and the state root is unchanged.
     #[test]
     fn colliding_ids_fall_back_to_the_ordered_walk() {
@@ -1981,11 +2131,11 @@ mod reachability_work {
             local_id: node(0),
         };
         let mut scratch = StateRootScratch::default();
-        scratch.index.force_collisions = true;
+        scratch.index.force_collisions(true);
         let hash = compute_state_root_with(&state, &root, &mut scratch);
         assert!(scratch.fell_back, "colliding ids did not take the fallback");
         // The table gives up within one probe run per key, before N matters.
-        let bound = (super::MAX_PROBE_RUN + 1) * (super::MAX_PROBE_RUN + 2);
+        let bound = (super::membership::MAX_PROBE_RUN + 1) * (super::membership::MAX_PROBE_RUN + 2);
         assert!(
             scratch.probes <= bound,
             "{N} colliding ids made {} probes; the fallback allows {bound}, independent of N",

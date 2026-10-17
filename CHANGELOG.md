@@ -35,15 +35,21 @@
 
 ### Changed
 
-- An engine keeps the state root's working memory across commits, so a
-  commit's state-root hash allocates nothing once that memory has grown to the
-  reachable graph, unless node ids collide pathologically, when that commit
-  falls back to the original ordered walk and its allocation. The hashed bytes are unchanged. Before, every commit
-  allocated in proportion to the reachable graph (about 4 MB at 16,000
-  reachable entities). Reachability finds each node once, with one membership
-  probe per edge into a reused table that is never iterated, then sorts once:
-  O(edges + n log n) at any graph depth. Commit time is still proportional to
-  the reachable graph, because the state root is defined as one hash over it.
+- An engine keeps the state root's working memory across commits. Once that
+  memory has grown to the reachable graph, a commit's state-root hash
+  allocates nothing, except when the membership table falls back to the
+  original ordered walk (node ids that collide pathologically, or more
+  reachable nodes than a `u32` position can name), which allocates as before.
+  The hashed bytes are unchanged, and the state root is independent of the
+  scratch's history. The memory is reused, not bounded: it keeps its peak size
+  (about 144 bytes per reachable node) until the engine is dropped. Before,
+  every commit allocated in proportion to the reachable graph (about 4 MB at
+  16,000 reachable entities). Reachability finds each node once, with one
+  membership probe per edge, then sorts once: O(edges + n log n) at any graph
+  depth. Commit time is still proportional to the reachable graph, because the
+  state root is defined as one hash over it. The membership table is a
+  hand-written hash table; `ban-nondeterminism.sh` now flags such tables, and
+  this one carries a narrow waiver stating why it cannot affect output.
 
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).
   It writes `EINGR002`, byte for byte as before, for an envelope without a

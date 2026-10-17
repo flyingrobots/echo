@@ -327,6 +327,13 @@ a digest alone could not be executed. One law is defined:
 - **`1`, `ContentAddressV1`.** It covers the ids a proposal creates: the node
   of each `EnsureNode` and `CreateNode`, and the edge of each `EnsureEdge`.
   `ReplaceAtom` and `ReplaceEdge` name existing ids and are not recomputed.
+  A record created under this law is immutable: replacing a node's atom or
+  an edge's target would leave an id that no longer addresses its content.
+  So a `ReplaceAtom` or `ReplaceEdge` whose target's id equals
+  `ContentAddressV1` of its current content obstructs with
+  `IdentityLawViolation`. Mutable records, such as an application's anchor
+  node (the buffer `B` in the trace), have ids that are not content
+  addresses and may be replaced.
     - An edge id is BLAKE3 over `echo.bridge.edge-id.v1\0`, the warp id, the
       `from` local id, the edge type id, and the `to` local id.
     - A node id is BLAKE3 over `echo.bridge.node-id.v1\0`, the warp id, the
@@ -386,11 +393,14 @@ and a high-degree node cannot force an allocation the budget did not cover.
 
 These dependency kinds follow the
 [Action validity across ticks](../topics/GeneratedRules.md#action-validity-across-ticks)
-decision (#837). Value and single-key absence dependencies are the kinds that
-decision supports. A read of outgoing edges by type is a topology dependency,
-which that decision does not yet support, so an Action that reads edges keeps
-the whole-frontier rule: it commits only onto the exact basis it was evaluated
-against. Widening that requires sound edge-set tracking under #837, not a
+decision (#837). Value and single-key absence dependencies are the kinds that decision
+supports. A read of outgoing edges by type is a topology dependency, which that
+decision does not yet support. Eligibility is decided statically at admission,
+never by the branch an evaluation takes: an Action whose package's footprint law
+admits any outgoing-edge range read keeps the whole-frontier rule, whether or
+not this invocation reads an edge, and commits only onto the exact basis it was
+evaluated against. Every other bridge Action is eligible for dependency-scoped
+validity. Widening that requires sound edge-set tracking under #837, not a
 looser rule here.
 
 The view resolves each slot on demand from the basis, as
@@ -402,9 +412,14 @@ worldline state, but nothing in this contract may rely on that.
 
 ## Footprint law
 
-The package declares a footprint law: the node types, edge types, and maximum
-counts an Action may read and write, relative to its invocation. At validation
-Echo checks:
+The package declares a footprint law, fixed per package with no invocation
+parameters. It is an `edict.canonical-cbor/v1` map with these entries:
+`read_node_types` and `write_node_types` (sets of node type ids),
+`atom_types` (the atom `type_id`s it may read or write), `range_edge_types`
+(edge types it may read as outgoing ranges; empty makes it eligible for
+scoped validity), `write_edge_types`, and the unsigned counts `max_reads`,
+`max_writes`, and `max_range_edges` (per range read). Its canonical bytes are
+part of the program's identity. At validation Echo checks:
 
 - every node type, atom `type_id`, and edge type an effect writes is admitted
   by the package's typed graph and attachment schema, which ADR 0023 requires
@@ -457,7 +472,13 @@ Validation of a proposal runs in one fixed order, and the first failing step
 decides the outcome, so a proposal that breaks several rules has exactly one
 recorded obstruction:
 
-1. resolution at the evaluation basis (for a scoped Action, its origin): in
+1. warp reachability of every effect key at the evaluation basis
+   (`UnreachableWarp`). A warp unreachable at a scoped Action's origin
+   obstructs even if a later Tick made it reachable, and a reachable warp's
+   portal chain is already in its dependency set, so step 3 catches any
+   change to it. It runs first, so a key in a missing warp is never
+   reported as a missing record;
+2. resolution at the evaluation basis (for a scoped Action, its origin): in
    canonical effect order, read and charge the facts the effects do not
    carry. That means each `ReplaceAtom`'s node record, each `ReplaceEdge`'s
    edge record, and the node record of each endpoint of a creating
@@ -469,15 +490,10 @@ recorded obstruction:
    read exceeds the remaining budget. A missing endpoint is recorded as
    absent and reported as `DanglingReference` at step 9. The resolved
    records join the dependency set, so the history check sees them;
-2. the dependency-scoped history check, for a scoped Action
+3. the dependency-scoped history check, for a scoped Action
    (`BasisChanged`);
-3. one effect per slot (`DuplicateEffectTarget`);
-4. the identity law (`IdentityLawViolation`);
-5. warp reachability of every effect key at the evaluation basis
-   (`UnreachableWarp`). A warp unreachable at a scoped Action's origin
-   obstructs even if a later Tick made it reachable, and a reachable warp's
-   portal chain is already in its dependency set, so step 2 catches any
-   change to it;
+4. one effect per slot (`DuplicateEffectTarget`);
+5. the identity law (`IdentityLawViolation`);
 6. the schema, over the types each effect itself carries: node types, edge
    types, and atom `type_id`s must be admitted, and for `EnsureNode` and
    `CreateNode`, which carry both, the node type must admit the atom type
@@ -504,7 +520,7 @@ recorded obstruction:
 
 Steps 1 through 9 yield `NotDerived`, and steps 10 through 12 yield
 `Derived`. Within a step that examines several effects, the first failing
-effect in canonical order decides; only steps 1 and 9 can yield more than
+effect in canonical order decides; only steps 2 and 9 can yield more than
 one kind, so only they depend on that tie-break for their kind.
 
 ## Visibility and referential integrity
@@ -549,9 +565,11 @@ held; this design validates only what the proposal adds or retargets.
   evaluation. A bridge Action's reads are known only by evaluating it, so the
   bridge splits basis change in two:
     - **Whole-frontier `BasisChanged`,** decided before evaluation: the Action
-      is not eligible for dependency-scoped validity (for example because its
-      program can read edges) and its evaluation basis is no longer the commit
-      parent. Posture `NoProposal`, empty read set, no evaluation.
+      is not eligible for dependency-scoped validity (its footprint law admits
+      an edge-range read; see
+      [Witnessed reads](#witnessed-reads-over-a-bounded-slice)) and its evaluation basis is
+      no longer the commit parent. Posture `NoProposal`, empty read set, no
+      evaluation.
     - **Dependency-scoped,** decided after evaluation: the Action is eligible,
       so Echo evaluates it at its recorded origin basis, then checks its
       dependency set against the history between that origin and the commit
@@ -587,16 +605,16 @@ held; this design validates only what the proposal adds or retargets.
       and it has no effects, so its dependency set is incomplete, and it is
       never reclassified as `BasisChanged`. It commits nothing either way.
     - **Order.** For a proposal, the history check runs immediately after
-      evaluation and the origin resolution of step 1 of the
-      [Validation order](#validation-order), and before any other
-      validation. If a dependency changed, the
-      Action obstructs with `BasisChanged`, posture `Proposed` with patch tag
-      `NotDerived`, and keeps its witnessed read set and the dependency it
-      names as changed. No patch is derived from a
-      proposal whose dependencies changed, so a proposal that would also have
-      failed validation (for example `DuplicateEffectTarget`) still has one
-      encodable outcome. Only when every dependency holds does validation run.
-      Echo never validates a delayed Action without its actual dependencies.
+      evaluation and the reachability and origin resolution of steps 1 and 2 of
+      the [Validation order](#validation-order), and before any other
+      validation. If a dependency changed, the Action obstructs with
+      `BasisChanged`, posture `Proposed` with patch tag `NotDerived`, and keeps
+      its witnessed read set and the dependency it names as changed. No patch is
+      derived from a proposal whose dependencies changed, so a proposal that
+      would also have failed validation (for example `DuplicateEffectTarget`)
+      still has one encodable outcome. Only when every dependency holds does
+      validation run. Echo never validates a delayed Action without its actual
+      dependencies.
     - **Within one Tick, footprints before earlier writes.** Every check before
       composition, preconditions and expected values included, runs against the
       Tick's commit parent, never against writes accepted earlier in the same
@@ -713,8 +731,20 @@ Consequences:
       `evaluator_profile_identity` (the evaluator ABI and intrinsic
       profile), `identity_law` (an unsigned integer naming an
       [identity law](#identity-laws); unknown values are refused),
-      `schema_identity`, and `footprint_law` (its canonical bytes).
-      Identities are 32-byte byte strings. The evaluator dispatches on the
+      `schema` (canonical bytes, below), and `footprint_law` (its canonical
+      bytes). Identities are 32-byte byte strings. The `schema` is an
+      `edict.canonical-cbor/v1` map that Echo executes, not only a digest:
+      `node_types` maps each admitted node type id to the set of atom
+      `type_id`s it may carry, and `edge_types` maps each admitted edge type
+      id to the set of admitted (source node type, target node type) pairs.
+      Validation steps 6 and 7 read these relations directly.
+      Admission refuses a package unless the program's entries agree with the
+      rest of the package: `target_ir_identity` must equal the semantic
+      closure's Target IR identity, `evaluator_profile_identity` must equal
+      the identity of the package's interpreter and intrinsic profiles, and
+      the digest of `schema` under `echo.operation-schema/v1` must equal the
+      closure's schema digest. No artifact is attested under one identity and
+      executed under another. The evaluator dispatches on the
       tag: `0` and `1` run today's profiles unchanged, and `2` runs the
       compiled program through the bridge this document defines;
     - the invocation is an `EchoOperationInvocationV2`, the V1 canonical
@@ -778,10 +808,10 @@ Each Action's receipt entry binds, in addition to its current fields:
       decision requires: the origin basis, the validation position, and one
       of three evidence forms, each recording only a comparison that actually
       ran:
-        - `OriginOnly`, for every outcome decided before the history check:
-          an evaluation obstruction, or a failure of resolution (step 1 of
-          the [Validation order](#validation-order)). No dependency
-          comparison ran;
+        - `OriginOnly`, for every outcome decided before the history check: an
+          evaluation obstruction, or a failure of reachability or resolution
+          (steps 1 and 2 of the [Validation order](#validation-order)). No
+          dependency comparison ran;
         - `HistoryChanged`, for a dependency-scoped `BasisChanged`: the
           dependency-set digest over each dependency's descriptor and
           comparison mode, and the first changed dependency in canonical
@@ -1057,10 +1087,12 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
 - **Capacity fixed before evaluation.** Each region's size is a pure function of
   the selected candidates' declared footprint-law maxima, delegated budgets, and
   the program's `max_allocated_bytes`, which bounds the result bytes the blob
-  must also hold, all bounded by the existing batch limits (64 candidates, 128
-  operations). The arena grows, if at all, after selection and before
-  evaluation. Evaluation, validation, derivation, and composition never
-  allocate.
+  must also hold, sized per candidate from its own declared maxima, never from
+  the 128-operation batch limit, so a candidate whose patch exceeds that limit
+  is still derived in place and then rejected with `BudgetExceeded`. The
+  64-candidate limit bounds how many such candidates a Tick selects. The arena
+  grows, if at all, after selection and before evaluation. Evaluation,
+  validation, derivation, and composition never allocate.
 - **No host-dependent decisions.** Arena capacity never changes which
   Actions a Tick contains or how they are decided. If the host cannot grow
   the arena, the Tick fails as a host fault and nothing is decided, as on a
@@ -1263,7 +1295,7 @@ Each behaviour below needs a test before implementation:
 | Scoped basis change           | A dependency-scoped Action evaluated at its origin obstructs with `BasisChanged`, posture `Proposed` with `NotDerived`, and keeps its proposal, read set, and changed dependency when a dependency changed, even if its proposal would also fail validation; an unchanged dependency set lets it commit.                                                                                                      |
 | Scoped evaluation obstruction | A dependency-scoped Action whose evaluation exhausts its budget, or fails an authored guard, keeps that obstruction with `NoProposal` even when one of its reads changed after the origin; recovery reproduces it.                                                                                                                                                                                            |
 | Receipt format                | `EPRV0003` records recover byte for byte through the unchanged decoder; new Ticks are written as `EPRV0004`; a Tick mixing a bridge Action with fixed-profile Actions encodes the latter as `NotBridge`; a history mixing both formats recovers.                                                                                                                                                              |
-| Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with lawpack tag `0` and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                                            |
+| Package version               | A source-compiled package encodes as `ExecutableOperationPackageV2` with no `lawpack` entry and an `EdictEffectProgram` (program tag `2`) that the evaluator dispatches to the bridge; a V2 package carrying a fixed profile runs it unchanged; V1 packages keep their bytes and identities, and no V2 identity equals a V1 identity.                                                                         |
 | Lawpack by program            | A V2 package whose fixed-profile program omits the lawpack, or whose `EdictEffectProgram` carries one, is refused at admission.                                                                                                                                                                                                                                                                               |
 | Invocation version            | An `EdictInput` (tag `2`) invocation is admitted only for an `EdictEffectProgram` package and is refused for a fixed profile, and a fixed-profile kind is refused for a tag `2` program.                                                                                                                                                                                                                      |
 | Outcome record                | A bridge obstruction, including an authored one such as `BasisNotCanonical`, is retained as `EOACT004` with the same coordinate as its receipt; fixed-profile Actions still write `EOACT003`, and mixed histories recover.                                                                                                                                                                                    |
@@ -1275,7 +1307,6 @@ Each behaviour below needs a test before implementation:
 - How `edict_read` exposes outgoing edges by type to Edict source, and how a
   bounded closure read guided by a pure Edict selector is expressed and
   budgeted. The metering of a single range read is defined above.
-- Whether the footprint law is per-invocation or per-package with parameters.
 - How Edict source exposes the `ContentAddressV1` inputs; the law itself
   is defined above.
 - Whether proposals larger than the Action-batch operation limit should ever

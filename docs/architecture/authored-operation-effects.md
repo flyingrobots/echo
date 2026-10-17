@@ -305,9 +305,12 @@ Rules:
     - `EnsureEdge`: the edge is absent, or present with identical endpoints
       and type;
     - `ReplaceAtom`: the node record exists, else `NodeMissing` (as today's
-      compare-and-set reports), and its atom has the expected digest, else
-      `PreconditionMismatch`. An orphan atom without its record therefore
-      never satisfies a `ReplaceAtom`;
+      compare-and-set reports), and its alpha slot holds an atom
+      (`AttachmentValue::Atom`) with the expected digest, else
+      `PreconditionMismatch`. A slot holding a portal is therefore
+      `PreconditionMismatch`, decided before any patch is derived, never a
+      portal removed by the patch. An orphan atom without its record never
+      satisfies a `ReplaceAtom` either;
     - `ReplaceEdge`: the edge exists with the expected target;
     - a creating `EnsureEdge` and every `ReplaceEdge`: each endpoint the
       edge will name (`from` and `to`, or the retargeted edge's source and
@@ -551,8 +554,10 @@ encoding](#set-encoding) gives, with these entries: `read_node_types` and
 `write_node_types` (sets of node type ids), `atom_types` (the atom `type_id`s it
 may read or write), `range_edge_types` (edge types it may read as outgoing
 ranges; empty makes it eligible for scoped validity), `write_edge_types`, the
-unsigned counts `max_reads`, `max_writes`, and `max_range_edges` (per range
-read), and `portal_owner_types` (node types whose alpha portals an effect or
+unsigned counts `max_reads` (at most 4,096), `max_writes` (at most 256), and
+`max_range_edges` (per range read, at most 65,536), which admission checks
+against these effect-profile ceilings so no law can overflow the arena's sizing
+arithmetic, and `portal_owner_types` (node types whose alpha portals an effect or
 read in a descended warp may cross; empty confines the package to its root
 warp). Each portal on a validated chain must be owned by a node of one of these
 types, or validation obstructs with `FootprintLawViolation`. The bridge does not
@@ -1018,6 +1023,8 @@ Consequences:
           sizes the scheduler's evaluation arena;
         - `output_type`, the compiler-declared output type coordinate of the
           program's application result, which `result_identity` hashes.
+          Admission requires it to be nonempty UTF-8 of at most 1,024 bytes,
+          the bound V1 applies to result coordinates.
 
         The graph schema is the executable graph contract, a different
         artifact from the application's own schema declaration. The closure's
@@ -1327,7 +1334,7 @@ above likewise applies to every row recorded as `Scoped`.
 | Obstructed at validation (`DanglingReference`, `ContentIdentityConflict`, `DuplicateEffectTarget`, `FootprintLawViolation`, `IdentityLawViolation`, `SchemaViolation`, `UnreachableWarp`, `NodeMissing`, `PreconditionMismatch`, validation-read `BudgetExceeded`) | `Proposed`, `NotDerived` | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; obstruction kind; no write-set or patch digest present                                                                                                                               |
 | Obstructed by `FootprintMismatch` (after derivation)                                                                                                                                                                                                               | `Proposed`, `Derived`    | re-evaluate; compare pre-decision evidence                                | effects bound; read-set digest; re-derived patch reproduces the mismatch                                                                                                                                             |
 | `BudgetExceeded`, scheduler-assigned (Action-batch limit)                                                                                                                                                                                                          | `Proposed`, `Derived`    | accept reconstructed preparation; verify through the batch reconstruction | effects bound; read-set digest                                                                                                                                                                                       |
-| `BudgetExceeded` during evaluation, an evaluation-time `FootprintLawViolation` (an out-of-law read, an undeclared range type, or `max_reads` exceeded), or an authored guard                                                                                       | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
+| `BudgetExceeded` during evaluation, an evaluation-time `FootprintLawViolation` (an out-of-law read, an undeclared range type, or `max_reads` exceeded), an evaluation-time `UnreachableWarp` (a read through an unreachable warp), or an authored guard            | `NoProposal`             | re-evaluate; compare pre-decision evidence                                | re-evaluation, at the origin for a `Scoped` Action, again yields no proposal and the same obstruction; read-set digest                                                                                               |
 | `BasisChanged`, whole-frontier (before evaluation, including unknown history)                                                                                                                                                                                      | `NoProposal`             | admission evidence; recomputed basis posture; no re-evaluation            | none; posture must be `NoProposal` with an empty read set and zero consumed budget                                                                                                                                   |
 | `BasisChanged`, dependency-scoped (after evaluation, before validation)                                                                                                                                                                                            | `Proposed`, `NotDerived` | none today: current programs decide this before evaluation                | re-evaluate at the origin; effects bound; read-set digest; recompute the written-slot set from replay operations, the complete dependency set (witnessed reads and effect preconditions), and the changed dependency |
 | Any outcome of a `NotBridge` entry                                                                                                                                                                                                                                 | `NotBridge`              | unchanged                                                                 | none; its bridge row is all zero                                                                                                                                                                                     |
@@ -1508,7 +1515,9 @@ follow the canonical effect order in [EffectProposal](#effectproposal).
   images. Hashing, the WAL append, and receipt construction read those bytes
   directly; nothing is copied into intermediate structures.
 - **Capacity fixed before evaluation.** Each region's size is a pure function of
-  the selected candidates' declared footprint-law maxima, delegated budgets, the
+  the selected candidates' footprint-law maxima, each clamped to what its
+  delegated budget can pay for (a read costs at least 64 `read_bytes`, a range
+  edge 64, a write 64 `write_bytes`), delegated budgets, the
   program's `max_allocated_bytes`, and its `max_result_bytes`, which bounds the
   result bytes the blob must also hold independently of allocation (a result
   can carry bytes the program never allocated, such as its input). Each is
@@ -1761,7 +1770,7 @@ Each behaviour below needs a test before implementation:
 | Existing edge identity          | A `ReplaceEdge` of a basis edge whose id is not its slot id under `ContentAddressV1` obstructs with `IdentityLawViolation`.                                                                                                                                                                                                                                                                      |
 | Unreachable records             | A keyed read of a record that a prior Tick made unreachable resolves identically live and after recovery, because the record stays until a patch deletes it.                                                                                                                                                                                                                                     |
 | Alpha slot dependency           | A scoped `ReplaceAtom` whose owner node record changed in an intervening Tick, with its atom unchanged, obstructs with `BasisChanged` through the resolved node-record dependency.                                                                                                                                                                                                               |
-| Absent atom probe               | An absent atom read records its expected atom `type_id`; a probe for a type outside `atom_types` obstructs at step 7 with `FootprintLawViolation`.                                                                                                                                                                                                                                               |
+| Absent atom probe               | An absent atom read records its expected atom `type_id`; a probe for a type outside `atom_types` obstructs evaluation at once with `FootprintLawViolation`, `NoProposal`, before the program sees the result.                                                                                                                                                                                    |
 | Content-node adoption           | An `EnsureNode` of an existing content node is adopted only when that node's record, atom, and outgoing edges recompute to its id; a node stored under another id obstructs with `IdentityLawViolation`.                                                                                                                                                                                         |
 | Schema shape                    | A footprint law or schema with an unknown, missing, or reordered key, or a node-type entry of any other shape, is refused at admission.                                                                                                                                                                                                                                                          |
 | Descended read reachability     | A scoped Action that only reads a descended warp records that warp's portals and owners as dependencies, enforces `portal_owner_types`, and obstructs with `BasisChanged` when an intervening Tick changes them.                                                                                                                                                                                 |
@@ -1808,6 +1817,10 @@ Each behaviour below needs a test before implementation:
 | Read reachability               | A read through an unreachable warp, or a chain with a forbidden portal owner, obstructs evaluation at that read with `UnreachableWarp` or `FootprintLawViolation`, `NoProposal`, before the value is visible.                                                                                                                                                                                    |
 | Content hash charge             | Adopting an existing content node charges its atom hash at step 2; a budget that cannot cover it obstructs there, before the identity law runs.                                                                                                                                                                                                                                                  |
 | Effect minimum budget           | An effect package ceiling or delegated budget below one step is refused at admission; any budget of at least one step is admitted, and shortfalls are `BudgetExceeded` at evaluation.                                                                                                                                                                                                            |
+| Unreachable read recovery       | A read through an unreachable warp recovers as an evaluation-time `UnreachableWarp`, `NoProposal`, by re-evaluation at the origin with the same read set.                                                                                                                                                                                                                                        |
+| Footprint law ceilings          | A footprint law with `max_reads` above 4,096, `max_writes` above 256, or `max_range_edges` above 65,536 is refused at admission; the arena is sized from the maxima clamped by the delegated budget.                                                                                                                                                                                             |
+| ReplaceAtom over a portal       | A `ReplaceAtom` whose alpha slot holds a portal obstructs with `PreconditionMismatch` before derivation, even when its expected digest names the portal.                                                                                                                                                                                                                                         |
+| Output type coordinate          | An effect program whose `output_type` is empty or longer than 1,024 bytes is refused at admission.                                                                                                                                                                                                                                                                                               |
 
 ## Open questions
 

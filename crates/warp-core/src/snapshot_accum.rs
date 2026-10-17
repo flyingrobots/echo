@@ -13,7 +13,7 @@
 //! 3. Builds WSC bytes and computes `state_root` directly from tables
 //!
 //! Unlike [`GraphStore`], this accumulator:
-//! - Has NO reverse indexes (`edge_index`, `edge_to_index`, `edges_to`)
+//! - Has NO reverse indexes (`edge_index`, `edges_to`)
 //! - Stores only what WSC rows need (no extra fields)
 //! - Computes adjacency (`edges_from`) at build time, not during op application
 //!

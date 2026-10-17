@@ -96,9 +96,8 @@ pub struct Snapshot {
 pub(crate) struct StateRootScratch {
     /// Reached nodes, in discovery order; also the BFS queue.
     found: Vec<NodeKey>,
-    /// Membership table: `0` is empty, otherwise one plus a position in
-    /// `found`. Its length is a power of two, at least twice `found`'s.
-    index: Vec<u32>,
+    /// Membership table over positions in `found`.
+    index: MembershipTable,
     /// Every reachable node, sorted, once traversal ends.
     reachable: Vec<NodeKey>,
     /// Every reachable warp, sorted once traversal ends.
@@ -108,6 +107,9 @@ pub(crate) struct StateRootScratch {
     /// Membership probes made, so a test can bound the traversal's work.
     #[cfg(test)]
     probes: usize,
+    /// Table slots cleared to start traversals, so a test can bound it.
+    #[cfg(test)]
+    cleared: usize,
 }
 
 impl std::fmt::Debug for StateRootScratch {
@@ -237,43 +239,87 @@ fn home_slot(key: &NodeKey, mask: usize) -> usize {
     slot & mask
 }
 
-/// Adds `key` to `found` unless it is already there, and reports whether it
-/// was new. One probe sequence per call; the table grows (rehashing from
-/// `found`) only when `found` would exceed half its length.
-fn insert_found(
-    found: &mut Vec<NodeKey>,
-    index: &mut Vec<u32>,
-    key: NodeKey,
-    #[cfg(test)] probes: &mut usize,
-) -> bool {
-    if (found.len() + 1) * 2 > index.len() {
-        let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
-        index.clear();
-        index.resize(length, 0);
-        let mask = length - 1;
-        for (position, existing) in found.iter().enumerate() {
-            let mut slot = home_slot(existing, mask);
-            while index[slot] != 0 {
-                slot = (slot + 1) & mask;
-            }
-            index[slot] = position_tag(position);
+/// Open-addressing membership over positions in `found`. Each slot carries
+/// the generation of the traversal that wrote it, and a slot from an earlier
+/// generation counts as empty. Starting a traversal is one increment, never a
+/// pass over the table, so a commit pays for the graph it reaches now, not
+/// for the largest graph the table ever held. Its length is a power of two,
+/// at least twice `found`'s.
+#[derive(Default)]
+struct MembershipTable {
+    /// The generation that wrote each slot.
+    generations: Vec<u32>,
+    /// One plus a position in `found`, valid when the slot's generation is
+    /// current.
+    tags: Vec<u32>,
+    /// The current traversal's generation; never `0`, which marks a slot
+    /// never written.
+    generation: u32,
+}
+
+impl MembershipTable {
+    /// Starts a traversal: every slot written before reads as empty. On the
+    /// counter's wraparound, once in `2^32` traversals, the table is cleared.
+    /// Returns the number of slots cleared.
+    fn begin(&mut self) -> usize {
+        if let Some(generation) = self.generation.checked_add(1) {
+            self.generation = generation;
+            return 0;
         }
+        self.generations.fill(0);
+        self.generation = 1;
+        self.generations.len()
     }
-    let mask = index.len() - 1;
-    let mut slot = home_slot(&key, mask);
-    loop {
-        #[cfg(test)]
-        {
-            *probes += 1;
+
+    fn is_current(&self, slot: usize) -> bool {
+        self.generations[slot] == self.generation
+    }
+
+    fn set(&mut self, slot: usize, position: usize) {
+        self.generations[slot] = self.generation;
+        self.tags[slot] = position_tag(position);
+    }
+
+    /// Adds `key` to `found` unless it is already there, and reports whether
+    /// it was new. One probe sequence per call; the table grows, rehashing
+    /// from `found`, only when `found` would exceed half its length.
+    fn insert(
+        &mut self,
+        found: &mut Vec<NodeKey>,
+        key: NodeKey,
+        #[cfg(test)] probes: &mut usize,
+    ) -> bool {
+        if (found.len() + 1) * 2 > self.tags.len() {
+            let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
+            self.generations.clear();
+            self.generations.resize(length, 0);
+            self.tags.clear();
+            self.tags.resize(length, 0);
+            let mask = length - 1;
+            for (position, existing) in found.iter().enumerate() {
+                let mut slot = home_slot(existing, mask);
+                while self.is_current(slot) {
+                    slot = (slot + 1) & mask;
+                }
+                self.set(slot, position);
+            }
         }
-        match index[slot] {
-            0 => {
-                index[slot] = position_tag(found.len());
+        let mask = self.tags.len() - 1;
+        let mut slot = home_slot(&key, mask);
+        loop {
+            #[cfg(test)]
+            {
+                *probes += 1;
+            }
+            if !self.is_current(slot) {
+                self.set(slot, found.len());
                 found.push(key);
                 return true;
             }
-            tag if found[(tag - 1) as usize] == key => return false,
-            _ => slot = (slot + 1) & mask,
+            if found[(self.tags[slot] - 1) as usize] == key {
+                return false;
+            }
+            slot = (slot + 1) & mask;
         }
     }
 }
@@ -310,16 +356,22 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
         warps,
         #[cfg(test)]
         probes,
+        #[cfg(test)]
+        cleared,
         ..
     } = scratch;
     found.clear();
-    index.fill(0);
+    #[cfg(test)]
+    {
+        *cleared += index.begin();
+    }
+    #[cfg(not(test))]
+    index.begin();
     warps.clear();
     warps.push(root.warp_id);
     let mut warps_compacted = 1;
-    insert_found(
+    index.insert(
         found,
-        index,
         *root,
         #[cfg(test)]
         probes,
@@ -339,7 +391,7 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
         };
         let mut descend = |child_warp: WarpId,
                            found: &mut Vec<NodeKey>,
-                           index: &mut Vec<u32>,
+                           index: &mut MembershipTable,
                            #[cfg(test)] probes: &mut usize| {
             warps.push(child_warp);
             compact_if_doubled(warps, &mut warps_compacted);
@@ -350,9 +402,8 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
                 );
                 return;
             };
-            insert_found(
+            index.insert(
                 found,
-                index,
                 NodeKey {
                     warp_id: child_warp,
                     local_id: child.root_node,
@@ -362,9 +413,8 @@ fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootS
             );
         };
         for edge in store.edges_from(&current.local_id) {
-            insert_found(
+            index.insert(
                 found,
-                index,
                 NodeKey {
                     warp_id: current.warp_id,
                     local_id: edge.to,
@@ -1744,6 +1794,61 @@ mod reachability_work {
             scratch.probes <= bound,
             "reaching a {N}-node chain made {} membership probes; O(n) allows {bound}",
             scratch.probes
+        );
+    }
+
+    /// A walk of a small graph after a large one clears nothing: the
+    /// membership table keeps its peak size, but starting a walk is one
+    /// generation increment, so a commit pays for the graph it reaches now.
+    #[test]
+    fn a_small_walk_after_a_large_one_clears_nothing() {
+        let star = |n: usize| {
+            let warp_id = make_warp_id("reachability-work/shrink");
+            let ty = make_type_id("reachability-work/ty");
+            let node = |i: usize| make_node_id(&format!("reachability-work/shrink/{i}"));
+            let mut store = GraphStore::new(warp_id);
+            for i in 0..n {
+                store.insert_node(node(i), NodeRecord { ty });
+            }
+            for i in 1..n {
+                store.insert_edge(
+                    node(0),
+                    EdgeRecord {
+                        id: make_edge_id(&format!("reachability-work/shrink/edge/{i}")),
+                        from: node(0),
+                        to: node(i),
+                        ty,
+                    },
+                );
+            }
+            let mut state = WarpState::new();
+            state.upsert_instance(
+                WarpInstance {
+                    warp_id,
+                    root_node: node(0),
+                    parent: None,
+                },
+                store,
+            );
+            (
+                state,
+                NodeKey {
+                    warp_id,
+                    local_id: node(0),
+                },
+            )
+        };
+        let mut scratch = StateRootScratch::default();
+        let (large, root) = star(4_096);
+        let _ = compute_state_root_with(&large, &root, &mut scratch);
+        let (small, root) = star(1);
+        let before = scratch.cleared;
+        let _ = compute_state_root_with(&small, &root, &mut scratch);
+        assert_eq!(
+            scratch.cleared - before,
+            0,
+            "a one-node walk after a 4096-node walk cleared {} table slots",
+            scratch.cleared - before
         );
     }
 

@@ -213,17 +213,27 @@ pub(crate) fn compute_state_root_with(
     hasher.finalize().into()
 }
 
-/// The table slot where `key`'s probe sequence starts. Node and warp ids are
-/// BLAKE3 output, so their leading bytes are already uniform.
+/// The table slot where `key`'s probe sequence starts. Every byte of the key
+/// is mixed in: node ids are conventionally BLAKE3 output, but nothing
+/// requires it, and ids that share leading bytes must not share a slot.
 fn home_slot(key: &NodeKey, mask: usize) -> usize {
-    let mut local = [0u8; 8];
-    local.copy_from_slice(&key.local_id.0[..8]);
-    let mut warp = [0u8; 8];
-    warp.copy_from_slice(&key.warp_id.0[..8]);
-    let mixed = u64::from_le_bytes(local) ^ u64::from_le_bytes(warp).rotate_left(29);
+    let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
+    for word in key
+        .warp_id
+        .0
+        .chunks_exact(8)
+        .chain(key.local_id.0.chunks_exact(8))
+    {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(word);
+        hash = (hash ^ u64::from_le_bytes(bytes)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        hash ^= hash >> 31;
+    }
+    hash = (hash ^ (hash >> 30)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    hash ^= hash >> 31;
     // Truncation is the point: only the low bits select a slot.
     #[allow(clippy::cast_possible_truncation)]
-    let slot = mixed as usize;
+    let slot = hash as usize;
     slot & mask
 }
 
@@ -1733,6 +1743,56 @@ mod reachability_work {
         assert!(
             scratch.probes <= bound,
             "reaching a {N}-node chain made {} membership probes; O(n) allows {bound}",
+            scratch.probes
+        );
+    }
+
+    /// Ids that share their leading bytes, as caller-authored ids may, still
+    /// spread across the membership table: probing stays linear.
+    #[test]
+    fn ids_sharing_leading_bytes_probe_linearly() {
+        const N: usize = 4_096;
+        let warp_id = make_warp_id("reachability-work/shared-prefix");
+        let ty = make_type_id("reachability-work/ty");
+        let node = |i: usize| {
+            let mut id = [0u8; 32];
+            id[24..].copy_from_slice(&(i as u64).to_le_bytes());
+            crate::ident::NodeId(id)
+        };
+        let mut store = GraphStore::new(warp_id);
+        for i in 0..N {
+            store.insert_node(node(i), NodeRecord { ty });
+        }
+        for i in 1..N {
+            store.insert_edge(
+                node(0),
+                EdgeRecord {
+                    id: make_edge_id(&format!("reachability-work/shared-prefix/{i}")),
+                    from: node(0),
+                    to: node(i),
+                    ty,
+                },
+            );
+        }
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id,
+                root_node: node(0),
+                parent: None,
+            },
+            store,
+        );
+        let root = NodeKey {
+            warp_id,
+            local_id: node(0),
+        };
+        let mut scratch = StateRootScratch::default();
+        let _ = compute_state_root_with(&state, &root, &mut scratch);
+        let bound = 4 * N;
+        assert!(
+            scratch.probes <= bound,
+            "{N} ids sharing leading bytes made {} membership probes; O(n) allows {bound}",
             scratch.probes
         );
     }

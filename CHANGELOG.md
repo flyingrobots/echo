@@ -39,8 +39,9 @@
   commit's state-root hash allocates nothing once that memory has grown to the
   reachable graph. The hashed bytes are unchanged. Before, every commit
   allocated in proportion to the reachable graph (about 4 MB at 16,000
-  reachable entities). Reachability now merges sorted runs by the logarithmic
-  method, O(n log n) at any graph depth. Commit time is still proportional to
+  reachable entities). Reachability finds each node once, with one membership
+  probe per edge into a reused table that is never iterated, then sorts once:
+  O(edges + n log n) at any graph depth. Commit time is still proportional to
   the reachable graph, because the state root is defined as one hash over it.
 
 - `IngressEnvelope::to_retained_bytes_v2` is now `to_retained_bytes` (#880).

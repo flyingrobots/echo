@@ -85,32 +85,29 @@ pub struct Snapshot {
 /// root allocates nothing once these buffers have grown to the reachable
 /// graph's size. Its contents never outlive a call and never affect the hash.
 ///
-/// Reached nodes are kept by the logarithmic method: `levels[i]` is empty or
-/// one sorted run of length in `[2^i, 2^(i+1))`. A new batch merges up through
-/// the occupied levels like a binary-counter carry, so each node is merged
-/// O(log n) times and reachability costs O(n log n) whatever the graph's
-/// depth. Membership is a binary search in each of the O(log n) runs.
+/// Traversal finds each node once: `found` lists reached nodes in discovery
+/// order and doubles as the BFS queue, and `index` answers membership in one
+/// probe. `index` is an open-addressing table of positions in `found`, keyed
+/// by the node key's own BLAKE3 bytes. It is never iterated, so its layout
+/// cannot reach any output; the canonical order comes from sorting `found`
+/// into `reachable` once traversal ends. Traversal is O(edges), and the sort
+/// O(n log n), whatever the graph's depth.
 #[derive(Default)]
 pub(crate) struct StateRootScratch {
-    /// Sorted runs of reached nodes, one per size class.
-    levels: Vec<Vec<NodeKey>>,
-    /// The run being carried up through the levels.
-    carry: Vec<NodeKey>,
-    /// Merge target, swapped with `carry` or `reachable`.
-    merged: Vec<NodeKey>,
+    /// Reached nodes, in discovery order; also the BFS queue.
+    found: Vec<NodeKey>,
+    /// Membership table: `0` is empty, otherwise one plus a position in
+    /// `found`. Its length is a power of two, at least twice `found`'s.
+    index: Vec<u32>,
     /// Every reachable node, sorted, once traversal ends.
     reachable: Vec<NodeKey>,
-    /// The nodes found in the previous BFS level.
-    frontier: Vec<NodeKey>,
-    /// The nodes found in the current BFS level, not yet reached.
-    next: Vec<NodeKey>,
     /// Every reachable warp, sorted once traversal ends.
     warps: Vec<WarpId>,
     /// One bucket's reachable edges, as positions in the bucket.
     edge_order: Vec<usize>,
-    /// Keys copied by merges, so a test can bound the traversal's work.
+    /// Membership probes made, so a test can bound the traversal's work.
     #[cfg(test)]
-    moved: usize,
+    probes: usize,
 }
 
 impl std::fmt::Debug for StateRootScratch {
@@ -216,200 +213,181 @@ pub(crate) fn compute_state_root_with(
     hasher.finalize().into()
 }
 
-/// Merges sorted `a` and `b`, which share no element, into `out`.
-fn merge_sorted(a: &[NodeKey], b: &[NodeKey], out: &mut Vec<NodeKey>) {
-    out.clear();
-    let (mut i, mut j) = (0, 0);
-    while i < a.len() && j < b.len() {
-        if a[i] < b[j] {
-            out.push(a[i]);
-            i += 1;
-        } else {
-            out.push(b[j]);
-            j += 1;
+/// The table slot where `key`'s probe sequence starts. Node and warp ids are
+/// BLAKE3 output, so their leading bytes are already uniform.
+fn home_slot(key: &NodeKey, mask: usize) -> usize {
+    let mut local = [0u8; 8];
+    local.copy_from_slice(&key.local_id.0[..8]);
+    let mut warp = [0u8; 8];
+    warp.copy_from_slice(&key.warp_id.0[..8]);
+    let mixed = u64::from_le_bytes(local) ^ u64::from_le_bytes(warp).rotate_left(29);
+    // Truncation is the point: only the low bits select a slot.
+    #[allow(clippy::cast_possible_truncation)]
+    let slot = mixed as usize;
+    slot & mask
+}
+
+/// Adds `key` to `found` unless it is already there, and reports whether it
+/// was new. One probe sequence per call; the table grows (rehashing from
+/// `found`) only when `found` would exceed half its length.
+fn insert_found(
+    found: &mut Vec<NodeKey>,
+    index: &mut Vec<u32>,
+    key: NodeKey,
+    #[cfg(test)] probes: &mut usize,
+) -> bool {
+    if (found.len() + 1) * 2 > index.len() {
+        let length = ((found.len() + 1) * 2).next_power_of_two().max(64);
+        index.clear();
+        index.resize(length, 0);
+        let mask = length - 1;
+        for (position, existing) in found.iter().enumerate() {
+            let mut slot = home_slot(existing, mask);
+            while index[slot] != 0 {
+                slot = (slot + 1) & mask;
+            }
+            index[slot] = position_tag(position);
         }
     }
-    out.extend_from_slice(&a[i..]);
-    out.extend_from_slice(&b[j..]);
+    let mask = index.len() - 1;
+    let mut slot = home_slot(&key, mask);
+    loop {
+        #[cfg(test)]
+        {
+            *probes += 1;
+        }
+        match index[slot] {
+            0 => {
+                index[slot] = position_tag(found.len());
+                found.push(key);
+                return true;
+            }
+            tag if found[(tag - 1) as usize] == key => return false,
+            _ => slot = (slot + 1) & mask,
+        }
+    }
 }
 
-/// Whether `key` is in any run of `levels`.
-fn is_reached(levels: &[Vec<NodeKey>], key: &NodeKey) -> bool {
-    levels.iter().any(|run| run.binary_search(key).is_ok())
+/// One plus `position`, the table's encoding of a position in `found`. A
+/// reachable graph is bounded far below `u32::MAX` nodes by memory; a larger
+/// one cannot be represented and is a broken invariant.
+fn position_tag(position: usize) -> u32 {
+    u32::try_from(position + 1).unwrap_or_else(|_| {
+        debug_assert!(false, "reachable graph exceeds u32::MAX nodes");
+        u32::MAX
+    })
 }
 
-/// The size class of a non-empty run of `len` keys: `floor(log2(len))`.
-fn level_of(len: usize) -> usize {
-    (usize::BITS - 1 - len.leading_zeros()) as usize
-}
-
-/// Sorts and deduplicates `pending` once it has doubled since its last
-/// compaction, so a level's batch stays proportional to the distinct nodes
-/// (or warps) it holds, not to the edges that reached them.
-fn compact_if_doubled<T: Ord>(pending: &mut Vec<T>, compacted_len: &mut usize) {
-    if pending.len() >= (*compacted_len).max(32) * 2 {
-        pending.sort_unstable();
-        pending.dedup();
-        *compacted_len = pending.len();
+/// Sorts and deduplicates `warps` once it has doubled since its last
+/// compaction, so it stays proportional to the distinct warps it holds, not
+/// to the portals that reached them.
+fn compact_if_doubled(warps: &mut Vec<WarpId>, compacted_len: &mut usize) {
+    if warps.len() >= (*compacted_len).max(32) * 2 {
+        warps.sort_unstable();
+        warps.dedup();
+        *compacted_len = warps.len();
     }
 }
 
 /// Fills `scratch.reachable` and `scratch.warps` with the graph reachable from
-/// `root`, following edges and `Descend` portals on nodes and edges, level by
-/// level. Each level's new nodes are added to the reached runs as one batch.
+/// `root`, following edges and `Descend` portals on nodes and edges, breadth
+/// first.
 fn collect_reachable(state: &WarpState, root: &NodeKey, scratch: &mut StateRootScratch) {
     let StateRootScratch {
-        levels,
-        carry,
-        merged,
+        found,
+        index,
         reachable,
-        frontier,
-        next,
         warps,
         #[cfg(test)]
-        moved,
+        probes,
         ..
     } = scratch;
-    for run in levels.iter_mut() {
-        run.clear();
-    }
-    frontier.clear();
-    next.clear();
+    found.clear();
+    index.fill(0);
     warps.clear();
     warps.push(root.warp_id);
-    next.push(*root);
+    let mut warps_compacted = 1;
+    insert_found(
+        found,
+        index,
+        *root,
+        #[cfg(test)]
+        probes,
+    );
 
-    while !next.is_empty() {
-        // `next` holds this level's new nodes; add them to the reached runs,
-        // carrying up while the target size class is occupied.
-        next.sort_unstable();
-        next.dedup();
-        carry.clear();
-        carry.extend_from_slice(next);
-        loop {
-            let level = level_of(carry.len());
-            if levels.len() <= level {
-                levels.resize_with(level + 1, Vec::new);
-            }
-            if levels[level].is_empty() {
-                levels[level].extend_from_slice(carry);
-                #[cfg(test)]
-                {
-                    *moved += carry.len();
-                }
-                break;
-            }
-            merge_sorted(&levels[level], carry, merged);
-            #[cfg(test)]
-            {
-                *moved += merged.len();
-            }
-            levels[level].clear();
-            std::mem::swap(carry, merged);
-        }
-        std::mem::swap(frontier, next);
-        next.clear();
-
-        let mut next_compacted = 0;
-        let mut warps_compacted = warps.len();
-        for current in frontier.iter() {
-            let Some(store) = state.store(&current.warp_id) else {
+    let mut head = 0;
+    while head < found.len() {
+        let current = found[head];
+        head += 1;
+        let Some(store) = state.store(&current.warp_id) else {
+            debug_assert!(
+                false,
+                "reachable traversal referenced missing warp store: {:?}",
+                current.warp_id
+            );
+            continue;
+        };
+        let mut descend = |child_warp: WarpId,
+                           found: &mut Vec<NodeKey>,
+                           index: &mut Vec<u32>,
+                           #[cfg(test)] probes: &mut usize| {
+            warps.push(child_warp);
+            compact_if_doubled(warps, &mut warps_compacted);
+            let Some(child) = state.instance(&child_warp) else {
                 debug_assert!(
                     false,
-                    "reachable traversal referenced missing warp store: {:?}",
-                    current.warp_id
+                    "descend referenced missing warp instance metadata: {child_warp:?}"
                 );
-                continue;
+                return;
             };
-            for edge in store.edges_from(&current.local_id) {
-                let to = NodeKey {
+            insert_found(
+                found,
+                index,
+                NodeKey {
+                    warp_id: child_warp,
+                    local_id: child.root_node,
+                },
+                #[cfg(test)]
+                probes,
+            );
+        };
+        for edge in store.edges_from(&current.local_id) {
+            insert_found(
+                found,
+                index,
+                NodeKey {
                     warp_id: current.warp_id,
                     local_id: edge.to,
-                };
-                if !is_reached(levels, &to) {
-                    next.push(to);
-                    compact_if_doubled(next, &mut next_compacted);
-                }
-                if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id)
-                {
-                    reach_descend(state, *child_warp, warps, levels, next);
-                    compact_if_doubled(warps, &mut warps_compacted);
-                    compact_if_doubled(next, &mut next_compacted);
-                }
+                },
+                #[cfg(test)]
+                probes,
+            );
+            if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id) {
+                descend(
+                    *child_warp,
+                    found,
+                    index,
+                    #[cfg(test)]
+                    probes,
+                );
             }
-            if let Some(AttachmentValue::Descend(child_warp)) =
-                store.node_attachment(&current.local_id)
-            {
-                reach_descend(state, *child_warp, warps, levels, next);
-                compact_if_doubled(warps, &mut warps_compacted);
-                compact_if_doubled(next, &mut next_compacted);
-            }
+        }
+        if let Some(AttachmentValue::Descend(child_warp)) = store.node_attachment(&current.local_id)
+        {
+            descend(
+                *child_warp,
+                found,
+                index,
+                #[cfg(test)]
+                probes,
+            );
         }
     }
     warps.sort_unstable();
     warps.dedup();
-
-    // Merge the runs, smallest first, into one sorted `reachable`.
     reachable.clear();
-    for run in levels.iter() {
-        if run.is_empty() {
-            continue;
-        }
-        merge_sorted(reachable, run, merged);
-        #[cfg(test)]
-        {
-            *moved += merged.len();
-        }
-        std::mem::swap(reachable, merged);
-    }
-
-    // Buffers that trade places (the two frontiers; `carry`, `merged` and
-    // `reachable`) each get the largest capacity of their group, so the next
-    // traversal of a graph this size allocates nothing, whichever buffer each
-    // step starts in.
-    frontier.clear();
-    next.clear();
-    // `reserve_exact`, not `reserve`: amortized growth would overshoot the
-    // larger capacity, leaving the other buffer smaller again, so the buffers
-    // would keep growing commit after commit.
-    let capacity = frontier.capacity().max(next.capacity());
-    frontier.reserve_exact(capacity);
-    next.reserve_exact(capacity);
-    carry.clear();
-    merged.clear();
-    let capacity = carry
-        .capacity()
-        .max(merged.capacity())
-        .max(reachable.capacity());
-    carry.reserve_exact(capacity);
-    merged.reserve_exact(capacity);
-    reachable.reserve_exact(capacity - reachable.len());
-}
-
-/// Marks `child_warp` reachable and queues its root node unless already
-/// reached. `warps` may hold duplicates until traversal ends.
-fn reach_descend(
-    state: &WarpState,
-    child_warp: WarpId,
-    warps: &mut Vec<WarpId>,
-    levels: &[Vec<NodeKey>],
-    next: &mut Vec<NodeKey>,
-) {
-    warps.push(child_warp);
-    let Some(child) = state.instance(&child_warp) else {
-        debug_assert!(
-            false,
-            "descend referenced missing warp instance metadata: {child_warp:?}"
-        );
-        return;
-    };
-    let child_root = NodeKey {
-        warp_id: child_warp,
-        local_id: child.root_node,
-    };
-    if !is_reached(levels, &child_root) {
-        next.push(child_root);
-    }
+    reachable.extend_from_slice(found);
+    reachable.sort_unstable();
 }
 
 /// The state root as first written, kept to prove [`compute_state_root_with`]
@@ -1713,10 +1691,10 @@ mod reachability_work {
     use crate::record::{EdgeRecord, NodeRecord};
     use crate::warp_state::{WarpInstance, WarpState};
 
-    /// Reaching a chain of `n` nodes moves O(n log n) keys, not O(n^2): the
-    /// traversal never re-copies everything reached so far once per level.
+    /// Reaching a chain of `n` nodes costs O(n) membership probes: one probe
+    /// sequence per edge, never a search of everything reached so far.
     #[test]
-    fn reaching_a_deep_chain_moves_n_log_n_keys() {
+    fn reaching_a_deep_chain_probes_linearly() {
         const N: usize = 4_096;
         let warp_id = make_warp_id("reachability-work/warp");
         let ty = make_type_id("reachability-work/ty");
@@ -1751,11 +1729,11 @@ mod reachability_work {
         };
         let mut scratch = StateRootScratch::default();
         let _ = compute_state_root_with(&state, &root, &mut scratch);
-        let bound = 4 * N * (usize::BITS - N.leading_zeros()) as usize;
+        let bound = 4 * N;
         assert!(
-            scratch.moved <= bound,
-            "reaching a {N}-node chain moved {} keys; O(n log n) allows {bound}",
-            scratch.moved
+            scratch.probes <= bound,
+            "reaching a {N}-node chain made {} membership probes; O(n) allows {bound}",
+            scratch.probes
         );
     }
 }

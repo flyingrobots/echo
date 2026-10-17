@@ -45,6 +45,33 @@ pub struct WarpState {
     pub(crate) touched: StateTouchLog,
 }
 
+/// Touches moved out of a [`WarpState`] by [`WarpState::take_touches`].
+///
+/// Unlike a live log, a taken log is an undo record, so cloning it copies
+/// every prior value.
+#[derive(Debug)]
+pub(crate) struct WarpStateTouches {
+    state: StateTouchLog,
+    stores: BTreeMap<WarpId, crate::graph::TouchLog>,
+}
+
+impl Clone for WarpStateTouches {
+    fn clone(&self) -> Self {
+        Self {
+            state: StateTouchLog {
+                recording: false,
+                instances: self.state.instances.clone(),
+                replaced_stores: self.state.replaced_stores.clone(),
+            },
+            stores: self
+                .stores
+                .iter()
+                .map(|(warp_id, log)| (*warp_id, log.duplicate()))
+                .collect(),
+        }
+    }
+}
+
 /// Instance-level counterpart of [`crate::graph::TouchLog`].
 ///
 /// Records each instance's prior record on first change, and the prior
@@ -132,6 +159,73 @@ impl WarpState {
         self.touched.recording
     }
 
+    /// Restores the state exactly as it was when recording began, then stops
+    /// recording.
+    ///
+    /// Stores created, replaced, or removed while recording are put back as
+    /// they were (or removed again); every other store restores its own
+    /// touched slots and buckets; instances get their prior records back.
+    pub(crate) fn restore_touches(&mut self) {
+        let log = std::mem::take(&mut self.touched);
+        for (warp_id, prior) in log.replaced_stores {
+            match prior {
+                Some(store) => {
+                    self.stores.insert(warp_id, store);
+                }
+                None => {
+                    self.stores.remove(&warp_id);
+                }
+            }
+        }
+        for store in self.stores.values_mut() {
+            if store.touched.recording {
+                store.restore_touches();
+            }
+        }
+        for (warp_id, prior) in log.instances {
+            match prior {
+                Some(instance) => {
+                    self.instances.insert(warp_id, instance);
+                }
+                None => {
+                    self.instances.remove(&warp_id);
+                }
+            }
+        }
+    }
+
+    /// Stops recording and moves every log out, so the touches can be undone
+    /// later with [`Self::restore_from`].
+    pub(crate) fn take_touches(&mut self) -> WarpStateTouches {
+        let mut stores = BTreeMap::new();
+        for (warp_id, store) in &mut self.stores {
+            let mut log = std::mem::take(&mut store.touched);
+            if log.recording {
+                log.recording = false;
+                stores.insert(*warp_id, log);
+            }
+        }
+        let mut state = std::mem::take(&mut self.touched);
+        state.recording = false;
+        WarpStateTouches { state, stores }
+    }
+
+    /// Undoes `touches`, taken earlier by [`Self::take_touches`], restoring
+    /// the state as it was when those touches began. Any later writes must
+    /// already have been undone.
+    pub(crate) fn restore_from(&mut self, touches: WarpStateTouches) {
+        let WarpStateTouches { mut state, stores } = touches;
+        state.recording = true;
+        self.touched = state;
+        for (warp_id, mut log) in stores {
+            if let Some(store) = self.stores.get_mut(&warp_id) {
+                log.recording = true;
+                store.touched = log;
+            }
+        }
+        self.restore_touches();
+    }
+
     fn touch_instance(&mut self, warp_id: WarpId) {
         if self.touched.recording {
             if let std::collections::btree_map::Entry::Vacant(slot) =
@@ -149,7 +243,7 @@ impl WarpState {
             self.touched.replaced_stores.entry(warp_id)
         {
             slot.insert(prior.map(|mut store| {
-                store.revert_touches();
+                store.restore_touches();
                 store
             }));
         }

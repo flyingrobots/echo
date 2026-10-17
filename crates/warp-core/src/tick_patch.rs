@@ -503,6 +503,8 @@ enum ReplacedSlot {
     Node(NodeKey, Option<NodeRecord>),
     /// The attachment value before an attachment write.
     Attachment(AttachmentKey, Option<AttachmentValue>),
+    /// Every write of an engine commit, as its touch log.
+    Touches(Box<crate::warp_state::WarpStateTouches>),
 }
 
 impl StateJournal {
@@ -510,10 +512,18 @@ impl StateJournal {
     ///
     /// Call this before a mutation that does not go through
     /// [`apply_ops_journaled`].
+    #[cfg(test)]
     pub(crate) fn retain_copy(&mut self, state: &WarpState) {
         if self.prior_state.is_none() {
             self.prior_state = Some((self.replaced.len(), Box::new(state.clone())));
         }
+    }
+
+    /// Records an engine commit's writes as one entry, from the commit's touch
+    /// log, so that undoing the journal undoes the commit exactly and in
+    /// order with the slot writes around it, without copying the state.
+    pub(crate) fn push_touches(&mut self, touches: crate::warp_state::WarpStateTouches) {
+        self.replaced.push(ReplacedSlot::Touches(Box::new(touches)));
     }
 
     /// Restores the state that existed when the journal was empty.
@@ -551,6 +561,7 @@ impl StateJournal {
                         }
                     }
                 },
+                Some(ReplacedSlot::Touches(touches)) => state.restore_from(*touches),
                 None => return,
             }
         }
@@ -2764,36 +2775,42 @@ mod touched_diff_tests {
             prop_assert_eq!(touched_diff(&state), diff_state(&before, &state));
         }
 
-        /// Reverting a store's touches recovers its content at the start of
-        /// recording, as far as the diff can see.
+        /// Restoring the touches gives back exactly the state as it was when
+        /// recording began: every map, every bucket's edge order, every
+        /// instance. `Debug` prints all of a store's content and none of its
+        /// log, so equal `Debug` output means identical state.
         #[test]
-        fn reverted_touches_recover_prior_content(
+        fn restored_touches_give_back_the_exact_prior_state(
             setup in proptest::collection::vec(write(), 0..24),
             tick in proptest::collection::vec(write(), 0..24),
         ) {
             let mut state = seeded_state(&setup);
-            let before = state.clone();
+            let before = format!("{state:?}");
             state.begin_touch_log();
             for write in &tick {
                 apply(&mut state, write);
             }
-            if let Some(store) = state.stores.get_mut(&root_warp()) {
-                if store.touched.recording {
-                    store.revert_touches();
-                    let empty = GraphStore::new(root_warp());
-                    let prior = before.store(&root_warp()).unwrap_or(&empty);
-                    let mut ops = Vec::new();
-                    super::diff_instance(
-                        &mut ops,
-                        root_warp(),
-                        prior,
-                        store,
-                        &std::collections::BTreeSet::new(),
-                        &std::collections::BTreeSet::new(),
-                    );
-                    prop_assert!(ops.is_empty(), "reverted store differs: {ops:?}");
-                }
+            state.restore_touches();
+            prop_assert_eq!(format!("{state:?}"), before);
+        }
+
+        /// Touches moved out after a tick and undone later restore the same
+        /// exact state.
+        #[test]
+        fn taken_touches_restore_the_exact_prior_state(
+            setup in proptest::collection::vec(write(), 0..24),
+            tick in proptest::collection::vec(write(), 0..24),
+        ) {
+            let mut state = seeded_state(&setup);
+            let before = format!("{state:?}");
+            state.begin_touch_log();
+            for write in &tick {
+                apply(&mut state, write);
             }
+            let touches = state.take_touches();
+            prop_assert!(!state.is_recording_touches());
+            state.restore_from(touches);
+            prop_assert_eq!(format!("{state:?}"), before);
         }
     }
 }

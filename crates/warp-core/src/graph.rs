@@ -42,11 +42,37 @@ pub(crate) struct TouchLog {
     pub(crate) node_attachments: BTreeMap<NodeId, Option<AttachmentValue>>,
     pub(crate) edges: BTreeMap<EdgeId, Option<EdgeRecord>>,
     pub(crate) edge_attachments: BTreeMap<EdgeId, Option<AttachmentValue>>,
+    /// Prior outbound buckets, whole, so a restore keeps their edge order.
+    pub(crate) from_buckets: BTreeMap<NodeId, Option<Vec<EdgeRecord>>>,
+    /// Prior inbound buckets, whole, for the same reason.
+    pub(crate) to_buckets: BTreeMap<NodeId, Option<Vec<EdgeId>>>,
+    /// Prior `edge_index` entries of touched edges.
+    pub(crate) edge_froms: BTreeMap<EdgeId, Option<NodeId>>,
+    /// Prior `edge_to_index` entries of touched edges.
+    pub(crate) edge_tos: BTreeMap<EdgeId, Option<NodeId>>,
 }
 
 impl Clone for TouchLog {
     fn clone(&self) -> Self {
         Self::default()
+    }
+}
+
+impl TouchLog {
+    /// Copies every prior value, unlike `clone`, which starts an empty log for
+    /// a cloned store.
+    pub(crate) fn duplicate(&self) -> Self {
+        Self {
+            recording: self.recording,
+            nodes: self.nodes.clone(),
+            node_attachments: self.node_attachments.clone(),
+            edges: self.edges.clone(),
+            edge_attachments: self.edge_attachments.clone(),
+            from_buckets: self.from_buckets.clone(),
+            to_buckets: self.to_buckets.clone(),
+            edge_froms: self.edge_froms.clone(),
+            edge_tos: self.edge_tos.clone(),
+        }
     }
 }
 
@@ -159,6 +185,32 @@ impl GraphStore {
         if self.touched.recording && !self.touched.edges.contains_key(&id) {
             let prior = self.edge_record(&id).cloned();
             self.touched.edges.insert(id, prior);
+            self.touched
+                .edge_froms
+                .insert(id, self.edge_index.get(&id).copied());
+            self.touched
+                .edge_tos
+                .insert(id, self.edge_to_index.get(&id).copied());
+        }
+    }
+
+    fn touch_from_bucket(&mut self, node: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.from_buckets.entry(node)
+            {
+                slot.insert(self.edges_from.get(&node).cloned());
+            }
+        }
+    }
+
+    fn touch_to_bucket(&mut self, node: NodeId) {
+        if self.touched.recording {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                self.touched.to_buckets.entry(node)
+            {
+                slot.insert(self.edges_to.get(&node).cloned());
+            }
         }
     }
 
@@ -172,46 +224,33 @@ impl GraphStore {
         }
     }
 
-    /// Restores every touched slot to its prior value, then stops recording.
+    /// Restores the store exactly as it was when recording began, then stops
+    /// recording.
     ///
-    /// Used only to recover a store's content as of the start of recording
-    /// when the store itself is about to be dropped or replaced, so the order
-    /// of edges within a bucket is not preserved.
-    pub(crate) fn revert_touches(&mut self) {
+    /// Every touched entry of every map, and every touched bucket whole, gets
+    /// its prior value back, so the store is identical to its state at the
+    /// start, including the order of edges within each bucket.
+    pub(crate) fn restore_touches(&mut self) {
+        fn put_back<K: Ord, V>(map: &mut BTreeMap<K, V>, priors: BTreeMap<K, Option<V>>) {
+            for (key, prior) in priors {
+                match prior {
+                    Some(value) => {
+                        map.insert(key, value);
+                    }
+                    None => {
+                        map.remove(&key);
+                    }
+                }
+            }
+        }
         let log = std::mem::take(&mut self.touched);
-        for (id, prior) in log.edges {
-            if let Some(record) = prior {
-                // Upsert moves the edge back to its prior bucket if needed and
-                // leaves its attachment slot alone.
-                self.upsert_edge_record(record.from, record);
-            } else {
-                // Deleting an edge clears its attachment slot; keep that slot
-                // as it is, since the attachment log restores it.
-                let attachment = self.edge_attachments.get(&id).cloned();
-                if let Some(from) = self.edge_index.get(&id).copied() {
-                    self.delete_edge_exact(from, id);
-                }
-                if let Some(attachment) = attachment {
-                    self.edge_attachments.insert(id, attachment);
-                }
-            }
-        }
-        for (id, prior) in log.nodes {
-            match prior {
-                Some(record) => {
-                    self.nodes.insert(id, record);
-                }
-                None => {
-                    self.nodes.remove(&id);
-                }
-            }
-        }
-        for (id, prior) in log.node_attachments {
-            self.set_node_attachment(id, prior);
-        }
-        for (id, prior) in log.edge_attachments {
-            self.set_edge_attachment(id, prior);
-        }
+        put_back(&mut self.nodes, log.nodes);
+        put_back(&mut self.node_attachments, log.node_attachments);
+        put_back(&mut self.edge_attachments, log.edge_attachments);
+        put_back(&mut self.edges_from, log.from_buckets);
+        put_back(&mut self.edges_to, log.to_buckets);
+        put_back(&mut self.edge_index, log.edge_froms);
+        put_back(&mut self.edge_to_index, log.edge_tos);
     }
 
     /// Returns the warp instance identifier for this store.
@@ -357,6 +396,16 @@ impl GraphStore {
         }
         let edge_id = edge.id;
         let to = edge.to;
+        if self.touched.recording {
+            if let Some(prev_from) = self.edge_index.get(&edge_id).copied() {
+                self.touch_from_bucket(prev_from);
+            }
+            if let Some(prev_to) = self.edge_to_index.get(&edge_id).copied() {
+                self.touch_to_bucket(prev_to);
+            }
+            self.touch_from_bucket(from);
+            self.touch_to_bucket(to);
+        }
         self.touch_edge(edge_id);
         let prev_from = self.edge_index.insert(edge_id, from);
         let prev_to = self.edge_to_index.insert(edge_id, to);
@@ -435,15 +484,31 @@ impl GraphStore {
         if self.touched.recording {
             self.touch_node(node);
             self.touch_node_attachment(node);
-            let incident: Vec<EdgeId> = self
+            self.touch_from_bucket(node);
+            self.touch_to_bucket(node);
+            let outbound: Vec<(EdgeId, NodeId)> = self
                 .edges_from
                 .get(&node)
                 .into_iter()
                 .flatten()
-                .map(|e| e.id)
-                .chain(self.edges_to.get(&node).into_iter().flatten().copied())
+                .map(|e| (e.id, e.to))
                 .collect();
-            for id in incident {
+            for (id, to) in outbound {
+                self.touch_edge(id);
+                self.touch_edge_attachment(id);
+                self.touch_to_bucket(to);
+            }
+            let inbound: Vec<EdgeId> = self
+                .edges_to
+                .get(&node)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect();
+            for id in inbound {
+                if let Some(from) = self.edge_index.get(&id).copied() {
+                    self.touch_from_bucket(from);
+                }
                 self.touch_edge(id);
                 self.touch_edge_attachment(id);
             }
@@ -560,6 +625,8 @@ impl GraphStore {
         // Safe to delete: remove node and its attachment
         self.touch_node(node);
         self.touch_node_attachment(node);
+        self.touch_from_bucket(node);
+        self.touch_to_bucket(node);
         self.nodes.remove(&node);
         self.node_attachments.remove(&node);
 
@@ -588,6 +655,8 @@ impl GraphStore {
         };
         self.touch_edge(edge_id);
         self.touch_edge_attachment(edge_id);
+        self.touch_from_bucket(from);
+        self.touch_to_bucket(to);
         let Some(edges) = self.edges_from.get_mut(&from) else {
             debug_assert!(
                 false,

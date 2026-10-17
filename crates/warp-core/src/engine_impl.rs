@@ -554,6 +554,11 @@ struct RuntimeCommitStateGuard<'a> {
     engine: &'a mut Engine,
     state: &'a mut WorldlineState,
     saved_engine_state: SavedField<WarpState>,
+    /// Whether this guard began the touch log, rather than a caller that is
+    /// keeping its own undo point (the scheduler coordinator).
+    owns_touch_log: bool,
+    /// Validation builds keep a full copy to check the delta and the restore.
+    #[cfg(any(test, feature = "delta_validate"))]
     state_before_runtime_commit: SavedField<WarpState>,
     saved_state_root: NodeKey,
     saved_root: NodeKey,
@@ -575,9 +580,15 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
         let saved_engine_state =
             std::mem::replace(&mut engine.state, std::mem::take(state.warp_state_mut()));
+        #[cfg(any(test, feature = "delta_validate"))]
         let state_before_runtime_commit = engine.state.clone();
-        // The tick's delta is computed from the slots it touches, from here on.
-        engine.state.begin_touch_log();
+        // The tick's delta and its undo point both come from the slots it
+        // touches, from here on. A caller that keeps its own undo point has
+        // begun the log already, with nothing written since.
+        let owns_touch_log = !engine.state.is_recording_touches();
+        if owns_touch_log {
+            engine.state.begin_touch_log();
+        }
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
         engine.current_root = state.root;
@@ -616,6 +627,8 @@ impl<'a> RuntimeCommitStateGuard<'a> {
             engine,
             state,
             saved_engine_state: SavedField::new(saved_engine_state),
+            owns_touch_log,
+            #[cfg(any(test, feature = "delta_validate"))]
             state_before_runtime_commit: SavedField::new(state_before_runtime_commit),
             saved_state_root,
             saved_root,
@@ -641,7 +654,10 @@ impl<'a> RuntimeCommitStateGuard<'a> {
     }
 
     fn finish_success(&mut self) {
-        self.engine.state.end_touch_log();
+        // A caller keeping its own undo point takes the log over.
+        if self.owns_touch_log {
+            self.engine.state.end_touch_log();
+        }
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
@@ -702,9 +718,21 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         }
 
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
-            warp_state: self
-                .state_before_runtime_commit
-                .take("runtime commit guard missing pre-commit state"),
+            warp_state: {
+                // Undo this tick's writes from its touch log, exactly.
+                self.engine.state.restore_touches();
+                #[cfg(any(test, feature = "delta_validate"))]
+                assert_eq!(
+                    format!("{:?}", self.engine.state),
+                    format!(
+                        "{:?}",
+                        self.state_before_runtime_commit
+                            .take("runtime commit guard missing pre-commit state")
+                    ),
+                    "a restored touch log must give back the exact pre-commit state"
+                );
+                std::mem::take(&mut self.engine.state)
+            },
             root: self.saved_state_root,
             initial_state: std::mem::replace(
                 &mut self.engine.initial_state,

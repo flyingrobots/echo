@@ -498,6 +498,10 @@ pub struct Engine {
     /// Per-Action footprints from the latest execution attempt that unwound.
     /// It committed nothing; this is a failure artifact, never history.
     last_aborted_execution_footprints: std::sync::Arc<[ExecutionFootprintEvidence]>,
+    /// Whether a runtime batch's guard owns the state's touch log. A commit
+    /// outside a runtime batch always starts a fresh log, so a log left behind
+    /// by an aborted commit never leaks into a later patch.
+    runtime_batch_touch_log: bool,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay.
     initial_state: Arc<WarpState>,
@@ -578,6 +582,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         let state_before_runtime_commit = engine.state.clone();
         // The tick's delta is computed from the slots it touches, from here on.
         engine.state.begin_touch_log();
+        engine.runtime_batch_touch_log = true;
         let saved_state_root = state.root;
         let saved_root = engine.current_root;
         engine.current_root = state.root;
@@ -642,6 +647,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
 
     fn finish_success(&mut self) {
         self.engine.state.end_touch_log();
+        self.engine.runtime_batch_touch_log = false;
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: std::mem::replace(
                 &mut self.engine.state,
@@ -700,6 +706,7 @@ impl<'a> RuntimeCommitStateGuard<'a> {
         if !self.armed {
             return;
         }
+        self.engine.runtime_batch_touch_log = false;
 
         *self.state = WorldlineState::from_parts(crate::worldline_state::WorldlineStateParts {
             warp_state: self
@@ -953,6 +960,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1154,6 +1162,7 @@ impl Engine {
             tick_history: Vec::new(),
             last_execution_footprints: std::sync::Arc::default(),
             last_aborted_execution_footprints: std::sync::Arc::default(),
+            runtime_batch_touch_log: false,
             intent_log: Vec::new(),
             initial_state,
             bus,
@@ -1992,9 +2001,10 @@ impl Engine {
         let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
         // The delta is computed from the slots this tick touches. A runtime
-        // batch has already begun the log, so its delta also covers the
-        // batch's ingress materialization; otherwise this commit owns it.
-        let owns_touch_log = !self.state.is_recording_touches();
+        // batch's guard has already begun the log, so its delta also covers
+        // the batch's ingress materialization. Otherwise this commit owns the
+        // log and starts it fresh, discarding anything an aborted commit left.
+        let owns_touch_log = !self.runtime_batch_touch_log;
         if owns_touch_log {
             self.state.begin_touch_log();
         }
@@ -2002,14 +2012,17 @@ impl Engine {
         #[cfg(any(test, feature = "delta_validate"))]
         let state_before = self.state.clone();
 
-        #[cfg(feature = "delta_validate")]
-        let delta_ops = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
-        #[cfg(all(any(test, feature = "delta_validate"), not(feature = "delta_validate")))]
-        let _ = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
-
+        #[cfg(any(test, feature = "delta_validate"))]
+        let applied = self.apply_reserved_rewrites(reserved_rewrites, &state_before);
         #[cfg(not(any(test, feature = "delta_validate")))]
-        self.apply_reserved_rewrites(reserved_rewrites)?;
+        let applied = self.apply_reserved_rewrites(reserved_rewrites);
+        if applied.is_err() && owns_touch_log {
+            self.state.end_touch_log();
+        }
+        #[cfg(feature = "delta_validate")]
+        let delta_ops = applied?;
+        #[cfg(not(feature = "delta_validate"))]
+        let _ = applied?;
 
         // Finalize materialization bus and store results.
         // Note: Rules don't emit yet (requires executor signature change), but the

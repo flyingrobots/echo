@@ -109,7 +109,7 @@ name = "installed_contract_registry_tests"
 required-features = ["native_rule_bootstrap"]
 
 [[test]]
-name = "commit_allocation"
+name = "commit_touch_log"
 required-features = ["native_rule_bootstrap"]
 
 [[test]]

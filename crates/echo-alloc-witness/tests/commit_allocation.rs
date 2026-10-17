@@ -5,9 +5,6 @@
 //!
 //! This file holds one test and its own allocator, so that nothing else in
 //! the process allocates while the measurement runs.
-// `delta_validate` deliberately keeps a whole-state copy to cross-check every
-// delta, so the measurement applies only without it.
-#![cfg(all(feature = "native_rule_bootstrap", not(feature = "delta_validate")))]
 #![allow(
     unsafe_code,
     missing_docs,

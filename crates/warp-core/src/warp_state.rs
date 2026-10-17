@@ -127,11 +127,6 @@ impl WarpState {
         }
     }
 
-    /// Whether touches are being recorded.
-    pub(crate) fn is_recording_touches(&self) -> bool {
-        self.touched.recording
-    }
-
     fn touch_instance(&mut self, warp_id: WarpId) {
         if self.touched.recording {
             if let std::collections::btree_map::Entry::Vacant(slot) =

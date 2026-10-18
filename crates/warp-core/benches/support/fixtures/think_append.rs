@@ -336,15 +336,14 @@ impl RegistryProvider for Registry {
     }
 }
 
-fn package() -> InstalledContractPackage<'static> {
-    static REGISTRY: Registry = Registry;
+fn package(registry: &Registry) -> InstalledContractPackage<'_> {
     InstalledContractPackage {
         identity: ContractPackageIdentity {
             package_name: "bench-fixture-f5",
             package_version: "1.0.0",
             artifact_hash_hex: "f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5",
         },
-        registry: &REGISTRY,
+        registry,
         verification_policy: ContractArtifactVerificationPolicy {
             echo_abi_version: 1,
             codec_id: "cbor-canon-v1",
@@ -464,7 +463,8 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
         .workers(1)
         .build();
     let mut host = TrustedRuntimeHost::new(runtime, engine).expect("host initializes");
-    host.register_contract_package(package())
+    let registry = Registry;
+    host.register_contract_package(package(&registry))
         .expect("package installs");
 
     // Setup outside measurement: every envelope is built before the clock.

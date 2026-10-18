@@ -518,7 +518,7 @@ This revision lands step 1. Everything below is implemented and checked by
 | Result classes | `benches/support/fixtures/outcome.rs` | Valid, invalid, unsupported and incomplete; only valid results are comparable |
 | C1 | `benches/support/fixtures/star.rs` | The star scene built independently of `action_scene`, with identical state roots at 1, 100 and 1,000 cells, and a pinned root |
 | F5 | `benches/support/fixtures/think_append.rs` | Append and replay through the trusted host, validated |
-| Runner | `benches/scene_fixtures.rs` | Repeated, classified rounds; a summary only when every round is valid |
+| Runner | `benches/scene_fixtures.rs` | A fixed matrix (tiers S and M, seed 7, five rounds each) of classified rounds; a summary only when every round is valid |
 
 ### F5 in the first slice
 

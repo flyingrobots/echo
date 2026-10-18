@@ -23,5 +23,4 @@ static-non-reference crates/warp-core/tests/provider_contract_admission_tests.rs
 static-non-reference crates/warp-core/tests/provider_contract_package_proposal_tests.rs test-only callback call counters.
 static-non-reference crates/warp-core/tests/installed_contract_registry_tests.rs field-less registry value handed out as a shared reference; it has no state.
 static-non-reference crates/warp-core/tests/installed_contract_intent_pipeline_tests.rs field-less registry value handed out as a shared reference; it has no state.
-static-non-reference crates/warp-core/benches/support/fixtures/think_append.rs benchmark fixture's field-less registry value handed out as a shared reference; it has no state.
 static-non-reference crates/echo-wasm-abi/tests/canonical_allocation.rs test-only allocator that counts requested bytes for one measurement; it forwards every call to the system allocator.

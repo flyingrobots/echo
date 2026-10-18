@@ -15,11 +15,10 @@
 //!   --bench scene_fixtures
 //! ```
 //!
-//! Settings, from the environment:
-//!
-//! - `ECHO_FIXTURE_TIER`: `S` (default) or `M`.
-//! - `ECHO_FIXTURE_SEED`: seed (default 7).
-//! - `ECHO_FIXTURE_ROUNDS`: repeated executions (default 5).
+//! The run is a fixed matrix, so every invocation measures the same
+//! workloads: tiers S and M of F5, seed 7, five rounds each. It reads no
+//! settings from the environment; changing the matrix is a source change,
+//! which changes the workload identities it prints.
 //!
 //! Every round is validated outside the timed regions and classified. Only
 //! valid rounds enter the summary; a run with any invalid, unsupported or
@@ -34,9 +33,8 @@ use std::time::Duration;
 use fixtures::manifest::hex32;
 use fixtures::{star, think_append};
 
-fn env_or(name: &str, default: &str) -> String {
-    std::env::var(name).unwrap_or_else(|_| default.to_owned())
-}
+const SEED: u64 = 7;
+const ROUNDS: usize = 5;
 
 fn ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1e3
@@ -52,14 +50,6 @@ fn median_ms(mut samples: Vec<Duration>) -> f64 {
 }
 
 fn main() {
-    let tier = match env_or("ECHO_FIXTURE_TIER", "S").as_str() {
-        "M" => think_append::M,
-        "S" => think_append::S,
-        other => panic!("unknown ECHO_FIXTURE_TIER {other}; use S or M"),
-    };
-    let seed: u64 = env_or("ECHO_FIXTURE_SEED", "7").parse().expect("seed");
-    let rounds: usize = env_or("ECHO_FIXTURE_ROUNDS", "5").parse().expect("rounds");
-
     // C1 is a precondition: the star control must build and hash.
     let c1 = star::workload(1_000);
     println!(
@@ -69,6 +59,12 @@ fn main() {
         c1.construction.label()
     );
 
+    for tier in [think_append::S, think_append::M] {
+        run_f5(tier, SEED, ROUNDS);
+    }
+}
+
+fn run_f5(tier: think_append::Tier, seed: u64, rounds: usize) {
     let spec = think_append::workload(tier, seed);
     let script = think_append::script(tier, seed);
     let digest = hex32(&think_append::script_digest(&script));
@@ -132,13 +128,17 @@ fn main() {
         let committed = tier.appends as f64;
         let append_p50 = median_ms(appends);
         println!(
-            "F5 summary valid_rounds={rounds} append_p50_ms={append_p50:.2} \
+            "F5 tier={} summary valid_rounds={rounds} append_p50_ms={append_p50:.2} \
              per_append_p50_ms={:.4} useful_throughput_appends_per_s={:.0} replay_p50_ms={:.2}",
+            tier.name,
             median_ms(per_append),
             committed / (append_p50 / 1e3),
             median_ms(replays)
         );
     } else {
-        println!("F5 summary withheld: not every round was valid");
+        println!(
+            "F5 tier={} summary withheld: not every round was valid",
+            tier.name
+        );
     }
 }

@@ -70,6 +70,25 @@ echo-cli inspect state.wsc --raw
 echo-cli --format json inspect state.wsc
 ```
 
+### `echo-cli wal submission-posture ...`
+
+Inspect the recovered posture of one submission without changing its WAL:
+
+```sh
+echo-cli --format json wal submission-posture /path/to/wal \
+  --submission-id <64-character-hex> \
+  --canonical-envelope-digest <64-character-hex>
+```
+
+For a matching decided submission, JSON includes `receipt_coordinate` with
+`identity_digest`, `worldline_id`, `worldline_tick_after`, `commit_global_tick`,
+`commit_hash`, `submission_id`, `ticket_digest`, and `receipt_content_digest`.
+The existing `receipt_ref` remains the hex-encoded canonical receipt bytes.
+The structured coordinate is `null` when there is no matching receipt,
+including pending, unknown, and conflicting-envelope submissions. A rejected
+or obstructed decision can still have a receipt; a coordinate does not imply
+that the submission applied. Text output is unchanged.
+
 ### `echo-cli wsc causal-history ...`
 
 Export, inspect, and verify WAL causal-history WSC bundles without importing

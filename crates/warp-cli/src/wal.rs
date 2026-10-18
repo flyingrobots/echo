@@ -11,6 +11,7 @@ use warp_core::causal_wal::{
     recover_submission_index, RecoveredSubmissionPosture, RecoveryAccessMode, RecoveryTailPosture,
     SubmissionRetryPosture,
 };
+use warp_core::CausalTickReceiptRef;
 
 use crate::cli::OutputFormat;
 use crate::output::{emit, hex_hash};
@@ -33,8 +34,37 @@ pub(crate) struct WalSubmissionPostureOutput {
     pub(crate) retry_posture: &'static str,
     pub(crate) recovered_posture: Option<&'static str>,
     pub(crate) receipt_ref: Option<String>,
+    pub(crate) receipt_coordinate: Option<WalReceiptCoordinateOutput>,
     pub(crate) receipt_digest: Option<String>,
     pub(crate) ticket_digest: Option<String>,
+}
+
+/// Named fields of the canonical receipt coordinate retained in the WAL.
+#[derive(Debug, Serialize)]
+pub(crate) struct WalReceiptCoordinateOutput {
+    identity_digest: String,
+    worldline_id: String,
+    worldline_tick_after: u64,
+    commit_global_tick: u64,
+    commit_hash: String,
+    submission_id: String,
+    ticket_digest: String,
+    receipt_content_digest: String,
+}
+
+impl From<CausalTickReceiptRef> for WalReceiptCoordinateOutput {
+    fn from(receipt: CausalTickReceiptRef) -> Self {
+        Self {
+            identity_digest: hex_hash(&receipt.identity_digest()),
+            worldline_id: hex_hash(receipt.worldline_id.as_bytes()),
+            worldline_tick_after: receipt.worldline_tick_after.as_u64(),
+            commit_global_tick: receipt.commit_global_tick.as_u64(),
+            commit_hash: hex_hash(&receipt.commit_hash),
+            submission_id: hex_hash(&receipt.submission_id),
+            ticket_digest: hex_hash(&receipt.ticket_digest),
+            receipt_content_digest: hex_hash(&receipt.receipt_content_digest),
+        }
+    }
 }
 
 /// Runs `echo-cli wal doctor`.
@@ -88,6 +118,9 @@ pub(crate) fn submission_posture(
                 .receipt_ref
                 .map(|receipt_ref| hex::encode(receipt_ref.to_canonical_bytes()))
         }),
+        receipt_coordinate: matching_entry
+            .and_then(|entry| entry.receipt_ref)
+            .map(WalReceiptCoordinateOutput::from),
         receipt_digest: matching_entry.and_then(|entry| {
             entry
                 .receipt_ref

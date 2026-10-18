@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Exact externally compiled bytes, including octets that are not UTF-8.
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::unwrap_used, clippy::panic)]

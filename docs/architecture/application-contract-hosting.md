@@ -235,7 +235,7 @@ establish authorization. This function has no graph, scheduler, filesystem,
 clock, native callback, or WAL access and produces no Tick or Receipt.
 
 The interpreter implements the generic subset demanded by the first real
-compiler witness: unsigned integer constants, records, locals, field access,
+compiler witness: unsigned integer and raw byte constants, records, locals, field access,
 integer equality and ordering, bounded byte equality, lazy conditionals, and
 source-owned pure functions with ordered parameters and local bindings,
 separately authenticated zero-argument imported helpers, and
@@ -251,6 +251,16 @@ including unselected branches. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
 storage representations. Authored input constraints run before bindings, and
 the compiler's result projection must match the selected Target IR result.
+
+Compiler-produced byte constants retain raw octets, including NUL and invalid
+UTF-8. Their closed Core shape requires a byte payload and rejects text,
+missing fields, or integer-width fields. Materializing a constant uses the
+ordinary deterministic value-copy charges; package-size limits bound decoding.
+The retained public-build package and separate accepted report in
+[`edict_byte_literal_tests.rs`](../../crates/warp-core/tests/edict_byte_literal_tests.rs)
+exercise exact octets, repeatability, and exact/one-below evaluation budgets.
+CI and local full-test routes enable `trusted_runtime` for this target,
+including changes confined to its fixture or the shared decoder.
 
 The generic `core.bytes.length<OperandType>` operation measures one bounded byte
 value and returns U64. Its retained operand coordinate resolves through the

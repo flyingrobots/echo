@@ -1580,7 +1580,7 @@ else
 fi
 
 # Every feature-gated Edict operation must be selected with its runtime enabled.
-for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice edict_node_read_tests:edict-node-read edict_byte_concat_tests:edict-byte-concat; do
+for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_pure_byte_length_tests:edict-pure-byte-length edict_byte_equality_tests:edict-byte-equality edict_byte_slice_tests:edict-byte-slice edict_node_read_tests:edict-node-read edict_byte_concat_tests:edict-byte-concat edict_byte_literal_tests:edict-byte-literals; do
   target="${entry%%:*}"
   fixture="${entry#*:}"
   for mode in pre-push full; do
@@ -1595,6 +1595,7 @@ for entry in edict_pure_unsigned_subtraction_tests:edict-pure-subtraction edict_
 
   source_file=ReplaceRange.edict
   [[ "$target" != edict_byte_slice_tests ]] || source_file=LeafSlice.edict
+  [[ "$target" != edict_byte_literal_tests ]] || source_file=Literal.edict
   for changed in crates/warp-core/src/edict_pure/syntax.rs "crates/warp-core/tests/fixtures/$fixture/$source_file"; do
     pure_output="$(VERIFY_LOCAL_FULL_TESTS=1 run_fake_verify full "$changed")"
     if printf '%s\n' "$pure_output" | grep -q -- "test -p warp-core --features trusted_runtime --test $target"; then

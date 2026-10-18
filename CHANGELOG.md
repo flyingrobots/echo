@@ -123,6 +123,10 @@
 
 ### Added
 
+- Bounded pure Edict evaluation accepts compiler-produced byte constants with
+  raw octets and ordinary deterministic value-copy charges. Closed shape checks
+  reject text payloads and extra fields. A retained public compiler package and
+  separate accepted report exercise literal output and evaluation budgets.
 - Causal intents get an identity recipe that a plain intent cannot alias
   (#885). Under the original recipe a plain intent could reproduce a causal
   intent's hash input exactly and take its ingress and submission IDs. New

@@ -586,6 +586,10 @@ fn wal_submission_posture_runtime_ack_root_reports_accepted_pending_json() -> Te
     assert_eq!(json["retry_posture"], "AlreadyAcceptedPending");
     assert_eq!(json["recovered_posture"], "AcceptedPending");
     assert!(json["receipt_ref"].is_null());
+    assert_eq!(
+        json.get("receipt_coordinate"),
+        Some(&serde_json::Value::Null)
+    );
     assert!(json["receipt_digest"].is_null());
     assert!(json["ticket_digest"].is_null());
     Ok(())
@@ -602,6 +606,22 @@ fn wal_submission_posture_runtime_ack_root_reports_decided_applied_json() -> Tes
 
     assert_eq!(json["retry_posture"], "AlreadyDecidedApplied");
     assert_eq!(json["recovered_posture"], "DecidedApplied");
+    let receipt = fixture
+        .receipt_ref
+        .ok_or("missing applied receipt reference")?;
+    assert_eq!(
+        json["receipt_coordinate"],
+        serde_json::json!({
+            "identity_digest": hex::encode(receipt.identity_digest()),
+            "worldline_id": hex::encode(receipt.worldline_id.as_bytes()),
+            "worldline_tick_after": receipt.worldline_tick_after.as_u64(),
+            "commit_global_tick": receipt.commit_global_tick.as_u64(),
+            "commit_hash": hex::encode(receipt.commit_hash),
+            "submission_id": hex::encode(receipt.submission_id),
+            "ticket_digest": hex::encode(receipt.ticket_digest),
+            "receipt_content_digest": hex::encode(receipt.receipt_content_digest),
+        })
+    );
     assert_eq!(
         json["receipt_ref"],
         hex::encode(
@@ -638,6 +658,10 @@ fn wal_submission_posture_json_reports_obstructed_recovered_status() -> TestResu
     assert_eq!(json["retry_posture"], "AlreadyObstructed");
     assert_eq!(json["recovered_posture"], "Obstructed");
     assert_eq!(
+        json["receipt_coordinate"]["submission_id"],
+        hex::encode(digest("submission:obstructed"))
+    );
+    assert_eq!(
         json["receipt_digest"],
         hex::encode(digest("receipt:obstructed"))
     );
@@ -662,6 +686,10 @@ fn wal_submission_posture_json_reports_decided_rejected_status() -> TestResult {
 
     assert_eq!(json["retry_posture"], "AlreadyDecidedRejected");
     assert_eq!(json["recovered_posture"], "DecidedRejected");
+    assert_eq!(
+        json["receipt_coordinate"]["submission_id"],
+        hex::encode(digest("submission:rejected"))
+    );
     assert_eq!(
         json["receipt_digest"],
         hex::encode(digest("receipt:rejected"))
@@ -883,6 +911,10 @@ fn wal_submission_posture_json_reports_not_accepted_without_app_nouns() -> TestR
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
     assert_eq!(json["retry_posture"], "NotAccepted");
+    assert_eq!(
+        json.get("receipt_coordinate"),
+        Some(&serde_json::Value::Null)
+    );
     assert!(json["recovered_posture"].is_null());
     assert!(json["receipt_digest"].is_null());
     assert!(json["ticket_digest"].is_null());
@@ -909,6 +941,10 @@ fn wal_submission_posture_json_suppresses_recovered_fields_for_envelope_conflict
     let json: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout)?;
 
     assert_eq!(json["retry_posture"], "ConflictSameIdDifferentEnvelope");
+    assert_eq!(
+        json.get("receipt_coordinate"),
+        Some(&serde_json::Value::Null)
+    );
     assert!(json["recovered_posture"].is_null());
     assert!(json["receipt_digest"].is_null());
     assert!(json["ticket_digest"].is_null());

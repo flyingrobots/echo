@@ -5,6 +5,10 @@
 //! This trusted-host computation is not package installation, admission,
 //! scheduler settlement, or causal evidence. Its caller must obtain the expected
 //! package identity from an independently verified, authorized release.
+//!
+//! Compiler-produced byte constants preserve raw octets. Materializing a
+//! constant uses the same deterministic copy charges as other runtime values;
+//! package-size limits bound decoding before evaluation.
 
 mod decode;
 pub(crate) mod evaluate;

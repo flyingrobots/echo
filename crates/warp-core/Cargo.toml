@@ -133,6 +133,10 @@ name = "edict_pure_evaluation_tests"
 required-features = ["trusted_runtime"]
 
 [[test]]
+name = "edict_byte_literal_tests"
+required-features = ["trusted_runtime"]
+
+[[test]]
 name = "edict_pure_unsigned_subtraction_tests"
 required-features = ["trusted_runtime"]
 

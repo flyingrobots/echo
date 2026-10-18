@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use echo_edict_canonical::CanonicalValueV1 as Value;
 
 use super::model::{Comparison, Expr, Predicate, RuntimeType, MAX_DEPTH};
-use super::values::{array, exact_fields, field, map, number, text, text_field};
+use super::values::{array, bytes, exact_fields, field, map, number, text, text_field};
 use super::EvaluationError as Error;
 
 pub(crate) struct Parser<'a> {
@@ -85,18 +85,7 @@ impl Parser<'_> {
             }
             "const" => {
                 exact_fields(value, &["kind", "value"])?;
-                let literal = field(value, "value")?;
-                exact_fields(literal, &["kind", "value", "width"])?;
-                if text_field(literal, "kind")? != "int" {
-                    return Err(Error::UnsupportedProgram);
-                }
-                let number = number(field(literal, "value")?)?;
-                match text_field(literal, "width")? {
-                    "U32" if u32::try_from(number).is_ok() => {}
-                    "U64" => {}
-                    _ => return Err(Error::UnsupportedProgram),
-                }
-                Ok(Expr::Constant(Value::Integer(number.into())))
+                constant(field(value, "value")?)
             }
             "record" => {
                 exact_fields(value, &["kind", "fields"])?;
@@ -271,6 +260,26 @@ impl Parser<'_> {
     }
 }
 
+fn constant(literal: &Value) -> Result<Expr, Error> {
+    if text_field(literal, "kind")? == "bytes" {
+        exact_fields(literal, &["kind", "value"])?;
+        return Ok(Expr::Constant(Value::Bytes(
+            bytes(field(literal, "value")?)?.to_vec(),
+        )));
+    }
+    exact_fields(literal, &["kind", "value", "width"])?;
+    if text_field(literal, "kind")? != "int" {
+        return Err(Error::UnsupportedProgram);
+    }
+    let number = number(field(literal, "value")?)?;
+    match text_field(literal, "width")? {
+        "U32" if u32::try_from(number).is_ok() => {}
+        "U64" => {}
+        _ => return Err(Error::UnsupportedProgram),
+    }
+    Ok(Expr::Constant(Value::Integer(number.into())))
+}
+
 // Core's canonical structural Bytes coordinates are self-describing. They do
 // never obtain their meaning from a caller-defined type-table entry.
 fn bounded_bytes(name: &str) -> Result<RuntimeType, Error> {
@@ -303,4 +312,29 @@ fn byte_bound(value: &str) -> Result<u64, Error> {
         return Err(Error::InvalidArtifact);
     }
     Ok(bound)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{constant, Error, Value};
+
+    #[test]
+    fn byte_constants_reject_text_payloads_and_extra_integer_fields() {
+        let kind = (Value::Text("kind".into()), Value::Text("bytes".into()));
+        let value = |value| (Value::Text("value".into()), value);
+        for malformed in [
+            Value::Map(vec![
+                kind.clone(),
+                value(Value::Text("not raw bytes".into())),
+            ]),
+            Value::Map(vec![
+                kind.clone(),
+                value(Value::Bytes(vec![255])),
+                (Value::Text("width".into()), Value::Text("U64".into())),
+            ]),
+            Value::Map(vec![kind]),
+        ] {
+            assert!(matches!(constant(&malformed), Err(Error::InvalidArtifact)));
+        }
+    }
 }

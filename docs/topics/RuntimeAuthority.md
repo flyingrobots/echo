@@ -17,6 +17,31 @@ authority does not leak across them.
 - A lawful rejection remains witnessed history and is not an internal fault.
 - Retry is a new explicit causal act.
 
+### Submission, staging and execution have different bases
+
+Equal application records and equal state roots do not establish equal
+submission, staging or Action outcomes. Witnessed submission records acceptance
+without staging an inbox entry. Ticketed staging checks the retained submission,
+occurrence material and ticket before entering runtime ingress. Repeating the
+same staged ticket returns its duplicate; a different ticket for the same
+submission is refused. Occurrence conflicts are checked before that duplicate
+return. A known witnessed submission does not consume another submission
+generation, including when the allocator is exhausted.
+
+An accepted Action can remain dormant while other work commits. Writing and
+restoring its dependency can obstruct it with `BasisChanged` even when the
+application records and state root return to their earlier values. Advancing
+ticks through unrelated writes does not by itself establish that obstruction.
+The dependency interval and retained origin matter, as described in
+[generated rule authorship](GeneratedRules.md).
+
+Executable witnesses are
+`crates/warp-core/tests/admission_comparison_tests.rs` and
+`equal_application_records_do_not_decide_a_held_actions_eligibility` in
+`crates/warp-core/tests/executable_operation_pipeline_tests.rs`. These test
+current behavior; they introduce no new admission-basis digest or comparison
+protocol.
+
 ## Control and Faults
 
 Start, stop, cadence, drain, and recovery are trusted runtime-control history.

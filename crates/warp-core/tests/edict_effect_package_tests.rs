@@ -4,34 +4,52 @@
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::expect_used, clippy::panic)]
 use echo_edict_canonical::CanonicalValueV1 as V;
-use warp_core::edict_effects::{EffectPackageError, ExecutableOperationPackageV2};
+use warp_core::edict_effects::EffectPackageError;
+use warp_core::ExecutableOperationPackage;
 use warp_core::TypeId;
 #[path = "common/edict_effect_publication.rs"]
 mod fixture;
 use fixture::*;
 #[test]
-fn exact_v2_package_binds_program_and_executes_its_schema_relations() {
+fn current_package_binds_program_and_executes_its_schema_relations() {
     let p = program();
     let v = package(&p);
     let b = encoded(&v);
     let package = prepare(&v).expect("valid effect package");
-    assert_eq!(package.canonical_bytes(), b);
+    assert_eq!(package.to_canonical_bytes().expect("canonical package"), b);
     assert_eq!(
-        package.program_identity(),
-        hash(b"echo:operation-program:v2\0", &encoded(&p))
+        package
+            .program()
+            .identity()
+            .expect("program identity")
+            .as_hash(),
+        hash(b"echo:operation-program:v1\0", &encoded(&p))
     );
     assert!(package
+        .program()
+        .as_effect_program()
+        .expect("effect program")
         .graph_schema()
         .allows_atom(TypeId([1; 32]), TypeId([2; 32])));
     assert!(!package
+        .program()
+        .as_effect_program()
+        .expect("effect program")
         .graph_schema()
         .allows_atom(TypeId([2; 32]), TypeId([1; 32])));
-    assert_eq!(package.compiled_program(), [0xa0]);
+    assert_eq!(
+        package
+            .program()
+            .as_effect_program()
+            .expect("effect program")
+            .compiled_program(),
+        [0xa0]
+    );
 }
 #[test]
 fn substituted_program_schema_law_and_closure_cannot_keep_the_original_pin() {
     let original = encoded(&package(&program()));
-    let pin = hash(b"echo:operation-package:v2\0", &original);
+    let pin = hash(b"echo:operation-package:v1\0", &original);
     for mode in 0..4 {
         let mut p = program();
         let mut v = package(&p);
@@ -59,18 +77,18 @@ fn substituted_program_schema_law_and_closure_cannot_keep_the_original_pin() {
             }
             _ => set(&mut v, "operation_coordinate", text("app.other@1")),
         }
-        assert!(ExecutableOperationPackageV2::prepare(&encoded(&v), pin).is_err());
+        assert!(ExecutableOperationPackage::prepare(&encoded(&v), pin).is_err());
     }
-    assert!(ExecutableOperationPackageV2::prepare(
+    assert!(ExecutableOperationPackage::prepare(
         &original,
-        hash(b"echo:operation-package:v1\0", &original)
+        hash(b"echo:operation-package:v2\0", &original)
     )
     .is_err());
 }
 #[test]
-fn exact_package_and_closure_shapes_refuse_v1_lawpacks_projection_and_extra_fields() {
+fn exact_package_and_closure_shapes_refuse_effect_lawpacks_projection_and_extra_fields() {
     for (k, x) in [
-        ("schema", text("echo.operation-package/v1")),
+        ("schema", text("echo.operation-package/v2")),
         ("program", program()),
     ] {
         let mut v = package(&program());
@@ -127,7 +145,7 @@ fn all_package_profile_equalities_and_target_ir_binding_are_enforced() {
 #[test]
 fn program_refuses_unknown_profiles_laws_shapes_and_unbounded_declarations() {
     for (k, x) in [
-        ("schema", text("echo.operation-program/v1")),
+        ("schema", text("echo.operation-program/v2")),
         ("kind", text("other")),
         ("identity_law", V::Integer(0)),
         ("identity_law", V::Integer(2)),
@@ -177,7 +195,7 @@ fn nested_canonical_bytes_and_exact_footprint_law_digest_are_required() {
     set(
         &mut v,
         "footprint_contract_identity",
-        V::Bytes(hash(b"echo:operation-footprint-law:v2\0", &encoded(&law())).to_vec()),
+        V::Bytes(hash(b"echo:operation-footprint-law:v1\0", &encoded(&law())).to_vec()),
     );
     refused(&v);
     let mut v = package(&program());
@@ -188,12 +206,11 @@ fn nested_canonical_bytes_and_exact_footprint_law_digest_are_required() {
     let mut b = encoded(&package(&program()));
     b.push(0);
     assert!(
-        ExecutableOperationPackageV2::prepare(&b, hash(b"echo:operation-package:v2\0", &b))
-            .is_err()
+        ExecutableOperationPackage::prepare(&b, hash(b"echo:operation-package:v1\0", &b)).is_err()
     );
 }
 #[test]
-fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_v1_coordinate_rules() {
+fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_current_coordinate_rules() {
     let mut p = program();
     for key in ["max_input_bytes", "max_result_bytes", "max_allocated_bytes"] {
         set(&mut p, key, V::Integer(0));
@@ -201,11 +218,40 @@ fn declaration_boundaries_accept_zero_io_and_allocation_and_preserve_v1_coordina
     set(&mut p, "output_type", text(&"é".repeat(512)));
     let mut v = package(&p);
     set(&mut v, "operation_coordinate", text(&"x".repeat(1025)));
-    let prepared = prepare(&v).expect("zero byte limits and legacy package coordinate shape");
-    assert_eq!(prepared.max_input_bytes(), 0);
-    assert_eq!(prepared.max_result_bytes(), 0);
-    assert_eq!(prepared.max_allocated_bytes(), 0);
-    assert_eq!(prepared.output_type().len(), 1024);
+    let prepared = prepare(&v).expect("zero byte limits and current package coordinate shape");
+    assert_eq!(
+        prepared
+            .program()
+            .as_effect_program()
+            .expect("effect program")
+            .max_input_bytes(),
+        0
+    );
+    assert_eq!(
+        prepared
+            .program()
+            .as_effect_program()
+            .expect("effect program")
+            .max_result_bytes(),
+        0
+    );
+    assert_eq!(
+        prepared
+            .program()
+            .as_effect_program()
+            .expect("effect program")
+            .max_allocated_bytes(),
+        0
+    );
+    assert_eq!(
+        prepared
+            .program()
+            .as_effect_program()
+            .expect("effect program")
+            .output_type()
+            .len(),
+        1024
+    );
     assert_eq!(prepared.budget_ceiling().steps(), 1);
     assert_eq!(prepared.budget_ceiling().read_bytes(), 0);
     assert_eq!(prepared.budget_ceiling().write_bytes(), 0);
@@ -228,10 +274,17 @@ fn a_new_pin_can_bind_changed_laws_but_cannot_reuse_the_old_contract_identity() 
     );
     let prepared = prepare(&v).expect("new pin binds the new exact law");
     assert_ne!(
-        prepared.program_identity(),
+        prepared
+            .program()
+            .identity()
+            .expect("program identity")
+            .as_hash(),
         prepare(&package(&program()))
             .expect("original")
-            .program_identity()
+            .program()
+            .identity()
+            .expect("program identity")
+            .as_hash()
     );
 }
 #[path = "edict_effect_package_tests/invocation.rs"]

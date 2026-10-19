@@ -201,9 +201,9 @@ operation-oriented corridor required for newly authored application mutations.
 The currently implemented generic runtime slice is:
 
 ```text
-exact canonical ExecutableOperationPackageV1 bytes
+exact canonical ExecutableOperationPackage bytes
 -> Echo-owned package admission under a separate policy
--> installed data-only EchoOperationProgramV1
+-> installed data-only EchoOperationProgram
 -> installed compiler-owned application-result projection
 -> exact basis-bearing projected invocation with canonical application input
 -> canonical Action submission retained before acknowledgement
@@ -236,7 +236,7 @@ The first external compiler-to-runtime singleton witness is:
 ```text
 standalone application-owned Edict source
 -> exact Core, lawpack, exports, target adapter, target configuration, and Target IR
--> compiler-produced ExecutableOperationPackageV1
+-> compiler-produced ExecutableOperationPackage
 -> structurally separate accepted verification report
 -> exact result-projection binding and generic typed-input binding
 -> projected invocation retaining exact canonical application input
@@ -649,8 +649,8 @@ trigger hidden retries or widen access.
   material through the appropriate provider-native or Wesley compatibility
   record—not an app-specific engine escape hatch.
 - Newly authored executable operations resolve installation and invocation from
-  an admitted `ExecutableOperationPackageV1`; a naked
-  `EchoOperationProgramV1` cannot install or invoke.
+  an admitted `ExecutableOperationPackage`; a naked
+  `EchoOperationProgram` cannot install or invoke.
 - Newly authored executable operations expose no application matcher, executor,
   footprint callback, or prebuilt mutation plan. Provider-v1 callback bindings
   remain explicitly labeled compatibility infrastructure.
@@ -666,7 +666,7 @@ trigger hidden retries or widen access.
 ### Executable graph-schema preparation
 
 `EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
-the authored-effect V2 program direction. The root has exactly `node_types` and
+the current authored-effect program contract. The root has exactly `node_types` and
 `edge_types`. A node-type entry has exactly `addressing` (`0` content or `1`
 mutable) and `atom_types`; an edge-type entry contains source/target node-type
 pairs. Every identifier is exactly 32 bytes. Set arrays are strictly ascending
@@ -681,44 +681,57 @@ capability. Input is bounded to 16 MiB and canonical decoding retains its
 combined node/depth ceilings; these host preparation allocations are outside
 the evaluation meter and do not implement its physical arena.
 
-### V2 effect publication preparation
+### Current operation publication preparation
 
-`edict_effects::ExecutableOperationPackageV2::prepare` checks a trusted host's
-expected V2 package identity against the exact canonical publication bytes.
-This is byte binding and contract preparation, not independent compiler
-verification, package admission, installation or permission to execute.
+`ExecutableOperationPackage::prepare` checks a trusted host's expected current
+package identity against exact canonical publication bytes. There is one
+`ExecutableOperationPackage`, one `EchoOperationSemanticClosure`, and one
+`EchoOperationProgram` definition and codec. The program kind selects
+compare-and-set, create-if-absent, or the authored-effect payload. The former
+V2 package definition and decoder have been removed without aliases, wrappers,
+or schema-version dispatch.
 
-The V2 package has the V1 required package fields with its versioned schema,
-no `application_result_projection`, and a six-field semantic closure that omits
-both lawpack keys. Its nested canonical program has exactly the thirteen
-`edict-effect-program/v1` fields. The decoder requires the effect target,
-interpreter, intrinsic, input, result, obstruction, interpretation and basis
-profiles, equality of the closure/program Target IR identities, and
-ContentAddressV1 as the identity law. It decodes and retains the exact program's
-executable graph schema and footprint permissions together. The footprint
-contract is BLAKE3 over `echo:operation-footprint-law:v2\0` followed directly by
-the exact canonical law bytes. Package/program identities use their V2 domains
-and the existing length-prefixed artifact recipe; those recipes are distinct.
+The current package and program schema strings are `echo.operation-package/v1`
+and `echo.operation-program/v1`. Their identities use the corresponding
+length-prefixed `echo:operation-package:v1\0` and
+`echo:operation-program:v1\0` domains. These are labels for the sole current
+formats; the former V2 publication/program schemas are refused even when their
+bytes have a matching current-domain pin.
+
+The shared package envelope binds the operation, obstruction, authority,
+semantic closure, exact nested program, budget, profile identities and footprint
+contract. Fixed programs require a real paired lawpack coordinate and identity.
+Authored effects forbid both lawpack fields and the application-result
+projection; their closure has exactly the six upstream source/meaning/Core/
+Target IR/schema fields. No sentinel lawpack is introduced. The closure and
+effect program must bind the same Target IR identity.
+
+The authored-effect program payload has exactly thirteen fields. Its
+`edict-effect-program/v1` kind requires the declared effect interpreter and
+intrinsic profiles, ContentAddressV1, exact executable graph schema, exact
+footprint law, compiled bytes, output type and resource ceilings. Its footprint
+identity is BLAKE3 over `echo:operation-footprint-law:v1\0` followed directly by
+the canonical law bytes. The package's effect target, input, result, obstruction,
+interpretation and basis profiles are checked by the same package validator
+that validates the fixed program kinds.
 
 Input and result declarations permit zero and are capped at 65,536 bytes.
-Allocation permits zero and is capped at 16 MiB; these declarations do not
-provision a physical arena. The output coordinate is nonempty UTF-8 of at most
-1,024 bytes. Other package/closure coordinates retain V1's nonempty-text rule.
-The package budget requires at least one step and permits zero byte budgets.
-Canonical preparation uses the existing decoder's node/depth ceilings and the
-schema/law preparation bounds. It occurs outside evaluation metering.
+Allocation permits zero and is capped at 16 MiB. The output coordinate is
+nonempty UTF-8 of at most 1,024 bytes; other coordinates retain the current
+nonempty-text rule. Effect package steps must be positive and byte budgets may
+be zero. Preparation is outside evaluation metering and does not provision the
+physical evaluation arena.
 
-The compiler bytes and upstream source, meaning, Core and Target IR identities
-remain publication evidence. This preparation does not infer verifier approval
-or validate the compiled instruction language. Invocation/authority admission,
-interpreter execution, graph identity enforcement, atomic effects and retained
-recovery must separately consume and validate this prepared contract. V1
-package decoding and identity recipes remain unchanged.
+This is byte binding and contract preparation. Compiler bytes and upstream
+identities do not infer verifier approval or validate the compiled instruction
+language. The separate invocation/admission-token/installation definitions and
+catalogs described below still require consolidation under the one-current-
+version policy. Preparation does not grant invocation or mutation authority.
 
 ### V2 invocation input and basis preparation
 
 `EffectInvocationV2::prepare` checks an exact canonical V2 invocation against a
-prepared V2 publication. Only its seven specified fields are accepted. The
+prepared current publication. Only its seven specified fields are accepted. The
 package identity and operation coordinate must match the publication. The
 application input must itself be canonical CBOR and fit that program's declared
 input ceiling, including the input's CBOR framing bytes. The delegated budget
@@ -746,8 +759,8 @@ its retained codec and its shared operation/authority/budget checks, and return
 the same `EchoOperationAdmissionError` / `EchoOperationAdmissionErrorKind`
 refusal contract. The old version-specific policy and refusal definitions have
 been removed without compatibility aliases. This is one completed part of the
-format cutover; the separate package and installation definitions below still
-require replacement under the one-current-version policy.
+format cutover; the remaining invocation, admission-token and installation
+definitions still require replacement under the one-current-version policy.
 
 The host prepares the canonical package, checks all four independent policy
 conditions, and returns opaque `AdmittedEffectPackageV2` evidence. Every budget
@@ -755,7 +768,7 @@ axis is checked separately. A matching package pin alone cannot substitute for
 canonical artifact/profile validation or for the independent authority policy.
 
 The evidence retains the exact package and policy. Policy identity uses the
-existing `echo:operation-admission-policy:v1\0` recipe with the V2 package pin.
+existing `echo:operation-admission-policy:v1\0` recipe with the current package pin.
 The package-admission identity uses `echo:operation-package-admission:v2\0`
 followed by the package and policy identities. Two policies admitting the same
 program therefore produce distinct policy/admission evidence while retaining
@@ -780,11 +793,14 @@ and compiled effect instruction validation. The application handle cannot call
 this owner-only method. Reconstructing an `InstalledEffectOperationV2` from
 retained bytes produces evidence only; it does not insert a registry entry.
 
-The engine shares operation-coordinate exclusion across V1 and V2. An exact
-repeat is idempotent; a changed package at the same coordinate or a changed
+The engine still has separate fixed-program and effect installation catalogs,
+both consuming the sole current package/program definitions. It shares operation-
+coordinate exclusion across them. An exact repeat is idempotent; a changed package at the same coordinate or a changed
 policy for an installed package refuses before any WAL append. Batch recovery
-preflights both catalogs. V1's package and installation identity recipes remain
-unchanged. V2 installation identity uses `echo:operation-installation:v2\0`,
+preflights both catalogs. These two installation definitions and their versioned
+retained records remain unfinished consolidation work, not a compatibility
+exception. Package/program identities use the shared recipe above. The effect
+installation identity still uses `echo:operation-installation:v2\0`,
 then package identity, package-admission identity, length-prefixed operation
 coordinate, program identity and length-prefixed exact package bytes, in that
 order, as the V1 recipe does under its original domain.
@@ -819,8 +835,8 @@ three sections are empty. There is no older index recipe, empty-index bypass,
 or recipe switch based on the presence of effect installations or Action outcomes.
 The historical index recipes were removed under the one-current-version policy.
 
-The package and installation definitions still have the parallel versions
-described above; the index cutover does not complete their replacement. A fresh
+The installation and admission-token definitions still have parallel versions;
+the shared package/program and index cutovers do not complete their replacement. A fresh
 filesystem-backed host currently restores those installations and rechecks
 coordinate conflicts. This is installation recovery, not recovery of
 an authored-effect decision. Invocation grant admission, compiled execution,

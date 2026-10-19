@@ -66,7 +66,7 @@ use crate::{
         EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
     },
     provider_contract::admit_provider_contract_package_v1,
-    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackageV1,
+    AdmittedEchoOperationInvocationV1, AdmittedExecutableOperationPackage,
     AdmittedProviderContractPackageV1, CausalAnchorAdmissionRequest, CausalAnchorClaim,
     CausalAnchorError, CausalAnchorId, CausalAnchorRootSupportPolicy, CausalAnchorSupportError,
     CausalFrontierRef, CausalReceiptHistoryObstruction, CausalReceiptHistoryPage,
@@ -1133,7 +1133,7 @@ impl TrustedRuntimeHost {
         &self,
         policy: &EchoOperationAdmissionPolicy,
         canonical_package_bytes: Vec<u8>,
-    ) -> Result<AdmittedExecutableOperationPackageV1, EchoOperationAdmissionError> {
+    ) -> Result<AdmittedExecutableOperationPackage, EchoOperationAdmissionError> {
         admit_package_v1(policy, canonical_package_bytes)
     }
 
@@ -1157,7 +1157,7 @@ impl TrustedRuntimeHost {
             .preflight_echo_effect_installations(core::slice::from_ref(&installed))?;
         if self
             .engine
-            .installed_echo_operation_package_v2(installed.package().identity())
+            .installed_echo_operation_package_v2(installed.package_identity())
             == Some(&installed)
         {
             return Ok(installed);
@@ -1182,7 +1182,7 @@ impl TrustedRuntimeHost {
     /// this runtime-owner method.
     pub fn install_admitted_echo_operation_package_v1(
         &mut self,
-        admitted: AdmittedExecutableOperationPackageV1,
+        admitted: AdmittedExecutableOperationPackage,
     ) -> Result<InstalledEchoOperationV1, TrustedRuntimeHostError> {
         let installed = installed_from_admitted(admitted)?;
         self.engine
@@ -2439,11 +2439,11 @@ fn ensure_runtime_authority_is_durable(
     let recovered_effects = recovery
         .installed_echo_effect_operations
         .iter()
-        .map(|installed| (installed.package().identity(), installed))
+        .map(|installed| (installed.package_identity(), installed))
         .collect::<BTreeMap<_, _>>();
     if engine.installed_echo_effect_packages().any(|installed| {
         recovered_effects
-            .get(&installed.package().identity())
+            .get(&installed.package_identity())
             .is_none_or(|recovered| **recovered != *installed)
     }) {
         return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
@@ -4668,13 +4668,13 @@ fn recover_echo_operation_material(
                         if effect_operations.contains_key(installed.operation_coordinate()) {
                             return Err(crate::echo_operation::installation_error(crate::EchoOperationInstallationErrorKindV1::OperationCoordinateConflict,"recovered V1 coordinate conflicts with V2 meaning").into());
                         }
-                        install_recovered_v1(&mut installations, &mut operations, installed)?;
+                        install_recovered_v1(&mut installations, &mut operations, *installed)?;
                     }
                     RecoveredOperationInstallation::V2(installed) => restore_effect_catalog_entry(
                         &mut effects,
                         &mut effect_operations,
                         &operations,
-                        installed,
+                        *installed,
                     )?,
                 }
             }
@@ -4725,10 +4725,11 @@ fn recover_echo_operation_material(
 /// performed independently by the surrounding provenance checks.
 fn operation_patch_scope_v1(
     patch: &crate::WorldlineTickPatchV1,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
 ) -> Option<crate::NodeKey> {
     match program {
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet {
+        crate::EchoOperationProgram::EdictEffect(_) => None,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet {
             required_attachment_type,
             max_replacement_bytes,
             ..
@@ -4754,7 +4755,7 @@ fn operation_patch_scope_v1(
             }
             _ => None,
         },
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent {
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent {
             required_node_type,
             required_attachment_type,
             max_replacement_bytes,
@@ -4833,7 +4834,7 @@ fn operation_patch_inputs_match_v1(
 
 fn operation_patch_scope_in_parent_state_v1(
     patch: &crate::WorldlineTickPatchV1,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     parent_state: &crate::WorldlineState,
 ) -> Option<crate::NodeKey> {
     let node = operation_patch_scope_v1(patch, program)?;
@@ -4843,7 +4844,7 @@ fn operation_patch_scope_in_parent_state_v1(
     let descent_stack = operation_descent_stack(parent_state, node.warp_id)?;
     if matches!(
         program,
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. }
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. }
     ) {
         let store = parent_state.store(&node.warp_id)?;
         if store.node(&node.local_id).is_some() || store.node_attachment(&node.local_id).is_some() {
@@ -4871,7 +4872,7 @@ fn operation_tick_binds_patch_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
 ) -> bool {
     let Some(expected_scope) = operation_patch_scope_v1(patch, program) else {
         return false;
@@ -4892,7 +4893,7 @@ fn operation_tick_scope_in_parent_state_v1(
     tick_receipt: &crate::TickReceipt,
     patch: &crate::WorldlineTickPatchV1,
     expected_rule_id: Hash,
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     parent_state: &crate::WorldlineState,
 ) -> Option<crate::NodeKey> {
     let expected_scope = operation_patch_scope_in_parent_state_v1(patch, program, parent_state)?;
@@ -4910,13 +4911,14 @@ fn operation_tick_scope_in_parent_state_v1(
 }
 
 fn operation_application_basis_matches_scope_v1(
-    program: &crate::EchoOperationProgramV1,
+    program: &crate::EchoOperationProgram,
     node: crate::NodeKey,
     application_basis: EchoOperationApplicationBasisV1,
 ) -> bool {
     match program {
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCompareAndSet { .. } => true,
-        crate::EchoOperationProgramV1::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
+        crate::EchoOperationProgram::EdictEffect(_) => false,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCompareAndSet { .. } => true,
+        crate::EchoOperationProgram::AnchoredNodeAttachmentCreateIfAbsent { .. } => {
             application_basis
                 == crate::echo_operation_anchored_node_absent_application_basis_v1(node)
         }
@@ -7661,10 +7663,10 @@ mod tests {
     fn recovery_index_installation(operation_coordinate: &str) -> InstalledEchoOperationV1 {
         let authority_profile_identity = [0x17; 32];
         let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
-        let package = crate::ExecutableOperationPackageV1::new(
+        let package = crate::ExecutableOperationPackage::new(
             operation_coordinate,
             "echo.test.RecoveryIndex.Obstruction.v1",
-            crate::EchoOperationSemanticClosureV1::new(
+            crate::EchoOperationSemanticClosure::new(
                 [0x10; 32],
                 [0x11; 32],
                 [0x12; 32],
@@ -7677,7 +7679,7 @@ mod tests {
             crate::echo_operation_target_profile_identity_v1(),
             authority_profile_identity,
             budget,
-            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+            crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
                 crate::make_type_id("recovery-index-node"),
                 crate::make_type_id("recovery-index-attachment"),
                 128,
@@ -7754,17 +7756,16 @@ mod tests {
             local_id: crate::make_node_id("operation-wal-created-node"),
         };
         let installed_program =
-            crate::EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+            crate::EchoOperationProgram::anchored_node_attachment_create_if_absent(
                 crate::make_type_id("operation-wal-created-node"),
                 crate::make_type_id("operation-wal-created-attachment"),
                 7,
             );
-        let update_program =
-            crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
-                crate::make_type_id("operation-wal-created-node"),
-                crate::make_type_id("operation-wal-created-attachment"),
-                7,
-            );
+        let update_program = crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
+            crate::make_type_id("operation-wal-created-node"),
+            crate::make_type_id("operation-wal-created-attachment"),
+            7,
+        );
         let patch = creation_scope_patch(node);
         let parent_state = creation_scope_parent_state(node);
         assert_eq!(
@@ -8057,7 +8058,7 @@ mod tests {
         let attachment_slot = crate::AttachmentKey::node_alpha(node);
         let rule_id = [21; 32];
         let attachment_type = crate::make_type_id("operation-recovery-attachment");
-        let program = crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        let program = crate::EchoOperationProgram::anchored_node_attachment_compare_and_set(
             crate::make_type_id("operation-recovery-node"),
             attachment_type,
             7,
@@ -9144,7 +9145,7 @@ fn recovered_echo_operation_index_root(
         })
         .collect::<Result<Vec<_>, TrustedRuntimeWalError>>()?;
     for installed in effect_installations {
-        catalog.push((installed.package().identity(), installed.retained_bytes()?));
+        catalog.push((installed.package_identity(), installed.retained_bytes()?));
     }
     catalog.sort_unstable();
 

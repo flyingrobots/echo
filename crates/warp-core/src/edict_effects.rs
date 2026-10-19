@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Authored-effect preparation, runtime-owned catalog and private recording reads.
 //!
-//! Exact V2 publications and static invocations can be prepared, and the runtime
+//! Current publications and effect invocations can be prepared, and the runtime
 //! owner can admit package policy and retain/install its catalog evidence. None
 //! of those crossings grants invocation rights or enables effect execution.
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
@@ -25,7 +25,7 @@ pub(crate) use installation::{
 mod invocation;
 pub use invocation::EffectInvocationV2;
 mod package;
-pub use package::{EffectPackageError, ExecutableOperationPackageV2};
+pub use package::{EffectPackageError, EffectProgram};
 mod frame;
 mod read_image;
 pub use read_image::{

@@ -2,12 +2,13 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Versioned effect installation evidence; invocation authority remains separate.
 use super::package::hash;
-use super::{AdmittedEffectPackageV2, ExecutableOperationPackageV2};
+use super::AdmittedEffectPackageV2;
 use crate::echo_operation::{
     installation_error, invalid_structure, map_value, recover_installation_v1,
 };
 use crate::edict_pure::values::{bytes, exact_fields, field, require_text, text};
 use crate::EchoOperationAdmissionPolicy;
+use crate::ExecutableOperationPackage;
 use crate::{
     EchoOperationArtifactErrorV1, EchoOperationInstallationErrorKindV1,
     EchoOperationInstallationErrorV1, EchoOperationPackageIdV1, InstalledEchoOperationV1,
@@ -23,17 +24,33 @@ pub struct InstalledEffectOperationV2 {
     id: [u8; 32],
 }
 impl InstalledEffectOperationV2 {
+    /// Identity of the current package definition.
+    #[must_use]
+    pub const fn package_identity(&self) -> [u8; 32] {
+        self.admitted.package_identity()
+    }
+    /// Identity of the current program definition.
+    #[must_use]
+    pub const fn program_identity(&self) -> [u8; 32] {
+        self.admitted.program_identity()
+    }
+    /// Exact current publication bytes retained by installation.
+    #[must_use]
+    pub fn canonical_package_bytes(&self) -> &[u8] {
+        self.admitted.canonical_package_bytes()
+    }
+
     pub(crate) fn from_admitted(admitted: AdmittedEffectPackageV2) -> Self {
         let package = admitted.package();
         let mut h = blake3::Hasher::new();
         h.update(b"echo:operation-installation:v2\0");
-        h.update(&package.identity());
+        h.update(&admitted.package_identity());
         h.update(&admitted.identity());
         h.update(&(package.operation_coordinate().len() as u64).to_le_bytes());
         h.update(package.operation_coordinate().as_bytes());
-        h.update(&package.program_identity());
-        h.update(&(package.canonical_bytes().len() as u64).to_le_bytes());
-        h.update(package.canonical_bytes());
+        h.update(&admitted.program_identity());
+        h.update(&(admitted.canonical_package_bytes().len() as u64).to_le_bytes());
+        h.update(admitted.canonical_package_bytes());
         Self {
             admitted,
             id: h.finalize().into(),
@@ -41,7 +58,7 @@ impl InstalledEffectOperationV2 {
     }
     /// Exact publication named by this installation.
     #[must_use]
-    pub const fn package(&self) -> &ExecutableOperationPackageV2 {
+    pub const fn package(&self) -> &ExecutableOperationPackage {
         self.admitted.package()
     }
     /// Versioned installation identity, without invocation rights.
@@ -63,10 +80,10 @@ impl InstalledEffectOperationV2 {
                 "admission_policy_id",
                 V::Bytes(self.admitted.admission_policy_identity().to_vec()),
             ),
-            ("package_id", V::Bytes(self.package().identity().to_vec())),
+            ("package_id", V::Bytes(self.package_identity().to_vec())),
             (
                 "package_bytes",
-                V::Bytes(self.package().canonical_bytes().to_vec()),
+                V::Bytes(self.canonical_package_bytes().to_vec()),
             ),
             (
                 "package_admission_id",
@@ -111,7 +128,7 @@ impl InstalledEffectOperationV2 {
         let admitted = super::admission::admit(&policy, package_bytes.to_vec())
             .map_err(|_| invalid_structure("V2 retained package no longer admits"))?;
         if policy.identity() != policy_id
-            || admitted.package().identity() != package_id
+            || admitted.package_identity() != package_id
             || admitted.identity() != admission_id
         {
             return Err(invalid_structure("V2 retained admission identities differ"));
@@ -126,14 +143,14 @@ impl InstalledEffectOperationV2 {
     }
 }
 pub(crate) enum RecoveredOperationInstallation {
-    V1(InstalledEchoOperationV1),
-    V2(InstalledEffectOperationV2),
+    V1(Box<InstalledEchoOperationV1>),
+    V2(Box<InstalledEffectOperationV2>),
 }
 impl RecoveredOperationInstallation {
     pub(crate) fn package_identity(&self) -> [u8; 32] {
         match self {
             Self::V1(v) => v.package_id().as_hash(),
-            Self::V2(v) => v.package().identity(),
+            Self::V2(v) => v.package_identity(),
         }
     }
 }
@@ -146,12 +163,11 @@ pub(crate) fn recover_versioned_installation(
         .and_then(text)
         .map_err(|_| invalid_structure("missing installation version"))?
     {
-        "echo.operation-installation/v1" => {
-            recover_installation_v1(canonical).map(RecoveredOperationInstallation::V1)
-        }
+        "echo.operation-installation/v1" => recover_installation_v1(canonical)
+            .map(|installed| RecoveredOperationInstallation::V1(Box::new(installed))),
         "echo.operation-installation/v2" => {
             InstalledEffectOperationV2::from_retained_bytes(canonical)
-                .map(RecoveredOperationInstallation::V2)
+                .map(|installed| RecoveredOperationInstallation::V2(Box::new(installed)))
         }
         _ => Err(invalid_structure("unsupported installation version")),
     }
@@ -162,7 +178,7 @@ pub(crate) fn restore_effect_catalog_entry(
     v1_operations: &BTreeMap<String, EchoOperationPackageIdV1>,
     installed: InstalledEffectOperationV2,
 ) -> Result<(), EchoOperationInstallationErrorV1> {
-    let pin = installed.package().identity();
+    let pin = installed.package_identity();
     let coordinate = installed.package().operation_coordinate();
     if let Some(existing) = packages.get(&pin) {
         if existing == &installed {

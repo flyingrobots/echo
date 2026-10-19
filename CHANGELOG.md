@@ -7,6 +7,15 @@
 
 ### Changed
 
+- Operation publications now use one `ExecutableOperationPackage`, one
+  `EchoOperationProgram` sum and one semantic closure. Fixed and authored-effect
+  program kinds share the current package/program schemas and identity domains;
+  the former V2 package type and decoder were removed. Program-kind validation
+  requires real lawpack bindings for fixed programs and forbids them for authored
+  effects. Invocation, admission-token and installation/catalog consolidation
+  remains separate unfinished work.
+
+
 - Recovery certificates now use one current operation-index recipe for empty,
   installation-only, receipt-bearing and Action-bearing histories. It binds
   count-prefixed retained sections, canonical installation ordering, and causal
@@ -37,10 +46,10 @@
   ceilings. It retains the V1 parent format without granting authority or
   establishing frontier freshness.
 
-- V2 effect publication preparation binds exact package/program bytes, validates
+- Current effect publication preparation binds exact package/program bytes, validates
   profile and Target IR equalities, and decodes the program's schema and exact
   footprint-law contract together. This does not admit, install or execute the
-  effect program; V1 package encodings and identities are unchanged.
+  effect program; all program kinds use the shared current publication codec.
 
 - Strict executable graph-schema preparation validates content/mutable node
   addressing, node/atom compatibility and edge endpoint-type relations with

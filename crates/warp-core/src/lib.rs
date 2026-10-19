@@ -260,7 +260,7 @@ pub use echo_operation::{
     echo_operation_atom_value_digest_v1,
     echo_operation_create_if_absent_target_profile_identity_v1, echo_operation_package_id_v1,
     echo_operation_target_profile_identity_v1, AdmittedEchoOperationInvocationV1,
-    AdmittedExecutableOperationPackageV1, EchoOperationActionDecisionCoordinateV1,
+    AdmittedExecutableOperationPackage, EchoOperationActionDecisionCoordinateV1,
     EchoOperationActionOutcomeV1, EchoOperationAdmissionError, EchoOperationAdmissionErrorKind,
     EchoOperationAdmissionPolicy, EchoOperationAnchoredNodeOccupancyV1,
     EchoOperationApplicationBasisV1, EchoOperationApplicationResultV1,
@@ -274,9 +274,9 @@ pub use echo_operation::{
     EchoOperationInvocationV1, EchoOperationObservationV1, EchoOperationObstructionIdV1,
     EchoOperationObstructionKindV1, EchoOperationObstructionV1, EchoOperationPackageAdmissionIdV1,
     EchoOperationPackageIdV1, EchoOperationPreparationV1, EchoOperationPrivateEvaluationIdV1,
-    EchoOperationProgramIdV1, EchoOperationProgramV1, EchoOperationReceiptV1,
-    EchoOperationResultIdV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    ExecutableOperationPackageV1, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
+    EchoOperationProgram, EchoOperationProgramIdV1, EchoOperationReceiptV1,
+    EchoOperationResultIdV1, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
+    ExecutableOperationPackage, InstalledEchoOperationIdV1, InstalledEchoOperationV1,
     PreparedEchoOperationIdV1, PreparedEchoOperationV1, ACTION_BATCH_CANDIDATE_LIMIT_V1,
 };
 pub use edict_target_ir::{

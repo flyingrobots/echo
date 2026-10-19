@@ -31,7 +31,7 @@ fn policy(
     budget: EchoOperationBudgetV1,
 ) -> EchoOperationAdmissionPolicy {
     EchoOperationAdmissionPolicy::exact(
-        hash(b"echo:operation-package:v2\0", bytes),
+        hash(b"echo:operation-package:v1\0", bytes),
         operation,
         authority,
         budget,
@@ -50,14 +50,14 @@ fn runtime_owner_admits_exact_publication_and_retains_separate_policy_evidence()
     let admitted = host
         .admit_echo_operation_package_v2(&policy, bytes.clone())
         .expect("exact policy admits");
-    assert_eq!(admitted.package().canonical_bytes(), bytes);
+    assert_eq!(admitted.canonical_package_bytes(), bytes);
     assert_eq!(
-        admitted.package().identity(),
-        hash(b"echo:operation-package:v2\0", &bytes)
+        admitted.package_identity(),
+        hash(b"echo:operation-package:v1\0", &bytes)
     );
     let mut oracle = blake3::Hasher::new();
     oracle.update(b"echo:operation-admission-policy:v1\0");
-    oracle.update(&hash(b"echo:operation-package:v2\0", &bytes));
+    oracle.update(&hash(b"echo:operation-package:v1\0", &bytes));
     oracle.update(&12u64.to_le_bytes());
     oracle.update(b"app.update@1");
     oracle.update(&[8; 32]);
@@ -70,7 +70,7 @@ fn runtime_owner_admits_exact_publication_and_retains_separate_policy_evidence()
     );
     let mut id = blake3::Hasher::new();
     id.update(b"echo:operation-package-admission:v2\0");
-    id.update(&hash(b"echo:operation-package:v2\0", &bytes));
+    id.update(&hash(b"echo:operation-package:v1\0", &bytes));
     id.update(oracle.finalize().as_bytes());
     assert_eq!(admitted.identity(), *id.finalize().as_bytes());
 }
@@ -113,7 +113,7 @@ fn runtime_policy_refuses_operation_authority_and_budget_substitution() {
 fn pin_identity_does_not_substitute_for_supported_artifact_validation() {
     let host = host();
     let mut value = package(&program());
-    set(&mut value, "schema", text("echo.operation-package/v1"));
+    set(&mut value, "schema", text("echo.operation-package/v2"));
     let bytes = encoded(&value);
     assert_eq!(
         host.admit_echo_operation_package_v2(
@@ -215,7 +215,7 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
     assert_ne!(first.identity(), second.identity());
     let mut wrong_domain = blake3::Hasher::new();
     wrong_domain.update(b"echo:operation-package-admission:v1\0");
-    wrong_domain.update(&first.package().identity());
+    wrong_domain.update(&first.package_identity());
     wrong_domain.update(&first.admission_policy_identity());
     assert_ne!(first.identity(), *wrong_domain.finalize().as_bytes());
 }

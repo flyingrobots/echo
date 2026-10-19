@@ -3,7 +3,8 @@
 //! Canonical publication fixtures for package and runtime-owner admission tests.
 #![allow(dead_code)]
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as V};
-use warp_core::edict_effects::{EffectPackageError, ExecutableOperationPackageV2};
+use warp_core::edict_effects::EffectPackageError;
+use warp_core::ExecutableOperationPackage;
 pub fn map(fields: impl IntoIterator<Item = (&'static str, V)>) -> V {
     V::Map(
         fields
@@ -61,13 +62,13 @@ pub fn law() -> V {
 }
 pub fn footprint(v: &V) -> V {
     let mut h = blake3::Hasher::new();
-    h.update(b"echo:operation-footprint-law:v2\0");
+    h.update(b"echo:operation-footprint-law:v1\0");
     h.update(&encoded(v));
     V::Bytes(h.finalize().as_bytes().to_vec())
 }
 pub fn program() -> V {
     map([
-        ("schema", text("echo.operation-program/v2")),
+        ("schema", text("echo.operation-program/v1")),
         ("kind", text("edict-effect-program/v1")),
         (
             "interpreter_profile_identity",
@@ -90,7 +91,7 @@ pub fn program() -> V {
 }
 pub fn package(program: &V) -> V {
     map([
-        ("schema", text("echo.operation-package/v2")),
+        ("schema", text("echo.operation-package/v1")),
         ("operation_coordinate", text("app.update@1")),
         ("obstruction_coordinate", text("app.Refusal")),
         ("authority_profile_identity", id(8)),
@@ -168,10 +169,10 @@ pub fn add(v: &mut V, k: &str, x: V) {
     let V::Map(m) = v else { panic!("map") };
     m.push((text(k), x));
 }
-pub fn prepare(v: &V) -> Result<ExecutableOperationPackageV2, EffectPackageError> {
+pub fn prepare(v: &V) -> Result<ExecutableOperationPackage, EffectPackageError> {
     let b = encoded(v);
-    let expected = hash(b"echo:operation-package:v2\0", &b);
-    ExecutableOperationPackageV2::prepare(&b, expected)
+    let expected = hash(b"echo:operation-package:v1\0", &b);
+    ExecutableOperationPackage::prepare(&b, expected)
 }
 pub fn refused(v: &V) {
     assert!(

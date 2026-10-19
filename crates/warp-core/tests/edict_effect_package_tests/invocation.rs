@@ -19,7 +19,7 @@ fn invocation(input: Vec<u8>) -> V {
         ("operation_coordinate", text("app.update@1")),
         (
             "package_id",
-            V::Bytes(hash(b"echo:operation-package:v2\0", &package_bytes).to_vec()),
+            V::Bytes(hash(b"echo:operation-package:v1\0", &package_bytes).to_vec()),
         ),
         ("application_input_bytes", V::Bytes(input.clone())),
         (
@@ -184,7 +184,13 @@ fn input_uses_the_selected_packages_smaller_ceiling_and_exact_outer_bytes() {
         set(
             &mut value,
             "package_id",
-            V::Bytes(selected.identity().to_vec()),
+            V::Bytes(
+                hash(
+                    b"echo:operation-package:v1\0",
+                    &selected.to_canonical_bytes().expect("selected publication"),
+                )
+                .to_vec(),
+            ),
         );
         assert_eq!(
             EffectInvocationV2::prepare(&encoded(&value), &selected).is_ok(),

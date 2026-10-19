@@ -2,11 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Static V2 input/basis binding, without installed authority or freshness.
 use super::package::{domain_hash, hash};
-use super::{EffectPackageError, ExecutableOperationPackageV2};
+use super::EffectPackageError;
 use crate::edict_pure::{
     values::{bytes, exact_fields, field, number, require_text, text},
     EvaluationError,
 };
+use crate::ExecutableOperationPackage;
 use crate::{EchoOperationBudgetV1, EchoOperationEvaluationBasisV1};
 use echo_edict_canonical::{decode_canonical_cbor_v1, CanonicalValueV1 as Value};
 /// Prepared invocation bytes, not an admitted Action or verified grant.
@@ -29,7 +30,7 @@ impl EffectInvocationV2 {
     /// Refuses malformed or inconsistent input, budget, package and basis fields.
     pub fn prepare(
         bytes: &[u8],
-        package: &ExecutableOperationPackageV2,
+        package: &ExecutableOperationPackage,
     ) -> Result<Self, EffectPackageError> {
         let value =
             decode_canonical_cbor_v1(bytes).map_err(|_| EffectPackageError::InvalidInvocation)?;
@@ -38,7 +39,7 @@ impl EffectInvocationV2 {
     fn parse(
         value: &Value,
         canonical: &[u8],
-        package: &ExecutableOperationPackageV2,
+        package: &ExecutableOperationPackage,
     ) -> Result<Self, EvaluationError> {
         exact_fields(
             value,
@@ -53,14 +54,22 @@ impl EffectInvocationV2 {
             ],
         )?;
         require_text(value, "schema", "echo.operation-invocation/v2")?;
-        if hash(field(value, "package_id")?)? != package.identity()
+        let publication = package
+            .to_canonical_bytes()
+            .map_err(|_| EvaluationError::InvalidArtifact)?;
+        let effect = package
+            .program()
+            .as_effect_program()
+            .ok_or(EvaluationError::InvalidArtifact)?;
+        if hash(field(value, "package_id")?)?
+            != domain_hash(b"echo:operation-package:v1\0", &publication)
             || text(field(value, "operation_coordinate")?)? != package.operation_coordinate()
         {
             return Err(EvaluationError::InvalidArtifact);
         }
         let input = bytes(field(value, "application_input_bytes")?)?;
         if u64::try_from(input.len()).map_err(|_| EvaluationError::InvalidArtifact)?
-            > package.max_input_bytes()
+            > effect.max_input_bytes()
         {
             return Err(EvaluationError::InvalidArtifact);
         }

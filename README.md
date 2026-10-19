@@ -173,9 +173,9 @@ runtime authority. Echo separately retains the Wesley compatibility path for
 host-constructed `InstalledContractPackage` values.
 
 Separately, Echo can now admit and install an exact canonical
-`ExecutableOperationPackageV1`, admit an exact-basis invocation under explicit
+`ExecutableOperationPackage`, admit an exact-basis invocation under explicit
 authority and delegated budget, evaluate its data-only
-`EchoOperationProgramV1` privately during scheduler-owned Tick construction,
+`EchoOperationProgram` privately during scheduler-owned Tick construction,
 and either commit its member consequence or return typed noncommit evidence.
 Two independent, same-basis executable Actions can enter one atomic Tick. The
 initial generic programs perform anchored typed-node alpha-attachment
@@ -250,11 +250,11 @@ Edict source
 The current executable-operation runtime slice is:
 
 ```text
-external compiler-produced ExecutableOperationPackageV1 bytes
+external compiler-produced ExecutableOperationPackage bytes
 -> structurally separate accepted verification report
 -> exact manifest, target-adapter, and target-configuration closure
 -> Echo-owned package and invocation admission
--> installed data-only EchoOperationProgramV1
+-> installed data-only EchoOperationProgram
 -> exact compiler-owned application-result projection
 -> exact canonical application input retained in the invocation
 -> canonical Action submission retained before acknowledgement

@@ -52,19 +52,19 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
         .expect("install");
     let mut identity_oracle = blake3::Hasher::new();
     identity_oracle.update(b"echo:operation-installation:v2\0");
-    identity_oracle.update(&token.package().identity());
+    identity_oracle.update(&token.package_identity());
     identity_oracle.update(&token.identity());
     identity_oracle.update(&12u64.to_le_bytes());
     identity_oracle.update(b"app.update@1");
-    identity_oracle.update(&token.package().program_identity());
-    identity_oracle.update(&(token.package().canonical_bytes().len() as u64).to_le_bytes());
-    identity_oracle.update(token.package().canonical_bytes());
+    identity_oracle.update(&token.program_identity());
+    identity_oracle.update(&(token.canonical_package_bytes().len() as u64).to_le_bytes());
+    identity_oracle.update(token.canonical_package_bytes());
     assert_eq!(installed.identity(), *identity_oracle.finalize().as_bytes());
     let first_frames = owner.runtime_wal().expect("wal").frames().len();
     assert_eq!(
         owner
             .engine()
-            .installed_echo_operation_package_v2(installed.package().identity()),
+            .installed_echo_operation_package_v2(installed.package_identity()),
         Some(&installed)
     );
     assert_eq!(
@@ -99,7 +99,7 @@ fn owner_installation_is_idempotent_and_fresh_filesystem_recovery_restores_exact
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v2(installed.package().identity()),
+            .installed_echo_operation_package_v2(installed.package_identity()),
         Some(&installed)
     );
 }
@@ -194,7 +194,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
     assert_eq!(
         owner
             .engine()
-            .installed_echo_operation_package_v2(installed.package().identity()),
+            .installed_echo_operation_package_v2(installed.package_identity()),
         Some(&installed)
     );
     assert_eq!(owner.runtime_wal().expect("wal").frames().len(), before);
@@ -212,14 +212,14 @@ fn install_v1(
     coordinate: &str,
 ) -> Result<warp_core::InstalledEchoOperationV1, warp_core::TrustedRuntimeHostError> {
     use warp_core::{
-        EchoOperationAdmissionPolicy, EchoOperationProgramV1, EchoOperationSemanticClosureV1,
-        ExecutableOperationPackageV1,
+        EchoOperationAdmissionPolicy, EchoOperationProgram, EchoOperationSemanticClosure,
+        ExecutableOperationPackage,
     };
     let budget = EchoOperationBudgetV1::new(16, 4096, 4096);
-    let legacy = ExecutableOperationPackageV1::new(
+    let legacy = ExecutableOperationPackage::new(
         coordinate,
         "app.LegacyRefusal",
-        EchoOperationSemanticClosureV1::new(
+        EchoOperationSemanticClosure::new(
             [1; 32],
             [2; 32],
             [3; 32],
@@ -232,7 +232,7 @@ fn install_v1(
         warp_core::echo_operation_target_profile_identity_v1(),
         [8; 32],
         budget,
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             make_type_id("legacy-node"),
             make_type_id("legacy-atom"),
             1024,
@@ -312,7 +312,7 @@ fn mixed_catalog_recovers_both_versions_and_certificate_binds_v2_installations()
     assert_eq!(
         fresh
             .engine()
-            .installed_echo_operation_package_v2(effect.package().identity()),
+            .installed_echo_operation_package_v2(effect.package_identity()),
         Some(&effect)
     );
 }
@@ -330,7 +330,7 @@ fn failed_wal_append_and_commit_do_not_publish_v2_registry_entries() {
             .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&dir.0))
             .expect("wal");
         let token = admitted(&owner);
-        let pin = token.package().identity();
+        let pin = token.package_identity();
         owner
             .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(target))
             .expect("fault");
@@ -372,7 +372,7 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
         "expected_authority_profile_identity",
         id(99),
     );
-    let pin = token.package().identity();
+    let pin = token.package_identity();
     let mut h = blake3::Hasher::new();
     h.update(b"echo:operation-admission-policy:v1\0");
     h.update(&pin);
@@ -404,9 +404,9 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
     h.update(&admission_id);
     h.update(&12u64.to_le_bytes());
     h.update(b"app.update@1");
-    h.update(&token.package().program_identity());
-    h.update(&(token.package().canonical_bytes().len() as u64).to_le_bytes());
-    h.update(token.package().canonical_bytes());
+    h.update(&token.program_identity());
+    h.update(&(token.canonical_package_bytes().len() as u64).to_le_bytes());
+    h.update(token.canonical_package_bytes());
     set(
         &mut value,
         "installed_operation_id",
@@ -424,7 +424,7 @@ fn readable_unsynced_installation_is_not_published_until_a_fresh_store_reopens()
         .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&dir.0))
         .expect("wal");
     let token = admitted(&owner);
-    let pin = token.package().identity();
+    let pin = token.package_identity();
     let package = token.package().clone();
     owner
         .inject_runtime_wal_filesystem_fault_for_test(FilesystemWalFaultPlan::fail_next(

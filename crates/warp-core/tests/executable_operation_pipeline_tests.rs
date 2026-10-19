@@ -27,8 +27,8 @@ use warp_core::{
     EchoOperationArtifactErrorKindV1, EchoOperationBudgetV1,
     EchoOperationInvocationAdmissionErrorKindV1, EchoOperationInvocationAdmissionPolicyV1,
     EchoOperationInvocationV1, EchoOperationObstructionKindV1, EchoOperationPreparationV1,
-    EchoOperationProgramV1, EchoOperationSemanticClosureV1, EchoOperationTerminalPostureV1,
-    EngineBuilder, ExecutableOperationPackageV1, GraphStore, HeadEligibility, InboxPolicy,
+    EchoOperationProgram, EchoOperationSemanticClosure, EchoOperationTerminalPostureV1,
+    EngineBuilder, ExecutableOperationPackage, GraphStore, HeadEligibility, InboxPolicy,
     IngressTarget, InstalledEchoOperationV1, NodeKey, NodeRecord, PlaybackMode, RuntimeError,
     RuntimeWalActivationGap, SchedulerKind, TrustedRuntimeHost, TrustedRuntimeHostError,
     TrustedRuntimeWalConfig, TrustedRuntimeWalError, WorldlineId, WorldlineRuntime, WorldlineState,
@@ -435,8 +435,8 @@ fn fixture_host_with_orphan_attachment(
     (host, head_key, node, orphan_node)
 }
 
-fn semantic_closure() -> EchoOperationSemanticClosureV1 {
-    EchoOperationSemanticClosureV1::new(
+fn semantic_closure() -> EchoOperationSemanticClosure {
+    EchoOperationSemanticClosure::new(
         digest("fixture-edict-source"),
         digest("edict-semantic-identity"),
         digest("fixture-edict-core"),
@@ -451,7 +451,7 @@ fn semantic_closure() -> EchoOperationSemanticClosureV1 {
 fn operation_package(
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
+) -> ExecutableOperationPackage {
     operation_package_at(OPERATION_COORDINATE, node_type, attachment_type)
 }
 
@@ -459,15 +459,15 @@ fn operation_package_at(
     operation_coordinate: &str,
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
-    ExecutableOperationPackageV1::new(
+) -> ExecutableOperationPackage {
+    ExecutableOperationPackage::new(
         operation_coordinate,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             node_type,
             attachment_type,
             1_024,
@@ -478,15 +478,15 @@ fn operation_package_at(
 fn creation_operation_package(
     node_type: warp_core::TypeId,
     attachment_type: warp_core::TypeId,
-) -> ExecutableOperationPackageV1 {
-    ExecutableOperationPackageV1::new(
+) -> ExecutableOperationPackage {
+    ExecutableOperationPackage::new(
         CREATE_OPERATION_COORDINATE,
         "echo.fixture.AlreadyExists/v1",
         semantic_closure(),
         warp_core::echo_operation_create_if_absent_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_create_if_absent(
+        EchoOperationProgram::anchored_node_attachment_create_if_absent(
             node_type,
             attachment_type,
             1_024,
@@ -1117,14 +1117,14 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         EchoOperationAdmissionErrorKind::ArtifactInvalid
     );
 
-    let unsupported_target_bytes = ExecutableOperationPackageV1::new(
+    let unsupported_target_bytes = ExecutableOperationPackage::new(
         OPERATION_COORDINATE,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         digest("unsupported-target-profile"),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             make_type_id("operation-fixture-node"),
             make_type_id("operation-fixture-atom"),
             1_024,
@@ -1237,14 +1237,14 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         EchoOperationAdmissionErrorKind::BudgetExceedsPolicy
     );
 
-    let impossible_package = ExecutableOperationPackageV1::new(
+    let impossible_package = ExecutableOperationPackage::new(
         OPERATION_COORDINATE,
         "echo.fixture.OperationObstruction/v1",
         semantic_closure(),
         warp_core::echo_operation_target_profile_identity_v1(),
         digest("fixture-authority-profile"),
         EchoOperationBudgetV1::new(1, 1, 1),
-        EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
             make_type_id("operation-fixture-node"),
             make_type_id("operation-fixture-atom"),
             1_024,

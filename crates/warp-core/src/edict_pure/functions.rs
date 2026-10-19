@@ -628,7 +628,9 @@ impl Heights<'_> {
                     .max(self.expr(end, depth + 1)?)
                     + 1
             }
-            Expr::ByteConcat { left, right, .. } | Expr::UnsignedSubtract { left, right, .. } => {
+            Expr::ByteConcat { left, right, .. }
+            | Expr::UnsignedSubtract { left, right, .. }
+            | Expr::UnsignedAdd { left, right, .. } => {
                 self.expr(left, depth + 1)?
                     .max(self.expr(right, depth + 1)?)
                     + 1

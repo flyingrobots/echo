@@ -94,6 +94,26 @@ not use it as an application authoring escape hatch.
 
 ## Execution Corridors
 
+### Bounded compiler-package computation
+
+`edict_pure::evaluate` interprets exact compiler-produced packages under an
+independently selected trusted-host pin and bounded input, work, storage and
+output limits. This is ordinary computation, not package admission, graph
+mutation, an Action, a Tick, a receipt or recovery evidence.
+
+The interpreter supports `core.integer.add<U32/U64>`. It validates both operands
+against the declared unsigned width and checks the sum before copying the
+result through the ordinary resource meter. Overflow and invalid operands
+refuse rather than wrap. The literal-boundary witness needs eight work units
+and three 64-byte value cells; one fewer work unit or storage byte refuses.
+The public compiler fixture and arithmetic meter test in
+`edict_unsigned_addition_tests` and `edict_pure::evaluate` cover these boundaries.
+
+Runtime parser support does not authorize a package or imply support in a
+native source-function provider judgment. The legacy-producer control fixture
+establishes execution of its emitted call, while strict provider and public
+source-function evidence remain separate obligations.
+
 ### Provider-v1 compatibility corridor
 
 The currently implemented Edict mutation corridor is:

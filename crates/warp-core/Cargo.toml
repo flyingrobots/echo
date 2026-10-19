@@ -244,3 +244,8 @@ required-features = ["delta_validate"]
 [[test]]
 name = "parallel_stress_multiwarp"
 required-features = ["delta_validate"]
+
+[[test]]
+name = "edict_effect_graph_schema_tests"
+path = "tests/edict_effect_graph_schema_tests.rs"
+required-features = ["trusted_runtime"]

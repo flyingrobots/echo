@@ -7,6 +7,11 @@
 
 ### Added
 
+- Strict executable graph-schema preparation validates content/mutable node
+  addressing, node/atom compatibility and edge endpoint-type relations with
+  exact canonical shapes and ordered sets. It grants no graph access or Action
+  admission authority.
+
 - Typed private frames can export bounded canonical read-set images while
   preserving their runtime parent and evaluation accounting. The aligned row
   format has explicit wire ordering, typed absence, value digests and packed

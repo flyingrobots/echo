@@ -635,3 +635,22 @@ trigger hidden retries or widen access.
   provider operation, and receipt evidence from the exact bound scheduler rule.
 - Runtime patches and receipts retain the generated package or rule-pack
   identity needed to explain execution.
+
+
+### Executable graph-schema preparation
+
+`EffectGraphSchema::from_canonical_bytes` decodes the graph contract required by
+the authored-effect V2 program direction. The root has exactly `node_types` and
+`edge_types`. A node-type entry has exactly `addressing` (`0` content or `1`
+mutable) and `atom_types`; an edge-type entry contains source/target node-type
+pairs. Every identifier is exactly 32 bytes. Set arrays are strictly ascending
+and distinct, including lexicographic ordering by both endpoint types. Invalid
+order or duplicates refuse rather than being normalized.
+
+The prepared value answers node-addressing, node/atom compatibility and edge
+endpoint-type membership queries. Empty relations deny membership. This is
+schema preparation, not graph-record resolution, identity-law enforcement,
+package authentication or Action admission. It creates no read or mutation
+capability. Input is bounded to 16 MiB and canonical decoding retains its
+combined node/depth ceilings; these host preparation allocations are outside
+the evaluation meter and do not implement its physical arena.

@@ -15,6 +15,8 @@ pub use read_image::{
     EffectEdgePairRow, EffectReadImageError, EffectReadRow, EffectReadSetImage, EffectReadSetView,
     EffectSlotRow,
 };
+mod schema;
+pub use schema::{EffectGraphSchema, EffectGraphSchemaError, EffectNodeAddressing};
 mod law;
 mod typed_reads;
 pub use law::{EffectFootprintLaw, EffectLawError};

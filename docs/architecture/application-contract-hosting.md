@@ -813,7 +813,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 42-file package-local carrier tree
+The publishable Rust crate uses a separate 44-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

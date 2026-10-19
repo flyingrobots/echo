@@ -178,7 +178,7 @@ unique expected inventory before resolving the root, caps that inventory at 256
 files and 64 MiB, caps an actual scan at 1,024 entries, and never opens or reads
 an unexpected regular file.
 
-`echo-edict-provider-assets` maintains the exact 42-file package-local carrier
+`echo-edict-provider-assets` maintains the exact 44-file package-local carrier
 tree under `assets/v1/`. The physical carrier names are packaging locations,
 not replacement source identities: generator provenance continues to name the
 original repository-relative authored paths. Read-only mode requires every

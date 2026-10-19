@@ -10,10 +10,12 @@ use super::{EvaluationError as Error, EvaluationLimits, EvaluationResult};
 // Fixed interpreter storage units; Rust layout and pointer width cannot alter cost.
 pub(crate) const VALUE_CELL_BYTES: u64 = 64;
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Meter {
     limits: EvaluationLimits,
     steps: u64,
     allocated: u64,
+    atomic_charges: bool,
 }
 
 impl Meter {
@@ -22,6 +24,14 @@ impl Meter {
             limits,
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
+        }
+    }
+
+    pub(crate) fn new_atomic(limits: EvaluationLimits) -> Self {
+        Self {
+            atomic_charges: true,
+            ..Self::new(limits)
         }
     }
 
@@ -37,10 +47,14 @@ impl Meter {
     }
 
     pub(crate) fn charge_steps(&mut self, count: u64) -> Result<(), Error> {
-        self.steps = self
+        let next = self
             .steps
             .checked_add(count)
             .ok_or(Error::StepBudgetExceeded)?;
+        if self.atomic_charges && next > self.limits.max_steps {
+            return Err(Error::StepBudgetExceeded);
+        }
+        self.steps = next;
         if self.steps > self.limits.max_steps {
             return Err(Error::StepBudgetExceeded);
         }
@@ -48,10 +62,14 @@ impl Meter {
     }
 
     pub(crate) fn allocate(&mut self, bytes: u64) -> Result<(), Error> {
-        self.allocated = self
+        let next = self
             .allocated
             .checked_add(bytes)
             .ok_or(Error::AllocationBudgetExceeded)?;
+        if self.atomic_charges && next > self.limits.max_allocated_bytes {
+            return Err(Error::AllocationBudgetExceeded);
+        }
+        self.allocated = next;
         if self.allocated > self.limits.max_allocated_bytes {
             return Err(Error::AllocationBudgetExceeded);
         }
@@ -84,9 +102,13 @@ impl Meter {
             .ok_or(Error::AllocationBudgetExceeded)?;
         self.charge_bytes(length)?;
         let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(length)
-            .map_err(|_| Error::AllocationBudgetExceeded)?;
+        bytes.try_reserve_exact(length).map_err(|_| {
+            if self.atomic_charges {
+                Error::HostAllocationFailed
+            } else {
+                Error::AllocationBudgetExceeded
+            }
+        })?;
         bytes.extend_from_slice(left);
         bytes.extend_from_slice(right);
         Ok(Value::Bytes(bytes))
@@ -117,12 +139,32 @@ impl Meter {
 }
 
 pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, Error> {
-    let mut meter = Meter {
-        limits: program.limits,
-        steps: 0,
-        allocated: 0,
-    };
-    validate(&input, &program.input_type, &mut meter, 0).map_err(|error| {
+    run_with_meter(program, input, &mut Meter::new(program.limits))
+}
+
+pub(crate) fn run_with_meter(
+    program: &Program,
+    input: Value,
+    meter: &mut Meter,
+) -> Result<EvaluationResult, Error> {
+    let saved = meter.limits;
+    // Each component retains its declared ceiling while the frame's absolute
+    // limits continue to bind cumulative work across all components and reads.
+    meter.limits.max_steps = saved
+        .max_steps
+        .min(meter.steps.saturating_add(program.limits.max_steps));
+    meter.limits.max_allocated_bytes = saved.max_allocated_bytes.min(
+        meter
+            .allocated
+            .saturating_add(program.limits.max_allocated_bytes),
+    );
+    let result = run_body(program, input, meter);
+    meter.limits = saved;
+    result
+}
+
+fn run_body(program: &Program, input: Value, meter: &mut Meter) -> Result<EvaluationResult, Error> {
+    validate(&input, &program.input_type, meter, 0).map_err(|error| {
         if error == Error::InvalidArtifact {
             Error::InvalidInput
         } else {
@@ -132,17 +174,17 @@ pub(super) fn run(program: &Program, input: Value) -> Result<EvaluationResult, E
     meter.charge(&input, 0)?;
     let mut locals = BTreeMap::from([(program.input_id.as_str(), input)]);
     for (coordinate, constraint) in &program.constraints {
-        if !predicate(constraint, &locals, &program.helpers, &mut meter, 0)? {
+        if !predicate(constraint, &locals, &program.helpers, meter, 0)? {
             return Err(Error::InputConstraintFailed(coordinate.clone()));
         }
     }
     for binding in &program.bindings {
-        let value = expression(&binding.value, &locals, &program.helpers, &mut meter, 0)?;
-        validate(&value, &binding.ty, &mut meter, 0)?;
+        let value = expression(&binding.value, &locals, &program.helpers, meter, 0)?;
+        validate(&value, &binding.ty, meter, 0)?;
         locals.insert(binding.id.as_str(), value);
     }
-    let result = expression(&program.result, &locals, &program.helpers, &mut meter, 0)?;
-    validate(&result, &program.output_type, &mut meter, 0)?;
+    let result = expression(&program.result, &locals, &program.helpers, meter, 0)?;
+    validate(&result, &program.output_type, meter, 0)?;
     // Encoding scratch is charged separately from the materialized result.
     meter.charge(&result, 0)?;
     let output = encode(&result).map_err(|_| Error::InvalidArtifact)?;
@@ -493,6 +535,7 @@ mod tests {
             limits,
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             meter.copy_bytes(&[0, 128, 255])?,
@@ -506,6 +549,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             work.copy_bytes(&[0, 128, 255]),
@@ -519,6 +563,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         assert_eq!(
             storage.copy_bytes(&[0, 128, 255]),
@@ -539,6 +584,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let length = Expr::ByteLength {
             min: 0,
@@ -567,6 +613,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let subtract = Expr::UnsignedSubtract {
             max: u64::MAX,
@@ -595,6 +642,7 @@ mod tests {
             },
             steps: 0,
             allocated: 0,
+            atomic_charges: false,
         };
         let value = Value::Map(vec![(
             Value::Text("id".into()),

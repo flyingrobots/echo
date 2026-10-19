@@ -7,6 +7,10 @@
 //! available. Preparing the basis and policy is outside the per-read budget.
 //! The interpreter, complete footprint law, bounded arena and portal authority
 //! validation still need to be connected before an authored-effect profile ships.
+mod frame;
+pub use frame::{EffectEvaluationFrame, EffectFrameError, EffectFrameSetupError};
+
+use crate::edict_pure::evaluate::Meter;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::echo_operation::EchoOperationBudgetMeterV1;
@@ -40,7 +44,7 @@ pub enum EffectRangeReadError {
     /// The whole source bucket cannot be scanned within the remaining limits.
     #[error("range read exceeds its budget")]
     BudgetExceeded,
-    /// Host storage could not be provisioned despite an admitted reservation.
+    /// Host storage could not be provisioned despite a successful reservation.
     ///
     /// This is a host fault. It must never become an Action obstruction or a
     /// retained decision; an integrating host must stop the evaluation.
@@ -149,10 +153,18 @@ impl<'a> EffectRangeReadSession<'a> {
         &mut self,
         range: OutgoingEdgeRange,
     ) -> Result<Option<Vec<EdgeRecord>>, EffectRangeReadError> {
+        self.read_with_meter(range, None)
+    }
+
+    fn read_with_meter(
+        &mut self,
+        range: OutgoingEdgeRange,
+        mut shared: Option<&mut Meter>,
+    ) -> Result<Option<Vec<EdgeRecord>>, EffectRangeReadError> {
         if !self.allowed_types.contains(&range.edge_type) {
             return Err(EffectRangeReadError::FootprintLawViolation);
         }
-        if !self.charge(1, 64, OBSERVATION_STORAGE_BYTES) {
+        if !self.charge(1, 64, OBSERVATION_STORAGE_BYTES, shared.as_deref_mut()) {
             return Err(EffectRangeReadError::BudgetExceeded);
         }
         let store = self.frontier.state().store(&range.source.warp_id);
@@ -172,7 +184,7 @@ impl<'a> EffectRangeReadSession<'a> {
             .checked_mul(2 * EDGE_RECORD_STORAGE_BYTES)
             .and_then(|rows| rows.checked_add(OBSERVATION_STORAGE_BYTES))
             .ok_or(EffectRangeReadError::BudgetExceeded)?;
-        if count > self.max_range_edges || !self.charge(count, bytes, storage) {
+        if count > self.max_range_edges || !self.charge(count, bytes, storage, shared) {
             return Err(EffectRangeReadError::BudgetExceeded);
         }
         let (value, observed) = if let Some(bucket) = bucket {
@@ -202,13 +214,26 @@ impl<'a> EffectRangeReadSession<'a> {
         Ok(value)
     }
 
-    fn charge(&mut self, steps: u64, read_bytes: u64, storage: u64) -> bool {
+    fn charge(
+        &mut self,
+        steps: u64,
+        read_bytes: u64,
+        storage: u64,
+        shared: Option<&mut Meter>,
+    ) -> bool {
         let Some(allocated) = self.allocated_bytes.checked_add(storage) else {
             return false;
         };
         let mut meter = self.meter;
         if allocated > self.max_allocated_bytes || !meter.charge(steps, read_bytes, 0) {
             return false;
+        }
+        if let Some(shared) = shared {
+            let mut candidate = *shared;
+            if candidate.charge_steps(steps).is_err() || candidate.allocate(storage).is_err() {
+                return false;
+            }
+            *shared = candidate;
         }
         self.meter = meter;
         self.allocated_bytes = allocated;

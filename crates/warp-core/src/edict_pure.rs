@@ -66,6 +66,9 @@ pub enum EvaluationError {
     StepBudgetExceeded,
     /// The cumulative value storage budget was exhausted.
     AllocationBudgetExceeded,
+    /// Reserved shared-frame storage could not be provisioned by the host.
+    /// This is a host fault and must never become an Action obstruction.
+    HostAllocationFailed,
     /// The canonical result exceeds its output budget.
     OutputBudgetExceeded,
 }
@@ -81,6 +84,16 @@ pub fn evaluate(
     input_bytes: &[u8],
     limits: EvaluationLimits,
 ) -> Result<EvaluationResult, EvaluationError> {
+    let (program, input) = prepare(package_bytes, verified_package_digest, input_bytes, limits)?;
+    evaluate::run(&program, input)
+}
+
+pub(crate) fn prepare(
+    package_bytes: &[u8],
+    verified_package_digest: [u8; 32],
+    input_bytes: &[u8],
+    limits: EvaluationLimits,
+) -> Result<(model::Program, echo_edict_canonical::CanonicalValueV1), EvaluationError> {
     if package_bytes.len() > limits.max_package_bytes.min(model::MAX_ARTIFACT_BYTES) {
         return Err(EvaluationError::PackageTooLarge);
     }
@@ -91,7 +104,7 @@ pub fn evaluate(
         decode_canonical_cbor_v1(package_bytes).map_err(|_| EvaluationError::InvalidArtifact)?;
     let program = decode::package(&package, verified_package_digest, limits)?;
     let input = decode_canonical_cbor_v1(input_bytes).map_err(|_| EvaluationError::InvalidInput)?;
-    evaluate::run(&program, input)
+    Ok((program, input))
 }
 
 #[cfg(test)]

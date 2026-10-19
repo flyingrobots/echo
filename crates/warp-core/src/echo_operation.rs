@@ -556,6 +556,10 @@ impl EchoOperationBudgetMeterV1 {
         true
     }
 
+    pub(crate) const fn delegated(self) -> EchoOperationBudgetV1 {
+        self.delegated
+    }
+
     pub(crate) const fn consumed(self) -> EchoOperationBudgetV1 {
         self.consumed
     }

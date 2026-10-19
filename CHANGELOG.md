@@ -13,6 +13,9 @@
   infrastructure for the unfinished authored-effect interpreter, without new
   installation or mutation authority. Read storage reservations now have a
   fixed ceiling, atomic charging with I/O and explicit host-allocation faults.
+  A trusted-host evaluation frame now shares cumulative work and storage with
+  the real pure interpreter, preserves each component's local ceiling and stops
+  after failure. Existing standalone APIs retain their accounting behavior.
 
 ### Fixed
 

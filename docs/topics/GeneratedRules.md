@@ -373,14 +373,31 @@ capacity reports `HostAllocationFailed`, not `BudgetExceeded`. That host fault
 must stop evaluation and must never become an Action obstruction or retained
 decision.
 
-This trusted-host primitive has no mutation or admission path. Logical
-value-storage reservations bound the row buffers and observation count; policy
-preparation, indexes and allocator overhead remain host storage. This is not
-the future shared interpreter arena. Complete node/atom footprint law,
-portal-chain authority, shared interpreter allocation accounting, interpreted
-read instructions, derived effects and installed-profile validation remain
-required before a new authored-effect profile can ship. Existing package
-profiles and graph accessors are unchanged.
+`EffectEvaluationFrame` connects that view to the real compiler-package pure
+interpreter through one cumulative step and allocation meter. It consumes an
+unused session and intersects the interpreter's ceilings with the session's
+limits. Current frame declarations are bounded by 1,048,576 steps, 64 MiB of
+read bytes, 16 MiB of write bytes and 16 MiB of value storage. These host-frame
+bounds do not establish an admitted operation-profile contract. An already-used session cannot reenter as unspent capacity. Each read
+must fit both the view's I/O limits and the shared computation/storage budget;
+failed read reservations change neither meter. Each pure component retains its
+own declared ceiling relative to its starting usage, while the absolute frame
+ceiling continues to bind all components together. Component limits are restored
+between calls without refunding work or storage. Any identity, input,
+computation, read or resource failure ends the frame; later calls do no work.
+The shared interpreter uses atomic failed charges. An admitted concatenation
+buffer that cannot be provisioned is a host fault, never budget exhaustion.
+The existing standalone pure/read APIs retain their prior accounting behavior.
+
+This is trusted-host composition of pinned pure packages and recorded reads.
+It provides no mutation or admission path and is not a compiler-authored
+effect-program format. Package/input decoding remains bounded host preparation.
+Logical value-storage reservations bound the row buffers and observation count;
+policy preparation, indexes and allocator overhead remain host storage. The
+physical interpreter arena, complete node/atom footprint law, portal-chain
+authority, interpreted read instructions, derived effects and installed-profile
+validation remain required before a new authored-effect profile can ship.
+Existing package profiles and graph accessors are unchanged.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.

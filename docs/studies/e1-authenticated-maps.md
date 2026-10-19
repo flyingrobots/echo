@@ -198,3 +198,15 @@ existing `state_root_computation_count_for_test`.
 - No production profile. Adoption still requires codec verification,
   mutation coverage, publication and recovery behaviour, and legacy
   compatibility, as revision 2 states.
+
+## Later findings
+
+Follow-ups on other branches answer this study's open items.
+
+- **F5's per-append cost is the state root.** Branch `claude/f5-state-root-count`, `docs/studies/f5-state-root-and-staged-recovery.md` there. Every append computes the whole reachable root exactly once. In tier M that is 96.4% of the append time.
+- **M1 shadow inside Echo.** Branch `claude/m1-shadow-probe-v2`, `docs/studies/m1-shadow-root-probe.md` there.
+  - **Result:** a `radix-v0` application root over every record, updated after each runtime commit, matches its independent rebuild through F5.
+  - **Cost:** in tier M, 184 ms of shadow against 5,923 ms of legacy root.
+- **M1 must not derive updates from `out_slots`.** A tick patch's `out_slots` omitted the runtime-ingress writes.
+  - **What it broke:** the first shadow, which failed parity, and the stale-Action corroboration check, which read the same list.
+  - **The repair:** branch `claude/corroboration-write-set`, which also has its own study.

@@ -556,6 +556,10 @@ proposal admission or fresh-engine effect recovery. Independent wire fixtures
 exercise malformed inputs, maximum counts, alignment and field encoding; real
 runtime witnesses exercise exact node bytes/digests, atoms, portals, absence,
 range packing, failed prefixes and preserved parent/resource metadata.
+The codec integration target declares `trusted_runtime` in Cargo's
+`required-features`; CI explicitly runs and lints it in the trusted-runtime
+lane. The feature-gated-test scheduling guard rejects missing declarations or
+missing feature-qualified CI execution.
 
 This is trusted-host composition of pinned pure packages and recorded reads.
 It provides no mutation or admission path and is not a compiler-authored

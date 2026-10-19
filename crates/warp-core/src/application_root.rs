@@ -84,7 +84,8 @@ pub fn empty_application_root() -> Hash {
     hash_parts(&[EMPTY_DOMAIN])
 }
 
-/// The leaf key of a record slot, or `None` for a boundary port.
+/// The leaf key of a record slot, or `None` for a boundary port or an
+/// outgoing-edge range.
 #[must_use]
 pub fn application_record_key(slot: &SlotId) -> Option<Hash> {
     Some(match slot {
@@ -98,7 +99,9 @@ pub fn application_record_key(slot: &SlotId) -> Option<Hash> {
             let plane = [u8::from(matches!(key.plane, AttachmentPlane::Beta))];
             hash_parts(&[RECORD_DOMAIN, &[tag], &warp_id.0, &local_id, &plane])
         }
-        SlotId::Port(_) => return None,
+        // A port is outside this reading; an outgoing-edge range is a read
+        // claim over edge records, each of which is its own leaf.
+        SlotId::Port(_) | SlotId::OutgoingEdges(_) => return None,
     })
 }
 
@@ -161,7 +164,7 @@ pub fn application_record_bytes(state: &WarpState, slot: &SlotId) -> Option<Vec<
                 .get(&edge.local_id)
                 .map(attachment_bytes),
         },
-        SlotId::Port(_) => None,
+        SlotId::Port(_) | SlotId::OutgoingEdges(_) => None,
     }
 }
 

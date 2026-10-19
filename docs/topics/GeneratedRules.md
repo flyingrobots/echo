@@ -336,6 +336,13 @@ but it still needs a deliberately false-footprint negative oracle before it may
 claim release qualification. Wesley still needs both a package emitter and its
 own positive installed generated-pack witness.
 
+The scheduler can reserve explicit outgoing-edge range claims, including empty
+ranges, as described in the [scheduler contract](../spec/scheduler-warp-core.md).
+This claim API does not instrument existing graph reads or edge writers. Range
+keys survive patch identity, retained provenance encoding and native Tick
+metadata. This does not admit a new authored-effect profile or qualify a
+generated package for release.
+
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.
 

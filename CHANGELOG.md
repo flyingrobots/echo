@@ -25,6 +25,15 @@
   `application_opening` and `verify_application_opening` expose the root and
   membership and absence openings.
 
+### Changed
+
+- Engine ticks no longer attribute footprint-conflict rejections while they
+  commit. `Engine::footprint_blockers` derives the blocking applied entries on
+  demand from the tick's starting state, so a contended tick no longer pays a
+  rejected-by-accepted footprint scan (10,000 rewrites at 50% contention:
+  274 ms to 9 ms). Receipt validation accepts a rejection without recorded
+  blockers. Probe; see `docs/studies/lazy-blockers.md`.
+
 ### Fixed
 
 - Stale-basis Action corroboration (#837) reads every slot a retained tick

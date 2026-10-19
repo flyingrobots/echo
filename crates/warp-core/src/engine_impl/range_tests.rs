@@ -121,7 +121,13 @@ fn a_real_tick_rejects_insertion_against_an_empty_range_and_retains_both_roles()
         receipt.entries()[1].disposition,
         TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
     );
-    assert_eq!(receipt.blocked_by(1), &[0]);
+    assert!(receipt.blocked_by(1).is_empty());
+    assert_eq!(
+        engine
+            .footprint_blockers(&initial, &receipt)
+            .expect("attribution is derivable"),
+        vec![Vec::new(), vec![0]]
+    );
     let slot = SlotId::OutgoingEdges(key);
     assert!(first.in_slots().contains(&slot));
     assert!(!first.out_slots().contains(&slot));

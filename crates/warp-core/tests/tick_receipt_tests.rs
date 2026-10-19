@@ -142,16 +142,17 @@ fn retained_receipt_parts_reject_every_noncanonical_blocker_shape() {
                 blocker_count: 1,
             },
         ),
-        (
-            vec![vec![], vec![], vec![]],
-            TickReceiptPartsError::RejectedEntryMissingBlockers { entry: 2 },
-        ),
     ] {
         assert_eq!(
             TickReceipt::try_from_retained_parts(tx, entries.clone(), blocked_by),
             Err(expected)
         );
     }
+
+    // A tick records that a candidate was rejected, not which applied
+    // candidates blocked it; those are derived on demand.
+    TickReceipt::try_from_retained_parts(tx, entries.clone(), vec![vec![], vec![], vec![]])
+        .expect("a rejection without recorded blockers should reconstruct");
 
     TickReceipt::try_from_retained_parts(tx, entries, vec![vec![], vec![], vec![0, 1]])
         .expect("canonical retained blockers should reconstruct");
@@ -270,6 +271,7 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
         .apply(tx, rule2_name, &entity)
         .expect("second apply succeeds");
 
+    let state_before = engine.state().clone();
     let (snapshot, receipt, patch) = engine.commit_with_receipt(tx).expect("commit_with_receipt");
 
     let entries = receipt.entries();
@@ -287,9 +289,15 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
         receipt.blocked_by(0).is_empty(),
         "applied entries should not have blockers"
     );
+    assert!(
+        receipt.blocked_by(1).is_empty(),
+        "a tick no longer records blockers"
+    );
     assert_eq!(
-        receipt.blocked_by(1),
-        &[0],
+        engine
+            .footprint_blockers(&state_before, &receipt)
+            .expect("blockers are derivable"),
+        vec![Vec::new(), vec![0]],
         "the rejected candidate should be blocked by the applied candidate"
     );
 
@@ -381,6 +389,7 @@ fn commit_with_receipt_records_multi_blocker_causality() {
     engine.apply(tx, RULE_B, &scope_b).expect("apply B");
     engine.apply(tx, RULE_C, &scope_a).expect("apply C");
 
+    let state_before = engine.state().clone();
     let (_snapshot, receipt, _patch) = engine.commit_with_receipt(tx).expect("commit_with_receipt");
     let entries = receipt.entries();
     assert_eq!(entries.len(), 3);
@@ -395,9 +404,12 @@ fn commit_with_receipt_records_multi_blocker_causality() {
 
     assert!(receipt.blocked_by(0).is_empty());
     assert!(receipt.blocked_by(1).is_empty());
+    assert!(receipt.blocked_by(2).is_empty());
     assert_eq!(
-        receipt.blocked_by(2),
-        &[0, 1],
+        engine
+            .footprint_blockers(&state_before, &receipt)
+            .expect("blockers are derivable"),
+        vec![Vec::new(), Vec::new(), vec![0, 1]],
         "combined write should be blocked by both prior applied candidates"
     );
 }

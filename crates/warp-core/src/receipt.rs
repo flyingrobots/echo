@@ -267,13 +267,6 @@ impl TickReceipt {
                         blocker_count: blockers.len(),
                     });
                 }
-                TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
-                    if blockers.is_empty() =>
-                {
-                    return Err(TickReceiptPartsError::RejectedEntryMissingBlockers {
-                        entry: entry_index,
-                    });
-                }
                 TickReceiptDisposition::Rejected(
                     TickReceiptRejection::ExecutableOperationObstruction,
                 ) if !blockers.is_empty() => {

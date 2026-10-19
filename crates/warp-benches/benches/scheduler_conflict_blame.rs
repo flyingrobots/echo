@@ -21,9 +21,9 @@
 //!
 //! The executor does nothing, so the time is scheduling, patch and hashing
 //! work. Rewrites are enqueued before the clock starts; the table reports the
-//! commit alone (drain, reserve, execute, receipt, snapshot). This engine
-//! records blockers at every tick, so there is no query to time and the last
-//! column reads n/a.
+//! commit alone (drain, reserve, execute, receipt, snapshot). Where the engine
+//! derives blockers on demand, the last column times one such query for the
+//! whole tick, from the state the tick began with.
 //!
 //! Settings (environment):
 //! - `ECHO_BENCH_REWRITES`: rewrites per tick, comma-separated
@@ -146,6 +146,7 @@ fn main() {
             let mut times = Vec::with_capacity(rounds);
             let mut applied = 0;
             let mut rejected = 0;
+            let mut blame = Duration::ZERO;
             for round in 0..rounds {
                 let (mut engine, ids) = build(n, contended);
                 let tx = engine.begin();
@@ -155,10 +156,19 @@ fn main() {
                         .expect("the benchmark rule applies");
                     assert!(matches!(result, ApplyResult::Applied));
                 }
+                let state_before = (round + 1 == rounds).then(|| engine.state().clone());
                 let started = Instant::now();
                 let (_snapshot, receipt, _patch) =
                     engine.commit_with_receipt(tx).expect("the tick commits");
                 times.push(started.elapsed());
+                if let Some(state_before) = state_before {
+                    let started = Instant::now();
+                    let blockers = engine
+                        .footprint_blockers(&state_before, &receipt)
+                        .expect("blockers are derivable");
+                    blame = started.elapsed();
+                    std::hint::black_box(blockers);
+                }
                 applied = receipt
                     .entries()
                     .iter()
@@ -169,9 +179,10 @@ fn main() {
             }
             times.sort();
             println!(
-                "| {n} | {overlap} | {applied} | {rejected} | {:.2} | {:.2} | n/a |",
+                "| {n} | {overlap} | {applied} | {rejected} | {:.2} | {:.2} | {:.2} |",
                 percentile(&times, 0.5),
-                percentile(&times, 0.9)
+                percentile(&times, 0.9),
+                blame.as_secs_f64() * 1_000.0
             );
         }
     }

@@ -12,7 +12,6 @@
 //!   Value versioning is recovered by interpretation along a worldline payload
 //!   `P = (μ0, …, μn-1)` via `ValueVersionId := (slot_id, tick_index)`.
 
-use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
@@ -404,14 +403,22 @@ impl WarpTickPatchV1 {
         out_slots.sort();
         out_slots.dedup();
         let ops = {
-            let mut op_map: std::collections::BTreeMap<WarpOpKey, WarpOp> =
-                std::collections::BTreeMap::new();
-            for op in ops {
-                // Last-wins: if multiple ops share the same canonical sort key, keep the
-                // last op provided by the caller and drop earlier duplicates.
-                op_map.insert(op.sort_key(), op);
+            let mut keyed: Vec<(WarpOpKey, WarpOp)> =
+                ops.into_iter().map(|op| (op.sort_key(), op)).collect();
+            // A stable sort keeps ops that share a key in the caller's order.
+            keyed.sort_by_key(|(key, _)| *key);
+            let mut canonical: Vec<WarpOp> = Vec::with_capacity(keyed.len());
+            let mut previous: Option<WarpOpKey> = None;
+            for (key, op) in keyed {
+                match canonical.last_mut() {
+                    // Last-wins: if multiple ops share the same canonical sort key, keep the
+                    // last op provided by the caller and drop earlier duplicates.
+                    Some(last) if previous == Some(key) => *last = op,
+                    _ => canonical.push(op),
+                }
+                previous = Some(key);
             }
-            op_map.into_values().collect::<Vec<_>>()
+            canonical
         };
         let digest = compute_patch_digest_v2(
             policy_id,
@@ -1047,7 +1054,12 @@ fn compute_patch_digest_v2(
     out_slots: &[SlotId],
     ops: &[WarpOp],
 ) -> ContentHash {
-    let mut h = Hasher::new();
+    // The encoding is gathered first and hashed in one call. Fed a few bytes
+    // at a time, BLAKE3 compresses one block per call; given the whole
+    // input, it can hash several chunks at once. The digest is the same.
+    let mut h = DigestBytes(Vec::with_capacity(
+        64 + 72 * (in_slots.len() + out_slots.len()) + 160 * ops.len(),
+    ));
     h.update(domain::PATCH_DIGEST_V1);
     // Patch format version.
     h.update(&2u16.to_le_bytes());
@@ -1058,10 +1070,19 @@ fn compute_patch_digest_v2(
     encode_slots(&mut h, in_slots);
     encode_slots(&mut h, out_slots);
     encode_ops(&mut h, ops);
-    h.finalize().into()
+    blake3::hash(&h.0).into()
 }
 
-fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
+/// The patch digest's input, gathered before it is hashed.
+struct DigestBytes(Vec<u8>);
+
+impl DigestBytes {
+    fn update(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+}
+
+fn encode_slots(h: &mut DigestBytes, slots: &[SlotId]) {
     h.update(&(slots.len() as u64).to_le_bytes());
     for slot in slots {
         match slot {
@@ -1100,7 +1121,7 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
 /// stable, versioned encoding for hashing (`patch_digest`). They are
 /// intentionally distinct from `WarpOp::sort_key`’s `kind` values, which exist
 /// only to define deterministic replay ordering.
-fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
+fn encode_ops(h: &mut DigestBytes, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
@@ -1164,7 +1185,7 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     }
 }
 
-fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
+fn encode_portal_init(h: &mut DigestBytes, init: &PortalInit) {
     match init {
         PortalInit::RequireExisting => {
             h.update(&[0u8]);
@@ -1176,7 +1197,7 @@ fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
     }
 }
 
-fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
+fn encode_attachment_key_opt(h: &mut DigestBytes, key: Option<&AttachmentKey>) {
     match key {
         None => {
             h.update(&[0u8]);
@@ -1188,7 +1209,7 @@ fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
     }
 }
 
-fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
+fn encode_attachment_key(h: &mut DigestBytes, key: &AttachmentKey) {
     let (owner_tag, plane_tag) = key.tag();
     h.update(&[owner_tag]);
     h.update(&[plane_tag]);
@@ -1204,7 +1225,7 @@ fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
     }
 }
 
-fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) {
+fn encode_attachment_value_opt(h: &mut DigestBytes, value: Option<&AttachmentValue>) {
     match value {
         None => {
             h.update(&[0u8]);
@@ -1216,7 +1237,7 @@ fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) 
     }
 }
 
-fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
+fn encode_attachment_value(h: &mut DigestBytes, value: &AttachmentValue) {
     match value {
         AttachmentValue::Atom(atom) => {
             h.update(&[1u8]);
@@ -1229,7 +1250,7 @@ fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
     }
 }
 
-fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
+fn encode_atom_payload(h: &mut DigestBytes, atom: &AtomPayload) {
     h.update(&(atom.type_id).0);
     h.update(&(atom.bytes.len() as u64).to_le_bytes());
     h.update(&atom.bytes);

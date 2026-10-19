@@ -169,10 +169,40 @@ The runtime refusal is hello-echo's pinned verification-report hash. The
 built package is identical at all three Echo revisions (`3665d692…`), but
 the verification report is `2541c826…` at the pin and `e3e3f37c…` at both
 `main` and the stack. So Echo changed the report somewhere between the pin
-and `main`, and the stack produces exactly what `main` produces. hello-echo's
-runtime cases have therefore not run against `main` or the stack. Running
-them needs hello-echo's pins advanced and its artifacts re-vendored, which is
-its owner's process.
+and `main`, and the stack produces exactly what `main` produces.
+
+### The fix
+
+hello-echo branch `claude/advance-producers` (`ca0d10e`, pushed, no pull
+request) advances the pins to Edict `0c8cf37` and Echo `4e801ef2`. Every
+change is traced to a producer:
+
+- three causal-cell artifacts re-vendored from Edict's fixture; every effect
+  and patch artifact already matched;
+- the source's lawpack import digest taken from the fixture's
+  `manifest.sha256`, as its README prescribes;
+- the result projection identity changed because Edict `cfcf61e` raised the
+  greeting projection's output bound from 512 to 2048 bytes;
+- the 13 typed result identities recomputed with Echo's
+  `application_result_identity`. The script first reproduced all 13
+  previous values from the previous projection identity.
+
+Every step of hello-echo's CI sequence then passes, at Echo `main` and at
+the stack `f118d7ef`: shell syntax, producer lock, the runtime witness, the
+effect and patch witnesses, stale output, writer-epoch assertions, and host
+fmt and clippy.
+
+**Finding: hello-echo is fragile by design.** It pins producers and their
+outputs byte for byte, so any upstream change to a fixture, a projection
+bound or a report encoding needs a manual pin advance. This one needed six
+kinds of edit.
+
+**Finding: 1 GB of build output, nearly all duplicated.** The application's
+own artifacts are about 4 MB. hello-echo's CI lint step passes
+`--target-dir .build/effect/host-target` and `.build/patch/host-target`, so
+each generated host builds Echo again: 528 MB and 527 MB. One shared target
+directory, or honouring `CARGO_TARGET_DIR`, would remove that. Those two
+directories were deleted after the run.
 
 ## The game fixture
 
@@ -186,6 +216,11 @@ measured, and nothing in this study comes from it.
   into the stack worktree while a campaign ran there. The suite had already
   compiled without it, but the fmt and clippy runs saw the uncommitted files
   and are void. The fixture moved to its own worktree.
+- **A rejected command that ran.** The user rejected a hello-echo run that
+  overrode the expected report hash, but it had already started. It edited
+  hello-echo's `tests/runtime.sh` in my worktree and passed at Echo `main`
+  before it was cut off. The edit was reverted, and the run is recorded in
+  the ledger as evidence of nothing except that it ran.
 - **A hidden refusal.** A runner hid the lock wrapper's JSON output, and the
   wrapper refused because its temporary directory had been removed. Two
   hello-echo runs then ran at the pin while labelled `main` and stack. They
@@ -223,6 +258,12 @@ decision the one that shapes the proof side.
    trees and proofs moving to sealed checkpoints.
 3. Whether the envelope and admission-time reservation are still wanted, for
    design rather than speed.
+4. Whether to land the commit-path fixes (`f118d7ef`). They change no digest
+   and are independent of M1, M2 and lazy blockers.
+5. Whether to open a pull request for hello-echo's `claude/advance-producers`.
+6. Whether a conflicting rewrite may be deferred to the next tick by a
+   declared `ConflictPolicy`, recorded in its receipt, rather than rejected
+   outright. ADR-0014 rules out hidden retry, not declared deferral.
 
 ## Reproduce
 

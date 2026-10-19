@@ -44,6 +44,32 @@ def results(log: Path) -> list[str]:
     return out or ["(no result lines)"]
 
 
+# Runs whose outputs are quoted verbatim: (output, title, note).
+VERBATIM = [
+    ("hello-hash.out", "hello-echo build artifact hashes", "Script: `hello-hash.sh`. `tests/runtime.sh` at the old pins expected package `3665d692…` and verification report `2541c826…`. The guard's `rc=1` comes from the script's last line, a `grep` that matched nothing; the three hash lines are complete."),
+    ("hello-override.out", "hello-echo with the report hash overridden (run the user rejected)", "Script: `hello-override.sh`. The user rejected this command, but it had already started: it edited `tests/runtime.sh`, passed at Echo `main`, and was cut off during the stack run. Not used as evidence of anything except that it ran."),
+    ("hello-fix-1.out", "hello-echo fix, run 1", "Script: `hello-fix.sh` (hello-echo's CI sequence). Pins advanced to Edict `0c8cf37`, Echo `4e801ef2`; causal-cell re-vendored."),
+    ("hello-fix-2.out", "hello-echo fix, run 2", "Source import digest updated from the fixture's `manifest.sha256`."),
+    ("hello-fix-3.out", "hello-echo fix, run 3", "Package, verification-report and manifest goldens set to the new producers' outputs."),
+    ("hello-fix-4.out", "hello-echo fix, run 4", "Projection identity golden updated (Edict `cfcf61e`)."),
+    ("hello-fix-5.out", "hello-echo fix, run 5: every CI step passes at Echo main", "Typed result identities recomputed with `result_ids.py`, which first reproduced all 13 previous values."),
+    ("hello-fix-stack.out", "hello-echo CI sequence at the stack `f118d7ef`", "Same as run 5 with the lock's Echo commit set to `f118d7ef` for this run only."),
+]
+
+
+def verbatim(campaigns: Path) -> None:
+    for name, title, note in VERBATIM:
+        path = campaigns / name
+        if not path.exists():
+            continue
+        print(f"## {title}\n\nCampaign output: `{name}`. {note}\n\n```text")
+        for line in path.read_text(errors="replace").splitlines():
+            if line.startswith(("== ", "GUARD END", "pin ", "main ", "stack ")) or "passed" in line or "assertions: all" in line:
+                if not line.startswith("+"):
+                    print(line[:240])
+        print("```\n")
+
+
 def main() -> None:
     campaigns, logs = Path(sys.argv[1]), Path(sys.argv[2])
     print("<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->")
@@ -86,3 +112,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    verbatim(Path(sys.argv[1]))

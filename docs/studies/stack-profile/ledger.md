@@ -604,10 +604,9 @@ vendor/causal-cell/manifest.cbor /Users/j/git/edict-claude-pin/fixtures/lawpack/
 
 Runner: `GUARD END rc=0 used=6.82 GiB elapsed=10s`
 
-
 ## hello-echo build artifact hashes
 
-Campaign output: `hello-hash.out` (script `hello-hash.sh`), verbatim. `runtime.sh` expects package `3665d692…` and verification report `2541c826…`. The guard's `rc=1` comes from the script's last line, a `grep` that matched nothing; the three hash lines are complete.
+Campaign output: `hello-hash.out`. Script: `hello-hash.sh`. `tests/runtime.sh` at the old pins expected package `3665d692…` and verification report `2541c826…`. The guard's `rc=1` comes from the script's last line, a `grep` that matched nothing; the three hash lines are complete.
 
 ```text
 pin echo=490134c0 build_rc=0 package=3665d692cdd120f1 report=2541c8263d95fdad
@@ -615,3 +614,131 @@ main echo=4e801ef2 build_rc=0 package=3665d692cdd120f1 report=e3e3f37cf970fc12
 stack echo=f118d7ef build_rc=0 package=3665d692cdd120f1 report=e3e3f37cf970fc12
 GUARD END rc=1 used=6.98 GiB elapsed=30s
 ```
+
+## hello-echo with the report hash overridden (run the user rejected)
+
+Campaign output: `hello-override.out`. Script: `hello-override.sh`. The user rejected this command, but it had already started: it edited `tests/runtime.sh`, passed at Echo `main`, and was cut off during the stack run. Not used as evidence of anything except that it ran.
+
+```text
+== hello-override-main @ echo 4e801ef2, edict df80f92
+== rc=0
+runtime witness suite passed: 1 golden, 1 deterministic rerun, 2 refusals, 1 boundary, 3 fixed-seed property, 8 stress
+== hello-override-stack @ echo f118d7ef, edict df80f92
+```
+
+## hello-echo fix, run 1
+
+Campaign output: `hello-fix-1.out`. Script: `hello-fix.sh` (hello-echo's CI sequence). Pins advanced to Edict `0c8cf37`, Echo `4e801ef2`; causal-cell re-vendored.
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=2
+GUARD END rc=2 used=7.97 GiB elapsed=30s
+```
+
+## hello-echo fix, run 2
+
+Campaign output: `hello-fix-2.out`. Source import digest updated from the fixture's `manifest.sha256`.
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=1
+GUARD END rc=1 used=8.14 GiB elapsed=20s
+```
+
+## hello-echo fix, run 3
+
+Campaign output: `hello-fix-3.out`. Package, verification-report and manifest goldens set to the new producers' outputs.
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=1
+GUARD END rc=1 used=8.14 GiB elapsed=10s
+```
+
+## hello-echo fix, run 4
+
+Campaign output: `hello-fix-4.out`. Projection identity golden updated (Edict `cfcf61e`).
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=1
+GUARD END rc=1 used=8.14 GiB elapsed=10s
+```
+
+## hello-echo fix, run 5: every CI step passes at Echo main
+
+Campaign output: `hello-fix-5.out`. Typed result identities recomputed with `result_ids.py`, which first reproduced all 13 previous values.
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=0
+runtime witness suite passed: 1 golden, 1 deterministic rerun, 2 refusals, 1 boundary, 3 fixed-seed property, 8 stress
+== effect :: sh -x ./tests/effect-runtime.sh
+== rc=0
+Hello Effect suite passed: 1 ordered golden, 1 relative artifact path, 1 retry, 1 conflict, 1 aperture substitution, 1 replay, 1 fresh world, 1 rootless unknown, 4 refusals, 1 observed-basis binding reached by 2 routes, 1 boundary probe, 2 
+== patch :: sh -x ./tests/patch-runtime.sh
+== rc=0
+Hello Effect patch suite passed: 1 ordered golden, 1 retry, 1 conflict, 1 aperture substitution, 1 replay, 2 reconciliation outcomes, 5 refusals, 1 malformed proposal, 1 boundary probe, 2 boundaries, 2 artifact refusals, 3 fixed-seed proper
+== cleans :: ./tests/build-cleans-output.sh
+== rc=0
+== assertions :: ./tests/writer-epoch-assertions.sh
+== rc=0
+writer epoch assertions: all cases passed
+== host-fmt :: sh -c cargo fmt --manifest-path .build/effect/host/Cargo.toml -- --check && cargo fmt --manifest-path .build/patch/host/Cargo.toml -- --check
+== rc=0
+== host-clippy :: sh -c cargo clippy --manifest-path .build/effect/host/Cargo.toml --target-dir .build/effect/host-target --all-targets -- -D warnings && cargo clippy --manifest-path .build/patch/host/Cargo.toml --target-dir .build/patch/ho
+== rc=0
+GUARD END rc=0 used=8.14 GiB elapsed=81s
+```
+
+## hello-echo CI sequence at the stack `f118d7ef`
+
+Campaign output: `hello-fix-stack.out`. Same as run 5 with the lock's Echo commit set to `f118d7ef` for this run only.
+
+```text
+== syntax :: sh -c for s in tests/*.sh tests/lib/*.sh; do test -e "$s" || continue; sh -n "$s" || exit 1; done
+== rc=0
+== lock :: ./tests/producer-lock.sh
+== rc=0
+== runtime :: sh -x ./tests/runtime.sh
+== rc=0
+runtime witness suite passed: 1 golden, 1 deterministic rerun, 2 refusals, 1 boundary, 3 fixed-seed property, 8 stress
+== effect :: sh -x ./tests/effect-runtime.sh
+== rc=0
+Hello Effect suite passed: 1 ordered golden, 1 relative artifact path, 1 retry, 1 conflict, 1 aperture substitution, 1 replay, 1 fresh world, 1 rootless unknown, 4 refusals, 1 observed-basis binding reached by 2 routes, 1 boundary probe, 2 
+== patch :: sh -x ./tests/patch-runtime.sh
+== rc=0
+Hello Effect patch suite passed: 1 ordered golden, 1 retry, 1 conflict, 1 aperture substitution, 1 replay, 2 reconciliation outcomes, 5 refusals, 1 malformed proposal, 1 boundary probe, 2 boundaries, 2 artifact refusals, 3 fixed-seed proper
+== cleans :: ./tests/build-cleans-output.sh
+== rc=0
+== assertions :: ./tests/writer-epoch-assertions.sh
+== rc=0
+writer epoch assertions: all cases passed
+== host-fmt :: sh -c cargo fmt --manifest-path .build/effect/host/Cargo.toml -- --check && cargo fmt --manifest-path .build/patch/host/Cargo.toml -- --check
+== rc=0
+== host-clippy :: sh -c cargo clippy --manifest-path .build/effect/host/Cargo.toml --target-dir .build/effect/host-target --all-targets -- -D warnings && cargo clippy --manifest-path .build/patch/host/Cargo.toml --target-dir .build/patch/ho
+== rc=0
+GUARD END rc=0 used=8.14 GiB elapsed=71s
+```
+

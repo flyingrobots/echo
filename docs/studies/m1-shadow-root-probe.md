@@ -111,3 +111,24 @@ reads.
   does not exercise them.
 - Concurrency.
 - The legacy root is still computed. Removing it is not M1's job.
+
+## After the fix
+
+Finding 1 is fixed on branch `claude/corroboration-write-set` (`3d32a2a8`, from `origin/main` `25308042`). `extend_echo_operation_written_slots_v1` now collects each patch's `out_slots` plus every slot its ops write, through `WarpOp::extend_written_slots`. A warp-instance upsert or delete makes the interval's writes unknown, so the whole-frontier rule applies across it.
+
+| Check | Result |
+| --- | --- |
+| New unit test `interval_written_slots_include_writes_outside_declared_footprints` | Without the fix it fails: `assertion failed: written.contains(&…SlotId::Node(event))` ([RED](m1-shadow-root-probe/fix-red.txt)). With the fix it passes ([GREEN](m1-shadow-root-probe/fix-green.txt)). |
+| Full `warp-core` suite, `native_rule_bootstrap,trusted_runtime,host_test`, on the fix branch | 1,942 passed. One failed: `special_files_are_rejected_before_a_read_attempt`, with "path must be shorter than SUN_LEN". It fails identically without the fix: the scratch `TMPDIR` path is too long for a Unix socket. |
+| Clippy `-D warnings` (with and without features) and fmt | Pass |
+
+This branch (`claude/m1-shadow-probe-v2`) cherry-picks the fix as `61b1a2b5`. The probe now takes its slots from the same write set corroboration uses, rather than its own mapping, and was run again ([output](m1-shadow-root-probe/shadow-probe-after-fix.txt)):
+
+| Tier | Parity | Records | Write-set slots per commit | Of which outside `out_slots` | Shadow / legacy root |
+| --- | --- | --- | --- | --- | --- |
+| S | holds | 1,218 | 7 | 3 | 8.0 / 18.3 ms |
+| M | holds | 30,066 | 7 | 3 | 184 / 5,923 ms |
+
+The write set now has seven slots per commit: the six the ops write plus the bucket node, which `out_slots` declares but the ops never write. With the fix, corroboration and the shadow use one definition of "written".
+
+On this branch, the library unit tests and the `executable_operation_pipeline_tests`, `trusted_runtime_host_loop_tests`, `scene_fixture_tests` and `f5_state_root_probe` targets all pass: 1,009 tests, none failed.

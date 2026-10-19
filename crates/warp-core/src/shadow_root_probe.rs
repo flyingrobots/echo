@@ -324,50 +324,6 @@ fn attachment_bytes(value: &AttachmentValue) -> Vec<u8> {
     }
 }
 
-/// The record slots an op can change. `None` for instance-level ops, which
-/// the probe answers with a full rebuild of the shadow.
-fn op_slots(op: &crate::tick_patch::WarpOp, out: &mut Vec<SlotId>) -> bool {
-    use crate::attachment::AttachmentKey;
-    use crate::ident::{EdgeKey, NodeKey};
-    use crate::tick_patch::WarpOp;
-    match op {
-        WarpOp::UpsertNode { node, .. } => out.push(SlotId::Node(*node)),
-        WarpOp::DeleteNode { node } => {
-            out.push(SlotId::Node(*node));
-            out.push(SlotId::Attachment(AttachmentKey::node_alpha(*node)));
-        }
-        WarpOp::UpsertEdge { warp_id, record } => out.push(SlotId::Edge(EdgeKey {
-            warp_id: *warp_id,
-            local_id: record.id,
-        })),
-        WarpOp::DeleteEdge {
-            warp_id, edge_id, ..
-        } => {
-            let edge = EdgeKey {
-                warp_id: *warp_id,
-                local_id: *edge_id,
-            };
-            out.push(SlotId::Edge(edge));
-            out.push(SlotId::Attachment(AttachmentKey::edge_beta(edge)));
-        }
-        WarpOp::SetAttachment { key, .. } => out.push(SlotId::Attachment(*key)),
-        WarpOp::OpenPortal {
-            key,
-            child_warp,
-            child_root,
-            ..
-        } => {
-            out.push(SlotId::Attachment(*key));
-            out.push(SlotId::Node(NodeKey {
-                warp_id: *child_warp,
-                local_id: *child_root,
-            }));
-        }
-        WarpOp::UpsertWarpInstance { .. } | WarpOp::DeleteWarpInstance { .. } => return false,
-    }
-    true
-}
-
 /// The canonical record bytes now at `slot`, or `None` when it is empty.
 fn slot_value(state: &WarpState, slot: &SlotId) -> Option<Vec<u8>> {
     match slot {
@@ -508,15 +464,16 @@ pub(crate) fn after_commit(
         }
     });
     shadow.map.meter = Meter::default();
-    let mut from_ops = Vec::new();
+    // The write set corroboration now uses: declared `out_slots` plus every
+    // slot the ops write; an instance-level op leaves it unknown.
+    let mut written: std::collections::BTreeSet<SlotId> = declared.iter().copied().collect();
     let mut instance_ops = 0;
     for op in ops_in {
-        if !op_slots(op, &mut from_ops) {
+        if !op.extend_written_slots(&mut written) {
             instance_ops += 1;
         }
     }
-    from_ops.sort();
-    from_ops.dedup();
+    let from_ops: Vec<SlotId> = written.into_iter().collect();
     let undeclared: Vec<SlotId> = from_ops
         .iter()
         .filter(|slot| declared.binary_search(slot).is_err() && !declared.contains(slot))

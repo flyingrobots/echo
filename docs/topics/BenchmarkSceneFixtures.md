@@ -10,7 +10,7 @@ This topic owns the benchmark fixture identity, validation and measurement
 contract. It relates to the scheduler performance contract in
 [`scheduler-performance-warp-core.md`](../benchmarks/scheduler-performance-warp-core.md).
 A fixture is a declared world, what happens to it, what is done
-with its history, and what must be true afterwards. Each fixture is modeled on
+with its history, and what must be true afterward. Each fixture is modeled on
 a real use of Echo, or on a shape a real use would produce.
 
 ## The fixture contract
@@ -314,7 +314,9 @@ Their conformance is checked by
 - **Outcomes, with expectations from the tier rather than from Echo.** Every
   append committed and none refused; exactly one admitted append per
   consecutive tick; every entry present with its scripted payload and an edge
-  from its bucket; the last recorded root equals the live root; the
+  from its bucket; the last recorded root equals the live root; retained-patch
+  replay reproduces the live root; checkpoint readings equal their recorded
+  roots; the
   supplied script matches the digest recorded from the executed script; the
   optional pinned script digest matches too.
 - **Canaries.** The test feeds the validator a missing accepted operation, an

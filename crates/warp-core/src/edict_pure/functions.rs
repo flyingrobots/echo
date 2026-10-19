@@ -381,7 +381,7 @@ fn infer(
                 .collect::<Result<Vec<_>, _>>()?;
             match (name, actual.as_slice(), declared.as_slice()) {
                 ("core.bytes.isUtf8", [actual], [expected @ RuntimeType::Bytes { .. }])
-                    if accepts(expected, actual) =>
+                    if expected == actual =>
                 {
                     Ok(RuntimeType::Bool)
                 }
@@ -452,6 +452,31 @@ fn check_predicate(
     depth: usize,
 ) -> Result<(), Error> {
     parser.enter(depth)?;
+    match text_field(value, "kind")? {
+        "all" => {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            if values.is_empty() {
+                return Err(Error::InvalidArtifact);
+            }
+            for value in values {
+                check_predicate(value, scope, definitions, source, parser, depth + 1)?;
+            }
+            return Ok(());
+        }
+        "not" => {
+            exact_fields(value, &["kind", "value"])?;
+            return check_predicate(
+                field(value, "value")?,
+                scope,
+                definitions,
+                source,
+                parser,
+                depth + 1,
+            );
+        }
+        _ => {}
+    }
     exact_fields(value, &["kind", "op", "left", "right"])?;
     require_text(value, "kind", "compare")?;
     let left = infer(
@@ -645,5 +670,131 @@ fn type_height(ty: &RuntimeType) -> usize {
             .max()
             .unwrap_or(0),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod predicate_validation_tests {
+    use super::*;
+    fn map(fields: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+        Value::Map(
+            fields
+                .into_iter()
+                .map(|(k, v)| (Value::Text(k.into()), v))
+                .collect(),
+        )
+    }
+    fn boolean(value: bool) -> Value {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("bool".into())),
+                    ("value", Value::Bool(value)),
+                ]),
+            ),
+        ])
+    }
+    fn compare() -> Value {
+        map([
+            ("kind", Value::Text("compare".into())),
+            ("op", Value::Text("==".into())),
+            ("left", boolean(true)),
+            ("right", boolean(false)),
+        ])
+    }
+    fn wrapper(kind: &str, value: Value) -> Value {
+        if kind == "all" {
+            map([
+                ("kind", Value::Text(kind.into())),
+                ("values", Value::Array(vec![value])),
+            ])
+        } else {
+            map([("kind", Value::Text(kind.into())), ("value", value)])
+        }
+    }
+    fn checked(wire: &Value) -> Result<(), Error> {
+        let types = Value::Map(vec![]);
+        let mut parser = Parser {
+            types: &types,
+            coordinate: "generic.predicates@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        check_predicate(
+            wire,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            true,
+            &mut parser,
+            0,
+        )
+    }
+    #[test]
+    fn source_helper_predicates_validate_closed_conjunction_negation_and_combined_depth() {
+        for (wrappers, accepted) in [(0, true), (63, true), (64, false)] {
+            let mut wire = compare();
+            for index in 0..wrappers {
+                wire = wrapper(if index % 2 == 0 { "all" } else { "not" }, wire);
+            }
+            if accepted {
+                assert_eq!(checked(&wire), Ok(()));
+            } else {
+                assert_eq!(checked(&wire), Err(Error::UnsupportedProgram));
+            }
+        }
+        assert_eq!(
+            checked(&map([
+                ("kind", Value::Text("all".into())),
+                ("values", Value::Array(vec![]))
+            ])),
+            Err(Error::InvalidArtifact)
+        );
+        let wire = map([
+            ("kind", Value::Text("all".into())),
+            (
+                "values",
+                Value::Array(vec![
+                    compare(),
+                    map([("kind", Value::Text("unknown".into()))]),
+                ]),
+            ),
+        ]);
+        assert_eq!(checked(&wire), Err(Error::InvalidArtifact));
+    }
+    #[test]
+    fn source_helper_utf8_requires_exact_operand_coordinate() {
+        let local = map([
+            ("id", Value::Text("arg.0".into())),
+            ("alphaName", Value::Text("$arg0".into())),
+            ("type", Value::Text("Bytes<max=32>".into())),
+        ]);
+        let scope = BTreeMap::from([("arg.0", &local)]);
+        for (declared, accepted) in [("Bytes<max=32>", true), ("Bytes<max=64>", false)] {
+            let call = map([
+                ("kind", Value::Text("call".into())),
+                ("callee", Value::Text("core.bytes.isUtf8".into())),
+                (
+                    "args",
+                    Value::Array(vec![map([
+                        ("kind", Value::Text("local".into())),
+                        ("ref", local.clone()),
+                    ])]),
+                ),
+                ("typeArgs", Value::Array(vec![Value::Text(declared.into())])),
+            ]);
+            let types = Value::Map(vec![]);
+            let mut parser = Parser {
+                types: &types,
+                coordinate: "generic.predicates@1",
+                remaining: MAX_PROGRAM_NODES,
+            };
+            let result = infer(&call, &scope, &BTreeMap::new(), true, &mut parser, 0);
+            if accepted {
+                assert_eq!(result, Ok(RuntimeType::Bool));
+            } else {
+                assert_eq!(result, Err(Error::UnsupportedProgram));
+            }
+        }
     }
 }

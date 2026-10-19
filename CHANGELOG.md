@@ -8,7 +8,8 @@
 ### Fixed
 
 - The native pure interpreter evaluates bounded UTF-8 byte predicates with
-  complete aperture charging and typed Boolean values.
+  complete aperture charging and typed Boolean values. Native provider judgments
+  independently validate matching helper/read guards and their bounded scan work.
 
 - Pure evaluation executes compiler-produced negated input guards, including
   authored no-op refusal after checked byte-range predicates, with bounded

@@ -375,8 +375,8 @@ helpers do not change its result or runtime counters. The bounded-read profile
 executes and charges its basis expression as part of the operation. This is a
 target-profile distinction, not permission to retain malformed basis authority.
 
-The source-function target subset supports unsigned words, bounded bytes,
-records and nominal types, with U32/U64 integer literals. Provider compatibility
+The native source-function target subset supports Boolean values, unsigned words,
+bounded bytes, records and nominal types, with Boolean and U32/U64 literals. Provider compatibility
 retains each nominal type's contract identity, which must match its resolved
 Core type-table key. Equal representations do not permit assignment, arguments,
 returns or comparisons across distinct nominal identities, or between a nominal
@@ -386,8 +386,13 @@ their declared unsigned width in both provider judgments and the shared
 pure/read runtime type parser, under its existing depth and work limits.
 Runtime values carry no additional
 nominal tag; materialization, validation and encoding bounds remain based on
-the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. Boolean, string, list, variant and effectful helper forms
-receive provider refusal.
+the representation. Both bounded-read provider judgments preserve nominal identity even when the optional source-function table is absent; basis and address roles inspect physical representation only at their explicit role checks. String, list, variant and effectful helper forms
+receive provider refusal. Native lowerer and independent verifier judgments
+check bounded UTF-8 byte calls with exact operand types, Boolean equality and
+closed nonempty conjunction/negation trees. Their static cost includes the
+full declared scan aperture; conjunction cost bounds every child even though
+execution may stop early. The verifier dependency census traverses nested
+predicates before checking helper call order and cycles.
 For modules containing source functions, partial subtraction and slicing need
 literal evidence sufficient for totality: ordered unsigned operands, or ordered
 U64 slice offsets within the operand's guaranteed minimum length. Caller
@@ -669,9 +674,10 @@ The native lowerer source additionally recognizes the opt-in
 `compiler-produced-bounded-read/v1` configuration. This separate profile carries
 explicit read-count and aggregate read-byte ceilings; it does not reinterpret
 pure packages as effectful programs. Its expression subset includes typed
-source/imported helper calls, U32/U64 constants, lazy conditionals, byte length
-and concatenation, locals, record construction/selection, byte equality, and
-unsigned equality or ordering guards. The source-function totality and resource
+source/imported helper calls, Boolean and U32/U64 constants, lazy conditionals,
+byte length, UTF-8 validation and concatenation, locals, record construction/selection,
+byte/Boolean equality, unsigned equality or ordering guards, and closed
+conjunction/negation trees. The source-function totality and resource
 rules above also apply to this route. Reads select opaque atom bytes by
 WARP/node/expected-type IDs.
 Core and ordered Target IR must agree on every producer, guard, failure mapping,

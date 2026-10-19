@@ -1,24 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![cfg(all(
-    feature = "application_root_shadow",
-    feature = "native_rule_bootstrap",
-    feature = "trusted_runtime"
-))]
 #![allow(clippy::expect_used, clippy::panic)]
 //! The experimental incremental application root (M1) through the F5 scene
 //! fixture: the live root equals its full rebuild after every append, replay
 //! reproduces it, and the legacy state root is unaffected.
 
+#[cfg(all(
+    feature = "application_root_shadow",
+    feature = "native_rule_bootstrap",
+    feature = "trusted_runtime"
+))]
 #[path = "../benches/support/action_scene.rs"]
 #[allow(dead_code)]
 mod action_scene;
+#[cfg(all(
+    feature = "application_root_shadow",
+    feature = "native_rule_bootstrap",
+    feature = "trusted_runtime"
+))]
 #[path = "../benches/support/fixtures/mod.rs"]
 #[allow(dead_code)]
 mod fixtures;
 
+#[cfg(all(
+    feature = "application_root_shadow",
+    feature = "native_rule_bootstrap",
+    feature = "trusted_runtime"
+))]
 use fixtures::think_append;
 
+#[cfg(all(
+    feature = "application_root_shadow",
+    feature = "native_rule_bootstrap",
+    feature = "trusted_runtime"
+))]
 #[test]
 fn f5_application_root_is_incremental_exact_and_replayable() {
     // Tier M replays 5,000 appends several times; it is for optimised

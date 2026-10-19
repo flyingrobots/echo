@@ -807,11 +807,22 @@ is volatile; activating an empty WAL cannot attest that earlier volatile
 installation as durable authority.
 
 The existing installation transaction and catalog-frontier recipes bind the
-versioned retained bytes. Recovery certificates include both catalogs. V1-only
-index commitments retain the original recipe and order; mixed catalogs order
-exact retained records by raw package identity, with retained bytes breaking a
-tie. A fresh filesystem-backed host restores both installation versions and
-rechecks coordinate conflicts. This is installation recovery, not recovery of
+versioned retained bytes. Recovery certificates use one current operation-index
+recipe, under `echo:trusted-runtime-wal:executable-operation-index:v3\0`, for
+every catalog and outcome shape. It hashes the preceding index root, then three
+count-prefixed sections: installations, execution receipts, and Action outcomes.
+Each record is length-prefixed. Installations are ordered by raw package identity
+and then retained bytes; receipts and Action outcomes retain their causal order.
+Action-outcome records bind the submission and ingress identities as well as the
+typed outcome. Empty sections contribute their zero counts, including when all
+three sections are empty. There is no older index recipe, empty-index bypass,
+or recipe switch based on the presence of effect installations or Action outcomes.
+The historical index recipes were removed under the one-current-version policy.
+
+The package and installation definitions still have the parallel versions
+described above; the index cutover does not complete their replacement. A fresh
+filesystem-backed host currently restores those installations and rechecks
+coordinate conflicts. This is installation recovery, not recovery of
 an authored-effect decision. Invocation grant admission, compiled execution,
 physical allocation, derived effects and Action/Tick/receipt recovery remain
 unfinished.

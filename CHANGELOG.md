@@ -7,6 +7,12 @@
 
 ### Changed
 
+- Recovery certificates now use one current operation-index recipe for empty,
+  installation-only, receipt-bearing and Action-bearing histories. It binds
+  count-prefixed retained sections, canonical installation ordering, and causal
+  receipt/outcome ordering. Historical index recipes and conditional switches
+  were removed; this does not consolidate the remaining package formats.
+
 - Operation package admission now uses one `EchoOperationAdmissionPolicy`,
   one structured refusal contract, and shared authority/operation/budget checks.
   Version-specific policy definitions were removed; runtime entry points,

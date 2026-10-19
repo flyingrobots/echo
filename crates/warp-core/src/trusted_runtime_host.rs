@@ -7658,36 +7658,34 @@ mod tests {
         .expect("the recovery parent-state fixture is lawful")
     }
 
-    #[test]
-    fn executable_operation_index_preserves_legacy_root_without_action_outcomes() {
-        let operation_coordinate = "echo.test.LegacyRecoveryIndex.v1";
+    fn recovery_index_installation(operation_coordinate: &str) -> InstalledEchoOperationV1 {
         let authority_profile_identity = [0x17; 32];
         let budget = crate::EchoOperationBudgetV1::new(7, 1_024, 1_024);
         let package = crate::ExecutableOperationPackageV1::new(
             operation_coordinate,
-            "echo.test.LegacyRecoveryIndex.Obstruction.v1",
+            "echo.test.RecoveryIndex.Obstruction.v1",
             crate::EchoOperationSemanticClosureV1::new(
                 [0x10; 32],
                 [0x11; 32],
                 [0x12; 32],
                 [0x13; 32],
-                "echo.test.legacy-index-schema/v1",
+                "echo.test.recovery-index-schema/v1",
                 [0x14; 32],
-                "echo.test.legacy-index-lawpack/v1",
+                "echo.test.recovery-index-lawpack/v1",
                 [0x15; 32],
             ),
             crate::echo_operation_target_profile_identity_v1(),
             authority_profile_identity,
             budget,
             crate::EchoOperationProgramV1::anchored_node_attachment_compare_and_set(
-                crate::make_type_id("legacy-index-node"),
-                crate::make_type_id("legacy-index-attachment"),
+                crate::make_type_id("recovery-index-node"),
+                crate::make_type_id("recovery-index-attachment"),
                 128,
             ),
         );
         let package_bytes = package
             .to_canonical_bytes()
-            .expect("the legacy-index package is canonical");
+            .expect("the recovery-index package is canonical");
         let package_id = crate::echo_operation_package_id_v1(&package_bytes);
         let admitted = admit_package_v1(
             &crate::EchoOperationAdmissionPolicy::exact(
@@ -7698,19 +7696,55 @@ mod tests {
             ),
             package_bytes,
         )
-        .expect("the legacy-index package is admitted");
-        let installed =
-            installed_from_admitted(admitted).expect("the legacy-index package installs");
+        .expect("the recovery-index package is admitted");
+        installed_from_admitted(admitted).expect("the recovery-index package installs")
+    }
 
+    #[test]
+    fn operation_index_uses_one_current_recipe_even_without_action_outcomes() {
+        let base = [0x20; 32];
+        let installed = recovery_index_installation("echo.test.RecoveryIndex.a");
+        let bytes = retain_installation_v1(&installed).expect("retained installation");
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
+        expected.update(&base);
+        expected.update(&1u64.to_le_bytes());
+        expected.update(&(bytes.len() as u64).to_le_bytes());
+        expected.update(&bytes);
+        expected.update(&0u64.to_le_bytes()); // No execution receipts.
+        expected.update(&0u64.to_le_bytes()); // No Action outcomes.
         assert_eq!(
-            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[], &[])
-                .expect("the legacy index root is computable"),
-            [
-                0xf9, 0xcf, 0x53, 0xf2, 0xad, 0xaf, 0x93, 0x1a, 0xa0, 0xe6, 0x06, 0xc6, 0x5a, 0x91,
-                0x6f, 0xfa, 0x0b, 0x4f, 0xf5, 0x50, 0x66, 0x32, 0x8c, 0x1c, 0x48, 0xf7, 0x22, 0xcd,
-                0x1e, 0x0d, 0x40, 0x2e,
-            ]
+            recovered_echo_operation_index_root(base, &[installed], &[], &[], &[])
+                .expect("current index"),
+            *expected.finalize().as_bytes(),
         );
+    }
+
+    #[test]
+    fn operation_index_canonicalizes_installation_order_without_a_second_catalog() {
+        let a = recovery_index_installation("echo.test.RecoveryIndex.a");
+        let b = recovery_index_installation("echo.test.RecoveryIndex.b");
+        let forward =
+            recovered_echo_operation_index_root([0x20; 32], &[a.clone(), b.clone()], &[], &[], &[])
+                .expect("forward catalog");
+        let reversed = recovered_echo_operation_index_root([0x20; 32], &[b, a], &[], &[], &[])
+            .expect("reversed catalog");
+        assert_eq!(forward, reversed);
+    }
+
+    #[test]
+    fn operation_index_commits_empty_sections_under_the_same_current_domain() {
+        let base = [0x20; 32];
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
+        expected.update(&base);
+        for _ in 0..3 {
+            expected.update(&0u64.to_le_bytes());
+        }
+        let root = recovered_echo_operation_index_root(base, &[], &[], &[], &[])
+            .expect("empty current index");
+        assert_eq!(root, *expected.finalize().as_bytes());
+        assert_ne!(root, base);
     }
 
     #[test]
@@ -9100,70 +9134,37 @@ fn recovered_echo_operation_index_root(
     receipts: &[EchoOperationReceiptV1],
     action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
 ) -> Result<Hash, TrustedRuntimeWalError> {
-    let legacy_root = recovered_echo_operation_legacy_index_root(
-        base_root,
-        installations,
-        effect_installations,
-        receipts,
-    )?;
-    if action_outcomes.is_empty() {
-        return Ok(legacy_root);
+    let mut catalog = installations
+        .iter()
+        .map(|installed| {
+            Ok((
+                installed.package_id().as_hash(),
+                retain_installation_v1(installed)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, TrustedRuntimeWalError>>()?;
+    for installed in effect_installations {
+        catalog.push((installed.package().identity(), installed.retained_bytes()?));
     }
+    catalog.sort_unstable();
+
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v2\0");
-    hasher.update(&legacy_root);
-    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
-    for (submission_id, ingress_id, outcome) in action_outcomes {
-        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
+    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v3\0");
+    hasher.update(&base_root);
+    hasher.update(&(catalog.len() as u64).to_le_bytes());
+    for (_, bytes) in catalog {
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
-    }
-    Ok(hasher.finalize().into())
-}
-
-fn recovered_echo_operation_legacy_index_root(
-    base_root: Hash,
-    installations: &[InstalledEchoOperationV1],
-    effect_installations: &[InstalledEffectOperationV2],
-    receipts: &[EchoOperationReceiptV1],
-) -> Result<Hash, TrustedRuntimeWalError> {
-    if installations.is_empty() && effect_installations.is_empty() && receipts.is_empty() {
-        return Ok(base_root);
-    }
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
-    hasher.update(&base_root);
-    if effect_installations.is_empty() {
-        // Preserve the original V1-only recipe, including supplied record order.
-        hasher.update(&(installations.len() as u64).to_le_bytes());
-        for installed in installations {
-            let bytes = retain_installation_v1(installed)?;
-            hasher.update(&(bytes.len() as u64).to_le_bytes());
-            hasher.update(&bytes);
-        }
-    } else {
-        let mut catalog = installations
-            .iter()
-            .map(|installed| {
-                Ok((
-                    installed.package_id().as_hash(),
-                    retain_installation_v1(installed)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, TrustedRuntimeWalError>>()?;
-        for installed in effect_installations {
-            catalog.push((installed.package().identity(), installed.retained_bytes()?));
-        }
-        catalog.sort_unstable();
-        hasher.update(&(catalog.len() as u64).to_le_bytes());
-        for (_, bytes) in catalog {
-            hasher.update(&(bytes.len() as u64).to_le_bytes());
-            hasher.update(&bytes);
-        }
     }
     hasher.update(&(receipts.len() as u64).to_le_bytes());
     for receipt in receipts {
         let bytes = receipt.to_canonical_bytes()?;
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
+    }
+    hasher.update(&(action_outcomes.len() as u64).to_le_bytes());
+    for (submission_id, ingress_id, outcome) in action_outcomes {
+        let bytes = retain_action_outcome_v1(*submission_id, *ingress_id, outcome)?;
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }

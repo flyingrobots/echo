@@ -7025,3 +7025,89 @@ fn equal_application_records_do_not_decide_a_held_actions_eligibility() {
         "an obstruction writes nothing"
     );
 }
+
+#[test]
+fn recovery_index_binds_retained_sections_and_action_attribution_under_one_recipe() {
+    let wal_dir = TempWalDir::new();
+    let (mut host, head_key, nodes) = fixture_host_with_independent_nodes(2);
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("the WAL opens");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    for node in nodes {
+        let invocation = action_invocation(&host, &installed, head_key, node, b"before", b"after");
+        submit_action(&mut host, head_key, invocation);
+    }
+    host.tick_once().expect("both Actions commit");
+    let recovery = host
+        .runtime_wal()
+        .expect("WAL")
+        .recover_read_only()
+        .expect("recovery");
+    let root = recovery.certificate.recovered_indexes_root;
+    assert_eq!(recovery.recomputed_indexes_root().expect("index"), root);
+    assert_eq!(recovery.installed_echo_operations.len(), 1);
+    assert_eq!(recovery.echo_operation_action_outcomes.len(), 2);
+
+    let mut missing_installation = recovery.clone();
+    missing_installation.installed_echo_operations.clear();
+    assert_ne!(
+        missing_installation
+            .recomputed_indexes_root()
+            .expect("index"),
+        root
+    );
+    let mut missing_outcomes = recovery.clone();
+    missing_outcomes.echo_operation_action_outcomes.clear();
+    assert_ne!(
+        missing_outcomes.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_submission = recovery.clone();
+    changed_submission.echo_operation_action_outcomes[0].0[0] ^= 1;
+    assert_ne!(
+        changed_submission.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_ingress = recovery.clone();
+    changed_ingress.echo_operation_action_outcomes[0].1[0] ^= 1;
+    assert_ne!(
+        changed_ingress.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let mut changed_order = recovery.clone();
+    changed_order.echo_operation_action_outcomes.swap(0, 1);
+    assert_ne!(
+        changed_order.recomputed_indexes_root().expect("index"),
+        root
+    );
+    let EchoOperationActionOutcomeV1::Committed(receipt) =
+        &recovery.echo_operation_action_outcomes[0].2
+    else {
+        panic!("the first Action committed");
+    };
+    let mut changed_receipts = recovery.clone();
+    changed_receipts
+        .echo_operation_receipts
+        .push((**receipt).clone());
+    assert_ne!(
+        changed_receipts.recomputed_indexes_root().expect("index"),
+        root
+    );
+
+    drop(host);
+    let (mut fresh, _, _) = fixture_host_with_independent_nodes(2);
+    fresh
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
+        .expect("fresh host restores the original decisions");
+    let reopened = fresh
+        .runtime_wal()
+        .expect("reopened WAL")
+        .recover_read_only()
+        .expect("recovery");
+    assert_eq!(reopened.certificate.recovered_indexes_root, root);
+    assert_eq!(
+        reopened.echo_operation_action_outcomes,
+        recovery.echo_operation_action_outcomes
+    );
+}

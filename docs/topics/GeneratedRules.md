@@ -389,6 +389,22 @@ The shared interpreter uses atomic failed charges. An admitted concatenation
 buffer that cannot be provisioned is a host fault, never budget exhaustion.
 The existing standalone pure/read APIs retain their prior accounting behavior.
 
+`TrustedRuntimeHost::effect_evaluation_frame_v1` can now construct that frame
+against an expected full runtime parent. The host resolves the registered writer,
+worldline tick, committing global tick, state root and commit identity through
+the existing scheduler basis resolver, compares all runtime fields, and borrows
+its own frontier. Equal reading coordinates from a different commit history are
+refused before constructing a frame. The immutable host borrow prevents a
+scheduler tick during the frame's lifetime. The typed application basis is
+carried as a proposition; this constructor does not validate application input
+or grant invocation authority. A frame constructed by this host method exposes
+its full `evaluation_basis`; low-level `EffectEvaluationFrame::new` frames expose
+`None` and cannot mint a runtime-bound coordinate from caller-supplied storage.
+This is private host composition, not an installed or admitted effect profile.
+The state-root/by-key caveat of the low-level reading coordinate, complete
+node/atom/portal authorization and recovery obligations remain as described
+above and below.
+
 This is trusted-host composition of pinned pure packages and recorded reads.
 It provides no mutation or admission path and is not a compiler-authored
 effect-program format. Package/input decoding remains bounded host preparation.

@@ -104,6 +104,9 @@ const ECHO_OPERATION_ACTION_ADMISSION_DIGEST_DOMAIN: &[u8] =
 /// Error returned by the reference trusted host loop.
 #[derive(Debug, Error)]
 pub enum TrustedRuntimeHostError {
+    /// A private effect frame could not bind its parent or resource limits.
+    #[error("trusted runtime host effect frame setup error: {0}")]
+    EffectFrameSetup(#[from] crate::edict_effects::EffectFrameSetupError),
     /// Provenance initialization failed.
     #[error("trusted runtime host provenance error: {0}")]
     Provenance(#[from] HistoryError),
@@ -1158,6 +1161,51 @@ impl TrustedRuntimeHost {
             application_basis,
         )
         .map_err(TrustedRuntimeHostError::from)
+    }
+
+    /// Starts a private computation/read frame at an exact current parent.
+    ///
+    /// The runtime resolves the writer, ticks, root and commit identity itself
+    /// and borrows its own frontier. It never accepts caller-supplied storage.
+    /// The immutable host borrow prevents a scheduler tick during this frame.
+    /// Policy and limits are trusted-host inputs, not application authority.
+    /// The typed application basis remains a proposition; this constructor does
+    /// not validate it against application input. This is not package admission,
+    /// installed dispatch or a mutation path.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unknown writer, a stale or substituted full parent, or invalid
+    /// resource declarations before creating a frame or recording a read.
+    pub fn effect_evaluation_frame_v1(
+        &self,
+        expected: EchoOperationEvaluationBasisV1,
+        allowed_range_types: &[crate::TypeId],
+        max_range_edges: u64,
+        budget: crate::EchoOperationBudgetV1,
+        limits: crate::edict_pure::EvaluationLimits,
+    ) -> Result<crate::edict_effects::EffectEvaluationFrame<'_>, TrustedRuntimeHostError> {
+        let current = self.echo_operation_evaluation_basis_v1(
+            expected.writer_head(),
+            expected.application_basis(),
+        )?;
+        if current != expected {
+            return Err(crate::edict_effects::EffectFrameSetupError::BasisMismatch.into());
+        }
+        let frontier = self
+            .runtime
+            .worldlines()
+            .get(&current.writer_head().worldline_id)
+            .ok_or_else(|| RuntimeError::UnknownWorldline(current.writer_head().worldline_id))?;
+        let reads = crate::edict_effects::EffectRangeReadSession::new(
+            frontier,
+            allowed_range_types,
+            max_range_edges,
+            budget,
+        );
+        Ok(crate::edict_effects::EffectEvaluationFrame::at_parent(
+            reads, limits, current,
+        )?)
     }
 
     /// Independently admits a canonical installed-operation invocation.

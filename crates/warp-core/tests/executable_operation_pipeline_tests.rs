@@ -4934,3 +4934,211 @@ fn an_action_with_a_forged_origin_keeps_the_whole_frontier_rule() {
         "an origin that history does not hold cannot earn scoped validity"
     );
 }
+
+// These exercise a runtime-selected frame, not an admitted effect profile.
+fn effect_frame_limits() -> warp_core::edict_pure::EvaluationLimits {
+    warp_core::edict_pure::EvaluationLimits {
+        max_package_bytes: 32768,
+        max_input_bytes: 1024,
+        max_output_bytes: 1024,
+        max_steps: 10000,
+        max_allocated_bytes: 16777216,
+    }
+}
+
+#[test]
+fn effect_frame_binds_the_runtime_parent_before_reading() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("actual basis");
+    let edge_type = make_type_id("effect-frame-range");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[edge_type],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits(),
+        )
+        .expect("exact runtime parent");
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+    assert_eq!(
+        frame
+            .read_range(warp_core::OutgoingEdgeRange {
+                source: node,
+                edge_type
+            })
+            .expect("actual root range"),
+        Some(vec![])
+    );
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
+    let package = hex::decode(
+        include_str!("fixtures/edict-byte-concat/executable-operation-package.cbor.hex").trim(),
+    )
+    .expect("retained compiler package");
+    let pin = hex::decode("ed480a332a9d5f84f7425e46ab0b08cca886c8a040e048145b88fba1e6e0415f")
+        .expect("pin")
+        .try_into()
+        .expect("digest");
+    let input = encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("firstFragment".into()),
+            CanonicalValueV1::Bytes(b"a".to_vec()),
+        ),
+        (
+            CanonicalValueV1::Text("secondFragment".into()),
+            CanonicalValueV1::Bytes(b"b".to_vec()),
+        ),
+    ]))
+    .expect("input");
+    let expected = encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![(
+        CanonicalValueV1::Text("bytes".into()),
+        CanonicalValueV1::Bytes(b"ab".to_vec()),
+    )]))
+    .expect("independent output");
+    assert_eq!(
+        frame
+            .evaluate_pure(&package, pin, &input)
+            .expect("real compiler computation"),
+        expected
+    );
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+    assert!(
+        frame.consumed().steps() > 1,
+        "read and computation share the meter"
+    );
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("unchanged basis"),
+        basis
+    );
+}
+
+fn effect_frame_host_after_round_trip(intermediate: &[u8]) -> (TrustedRuntimeHost, WriterHeadKey) {
+    let (mut host, head, node) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("WAL");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    for (before, after) in [
+        (b"before".as_slice(), intermediate),
+        (intermediate, b"before".as_slice()),
+    ] {
+        let invocation = action_invocation(&host, &installed, head, node, before, after);
+        let id = submit_action(&mut host, head, invocation);
+        host.tick_once().expect("decided runtime tick");
+        assert!(outcome_is_committed(&host, &id));
+    }
+    (host, head)
+}
+
+#[test]
+fn effect_frame_refuses_equal_reading_coordinates_from_another_commit_history() {
+    let (first, head) = effect_frame_host_after_round_trip(b"first-intermediate");
+    let (second, second_head) = effect_frame_host_after_round_trip(b"second-intermediate");
+    assert_eq!(head, second_head);
+    let expected = first
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("first basis");
+    let actual = second
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("second basis");
+    assert_eq!(expected.state_root(), actual.state_root());
+    assert_eq!(expected.worldline_tick(), actual.worldline_tick());
+    assert_eq!(expected.commit_global_tick(), actual.commit_global_tick());
+    assert_ne!(expected.commit_id(), actual.commit_id());
+    assert!(matches!(
+        second.effect_evaluation_frame_v1(
+            expected,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::BasisMismatch
+        ))
+    ));
+    let frame = second
+        .effect_evaluation_frame_v1(
+            actual,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits(),
+        )
+        .expect("current exact history succeeds");
+    assert_eq!(frame.evaluation_basis(), Some(actual));
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+    assert!(frame.readings().is_empty());
+}
+
+#[test]
+fn effect_frame_rejects_a_parent_for_an_unregistered_writer() {
+    let (foreign, first, _, _) = fixture_host_with_two_worldlines();
+    let basis = foreign
+        .echo_operation_evaluation_basis_v1(first, application_basis())
+        .expect("foreign registered writer");
+    let (host, _, _) = fixture_host();
+    assert!(matches!(host.effect_evaluation_frame_v1(
+        basis, &[], 0, EchoOperationBudgetV1::new(10000, 1024, 0), effect_frame_limits()
+    ), Err(TrustedRuntimeHostError::Runtime(error)) if matches!(*error, RuntimeError::UnknownHead(key) if key == first)));
+}
+
+#[test]
+fn effect_frame_refuses_a_stale_parent_after_a_decided_tick() {
+    let (mut host, head, node) = fixture_host();
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::in_memory())
+        .expect("WAL");
+    let installed = install_fixture_operation(&mut host);
+    host.install_echo_operation_action_admission_policy_v1(invocation_policy());
+    let stale = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("original parent");
+    let invocation = action_invocation(&host, &installed, head, node, b"before", b"after");
+    let id = submit_action(&mut host, head, invocation);
+    host.tick_once().expect("decided tick");
+    assert!(outcome_is_committed(&host, &id));
+    assert!(matches!(
+        host.effect_evaluation_frame_v1(
+            stale,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::BasisMismatch
+        ))
+    ));
+}
+
+#[test]
+fn effect_frame_bound_parent_retains_the_resource_ceiling() {
+    let (host, head, _) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("actual parent");
+    assert!(matches!(
+        host.effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(1048577, 1024, 0),
+            effect_frame_limits()
+        ),
+        Err(TrustedRuntimeHostError::EffectFrameSetup(
+            warp_core::edict_effects::EffectFrameSetupError::ResourceCeilingExceeded
+        ))
+    ));
+    assert_eq!(
+        host.echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("unchanged parent"),
+        basis
+    );
+}

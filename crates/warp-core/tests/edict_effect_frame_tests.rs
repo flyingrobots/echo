@@ -353,3 +353,11 @@ fn component_caps_are_relative_and_the_global_cap_is_restored_between_calls() {
         assert_eq!(frame.allocated_bytes(), count * control.allocated_bytes);
     }
 }
+
+#[test]
+fn a_low_level_frame_does_not_claim_a_runtime_parent() {
+    let (frontier, key) = fixture();
+    let frame =
+        EffectEvaluationFrame::new(session(&frontier, key), limits()).expect("private frame");
+    assert_eq!(frame.evaluation_basis(), None);
+}

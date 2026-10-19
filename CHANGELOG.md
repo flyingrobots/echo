@@ -7,6 +7,8 @@
 
 ### Added
 
+- Bind private effect evaluation frames to the runtime-selected writer and exact commit parent, refusing substituted histories even when reading coordinates match.
+
 - Trusted-host range-read sessions record real source-node and range values at
   an immutable basis, including absence and empty ranges. They reject forbidden
   types before access and charge whole buckets before inspection. This is read

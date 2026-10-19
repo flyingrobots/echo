@@ -4,12 +4,18 @@
 use super::{EffectRangeReadError, EffectRangeReadSession, EFFECT_READ_STORAGE_CEILING_V1};
 use crate::edict_pure::evaluate::Meter;
 use crate::edict_pure::{self, EvaluationError, EvaluationLimits};
-use crate::{EchoOperationBudgetV1, EdgeRecord, Footprint, OutgoingEdgeRange, SlotId, SlotReading};
+use crate::{
+    EchoOperationBudgetV1, EchoOperationEvaluationBasisV1, EdgeRecord, Footprint,
+    OutgoingEdgeRange, SlotId, SlotReading,
+};
 use std::collections::BTreeMap;
 
 /// Refusal before constructing a shared evaluation frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EffectFrameSetupError {
+    /// The requested full runtime parent differs from the current parent.
+    #[error("effect frame parent basis does not match the runtime parent")]
+    BasisMismatch,
     /// Already-observed resources cannot be imported without accounting for them.
     #[error("read session has already been used")]
     ReadSessionAlreadyUsed,
@@ -40,6 +46,7 @@ pub struct EffectEvaluationFrame<'a> {
     meter: Meter,
     limits: EvaluationLimits,
     terminated: bool,
+    evaluation_basis: Option<EchoOperationEvaluationBasisV1>,
 }
 
 impl<'a> EffectEvaluationFrame<'a> {
@@ -73,7 +80,37 @@ impl<'a> EffectEvaluationFrame<'a> {
             meter: Meter::new_atomic(limits),
             limits,
             terminated: false,
+            evaluation_basis: None,
         })
+    }
+
+    // Only the runtime owner may pair a frame with its resolved parent.
+    // A caller-provided frontier cannot acquire this coordinate through `new`.
+    #[cfg(feature = "native_rule_bootstrap")]
+    pub(crate) fn at_parent(
+        reads: EffectRangeReadSession<'a>,
+        limits: EvaluationLimits,
+        basis: EchoOperationEvaluationBasisV1,
+    ) -> Result<Self, EffectFrameSetupError> {
+        let reading = reads.basis();
+        if reading.worldline_id() != basis.writer_head().worldline_id
+            || reading.tick() != basis.worldline_tick()
+            || reading.state_root() != basis.state_root()
+        {
+            return Err(EffectFrameSetupError::BasisMismatch);
+        }
+        let mut frame = Self::new(reads, limits)?;
+        frame.evaluation_basis = Some(basis);
+        Ok(frame)
+    }
+
+    /// Runtime-selected parent, present only for a host-created bound frame.
+    ///
+    /// Low-level [`Self::new`] frames remain unbound. This coordinate does not
+    /// authorize an invocation or establish an installed effect profile.
+    #[must_use]
+    pub const fn evaluation_basis(&self) -> Option<EchoOperationEvaluationBasisV1> {
+        self.evaluation_basis
     }
 
     /// Reads a range through the recording view under the shared meter.

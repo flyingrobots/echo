@@ -85,6 +85,7 @@ relationships.
 - [Deterministic math hazards](determinism/DETERMINISTIC_MATH.md)
 - [DIND harness](determinism/dind-harness.md)
 - [Scheduler performance](benchmarks/scheduler-performance-warp-core.md)
+- [Benchmark scene fixtures](topics/BenchmarkSceneFixtures.md)
 
 ## Knowledge Ownership
 

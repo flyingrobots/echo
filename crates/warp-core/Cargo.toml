@@ -249,3 +249,7 @@ required-features = ["delta_validate"]
 name = "edict_effect_graph_schema_tests"
 path = "tests/edict_effect_graph_schema_tests.rs"
 required-features = ["trusted_runtime"]
+
+[[test]]
+name = "edict_effect_package_tests"
+required-features = ["trusted_runtime"]

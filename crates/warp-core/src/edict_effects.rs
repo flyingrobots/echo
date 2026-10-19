@@ -9,6 +9,8 @@
 //! Completed reads can be exported as bounded canonical images. Authored effect
 //! instructions, package-authenticated policy, receipt/WAL integration, a physical
 //! arena and admission still precede a shipped effect profile.
+mod package;
+pub use package::{EffectPackageError, ExecutableOperationPackageV2};
 mod frame;
 mod read_image;
 pub use read_image::{

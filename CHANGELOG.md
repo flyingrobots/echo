@@ -7,6 +7,11 @@
 
 ### Added
 
+- V2 effect publication preparation binds exact package/program bytes, validates
+  profile and Target IR equalities, and decodes the program's schema and exact
+  footprint-law contract together. This does not admit, install or execute the
+  effect program; V1 package encodings and identities are unchanged.
+
 - Strict executable graph-schema preparation validates content/mutable node
   addressing, node/atom compatibility and edge endpoint-type relations with
   exact canonical shapes and ordered sets. It grants no graph access or Action

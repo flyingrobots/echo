@@ -654,3 +654,37 @@ package authentication or Action admission. It creates no read or mutation
 capability. Input is bounded to 16 MiB and canonical decoding retains its
 combined node/depth ceilings; these host preparation allocations are outside
 the evaluation meter and do not implement its physical arena.
+
+### V2 effect publication preparation
+
+`edict_effects::ExecutableOperationPackageV2::prepare` checks a trusted host's
+expected V2 package identity against the exact canonical publication bytes.
+This is byte binding and contract preparation, not independent compiler
+verification, package admission, installation or permission to execute.
+
+The V2 package has the V1 required package fields with its versioned schema,
+no `application_result_projection`, and a six-field semantic closure that omits
+both lawpack keys. Its nested canonical program has exactly the thirteen
+`edict-effect-program/v1` fields. The decoder requires the effect target,
+interpreter, intrinsic, input, result, obstruction, interpretation and basis
+profiles, equality of the closure/program Target IR identities, and
+ContentAddressV1 as the identity law. It decodes and retains the exact program's
+executable graph schema and footprint permissions together. The footprint
+contract is BLAKE3 over `echo:operation-footprint-law:v2\0` followed directly by
+the exact canonical law bytes. Package/program identities use their V2 domains
+and the existing length-prefixed artifact recipe; those recipes are distinct.
+
+Input and result declarations permit zero and are capped at 65,536 bytes.
+Allocation permits zero and is capped at 16 MiB; these declarations do not
+provision a physical arena. The output coordinate is nonempty UTF-8 of at most
+1,024 bytes. Other package/closure coordinates retain V1's nonempty-text rule.
+The package budget requires at least one step and permits zero byte budgets.
+Canonical preparation uses the existing decoder's node/depth ceilings and the
+schema/law preparation bounds. It occurs outside evaluation metering.
+
+The compiler bytes and upstream source, meaning, Core and Target IR identities
+remain publication evidence. This preparation does not infer verifier approval
+or validate the compiled instruction language. Invocation/authority admission,
+interpreter execution, graph identity enforcement, atomic effects and retained
+recovery must separately consume and validate this prepared contract. V1
+package decoding and identity recipes remain unchanged.

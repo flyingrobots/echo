@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Public conjunctive-guard pressure fixture
 
 These immutable bytes were emitted by Edict's public application build at

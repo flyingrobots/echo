@@ -26,7 +26,7 @@ should admit a candidate.
 
 ## Decision 1: Pending rewrites carry explicit footprints
 
-A pending rewrite carries scope hash, rule id, scope, footprint, and phase. The footprint is a conservative resource contract across nodes, edges, attachments, boundary ports, and factor mask.
+A pending rewrite carries scope hash, rule id, scope, footprint, and phase. The footprint is a conservative resource contract across nodes, edges, outgoing-edge ranges, attachments, boundary ports, and factor mask.
 
 ## Decision 2: `reserve()` is check-then-mark
 
@@ -35,6 +35,31 @@ Reservation checks all candidate resources for conflict and marks resources only
 ## Decision 3: Conflicts are resource conflicts
 
 A candidate conflicts when it writes a resource another admitted candidate reads or writes, or when its boundary port claim overlaps another admitted boundary port claim. Reads may overlap reads.
+
+Outgoing-edge range claims use `(source NodeKey, edge TypeId)`, so they retain
+the WARP, source node and edge type even when the observed range is empty.
+`Footprint::independent` and the reservation index both check range reads
+against range writes, and range writes against both reads and writes. Range
+reads can share a reservation. Footprint union preserves these claims, and a
+rejected reservation leaves no range marks behind. The admission-side affected
+region retains the range write wake as well as point-resource writes.
+`GraphStore::edges_from` exposes an exact-size iterator over its stored source
+bucket. Its remaining length is available without advancing or inspecting any
+edge, allowing a bounded reader to charge the whole bucket before type filtering.
+This storage capability does not itself meter or authorize a read.
+
+This is explicit claim tracking. It does not infer range observations from
+existing edge-ID sets or automatically instrument edge writers. Range-bearing
+operation footprints use digest domain
+`echo:operation-footprint:v2\0`, followed by the existing eight counted sets
+and factor mask, then `rr` and `rw` counted sets. Each range row contains the
+32-byte source WARP, source node and edge type in that order. Counts use
+little-endian `u64`, and set rows follow key order. Footprints without ranges
+retain the exact V1 digest stream. Range claims also project to retained input
+and output slots under the [tick-patch contract](warp-tick-patch.md#outgoing-edge-range-slots).
+A native Tick witness checks conflict rejection, blockers, range metadata and
+replay. This is not an admitted authored-effect profile. No Edict program
+currently receives graph mutation authority through this addition.
 
 The broad WARP outcome algebra is `Derived | Plural | Conflict |
 Obstruction`. Echo's local `TickReceipt` entries realize the narrower

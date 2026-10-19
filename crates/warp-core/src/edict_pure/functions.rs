@@ -273,6 +273,13 @@ fn infer(
         "const" => {
             exact_fields(value, &["kind", "value"])?;
             let literal = field(value, "value")?;
+            if text_field(literal, "kind")? == "bool" {
+                exact_fields(literal, &["kind", "value"])?;
+                if !matches!(field(literal, "value")?, Value::Bool(_)) {
+                    return Err(Error::InvalidArtifact);
+                }
+                return Ok(RuntimeType::Bool);
+            }
             exact_fields(literal, &["kind", "value", "width"])?;
             require_text(literal, "kind", "int")?;
             let ty = parser.ty(text_field(literal, "width")?, 0)?;
@@ -373,6 +380,11 @@ fn infer(
                 .map(|coordinate| parser.ty(text(coordinate)?, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             match (name, actual.as_slice(), declared.as_slice()) {
+                ("core.bytes.isUtf8", [actual], [expected @ RuntimeType::Bytes { .. }])
+                    if accepts(expected, actual) =>
+                {
+                    Ok(RuntimeType::Bool)
+                }
                 ("core.bytes.length", [actual], [expected @ RuntimeType::Bytes { .. }])
                     if accepts(expected, actual) =>
                 {
@@ -459,7 +471,8 @@ fn check_predicate(
         depth + 1,
     )?;
     match (text_field(value, "op")?, left, right) {
-        ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
+        ("==", RuntimeType::Bool, RuntimeType::Bool)
+        | ("==", RuntimeType::Bytes { .. }, RuntimeType::Bytes { .. }) => Ok(()),
         ("==" | "<=", RuntimeType::Unsigned(left), RuntimeType::Unsigned(right))
             if left == right =>
         {
@@ -579,7 +592,9 @@ impl Heights<'_> {
                 }
                 maximum + 1
             }
-            Expr::ByteLength { value, .. } => self.expr(value, depth + 1)? + 1,
+            Expr::ByteUtf8 { value, .. } | Expr::ByteLength { value, .. } => {
+                self.expr(value, depth + 1)? + 1
+            }
             Expr::ByteSlice {
                 value, start, end, ..
             } => {

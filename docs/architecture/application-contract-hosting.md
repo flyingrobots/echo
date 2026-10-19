@@ -279,6 +279,17 @@ Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
 entry. Noncanonical numbers, inverted bounds, and an interval spelling with
 equal endpoints reject; equal endpoints use `exact=N`.
 
+The generic `core.bytes.isUtf8<OperandType>(bytes)` expression validates one
+bounded raw-byte value and returns Bool. It accepts empty bytes and embedded NUL,
+and rejects incomplete sequences, overlong encodings, surrogate encodings and
+code points above U+10FFFF without normalization or repair. It charges the full
+actual byte length before validation, including early invalid sequences, plus
+ordinary operand evaluation, bound validation and Boolean result storage.
+Bool values retain their canonical Boolean representation; integers are not
+Boolean substitutes. Predicates support Boolean equality, not ordering.
+The native pure interpreter's implementation does not by itself establish
+provider component support or a public compiler/provider/runtime witness.
+
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
 bounds and both offsets as U64, then refuses reversed or out-of-bounds ranges

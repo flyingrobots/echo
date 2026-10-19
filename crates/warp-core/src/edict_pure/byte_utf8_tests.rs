@@ -134,3 +134,56 @@ fn boolean_values_are_typed_and_integer_substitution_is_refused() -> Result<(), 
     );
     Ok(())
 }
+
+#[test]
+fn utf8_boolean_predicates_compare_truth_and_refuse_boolean_ordering() -> Result<(), Error> {
+    for (bytes, want) in [(&b"hi"[..], true), (&[255][..], false)] {
+        let types = Value::Map(vec![]);
+        let mut parser = Parser {
+            types: &types,
+            coordinate: "utf8.example@1",
+            remaining: MAX_PROGRAM_NODES,
+        };
+        let wire = map([
+            ("kind", Value::Text("compare".into())),
+            ("op", Value::Text("==".into())),
+            ("left", call(bytes)),
+            ("right", constant("bool", Value::Bool(true))),
+        ]);
+        let predicate = parser.predicate(&wire, 0)?;
+        assert_eq!(
+            super::evaluate::predicate(
+                &predicate,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &mut Meter::new(limits(100, 1024)),
+                0
+            )?,
+            want
+        );
+    }
+    let types = Value::Map(vec![]);
+    let mut parser = Parser {
+        types: &types,
+        coordinate: "utf8.example@1",
+        remaining: MAX_PROGRAM_NODES,
+    };
+    let wire = map([
+        ("kind", Value::Text("compare".into())),
+        ("op", Value::Text("<=".into())),
+        ("left", constant("bool", Value::Bool(false))),
+        ("right", constant("bool", Value::Bool(true))),
+    ]);
+    let predicate = parser.predicate(&wire, 0)?;
+    assert_eq!(
+        super::evaluate::predicate(
+            &predicate,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut Meter::new(limits(100, 1024)),
+            0
+        ),
+        Err(Error::UnsupportedProgram)
+    );
+    Ok(())
+}

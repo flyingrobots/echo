@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- The native pure interpreter evaluates bounded UTF-8 byte predicates with
+  complete aperture charging and typed Boolean values.
+
 - Pure evaluation accepts compiler-produced conjunctive input guards instead of
   rejecting their `all` predicate shape as an invalid artifact. Conjunctions
   retain deterministic short-circuit metering and combined traversal limits.

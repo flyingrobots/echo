@@ -18,6 +18,11 @@ pub(crate) enum Expr {
     Record(Vec<(String, Expr)>),
     If(Box<Predicate>, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+    ByteUtf8 {
+        min: u64,
+        max: u64,
+        value: Box<Expr>,
+    },
     ByteLength {
         min: u64,
         max: u64,
@@ -63,6 +68,7 @@ pub(crate) enum Comparison {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeType {
+    Bool,
     Unsigned(u64),
     Bytes { min: u64, max: u64 },
     Record(Vec<(String, RuntimeType)>),

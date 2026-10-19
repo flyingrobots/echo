@@ -22,6 +22,10 @@ pub use observed_context::EchoOperationContextErrorV1;
 use crate::causal_anchor::prepare_causal_anchor_admission;
 use crate::coordinator::{SuperTickUndo, TicketedIngressStagingRollback};
 
+use crate::edict_effects::{
+    install_recovered_v2, recover_versioned_installation, InstalledEffectOperationV2,
+    RecoveredOperationInstallation,
+};
 use crate::{
     causal_wal::{
         affected_frontiers_root, build_causal_anchor_admission_transaction,
@@ -56,7 +60,7 @@ use crate::{
         not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
         not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
         reconstruct_action_evaluation_v1, reconstruct_action_preparation_v1,
-        recover_action_outcome_v1, recover_committed_execution_receipt_v1, recover_installation_v1,
+        recover_action_outcome_v1, recover_committed_execution_receipt_v1,
         retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
         validate_receipt_application_result_v1, validate_receipt_installation_v1,
         EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
@@ -517,6 +521,8 @@ pub struct TrustedRuntimeWalRecovery {
     pub causal_anchor_history: Vec<WitnessedCausalAnchorAdmission>,
     /// Exact executable meaning reconstructed from retained installation records.
     pub installed_echo_operations: Vec<InstalledEchoOperationV1>,
+    /// Exact V2 effect installations reconstructed from retained records.
+    pub installed_echo_effect_operations: Vec<crate::edict_effects::InstalledEffectOperationV2>,
     /// Typed receipts reconstructed from executable-operation tick records.
     pub echo_operation_receipts: Vec<EchoOperationReceiptV1>,
     /// Typed executable-operation Action outcomes reconstructed from
@@ -710,6 +716,7 @@ impl TrustedRuntimeWalRecovery {
             missing_runtime_state_deltas: &self.missing_runtime_state_deltas,
             causal_anchor_history: &self.causal_anchor_history,
             installed_echo_operations: &self.installed_echo_operations,
+            installed_echo_effect_operations: &self.installed_echo_effect_operations,
             echo_operation_receipts: &self.echo_operation_receipts,
             echo_operation_action_outcomes: &self.echo_operation_action_outcomes,
         })
@@ -1133,6 +1140,44 @@ impl TrustedRuntimeHost {
         admit_package_v1(policy, canonical_package_bytes)
     }
 
+    /// Installs an admitted V2 publication without granting invocation authority.
+    ///
+    /// With a WAL configured, the exact installation is durable before it becomes
+    /// visible in the engine. Application handles cannot call this owner method:
+    ///
+    /// ```compile_fail,E0599
+    /// use warp_core::{TrustedRuntimeApp, edict_effects::AdmittedEffectPackageV2};
+    /// fn application_cannot_install(app: &mut TrustedRuntimeApp<'_>, admitted: AdmittedEffectPackageV2) {
+    ///     app.install_admitted_echo_operation_package_v2(admitted);
+    /// }
+    /// ```
+    pub fn install_admitted_echo_operation_package_v2(
+        &mut self,
+        admitted: crate::edict_effects::AdmittedEffectPackageV2,
+    ) -> Result<InstalledEffectOperationV2, TrustedRuntimeHostError> {
+        let installed = InstalledEffectOperationV2::from_admitted(admitted);
+        self.engine
+            .preflight_echo_effect_installations(core::slice::from_ref(&installed))?;
+        if self
+            .engine
+            .installed_echo_operation_package_v2(installed.package().identity())
+            == Some(&installed)
+        {
+            return Ok(installed);
+        }
+        if let Some(wal) = self.runtime_wal.as_mut() {
+            let retained = installed.retained_bytes()?;
+            if let Err(error) = wal.record_executable_operation_installation(&retained) {
+                if !wal.recover_filesystem_effect_installation_after_error(&installed) {
+                    return Err(error.into());
+                }
+            }
+        }
+        self.engine
+            .restore_echo_effect_installations(core::slice::from_ref(&installed))?;
+        Ok(installed)
+    }
+
     /// Installs exact executable meaning carried by an admitted operation package.
     ///
     /// Installation stores no native callback and still does not authorize an
@@ -1489,6 +1534,8 @@ impl TrustedRuntimeHost {
         )?;
         self.engine
             .preflight_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
+        self.engine
+            .preflight_echo_effect_installations(&recovery.installed_echo_effect_operations)?;
 
         let mut restored_runtime = forked_runtime;
         let mut restored_provenance = forked_provenance;
@@ -1514,6 +1561,8 @@ impl TrustedRuntimeHost {
 
         self.engine
             .restore_recovered_echo_operation_packages_v1(&recovery.installed_echo_operations)?;
+        self.engine
+            .restore_echo_effect_installations(&recovery.installed_echo_effect_operations)?;
         self.echo_operation_action_outcomes = recovery
             .echo_operation_action_outcomes
             .iter()
@@ -2390,6 +2439,20 @@ fn ensure_runtime_authority_is_durable(
     engine: &Engine,
     recovery: &TrustedRuntimeWalRecovery,
 ) -> Result<(), TrustedRuntimeWalError> {
+    let recovered_effects = recovery
+        .installed_echo_effect_operations
+        .iter()
+        .map(|installed| (installed.package().identity(), installed))
+        .collect::<BTreeMap<_, _>>();
+    if engine.installed_echo_effect_packages().any(|installed| {
+        recovered_effects
+            .get(&installed.package().identity())
+            .is_none_or(|recovered| **recovered != *installed)
+    }) {
+        return Err(TrustedRuntimeWalError::RuntimeAuthorityNotDurable {
+            gap: RuntimeWalActivationGap::ExecutableOperationInstallation,
+        });
+    }
     let recovered_operations = recovery
         .installed_echo_operations
         .iter()
@@ -3080,6 +3143,7 @@ impl TrustedRuntimeWal {
             runtime_state.echo_operation_action_installation_order;
         let missing_runtime_state_deltas = runtime_state.missing_runtime_state_deltas;
         let installed_echo_operations = operation_material.installations;
+        let installed_echo_effect_operations = operation_material.effect_installations;
         let echo_operation_receipts = operation_material.receipts;
         validate_recovered_causal_parent_evidence(&witnessed_submissions, &receipt_correlations)?;
         validate_recovered_echo_operation_action_outcomes(
@@ -3102,6 +3166,7 @@ impl TrustedRuntimeWal {
                 missing_runtime_state_deltas: &missing_runtime_state_deltas,
                 causal_anchor_history: &causal_anchor_history,
                 installed_echo_operations: &installed_echo_operations,
+                installed_echo_effect_operations: &installed_echo_effect_operations,
                 echo_operation_receipts: &echo_operation_receipts,
                 echo_operation_action_outcomes: &echo_operation_action_outcomes,
             },
@@ -3117,6 +3182,7 @@ impl TrustedRuntimeWal {
             receipt_correlations,
             causal_anchor_history,
             installed_echo_operations,
+            installed_echo_effect_operations,
             echo_operation_receipts,
             echo_operation_action_outcomes,
             echo_operation_action_decisions,
@@ -3431,6 +3497,21 @@ impl TrustedRuntimeWal {
             .flatten()
     }
 
+    fn recover_filesystem_effect_installation_after_error(
+        &mut self,
+        expected: &InstalledEffectOperationV2,
+    ) -> bool {
+        if !self.uses_filesystem_store() || self.refresh_cursor_from_store_for_writer().is_err() {
+            return false;
+        }
+        self.recover_read_only().is_ok_and(|recovery| {
+            recovery
+                .installed_echo_effect_operations
+                .iter()
+                .any(|installed| installed == expected)
+        })
+    }
+
     fn recover_filesystem_executable_operation_installation_after_error(
         &mut self,
         package_id: crate::EchoOperationPackageIdV1,
@@ -3669,10 +3750,10 @@ impl TrustedRuntimeWal {
         &mut self,
         retained_installation_bytes: &[u8],
     ) -> Result<WalTransactionCommit, TrustedRuntimeWalError> {
-        let installed = recover_installation_v1(retained_installation_bytes)?;
+        let installed = recover_versioned_installation(retained_installation_bytes)?;
         let next_catalog_frontier = executable_operation_catalog_frontier_digest(
             self.executable_operation_catalog_frontier_digest,
-            installed.package_id(),
+            installed.package_identity(),
             retained_installation_bytes,
         );
         let transaction = build_executable_operation_installation_transaction(
@@ -3681,7 +3762,7 @@ impl TrustedRuntimeWal {
                 WalAppendAuthority::RuntimeControl,
                 WalTransactionId::from_hash(executable_operation_installation_transaction_digest(
                     self.executable_operation_catalog_frontier_digest,
-                    installed.package_id(),
+                    installed.package_identity(),
                     retained_installation_bytes,
                 )),
             ),
@@ -4329,7 +4410,7 @@ impl TrustedRuntimeWalCursor {
                     let catalog_before = cursor.executable_operation_catalog_frontier_digest;
                     let catalog_after = executable_operation_catalog_frontier_digest(
                         catalog_before,
-                        installed.package_id(),
+                        installed.package_identity(),
                         &retained_bytes,
                     );
                     validate_echo_operation_frontier_root(
@@ -4562,6 +4643,7 @@ fn restore_provenance_entries(
 
 struct RecoveredEchoOperationMaterial {
     installations: Vec<InstalledEchoOperationV1>,
+    effect_installations: Vec<InstalledEffectOperationV2>,
     receipts: Vec<EchoOperationReceiptV1>,
 }
 
@@ -4571,6 +4653,8 @@ fn recover_echo_operation_material(
 ) -> Result<RecoveredEchoOperationMaterial, TrustedRuntimeWalError> {
     let mut installations = BTreeMap::new();
     let mut operations = BTreeMap::new();
+    let mut effects = BTreeMap::new();
+    let mut effect_operations = BTreeMap::new();
     let mut receipts_by_digest = BTreeMap::new();
     let mut receipts = Vec::new();
     let provenance_by_coordinate = provenance_entries
@@ -4582,7 +4666,20 @@ fn recover_echo_operation_material(
         match transaction.commit.transaction_kind {
             WalTransactionKind::ExecutableOperationInstallation => {
                 let (installed, _) = operation_installation_from_transaction(transaction)?;
-                install_recovered_v1(&mut installations, &mut operations, installed)?;
+                match installed {
+                    RecoveredOperationInstallation::V1(installed) => {
+                        if effect_operations.contains_key(installed.operation_coordinate()) {
+                            return Err(crate::echo_operation::installation_error(crate::EchoOperationInstallationErrorKindV1::OperationCoordinateConflict,"recovered V1 coordinate conflicts with V2 meaning").into());
+                        }
+                        install_recovered_v1(&mut installations, &mut operations, installed)?;
+                    }
+                    RecoveredOperationInstallation::V2(installed) => install_recovered_v2(
+                        &mut effects,
+                        &mut effect_operations,
+                        &operations,
+                        installed,
+                    )?,
+                }
             }
             WalTransactionKind::ExecutableOperationTick => {
                 let (receipt, state_delta, _) =
@@ -4615,6 +4712,7 @@ fn recover_echo_operation_material(
 
     Ok(RecoveredEchoOperationMaterial {
         installations: installations.into_values().collect(),
+        effect_installations: effects.into_values().collect(),
         receipts,
     })
 }
@@ -5804,9 +5902,11 @@ fn recover_runtime_state_delta_material(
         {
             let (installed, _) = operation_installation_from_transaction(transaction)?;
             let next_ordinal = installation_ordinals.len();
-            installation_ordinals
-                .entry(installed.package_id())
-                .or_insert(next_ordinal);
+            if let RecoveredOperationInstallation::V1(installed) = installed {
+                installation_ordinals
+                    .entry(installed.package_id())
+                    .or_insert(next_ordinal);
+            }
             continue;
         }
         if transaction.commit.transaction_kind == WalTransactionKind::ExecutableOperationTick {
@@ -6319,13 +6419,13 @@ fn wal_tick_decision_for_action_outcome(outcome: &EchoOperationActionOutcomeV1) 
 
 fn operation_installation_from_transaction(
     transaction: &crate::causal_wal::WalRecoveredTransaction,
-) -> Result<(InstalledEchoOperationV1, Vec<u8>), TrustedRuntimeWalError> {
+) -> Result<(RecoveredOperationInstallation, Vec<u8>), TrustedRuntimeWalError> {
     let frame = required_unique_transaction_frame(
         transaction,
         WalRecordKind::ExecutableOperationPackageInstalled,
     )?;
     let retained_bytes = frame.payload.canonical_bytes.clone();
-    let installed = recover_installation_v1(&retained_bytes)?;
+    let installed = recover_versioned_installation(&retained_bytes)?;
     Ok((installed, retained_bytes))
 }
 
@@ -7606,7 +7706,7 @@ mod tests {
             installed_from_admitted(admitted).expect("the legacy-index package installs");
 
         assert_eq!(
-            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[])
+            recovered_echo_operation_index_root([0x20; 32], &[installed], &[], &[], &[])
                 .expect("the legacy index root is computable"),
             [
                 0xf9, 0xcf, 0x53, 0xf2, 0xad, 0xaf, 0x93, 0x1a, 0xa0, 0xe6, 0x06, 0xc6, 0x5a, 0x91,
@@ -8843,14 +8943,14 @@ fn wal_tick_decision_code(decision: WalTickDecision) -> u8 {
 
 fn executable_operation_catalog_frontier_digest(
     previous: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
+    package_id: Hash,
     retained_installation_bytes: &[u8],
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(TRUSTED_RUNTIME_WAL_DOMAIN);
     hasher.update(b"executable-operation-catalog-frontier");
     hasher.update(&previous);
-    hasher.update(&package_id.as_hash());
+    hasher.update(&package_id);
     hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
     hasher.update(retained_installation_bytes);
     hasher.finalize().into()
@@ -8867,13 +8967,13 @@ fn executable_operation_receipt_frontier_digest(previous: Hash, receipt_digest: 
 
 fn executable_operation_installation_transaction_digest(
     catalog_frontier: Hash,
-    package_id: crate::EchoOperationPackageIdV1,
+    package_id: Hash,
     retained_installation_bytes: &[u8],
 ) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo:trusted-runtime:executable-operation-installation-transaction:v1\0");
     hasher.update(&catalog_frontier);
-    hasher.update(&package_id.as_hash());
+    hasher.update(&package_id);
     hasher.update(&(retained_installation_bytes.len() as u64).to_le_bytes());
     hasher.update(retained_installation_bytes);
     hasher.finalize().into()
@@ -8949,6 +9049,7 @@ struct RecoveredRuntimeWalIndexEvidence<'a> {
     missing_runtime_state_deltas: &'a [Hash],
     causal_anchor_history: &'a [WitnessedCausalAnchorAdmission],
     installed_echo_operations: &'a [InstalledEchoOperationV1],
+    installed_echo_effect_operations: &'a [InstalledEffectOperationV2],
     echo_operation_receipts: &'a [EchoOperationReceiptV1],
     echo_operation_action_outcomes: &'a [(Hash, Hash, EchoOperationActionOutcomeV1)],
 }
@@ -8989,6 +9090,7 @@ fn recovered_runtime_wal_indexes_root(
     recovered_echo_operation_index_root(
         causal_anchor_root,
         indexes.installed_echo_operations,
+        indexes.installed_echo_effect_operations,
         indexes.echo_operation_receipts,
         indexes.echo_operation_action_outcomes,
     )
@@ -8997,11 +9099,16 @@ fn recovered_runtime_wal_indexes_root(
 fn recovered_echo_operation_index_root(
     base_root: Hash,
     installations: &[InstalledEchoOperationV1],
+    effect_installations: &[InstalledEffectOperationV2],
     receipts: &[EchoOperationReceiptV1],
     action_outcomes: &[(Hash, Hash, EchoOperationActionOutcomeV1)],
 ) -> Result<Hash, TrustedRuntimeWalError> {
-    let legacy_root =
-        recovered_echo_operation_legacy_index_root(base_root, installations, receipts)?;
+    let legacy_root = recovered_echo_operation_legacy_index_root(
+        base_root,
+        installations,
+        effect_installations,
+        receipts,
+    )?;
     if action_outcomes.is_empty() {
         return Ok(legacy_root);
     }
@@ -9020,19 +9127,42 @@ fn recovered_echo_operation_index_root(
 fn recovered_echo_operation_legacy_index_root(
     base_root: Hash,
     installations: &[InstalledEchoOperationV1],
+    effect_installations: &[InstalledEffectOperationV2],
     receipts: &[EchoOperationReceiptV1],
 ) -> Result<Hash, TrustedRuntimeWalError> {
-    if installations.is_empty() && receipts.is_empty() {
+    if installations.is_empty() && effect_installations.is_empty() && receipts.is_empty() {
         return Ok(base_root);
     }
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"echo:trusted-runtime-wal:executable-operation-index:v1\0");
     hasher.update(&base_root);
-    hasher.update(&(installations.len() as u64).to_le_bytes());
-    for installed in installations {
-        let bytes = retain_installation_v1(installed)?;
-        hasher.update(&(bytes.len() as u64).to_le_bytes());
-        hasher.update(&bytes);
+    if effect_installations.is_empty() {
+        // Preserve the original V1-only recipe, including supplied record order.
+        hasher.update(&(installations.len() as u64).to_le_bytes());
+        for installed in installations {
+            let bytes = retain_installation_v1(installed)?;
+            hasher.update(&(bytes.len() as u64).to_le_bytes());
+            hasher.update(&bytes);
+        }
+    } else {
+        let mut catalog = installations
+            .iter()
+            .map(|installed| {
+                Ok((
+                    installed.package_id().as_hash(),
+                    retain_installation_v1(installed)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, TrustedRuntimeWalError>>()?;
+        for installed in effect_installations {
+            catalog.push((installed.package().identity(), installed.retained_bytes()?));
+        }
+        catalog.sort_unstable();
+        hasher.update(&(catalog.len() as u64).to_le_bytes());
+        for (_, bytes) in catalog {
+            hasher.update(&(bytes.len() as u64).to_le_bytes());
+            hasher.update(&bytes);
+        }
     }
     hasher.update(&(receipts.len() as u64).to_le_bytes());
     for receipt in receipts {

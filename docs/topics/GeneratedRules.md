@@ -735,3 +735,48 @@ Compiled effect instruction validation, V2 installation, grant admission,
 evaluation and retained recovery remain necessary before this program can
 execute. This policy crossing does not infer compiler/verifier approval from
 publication identities or confer graph mutation authority.
+
+### Runtime-owned V2 installation and retained catalog recovery
+
+`TrustedRuntimeHost::install_admitted_echo_operation_package_v2` consumes opaque
+package-policy admission evidence and installs the exact publication in the
+engine's V2 catalog. Installation remains separate from invocation authority
+and compiled effect instruction validation. The application handle cannot call
+this owner-only method. Reconstructing an `InstalledEffectOperationV2` from
+retained bytes produces evidence only; it does not insert a registry entry.
+
+The engine shares operation-coordinate exclusion across V1 and V2. An exact
+repeat is idempotent; a changed package at the same coordinate or a changed
+policy for an installed package refuses before any WAL append. Batch recovery
+preflights both catalogs. V1's package and installation identity recipes remain
+unchanged. V2 installation identity uses `echo:operation-installation:v2\0`,
+then package identity, package-admission identity, length-prefixed operation
+coordinate, program identity and length-prefixed exact package bytes, in that
+order, as the V1 recipe does under its original domain.
+
+The retained V2 record has exactly the existing seven installation fields with
+`schema` set to `echo.operation-installation/v2`. It retains the full independent
+policy, policy identity, exact package bytes and identity, admission identity and
+installation identity. WAL recovery dispatches by installation schema; unknown
+versions refuse. V2 reconstruction reruns package-policy admission, recomputes
+every identity and reproduces the exact record bytes. Recomputed hashes cannot
+make an invalid independent authority policy acceptable.
+
+With a runtime WAL configured, the installation record commits before the V2
+registry entry becomes visible. A failed append or commit publishes no entry.
+The uncertain filesystem-error path refreshes the writer and checks the exact
+recovered installation before returning success. A commit-marker sync failure
+keeps the live adapter closed to read-only recovery and publishes no registry
+entry; a fresh store reopen can establish and recover that retained commit. Without a WAL, installation
+is volatile; activating an empty WAL cannot attest that earlier volatile
+installation as durable authority.
+
+The existing installation transaction and catalog-frontier recipes bind the
+versioned retained bytes. Recovery certificates include both catalogs. V1-only
+index commitments retain the original recipe and order; mixed catalogs order
+exact retained records by raw package identity, with retained bytes breaking a
+tie. A fresh filesystem-backed host restores both installation versions and
+rechecks coordinate conflicts. This is installation recovery, not recovery of
+an authored-effect decision. Invocation grant admission, compiled execution,
+physical allocation, derived effects and Action/Tick/receipt recovery remain
+unfinished.

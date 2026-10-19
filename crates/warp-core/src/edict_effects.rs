@@ -1,21 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Trusted-host recording reads for the authored-effect interpreter under construction.
+//! Authored-effect preparation, runtime-owned catalog and private recording reads.
 //!
-//! This is not an installed program profile or admission capability. The host
-//! selects the immutable frontier and policy. No mutation or caller callback is
-//! available. Preparing the basis and policy is outside the per-read budget.
-//! Optional typed laws authorize runtime-bound node, atom, portal and range reads.
-//! Completed reads can be exported as bounded canonical images. Authored effect
-//! instructions, package-authenticated policy, receipt/WAL integration, a physical
-//! arena and admission still precede a shipped effect profile.
+//! Exact V2 publications and static invocations can be prepared, and the runtime
+//! owner can admit package policy and retain/install its catalog evidence. None
+//! of those crossings grants invocation rights or enables effect execution.
+//! Private frames bind immutable runtime frontiers, typed read laws and shared
+//! logical meters. Compiled effect instructions, a physical evaluation arena,
+//! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
 #[cfg(feature = "native_rule_bootstrap")]
 mod admission;
+#[cfg(feature = "native_rule_bootstrap")]
+mod installation;
 #[cfg(feature = "native_rule_bootstrap")]
 pub(crate) use admission::admit as admit_effect_package_v2;
 #[cfg(feature = "native_rule_bootstrap")]
 pub use admission::{
     AdmittedEffectPackageV2, EffectAdmissionError, EffectPackageAdmissionPolicyV2,
+};
+#[cfg(feature = "native_rule_bootstrap")]
+pub use installation::InstalledEffectOperationV2;
+#[cfg(feature = "native_rule_bootstrap")]
+pub(crate) use installation::{
+    install_recovered_v2, recover_versioned_installation, RecoveredOperationInstallation,
 };
 mod invocation;
 pub use invocation::EffectInvocationV2;

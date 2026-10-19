@@ -41,6 +41,53 @@ impl EffectPackageAdmissionPolicyV2 {
         h.update(&self.maximum.write_bytes().to_le_bytes());
         h.finalize().into()
     }
+    pub(super) fn to_value(&self) -> echo_edict_canonical::CanonicalValueV1 {
+        use echo_edict_canonical::CanonicalValueV1 as V;
+        crate::echo_operation::map_value([
+            ("expected_package_id", V::Bytes(self.pin.to_vec())),
+            (
+                "expected_operation_coordinate",
+                V::Text(self.operation.clone()),
+            ),
+            (
+                "expected_authority_profile_identity",
+                V::Bytes(self.authority.to_vec()),
+            ),
+            ("maximum_budget", self.maximum.to_value()),
+        ])
+    }
+    pub(super) fn from_value(
+        value: &echo_edict_canonical::CanonicalValueV1,
+    ) -> Result<Self, crate::EchoOperationArtifactErrorV1> {
+        use super::package::hash;
+        use crate::edict_pure::values::{exact_fields, field, text};
+        let read = || {
+            exact_fields(
+                value,
+                &[
+                    "expected_package_id",
+                    "expected_operation_coordinate",
+                    "expected_authority_profile_identity",
+                    "maximum_budget",
+                ],
+            )?;
+            Ok::<_, crate::edict_pure::EvaluationError>((
+                hash(field(value, "expected_package_id")?)?,
+                text(field(value, "expected_operation_coordinate")?)?.to_owned(),
+                hash(field(value, "expected_authority_profile_identity")?)?,
+                field(value, "maximum_budget")?.clone(),
+            ))
+        };
+        let (pin, operation, authority, budget) = read()
+            .map_err(|_| crate::echo_operation::invalid_structure("invalid V2 admission policy"))?;
+        let maximum = EchoOperationBudgetV1::from_value(budget)?;
+        if operation.is_empty() || maximum.steps() == 0 {
+            return Err(crate::echo_operation::invalid_structure(
+                "invalid V2 policy coordinate or budget",
+            ));
+        }
+        Ok(Self::exact(pin, operation, authority, maximum))
+    }
 }
 /// Stable V2 package-admission refusal category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

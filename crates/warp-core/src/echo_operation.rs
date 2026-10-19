@@ -506,7 +506,7 @@ impl EchoOperationBudgetV1 {
             && self.write_bytes <= ceiling.write_bytes
     }
 
-    fn to_value(self) -> CanonicalValueV1 {
+    pub(crate) fn to_value(self) -> CanonicalValueV1 {
         map_value([
             ("read_bytes", uint_value(self.read_bytes)),
             ("steps", uint_value(self.steps)),
@@ -514,7 +514,9 @@ impl EchoOperationBudgetV1 {
         ])
     }
 
-    fn from_value(value: CanonicalValueV1) -> Result<Self, EchoOperationArtifactErrorV1> {
+    pub(crate) fn from_value(
+        value: CanonicalValueV1,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
         let mut fields = exact_text_map(value, &["read_bytes", "steps", "write_bytes"])?;
         Ok(Self {
             steps: take_u64(&mut fields, "steps")?,
@@ -7687,7 +7689,7 @@ fn hash_budget(hasher: &mut Hasher, budget: EchoOperationBudgetV1) {
     hasher.update(&budget.write_bytes.to_le_bytes());
 }
 
-fn map_value<const N: usize>(fields: [(&str, CanonicalValueV1); N]) -> CanonicalValueV1 {
+pub(crate) fn map_value<const N: usize>(fields: [(&str, CanonicalValueV1); N]) -> CanonicalValueV1 {
     CanonicalValueV1::Map(
         fields
             .into_iter()
@@ -7842,7 +7844,7 @@ fn artifact_error(
     }
 }
 
-fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtifactErrorV1 {
+pub(crate) fn invalid_structure(detail: impl Into<String>) -> EchoOperationArtifactErrorV1 {
     artifact_error(EchoOperationArtifactErrorKindV1::InvalidStructure, detail)
 }
 
@@ -7867,7 +7869,7 @@ fn invocation_admission_error(
     }
 }
 
-fn installation_error(
+pub(crate) fn installation_error(
     kind: EchoOperationInstallationErrorKindV1,
     detail: impl Into<String>,
 ) -> EchoOperationInstallationErrorV1 {

@@ -379,6 +379,7 @@ jobs:
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test executable_operation_pipeline_tests --test edict_effect_admission_tests
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test --test executable_operation_pipeline_tests --test edict_effect_admission_tests
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --doc admit_echo_operation_package_v2
+                  cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --doc install_admitted_echo_operation_package_v2
             - name: cargo test (compiler-produced compare-and-set recovery)
               run: |
                   cargo test -p warp-core --features native_rule_bootstrap,trusted_runtime --test edict_projected_cas_tests

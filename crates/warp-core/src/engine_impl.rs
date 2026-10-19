@@ -456,6 +456,11 @@ pub struct Engine {
     installed_contract_packages:
         BTreeMap<InstalledContractPackageId, InstalledContractPackageRecord>,
     installed_echo_operation_packages: BTreeMap<EchoOperationPackageIdV1, InstalledEchoOperationV1>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    installed_echo_effect_packages:
+        BTreeMap<Hash, crate::edict_effects::InstalledEffectOperationV2>,
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    installed_echo_effect_operations_by_coordinate: BTreeMap<String, Hash>,
     #[cfg_attr(
         not(all(feature = "native_rule_bootstrap", feature = "trusted_runtime")),
         allow(dead_code)
@@ -983,6 +988,10 @@ impl Engine {
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             installed_echo_operation_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_echo_effect_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_echo_effect_operations_by_coordinate: BTreeMap::new(),
             installed_echo_operations_by_coordinate: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             installed_provider_contract_packages: BTreeMap::new(),
@@ -1189,6 +1198,10 @@ impl Engine {
             canonical_cmd_rules: Vec::new(),
             installed_contract_packages: BTreeMap::new(),
             installed_echo_operation_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_echo_effect_packages: BTreeMap::new(),
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            installed_echo_effect_operations_by_coordinate: BTreeMap::new(),
             installed_echo_operations_by_coordinate: BTreeMap::new(),
             #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
             installed_provider_contract_packages: BTreeMap::new(),
@@ -1392,6 +1405,59 @@ impl Engine {
         Ok(prepared.record)
     }
 
+    /// Returns an installed V2 effect publication by its exact versioned pin.
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    #[must_use]
+    pub fn installed_echo_operation_package_v2(
+        &self,
+        package_id: Hash,
+    ) -> Option<&crate::edict_effects::InstalledEffectOperationV2> {
+        self.installed_echo_effect_packages.get(&package_id)
+    }
+
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn preflight_echo_effect_installations(
+        &self,
+        recovered: &[crate::edict_effects::InstalledEffectOperationV2],
+    ) -> Result<(), EchoOperationInstallationErrorV1> {
+        let mut packages = self.installed_echo_effect_packages.clone();
+        let mut operations = self.installed_echo_effect_operations_by_coordinate.clone();
+        for installed in recovered {
+            crate::edict_effects::install_recovered_v2(
+                &mut packages,
+                &mut operations,
+                &self.installed_echo_operations_by_coordinate,
+                installed.clone(),
+            )?;
+        }
+        Ok(())
+    }
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn restore_echo_effect_installations(
+        &mut self,
+        recovered: &[crate::edict_effects::InstalledEffectOperationV2],
+    ) -> Result<(), EchoOperationInstallationErrorV1> {
+        let mut packages = self.installed_echo_effect_packages.clone();
+        let mut operations = self.installed_echo_effect_operations_by_coordinate.clone();
+        for installed in recovered {
+            crate::edict_effects::install_recovered_v2(
+                &mut packages,
+                &mut operations,
+                &self.installed_echo_operations_by_coordinate,
+                installed.clone(),
+            )?;
+        }
+        self.installed_echo_effect_packages = packages;
+        self.installed_echo_effect_operations_by_coordinate = operations;
+        Ok(())
+    }
+    #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+    pub(crate) fn installed_echo_effect_packages(
+        &self,
+    ) -> impl Iterator<Item = &crate::edict_effects::InstalledEffectOperationV2> {
+        self.installed_echo_effect_packages.values()
+    }
+
     /// Returns one installed executable operation package by exact package id.
     #[must_use]
     pub fn installed_echo_operation_package_v1(
@@ -1412,6 +1478,16 @@ impl Engine {
         let mut packages = self.installed_echo_operation_packages.clone();
         let mut operations = self.installed_echo_operations_by_coordinate.clone();
         for installed in recovered {
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            if self
+                .installed_echo_effect_operations_by_coordinate
+                .contains_key(installed.operation_coordinate())
+            {
+                return Err(crate::echo_operation::installation_error(
+                    crate::EchoOperationInstallationErrorKindV1::OperationCoordinateConflict,
+                    "V1 operation conflicts with installed V2 meaning",
+                ));
+            }
             install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
         }
         Ok(())
@@ -1428,6 +1504,16 @@ impl Engine {
         let mut packages = self.installed_echo_operation_packages.clone();
         let mut operations = self.installed_echo_operations_by_coordinate.clone();
         for installed in recovered {
+            #[cfg(all(feature = "native_rule_bootstrap", feature = "trusted_runtime"))]
+            if self
+                .installed_echo_effect_operations_by_coordinate
+                .contains_key(installed.operation_coordinate())
+            {
+                return Err(crate::echo_operation::installation_error(
+                    crate::EchoOperationInstallationErrorKindV1::OperationCoordinateConflict,
+                    "V1 operation conflicts with installed V2 meaning",
+                ));
+            }
             install_recovered_v1(&mut packages, &mut operations, installed.clone())?;
         }
         self.installed_echo_operation_packages = packages;

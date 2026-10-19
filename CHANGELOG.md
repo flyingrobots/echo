@@ -7,6 +7,11 @@
 
 ### Added
 
+- Runtime-owned V2 installation retains exact policy and package evidence in the
+  existing WAL catalog, restores it in a fresh filesystem-backed host, and shares
+  coordinate-conflict checks with V1. Conflicts and failed WAL appends publish no
+  V2 registry entry. Installation recovery does not authorize or execute effects.
+
 - Runtime-owner V2 package admission checks independently pinned publication,
   operation, authority profile and budget policy, retaining distinct versioned
   admission evidence. Restricted application handles cannot admit packages.

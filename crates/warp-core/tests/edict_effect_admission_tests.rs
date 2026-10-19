@@ -214,3 +214,5 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
     wrong_domain.update(&first.admission_policy_identity());
     assert_ne!(first.identity(), *wrong_domain.finalize().as_bytes());
 }
+#[path = "edict_effect_admission_tests/installation.rs"]
+mod installation;

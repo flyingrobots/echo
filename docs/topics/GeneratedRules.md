@@ -92,6 +92,27 @@ a Rust dependency consumer can explicitly enable the feature.
 It is not an access-control or security seal. Echo product and adapter code must
 not use it as an application authoring escape hatch.
 
+### Provider semantic type declarations
+
+The current `echo.edict-provider-semantics/v1` type model supports bounded
+Core string aliases, bounded Core byte aliases, and records with name-keyed
+references to declared types. A byte alias uses `shape.kind: coreBytesAlias`
+with explicit unsigned `minBytes` and `maxBytes`. Source admission requires
+`minBytes <= maxBytes`; an inverted interval yields `InvalidByteBounds` before
+artifact generation. Missing, mistyped or extra shape fields refuse.
+
+Byte aliases are bounded leaves for record-graph validation. A record that
+also references itself still refuses as `UnboundedTypeGraph`; an Echo-owned
+alias cannot claim an Edict Core `Bytes` coordinate. Lawpack exports retain
+exact source alias identities and emit canonical definitions: equal bounds
+use `Bytes<exact=N>`, a zero lower bound uses `Bytes<max=N>`, and other intervals
+use `Bytes<min=N,max=M>`. The empty exact-zero interval is valid.
+
+These declarations provide catalog and lawpack type metadata. Byte-valued
+Rust helper codecs and graph-effect lowering require their own implementation
+and verification. Catalog-to-export nominal agreement remains a separate
+required check.
+
 ## Execution Corridors
 
 ### Bounded compiler-package computation

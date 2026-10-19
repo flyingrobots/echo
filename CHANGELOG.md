@@ -83,6 +83,12 @@
 
 ### Changed
 
+- Provider semantic declarations now support explicitly bounded Core byte
+  aliases, including exact 32-byte identifiers. Byte aliases participate in
+  bounded record graphs and generate canonical lawpack type definitions.
+  Inverted ranges, malformed bounds, recursive records and claims on Edict
+  Core type identities refuse before artifact generation.
+
 - An engine keeps the state root's working memory across commits. Once that
   memory has grown to the reachable graph, a commit's state-root hash
   allocates nothing, except when the membership table falls back to the

@@ -16,7 +16,22 @@ use crate::{
     WorldlineFrontier,
 };
 
-/// A read refusal, without an Action outcome or any mutation authority.
+/// Maximum declared value-storage reservation for this read primitive.
+///
+/// This is a deterministic logical storage ceiling, not an OS memory limit.
+pub const EFFECT_READ_STORAGE_CEILING_V1: u64 = 16 * 1024 * 1024;
+const OBSERVATION_STORAGE_BYTES: u64 = 128;
+const EDGE_RECORD_STORAGE_BYTES: u64 = 128;
+
+/// Invalid trusted-host preparation, before any read is evaluated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum EffectReadSetupError {
+    /// The declared reservation exceeds the fixed read-storage ceiling.
+    #[error("declared read storage exceeds the fixed ceiling")]
+    AllocationLimitTooLarge,
+}
+
+/// A read failure, without an Action outcome or any mutation authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EffectRangeReadError {
     /// The selected edge type is outside the host's range-read policy.
@@ -25,6 +40,12 @@ pub enum EffectRangeReadError {
     /// The whole source bucket cannot be scanned within the remaining limits.
     #[error("range read exceeds its budget")]
     BudgetExceeded,
+    /// Host storage could not be provisioned despite an admitted reservation.
+    ///
+    /// This is a host fault. It must never become an Action obstruction or a
+    /// retained decision; an integrating host must stop the evaluation.
+    #[error("host could not provision reserved range storage")]
+    HostAllocationFailed,
 }
 
 /// Immutable frontier plus an owned, runtime-recorded dependency transcript.
@@ -39,6 +60,8 @@ pub struct EffectRangeReadSession<'a> {
     allowed_types: BTreeSet<TypeId>,
     max_range_edges: u64,
     meter: EchoOperationBudgetMeterV1,
+    max_allocated_bytes: u64,
+    allocated_bytes: u64,
     readings: BTreeMap<SlotId, SlotReading>,
     footprint: Footprint,
 }
@@ -55,12 +78,54 @@ impl<'a> EffectRangeReadSession<'a> {
         max_range_edges: u64,
         budget: EchoOperationBudgetV1,
     ) -> Self {
+        Self::prepare(
+            frontier,
+            allowed_types,
+            max_range_edges,
+            budget,
+            EFFECT_READ_STORAGE_CEILING_V1,
+        )
+    }
+
+    /// Prepares a view with an explicit value-storage reservation.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a declaration above the fixed ceiling before preparing the basis.
+    pub fn with_allocation_limit(
+        frontier: &'a WorldlineFrontier,
+        allowed_types: &[TypeId],
+        max_range_edges: u64,
+        budget: EchoOperationBudgetV1,
+        max_allocated_bytes: u64,
+    ) -> Result<Self, EffectReadSetupError> {
+        if max_allocated_bytes > EFFECT_READ_STORAGE_CEILING_V1 {
+            return Err(EffectReadSetupError::AllocationLimitTooLarge);
+        }
+        Ok(Self::prepare(
+            frontier,
+            allowed_types,
+            max_range_edges,
+            budget,
+            max_allocated_bytes,
+        ))
+    }
+
+    fn prepare(
+        frontier: &'a WorldlineFrontier,
+        allowed_types: &[TypeId],
+        max_range_edges: u64,
+        budget: EchoOperationBudgetV1,
+        max_allocated_bytes: u64,
+    ) -> Self {
         Self {
             frontier,
             basis: ReadBasis::at(frontier),
             allowed_types: allowed_types.iter().copied().collect(),
             max_range_edges,
             meter: EchoOperationBudgetMeterV1::new(budget),
+            max_allocated_bytes,
+            allocated_bytes: 0,
             readings: BTreeMap::new(),
             footprint: Footprint::default(),
         }
@@ -78,6 +143,8 @@ impl<'a> EffectRangeReadSession<'a> {
     /// A forbidden type is refused before state lookup or charging. A scan that
     /// exceeds the whole-bucket limit or remaining budget is refused before any
     /// edge is inspected; its already-resolved node dependency remains visible.
+    /// Storage and I/O reservations are atomic. Host allocation failure is
+    /// separately reported as a host fault, never as budget exhaustion.
     pub fn read(
         &mut self,
         range: OutgoingEdgeRange,
@@ -85,7 +152,7 @@ impl<'a> EffectRangeReadSession<'a> {
         if !self.allowed_types.contains(&range.edge_type) {
             return Err(EffectRangeReadError::FootprintLawViolation);
         }
-        if !self.meter.charge(1, 64, 0) {
+        if !self.charge(1, 64, OBSERVATION_STORAGE_BYTES) {
             return Err(EffectRangeReadError::BudgetExceeded);
         }
         let store = self.frontier.state().store(&range.source.warp_id);
@@ -93,31 +160,70 @@ impl<'a> EffectRangeReadSession<'a> {
         self.readings
             .insert(SlotId::Node(range.source), SlotReading::Node(node.cloned()));
         self.footprint.n_read.insert(range.source);
-        let value = if let (Some(store), Some(_)) = (store, node) {
-            let bucket = store.edges_from(&range.source.local_id);
-            let count =
-                u64::try_from(bucket.len()).map_err(|_| EffectRangeReadError::BudgetExceeded)?;
-            let bytes = count
-                .checked_mul(64)
-                .ok_or(EffectRangeReadError::BudgetExceeded)?;
-            if count > self.max_range_edges || !self.meter.charge(count, bytes, 0) {
-                return Err(EffectRangeReadError::BudgetExceeded);
-            }
-            let mut rows: Vec<_> = bucket
-                .filter(|edge| edge.ty == range.edge_type)
-                .cloned()
-                .collect();
-            rows.sort_by_key(|edge| edge.id);
-            Some(rows)
+        let bucket = store
+            .filter(|_| node.is_some())
+            .map(|store| store.edges_from(&range.source.local_id));
+        let capacity = bucket.as_ref().map_or(0, ExactSizeIterator::len);
+        let count = u64::try_from(capacity).map_err(|_| EffectRangeReadError::BudgetExceeded)?;
+        let bytes = count
+            .checked_mul(64)
+            .ok_or(EffectRangeReadError::BudgetExceeded)?;
+        let storage = count
+            .checked_mul(2 * EDGE_RECORD_STORAGE_BYTES)
+            .and_then(|rows| rows.checked_add(OBSERVATION_STORAGE_BYTES))
+            .ok_or(EffectRangeReadError::BudgetExceeded)?;
+        if count > self.max_range_edges || !self.charge(count, bytes, storage) {
+            return Err(EffectRangeReadError::BudgetExceeded);
+        }
+        let (value, observed) = if let Some(bucket) = bucket {
+            // Provision both worst-case row buffers before inspecting any edge.
+            // Host inability to provide these bytes is not a semantic refusal.
+            let mut rows = Vec::new();
+            rows.try_reserve_exact(capacity)
+                .map_err(|_| EffectRangeReadError::HostAllocationFailed)?;
+            let mut observed = Vec::new();
+            observed
+                .try_reserve_exact(capacity)
+                .map_err(|_| EffectRangeReadError::HostAllocationFailed)?;
+            rows.extend(bucket.filter(|edge| edge.ty == range.edge_type).cloned());
+            // Edge IDs are unique; unstable sorting is canonical and allocates
+            // no additional temporary buffer.
+            rows.sort_unstable_by_key(|edge| edge.id);
+            observed.extend_from_slice(&rows);
+            (Some(rows), Some(observed))
         } else {
-            None
+            (None, None)
         };
         self.readings.insert(
             SlotId::OutgoingEdges(range),
-            SlotReading::OutgoingEdges(value.clone()),
+            SlotReading::OutgoingEdges(observed),
         );
         self.footprint.r_read.insert(range);
         Ok(value)
+    }
+
+    fn charge(&mut self, steps: u64, read_bytes: u64, storage: u64) -> bool {
+        let Some(allocated) = self.allocated_bytes.checked_add(storage) else {
+            return false;
+        };
+        let mut meter = self.meter;
+        if allocated > self.max_allocated_bytes || !meter.charge(steps, read_bytes, 0) {
+            return false;
+        }
+        self.meter = meter;
+        self.allocated_bytes = allocated;
+        true
+    }
+
+    /// Cumulative reserved value storage, including both worst-case row buffers.
+    ///
+    /// Each node/range observation reserves 128 logical bytes. Each bucket edge
+    /// reserves 128 bytes in each of the returned and recorded row buffers,
+    /// including nonmatching edges. Index/allocator overhead and trusted-host
+    /// preparation are separate; this is not a complete interpreter arena.
+    #[must_use]
+    pub const fn allocated_bytes(&self) -> u64 {
+        self.allocated_bytes
     }
 
     /// Reading coordinate computed from the borrowed frontier during preparation.

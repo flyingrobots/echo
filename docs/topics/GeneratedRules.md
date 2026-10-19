@@ -361,12 +361,26 @@ Successful reads retain the source node and the full source/type range,
 including empty and absent ranges; matching edge records are ordered by edge
 ID. These are real values observed at the selected basis, not caller claims.
 
-This trusted-host primitive has no mutation or admission path. Its returned
-values and transcript use host-owned materializations, not the future bounded
-interpreter arena. Complete node/atom footprint law, portal-chain authority,
-allocation accounting, interpreted read instructions, derived effects and
-installed-profile validation remain required before a new authored-effect
-profile can ship. Existing package profiles and graph accessors are unchanged.
+Read value-storage declarations have a fixed 16 MiB ceiling. Every attempted
+node or range observation reserves 128 logical bytes; each source-bucket edge
+reserves 128 bytes in each of the returned and recorded row buffers, including
+nonmatches. Both buffers are provisioned before inspection, and unique edge IDs
+are sorted without a temporary heap buffer. Reservations are cumulative across
+repeated reads. Storage and I/O charges for each resolution succeed together
+or leave both counters unchanged; earlier successful resolutions remain
+recorded when a later one refuses. A host that cannot provide admitted buffer
+capacity reports `HostAllocationFailed`, not `BudgetExceeded`. That host fault
+must stop evaluation and must never become an Action obstruction or retained
+decision.
+
+This trusted-host primitive has no mutation or admission path. Logical
+value-storage reservations bound the row buffers and observation count; policy
+preparation, indexes and allocator overhead remain host storage. This is not
+the future shared interpreter arena. Complete node/atom footprint law,
+portal-chain authority, shared interpreter allocation accounting, interpreted
+read instructions, derived effects and installed-profile validation remain
+required before a new authored-effect profile can ship. Existing package
+profiles and graph accessors are unchanged.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.

@@ -62,6 +62,7 @@ fn forbidden_type_is_refused_before_read_or_charge() {
     );
     assert_eq!(session.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
     assert!(session.readings().is_empty());
+    assert_eq!(session.allocated_bytes(), 0);
 }
 
 #[test]
@@ -76,6 +77,7 @@ fn nonmatching_edges_count_toward_the_preinspection_budget() {
     );
     assert_eq!(session.read(key), Err(EffectRangeReadError::BudgetExceeded));
     // Source presence was resolved, but neither edge was inspected or recorded.
+    assert_eq!(session.allocated_bytes(), 128);
     assert_eq!(session.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
     assert_eq!(session.readings().len(), 1);
     assert!(session.readings().contains_key(&SlotId::Node(key.source)));
@@ -193,6 +195,7 @@ fn exhausted_node_budget_records_nothing_and_failed_charges_are_atomic() {
         assert_eq!(session.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
         assert!(session.readings().is_empty());
         assert!(session.footprint().n_read.is_empty());
+        assert_eq!(session.allocated_bytes(), 0);
     }
 }
 
@@ -263,4 +266,120 @@ fn repeated_reads_charge_each_attempt_without_duplicating_observations() {
     assert_eq!(session.read(key), Err(EffectRangeReadError::BudgetExceeded));
     assert_eq!(session.consumed(), EchoOperationBudgetV1::new(2, 128, 0));
     assert_eq!(session.readings().len(), 2);
+}
+
+#[test]
+fn allocation_refuses_before_node_resolution_and_failed_reservations_are_atomic() {
+    let (frontier, key) = fixture(false);
+    let allowed = [key.edge_type];
+    let mut session = EffectRangeReadSession::with_allocation_limit(
+        &frontier,
+        &allowed,
+        0,
+        EchoOperationBudgetV1::new(10, 1024, 0),
+        127,
+    )
+    .expect("valid declared limit");
+    assert_eq!(session.read(key), Err(EffectRangeReadError::BudgetExceeded));
+    assert_eq!(session.allocated_bytes(), 0);
+    assert_eq!(session.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+    assert!(session.readings().is_empty());
+}
+
+#[test]
+fn empty_range_storage_has_an_exact_success_boundary() {
+    let (frontier, key) = fixture(false);
+    let allowed = [key.edge_type];
+    for (limit, succeeds, allocated, observations) in [(255, false, 128, 1), (256, true, 256, 2)] {
+        let mut session = EffectRangeReadSession::with_allocation_limit(
+            &frontier,
+            &allowed,
+            0,
+            EchoOperationBudgetV1::new(1, 64, 0),
+            limit,
+        )
+        .expect("valid limit");
+        assert_eq!(session.read(key).is_ok(), succeeds);
+        assert_eq!(session.allocated_bytes(), allocated);
+        assert_eq!(session.readings().len(), observations);
+        assert_eq!(session.consumed(), EchoOperationBudgetV1::new(1, 64, 0));
+    }
+}
+
+#[test]
+fn scan_reserves_both_row_vectors_for_the_whole_bucket_before_filtering() {
+    let (frontier, key) = fixture(true);
+    let allowed = [key.edge_type];
+    // 128 node + 128 range + 2 copies * 2 bucket edges * 128 row bytes.
+    for (limit, succeeds, allocated, steps, bytes) in
+        [(767, false, 128, 1, 64), (768, true, 768, 3, 192)]
+    {
+        let mut session = EffectRangeReadSession::with_allocation_limit(
+            &frontier,
+            &allowed,
+            8,
+            EchoOperationBudgetV1::new(10, 1024, 0),
+            limit,
+        )
+        .expect("valid limit");
+        assert_eq!(session.read(key).is_ok(), succeeds);
+        assert_eq!(session.allocated_bytes(), allocated);
+        assert_eq!(
+            session.consumed(),
+            EchoOperationBudgetV1::new(steps, bytes, 0)
+        );
+    }
+}
+
+#[test]
+fn allocation_declarations_above_the_fixed_ceiling_are_refused() {
+    let (frontier, key) = fixture(false);
+    let allowed = [key.edge_type];
+    assert!(matches!(
+        EffectRangeReadSession::with_allocation_limit(
+            &frontier,
+            &allowed,
+            0,
+            EchoOperationBudgetV1::new(1, 64, 0),
+            16_777_217,
+        ),
+        Err(warp_core::edict_effects::EffectReadSetupError::AllocationLimitTooLarge)
+    ));
+    let mut zero = EffectRangeReadSession::with_allocation_limit(
+        &frontier,
+        &allowed,
+        0,
+        EchoOperationBudgetV1::new(1, 64, 0),
+        0,
+    )
+    .expect("zero is a valid declaration");
+    assert_eq!(zero.read(key), Err(EffectRangeReadError::BudgetExceeded));
+    assert_eq!(zero.allocated_bytes(), 0);
+    assert!(zero.readings().is_empty());
+}
+
+#[test]
+fn repeated_reads_do_not_refund_cumulative_storage() {
+    let (frontier, key) = fixture(false);
+    let allowed = [key.edge_type];
+    let mut session = EffectRangeReadSession::with_allocation_limit(
+        &frontier,
+        &allowed,
+        0,
+        EchoOperationBudgetV1::new(10, 1024, 0),
+        511,
+    )
+    .expect("valid declaration");
+    assert_eq!(
+        session.read(key).expect("first empty range"),
+        Some(Vec::new())
+    );
+    assert_eq!(session.allocated_bytes(), 256);
+    assert_eq!(session.read(key), Err(EffectRangeReadError::BudgetExceeded));
+    assert_eq!(session.allocated_bytes(), 384);
+    assert_eq!(session.consumed(), EchoOperationBudgetV1::new(2, 128, 0));
+    assert_eq!(session.readings().len(), 2);
+    assert_eq!(session.read(key), Err(EffectRangeReadError::BudgetExceeded));
+    assert_eq!(session.allocated_bytes(), 384);
+    assert_eq!(session.consumed(), EchoOperationBudgetV1::new(2, 128, 0));
 }

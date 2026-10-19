@@ -11,7 +11,8 @@
   an immutable basis, including absence and empty ranges. They reject forbidden
   types before access and charge whole buckets before inspection. This is read
   infrastructure for the unfinished authored-effect interpreter, without new
-  installation or mutation authority.
+  installation or mutation authority. Read storage reservations now have a
+  fixed ceiling, atomic charging with I/O and explicit host-allocation faults.
 
 ### Fixed
 

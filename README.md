@@ -585,10 +585,13 @@ for coincidental text.
 ### How Does Schema Evolution Work?
 
 Contract identity, schema identity, operation ids, and generated helper or
-package identity are explicit in admitted compiler output. A schema change
-produces new contract artifact identity. Old readings name the schema and
-operation identity they used, so multiple contract versions can coexist
-without silently invalidating old receipts.
+package identity are explicit in admitted compiler output. Main crates support
+one current version of each data structure and format. A replacement updates
+the producers and consumers together. Old versions belong only in separate
+upgrade or migration tools, which can convert and validate persisted data
+before the current runtime consumes it. There are no existing saved histories
+to preserve and no implemented migration tool is implied. See the
+[version policy](docs/topics/GeneratedRules.md#one-current-version-and-explicit-migration).
 
 ### Where Should Contributors Start?
 

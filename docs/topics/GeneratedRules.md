@@ -13,6 +13,32 @@ no Jedit consumer emits one yet. Wesley packaging and the generated
 bounded-read corridor remain incomplete and must not borrow evidence from
 either mutation path.
 
+## One current version and explicit migration
+
+Each data structure, wire format, and implementation has exactly one supported
+version in the main crates. A replacement updates the current definition and
+its producers and consumers together. Main crates must not retain historical
+definitions, decoders, execution paths, compatibility aliases or wrappers,
+feature-gated old implementations, or runtime dispatch between old and new
+versions. Distinct current concepts may have distinct types; historical
+versions of the same concept may not coexist in the main crates.
+
+Old versions may exist only in separate upgrade or migration tools. If future
+persisted data needs conversion, those tools must explicitly convert and
+validate it before the current runtime consumes it. This policy does not claim
+that such tools already exist. Version labels on the one current format do
+not authorize retaining another version in the runtime.
+
+The user confirmed on 2026-10-19 that there are no existing saved histories to
+preserve. This decision supersedes the V1-preservation and dual-version
+installation/recovery direction in proposal #889, earlier compatibility
+promises, and any historical decision that would require old and new versions
+of the same structure to coexist in a main crate. The implementation sections
+below describe the branch's current behavior, including its still-present
+V1/V2 duplication; that duplication does not satisfy this policy. A completed
+authored-effect bridge must replace it with one current format and update
+the compiler, runtime, tests, and consumers together.
+
 ## Current Implementation
 
 Wesley currently emits raw `RewriteRule` builders plus generated operation,

@@ -23,6 +23,7 @@ use super::{
 const CORE_DOMAIN: &str = "edict.core.module/v1";
 const CORE_ABI: &str = "edict.core/v1";
 const SOURCE_DOMAIN: &str = "edict.source/v1";
+const SOURCE_CLOSURE_DOMAIN: &str = "edict.source-closure/v1";
 const LAWPACK_DOMAIN: &str = "edict.lawpack/v1";
 const EXPORTS_DOMAIN: &str = "edict.lawpack-exports/v1";
 const ADAPTER_DOMAIN: &str = "edict.lawpack-adapter/v1";
@@ -215,7 +216,7 @@ pub(super) fn verify(
     let package = validate_bound(&closure.package.artifact, PACKAGE_DOMAIN)?;
     let exports = validate_bound(&closure.exports.artifact, EXPORTS_DOMAIN)?;
     let lawpack = validate_bound(&closure.lawpack.artifact, LAWPACK_DOMAIN)?;
-    let source = validate_bound(&closure.source.artifact, SOURCE_DOMAIN)?;
+    let source = validate_bound(&closure.source.artifact, source_domain(closure.source)?)?;
     let configuration = validate_bound(&closure.configuration.artifact, CONFIGURATION_DOMAIN)?;
     let result_projection = validate_bound(
         &closure.result_projection.artifact,
@@ -978,10 +979,7 @@ fn select_closure(inputs: &[SemanticInput]) -> Result<ClosureInputs<'_>, Provide
             &SemanticInputKind::Auxiliary("lawpack-exports".to_owned()),
         )?,
         lawpack: unique_input(inputs, &SemanticInputKind::Lawpack)?,
-        source: unique_input(
-            inputs,
-            &SemanticInputKind::Auxiliary("edict-source".to_owned()),
-        )?,
+        source: unique_source_input(inputs)?,
         configuration: unique_input(
             inputs,
             &SemanticInputKind::Auxiliary("target-configuration".to_owned()),
@@ -991,6 +989,36 @@ fn select_closure(inputs: &[SemanticInput]) -> Result<ClosureInputs<'_>, Provide
             &SemanticInputKind::Auxiliary("result-projection".to_owned()),
         )?,
     })
+}
+
+fn unique_source_input(inputs: &[SemanticInput]) -> Result<&SemanticInput, ProviderRefusalV1> {
+    let mut sources = inputs.iter().filter(|input| matches!(&input.kind, SemanticInputKind::Auxiliary(kind) if kind == "edict-source" || kind == "edict-source-closure"));
+    let Some(source) = sources.next() else {
+        return Err(super::unsupported_semantics(
+            "semantic-inputs.echo-operation",
+            "exactly one supported source artifact is required",
+        ));
+    };
+    if sources.next().is_some() {
+        return Err(super::unsupported_semantics(
+            "semantic-inputs.echo-operation",
+            "multiple source artifact forms are ambiguous",
+        ));
+    }
+    Ok(source)
+}
+
+fn source_domain(source: &SemanticInput) -> Result<&'static str, ProviderRefusalV1> {
+    match &source.kind {
+        SemanticInputKind::Auxiliary(kind) if kind == "edict-source" => Ok(SOURCE_DOMAIN),
+        SemanticInputKind::Auxiliary(kind) if kind == "edict-source-closure" => {
+            Ok(SOURCE_CLOSURE_DOMAIN)
+        }
+        _ => Err(invalid_artifact(
+            &source.role,
+            "unsupported source artifact kind",
+        )),
+    }
 }
 
 fn unique_input<'a>(
@@ -1166,6 +1194,18 @@ fn validate_source<'a>(
             &source.role,
             "Edict source coordinate differs from the Core coordinate",
         ));
+    }
+    if source_domain(source)? == SOURCE_CLOSURE_DOMAIN {
+        return echo_edict_canonical::source_closure::source_closure_root_v1(
+            value,
+            &core.reference.coordinate,
+        )
+        .map_err(|error| {
+            invalid_artifact(
+                &source.role,
+                &format!("invalid source-closure encoding: {error:?}"),
+            )
+        });
     }
     let CanonicalValueV1::Bytes(source_bytes) = value else {
         return Err(invalid_artifact(

@@ -52,6 +52,8 @@ pub enum ProviderContractPublicationV1 {
     OrderedInstructions,
     /// Source-owned pure functions, selected by the exact upstream publication pair.
     SourceFunctions,
+    /// Authenticated source-closure schema from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
+    SourceModules,
 }
 
 impl ProviderContractPublicationV1 {
@@ -63,6 +65,9 @@ impl ProviderContractPublicationV1 {
             }
             Self::SourceFunctions => {
                 "e484eabd615584a38cb57454b52747786f2314c135c13f99da6f6bae619a709f"
+            }
+            Self::SourceModules => {
+                "8f8db4052e1bb85c4f728a0a453c4eb20904bcf2ce81530ffdbfce9351e209bc"
             }
         }
     }
@@ -76,6 +81,9 @@ impl ProviderContractPublicationV1 {
             Self::SourceFunctions => {
                 "aebc2e4133407ae433c18b55421a89bf15dc5d489368f82ce4874f948d4f9c79"
             }
+            Self::SourceModules => {
+                "29927f6db5e0fe1e5e7475bef3fb2c6e7f0f84ea56304fd97bd1299f1c2bb4be"
+            }
         }
     }
 
@@ -84,7 +92,28 @@ impl ProviderContractPublicationV1 {
             Self::PureBindings => EDICT_PROVIDER_CONTRACT_PACK_MANIFEST_MAX_BYTES,
             Self::OrderedInstructions => 75_359,
             Self::SourceFunctions => 75_989,
+            Self::SourceModules => 77_916,
         }
+    }
+}
+
+impl ProviderContractPublicationV1 {
+    fn contracts(self) -> Vec<(&'static str, &'static str)> {
+        let mut bindings = EXPECTED_CONTRACTS.to_vec();
+        if self == Self::SourceModules {
+            bindings.push(("source-closure", "source-closure"));
+            bindings.sort_unstable();
+        }
+        bindings
+    }
+
+    fn domains(self) -> Vec<(&'static str, &'static str)> {
+        let mut bindings = EXPECTED_DOMAINS.to_vec();
+        if self == Self::SourceModules {
+            bindings.push(("edict.source-closure/v1", "source-closure"));
+            bindings.sort_unstable();
+        }
+        bindings
     }
 }
 
@@ -745,14 +774,14 @@ pub fn admit_provider_contract_pack_for_publication_v1(
 
     validate_bindings(
         &manifest.contracts,
-        &EXPECTED_CONTRACTS,
+        &publication.contracts(),
         ProviderContractPackErrorKind::ContractInventoryMismatch,
         "contracts",
         |binding| (&binding.contract, &binding.root_rule),
     )?;
     validate_bindings(
         &manifest.domains,
-        &EXPECTED_DOMAINS,
+        &publication.domains(),
         ProviderContractPackErrorKind::DomainInventoryMismatch,
         "domains",
         |binding| (&binding.domain, &binding.root_rule),
@@ -769,7 +798,7 @@ pub fn admit_provider_contract_pack_for_publication_v1(
         ));
     }
 
-    let schema_context = compile_schema_context(schema_bytes)?;
+    let schema_context = compile_schema_context(publication, schema_bytes)?;
 
     Ok(AdmittedProviderContractPackV1 {
         publication,
@@ -797,6 +826,7 @@ pub fn admit_provider_contract_pack_for_publication_v1(
 }
 
 fn compile_schema_context(
+    publication: ProviderContractPublicationV1,
     schema_bytes: &[u8],
 ) -> Result<Arc<BasicContext>, ProviderContractPackError> {
     let schema = std::str::from_utf8(schema_bytes).map_err(|_| {
@@ -814,7 +844,11 @@ fn compile_schema_context(
         )
     })?;
     let context = Arc::new(BasicContext::new(rules));
-    for (_, root) in EXPECTED_CONTRACTS.into_iter().chain(EXPECTED_DOMAINS) {
+    for (_, root) in publication
+        .contracts()
+        .into_iter()
+        .chain(publication.domains())
+    {
         if !context.rules.contains_key(root) {
             return Err(ProviderContractPackError::new(
                 ProviderContractPackErrorKind::SchemaRootMissing,

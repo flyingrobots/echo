@@ -675,3 +675,62 @@ fn input_identity_survives_coherently_reordered_local_declarations() {
     let actual = evaluate(&encode(&package).unwrap(), pin, &input, &view, limits());
     assert_eq!(actual, Ok(expected));
 }
+
+#[test]
+fn bounded_read_checks_and_consumes_the_distinct_source_closure_domain() {
+    let (raw, _) = package(false);
+    let mut value = decode(&raw).unwrap();
+    let Value::Bytes(program) = field_mut(&mut value, "program") else {
+        panic!("program bytes")
+    };
+    let mut decoded = decode(program).unwrap();
+    let Value::Bytes(source) = field_mut(&mut decoded, "source_artifact") else {
+        panic!("embedded source")
+    };
+    let source_value = decode(source).unwrap();
+    let unit_digest = digest("edict.source/v1", &source_value).unwrap();
+    let closure = record([
+        ("apiVersion", Value::Text("edict.source-closure/v1".into())),
+        ("root", Value::Text("jedit.text.replace_range@1".into())),
+        (
+            "modules",
+            record([(
+                "jedit.text.replace_range@1",
+                record([
+                    ("source", source_value),
+                    (
+                        "digest",
+                        Value::Array(vec![
+                            Value::Text("sha256".into()),
+                            Value::Bytes(unit_digest.to_vec()),
+                        ]),
+                    ),
+                ]),
+            )]),
+        ),
+    ]);
+    *source = encode(&closure).unwrap();
+    *program = encode(&decoded).unwrap();
+    *field_mut(
+        field_mut(&mut value, "semantic_closure"),
+        "edict_source_identity",
+    ) = Value::Bytes(
+        digest("edict.source-closure/v1", &closure)
+            .unwrap()
+            .to_vec(),
+    );
+    let pin = digest("echo.operation-package/v1", &value).unwrap();
+    let raw = encode(&value).unwrap();
+    let (frontier, keys) = frontier();
+    let before = frontier.state().state_root();
+    let basis = ReadBasis::at(&frontier);
+    let view = ReadView::new(&frontier, basis, &keys[..1]).unwrap();
+    let result = evaluate(&raw, pin, &single_input(keys[0], b"alpha"), &view, limits()).unwrap();
+    assert_eq!(
+        decode(&result.output).unwrap(),
+        Value::Bytes(b"alpha".to_vec())
+    );
+    assert_eq!(result.reads, 1);
+    assert_eq!(result.basis, basis);
+    assert_eq!(frontier.state().state_root(), before);
+}

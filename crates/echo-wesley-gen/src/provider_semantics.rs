@@ -3373,7 +3373,18 @@ fn validate_invocation_schema_bindings(
         (InvocationInputKind::AuthorityFacts, 2),
         (InvocationInputKind::LowerabilityFacts, 1),
         (InvocationInputKind::TargetIr, 2),
-        (InvocationInputKind::Auxiliary, 6),
+        (
+            InvocationInputKind::Auxiliary,
+            if source
+                .invocation_inputs
+                .iter()
+                .any(|input| input.role == "source-closure.echo-operation")
+            {
+                7
+            } else {
+                6
+            },
+        ),
     ] {
         let actual = source
             .invocation_inputs
@@ -3665,6 +3676,7 @@ fn expected_input_domain(input: &InvocationInputDeclaration) -> &'static str {
             "executable-operation-package.echo" => "echo.operation-package/v1",
             "result-projection.echo-operation" => "edict.result-projection.artifact/v1",
             "source.echo-operation" => "edict.source/v1",
+            "source-closure.echo-operation" => "edict.source-closure/v1",
             "target-configuration.echo-operation" => "echo.operation-lowering-configuration/v1",
             _ => "",
         },
@@ -3717,6 +3729,7 @@ fn expected_schema_root(domain: &str) -> Option<&'static str> {
         "edict.lowering-requirements/v1" => Some("lowering-requirements"),
         "edict.result-projection.artifact/v1" => Some("result-projection"),
         "edict.source/v1" => Some("edict-source-bytes"),
+        "edict.source-closure/v1" => Some("source-closure"),
         "edict.target-profile/v1" => Some("target-profile-manifest"),
         "edict.target-ir.artifact/v1" => Some("target-ir-artifact"),
         "echo.generated-artifact-profile/v1" => Some("generated-artifact-profile"),

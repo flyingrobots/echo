@@ -123,6 +123,15 @@
 
 ### Added
 
+- Native Edict provider judgments accept the distinct bounded source-closure
+  artifact, preserve its identity and refuse mixed or relabelled source forms.
+  An explicit generation variant carries its owning schema binding; generic
+  bounded-read decoding rechecks the source domain and every retained unit.
+
+- Explicit Edict source-module contract publication admission pins the exact
+  upstream CDDL/manifest pair and validates its source-closure envelope without
+  changing existing publication selections or enabling executable module support.
+
 - Bounded pure Edict evaluation accepts compiler-produced byte constants with
   raw octets and ordinary deterministic value-copy charges. Closed shape checks
   reject text payloads and extra fields. A retained public compiler package and

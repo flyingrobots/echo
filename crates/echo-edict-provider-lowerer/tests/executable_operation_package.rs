@@ -1500,3 +1500,123 @@ fn bytes_slice<'a>(value: &'a CanonicalValueV1, field: &str) -> &'a [u8] {
     };
     bytes
 }
+
+fn closure_source_artifact(source: &SemanticInput) -> BoundArtifact {
+    let value = decode_canonical_cbor_v1(&source.artifact.artifact.bytes).expect("legacy bytes");
+    let digest = digest_canonical_value_bytes_v1("edict.source/v1", &value).expect("unit digest");
+    let closure = owned_map([
+        ("apiVersion", text("edict.source-closure/v1")),
+        ("root", text(ALPHA.application)),
+        (
+            "modules",
+            dynamic_map([(
+                ALPHA.application,
+                owned_map([
+                    ("source", value),
+                    (
+                        "digest",
+                        CanonicalValueV1::Array(vec![
+                            text("sha256"),
+                            CanonicalValueV1::Bytes(digest.to_vec()),
+                        ]),
+                    ),
+                ]),
+            )]),
+        ),
+    ]);
+
+    bound(
+        ALPHA.application,
+        "edict.source-closure/v1",
+        encode_canonical_cbor_v1(&closure).expect("canonical closure"),
+    )
+}
+
+#[test]
+fn source_closure_input_binds_the_exact_new_source_identity() {
+    let mut request = fixture_request(ALPHA);
+    let source = request
+        .semantic_inputs
+        .iter_mut()
+        .find(|input| input.kind == SemanticInputKind::Auxiliary("edict-source".into()))
+        .expect("legacy source");
+    let artifact = closure_source_artifact(source);
+    source.kind = SemanticInputKind::Auxiliary("edict-source-closure".into());
+    source.artifact = artifact;
+    let expected = source.artifact.reference.digest.bytes.clone();
+    let result = lower(request).expect("explicit source-closure input must lower");
+    let package = decode_canonical_cbor_v1(&result.outputs[0].artifact.bytes).expect("package");
+    assert_eq!(
+        map_value(
+            map_value(&package, "semantic_closure"),
+            "edict_source_identity"
+        ),
+        &CanonicalValueV1::Bytes(expected)
+    );
+}
+
+#[test]
+fn source_artifact_forms_refuse_relabelling_and_ambiguous_inputs() {
+    for case in [
+        "legacy-as-closure",
+        "closure-as-legacy",
+        "bytes-under-closure-domain",
+        "both-forms",
+    ] {
+        let mut request = fixture_request(ALPHA);
+        let index = request
+            .semantic_inputs
+            .iter()
+            .position(|input| input.kind == SemanticInputKind::Auxiliary("edict-source".into()))
+            .expect("source input");
+        let original = request.semantic_inputs[index].clone();
+        let closure = closure_source_artifact(&original);
+        match case {
+            "legacy-as-closure" => {
+                request.semantic_inputs[index].kind =
+                    SemanticInputKind::Auxiliary("edict-source-closure".into());
+            }
+            "closure-as-legacy" => request.semantic_inputs[index].artifact = closure,
+            "bytes-under-closure-domain" => {
+                request.semantic_inputs[index].kind =
+                    SemanticInputKind::Auxiliary("edict-source-closure".into());
+                request.semantic_inputs[index].artifact = bound(
+                    ALPHA.application,
+                    "edict.source-closure/v1",
+                    original.artifact.artifact.bytes,
+                );
+            }
+            "both-forms" => {
+                let configuration = request
+                    .semantic_inputs
+                    .iter()
+                    .position(|input| {
+                        input.kind == SemanticInputKind::Auxiliary("target-configuration".into())
+                    })
+                    .expect("configuration input");
+                request.semantic_inputs[configuration] = semantic_input(
+                    "other-source",
+                    SemanticInputKind::Auxiliary("edict-source-closure".into()),
+                    closure,
+                );
+                assert_eq!(request.semantic_inputs.len(), 7);
+            }
+            _ => unreachable!(),
+        }
+        let error =
+            lower(request).expect_err("source forms cannot be silently relabelled or combined");
+        let expected = if case == "bytes-under-closure-domain" {
+            echo_edict_provider_lowerer::ProviderRefusalKind::InvalidSemanticArtifact
+        } else {
+            echo_edict_provider_lowerer::ProviderRefusalKind::UnsupportedSemantics
+        };
+        assert_eq!(error.kind, expected, "{case}");
+        if case == "both-forms" {
+            assert!(
+                error.diagnostics.iter().any(|diagnostic| diagnostic.message
+                    == "unsupported semantics: multiple source artifact forms are ambiguous"),
+                "{error:?}"
+            );
+        }
+    }
+}

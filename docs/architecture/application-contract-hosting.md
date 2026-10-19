@@ -611,7 +611,31 @@ Echo's contract-pack admission distinguishes explicit, digest-pinned upstream
 publications. The original `admit_provider_contract_pack_v1` entry point remains
 bound to its pure-binding publication. The opt-in
 `admit_provider_contract_pack_for_publication_v1` entry point additionally admits
-the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md).
+the [ordered-instruction publication](../../schemas/edict-provider/contracts/ordered/README.md),
+the source-function publication, and the explicit `SourceModules` publication
+from Edict merge `b57136309d29c702a8096a78af9e16c2d5e2ec71`.
+The latter adds a `source-closure` contract and `edict.source-closure/v1` domain
+while retaining the exact bytes and inventories of earlier selections. Its
+CDDL validates the closed envelope, 1–64 module entries and typed SHA-256
+digests. Source import authentication, root membership, reachability and
+aggregate byte/depth budgets remain Edict semantic obligations; structural
+admission does not prove them. See the [publication boundary](../../schemas/edict-provider/contracts/source-modules-v1/README.md).
+The native lowerer and independent verifier accept exactly one source artifact
+in their existing invocation closure: the legacy `edict-source` byte string
+under `edict.source/v1`, or an `edict-source-closure` envelope under
+`edict.source-closure/v1`. Relabelling a kind or supplying both forms refuses.
+The common wire boundary checks every unit digest and UTF-8 under fixed bounds,
+selects the exact Core root and retains the distinct source identity. It does
+not replace Edict's source parsing or import-graph authentication. The generic
+bounded-read decoder applies the same bounded envelope checks and rechecks the
+closure identity under the selected source domain before any reading. Pure
+execution continues to require its independently supplied exact package pin.
+
+The explicit module semantic variant adds one source input alternative and
+schema binding. Generation refuses it with a legacy contract pack that lacks
+`source-closure`. Existing generation inputs keep their exact legacy inventory;
+raw package admission accepts only that inventory or the closed extension.
+
 The closed selector fixes both byte identities and the input size ceiling before
 parsing; mixed publications reject. This is structural schema authority only.
 It does not prove instruction ordering, select an executable profile, or confer
@@ -805,7 +829,7 @@ proofs establish schema, identity-graph, component-contract, and request
 readiness only. They still do not install, authorize, schedule, execute, commit,
 observe, or receipt anything in Echo.
 
-The publishable Rust crate uses a separate 42-file package-local carrier tree
+The publishable Rust crate uses a separate 46-file package-local carrier tree
 for exact repository sources and provider bytes that would otherwise live above
 the crate root. Carrier locations never replace the logical authored paths in
 generation provenance. Generated artifacts and components remain authoritative;

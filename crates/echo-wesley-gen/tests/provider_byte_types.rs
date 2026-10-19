@@ -6,7 +6,9 @@ use echo_wesley_gen::provider_artifacts::generate_provider_primary_artifacts_v1;
 use echo_wesley_gen::provider_canonical::CanonicalValueV1 as V;
 use echo_wesley_gen::provider_contract_pack::admit_provider_contract_pack_v1;
 use echo_wesley_gen::provider_generation::build_provider_generation_input_v1;
-use echo_wesley_gen::provider_semantics::parse_provider_semantic_source_v1;
+use echo_wesley_gen::provider_semantics::{
+    parse_provider_semantic_source_v1, ProviderSemanticSourceError,
+};
 use serde_json::{json, Value};
 const SOURCE: &[u8] = include_bytes!("../assets/v1/edict-provider/echo-provider-semantics-v1.json");
 fn source() -> Value {
@@ -21,6 +23,12 @@ fn source() -> Value {
     }
     source["types"].as_array_mut().expect("types").push(json!({"identity":{"coordinate":"graph@1.ReadAddress","domain":"echo.edict-provider/value/v1","authority":"echo.provider-semantic-declaration@1"},"shape":{"kind":"record","fields":[{"name":"nodeId","type":"graph@1.Digest32"},{"name":"typeId","type":"graph@1.Digest32"},{"name":"warpId","type":"graph@1.Digest32"}]}}));
     source
+}
+fn source_error(value: &Value) -> ProviderSemanticSourceError {
+    match parse_provider_semantic_source_v1(&serde_json::to_string(value).expect("JSON")) {
+        Err(error) => error,
+        Ok(_) => panic!("invalid source was admitted"),
+    }
 }
 fn field<'a>(v: &'a V, key: &str) -> &'a V {
     let V::Map(fields) = v else { panic!("map") };
@@ -91,13 +99,7 @@ fn inverted_byte_ranges_are_rejected_before_generation() {
             .expect("alias");
         alias["shape"]["minBytes"] = json!(min);
         alias["shape"]["maxBytes"] = json!(max);
-        let result =
-            parse_provider_semantic_source_v1(&serde_json::to_string(&value).expect("JSON"));
-        assert!(
-            result.is_err(),
-            "an empty byte interval cannot become an admitted type leaf"
-        );
-        let error = result.err().expect("structured source failure");
+        let error = source_error(&value);
         assert_eq!(
             error.kind(),
             echo_wesley_gen::provider_semantics::ProviderSemanticSourceErrorKind::InvalidByteBounds
@@ -122,13 +124,7 @@ fn byte_alias_fields_are_explicit_unsigned_and_closed() {
             .iter_mut()
             .find(|v| v["identity"]["coordinate"] == "graph@1.Digest32")
             .expect("alias")["shape"] = shape;
-        let result =
-            parse_provider_semantic_source_v1(&serde_json::to_string(&value).expect("JSON"));
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().expect("source failure").kind(),
-            K::MalformedDocument
-        );
+        assert_eq!(source_error(&value).kind(), K::MalformedDocument);
     }
 }
 #[test]
@@ -144,21 +140,10 @@ fn byte_leaves_do_not_make_recursive_records_or_core_identity_claims_valid() {
         .as_array_mut()
         .expect("fields")
         .push(json!({"name":"next","type":"graph@1.ReadAddress"}));
-    let result = parse_provider_semantic_source_v1(&serde_json::to_string(&value).expect("JSON"));
-    assert!(result.is_err());
-    assert_eq!(
-        result.err().expect("source failure").kind(),
-        K::UnboundedTypeGraph
-    );
+    assert_eq!(source_error(&value).kind(), K::UnboundedTypeGraph);
     for coordinate in ["Bytes", "Bytes<exact=32>"] {
         let mut value = source();
         value["types"].as_array_mut().expect("types").push(json!({"identity":{"coordinate":coordinate,"domain":"echo.edict-provider/value/v1","authority":"echo.provider-semantic-declaration@1"},"shape":{"kind":"coreBytesAlias","minBytes":32,"maxBytes":32}}));
-        let result =
-            parse_provider_semantic_source_v1(&serde_json::to_string(&value).expect("JSON"));
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().expect("source failure").kind(),
-            K::CoreTypeAuthorityMismatch
-        );
+        assert_eq!(source_error(&value).kind(), K::CoreTypeAuthorityMismatch);
     }
 }

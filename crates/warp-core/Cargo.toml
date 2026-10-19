@@ -91,6 +91,11 @@ harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime"]
 
 [[bench]]
+name = "game_scenes"
+harness = false
+required-features = ["native_rule_bootstrap", "trusted_runtime"]
+
+[[bench]]
 name = "scene_fixtures_profile"
 harness = false
 required-features = ["native_rule_bootstrap", "trusted_runtime", "application_root_profile"]

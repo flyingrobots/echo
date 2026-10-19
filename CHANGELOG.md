@@ -5,6 +5,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Pure evaluation accepts compiler-produced conjunctive input guards instead of
+  rejecting their `all` predicate shape as an invalid artifact. Conjunctions
+  retain deterministic short-circuit metering and combined traversal limits.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

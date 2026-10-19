@@ -12,7 +12,7 @@ retained as `ReplaceRange.edict`. The first supplied source is compiled with
 its existing `jedit.text@1` lawpack and `.build/echo-provider` copied from the
 selected Echo package. No Core, Target IR, package or report was edited.
 
-The source has nested `all` input guards. Current runtime decoding rejects
+The source has nested `all` input guards. The runtime must decode and evaluate
 that compiler/verifier-accepted predicate shape. The regression must execute
 the pinned package and compare literal replacement bytes, then refuse failed
 range checks. It is test evidence for generic predicate evaluation, not Echo

@@ -247,7 +247,12 @@ totality evidence; the interpreter additionally checks runtime values even when
 the supplied package pin matches. Calls resolve opaque source or lawpack
 coordinates to retained Edict bodies with separate lexical scope. No application coordinate selects a native
 implementation. Unsupported expression forms are rejected during decoding,
-including unselected branches. Authored runtime types constrain input,
+including unselected branches. Conjunctive `all` predicates decode as closed
+recursive trees, including every child before execution. Evaluation visits
+children in source order and stops at the first false result; an empty
+conjunction is true. Each visited predicate consumes an execution step, and
+predicate nesting participates in the same combined expression/helper depth
+and node limits. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared
 storage representations. Authored input constraints run before bindings, and
 the compiler's result projection must match the selected Target IR result.

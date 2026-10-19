@@ -93,3 +93,6 @@ pub fn evaluate(
     let input = decode_canonical_cbor_v1(input_bytes).map_err(|_| EvaluationError::InvalidInput)?;
     evaluate::run(&program, input)
 }
+
+#[cfg(test)]
+mod predicate_tests;

@@ -198,6 +198,19 @@ impl Parser<'_> {
 
     pub fn predicate(&mut self, value: &Value, depth: usize) -> Result<Predicate, Error> {
         self.enter(depth)?;
+        if text_field(value, "kind")? == "all" {
+            exact_fields(value, &["kind", "values"])?;
+            let values = array(field(value, "values")?)?;
+            if values.len() > self.remaining {
+                return Err(Error::UnsupportedProgram);
+            }
+            return Ok(Predicate::All(
+                values
+                    .iter()
+                    .map(|value| self.predicate(value, depth + 1))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ));
+        }
         exact_fields(value, &["kind", "op", "left", "right"])?;
         if text_field(value, "kind")? != "compare" {
             return Err(Error::UnsupportedProgram);
@@ -207,7 +220,7 @@ impl Parser<'_> {
             "<=" => Comparison::LessOrEqual,
             _ => return Err(Error::UnsupportedProgram),
         };
-        Ok(Predicate {
+        Ok(Predicate::Compare {
             op,
             left: self.expr(field(value, "left")?, depth + 1)?,
             right: self.expr(field(value, "right")?, depth + 1)?,

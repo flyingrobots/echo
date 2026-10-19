@@ -345,9 +345,20 @@ pub(crate) fn predicate(
     depth: usize,
 ) -> Result<bool, Error> {
     meter.step(depth)?;
-    let left = expression(&predicate.left, locals, helpers, meter, depth + 1)?;
-    let right = expression(&predicate.right, locals, helpers, meter, depth + 1)?;
-    match (&predicate.op, left, right) {
+    let (op, left, right) = match predicate {
+        Predicate::Compare { op, left, right } => (op, left, right),
+        Predicate::All(values) => {
+            for value in values {
+                if !self::predicate(value, locals, helpers, meter, depth + 1)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+    };
+    let left = expression(left, locals, helpers, meter, depth + 1)?;
+    let right = expression(right, locals, helpers, meter, depth + 1)?;
+    match (op, left, right) {
         (Comparison::Equal, Value::Integer(left), Value::Integer(right)) => Ok(left == right),
         (Comparison::LessOrEqual, Value::Integer(left), Value::Integer(right)) => Ok(left <= right),
         (Comparison::Equal, Value::Bytes(left), Value::Bytes(right)) => {

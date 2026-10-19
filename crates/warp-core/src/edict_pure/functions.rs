@@ -601,10 +601,20 @@ impl Heights<'_> {
     }
     fn predicate(&mut self, predicate: &Predicate, depth: usize) -> Result<usize, Error> {
         self.enter(depth)?;
-        let height = self
-            .expr(&predicate.left, depth + 1)?
-            .max(self.expr(&predicate.right, depth + 1)?)
-            + 1;
+        let height = match predicate {
+            Predicate::Compare { left, right, .. } => {
+                self.expr(left, depth + 1)?
+                    .max(self.expr(right, depth + 1)?)
+                    + 1
+            }
+            Predicate::All(values) => {
+                let mut maximum = 0;
+                for value in values {
+                    maximum = maximum.max(self.predicate(value, depth + 1)?);
+                }
+                maximum + 1
+            }
+        };
         if depth + height > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
         }

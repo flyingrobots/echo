@@ -232,6 +232,10 @@ All figures are in the [benchmark ledger](stack-profile/ledger.md), which
 
 ## Options considered, not yet built
 
+The full list of untried ideas, with new ones, is in
+[stack-profile-ideas](stack-profile-ideas.md).
+
+
 | Option | Expected effect | Identity change |
 | --- | --- | --- |
 | Hash long digests in one call | NEON and `update_rayon` for big ticks; little on F5 | None: same bytes |

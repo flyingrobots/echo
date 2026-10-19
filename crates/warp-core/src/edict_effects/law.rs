@@ -19,7 +19,7 @@ pub enum EffectLawError {
 
 /// Host-selected typed footprint permissions, not an admitted package capability.
 ///
-/// Decoding validates all nine fields, including currently unused write fields.
+/// Decoding validates all nine fields. Private derivation enforces write permissions.
 /// Package identity and installation must separately bind these exact bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectFootprintLaw {
@@ -29,9 +29,9 @@ pub struct EffectFootprintLaw {
     pub(super) ranges: BTreeSet<TypeId>,
     pub(super) max_reads: u64,
     pub(super) max_range_edges: u64,
-    _write_nodes: BTreeSet<TypeId>,
-    _write_edges: BTreeSet<TypeId>,
-    _max_writes: u64,
+    pub(super) write_nodes: BTreeSet<TypeId>,
+    pub(super) write_edges: BTreeSet<TypeId>,
+    pub(super) max_writes: u64,
 }
 
 impl EffectFootprintLaw {
@@ -81,9 +81,9 @@ impl EffectFootprintLaw {
             ranges: ids(value, "range_edge_types")?,
             max_reads,
             max_range_edges,
-            _write_nodes: ids(value, "write_node_types")?,
-            _write_edges: ids(value, "write_edge_types")?,
-            _max_writes: max_writes,
+            write_nodes: ids(value, "write_node_types")?,
+            write_edges: ids(value, "write_edge_types")?,
+            max_writes,
         })
     }
 }

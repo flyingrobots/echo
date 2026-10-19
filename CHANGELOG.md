@@ -7,6 +7,13 @@
 
 ### Changed
 
+- Trusted runtime owners can privately derive counterfactual patches from
+  completed authored evaluation at an exact unchanged full parent. Validation
+  checks all five mutation forms, schema and identity rules, typed write laws,
+  comparisons and endpoint presence while retaining evaluation and validation
+  costs. Derivation does not apply the patch or enable scheduler, scoped-history,
+  receipt/WAL or fresh-engine effect recovery.
+
 - Authored mutation emission now follows the fixed effect contract: one step,
   64 write bytes plus atom payload for node/atom effects, or 128 write bytes for
   edges, and at most 1,024 emitted effects. Step/write/row admission is atomic,
@@ -20,21 +27,22 @@
   unused frame and stops further evaluation on success. Consuming completion
   refuses substituted input bindings, failed frames and read-export failures;
   result storage is borrowed during evaluation and moved into completion.
-  Installed authority, proposal validation and patch derivation remain open.
+  Completion grants no installation or scheduler authority; the runtime owner
+  independently validates its origin when deriving a private patch.
 
 - Prepared authored programs can now emit all five typed mutation intents into
   private frames under the explicit graph-effects profile. Fixed input layouts,
   empty-record results and row reservations apply. Failed operations discard
   partial emission. Emission does not modify the frontier or derive a patch;
-  mutation validation, charged validation reads, physical allocation and durable
-  scheduler execution remain unfinished.
+  the owner crossing separately resolves and validates intents. Physical
+  allocation guarantees and durable scheduler execution remain unfinished.
 
 - Runtime-bound private frames now evaluate prepared authored read/let/require
   programs through the shared expression evaluator and typed recording adapter.
   Exact footprint-law binding, graph-schema checks and cumulative component
   budgets apply; authored failures retain read dependencies and terminate the
-  frame. Mutation validation, installed Action execution, the physical arena
-  and decision recovery remain unfinished.
+  frame. Installed Action execution, the physical arena and decision recovery
+  remain unfinished.
 
 - Effect compiler bundles now require the pinned target profile and intrinsic
   catalog. Preparation checks catalog registration and concrete signature/fault

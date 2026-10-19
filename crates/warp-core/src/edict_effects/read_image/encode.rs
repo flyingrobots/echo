@@ -132,17 +132,7 @@ fn prepare<'a>(
         (SlotId::Attachment(_), SlotReading::Attachment(Some(AttachmentValue::Atom(atom))))
             if atom.type_id == ty =>
         {
-            let mut hash = blake3::Hasher::new();
-            hash.update(b"echo.bridge.attachment-value.v1\0");
-            hash.update(&[0]);
-            hash.update(&atom.type_id.0);
-            hash.update(
-                &u64::try_from(atom.bytes.len())
-                    .map_err(|_| Error::InconsistentObservation)?
-                    .to_le_bytes(),
-            );
-            hash.update(&atom.bytes);
-            row.subject = hash.finalize().into();
+            row.subject = super::super::value_digest::atom(atom);
         }
         (
             SlotId::Attachment(key),

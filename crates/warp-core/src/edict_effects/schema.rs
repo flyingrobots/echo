@@ -74,6 +74,10 @@ impl EffectGraphSchema {
             .get(&edge_type)
             .is_some_and(|pairs| pairs.contains(&(source_type, target_type)))
     }
+    #[cfg(feature = "native_rule_bootstrap")]
+    pub(super) fn has_edge_type(&self, ty: TypeId) -> bool {
+        self.edges.contains_key(&ty)
+    }
     fn parse(value: &Value) -> Result<Self, EvaluationError> {
         exact_fields(value, &["node_types", "edge_types"])?;
         let mut nodes = BTreeMap::new();

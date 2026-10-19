@@ -930,9 +930,9 @@ calls do no work. Completed output, usage and observations remain available for
 inspection or consuming retention. The result is borrowed from frame-owned
 storage, so completion retention does not make an uncharged second output copy. The new runtime witnesses use the
 explicitly synthetic, coherently pinned read fixture, not a genuine public
-compiler/verifier output. Physical arena guarantees, mutation validation and
-patch derivation, atomic scheduler settlement, receipts/WAL and original-decision
-recovery remain required for the complete bridge.
+compiler/verifier output. Private whole-parent derivation is described below.
+Physical arena guarantees, atomic scheduler settlement, receipts/WAL and
+original-decision recovery remain required for the complete bridge.
 
 ### Buffered compiled mutation intents
 
@@ -975,8 +975,9 @@ partial intent buffer. Completed read-image usage retains these emission costs
 alongside computation and read costs. These intents are not a canonical
 proposal, approved footprint, derived patch or successful Action. Reachability,
 canonical ordering, duplicate targets, schema/identity/footprint rules,
-preconditions, validation-read charges and patch derivation remain required before
-scheduler integration. Tests use explicitly synthetic pinned artifacts; genuine
+preconditions and validation-read charges are handled by the private whole-parent
+derivation crossing described below. Scheduler integration remains required.
+Tests use explicitly synthetic pinned artifacts; genuine
 compiler/verifier production and physical arena guarantees remain open.
 
 ### Completed authored origin evidence
@@ -1004,6 +1005,28 @@ installed package or independent compiler/verifier approval, resolve mutation
 preconditions, derive a patch or grant invocation authority. Proposal validation
 and installed scheduler dispatch must still check the producing program and exact
 parent against their own authoritative evidence.
+
+### Private whole-parent patch derivation
+
+The trusted runtime owner can consume `CompletedEffectEvaluation` through
+`derive_echo_operation_effects` with an independently admitted invocation.
+The owner checks its admission authority, current installation, producing program
+and exact full parent before resolving mutation intents against immutable state.
+This returns a `DerivedEffectPatch` for inspection without applying its operations.
+The patch binds the runtime policy, installation and invocation identities.
+
+Resolution retains charged validation reads alongside evaluation usage and
+checks schema, content or mutable-slot identity, duplicate targets, typed write
+permissions, resolved write limits, comparisons and endpoint presence. All five
+mutation forms derive operations; identical Ensure intents derive no writes but
+retain emission charges and must still have write permission. Attachment and
+outgoing-range writes count toward the resolved write limit.
+
+This is a private whole-parent checkpoint. It does not provide scoped-history
+admission, same-Tick composition, installed Action execution, receipt/WAL
+publication or fresh-engine effect-decision recovery. The physical arena and
+public compiler/verifier production proof also remain required. Synthetic
+runtime fixtures do not establish those obligations.
 
 ### Current invocation input, basis and owner grant admission
 
@@ -1037,8 +1060,9 @@ Authored-effect Action execution remains unfinished. Scheduler admission and
 Action recovery inspection explicitly refuse that unsupported execution path;
 the direct preparation seam yields an obstruction rather than a fabricated
 successful patch. Fixed-operation Action evaluation and recovery continue to
-use their real anchors. Mutation instruction execution, the physical arena,
-derived effects, Tick integration and effect decision recovery remain required.
+use their real anchors. Private mutation execution and whole-parent derivation
+do not enable Action execution. The physical arena, scoped-history admission,
+Tick integration and effect decision recovery remain required.
 
 ### Runtime-owner package policy admission
 
@@ -1141,6 +1165,6 @@ The historical index recipes were removed under the one-current-version policy.
 A fresh filesystem-backed host restores all supported program kinds through
 the sole installation collection and rechecks coordinate conflicts. The common
 invocation model and owner grant admission are described above. Installation
-recovery does not establish recovery of an authored-effect decision. Mutation
-instruction execution, physical allocation, derived effects and authored-effect
+recovery does not establish recovery of an authored-effect decision. Physical
+allocation guarantees, scoped-history admission and authored-effect
 Action/Tick/receipt recovery remain unfinished.

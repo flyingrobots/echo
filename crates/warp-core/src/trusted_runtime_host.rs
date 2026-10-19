@@ -1225,6 +1225,67 @@ impl TrustedRuntimeHost {
         )?)
     }
 
+    /// Privately derives a patch from completed authored work without applying it.
+    /// # Errors
+    /// Refuses mismatched authority/origin and invalid mutation proposals.
+    pub fn derive_echo_operation_effects(
+        &self,
+        admitted: &crate::AdmittedEchoOperationInvocation,
+        completed: crate::edict_effects::CompletedEffectEvaluation,
+    ) -> Result<crate::edict_effects::DerivedEffectPatch, crate::edict_effects::EffectDerivationError>
+    {
+        use crate::edict_effects::{EffectDerivationError as Error, EffectDerivationKind as Kind};
+        let fail = |kind| Error::new(kind, crate::EchoOperationBudgetV1::new(0, 0, 0));
+        if !admitted.is_owned_by(&self.echo_operation_evaluation_authority) {
+            return Err(fail(Kind::AuthorityMismatch));
+        }
+        let installed = self
+            .engine
+            .installed_echo_operation_package(admitted.package_id())
+            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
+        if installed.installed_operation_id() != admitted.installed_operation_id() {
+            return Err(fail(Kind::OperationUnavailable));
+        }
+        let program = installed
+            .program()
+            .as_effect_program()
+            .ok_or_else(|| fail(Kind::OperationUnavailable))?;
+        if completed.program_identity() != installed.program_identity()
+            || completed.evaluation_basis() != admitted.evaluation_basis()
+        {
+            return Err(fail(Kind::OriginMismatch));
+        }
+        let basis = self
+            .echo_operation_evaluation_basis_v1(
+                admitted.evaluation_basis().writer_head(),
+                admitted.evaluation_basis().application_basis(),
+            )
+            .map_err(|_| fail(Kind::BasisChanged))?;
+        if basis != admitted.evaluation_basis() {
+            return Err(fail(Kind::BasisChanged));
+        }
+        let state = self
+            .runtime
+            .worldlines()
+            .get(&basis.writer_head().worldline_id)
+            .ok_or_else(|| fail(Kind::BasisChanged))?
+            .state();
+        let invocation = admitted
+            .invocation()
+            .identity()
+            .map_err(|_| fail(Kind::OriginMismatch))?
+            .as_hash();
+        crate::edict_effects::derive::derive(
+            state,
+            program,
+            completed,
+            admitted.invocation().delegated_budget(),
+            self.engine.echo_operation_policy_id(),
+            installed.identity(),
+            invocation,
+        )
+    }
+
     /// Independently admits a canonical installed-operation invocation.
     ///
     /// Admission checks exact installed package identity, public operation

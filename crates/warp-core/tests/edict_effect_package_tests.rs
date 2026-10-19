@@ -1702,3 +1702,7 @@ mod mutations;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/completion.rs"]
 mod completion;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/derivation.rs"]
+mod derivation;

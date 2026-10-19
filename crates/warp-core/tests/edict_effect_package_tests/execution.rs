@@ -28,6 +28,12 @@ pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
             bytes: b"before".to_vec().into(),
         })),
     );
+    host_with_store(store, key)
+}
+pub(super) fn host_with_store(
+    store: GraphStore,
+    key: NodeKey,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     let state = WorldlineState::from_root_store(store.clone(), key.local_id).expect("state");
     let head = WriterHeadKey {
         worldline_id: WorldlineId::from_bytes([5; 32]),

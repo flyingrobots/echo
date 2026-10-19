@@ -3858,6 +3858,9 @@ pub struct AdmittedEchoOperationInvocation {
 }
 
 impl AdmittedEchoOperationInvocation {
+    pub(crate) fn is_owned_by(&self, authority: &EchoOperationEvaluationAuthorityV1) -> bool {
+        self.evaluation_authority.same_owner(authority)
+    }
     /// The invocation bound to this runtime owner's admission evidence.
     #[must_use]
     pub const fn invocation(&self) -> &EchoOperationInvocation {

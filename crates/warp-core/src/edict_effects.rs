@@ -9,8 +9,9 @@
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
 //! logical meters. Private ordered read/let/require evaluation uses those frames.
 //! Five mutation instructions buffer intents without modifying the frontier.
-//! A physical arena, effect validation/patch derivation and Action/receipt/WAL
-//! decision recovery remain unfinished.
+//! The runtime owner can validate mutations and derive a counterfactual patch at
+//! one exact full parent. Physical arena guarantees, scheduler integration and
+//! Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
 mod execution;
 mod imported_types;
@@ -23,6 +24,11 @@ mod package;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
 mod completion;
+#[cfg(feature = "native_rule_bootstrap")]
+pub(crate) mod derive;
+mod value_digest;
+#[cfg(feature = "native_rule_bootstrap")]
+pub use derive::{DerivedEffectPatch, EffectDerivationError, EffectDerivationKind};
 mod frame;
 pub use completion::{CompletedEffectEvaluation, EffectCompletionError};
 mod read_image;

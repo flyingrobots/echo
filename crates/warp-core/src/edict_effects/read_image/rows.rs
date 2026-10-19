@@ -54,7 +54,7 @@ const _: () = assert!(std::mem::size_of::<EffectReadRow>() == 192);
 const _: () = assert!(std::mem::size_of::<EffectEdgePairRow>() == 64);
 
 impl EffectSlotRow {
-    pub(super) fn from_slot(slot: SlotId) -> Result<Self, Error> {
+    pub(in crate::edict_effects) fn from_slot(slot: SlotId) -> Result<Self, Error> {
         let mut row = Self::zeroed();
         match slot {
             SlotId::Node(key) => {
@@ -92,7 +92,7 @@ impl EffectSlotRow {
         }
         Ok(row)
     }
-    pub(super) fn compare(&self, other: &Self) -> std::cmp::Ordering {
+    pub(in crate::edict_effects) fn compare(&self, other: &Self) -> std::cmp::Ordering {
         (
             self.class,
             self.warp_id,

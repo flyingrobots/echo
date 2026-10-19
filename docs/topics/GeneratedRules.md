@@ -147,6 +147,14 @@ This transport check does not validate individual native signatures, authorize
 execution, or enable the unfinished authored-effect producer. Existing exact
 profile admission and catalog-to-export nominal checks remain required.
 
+The pure `effect_publication::encode_effect_publication` API constructs the
+current operation-package/program wire shapes for untrusted effect proposals.
+It preserves the embedded compiler bundle, derives artifact identities and
+uses the current read/write/step budget fields. Native synthetic controls
+round-trip through the current runtime decoder. The public lowerer does not yet
+call this factory; compiler correspondence, graph-law semantics, independent
+verification, authority admission and execution remain separate obligations.
+
 ## Execution Corridors
 
 ### Bounded compiler-package computation

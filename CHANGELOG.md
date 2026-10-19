@@ -7,6 +7,11 @@
 
 ### Changed
 
+- Added a pure current-format effect proposal serializer that preserves compiler
+  bundle bytes and derives embedded artifact identities. Synthetic controls
+  round-trip through the current runtime decoder; public producer integration,
+  independent verification and effect execution remain unfinished.
+
 - Required explicit bounded intrinsic-catalog bytes in authored-effect lowering
   configurations and reject catalogs that do not reproduce the selected
   target profile's owner-framed reference. This validates resource transport;

@@ -405,10 +405,15 @@ fn effect_catalog_request(catalog: Option<Vec<u8>>) -> LoweringRequestV1 {
 #[test]
 fn effect_catalog_must_match_the_selected_profile_before_body_lowering() {
     use echo_edict_provider_lowerer::ProviderRefusalKind as K;
-    let catalog = include_bytes!(
-        "../../echo-edict-provider-verifier/resources/resource.target-intrinsics.cbor"
+    let fixture_config = decode(
+        &hex::decode(include_str!("fixtures/current-effect-wire/configuration.hex").trim())
+            .expect("crate-local catalog fixture"),
     )
-    .to_vec();
+    .expect("canonical configuration");
+    let Value::Bytes(catalog) = field(&fixture_config, "intrinsicCatalog") else {
+        panic!("catalog bytes")
+    };
+    let catalog = catalog.clone();
     let control = lower(effect_catalog_request(Some(catalog.clone())))
         .expect_err("effect body lowering remains unsupported");
     assert_eq!(control.kind, K::UnsupportedSemantics);

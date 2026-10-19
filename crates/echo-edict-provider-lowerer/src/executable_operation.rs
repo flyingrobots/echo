@@ -2266,7 +2266,7 @@ fn hash_from_bound(bound: &BoundArtifact) -> Result<[u8; 32], ProviderRefusalV1>
         .map_err(|_| invalid_artifact(&bound.reference.coordinate, "digest must be 32 bytes"))
 }
 
-fn profile_digest(label: &str) -> [u8; 32] {
+pub(crate) fn profile_digest(label: &str) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"echo:operation-profile:v1\0");
     hasher.update(&(label.len() as u64).to_le_bytes());

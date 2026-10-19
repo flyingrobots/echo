@@ -14,6 +14,7 @@ use echo_edict_canonical::{
 
 #[cfg(target_arch = "wasm32")]
 mod component;
+pub mod effect_publication;
 mod executable_operation;
 
 const PROVIDER_ABI: ProtocolVersionV1 = ProtocolVersionV1 {

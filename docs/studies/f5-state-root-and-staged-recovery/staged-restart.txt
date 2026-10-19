@@ -1,0 +1,6 @@
+STUDY before_restart staged=true ticketed=1 pending_witnessed=1 outcome=Pending { submission_id: […], submission_generation: IngressSubmissionGeneration(1), ticketed_ingress_id: Some([…]) }
+STUDY after_recovery witnessed=true ticketed=0 pending_witnessed=1 outcome=Pending { submission_id: […], submission_generation: IngressSubmissionGeneration(1), ticketed_ingress_id: None }
+STUDY tick_before_restage committed_steps=0 outcome=Pending { submission_id: […], submission_generation: IngressSubmissionGeneration(1), ticketed_ingress_id: None }
+STUDY redelivery duplicate=true restage=Ok(true)
+STUDY final committed_steps=1 provenance_entries=1 outcome=Applied { submission_id: […], receipt: IntentOutcomeReceipt { ticketed_ingress_id: […], ticket_digest: […], causal_receipt_ref: CausalTickReceiptRef { worldline_id: WorldlineId([…]), worldline_tick_after: WorldlineTick(1), commit_global_tick: GlobalTick(2), commit_hash: […], submission_id: […], ticket_digest: […], receipt_content_digest: […] }, ingress_id: […], head_key: WriterHeadKey { worldline_id: WorldlineId([…]), head_id: HeadId([…]) }, contract: Some(LegacyContract(ContractEvidenceIdentity { package_id: InstalledContractPackageId
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.06s

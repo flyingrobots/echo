@@ -27,6 +27,8 @@ compile_error!(
 
 /// Deterministic fixed-point helpers (Q32.32).
 pub mod fixed;
+#[cfg(feature = "host_test")]
+pub mod state_root_probe;
 pub mod math {
     //! Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
     //!

@@ -4424,3 +4424,100 @@ fn a_legacy_resolved_resend_records_the_retained_envelope() {
     drop(restarted);
     fs::remove_dir_all(&fresh_root).expect("WAL cleanup");
 }
+
+/// Study probe: a submission acknowledged durable and staged, but not yet
+/// ticked, when the host stops. What does recovery restore, and is the work
+/// applied exactly once afterwards?
+#[test]
+fn study_staged_unticked_submission_across_restart() {
+    let wal_root = temp_runtime_wal_dir("study-staged-unticked");
+    let (initial_runtime, worldline_id) = runtime();
+    let mut host = TrustedRuntimeHost::new(initial_runtime, empty_engine())
+        .expect("trusted host should initialize");
+    host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("host should configure filesystem runtime WAL adapter");
+    host.register_contract_package(package())
+        .expect("host should install package");
+    let envelope = eint_envelope(worldline_id);
+    let ticket = admission_ticket(61);
+    let submission = host
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope.clone())
+        .expect("submission should cross the durable ACK boundary");
+    let staged = host
+        .stage_installed_contract_submission(submission.submission_id, &ticket)
+        .expect("trusted host should stage the submission");
+    println!(
+        "STUDY before_restart staged={} ticketed={} pending_witnessed={} outcome={:?}",
+        matches!(
+            staged,
+            warp_core::TicketedRuntimeIngressDisposition::Staged { .. }
+        ),
+        host.runtime().ticketed_runtime_ingress_count(),
+        host.runtime().pending_witnessed_submission_count(),
+        host.app().observe_intent_outcome(&submission.submission_id)
+    );
+    drop(host);
+
+    let (reconstructed_runtime, _) = runtime();
+    let mut restarted = TrustedRuntimeHost::new(reconstructed_runtime, empty_engine())
+        .expect("reconstructed host should initialize");
+    restarted
+        .enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(&wal_root))
+        .expect("the WAL with staged, unticked work recovers");
+    restarted
+        .register_contract_package(package())
+        .expect("reconstructed host should reinstall deterministic contract code");
+    println!(
+        "STUDY after_recovery witnessed={} ticketed={} pending_witnessed={} outcome={:?}",
+        restarted
+            .runtime()
+            .witnessed_submission(&submission.submission_id)
+            .is_some(),
+        restarted.runtime().ticketed_runtime_ingress_count(),
+        restarted.runtime().pending_witnessed_submission_count(),
+        restarted
+            .app()
+            .observe_intent_outcome(&submission.submission_id)
+    );
+    let idle_first = restarted
+        .run_until_idle(4)
+        .expect("ticking the recovered host succeeds");
+    println!(
+        "STUDY tick_before_restage committed_steps={} outcome={:?}",
+        idle_first.committed_steps,
+        restarted
+            .app()
+            .observe_intent_outcome(&submission.submission_id)
+    );
+    let retry = restarted
+        .app()
+        .submit_intent_with_runtime_wal_ack(envelope)
+        .expect("redelivery is accepted or a duplicate");
+    let restage = restarted.stage_installed_contract_submission(submission.submission_id, &ticket);
+    println!(
+        "STUDY redelivery duplicate={} restage={:?}",
+        retry.duplicate,
+        restage.as_ref().map(|d| matches!(
+            d,
+            warp_core::TicketedRuntimeIngressDisposition::Staged { .. }
+        ))
+    );
+    let idle_second = restarted
+        .run_until_idle(4)
+        .expect("ticking after restaging succeeds");
+    let applied = restarted
+        .provenance()
+        .len(worldline_id)
+        .expect("provenance is readable");
+    println!(
+        "STUDY final committed_steps={} provenance_entries={applied} outcome={:?}",
+        idle_second.committed_steps,
+        restarted
+            .app()
+            .observe_intent_outcome(&submission.submission_id)
+    );
+    drop(restarted);
+    fs::remove_dir_all(&wal_root).expect("WAL fixture cleanup succeeds");
+    assert_eq!(applied, 1, "the acknowledged work applies exactly once");
+}

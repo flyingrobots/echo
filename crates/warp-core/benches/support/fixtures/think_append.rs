@@ -415,6 +415,9 @@ pub struct Observation {
     pub entries_verified: u64,
     /// Measured durations.
     pub timings: Timings,
+    /// Study probe: (reachable nodes, time) of each root computation in the append phase.
+    #[cfg(feature = "host_test")]
+    pub root_probe_append: Vec<(usize, Duration)>,
 }
 
 /// Measured durations, each with a declared boundary.
@@ -482,6 +485,8 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
     let mut obs = Observation::default();
     obs.accounting.occurrences = script.len() as u64;
     let mut submissions = Vec::with_capacity(script.len());
+    #[cfg(feature = "host_test")]
+    let _ = warp_core::state_root_probe::take();
     let start = Instant::now();
     for envelope in envelopes {
         let one = Instant::now();
@@ -517,6 +522,10 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
         submissions.push(submission.submission_id);
     }
     obs.timings.append_end_to_end = start.elapsed();
+    #[cfg(feature = "host_test")]
+    {
+        obs.root_probe_append = warp_core::state_root_probe::take();
+    }
 
     // Outcome collection, outside measurement.
     for submission in &submissions {

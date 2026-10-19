@@ -156,6 +156,19 @@ pub(crate) fn compute_state_root_with(
     root: &NodeKey,
     scratch: &mut StateRootScratch,
 ) -> Hash {
+    #[cfg(feature = "host_test")]
+    let probe_start = std::time::Instant::now();
+    let hash = compute_state_root_with_unprobed(state, root, scratch);
+    #[cfg(feature = "host_test")]
+    crate::state_root_probe::record(scratch.reachable.len(), probe_start.elapsed());
+    hash
+}
+
+fn compute_state_root_with_unprobed(
+    state: &WarpState,
+    root: &NodeKey,
+    scratch: &mut StateRootScratch,
+) -> Hash {
     let table_complete = collect_reachable(state, root, scratch);
     if !table_complete {
         // Ids that collide pathologically in the membership table: take the

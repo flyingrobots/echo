@@ -1,0 +1,43 @@
+PROBE tier=S appends=200 root_calls=200 calls_per_append=1.000 root_ms=15.10 append_ms=28.37 root_share=0.532
+PROBE tier=S window=0 calls=20 mean_reachable=20 mean_root_us=19.2 ns_per_node=983.0
+PROBE tier=S window=1 calls=20 mean_reachable=40 mean_root_us=35.2 ns_per_node=890.7
+PROBE tier=S window=2 calls=20 mean_reachable=60 mean_root_us=49.9 ns_per_node=839.4
+PROBE tier=S window=3 calls=20 mean_reachable=80 mean_root_us=62.7 ns_per_node=789.0
+PROBE tier=S window=4 calls=20 mean_reachable=100 mean_root_us=69.8 ns_per_node=701.0
+PROBE tier=S window=5 calls=20 mean_reachable=120 mean_root_us=88.8 ns_per_node=742.7
+PROBE tier=S window=6 calls=20 mean_reachable=140 mean_root_us=94.7 ns_per_node=678.8
+PROBE tier=S window=7 calls=20 mean_reachable=160 mean_root_us=104.2 ns_per_node=653.5
+PROBE tier=S window=8 calls=20 mean_reachable=180 mean_root_us=113.9 ns_per_node=634.5
+PROBE tier=S window=9 calls=20 mean_reachable=200 mean_root_us=116.8 ns_per_node=585.6
+PROBE tier=S append_window=0 mean_append_us=116.2
+PROBE tier=S append_window=1 mean_append_us=126.3
+PROBE tier=S append_window=2 mean_append_us=120.5
+PROBE tier=S append_window=3 mean_append_us=133.9
+PROBE tier=S append_window=4 mean_append_us=130.2
+PROBE tier=S append_window=5 mean_append_us=151.3
+PROBE tier=S append_window=6 mean_append_us=149.9
+PROBE tier=S append_window=7 mean_append_us=157.7
+PROBE tier=S append_window=8 mean_append_us=165.4
+PROBE tier=S append_window=9 mean_append_us=166.4
+PROBE tier=M appends=5000 root_calls=5000 calls_per_append=1.000 root_ms=5917.96 append_ms=6135.80 root_share=0.964
+PROBE tier=M window=0 calls=500 mean_reachable=284 mean_root_us=113.3 ns_per_node=399.6
+PROBE tier=M window=1 calls=500 mean_reachable=784 mean_root_us=320.7 ns_per_node=409.4
+PROBE tier=M window=2 calls=500 mean_reachable=1284 mean_root_us=541.5 ns_per_node=421.9
+PROBE tier=M window=3 calls=500 mean_reachable=1784 mean_root_us=783.6 ns_per_node=439.4
+PROBE tier=M window=4 calls=500 mean_reachable=2284 mean_root_us=1027.7 ns_per_node=450.1
+PROBE tier=M window=5 calls=500 mean_reachable=2784 mean_root_us=1281.8 ns_per_node=460.5
+PROBE tier=M window=6 calls=500 mean_reachable=3284 mean_root_us=1545.4 ns_per_node=470.7
+PROBE tier=M window=7 calls=500 mean_reachable=3784 mean_root_us=1811.2 ns_per_node=478.7
+PROBE tier=M window=8 calls=500 mean_reachable=4284 mean_root_us=2070.8 ns_per_node=483.4
+PROBE tier=M window=9 calls=500 mean_reachable=4784 mean_root_us=2339.9 ns_per_node=489.2
+PROBE tier=M append_window=0 mean_append_us=149.7
+PROBE tier=M append_window=1 mean_append_us=358.3
+PROBE tier=M append_window=2 mean_append_us=582.8
+PROBE tier=M append_window=3 mean_append_us=826.1
+PROBE tier=M append_window=4 mean_append_us=1071.6
+PROBE tier=M append_window=5 mean_append_us=1326.3
+PROBE tier=M append_window=6 mean_append_us=1591.0
+PROBE tier=M append_window=7 mean_append_us=1857.5
+PROBE tier=M append_window=8 mean_append_us=2119.2
+PROBE tier=M append_window=9 mean_append_us=2388.4
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.37s

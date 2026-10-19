@@ -22,24 +22,14 @@ use fixtures::think_append;
 #[test]
 fn m1_shadow_root_through_f5() {
     for tier in [think_append::S, think_append::M] {
-        warp_core::shadow_root_probe::reset();
         let obs = think_append::run(tier, 7);
-        let log = warp_core::shadow_root_probe::take_log();
-        println!(
-            "SHADOW tier={} parity={:?} diffs={}",
-            tier.name,
+        let log = &obs.shadow_log;
+        assert_eq!(
             obs.shadow_parity,
-            obs.shadow_diff.len()
+            Some(true),
+            "incremental shadow root equals its rebuild"
         );
-        for (slot, in_shadow, in_state) in obs.shadow_diff.iter().take(12) {
-            println!("SHADOW diff in_shadow={in_shadow} in_state={in_state} {slot}");
-        }
-        for u in log.iter().filter(|u| !u.sample.is_empty()) {
-            println!(
-                "SHADOW sample {}",
-                u.sample.chars().take(700).collect::<String>()
-            );
-        }
+        println!("SHADOW tier={} parity={:?}", tier.name, obs.shadow_parity);
         let bootstrap: Vec<_> = log.iter().filter(|u| u.bootstrap).collect();
         let ticks: Vec<_> = log.iter().filter(|u| !u.bootstrap).collect();
         let declared: usize = ticks.iter().map(|u| u.declared).sum();

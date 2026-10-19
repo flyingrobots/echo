@@ -1,0 +1,28 @@
+PROBE tier=M appends=5000 root_calls=5000 calls_per_append=1.000 root_ms=5953.49 append_ms=6365.85 root_share=0.935
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.57s
+SHADOW tier=S slots declared(out_slots)=796 written(ops)=1393 written_not_declared=597 instance_ops=0
+SHADOW tier=S commits=200 bootstrap=1 ports=0 append_ms=21.12 legacy_root_ms=8.81 shadow_ms=3.54 shadow_share=0.1678 replay_root_eq_live=true
+SHADOW tier=S window=0 slots=7.0 hash_bytes=3173 nodes_created=30.9 shadow_us=24.93
+SHADOW tier=S window=1 slots=7.0 hash_bytes=3849 nodes_created=37.6 shadow_us=13.17
+SHADOW tier=S window=2 slots=7.0 hash_bytes=4478 nodes_created=43.0 shadow_us=14.45
+SHADOW tier=S window=3 slots=7.0 hash_bytes=4612 nodes_created=45.0 shadow_us=13.32
+SHADOW tier=S window=4 slots=7.0 hash_bytes=4794 nodes_created=47.3 shadow_us=18.11
+SHADOW tier=S window=5 slots=7.0 hash_bytes=4986 nodes_created=48.1 shadow_us=14.06
+SHADOW tier=S window=6 slots=7.0 hash_bytes=5158 nodes_created=50.5 shadow_us=14.95
+SHADOW tier=S window=7 slots=7.0 hash_bytes=5144 nodes_created=51.2 shadow_us=16.30
+SHADOW tier=S window=8 slots=7.0 hash_bytes=5388 nodes_created=52.1 shadow_us=26.10
+SHADOW tier=S window=9 slots=7.0 hash_bytes=5434 nodes_created=54.1 shadow_us=17.97
+SHADOW tier=M parity=Some(true)
+SHADOW tier=M slots declared(out_slots)=19996 written(ops)=34993 written_not_declared=14997 instance_ops=0
+SHADOW tier=M commits=5000 bootstrap=1 ports=0 append_ms=6537.31 legacy_root_ms=6105.06 shadow_ms=207.02 shadow_share=0.0317 replay_root_eq_live=true
+SHADOW tier=M window=0 slots=7.0 hash_bytes=5551 nodes_created=54.8 shadow_us=20.10
+SHADOW tier=M window=1 slots=7.0 hash_bytes=6633 nodes_created=65.9 shadow_us=32.45
+SHADOW tier=M window=2 slots=7.0 hash_bytes=7033 nodes_created=70.1 shadow_us=32.61
+SHADOW tier=M window=3 slots=7.0 hash_bytes=7322 nodes_created=72.9 shadow_us=39.86
+SHADOW tier=M window=4 slots=7.0 hash_bytes=7540 nodes_created=75.2 shadow_us=37.54
+SHADOW tier=M window=5 slots=7.0 hash_bytes=7705 nodes_created=76.8 shadow_us=40.26
+SHADOW tier=M window=6 slots=7.0 hash_bytes=7908 nodes_created=78.7 shadow_us=54.90
+SHADOW tier=M window=7 slots=7.0 hash_bytes=8005 nodes_created=79.9 shadow_us=48.58
+SHADOW tier=M window=8 slots=7.0 hash_bytes=8093 nodes_created=80.6 shadow_us=54.97
+SHADOW tier=M window=9 slots=7.0 hash_bytes=8212 nodes_created=81.7 shadow_us=52.78
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.91s

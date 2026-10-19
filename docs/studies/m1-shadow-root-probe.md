@@ -132,3 +132,25 @@ This branch (`claude/m1-shadow-probe-v2`) cherry-picks the fix as `61b1a2b5`. Th
 The write set now has seven slots per commit: the six the ops write plus the bucket node, which `out_slots` declares but the ops never write. With the fix, corroboration and the shadow use one definition of "written".
 
 On this branch, the library unit tests and the `executable_operation_pipeline_tests`, `trusted_runtime_host_loop_tests`, `scene_fixture_tests` and `f5_state_root_probe` targets all pass: 1,009 tests, none failed.
+
+## Lock-free rework
+
+James asked why the probe used a mutex. It shouldn't have.
+- **How the lock got there:** I kept the shadows in a process-global registry so I would not have to add a field to a runtime struct. A global `static` must be `Sync`, so it got a `Mutex`.
+- **Why no lock is needed:** the runtime updates a worldline's shadow at its commit boundary. It already holds that worldline exclusively there. Footprint-checked, confluent rewrites need no lock either.
+
+The rework removes the lock in two places:
+- **`ShadowRoots`:** this is now a field of `WorldlineRuntime`, behind the probe feature. `after_commit` takes `&mut self` and borrows the frontier's state alongside it, so there is no lock and no global. Each runtime owns its shadows, so tests no longer reset shared state. The record-level mirror, used only for the earlier diagnosis, is gone.
+- **`state_root_probe`:** it records into a thread-local `RefCell` instead of a `Mutex`.
+
+The rerun on the rework ([output](m1-shadow-root-probe/shadow-probe-lock-free.txt)), with tests run on one thread:
+
+| Measure | Result |
+| --- | --- |
+| Parity, tiers S and M | holds |
+| F5-M shadow time | 207 ms, against 6,105 ms for the legacy root |
+| F5-M root share of append time | 93.5% |
+
+The lock was not a measurable cost. An uncontended lock is tens of nanoseconds per commit, and run-to-run variation in the shadow total (184 to 207 ms) is larger than that. The rework fixes the design, not the timing.
+
+The shadow also rehashes a path when a slot's value is unchanged. An example is the bucket node, which `out_slots` declares but nothing writes. Skipping unchanged leaves is a possible optimisation that was not made.

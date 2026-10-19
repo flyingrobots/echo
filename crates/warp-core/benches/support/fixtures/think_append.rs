@@ -421,9 +421,9 @@ pub struct Observation {
     /// Study probe: incremental shadow root equals its independent rebuild.
     #[cfg(feature = "shadow_root_probe")]
     pub shadow_parity: Option<bool>,
-    /// Study probe: shadow/state disagreements.
+    /// Study probe: every shadow update, in commit order.
     #[cfg(feature = "shadow_root_probe")]
-    pub shadow_diff: Vec<(String, bool, bool)>,
+    pub shadow_log: Vec<warp_core::shadow_root_probe::Update>,
 }
 
 /// Measured durations, each with a declared boundary.
@@ -551,13 +551,14 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
     obs.live_root = live.state_root();
     #[cfg(feature = "shadow_root_probe")]
     {
+        let shadows = host.runtime().shadow_roots();
         obs.shadow_parity = Some(
-            warp_core::shadow_root_probe::root(worldline_id)
+            shadows.root(worldline_id)
                 == Some(warp_core::shadow_root_probe::rebuild_root(
                     live.warp_state(),
                 )),
         );
-        obs.shadow_diff = warp_core::shadow_root_probe::diff(worldline_id, live.warp_state());
+        obs.shadow_log = shadows.log().to_vec();
     }
     let warp_id = make_warp_id("bench-fixture-f5");
     if let Some(store) = live.store(&warp_id) {

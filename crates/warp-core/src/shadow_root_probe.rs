@@ -23,7 +23,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::attachment::{AttachmentOwner, AttachmentValue};
@@ -121,6 +120,7 @@ fn empty_root() -> Hash {
 }
 
 /// A persistent compressed radix Merkle trie.
+#[derive(Clone)]
 pub struct RadixMap {
     nodes: NodeTable<Node>,
     empty: Hash,
@@ -412,10 +412,10 @@ pub fn rebuild_root(state: &WarpState) -> Hash {
     map.apply_digests(empty, &mut ops)
 }
 
+#[derive(Clone)]
 struct Shadow {
     map: RadixMap,
     root: Hash,
-    mirror: BTreeMap<Key, (SlotId, Hash)>,
 }
 
 /// One measured shadow update.
@@ -427,173 +427,108 @@ pub struct Update {
     pub nodes_created: u64,
     pub elapsed: Duration,
     pub bootstrap: bool,
-    pub sample: String,
     pub declared: usize,
     pub from_ops: usize,
     pub undeclared: usize,
     pub instance_ops: usize,
 }
 
-#[derive(Default)]
-struct Registry {
+/// Shadow roots owned by the runtime, one per worldline.
+///
+/// The runtime updates them at its commit boundary, where it already holds
+/// the worldline exclusively, so they need no lock.
+#[derive(Clone, Default)]
+pub struct ShadowRoots {
     shadows: BTreeMap<WorldlineId, Shadow>,
     log: Vec<Update>,
 }
 
-static REMOVED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static REGISTRY: Mutex<Option<Registry>> = Mutex::new(None);
+impl std::fmt::Debug for ShadowRoots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShadowRoots")
+            .field("worldlines", &self.shadows.len())
+            .finish_non_exhaustive()
+    }
+}
 
-/// Updates `worldline_id`'s shadow root from the records at `slots`.
-pub(crate) fn after_commit(
-    worldline_id: WorldlineId,
-    state: &WarpState,
-    ops_in: &[crate::tick_patch::WarpOp],
-    declared: &[SlotId],
-) {
-    let start = Instant::now();
-    let mut guard = REGISTRY.lock().unwrap();
-    let registry = guard.get_or_insert_with(Registry::default);
-    let bootstrap = !registry.shadows.contains_key(&worldline_id);
-    let shadow = registry.shadows.entry(worldline_id).or_insert_with(|| {
-        let map = RadixMap::new();
-        let root = map.empty;
-        Shadow {
-            map,
-            root,
-            mirror: BTreeMap::new(),
-        }
-    });
-    shadow.map.meter = Meter::default();
-    // The write set corroboration now uses: declared `out_slots` plus every
-    // slot the ops write; an instance-level op leaves it unknown.
-    let mut written: std::collections::BTreeSet<SlotId> = declared.iter().copied().collect();
-    let mut instance_ops = 0;
-    for op in ops_in {
-        if !op.extend_written_slots(&mut written) {
-            instance_ops += 1;
-        }
-    }
-    let from_ops: Vec<SlotId> = written.into_iter().collect();
-    let undeclared: Vec<SlotId> = from_ops
-        .iter()
-        .filter(|slot| declared.binary_search(slot).is_err() && !declared.contains(slot))
-        .copied()
-        .collect();
-    let rebuild = bootstrap || instance_ops > 0;
-    if rebuild && !bootstrap {
-        shadow.map = RadixMap::new();
-        shadow.root = shadow.map.empty;
-        shadow.mirror.clear();
-    }
-    let owned;
-    let slots: &[SlotId] = if rebuild {
-        owned = all_slots(state);
-        &owned
-    } else {
-        &from_ops
-    };
-    let mut ops = Vec::with_capacity(slots.len());
-    let mut port_slots = 0;
-    for slot in slots {
-        let Some(key) = slot_key(slot) else {
-            port_slots += 1;
-            continue;
-        };
-        let digest =
-            slot_value(state, slot).map(|bytes| value_digest(&mut shadow.map.meter, &bytes));
-        match digest {
-            Some(d) => {
-                shadow.mirror.insert(key, (*slot, d));
-            }
-            None => {
-                REMOVED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                shadow.mirror.remove(&key);
+impl ShadowRoots {
+    /// Updates `worldline_id`'s shadow root after one commit.
+    pub(crate) fn after_commit(
+        &mut self,
+        worldline_id: WorldlineId,
+        state: &WarpState,
+        ops_in: &[crate::tick_patch::WarpOp],
+        declared: &[SlotId],
+    ) {
+        let start = Instant::now();
+        let bootstrap = !self.shadows.contains_key(&worldline_id);
+        let shadow = self.shadows.entry(worldline_id).or_insert_with(|| {
+            let map = RadixMap::new();
+            let root = map.empty;
+            Shadow { map, root }
+        });
+        shadow.map.meter = Meter::default();
+        // The write set corroboration uses: declared `out_slots` plus every
+        // slot the ops write; an instance-level op leaves it unknown.
+        let mut written: std::collections::BTreeSet<SlotId> = declared.iter().copied().collect();
+        let mut instance_ops = 0;
+        for op in ops_in {
+            if !op.extend_written_slots(&mut written) {
+                instance_ops += 1;
             }
         }
-        ops.push((key, digest));
-    }
-    let root = shadow.root;
-    shadow.root = shadow.map.apply_digests(root, &mut ops);
-    let meter = shadow.map.meter;
-    registry.log.push(Update {
-        slots: slots.len(),
-        port_slots,
-        hash_bytes: meter.hash_bytes,
-        nodes_created: meter.nodes_created,
-        elapsed: start.elapsed(),
-        bootstrap,
-        sample: if registry.log.len() == 3 {
-            format!("undeclared={undeclared:?}")
+        let from_ops: Vec<SlotId> = written.into_iter().collect();
+        let undeclared = from_ops
+            .iter()
+            .filter(|slot| !declared.contains(slot))
+            .count();
+        let rebuild = bootstrap || instance_ops > 0;
+        if rebuild && !bootstrap {
+            shadow.map = RadixMap::new();
+            shadow.root = shadow.map.empty;
+        }
+        let owned;
+        let slots: &[SlotId] = if rebuild {
+            owned = all_slots(state);
+            &owned
         } else {
-            String::new()
-        },
-        declared: declared.len(),
-        from_ops: from_ops.len(),
-        undeclared: undeclared.len(),
-        instance_ops,
-    });
-}
-
-/// The current shadow root of `worldline_id`, if one exists.
-pub fn root(worldline_id: WorldlineId) -> Option<Hash> {
-    REGISTRY
-        .lock()
-        .unwrap()
-        .as_ref()?
-        .shadows
-        .get(&worldline_id)
-        .map(|shadow| shadow.root)
-}
-
-/// Removes and returns the update log.
-pub fn take_log() -> Vec<Update> {
-    REGISTRY
-        .lock()
-        .unwrap()
-        .as_mut()
-        .map(|r| std::mem::take(&mut r.log))
-        .unwrap_or_default()
-}
-
-/// Forgets every shadow and the log.
-pub fn reset() {
-    *REGISTRY.lock().unwrap() = None;
-}
-
-/// Records where the shadow and the committed state disagree:
-/// (slot, shadow holds it, state holds it).
-pub fn diff(worldline_id: WorldlineId, state: &WarpState) -> Vec<(String, bool, bool)> {
-    let guard = REGISTRY.lock().unwrap();
-    let Some(shadow) = guard.as_ref().and_then(|r| r.shadows.get(&worldline_id)) else {
-        return vec![("no shadow".into(), false, false)];
-    };
-    let mut truth: BTreeMap<Key, (SlotId, Hash)> = BTreeMap::new();
-    for slot in all_slots(state) {
-        if let (Some(key), Some(bytes)) = (slot_key(&slot), slot_value(state, &slot)) {
-            truth.insert(key, (slot, h(&[b"m1.value.v0", &bytes])));
+            &from_ops
+        };
+        let mut ops = Vec::with_capacity(slots.len());
+        let mut port_slots = 0;
+        for slot in slots {
+            let Some(key) = slot_key(slot) else {
+                port_slots += 1;
+                continue;
+            };
+            let digest =
+                slot_value(state, slot).map(|bytes| value_digest(&mut shadow.map.meter, &bytes));
+            ops.push((key, digest));
         }
+        let root = shadow.root;
+        shadow.root = shadow.map.apply_digests(root, &mut ops);
+        let meter = shadow.map.meter;
+        self.log.push(Update {
+            slots: slots.len(),
+            port_slots,
+            hash_bytes: meter.hash_bytes,
+            nodes_created: meter.nodes_created,
+            elapsed: start.elapsed(),
+            bootstrap,
+            declared: declared.len(),
+            from_ops: from_ops.len(),
+            undeclared,
+            instance_ops,
+        });
     }
-    let mut out = vec![(
-        format!(
-            "mirror={} truth={} removed_total={}",
-            shadow.mirror.len(),
-            truth.len(),
-            REMOVED.load(std::sync::atomic::Ordering::Relaxed)
-        ),
-        false,
-        false,
-    )];
-    for (key, (slot, digest)) in &shadow.mirror {
-        match truth.get(key) {
-            Some((_, d)) if d == digest => {}
-            Some(_) => out.push((format!("{slot:?} value differs"), true, true)),
-            None => out.push((format!("{slot:?}"), true, false)),
-        }
+
+    /// The current shadow root of `worldline_id`, if one exists.
+    pub fn root(&self, worldline_id: WorldlineId) -> Option<Hash> {
+        self.shadows.get(&worldline_id).map(|shadow| shadow.root)
     }
-    for (key, (slot, _)) in &truth {
-        if !shadow.mirror.contains_key(key) {
-            out.push((format!("{slot:?}"), false, true));
-        }
+
+    /// Every measured update, in commit order.
+    pub fn log(&self) -> &[Update] {
+        &self.log
     }
-    out
 }

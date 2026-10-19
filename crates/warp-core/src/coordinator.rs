@@ -1452,6 +1452,9 @@ struct AdmissionCoverageRequirement {
 /// SuperTick counter into a single deterministic runtime object.
 #[derive(Clone, Debug, Default)]
 pub struct WorldlineRuntime {
+    /// Study probe: shadow application roots, updated at each commit.
+    #[cfg(feature = "shadow_root_probe")]
+    shadow_roots: crate::shadow_root_probe::ShadowRoots,
     /// Registry of all worldline frontiers.
     worldlines: WorldlineRegistry,
     /// Registry of all writer heads.
@@ -1637,6 +1640,13 @@ struct ReceiptCorrelationCommitContext {
 }
 
 impl WorldlineRuntime {
+    /// Study probe: the shadow application roots.
+    #[cfg(feature = "shadow_root_probe")]
+    #[must_use]
+    pub fn shadow_roots(&self) -> &crate::shadow_root_probe::ShadowRoots {
+        &self.shadow_roots
+    }
+
     /// Creates an empty runtime.
     #[must_use]
     pub fn new() -> Self {
@@ -5948,7 +5958,7 @@ impl SchedulerCoordinator {
                 };
                 #[cfg(feature = "shadow_root_probe")]
                 if let Some(frontier) = runtime.worldlines.get(&key.worldline_id) {
-                    crate::shadow_root_probe::after_commit(
+                    runtime.shadow_roots.after_commit(
                         key.worldline_id,
                         frontier.state().warp_state(),
                         patch.ops(),

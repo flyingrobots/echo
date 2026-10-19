@@ -6,20 +6,20 @@
 //! time of one computation. Tests read and reset the log around the phase
 //! they measure.
 
-use std::sync::Mutex;
+use std::cell::RefCell;
 use std::time::Duration;
 
-static LOG: Mutex<Vec<(usize, Duration)>> = Mutex::new(Vec::new());
-
-pub(crate) fn record(reachable: usize, elapsed: Duration) {
-    if let Ok(mut log) = LOG.lock() {
-        log.push((reachable, elapsed));
-    }
+thread_local! {
+    // Per thread, so recording takes no lock; a test reads the log on the
+    // thread that ran the runtime.
+    static LOG: RefCell<Vec<(usize, Duration)>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Removes and returns every record since the last call.
+pub(crate) fn record(reachable: usize, elapsed: Duration) {
+    LOG.with(|log| log.borrow_mut().push((reachable, elapsed)));
+}
+
+/// Removes and returns every record this thread made since the last call.
 pub fn take() -> Vec<(usize, Duration)> {
-    LOG.lock()
-        .map(|mut log| std::mem::take(&mut *log))
-        .unwrap_or_default()
+    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }

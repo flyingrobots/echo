@@ -155,6 +155,14 @@ round-trip through the current runtime decoder. The public lowerer does not yet
 call this factory; compiler correspondence, graph-law semantics, independent
 verification, authority admission and execution remain separate obligations.
 
+The provider's `echo-operation-package` owning root also admits this current
+effect envelope. Anchored and effect envelopes share the current package field
+group. Effects use a six-field semantic closure without an outer lawpack;
+the compiled bundle retains the actual lawpack. Anchored envelopes retain their
+projection and outer lawpack requirements. The program byte string is opaque to
+metadata admission. A schema-admitted package with a malformed program still
+refuses runtime preparation; metadata admission is not semantic verification.
+
 ## Execution Corridors
 
 ### Bounded compiler-package computation

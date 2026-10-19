@@ -7,6 +7,11 @@
 
 ### Changed
 
+- Admit the current authored-effect envelope through the provider's owning
+  operation-package schema, sharing current package fields with anchored
+  operations and preserving kind-specific closure/projection requirements.
+  Program verification and runtime authority remain separate checks.
+
 - Added a pure current-format effect proposal serializer that preserves compiler
   bundle bytes and derives embedded artifact identities. Synthetic controls
   round-trip through the current runtime decoder; public producer integration,

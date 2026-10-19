@@ -8,7 +8,9 @@
 //! The interpreter, complete footprint law, bounded arena and portal authority
 //! validation still need to be connected before an authored-effect profile ships.
 mod frame;
+mod node_reads;
 pub use frame::{EffectEvaluationFrame, EffectFrameError, EffectFrameSetupError};
+pub(crate) use node_reads::RecordedNodeAccess;
 
 use crate::edict_pure::evaluate::Meter;
 use std::collections::{BTreeMap, BTreeSet};

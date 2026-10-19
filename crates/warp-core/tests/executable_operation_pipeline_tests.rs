@@ -118,11 +118,23 @@ fn fixture_host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
 fn fixture_host_with_independent_nodes(
     node_count: usize,
 ) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
+    fixture_host_with_attachment(
+        node_count,
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("operation-fixture-atom"),
+            Bytes::from_static(b"before"),
+        ))),
+    )
+}
+
+fn fixture_host_with_attachment(
+    node_count: usize,
+    attachment: Option<AttachmentValue>,
+) -> (TrustedRuntimeHost, WriterHeadKey, Vec<NodeKey>) {
     assert!(node_count > 0, "the fixture must retain one root node");
     let warp_id = make_warp_id("operation-fixture");
     let root_id = make_node_id("operation-fixture-root");
     let node_type = make_type_id("operation-fixture-node");
-    let attachment_type = make_type_id("operation-fixture-atom");
     let nodes = (0..node_count)
         .map(|index| NodeKey {
             warp_id,
@@ -136,13 +148,7 @@ fn fixture_host_with_independent_nodes(
     let mut store = GraphStore::new(warp_id);
     for node in &nodes {
         store.insert_node(node.local_id, NodeRecord { ty: node_type });
-        store.set_node_attachment(
-            node.local_id,
-            Some(AttachmentValue::Atom(AtomPayload::new(
-                attachment_type,
-                Bytes::from_static(b"before"),
-            ))),
-        );
+        store.set_node_attachment(node.local_id, attachment.clone());
     }
     let state = WorldlineState::from_root_store(store, root_id)
         .expect("the fixture state has one lawful root");
@@ -5141,4 +5147,485 @@ fn effect_frame_bound_parent_retains_the_resource_ceiling() {
             .expect("unchanged parent"),
         basis
     );
+}
+
+fn recorded_read_package() -> (Vec<u8>, [u8; 32]) {
+    let raw = hex::decode(
+        include_str!("fixtures/edict-node-read/single-executable-operation-package.hex").trim(),
+    )
+    .expect("retained compiler package");
+    let pin = hex::decode("a2ae35d39ae74a26da916544464529bc6c7af32a76b6e6f354ef79c5063ab109")
+        .expect("pin")
+        .try_into()
+        .expect("digest");
+    (raw, pin)
+}
+fn recorded_read_input(node: NodeKey, expected: &[u8]) -> Vec<u8> {
+    encode_canonical_cbor_v1(&CanonicalValueV1::Map(vec![
+        (
+            CanonicalValueV1::Text("address".into()),
+            CanonicalValueV1::Map(vec![
+                (
+                    CanonicalValueV1::Text("warpId".into()),
+                    CanonicalValueV1::Bytes(node.warp_id.0.to_vec()),
+                ),
+                (
+                    CanonicalValueV1::Text("nodeId".into()),
+                    CanonicalValueV1::Bytes(node.local_id.0.to_vec()),
+                ),
+                (
+                    CanonicalValueV1::Text("typeId".into()),
+                    CanonicalValueV1::Bytes(make_type_id("operation-fixture-atom").0.to_vec()),
+                ),
+            ]),
+        ),
+        (
+            CanonicalValueV1::Text("expected".into()),
+            CanonicalValueV1::Bytes(expected.to_vec()),
+        ),
+    ]))
+    .expect("canonical input")
+}
+fn recorded_read_limits() -> warp_core::edict_read::ReadLimits {
+    warp_core::edict_read::ReadLimits {
+        evaluation: effect_frame_limits(),
+        max_reads: 64,
+        max_read_bytes: 1048576,
+    }
+}
+
+#[test]
+fn recorded_effect_frame_interprets_actual_atom_reads_and_retains_dependencies() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let frontier = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("frontier");
+    let aperture = [node];
+    let plain = warp_core::edict_read::ReadView::at(frontier, &aperture).expect("plain control");
+    let (package, pin) = recorded_read_package();
+    let input = recorded_read_input(node, b"before");
+    let control =
+        warp_core::edict_read::evaluate(&package, pin, &input, &plain, recorded_read_limits())
+            .expect("standalone control");
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    let output = frame
+        .evaluate_read(&package, pin, &input, &aperture, recorded_read_limits())
+        .expect("interpreted read");
+    assert_eq!(
+        output,
+        encode_canonical_cbor_v1(&CanonicalValueV1::Bytes(b"before".to_vec()))
+            .expect("literal output")
+    );
+    assert_eq!(output, control.output);
+    assert_eq!(frame.readings().len(), 2);
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+    let attachment = warp_core::AttachmentKey::node_alpha(node);
+    assert_eq!(
+        frame
+            .readings()
+            .get(&warp_core::SlotId::Attachment(attachment)),
+        Some(&warp_core::SlotReading::Attachment(Some(
+            AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before")
+            ))
+        )))
+    );
+    assert!(frame.footprint().n_read.iter().any(|key| *key == node));
+    assert!(frame
+        .footprint()
+        .a_read
+        .iter()
+        .any(|key| *key == attachment));
+    assert_eq!(frame.consumed().read_bytes(), 134);
+    assert_eq!(frame.consumed().steps(), control.steps + 2);
+    assert_eq!(frame.allocated_bytes(), control.allocated_bytes + 262);
+    assert_eq!(frame.evaluation_basis(), Some(basis));
+}
+
+#[test]
+fn recorded_effect_frame_retains_absence_and_stops_after_an_authored_obstruction() {
+    let (host, head, root) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let missing = NodeKey {
+        local_id: make_node_id("recorded-absent"),
+        ..root
+    };
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert!(matches!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(missing, b""),
+            &[missing],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Obstructed {
+                cause: warp_core::edict_read::ReadObstruction::Missing,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(
+        frame.readings().get(&warp_core::SlotId::Node(missing)),
+        Some(&warp_core::SlotReading::Node(None))
+    );
+    assert_eq!(frame.readings().len(), 1);
+    assert!(frame.footprint().n_read.iter().any(|key| *key == missing));
+    let consumed = frame.consumed();
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(root, b"before"),
+            &[root],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::Terminated)
+    );
+    assert_eq!(frame.consumed(), consumed);
+}
+
+#[test]
+fn recorded_effect_frame_refuses_outside_aperture_without_graph_observations() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::OutsideAperture(node)
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed().read_bytes(), 0);
+}
+
+#[test]
+fn recorded_effect_frame_keeps_the_resolved_prefix_on_read_budget_failure() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 64, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::Read(
+            warp_core::edict_effects::EffectRangeReadError::BudgetExceeded
+        ))
+    );
+    assert_eq!(frame.consumed().read_bytes(), 64);
+    assert_eq!(frame.readings().len(), 1);
+    assert!(matches!(
+        frame.readings().get(&warp_core::SlotId::Node(node)),
+        Some(warp_core::SlotReading::Node(Some(_)))
+    ));
+}
+
+#[test]
+fn recorded_effect_frame_cannot_reset_work_between_compiler_packages() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let input = recorded_read_input(node, b"before");
+    let mut control = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("control");
+    control
+        .evaluate_read(&package, pin, &input, &[node], recorded_read_limits())
+        .expect("control succeeds");
+    let steps = control.consumed().steps();
+    let limits = warp_core::edict_pure::EvaluationLimits {
+        max_steps: 2 * steps - 1,
+        ..effect_frame_limits()
+    };
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(limits.max_steps, 4096, 0),
+            limits,
+        )
+        .expect("bounded frame");
+    frame
+        .evaluate_read(&package, pin, &input, &[node], recorded_read_limits())
+        .expect("first package fits");
+    assert!(matches!(
+        frame.evaluate_read(&package, pin, &input, &[node], recorded_read_limits()),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Evaluation(
+                warp_core::edict_pure::EvaluationError::StepBudgetExceeded
+            )
+        ))
+    ));
+}
+
+#[test]
+fn recorded_effect_frame_keeps_atom_failures_and_their_resolved_slots() {
+    use warp_core::edict_read::{ReadError, ReadObstruction};
+    for (attachment, cause) in [
+        (None, ReadObstruction::Missing),
+        (
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("wrong-atom-type"),
+                Bytes::from_static(b"before"),
+            ))),
+            ReadObstruction::TypeMismatch,
+        ),
+        (
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from(vec![0; 1048577]),
+            ))),
+            ReadObstruction::AtomTooLarge,
+        ),
+    ] {
+        let (host, head, nodes) = fixture_host_with_attachment(1, attachment.clone());
+        let node = nodes[0];
+        let basis = host
+            .echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("parent");
+        let (package, pin) = recorded_read_package();
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 2097152, 0),
+                effect_frame_limits(),
+            )
+            .expect("bound frame");
+        assert_eq!(
+            frame.evaluate_read(
+                &package,
+                pin,
+                &recorded_read_input(node, b""),
+                &[node],
+                recorded_read_limits()
+            ),
+            Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+                ReadError::Obstructed {
+                    coordinate: if cause == ReadObstruction::Missing {
+                        "text.FactMissing"
+                    } else {
+                        "text.FactMalformed"
+                    }
+                    .into(),
+                    cause,
+                }
+            ))
+        );
+        assert_eq!(frame.readings().len(), 2);
+        assert_eq!(
+            frame.readings().get(&warp_core::SlotId::Attachment(
+                warp_core::AttachmentKey::node_alpha(node)
+            )),
+            Some(&warp_core::SlotReading::Attachment(attachment))
+        );
+    }
+}
+
+#[test]
+fn recorded_effect_frame_keeps_actual_values_when_the_authored_guard_refuses() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"different"),
+            &[node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::Obstructed {
+                coordinate: "text.BasisNotCanonical".into(),
+                cause: warp_core::edict_read::ReadObstruction::Guard,
+            }
+        ))
+    );
+    assert_eq!(frame.readings().len(), 2);
+    assert_eq!(
+        frame.readings().get(&warp_core::SlotId::Attachment(
+            warp_core::AttachmentKey::node_alpha(node)
+        )),
+        Some(&warp_core::SlotReading::Attachment(Some(
+            AttachmentValue::Atom(AtomPayload::new(
+                make_type_id("operation-fixture-atom"),
+                Bytes::from_static(b"before")
+            ))
+        )))
+    );
+}
+
+#[test]
+fn recorded_effect_frame_cannot_widen_frame_decode_and_output_limits() {
+    use warp_core::edict_pure::EvaluationError;
+    for (limits, error, observations) in [
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_package_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::PackageTooLarge,
+            0,
+        ),
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_input_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::InputTooLarge,
+            0,
+        ),
+        (
+            warp_core::edict_pure::EvaluationLimits {
+                max_output_bytes: 1,
+                ..effect_frame_limits()
+            },
+            EvaluationError::OutputBudgetExceeded,
+            2,
+        ),
+    ] {
+        let (host, head, node) = fixture_host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(head, application_basis())
+            .expect("parent");
+        let (package, pin) = recorded_read_package();
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 0),
+                limits,
+            )
+            .expect("bound frame");
+        assert_eq!(
+            frame.evaluate_read(
+                &package,
+                pin,
+                &recorded_read_input(node, b"before"),
+                &[node],
+                recorded_read_limits()
+            ),
+            Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+                warp_core::edict_read::ReadError::Evaluation(error)
+            ))
+        );
+        assert_eq!(frame.readings().len(), observations);
+    }
+}
+
+#[test]
+fn recorded_effect_frame_refuses_invalid_apertures_before_reading() {
+    let (host, head, node) = fixture_host();
+    let basis = host
+        .echo_operation_evaluation_basis_v1(head, application_basis())
+        .expect("parent");
+    let (package, pin) = recorded_read_package();
+    let mut frame = host
+        .effect_evaluation_frame_v1(
+            basis,
+            &[],
+            0,
+            EchoOperationBudgetV1::new(10000, 4096, 0),
+            effect_frame_limits(),
+        )
+        .expect("bound frame");
+    assert_eq!(
+        frame.evaluate_read(
+            &package,
+            pin,
+            &recorded_read_input(node, b"before"),
+            &[node, node],
+            recorded_read_limits()
+        ),
+        Err(warp_core::edict_effects::EffectFrameError::BoundedRead(
+            warp_core::edict_read::ReadError::InvalidAperture
+        ))
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
 }

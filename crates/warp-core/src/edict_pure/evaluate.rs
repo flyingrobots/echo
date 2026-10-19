@@ -39,6 +39,37 @@ impl Meter {
         (self.steps, self.allocated)
     }
 
+    pub(crate) fn with_component<T, E>(
+        &mut self,
+        limits: EvaluationLimits,
+        run: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let saved = self.limits;
+        self.limits.max_steps = saved
+            .max_steps
+            .min(self.steps.saturating_add(limits.max_steps));
+        self.limits.max_allocated_bytes = saved
+            .max_allocated_bytes
+            .min(self.allocated.saturating_add(limits.max_allocated_bytes));
+        let result = run(self);
+        self.limits = saved;
+        result
+    }
+
+    // The caller already charged work and storage; only atomic frame paths
+    // translate allocator refusal into a host fault. Standalone behavior stays.
+    pub(crate) fn copy_precharged_read_bytes(&self, bytes: &[u8]) -> Result<Value, Error> {
+        if !self.atomic_charges {
+            return Ok(Value::Bytes(bytes.to_vec()));
+        }
+        let mut value = Vec::new();
+        value
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| Error::HostAllocationFailed)?;
+        value.extend_from_slice(bytes);
+        Ok(Value::Bytes(value))
+    }
+
     pub(crate) fn step(&mut self, depth: usize) -> Result<(), Error> {
         if depth > MAX_DEPTH {
             return Err(Error::UnsupportedProgram);
@@ -147,20 +178,7 @@ pub(crate) fn run_with_meter(
     input: Value,
     meter: &mut Meter,
 ) -> Result<EvaluationResult, Error> {
-    let saved = meter.limits;
-    // Each component retains its declared ceiling while the frame's absolute
-    // limits continue to bind cumulative work across all components and reads.
-    meter.limits.max_steps = saved
-        .max_steps
-        .min(meter.steps.saturating_add(program.limits.max_steps));
-    meter.limits.max_allocated_bytes = saved.max_allocated_bytes.min(
-        meter
-            .allocated
-            .saturating_add(program.limits.max_allocated_bytes),
-    );
-    let result = run_body(program, input, meter);
-    meter.limits = saved;
-    result
+    meter.with_component(program.limits, |meter| run_body(program, input, meter))
 }
 
 fn run_body(program: &Program, input: Value, meter: &mut Meter) -> Result<EvaluationResult, Error> {

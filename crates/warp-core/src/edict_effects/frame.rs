@@ -27,12 +27,27 @@ pub enum EffectFrameSetupError {
 /// Terminal frame failure, without any mutation or admission authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectFrameError {
+    /// A caller-frontier frame cannot run recorded compiled reads as runtime-bound work.
+    UnboundParent,
+    /// Failure from the existing bounded-read interpreter or aperture validation.
+    BoundedRead(crate::edict_read::ReadError),
     /// Failure from the unchanged compiler-package interpreter.
     Evaluation(EvaluationError),
     /// Read refusal or host fault; host allocation faults must not become Actions.
     Read(EffectRangeReadError),
     /// A prior failure ended this frame; no further work or reads are allowed.
     Terminated,
+}
+
+impl From<crate::edict_read::ReadError> for EffectFrameError {
+    fn from(error: crate::edict_read::ReadError) -> Self {
+        Self::BoundedRead(error)
+    }
+}
+impl From<EvaluationError> for EffectFrameError {
+    fn from(error: EvaluationError) -> Self {
+        Self::BoundedRead(error.into())
+    }
 }
 
 /// Trusted-host composition with one cumulative interpreter/read resource meter.
@@ -159,6 +174,65 @@ impl<'a> EffectEvaluationFrame<'a> {
             })
             .map(|result| result.output)
             .map_err(EffectFrameError::Evaluation);
+        self.terminated = result.is_err();
+        result
+    }
+
+    /// Interprets a pinned bounded-read package over the bound runtime frontier.
+    ///
+    /// The trusted host selects a sorted node aperture. Actual node and alpha
+    /// attachment resolutions are charged and retained, including absence and
+    /// semantic failures. Expression work, value storage and previous components
+    /// remain under the shared frame meter. This does not implement the complete
+    /// node-type/portal footprint law, installation or admission of effect programs.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unbound frame, malformed aperture/package/input, authored
+    /// obstruction or exhausted limits. Every failure terminates the frame.
+    /// Host allocation faults must stop the host rather than decide an Action.
+    pub fn evaluate_read(
+        &mut self,
+        package: &[u8],
+        pin: [u8; 32],
+        input: &[u8],
+        aperture: &[crate::NodeKey],
+        mut limits: crate::edict_read::ReadLimits,
+    ) -> Result<Vec<u8>, EffectFrameError> {
+        if self.terminated {
+            return Err(EffectFrameError::Terminated);
+        }
+        self.terminated = true;
+        if self.evaluation_basis.is_none() {
+            return Err(EffectFrameError::UnboundParent);
+        }
+        limits.evaluation.max_package_bytes = limits
+            .evaluation
+            .max_package_bytes
+            .min(self.limits.max_package_bytes);
+        limits.evaluation.max_input_bytes = limits
+            .evaluation
+            .max_input_bytes
+            .min(self.limits.max_input_bytes);
+        limits.evaluation.max_output_bytes = limits
+            .evaluation
+            .max_output_bytes
+            .min(self.limits.max_output_bytes);
+        limits.evaluation.max_steps = limits.evaluation.max_steps.min(self.limits.max_steps);
+        limits.evaluation.max_allocated_bytes = limits
+            .evaluation
+            .max_allocated_bytes
+            .min(self.limits.max_allocated_bytes);
+        let result = crate::edict_read::evaluate_recorded(
+            package,
+            pin,
+            input,
+            &mut self.reads,
+            aperture,
+            &mut self.meter,
+            limits,
+        )
+        .map(|result| result.output);
         self.terminated = result.is_err();
         result
     }

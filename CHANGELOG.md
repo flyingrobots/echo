@@ -7,6 +7,8 @@
 
 ### Added
 
+- Runtime-bound private frames interpret existing compiled node-atom reads with recorded presence/absence dependencies, shared metering and host-selected apertures. This does not admit a new authored-effect profile.
+
 - Bind private effect evaluation frames to the runtime-selected writer and exact commit parent, refusing substituted histories even when reading coordinates match.
 
 - Trusted-host range-read sessions record real source-node and range values at

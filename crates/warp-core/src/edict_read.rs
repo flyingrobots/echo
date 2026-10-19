@@ -7,12 +7,14 @@
 //! The host owns the package pin and view selection. No callbacks or mutations
 //! are available to the interpreted program.
 
+mod access;
 mod decode;
 mod evaluate;
 mod instructions;
 mod model;
 mod view;
 
+pub(crate) use access::NodeAtomAccess;
 pub use view::{ReadBasis, ReadView};
 
 use crate::edict_pure::{EvaluationError, EvaluationLimits};
@@ -106,6 +108,16 @@ pub fn evaluate(
     view: &ReadView<'_>,
     limits: ReadLimits,
 ) -> Result<ReadResult, ReadError> {
+    let (program, input) = prepare(package_bytes, verified_package_digest, input_bytes, limits)?;
+    evaluate::run(&program, input, view)
+}
+
+fn prepare(
+    package_bytes: &[u8],
+    verified_package_digest: [u8; 32],
+    input_bytes: &[u8],
+    limits: ReadLimits,
+) -> Result<(model::Program, echo_edict_canonical::CanonicalValueV1), ReadError> {
     let program = decode::package(package_bytes, verified_package_digest, limits)?;
     if input_bytes.len()
         > limits
@@ -117,5 +129,20 @@ pub fn evaluate(
     }
     let input = echo_edict_canonical::decode_canonical_cbor_v1(input_bytes)
         .map_err(|_| EvaluationError::InvalidInput)?;
-    evaluate::run(&program, input, view)
+    Ok((program, input))
+}
+
+pub(crate) fn evaluate_recorded(
+    package: &[u8],
+    pin: [u8; 32],
+    input: &[u8],
+    reads: &mut crate::edict_effects::EffectRangeReadSession<'_>,
+    aperture: &[NodeKey],
+    meter: &mut crate::edict_pure::evaluate::Meter,
+    limits: ReadLimits,
+) -> Result<ReadResult, crate::edict_effects::EffectFrameError> {
+    ReadView::validate_aperture(aperture)?;
+    let (program, input) = prepare(package, pin, input, limits)?;
+    let mut access = crate::edict_effects::RecordedNodeAccess { reads, aperture };
+    evaluate::run_with_meter(&program, input, &mut access, meter)
 }

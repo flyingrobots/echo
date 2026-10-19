@@ -361,3 +361,49 @@ fn a_low_level_frame_does_not_claim_a_runtime_parent() {
         EffectEvaluationFrame::new(session(&frontier, key), limits()).expect("private frame");
     assert_eq!(frame.evaluation_basis(), None);
 }
+
+#[test]
+fn recorded_reads_cannot_use_an_unbound_caller_frontier() {
+    let (frontier, key) = fixture();
+    let mut frame =
+        EffectEvaluationFrame::new(session(&frontier, key), limits()).expect("private frame");
+    let package = hex::decode(
+        include_str!("fixtures/edict-node-read/single-executable-operation-package.hex").trim(),
+    )
+    .expect("compiler read package");
+    let pin = hex::decode("a2ae35d39ae74a26da916544464529bc6c7af32a76b6e6f354ef79c5063ab109")
+        .expect("pin")
+        .try_into()
+        .expect("digest");
+    let address = Value::Map(vec![
+        (
+            Value::Text("warpId".into()),
+            Value::Bytes(key.source.warp_id.0.to_vec()),
+        ),
+        (
+            Value::Text("nodeId".into()),
+            Value::Bytes(key.source.local_id.0.to_vec()),
+        ),
+        (
+            Value::Text("typeId".into()),
+            Value::Bytes(make_type_id("node").0.to_vec()),
+        ),
+    ]);
+    let input = encode(&Value::Map(vec![
+        (Value::Text("address".into()), address),
+        (Value::Text("expected".into()), Value::Bytes(vec![])),
+    ]))
+    .expect("input");
+    let read_limits = warp_core::edict_read::ReadLimits {
+        evaluation: limits(),
+        max_reads: 1,
+        max_read_bytes: 1024,
+    };
+    assert_eq!(
+        frame.evaluate_read(&package, pin, &input, &[key.source], read_limits),
+        Err(EffectFrameError::UnboundParent)
+    );
+    assert!(frame.readings().is_empty());
+    assert_eq!(frame.consumed(), EchoOperationBudgetV1::new(0, 0, 0));
+    assert_eq!(frame.read_range(key), Err(EffectFrameError::Terminated));
+}

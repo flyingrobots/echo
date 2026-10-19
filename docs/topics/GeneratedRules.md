@@ -405,14 +405,45 @@ The state-root/by-key caveat of the low-level reading coordinate, complete
 node/atom/portal authorization and recovery obligations remain as described
 above and below.
 
+A runtime-bound frame can also run an unchanged
+`compiler-produced-bounded-read/v1` package through `evaluate_read`. It uses the
+same decoded instructions and expression interpreter as standalone
+`edict_read::evaluate`, but its access adapter resolves the frame's own frontier
+and records dependencies. The trusted caller supplies a sorted, unique bounded
+node aperture. A key outside it is refused before graph observation. An unbound
+caller-frontier frame cannot enter this recorded interpreter path.
+
+Each source-node resolution charges one step, 64 read bytes and 128 logical
+storage bytes before lookup, and records presence or absence. A missing node
+stops that read without resolving its attachment. For a present owner, resolving
+its alpha attachment charges one step, 64 read bytes plus any atom payload
+length, and 128 logical storage bytes plus that payload length before retention
+or value delivery. The interpreter retains its existing byte-copy work and
+value-storage charges. Source and attachment reservations are individually
+atomic across the read and shared meters. A later failure retains the resolved
+prefix, including negative observations. Wrong types, oversized atoms, missing
+attachments and authored guards keep their existing obstruction coordinates;
+the actual observations remain distinct from the caller's expected values.
+
+The frame intersects package/input/output ceilings with each requested read
+component, preserves its declared local limits, and keeps work/storage consumed
+by earlier reads and computations. Every refusal or host fault terminates the
+frame. Failed observation reservations add no read/storage charge, and host
+allocation failure while provisioning precharged atom bytes remains a host
+fault rather than an authored obstruction. Standalone bounded-read accounting
+and outputs are unchanged. This path still uses a trusted-host node aperture;
+it does not implement the complete typed node/atom/portal footprint law or
+interpret outgoing-range instructions. It grants no application mutation or
+admission authority.
+
 This is trusted-host composition of pinned pure packages and recorded reads.
 It provides no mutation or admission path and is not a compiler-authored
 effect-program format. Package/input decoding remains bounded host preparation.
 Logical value-storage reservations bound the row buffers and observation count;
 policy preparation, indexes and allocator overhead remain host storage. The
 physical interpreter arena, complete node/atom footprint law, portal-chain
-authority, interpreted read instructions, derived effects and installed-profile
-validation remain required before a new authored-effect profile can ship.
+authority, authored outgoing-range/effect instructions, derived effects and
+installed-profile validation remain required before a new authored-effect profile can ship.
 Existing package profiles and graph accessors are unchanged.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not

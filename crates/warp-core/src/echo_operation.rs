@@ -659,8 +659,7 @@ impl EchoOperationProgram {
 
     /// Returns the exact program identity.
     pub fn identity(&self) -> Result<EchoOperationProgramIdV1, EchoOperationArtifactErrorV1> {
-        Ok(EchoOperationProgramIdV1(domain_hash(
-            PROGRAM_ID_DOMAIN,
+        Ok(EchoOperationProgramIdV1(program_identity_bytes(
             &self.to_canonical_bytes()?,
         )))
     }
@@ -3482,10 +3481,7 @@ impl EchoOperationInvocation {
             .application_input_bytes
             .as_deref()
             .ok_or_else(|| invalid_structure("effect input is absent"))?;
-        Ok(EchoOperationApplicationBasisV1::new(
-            profile_digest("echo.operation.basis.edict-effect/v1"),
-            domain_hash(b"echo:operation-edict-effect-basis:v1\0", input),
-        ))
+        Ok(effect_input_basis(input))
     }
 
     /// Returns the canonical invocation identity.
@@ -8018,6 +8014,16 @@ fn hash_port_set<'a>(
     }
 }
 
+pub(crate) fn program_identity_bytes(bytes: &[u8]) -> Hash {
+    domain_hash(PROGRAM_ID_DOMAIN, bytes)
+}
+#[cfg(feature = "trusted_runtime")]
+pub(crate) fn effect_input_basis(input: &[u8]) -> EchoOperationApplicationBasisV1 {
+    EchoOperationApplicationBasisV1::new(
+        profile_digest("echo.operation.basis.edict-effect/v1"),
+        domain_hash(b"echo:operation-edict-effect-basis:v1\0", input),
+    )
+}
 fn domain_hash(domain: &[u8], bytes: &[u8]) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(domain);

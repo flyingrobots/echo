@@ -900,8 +900,10 @@ Static preparation grants no invocation or mutation authority.
 
 `EffectEvaluationFrame::evaluate_effect` evaluates the prepared current authored
 program against the runtime-selected immutable parent and typed node aperture.
-The frame's exact footprint law must equal the prepared program's law. Unbound
-frames, mismatched laws and invalid apertures refuse before graph observations.
+The frame's exact footprint law must equal the prepared program's law. Whole
+authored evaluation requires an unused frame, so it cannot adopt reads or work
+from another private component. Unbound/used frames, mismatched laws and invalid
+apertures refuse before new graph observations.
 This is trusted-host private evaluation, without installed dispatch, invocation
 grants or mutation authority.
 
@@ -923,8 +925,10 @@ are private evaluation errors, not persisted Action decisions or a complete
 obstruction taxonomy/schema proof.
 
 The final result is validated and encoded under the intersected output ceiling.
-Every refusal terminates the frame; later calls do no work. Successful calls
-retain cumulative usage and observations. The new runtime witnesses use the
+Failure or successful whole authored evaluation ends the frame; later evaluation
+calls do no work. Completed output, usage and observations remain available for
+inspection or consuming retention. The result is borrowed from frame-owned
+storage, so completion retention does not make an uncharged second output copy. The new runtime witnesses use the
 explicitly synthetic, coherently pinned read fixture, not a genuine public
 compiler/verifier output. Physical arena guarantees, mutation validation and
 patch derivation, atomic scheduler settlement, receipts/WAL and original-decision
@@ -953,11 +957,11 @@ logical storage ceiling. Declaration/catalog agreement cannot redefine this ABI.
 The evaluator charges a deterministic 280-byte row reservation for each intent,
 then moves the already charged expression payload into its typed intent. It
 retains separate node and atom types and both sides of replacement comparisons.
-Host allocation failure remains a host error. Only a successfully completed
-component appends intents to `EffectEvaluationFrame::buffered_mutations`, in
-authored execution order. Later output/resource/guard failure discards that
-component's entire partial buffer and terminates the frame. Previously completed
-private components remain inspectable; they are not a validated proposal.
+Host allocation failure remains a host error. Only a successfully completed whole authored operation exposes intents through
+`EffectEvaluationFrame::buffered_mutations`, in execution order. Later
+output/resource/guard failure discards the operation's entire partial buffer.
+Another program cannot append to the completed operation, and prior private
+component work cannot be adopted into it. The buffer is not a validated proposal.
 
 `EffectMutation` values are data. No public API accepts caller-constructed
 values as evaluation evidence or grants a write from them. Emission neither
@@ -968,6 +972,32 @@ canonical ordering, duplicate targets, schema/identity/footprint rules,
 preconditions, actual write costs and patch derivation remain required before
 scheduler integration. Tests use explicitly synthetic pinned artifacts; genuine
 compiler/verifier production and physical arena guarantees remain open.
+
+### Completed authored origin evidence
+
+`EffectEvaluationFrame::into_effect_evaluation` consumes a successful whole
+operation into one `CompletedEffectEvaluation`. It retains the exact producing
+program identity, canonical-input application-basis binding, actual result,
+emitted intents and bounded recorded-read image. The image supplies the sole
+full runtime parent and the actual usage counters. Result and intent storage move
+into the completed value without copying their payloads. There is no public
+constructor or setter for this completed value.
+
+Program identity uses the same current program identity recipe as
+`EchoOperationProgram::identity`; preparation caches the identity over the exact
+canonical program. Input binding reuses the current invocation-admission recipe,
+not a second projection/hash rule. Completion requires that binding to equal the
+runtime-selected parent's application basis. Changing otherwise valid input
+under an original parent therefore cannot yield completed origin evidence.
+Unused, failed or mixed-component frames cannot complete, and read-image export
+limits/faults deliver no partial completed value. Failed typed read prefixes may
+still be retained through the existing diagnostic read-image path.
+
+This value establishes private execution origin. It does not authenticate an
+installed package or independent compiler/verifier approval, resolve mutation
+preconditions, derive a patch or grant invocation authority. Proposal validation
+and installed scheduler dispatch must still check the producing program and exact
+parent against their own authoritative evidence.
 
 ### Current invocation input, basis and owner grant admission
 

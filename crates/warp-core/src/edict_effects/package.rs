@@ -22,6 +22,7 @@ pub enum EffectPackageError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectProgram {
     value: Value,
+    identity: crate::Hash,
     compiled: Vec<u8>,
     compiled_contract: super::compiled_program::CompiledProgram,
     schema: EffectGraphSchema,
@@ -95,6 +96,10 @@ impl EffectProgram {
         }
         Ok(Self {
             value: value.clone(),
+            identity: crate::echo_operation::program_identity_bytes(
+                &echo_edict_canonical::encode_canonical_cbor_v1(value)
+                    .map_err(|_| EvaluationError::InvalidArtifact)?,
+            ),
             compiled: bytes(field(value, "compiled_program")?)?.to_vec(),
             compiled_contract: super::compiled_program::CompiledProgram::parse(bytes(field(
                 value,
@@ -123,6 +128,9 @@ impl EffectProgram {
             exports_identity,
             &self.output_type,
         )
+    }
+    pub(super) const fn identity(&self) -> crate::Hash {
+        self.identity
     }
     pub(super) fn execution(
         &self,

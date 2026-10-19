@@ -7,9 +7,17 @@
 
 ### Changed
 
+- Completed authored evaluation now has one runtime-owned origin record binding
+  its exact program, canonical input basis, actual result, mutation intents and
+  recorded reads to the same parent. Whole authored evaluation requires an
+  unused frame and stops further evaluation on success. Consuming completion
+  refuses substituted input bindings, failed frames and read-export failures;
+  result storage is borrowed during evaluation and moved into completion.
+  Installed authority, proposal validation and patch derivation remain open.
+
 - Prepared authored programs can now emit all five typed mutation intents into
   private frames under the explicit graph-effects profile. Fixed input layouts,
-  empty-record results and row reservations apply. Failed components discard
+  empty-record results and row reservations apply. Failed operations discard
   partial emission. Emission does not modify the frontier or derive a patch;
   mutation validation, actual write costs, physical allocation and durable
   scheduler execution remain unfinished.

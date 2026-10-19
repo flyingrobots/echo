@@ -53,7 +53,7 @@ pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
         key,
     )
 }
-fn input(node: NodeKey, expected: &[u8]) -> Vec<u8> {
+pub(super) fn input(node: NodeKey, expected: &[u8]) -> Vec<u8> {
     encoded(&map([
         (
             "address",
@@ -66,7 +66,7 @@ fn input(node: NodeKey, expected: &[u8]) -> Vec<u8> {
         ("expected", V::Bytes(expected.to_vec())),
     ]))
 }
-fn publication() -> V {
+pub(super) fn publication() -> V {
     let mut publication = publication_for_lowering(&repinned_lowering_artifacts());
     let V::Bytes(raw) = get(&publication, "program") else {
         panic!("program")

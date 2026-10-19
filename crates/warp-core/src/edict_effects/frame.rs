@@ -38,8 +38,10 @@ pub enum EffectFrameError {
     Evaluation(EvaluationError),
     /// Read refusal or host fault; host allocation faults must not become Actions.
     Read(EffectRangeReadError),
-    /// A prior failure ended this frame; no further work or reads are allowed.
+    /// Failure or completed whole authored execution ended this frame.
     Terminated,
+    /// Whole authored evaluation cannot adopt another private component's work.
+    UsedFrame,
     /// A resolved node/atom pair violates the exact prepared graph schema.
     GraphSchemaViolation,
     /// An authored terminal reason or mapped read failure, without an Action decision.
@@ -79,7 +81,7 @@ pub struct EffectEvaluationFrame<'a> {
     meter: Meter,
     limits: EvaluationLimits,
     terminated: bool,
-    buffered_mutations: Vec<super::EffectMutation>,
+    completed: Option<super::completion::AuthoredExecution>,
     evaluation_basis: Option<EchoOperationEvaluationBasisV1>,
 }
 
@@ -114,7 +116,7 @@ impl<'a> EffectEvaluationFrame<'a> {
             meter: Meter::new_atomic(limits),
             limits,
             terminated: false,
-            buffered_mutations: Vec::new(),
+            completed: None,
             evaluation_basis: None,
         })
     }
@@ -257,19 +259,23 @@ impl<'a> EffectEvaluationFrame<'a> {
     /// Reads are recorded and mutations are buffered as unvalidated intents.
     /// This grants no invocation or mutation authority.
     /// # Errors
-    /// Any preparation, read, authored or resource refusal terminates the frame.
+    /// Requires an unused frame. Failure or successful whole authored execution
+    /// ends evaluation; only retention/inspection remains afterward.
     pub fn evaluate_effect(
         &mut self,
         program: &super::EffectProgram,
         input: &[u8],
         aperture: &[super::TypedNodeRead],
-    ) -> Result<Vec<u8>, EffectFrameError> {
+    ) -> Result<&[u8], EffectFrameError> {
         if self.terminated {
             return Err(EffectFrameError::Terminated);
         }
         self.terminated = true;
         if self.evaluation_basis.is_none() {
             return Err(EffectFrameError::UnboundParent);
+        }
+        if self.consumed() != EchoOperationBudgetV1::new(0, 0, 0) || self.allocated_bytes() != 0 {
+            return Err(EffectFrameError::UsedFrame);
         }
         if self.reads.law.as_ref() != Some(program.footprint_law()) {
             return Err(EffectRangeReadError::FootprintLawViolation.into());
@@ -284,30 +290,54 @@ impl<'a> EffectEvaluationFrame<'a> {
             return Err(EvaluationError::InputTooLarge.into());
         }
         let executable = program.execution(self.limits)?;
+        let input_basis = crate::echo_operation::effect_input_basis(input);
         let input = echo_edict_canonical::decode_canonical_cbor_v1(input)
             .map_err(|_| EffectFrameError::Evaluation(EvaluationError::InvalidInput))?;
         let mut access = super::RecordedNodeAccess {
             reads: &mut self.reads,
             aperture,
         };
-        let result = executable.run(input, &mut access, program.graph_schema(), &mut self.meter);
-        let result = result.and_then(|result| {
-            self.buffered_mutations
-                .try_reserve(result.mutations.len())
-                .map_err(|_| EffectFrameError::Evaluation(EvaluationError::HostAllocationFailed))?;
-            self.buffered_mutations.extend(result.mutations);
-            Ok(result.output)
+        let result = executable.run(input, &mut access, program.graph_schema(), &mut self.meter)?;
+        let completed = self.completed.insert(super::completion::AuthoredExecution {
+            program: program.identity(),
+            input_basis,
+            output: result.output,
+            mutations: result.mutations,
         });
-        self.terminated = result.is_err();
-        result
+        Ok(&completed.output)
     }
 
-    /// Completed compiler-emitted mutation intents, in authored execution order.
+    /// Intents from the completed whole authored operation, in execution order.
     /// These have not passed proposal validation and are not writes or a patch.
-    /// Failed components never append their partial intent buffer.
+    /// Failure never publishes a partial intent buffer.
     #[must_use]
     pub fn buffered_mutations(&self) -> &[super::EffectMutation] {
-        &self.buffered_mutations
+        self.completed
+            .as_ref()
+            .map_or(&[], |value| value.mutations.as_slice())
+    }
+
+    /// Consumes one completed authored operation into its exact origin evidence.
+    /// Failed, unused and mixed-component frames cannot produce this value.
+    /// This is bounded host retention, not proposal validation or Action admission.
+    /// # Errors
+    /// Refuses missing completion, input-basis mismatch or read-image export failure.
+    pub fn into_effect_evaluation(
+        mut self,
+        max_read_bytes: usize,
+    ) -> Result<super::CompletedEffectEvaluation, super::EffectCompletionError> {
+        let execution = self
+            .completed
+            .take()
+            .ok_or(super::EffectCompletionError::NoCompletedOperation)?;
+        let parent = self
+            .evaluation_basis
+            .ok_or(super::EffectCompletionError::NoCompletedOperation)?;
+        if parent.application_basis() != execution.input_basis {
+            return Err(super::EffectCompletionError::InputBasisMismatch);
+        }
+        let reads = self.into_read_set_image(max_read_bytes)?;
+        Ok(super::CompletedEffectEvaluation::new(execution, reads))
     }
 
     /// Evaluates exact compiler-package bytes using the same cumulative meter.

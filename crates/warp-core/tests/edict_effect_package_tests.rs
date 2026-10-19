@@ -1698,3 +1698,7 @@ mod execution;
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/mutations.rs"]
 mod mutations;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/completion.rs"]
+mod completion;

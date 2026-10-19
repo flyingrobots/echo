@@ -22,7 +22,9 @@ pub use mutations::EffectMutation;
 mod package;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
+mod completion;
 mod frame;
+pub use completion::{CompletedEffectEvaluation, EffectCompletionError};
 mod read_image;
 pub use read_image::{
     EffectEdgePairRow, EffectReadImageError, EffectReadRow, EffectReadSetImage, EffectReadSetView,

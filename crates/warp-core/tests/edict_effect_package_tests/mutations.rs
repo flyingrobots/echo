@@ -47,7 +47,7 @@ fn layout(name: &str) -> Vec<(&'static str, &'static str)> {
         _ => panic!("fixture kind"),
     }
 }
-fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
+pub(super) fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
     let artifacts = repinned_lowering_artifacts();
     let decode = |key| {
         let V::Bytes(raw) = get(&artifacts, key) else {

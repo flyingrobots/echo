@@ -117,6 +117,84 @@ worker on the calling thread. Several workers still each get a thread.
 On F5 tier M an append went from 274 ms to 173 ms, and tier S from 9.1 ms to
 5.1 ms. Full suite on `43a8ddda`: the same three failures, nothing new.
 
+## Commit-path fixes (`f118d7ef`)
+
+A profile of a 10,000-write engine tick (`scheduler_workers`, no work per
+rewrite, one worker) put most of the commit in three places, none of them
+rule work. `f118d7ef` changes all three, and no digest changes:
+
+- the patch digest gathers its bytes and hashes them in one call, instead of
+  about eight `blake3` updates per op;
+- reservation collects in and out slots in vectors, which the patch sorts
+  and deduplicates once, instead of `BTreeSet`s sorted again by the patch;
+- the patch canonicalizes ops with a stable sort and a last-wins pass,
+  instead of a `BTreeMap`.
+
+`scheduler_workers`, p50 commit, before (`a0bd72da`) and after (`f118d7ef`),
+25 ticks per row:
+
+| Rewrites, hashes each | Workers | Before | After |
+| --- | ---: | ---: | ---: |
+| 10,000, none | 1 | 28.782 ms | 22.425 ms |
+| 10,000, none | 18 | 29.499 ms | 23.022 ms |
+| 10,000, 100 | 1 | 80.378 ms | 75.921 ms |
+| 10,000, 100 | 18 | 32.760 ms | 26.445 ms |
+| 100, none | 1 | 0.192 ms | 0.199 ms |
+| 100, 100 | 1 | 0.884 ms | 0.808 ms |
+
+F5 tier M under the application profile did not move: 166.07 ms before and
+166.14 ms after. Its ticks carry one op. Run-to-run variation is visible
+here: `a0bd72da` has the same engine code as `43a8ddda`, which measured
+172.72 ms.
+
+The full suite at `f118d7ef` failed only the three expected tests. The fmt
+and clippy runs of that campaign are void (see the ledger). A clean rerun
+on the committed tree is still owed.
+
+## hello-echo, the Edict toy
+
+hello-echo pins Edict `df80f92` and Echo `490134c0`, 641 commits behind
+Echo `main` `4e801ef2`, and refuses other producers by design. Run with its
+lock edited to each target in a separate worktree (Rust 1.96 throughout;
+Echo's pin asks for 1.90):
+
+| Edict | Echo | Result |
+| --- | --- | --- |
+| `df80f92` (pin) | `490134c0` (pin) | passes: 1 golden, 1 deterministic rerun, 2 refusals, 1 boundary, 3 fixed-seed property, 8 stress |
+| `df80f92` | `main` `4e801ef2` | builds; runtime refuses before any case |
+| `df80f92` | stack `f118d7ef` | builds; runtime refuses before any case |
+| `main` `0c8cf37` | `main` and stack | build refuses: vendored `causal-cell/manifest.cbor` differs from Edict's fixture |
+
+The runtime refusal is hello-echo's pinned verification-report hash. The
+built package is identical at all three Echo revisions (`3665d692…`), but
+the verification report is `2541c826…` at the pin and `e3e3f37c…` at both
+`main` and the stack. So Echo changed the report somewhere between the pin
+and `main`, and the stack produces exactly what `main` produces. hello-echo's
+runtime cases have therefore not run against `main` or the stack. Running
+them needs hello-echo's pins advanced and its artifacts re-vendored, which is
+its owner's process.
+
+## The game fixture
+
+`claude/game-fixture` (`e5645148`) holds fixture F6, real-time game scenes.
+It is committed so it is not lost. It has not yet been built, tested or
+measured, and nothing in this study comes from it.
+
+## Process errors, and what they cost
+
+- **Editing a worktree a campaign was using.** The game fixture was written
+  into the stack worktree while a campaign ran there. The suite had already
+  compiled without it, but the fmt and clippy runs saw the uncommitted files
+  and are void. The fixture moved to its own worktree.
+- **A hidden refusal.** A runner hid the lock wrapper's JSON output, and the
+  wrapper refused because its temporary directory had been removed. Two
+  hello-echo runs then ran at the pin while labelled `main` and stack. They
+  were caught from their headers, renamed and voided, and the runner now
+  checks the checkout before running.
+
+All figures are in the [benchmark ledger](stack-profile/ledger.md), which
+`stack-profile/ledger.py` builds from the campaign outputs and logs.
+
 ## Options considered, not yet built
 
 | Option | Expected effect | Identity change |

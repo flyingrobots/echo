@@ -108,7 +108,7 @@ fn conjunction_decoder_checks_closed_shape_and_all_children() {
     ));
 }
 #[test]
-fn conjunction_decoder_and_combined_depth_refuse_exact_boundary_overruns() -> Result<(), Error> {
+fn conjunction_decoder_and_combined_depth_refuse_exact_boundary_overruns() {
     assert_eq!(
         parse(&all(vec![all(vec![])]), 1),
         Err(Error::UnsupportedProgram)
@@ -128,5 +128,4 @@ fn conjunction_decoder_and_combined_depth_refuse_exact_boundary_overruns() -> Re
             assert_eq!(result, Err(Error::UnsupportedProgram));
         }
     }
-    Ok(())
 }

@@ -249,8 +249,8 @@ coordinates to retained Edict bodies with separate lexical scope. No application
 implementation. Unsupported expression forms are rejected during decoding,
 including unselected branches. Conjunctive `all` predicates decode as closed
 recursive trees, including every child before execution. Evaluation visits
-children in source order and stops at the first false result; an empty
-conjunction is true. Each visited predicate consumes an execution step, and
+children in source order and stops at the first false result. Empty conjunctions
+reject during decoding, matching Core's one-or-more child cardinality. Each visited predicate consumes an execution step, and
 predicate nesting participates in the same combined expression/helper depth
 and node limits. Authored runtime types constrain input,
 bindings, helper returns, and output. Nominal contracts resolve their declared

@@ -40,6 +40,27 @@ fn all(values: Vec<Value>) -> Value {
         ("values", Value::Array(values)),
     ])
 }
+fn wire_compare(left: i128, right: i128) -> Value {
+    let constant = |value| {
+        map([
+            ("kind", Value::Text("const".into())),
+            (
+                "value",
+                map([
+                    ("kind", Value::Text("int".into())),
+                    ("width", Value::Text("U64".into())),
+                    ("value", Value::Integer(value)),
+                ]),
+            ),
+        ])
+    };
+    map([
+        ("kind", Value::Text("compare".into())),
+        ("op", Value::Text("==".into())),
+        ("left", constant(left)),
+        ("right", constant(right)),
+    ])
+}
 fn parse(value: &Value, remaining: usize) -> Result<Predicate, Error> {
     Parser {
         types: &Value::Map(vec![]),
@@ -52,12 +73,15 @@ fn parse(value: &Value, remaining: usize) -> Result<Predicate, Error> {
 fn conjunction_truth_and_exact_short_circuit_metering() -> Result<(), Error> {
     // Compare charges one predicate step plus expression/copy steps for each constant.
     for (values, expected, steps) in [
-        (vec![], true, 1),
         (vec![compare(1, 1)], true, 6),
         (vec![compare(1, 1), compare(2, 2)], true, 11),
         (vec![compare(1, 2), compare(2, 2)], false, 6),
         (vec![compare(1, 1), compare(2, 3)], false, 11),
-        (vec![Predicate::All(vec![]), compare(1, 1)], true, 7),
+        (
+            vec![Predicate::All(vec![compare(1, 1)]), compare(1, 1)],
+            true,
+            12,
+        ),
     ] {
         let value = Predicate::All(values);
         let mut meter = Meter::new(limits(steps));
@@ -83,7 +107,10 @@ fn conjunction_truth_and_exact_short_circuit_metering() -> Result<(), Error> {
 #[test]
 fn conjunction_decoder_checks_closed_shape_and_all_children() {
     let empty = all(vec![]);
-    assert_eq!(parse(&empty, MAX_PROGRAM_NODES), Ok(Predicate::All(vec![])));
+    assert_eq!(
+        parse(&empty, MAX_PROGRAM_NODES),
+        Err(Error::InvalidArtifact)
+    );
     for value in [
         map([("kind", Value::Text("all".into()))]),
         map([
@@ -102,19 +129,19 @@ fn conjunction_decoder_checks_closed_shape_and_all_children() {
         );
     }
     let unknown = map([("kind", Value::Text("unsupported".into()))]);
-    assert!(matches!(
-        parse(&all(vec![empty, unknown]), MAX_PROGRAM_NODES),
-        Err(Error::InvalidArtifact | Error::UnsupportedProgram)
-    ));
+    assert_eq!(
+        parse(&all(vec![wire_compare(1, 2), unknown]), MAX_PROGRAM_NODES),
+        Err(Error::InvalidArtifact)
+    );
 }
 #[test]
 fn conjunction_decoder_and_combined_depth_refuse_exact_boundary_overruns() {
     assert_eq!(
-        parse(&all(vec![all(vec![])]), 1),
+        parse(&all(vec![wire_compare(1, 1)]), 1),
         Err(Error::UnsupportedProgram)
     );
     for (wrappers, accepted) in [(63, true), (64, false), (65, false)] {
-        let mut value = all(vec![]);
+        let mut value = wire_compare(1, 1);
         for _ in 0..wrappers {
             value = all(vec![value]);
         }

@@ -201,6 +201,9 @@ impl Parser<'_> {
         if text_field(value, "kind")? == "all" {
             exact_fields(value, &["kind", "values"])?;
             let values = array(field(value, "values")?)?;
+            if values.is_empty() {
+                return Err(Error::InvalidArtifact);
+            }
             if values.len() > self.remaining {
                 return Err(Error::UnsupportedProgram);
             }

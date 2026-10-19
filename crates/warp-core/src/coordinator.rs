@@ -5946,6 +5946,15 @@ impl SchedulerCoordinator {
                         .push_touches(touches);
                     outcome
                 };
+                #[cfg(feature = "shadow_root_probe")]
+                if let Some(frontier) = runtime.worldlines.get(&key.worldline_id) {
+                    crate::shadow_root_probe::after_commit(
+                        key.worldline_id,
+                        frontier.state().warp_state(),
+                        patch.ops(),
+                        patch.out_slots(),
+                    );
+                }
                 let tick_receipt_digest = receipt.digest();
 
                 let (state_root, worldline_tick_after) = {

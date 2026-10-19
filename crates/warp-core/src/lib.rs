@@ -29,6 +29,8 @@ compile_error!(
 pub mod fixed;
 #[cfg(feature = "host_test")]
 pub mod state_root_probe;
+#[cfg(feature = "shadow_root_probe")]
+pub mod shadow_root_probe;
 pub mod math {
     //! Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
     //!

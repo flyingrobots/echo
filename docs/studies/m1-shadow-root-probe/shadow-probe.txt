@@ -1,0 +1,31 @@
+SHADOW tier=S parity=Some(true) diffs=1
+SHADOW diff in_shadow=false in_state=false mirror=1218 truth=1218 removed_total=0
+SHADOW sample undeclared=[Node(NodeKey { warp_id: WarpId([…]), local_id: NodeId([…]) }), Edge(EdgeKey { warp_id: WarpId([…]), local_id: EdgeId([175, 1, 115, 196, 12, 4, 99, 184, 27, 88, 107, 75, 155, 129, 253, 105, 55, 73, 174, 154, 233, 146, 238, 103, 193, 120, 110, 7, 67, 70
+SHADOW tier=S slots declared(out_slots)=796 written(ops)=1194 written_not_declared=597 instance_ops=0
+SHADOW tier=S commits=200 bootstrap=1 ports=0 append_ms=33.28 legacy_root_ms=14.53 shadow_ms=5.41 shadow_share=0.1624 replay_root_eq_live=true
+SHADOW tier=S window=0 slots=6.0 hash_bytes=2900 nodes_created=30.9 shadow_us=25.67
+SHADOW tier=S window=1 slots=6.0 hash_bytes=3462 nodes_created=37.6 shadow_us=28.71
+SHADOW tier=S window=2 slots=6.0 hash_bytes=3936 nodes_created=43.0 shadow_us=29.89
+SHADOW tier=S window=3 slots=6.0 hash_bytes=4112 nodes_created=45.0 shadow_us=25.26
+SHADOW tier=S window=4 slots=6.0 hash_bytes=4277 nodes_created=47.3 shadow_us=32.05
+SHADOW tier=S window=5 slots=6.0 hash_bytes=4365 nodes_created=48.1 shadow_us=23.02
+SHADOW tier=S window=6 slots=6.0 hash_bytes=4578 nodes_created=50.5 shadow_us=22.11
+SHADOW tier=S window=7 slots=6.0 hash_bytes=4589 nodes_created=51.2 shadow_us=22.45
+SHADOW tier=S window=8 slots=6.0 hash_bytes=4729 nodes_created=52.1 shadow_us=32.40
+SHADOW tier=S window=9 slots=6.0 hash_bytes=4836 nodes_created=54.1 shadow_us=25.59
+SHADOW tier=M parity=Some(true) diffs=1
+SHADOW diff in_shadow=false in_state=false mirror=30066 truth=30066 removed_total=0
+SHADOW sample undeclared=[Node(NodeKey { warp_id: WarpId([…]), local_id: NodeId([…]) }), Edge(EdgeKey { warp_id: WarpId([…]), local_id: EdgeId([66, 161, 150, 122, 153, 60, 187, 97, 155, 164, 112, 208, 70, 55, 5, 38, 217, 43, 238, 237, 122, 53, 215, 142, 200, 207, 6, 12, 47, 20
+SHADOW tier=M slots declared(out_slots)=19996 written(ops)=29994 written_not_declared=14997 instance_ops=0
+SHADOW tier=M commits=5000 bootstrap=1 ports=0 append_ms=6470.82 legacy_root_ms=6087.14 shadow_ms=168.01 shadow_share=0.0260 replay_root_eq_live=true
+SHADOW tier=M window=0 slots=6.0 hash_bytes=4927 nodes_created=54.8 shadow_us=16.50
+SHADOW tier=M window=1 slots=6.0 hash_bytes=5857 nodes_created=65.9 shadow_us=25.92
+SHADOW tier=M window=2 slots=6.0 hash_bytes=6203 nodes_created=70.1 shadow_us=25.00
+SHADOW tier=M window=3 slots=6.0 hash_bytes=6442 nodes_created=72.9 shadow_us=36.68
+SHADOW tier=M window=4 slots=6.0 hash_bytes=6651 nodes_created=75.2 shadow_us=31.58
+SHADOW tier=M window=5 slots=6.0 hash_bytes=6775 nodes_created=76.8 shadow_us=33.36
+SHADOW tier=M window=6 slots=6.0 hash_bytes=6936 nodes_created=78.7 shadow_us=47.60
+SHADOW tier=M window=7 slots=6.0 hash_bytes=7032 nodes_created=79.9 shadow_us=38.46
+SHADOW tier=M window=8 slots=6.0 hash_bytes=7094 nodes_created=80.6 shadow_us=39.55
+SHADOW tier=M window=9 slots=6.0 hash_bytes=7190 nodes_created=81.7 shadow_us=41.31
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.42s

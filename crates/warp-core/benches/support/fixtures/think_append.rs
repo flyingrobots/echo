@@ -418,6 +418,12 @@ pub struct Observation {
     /// Study probe: (reachable nodes, time) of each root computation in the append phase.
     #[cfg(feature = "host_test")]
     pub root_probe_append: Vec<(usize, Duration)>,
+    /// Study probe: incremental shadow root equals its independent rebuild.
+    #[cfg(feature = "shadow_root_probe")]
+    pub shadow_parity: Option<bool>,
+    /// Study probe: shadow/state disagreements.
+    #[cfg(feature = "shadow_root_probe")]
+    pub shadow_diff: Vec<(String, bool, bool)>,
 }
 
 /// Measured durations, each with a declared boundary.
@@ -543,6 +549,16 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
         .expect("worldline exists");
     let live = frontier.state();
     obs.live_root = live.state_root();
+    #[cfg(feature = "shadow_root_probe")]
+    {
+        obs.shadow_parity = Some(
+            warp_core::shadow_root_probe::root(worldline_id)
+                == Some(warp_core::shadow_root_probe::rebuild_root(
+                    live.warp_state(),
+                )),
+        );
+        obs.shadow_diff = warp_core::shadow_root_probe::diff(worldline_id, live.warp_state());
+    }
     let warp_id = make_warp_id("bench-fixture-f5");
     if let Some(store) = live.store(&warp_id) {
         for append in &script {

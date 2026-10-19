@@ -123,6 +123,10 @@
 
 ### Added
 
+- Explicit Edict source-module contract publication admission pins the exact
+  upstream CDDL/manifest pair and validates its source-closure envelope without
+  changing existing publication selections or enabling executable module support.
+
 - Bounded pure Edict evaluation accepts compiler-produced byte constants with
   raw octets and ordinary deterministic value-copy charges. Closed shape checks
   reject text payloads and extra fields. A retained public compiler package and

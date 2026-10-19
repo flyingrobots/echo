@@ -121,3 +121,10 @@ cargo +1.96.0 test --locked -p warp-core \
 
 Runs used the pinned 1.96 toolchain, `CARGO_INCREMENTAL=0`, a bounded
 scratch target and the workstation `host/heavy-work` lock.
+
+## Later finding
+
+The corroboration this study maps reads interval writes from each patch's `out_slots`. Those are `echo_operation_origin_corroborated_v1` and the written-slot helper. `out_slots` turned out to be incomplete: runtime-ingress materialization writes the event node, its intent attachment and its kind edge outside any footprint.
+
+- **The fix:** corroboration now also reads every slot the ops write. It is on branch `claude/corroboration-write-set` (`3d32a2a8`, from `origin/main` `25308042`), with its own study, `docs/studies/corroboration-write-set.md`, on that branch.
+- **Effect on this branch:** none of these regressions depend on the change, and the M0 contract rows are unchanged. The "known write set for the origin-to-parent interval" now includes the ops.

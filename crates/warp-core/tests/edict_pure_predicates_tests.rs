@@ -26,11 +26,19 @@ fn input(start: u64, end: u64) -> Vec<u8> {
     input_with_replacement(start, end, "λ\r\n".as_bytes())
 }
 fn input_with_replacement(start: u64, end: u64, replacement: &[u8]) -> Vec<u8> {
+    input_bytes_with_replacement(b"0123456789abcdef", start, end, replacement)
+}
+fn input_bytes_with_replacement(
+    original: &[u8],
+    start: u64,
+    end: u64,
+    replacement: &[u8],
+) -> Vec<u8> {
     encode(&Value::Map(
         [
             ("bufferId", Value::Bytes(vec![1; 32])),
             ("basisHeadId", Value::Bytes(vec![2; 32])),
-            ("text", Value::Bytes(b"0123456789abcdef".to_vec())),
+            ("text", Value::Bytes(original.to_vec())),
             ("replacement", Value::Bytes(replacement.to_vec())),
             ("startByte", Value::Integer(start.into())),
             ("endByte", Value::Integer(end.into())),
@@ -149,3 +157,6 @@ fn public_compiler_negation_rejects_unchanged_text_after_checked_range() {
         );
     }
 }
+
+#[path = "edict_pure_predicates/utf8.rs"]
+mod utf8;

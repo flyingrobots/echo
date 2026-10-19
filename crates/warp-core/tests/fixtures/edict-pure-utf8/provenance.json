@@ -1,0 +1,20 @@
+{
+  "edict": "13092ea675231cbd4c62ba33e7fe7684e0c49a4b",
+  "packagePin": "4c2b7859f291e97b6b38fb265086e6cb0581ed030d54d38152b0585152120397",
+  "files": {
+    "ReplaceRange.edict": "61978fd2b7463da772c52a121891523b1669816440a25111af5834d121b86b60",
+    "edict.lawpack.json": "ce13d5993e9b80517538e85bad39ed825ecaf466692063ffd99d17248a68cc66",
+    "executable-operation-package.cbor": "31ed2bf3121d8ada879e2f1dee15e793a0106cd8c034beaad4dd3c4995e9629a",
+    "verification-report.cbor": "3dab6a7de887acb0422a881c58130932819d16ecf8577a503d33031036732c86"
+  },
+  "scope": "Public flat-text replacement under the legacy publication with reviewed promoted components; separate native tests cover strict source-function and bounded-read judgments. This fixture does not establish those strict public routes or final pinned integration.",
+  "providerComponentSource": "f076ac4d334fa5f5f1962636d651faf0574d1970",
+  "providerPackageDigest": "sha256:cba96816605f54dc5e675ab6f473adf858bdaebdceae985f955e930711c8a4f9",
+  "lowererSha256": "79066cfc740da4463fd20baec36fe18c6cfb346917fed475b4ef7119fda9408a",
+  "verifierSha256": "577c69937594c0aff2461dd60d43507e1f6ce0903ca2b17ff02919d73efd9b28",
+  "componentReproduction": {
+    "run": "https://github.com/flyingrobots/echo/actions/runs/39195291234",
+    "attempt": 2,
+    "candidates": 2
+  }
+}

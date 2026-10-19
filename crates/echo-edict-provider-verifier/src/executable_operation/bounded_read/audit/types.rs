@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum Schema {
+    Boolean,
     Bytes {
         lower: u64,
         upper: u64,
@@ -118,6 +119,9 @@ impl<'a> Symbols<'a> {
             "U64" => Some(u64::MAX),
             _ => None,
         };
+        if name == "Bool" {
+            return Ok(Schema::Boolean);
+        }
         if let Some(max) = word {
             return Ok(Schema::Word(max));
         }
@@ -165,6 +169,7 @@ impl<'a> Symbols<'a> {
                 }
                 Ok(Schema::Bytes { lower, upper })
             }
+            "Bool" => Ok(Schema::Boolean),
             "Int" => self.schema(text(value, "width")?, depth + 1),
             "Nominal" => {
                 if text(value, "contract")? != key {
@@ -249,6 +254,14 @@ impl<'a> Symbols<'a> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if text(literal, "kind")? == "bool" {
+                    exact(literal, &["kind", "value"])?;
+                    return if matches!(get(literal, "value")?, Value::Bool(_)) {
+                        Ok(Schema::Boolean)
+                    } else {
+                        Err(())
+                    };
+                }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = text(literal, "width")?;
                 if text(literal, "kind")? != "int" || !["U32", "U64"].contains(&width) {
@@ -329,6 +342,11 @@ impl<'a> Symbols<'a> {
             declared.push(self.schema(string(coordinate)?, 0)?);
         }
         match (name, actual.as_slice(), declared.as_slice()) {
+            ("core.bytes.isUtf8", [actual], [expected @ Schema::Bytes { .. }])
+                if expected == actual =>
+            {
+                Ok(Schema::Boolean)
+            }
             ("core.bytes.length", [actual], [expected @ Schema::Bytes { .. }])
                 if expected.includes(actual) =>
             {
@@ -358,6 +376,24 @@ impl<'a> Symbols<'a> {
 
     fn predicate_at(&mut self, value: &Value, depth: usize) -> Check<()> {
         self.charge(depth)?;
+        match text(value, "kind")? {
+            "all" => {
+                exact(value, &["kind", "values"])?;
+                let children = super::sequence(value, "values")?;
+                if children.is_empty() {
+                    return Err(());
+                }
+                for child in children {
+                    self.predicate_at(child, depth + 1)?;
+                }
+                return Ok(());
+            }
+            "not" => {
+                exact(value, &["kind", "value"])?;
+                return self.predicate_at(get(value, "value")?, depth + 1);
+            }
+            _ => {}
+        }
         exact(value, &["kind", "op", "left", "right"])?;
         if text(value, "kind")? != "compare" {
             return Err(());
@@ -374,7 +410,8 @@ impl<'a> Symbols<'a> {
             left.representation(),
             right.representation(),
         ) {
-            ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
+            ("==", Schema::Boolean, Schema::Boolean)
+            | ("==", Schema::Bytes { .. }, Schema::Bytes { .. }) => Ok(()),
             ("==" | "<=", Schema::Word(a), Schema::Word(b)) if a == b => Ok(()),
             _ => Err(()),
         }

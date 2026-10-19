@@ -11,6 +11,7 @@ const DEPTH: usize = 64;
 const WORK: usize = 65_536;
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Ty {
+    Bool,
     Word(u64),
     Bytes(u64, u64),
     Record(BTreeMap<String, Ty>),
@@ -179,6 +180,9 @@ impl Judgment<'_> {
     }
     fn ty(&mut self, name: &str, depth: usize) -> Check<Ty> {
         self.charge(depth)?;
+        if name == "Bool" {
+            return Ok(Ty::Bool);
+        }
         if let Some(max) = match name {
             "U8" => Some(u8::MAX.into()),
             "U16" => Some(u16::MAX.into()),
@@ -214,6 +218,7 @@ impl Judgment<'_> {
         let key = name.strip_prefix(&prefix).unwrap_or(name);
         let definition = get(get(self.core, "types")?, key)?;
         match string(get(definition, "kind")?)? {
+            "Bool" => Ok(Ty::Bool),
             "Int" => self.ty(string(get(definition, "width")?)?, depth + 1),
             "Nominal" => {
                 if string(get(definition, "contract")?)? != key {
@@ -371,6 +376,20 @@ impl Judgment<'_> {
             "const" => {
                 exact(value, &["kind", "value"])?;
                 let literal = get(value, "value")?;
+                if string(get(literal, "kind")?)? == "bool" {
+                    exact(literal, &["kind", "value"])?;
+                    if !matches!(get(literal, "value")?, Value::Bool(_)) {
+                        return Err(());
+                    }
+                    return Ok(Fact {
+                        ty: Ty::Bool,
+                        cost: cost.plus(Cost {
+                            steps: 1,
+                            bytes: 64,
+                        })?,
+                        depth: 0,
+                    });
+                }
                 exact(literal, &["kind", "value", "width"])?;
                 let width = string(get(literal, "width")?)?;
                 if string(get(literal, "kind")?)? != "int" || !["U32", "U64"].contains(&width) {
@@ -469,6 +488,15 @@ impl Judgment<'_> {
                         .collect::<Check<Vec<_>>>()?;
                     depth = depth.max(1);
                     match (name, actual.as_slice(), declared.as_slice()) {
+                        ("core.bytes.isUtf8", [actual], [expected @ Ty::Bytes(_, max)])
+                            if expected == actual =>
+                        {
+                            cost = cost.plus(Cost {
+                                steps: max.checked_add(2).ok_or(())?,
+                                bytes: 64,
+                            })?;
+                            Ty::Bool
+                        }
                         ("core.bytes.length", [actual], [expected @ Ty::Bytes(_, _)])
                             if includes(expected, actual) =>
                         {
@@ -539,6 +567,30 @@ impl Judgment<'_> {
         prefix: usize,
     ) -> Check<(Cost, usize)> {
         self.charge(prefix)?;
+        match string(get(value, "kind")?)? {
+            "not" => {
+                exact(value, &["kind", "value"])?;
+                let (cost, height) =
+                    self.predicate(get(value, "value")?, scope, source, prefix + 1)?;
+                return Ok((cost.plus(Cost { steps: 1, bytes: 0 })?, height + 1));
+            }
+            "all" => {
+                exact(value, &["kind", "values"])?;
+                let values = list(get(value, "values")?)?;
+                if values.is_empty() {
+                    return Err(());
+                }
+                let mut cost = Cost { steps: 1, bytes: 0 };
+                let mut height = 0;
+                for value in values {
+                    let (child, depth) = self.predicate(value, scope, source, prefix + 1)?;
+                    cost = cost.plus(child)?;
+                    height = height.max(depth);
+                }
+                return Ok((cost, height + 1));
+            }
+            _ => {}
+        }
         exact(value, &["kind", "op", "left", "right"])?;
         if string(get(value, "kind")?)? != "compare" {
             return Err(());
@@ -554,6 +606,7 @@ impl Judgment<'_> {
             left.ty.representation(),
             right.ty.representation(),
         ) {
+            ("==", Ty::Bool, Ty::Bool) => 0,
             ("==", Ty::Bytes(_, a), Ty::Bytes(_, b)) => (*a).max(*b),
             ("==" | "<=", Ty::Word(a), Ty::Word(b)) if a == b => 0,
             _ => return Err(()),
@@ -679,6 +732,15 @@ fn shape(ty: &Ty) -> Check<(Cost, u64, u64, usize)> {
     match ty {
         // Nominal identity is static authority, not an extra runtime value cell.
         Ty::Nominal(_, representation) => shape(representation),
+        Ty::Bool => Ok((
+            Cost {
+                steps: 1,
+                bytes: 64,
+            },
+            1,
+            1,
+            0,
+        )),
         Ty::Word(_) => Ok((
             Cost {
                 steps: 1,

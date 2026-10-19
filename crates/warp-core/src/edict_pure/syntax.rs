@@ -28,6 +28,9 @@ impl Parser<'_> {
 
     pub fn ty(&mut self, name: &str, depth: usize) -> Result<RuntimeType, Error> {
         self.enter(depth)?;
+        if name == "Bool" {
+            return Ok(RuntimeType::Bool);
+        }
         if let Some(max) = match name {
             "U8" => Some(u64::from(u8::MAX)),
             "U16" => Some(u64::from(u16::MAX)),
@@ -46,6 +49,7 @@ impl Parser<'_> {
             .unwrap_or(name);
         let definition = field(self.types, name)?;
         match text_field(definition, "kind")? {
+            "Bool" => Ok(RuntimeType::Bool),
             "Int" => self.ty(text_field(definition, "width")?, depth + 1),
             "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
             "Bytes" => {
@@ -113,6 +117,19 @@ impl Parser<'_> {
         let callee = text_field(value, "callee")?;
         let args = array(field(value, "args")?)?;
         let types = array(field(value, "typeArgs")?)?;
+        if callee == "core.bytes.isUtf8" {
+            let ([value], [coordinate]) = (args, types) else {
+                return Err(Error::UnsupportedProgram);
+            };
+            let RuntimeType::Bytes { min, max } = self.ty(text(coordinate)?, depth + 1)? else {
+                return Err(Error::UnsupportedProgram);
+            };
+            return Ok(Expr::ByteUtf8 {
+                min,
+                max,
+                value: Box::new(self.expr(value, depth + 1)?),
+            });
+        }
         if callee == "core.bytes.length" {
             let ([value], [coordinate]) = (args, types) else {
                 return Err(Error::UnsupportedProgram);
@@ -283,6 +300,13 @@ impl Parser<'_> {
 }
 
 fn constant(literal: &Value) -> Result<Expr, Error> {
+    if text_field(literal, "kind")? == "bool" {
+        exact_fields(literal, &["kind", "value"])?;
+        let Value::Bool(value) = field(literal, "value")? else {
+            return Err(Error::InvalidArtifact);
+        };
+        return Ok(Expr::Constant(Value::Bool(*value)));
+    }
     if text_field(literal, "kind")? == "bytes" {
         exact_fields(literal, &["kind", "value"])?;
         return Ok(Expr::Constant(Value::Bytes(

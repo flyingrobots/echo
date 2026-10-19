@@ -45,6 +45,9 @@ native_rule_bootstrap = []
 # INTERNAL ONLY: exposes host/test fixture seams for Echo-owned admission
 # evidence. Downstream application crates must not enable this feature.
 host_test = []
+# EXPERIMENTAL (M1): keep an incremental application root beside the legacy
+# state root, in shadow mode. It changes no root, receipt or wire format.
+application_root_shadow = []
 # TRUSTED HOST ONLY: exposes runtime-owner authority constructors for host
 # adapters that own scheduler/runtime control. Application crates must not
 # enable this feature.

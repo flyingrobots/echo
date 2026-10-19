@@ -5,7 +5,22 @@
 
 ## Unreleased
 
+### Added
+
+- Experimental feature `application_root_shadow` (M1, off by default): an
+  incremental application root over every node, edge and attachment record of
+  a worldline state, kept beside the legacy state root, which it neither
+  replaces nor changes. It uses the `echo.application-root.radix.v0`
+  compressed radix trie, advances from each commit's complete write set, and
+  survives rollback, replay and forks. `WorldlineState::application_root`,
+  `application_opening` and `verify_application_opening` expose the root and
+  membership and absence openings.
+
 ### Fixed
+
+- Completed shadow application-root benchmark rounds are invalid when their
+  recorded incremental/rebuild or live/replay parity is missing or failed, including
+  builds without `delta_validate`.
 
 - F5 benchmark validation rejects observations from a different executed
   workload, including runs without a pinned script golden.

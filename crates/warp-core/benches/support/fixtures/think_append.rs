@@ -417,6 +417,11 @@ pub struct Observation {
     pub entries_verified: u64,
     /// Measured durations.
     pub timings: Timings,
+    /// Experimental application root (M1): whether the live incremental root
+    /// equals its full rebuild, and whether the replayed state's root equals
+    /// the live one.
+    #[cfg(feature = "application_root_shadow")]
+    pub application_root: Option<(bool, bool)>,
 }
 
 /// Measured durations, each with a declared boundary.
@@ -562,6 +567,16 @@ pub fn run(tier: Tier, seed: u64) -> Observation {
         .provenance()
         .replay_worldline_state(worldline_id, &base);
     obs.timings.replay = start.elapsed();
+    #[cfg(feature = "application_root_shadow")]
+    {
+        obs.application_root = Some((
+            live.application_root_is_incremental()
+                && live.application_root() == live.application_root_rebuilt(),
+            replayed
+                .as_ref()
+                .is_ok_and(|state| state.application_root() == live.application_root()),
+        ));
+    }
     obs.replay_root = replayed.ok().map(|state| state.state_root());
 
     // Readings at earlier coordinates, outside measurement.
@@ -617,6 +632,11 @@ pub fn validate(
         ));
     }
     let mut checks = Checks::default();
+    #[cfg(feature = "application_root_shadow")]
+    checks.check(
+        obs.application_root == Some((true, true)),
+        "application-root incremental/rebuild or live/replay parity is missing or failed",
+    );
     checks.check(
         obs.executed_script_digest == script_digest(script),
         "executed script digest differs from the supplied workload",

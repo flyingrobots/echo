@@ -5,6 +5,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- Stale-basis Action corroboration (#837) reads every slot a retained tick
+  wrote, not only its declared `out_slots`. Runtime-ingress materialization
+  writes the event node, its intent attachment and its kind edge outside any
+  rule footprint; those writes were invisible to the interval check. A tick
+  that upserts or deletes a warp instance now makes the interval's writes
+  unknown, so a stale Action across it keeps the whole-frontier rule.
+
 ### Removed
 
 - The `echo-trace` and `echo-graph` crates. Nothing in the workspace used

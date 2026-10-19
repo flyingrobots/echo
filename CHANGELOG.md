@@ -7,6 +7,11 @@
 
 ### Changed
 
+- Required explicit bounded intrinsic-catalog bytes in authored-effect lowering
+  configurations and reject catalogs that do not reproduce the selected
+  target profile's owner-framed reference. This validates resource transport;
+  authored-effect body lowering and execution remain unfinished.
+
 - Provider configuration validation recognizes an explicit bounded declaration
   for the current authored-effect program kind. Graph schema and footprint-law bytes, identity
   recipe, resource limits and I/O budget are required. This declaration does not

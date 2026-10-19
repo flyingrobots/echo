@@ -3,6 +3,7 @@
 //! Generic data-only lowering into Echo's bounded executable-operation profile.
 
 mod bounded_read;
+mod effect_resources;
 mod source_functions;
 
 use std::collections::BTreeSet;
@@ -210,6 +211,10 @@ pub(super) fn lower(request: &LoweringRequestV1) -> Result<LoweringSuccessV1, Pr
     )?;
     let target_ir = validate_bound(&closure.target_ir.artifact, TARGET_IR_DOMAIN)?;
     let source = validate_source(&source, closure.source, &request.core)?;
+
+    if effect_resources::is_configuration(&configuration) {
+        effect_resources::validate(&configuration, &request.target_profile)?;
+    }
 
     if bounded_read::is_configuration(&configuration) {
         return bounded_read::lower(request, &closure);

@@ -360,3 +360,73 @@ fn compiler_authored_pair_keeps_independent_read_producers_and_ordered_guards() 
         "second read moved ahead of the first guard"
     );
 }
+
+// These tests alter only the configuration of the retained compiler request.
+// They witness refusal boundaries, not a successful public effect compilation.
+fn effect_catalog_request(catalog: Option<Vec<u8>>) -> LoweringRequestV1 {
+    let mut request = fixture();
+    let mut fields = vec![
+        (
+            "apiVersion",
+            Value::Text("echo.operation-lowering-configuration/v1".into()),
+        ),
+        ("programKind", Value::Text("edict-effect-program/v1".into())),
+        ("identityLaw", Value::Integer(1)),
+        ("graphSchema", Value::Bytes(vec![0xa0])),
+        ("footprintLaw", Value::Bytes(vec![0xa0])),
+        ("maxInputBytes", Value::Integer(65536)),
+        ("maxResultBytes", Value::Integer(65536)),
+        ("maxAllocatedBytes", Value::Integer(16777216)),
+        (
+            "budgetCeiling",
+            Value::Map(vec![
+                (Value::Text("steps".into()), Value::Integer(10000)),
+                (Value::Text("readBytes".into()), Value::Integer(4096)),
+                (Value::Text("writeBytes".into()), Value::Integer(4096)),
+            ]),
+        ),
+    ];
+    if let Some(bytes) = catalog {
+        fields.push(("intrinsicCatalog", Value::Bytes(bytes)));
+    }
+    let value = Value::Map(
+        fields
+            .into_iter()
+            .map(|(k, v)| (Value::Text(k.into()), v))
+            .collect(),
+    );
+    request.semantic_inputs[4].artifact = bound(
+        "echo.operation-lowering-configuration/v1",
+        "echo.operation-lowering-configuration/v1",
+        encode(&value).expect("effect configuration"),
+    );
+    request
+}
+#[test]
+fn effect_catalog_must_match_the_selected_profile_before_body_lowering() {
+    use echo_edict_provider_lowerer::ProviderRefusalKind as K;
+    let catalog = include_bytes!(
+        "../../echo-edict-provider-verifier/resources/resource.target-intrinsics.cbor"
+    )
+    .to_vec();
+    let control = lower(effect_catalog_request(Some(catalog.clone())))
+        .expect_err("effect body lowering remains unsupported");
+    assert_eq!(control.kind, K::UnsupportedSemantics);
+    assert_ne!(control.subject.as_deref(), Some("effect-target-resources"));
+    // Valid canonical catalog structure with a different profile digest.
+    let mut changed = decode(&catalog).expect("catalog");
+    mutate(&mut changed, "intrinsics", |v| *v = Value::Map(vec![]));
+    for bytes in [
+        None,
+        Some(vec![]),
+        Some(vec![0xff]),
+        Some(vec![0; 16 * 1024 * 1024 + 1]),
+        Some(vec![0xa0]),
+        Some(encode(&changed).expect("catalog")),
+        Some([catalog.as_slice(), &[0xf6]].concat()),
+    ] {
+        let refusal = lower(effect_catalog_request(bytes)).expect_err("catalog must refuse");
+        assert_eq!(refusal.kind, K::InvalidSemanticArtifact);
+        assert_eq!(refusal.subject.as_deref(), Some("effect-target-resources"));
+    }
+}

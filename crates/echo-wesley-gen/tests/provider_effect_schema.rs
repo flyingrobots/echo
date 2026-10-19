@@ -20,6 +20,7 @@ fn configuration() -> V {
         ),
         ("programKind", text("edict-effect-program/v1")),
         ("identityLaw", V::Integer(1)),
+        ("intrinsicCatalog", V::Bytes(vec![0xa0])),
         (
             "graphSchema",
             V::Bytes(
@@ -114,7 +115,7 @@ fn authored_effect_configuration_is_selected_with_explicit_resource_and_law_fiel
         set(&mut config, field, V::Integer(value));
         assert!(accepts(&config).is_err(), "{field} outside current profile");
     }
-    for field in ["graphSchema", "footprintLaw"] {
+    for field in ["graphSchema", "footprintLaw", "intrinsicCatalog"] {
         let mut config = configuration();
         set(&mut config, field, V::Bytes(vec![]));
         assert!(accepts(&config).is_err(), "{field} must carry bytes");

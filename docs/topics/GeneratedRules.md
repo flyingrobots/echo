@@ -138,6 +138,15 @@ Rust helper codecs and graph-effect lowering require their own implementation
 and verification. Catalog-to-export nominal agreement remains a separate
 required check.
 
+The authored-effect configuration carries the selected target's canonical
+catalog bytes in the required `intrinsicCatalog` field, bounded to 16 MiB.
+The native lowerer rejects absent, empty, oversized, malformed, or digest-mismatched
+catalogs before body lowering. Catalogs use `edict.target-profile.intrinsics/v1`
+and the selected profile's `echo.dpo.intrinsics/v1` owner-framed reference.
+This transport check does not validate individual native signatures, authorize
+execution, or enable the unfinished authored-effect producer. Existing exact
+profile admission and catalog-to-export nominal checks remain required.
+
 ## Execution Corridors
 
 ### Bounded compiler-package computation

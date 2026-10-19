@@ -368,6 +368,7 @@ echo-authored-effect-lowering-configuration = {
   apiVersion: "echo.operation-lowering-configuration/v1",
   programKind: "edict-effect-program/v1",
   identityLaw: 1,
+  intrinsicCatalog: bstr .size (1..16777216),
   graphSchema: bstr .size (1..16777216),
   footprintLaw: bstr .size (1..16777216),
   maxInputBytes: 0..65536,

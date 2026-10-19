@@ -27,6 +27,7 @@ pub enum EffectPackageError {
 pub struct ExecutableOperationPackageV2 {
     canonical: Vec<u8>,
     operation_coordinate: String,
+    authority_profile_identity: [u8; 32],
     program_identity: [u8; 32],
     compiled: Vec<u8>,
     schema: EffectGraphSchema,
@@ -58,6 +59,11 @@ impl ExecutableOperationPackageV2 {
     #[must_use]
     pub fn identity(&self) -> [u8; 32] {
         domain_hash(b"echo:operation-package:v2\0", &self.canonical)
+    }
+    /// Claimed authority profile, checked independently by runtime-owner policy.
+    #[must_use]
+    pub const fn authority_profile_identity(&self) -> [u8; 32] {
+        self.authority_profile_identity
     }
     /// Application-owned operation coordinate named by this publication.
     #[must_use]
@@ -276,6 +282,7 @@ impl ExecutableOperationPackageV2 {
         }
         Ok(Self {
             canonical: canonical.to_vec(),
+            authority_profile_identity: hash(field(value, "authority_profile_identity")?)?,
             operation_coordinate: coordinate(field(value, "operation_coordinate")?)?.to_owned(),
             program_identity: domain_hash(b"echo:operation-program:v2\0", program_bytes),
             compiled: bytes(field(&program, "compiled_program")?)?.to_vec(),

@@ -7,6 +7,11 @@
 
 ### Added
 
+- Runtime-owner V2 package admission checks independently pinned publication,
+  operation, authority profile and budget policy, retaining distinct versioned
+  admission evidence. Restricted application handles cannot admit packages.
+  This does not install or execute an effect program or grant invocation rights.
+
 - V2 invocation preparation binds canonical application input to its recorded
   basis, selected package and operation, and checks declared input and budget
   ceilings. It retains the V1 parent format without granting authority or

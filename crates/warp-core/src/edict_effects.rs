@@ -9,6 +9,14 @@
 //! Completed reads can be exported as bounded canonical images. Authored effect
 //! instructions, package-authenticated policy, receipt/WAL integration, a physical
 //! arena and admission still precede a shipped effect profile.
+#[cfg(feature = "native_rule_bootstrap")]
+mod admission;
+#[cfg(feature = "native_rule_bootstrap")]
+pub(crate) use admission::admit as admit_effect_package_v2;
+#[cfg(feature = "native_rule_bootstrap")]
+pub use admission::{
+    AdmittedEffectPackageV2, EffectAdmissionError, EffectPackageAdmissionPolicyV2,
+};
 mod invocation;
 pub use invocation::EffectInvocationV2;
 mod package;

@@ -1095,6 +1095,31 @@ impl TrustedRuntimeHost {
             .copied()
     }
 
+    /// Admits V2 effect publication bytes under independently supplied owner policy.
+    ///
+    /// This returns opaque policy evidence. It neither installs the program nor
+    /// validates its compiled instruction language or authorizes an invocation.
+    /// Application-facing handles cannot call this runtime-owner method:
+    ///
+    /// ```compile_fail,E0599
+    /// use warp_core::{TrustedRuntimeApp, edict_effects::EffectPackageAdmissionPolicyV2};
+    /// fn application_cannot_admit(
+    ///     app: &TrustedRuntimeApp<'_>, policy: &EffectPackageAdmissionPolicyV2, bytes: Vec<u8>,
+    /// ) {
+    ///     app.admit_echo_operation_package_v2(policy, bytes);
+    /// }
+    /// ```
+    pub fn admit_echo_operation_package_v2(
+        &self,
+        policy: &crate::edict_effects::EffectPackageAdmissionPolicyV2,
+        canonical_package_bytes: Vec<u8>,
+    ) -> Result<
+        crate::edict_effects::AdmittedEffectPackageV2,
+        crate::edict_effects::EffectAdmissionError,
+    > {
+        crate::edict_effects::admit_effect_package_v2(policy, canonical_package_bytes)
+    }
+
     /// Admits exact executable-operation package bytes under independent policy.
     ///
     /// A successful result is an opaque admission token. It does not install

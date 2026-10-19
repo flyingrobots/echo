@@ -35,6 +35,10 @@ name = "scheduler_drain"
 harness = false
 
 [[bench]]
+name = "scheduler_workers"
+harness = false
+
+[[bench]]
 name = "parallel_baseline"
 harness = false
 

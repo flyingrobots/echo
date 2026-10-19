@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Benchmark scene fixtures, first slice.
 //!
-//! See `docs/benchmarks/scene-fixtures.md` for the contract. This slice
+//! See `docs/topics/BenchmarkSceneFixtures.md` for the contract. This slice
 //! provides:
 //!
 //! - [`prng`]: SplitMix64 and its bounded-integer mapping, pinned by vectors.

@@ -119,9 +119,10 @@ using their existing work ceilings. Rebound native tests exercise these checks;
 they do not establish public compiler acceptance.
 
 The retained public compiler fixture is a legacy-producer execution control.
-The packaged provider components still require a reproducible rebuild and
-public source-function acceptance witness before this capability can be
-published. Runtime support and native judgments alone do not authorize a package.
+Checked provider components are promoted from two byte-identical designated
+builds, and the package manifest binds their exact digests. Component presence,
+runtime support and native judgments alone do not authorize a package or grant
+application mutation authority.
 
 ### Provider-v1 compatibility corridor
 

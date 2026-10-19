@@ -106,3 +106,68 @@ fn public_addition_guards_refuse_inputs_outside_the_proven_domain() {
         ));
     }
 }
+
+fn source_function_package() -> (Vec<u8>, [u8; 32]) {
+    let bytes = hex::decode(
+        include_str!("fixtures/edict-unsigned-addition-source-functions/executable-operation-package.cbor.hex").trim(),
+    ).unwrap();
+    let pin = hex::decode("a8774d9e8ba5dbe1e4eaffee4ec8f10f7b80ee9812b5569e8c2d290e57de9443")
+        .unwrap()
+        .try_into()
+        .unwrap();
+    (bytes, pin)
+}
+fn arithmetic_input(left: u64, right: u64, counter: u64) -> Vec<u8> {
+    encode(&record([
+        ("left", Value::Integer(left.into())),
+        ("right", Value::Integer(right.into())),
+        ("counter", Value::Integer(counter.into())),
+    ]))
+    .unwrap()
+}
+
+#[test]
+fn public_source_function_addition_executes_at_both_unsigned_width_boundaries() {
+    let (package, pin) = source_function_package();
+    for (left, right, counter, want64, want32) in [
+        (0, 0, 0, 0, 1),
+        (0, 1, 7, 1, 8),
+        (
+            u64::MAX - 1,
+            1,
+            u64::from(u32::MAX) - 1,
+            u64::MAX,
+            u64::from(u32::MAX),
+        ),
+    ] {
+        let result = evaluate(
+            &package,
+            pin,
+            &arithmetic_input(left, right, counter),
+            limits(),
+        )
+        .unwrap();
+        let want = encode(&record([
+            ("sum64", Value::Integer(want64.into())),
+            ("next32", Value::Integer(want32.into())),
+        ]))
+        .unwrap();
+        assert_eq!(decode(&result.output).unwrap(), decode(&want).unwrap());
+    }
+}
+
+#[test]
+fn public_source_function_addition_refuses_inputs_outside_its_proof_domain() {
+    let (package, pin) = source_function_package();
+    for (left, right, counter) in [(u64::MAX, 1, 0), (0, 2, 0), (0, 0, u64::from(u32::MAX))] {
+        assert!(matches!(
+            evaluate(
+                &package,
+                pin,
+                &arithmetic_input(left, right, counter),
+                limits()
+            ),
+            Err(EvaluationError::InputConstraintFailed(_))
+        ));
+    }
+}

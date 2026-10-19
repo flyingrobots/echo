@@ -1,0 +1,15 @@
+package arithmetic.unsigned@1;
+use lawpack jedit.text@1 digest "sha256:95758c1605894672cc9069fde01bb8b6e11842b053102660c9cd4f4d6f34d64e" as text;
+type Input = { left: U64, right: U64, counter: U32, };
+type Output = { sum64: U64, next32: U32, };
+fn identity(value: U64) -> U64 { return value + 0; }
+intent measure(input: Input) returns Output
+  profile text.replaceRange basis none budget <= text.replaceRangeBudget
+  where input.left <= 18446744073709551614
+  where input.right <= 1
+  where input.counter <= 4294967294
+{
+  let sum64 = identity(input.left + input.right);
+  let next32: U32 = input.counter + 1;
+  return { sum64, next32 };
+}

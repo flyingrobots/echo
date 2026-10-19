@@ -1,0 +1,27 @@
+{
+  "edict": "561981d9652f447cafbf602a884acee4efb23e51",
+  "edictMergedMain": "1d287ef519bab56fcdf6cd5435d5bdaaa01428c5",
+  "echoComponentSource": "ac89f3c466de2a76faf9e880056726d75dd09daa",
+  "echoPublicationSnapshot": "362ebc1dc0422797186bff1b5b25caedb376b542",
+  "providerPublication": "source-functions-v1",
+  "providerPackage": {
+    "coordinate": "echo.edict-provider@1",
+    "digest": "sha256:d686431917990b951c5836dc0efd81d618bf3daa385f72c91fe4cab6c41b65fa"
+  },
+  "componentSha256": {
+    "lowerer": "5f16b46c0f2e346541c518f978e0f48a374b8e17719e049063f2af18a6a18193",
+    "verifier": "3451e95a7d084d4874c30833f90f5c21012e8341f35ed0f0888d4d268a768b11"
+  },
+  "packagePin": "a8774d9e8ba5dbe1e4eaffee4ec8f10f7b80ee9812b5569e8c2d290e57de9443",
+  "files": {
+    "executable-operation-package.cbor": "dd4c103c72e1cf7c11c56e1b46f10f912051eb4c650afe968a99a858e9f51165",
+    "verification-report.cbor": "22e8d7c89da77218bca9d41103fae6d6f7e0cd3cff3ae6fc3d1ecc617683be32",
+    "vendor/jedit-text/manifest.cbor": "0323ed8e9510e473d329166d421dc7d8e1da353065c1cd2dee77e6313ba9bf91",
+    "vendor/jedit-text/exports.cbor": "cab9c575da49cb33289e45fc45afb9d7f05558dada734be7eb3acfbbabb1d4db",
+    "vendor/jedit-text/adapter.cbor": "ab1437164084cbaf453f869c4302df9e648186fe6833bcb81c1e267c8dfeb6f9",
+    "vendor/jedit-text/echo-operation-configuration.cbor": "ea787368881f448021f2d71c72cbadbc487e59a09e9638acfc25ec3579a3609d",
+    "src/Unsigned.edict": "be79fdddee5008e9639d81ecbbbc5648332af1e1803bcaf58cd51e2feccf13fe",
+    "edict.application.json": "6c17d18fc70a0805de326d52c79da03f7f9afdb5cab75744053c521c5c459f2c"
+  },
+  "builder": "sha256:b58697ad3d09257d8d59cbb87868e3a4145efe52931d918b948bb4999d083c85"
+}

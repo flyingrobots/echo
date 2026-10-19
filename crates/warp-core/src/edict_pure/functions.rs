@@ -404,6 +404,16 @@ fn infer(
                     min: a_min.checked_add(*b_min).ok_or(Error::InvalidArtifact)?,
                     max: a_max.checked_add(*b_max).ok_or(Error::InvalidArtifact)?,
                 }),
+                ("core.integer.add", [left, right], [expected @ RuntimeType::Unsigned(max)])
+                    if left == expected && right == expected =>
+                {
+                    let left = unsigned_ceiling(&arguments[0], *max, parser, depth + 1)?;
+                    let right = unsigned_ceiling(&arguments[1], *max, parser, depth + 1)?;
+                    if left.checked_add(right).is_none_or(|sum| sum > *max) {
+                        return Err(Error::UnsupportedProgram);
+                    }
+                    Ok(expected.clone())
+                }
                 // No caller where proof crosses a fresh frame. This target's
                 // first source-function subset proves partial intrinsics only
                 // from literal offsets/operands, refusing all other cases.
@@ -435,6 +445,30 @@ fn infer(
         }
         _ => Err(Error::UnsupportedProgram),
     }
+}
+
+// Fresh helper frames receive no caller constraints. Constants and already
+// checked nested additions can narrow a bound; every other term has its full
+// declared width. The parser's combined work/depth ceiling covers this walk.
+fn unsigned_ceiling(
+    value: &Value,
+    max: u64,
+    parser: &mut Parser<'_>,
+    depth: usize,
+) -> Result<u64, Error> {
+    parser.enter(depth)?;
+    if text_field(value, "kind")? == "const" {
+        return unsigned_literal(value);
+    }
+    if text_field(value, "kind")? == "call" && text_field(value, "callee")? == "core.integer.add" {
+        let [left, right] = array(field(value, "args")?)? else {
+            return Err(Error::InvalidArtifact);
+        };
+        return unsigned_ceiling(left, max, parser, depth + 1)?
+            .checked_add(unsigned_ceiling(right, max, parser, depth + 1)?)
+            .ok_or(Error::UnsupportedProgram);
+    }
+    Ok(max)
 }
 
 fn unsigned_literal(value: &Value) -> Result<u64, Error> {
@@ -796,6 +830,65 @@ mod predicate_validation_tests {
                 assert_eq!(result, Ok(RuntimeType::Bool));
             } else {
                 assert_eq!(result, Err(Error::UnsupportedProgram));
+            }
+        }
+    }
+    #[test]
+    fn source_helper_addition_proves_identity_without_borrowing_caller_bounds() {
+        for (width, max) in [("U32", u64::from(u32::MAX)), ("U64", u64::MAX)] {
+            let local = map([
+                ("id", Value::Text("arg.0".into())),
+                ("alphaName", Value::Text("$arg0".into())),
+                ("type", Value::Text(width.into())),
+            ]);
+            for extra in [0, 1] {
+                let call = map([
+                    ("kind", Value::Text("call".into())),
+                    ("callee", Value::Text("core.integer.add".into())),
+                    ("typeArgs", Value::Array(vec![Value::Text(width.into())])),
+                    (
+                        "args",
+                        Value::Array(vec![
+                            map([
+                                ("kind", Value::Text("local".into())),
+                                ("ref", local.clone()),
+                            ]),
+                            map([
+                                ("kind", Value::Text("const".into())),
+                                (
+                                    "value",
+                                    map([
+                                        ("kind", Value::Text("int".into())),
+                                        ("width", Value::Text(width.into())),
+                                        ("value", Value::Integer(extra)),
+                                    ]),
+                                ),
+                            ]),
+                        ]),
+                    ),
+                ]);
+                let types = Value::Map(vec![]);
+                let mut parser = Parser {
+                    types: &types,
+                    coordinate: "generic.addition@1",
+                    remaining: MAX_PROGRAM_NODES,
+                };
+                let result = infer(
+                    &call,
+                    &BTreeMap::from([("arg.0", &local)]),
+                    &BTreeMap::new(),
+                    true,
+                    &mut parser,
+                    0,
+                );
+                assert_eq!(
+                    result,
+                    if extra == 0 {
+                        Ok(RuntimeType::Unsigned(max))
+                    } else {
+                        Err(Error::UnsupportedProgram)
+                    }
+                );
             }
         }
     }

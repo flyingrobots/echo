@@ -113,12 +113,20 @@ Native lowerer and verifier source-function judgments independently require
 exact same-width operands and a dominating no-overflow proof. Checked conjunctive
 prefixes can bound later terms; facts cannot escape negation or flow backward.
 Bounded-read relations reuse this established proof and require exactly
-matching declared and operand widths. New addition calls require this judgment even when the legacy Core function
-table is absent. Both implementations bound proof traversal and comparisons
+matching declared and operand widths. New addition calls require this judgment
+even when the legacy Core function table is absent. Both implementations bound proof traversal and comparisons
 using their existing work ceilings. Rebound native tests exercise these checks;
 they do not establish public compiler acceptance.
 
-The retained public compiler fixture is a legacy-producer execution control.
+Runtime helper validation also proves addition within its fresh frame using
+literal and nested-sum bounds. Other terms retain their full unsigned width,
+so zero identity is total and an unbounded parameter plus one refuses. Caller
+constraints do not cross into a helper frame.
+
+The retained public compiler fixtures cover a legacy-producer execution control
+and a strict SourceFunctions publication containing an authored arithmetic helper.
+The accepted public verifier report binds the unmodified package bytes; repeated
+public compilation preserves both package and report identity.
 Checked provider components are promoted from two byte-identical designated
 builds, and the package manifest binds their exact digests. Component presence,
 runtime support and native judgments alone do not authorize a package or grant

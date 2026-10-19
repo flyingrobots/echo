@@ -8,6 +8,8 @@
 //! definite-length Edict v1 subset, enforces the published nesting bound, and
 //! validates decoded bytes by exact canonical re-encoding.
 
+pub mod source_closure;
+
 use std::collections::BTreeSet;
 use std::fmt;
 use std::str;

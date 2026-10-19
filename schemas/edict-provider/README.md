@@ -12,6 +12,17 @@ The current source is
 `echo.edict-provider-semantics/v1`, and its semantic-source coordinate is
 `echo.semantic-schema@1`.
 
+The explicit source-module variant is
+[`echo-provider-semantics-source-modules-v1.json`](echo-provider-semantics-source-modules-v1.json).
+It adds only an alternative source-closure invocation input and its owning
+schema binding. Each generation selects exactly one semantic source and binds
+its exact bytes together with an explicit contract publication. The module
+variant requires `ProviderContractPublicationV1::SourceModules`; there is no
+automatic upgrade from a legacy selection. `provider_source_module_generation`
+checks that every pre-existing semantic declaration is identical in both
+variants and that module generation has its owning schema root.
+
+
 ## Authority
 
 The checked source names one authority artifact and one canonical domain for
@@ -350,9 +361,9 @@ the same artifact/provenance/package admission libraries with the selected new
 pair and the refreshed checked component carriers. Source-owned call authority
 and runtime capability still require independent provider validation.
 
-The crate-local `assets/v1/` tree is an exact 44-file publication carrier for
+The crate-local `assets/v1/` tree is an exact 46-file publication carrier for
 the same provider bytes plus the repository sources needed for generator
-provenance. The compile-time generator identity enumerates a 20-file source
+provenance. The compile-time generator identity enumerates a 21-file source
 closure, including the provider-generic registry implementation. Carrier paths
 are physical packaging details only; authored logical source paths remain
 unchanged. `echo-edict-provider-assets --check-package-list` proves

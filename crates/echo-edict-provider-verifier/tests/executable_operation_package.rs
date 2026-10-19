@@ -14,6 +14,7 @@ mod pure_profile;
 mod pure_projection_bounds;
 mod pure_relation;
 mod pure_source;
+mod source_closures;
 mod source_functions;
 
 const TARGET_PROFILE: &[u8] = include_bytes!("../resources/target-profile.echo-dpo.cbor");

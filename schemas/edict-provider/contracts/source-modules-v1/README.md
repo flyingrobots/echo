@@ -20,9 +20,11 @@ Placeholder digests can satisfy that shape. Import pins, root membership,
 reachability, topology, UTF-8 and aggregate source budgets require semantic
 validation and are not established by schema admission.
 
-The generator still defaults to its original publication. This selector does
-not enable module-aware executable lowering, verification or runtime decoding.
-Those consumers require separate implementation and execution witnesses.
+The generator still defaults to its original publication. Selecting the schema alone does not grant executable support. The native
+provider models handle the distinct source form and the bounded-read decoder
+rechecks its source domain. A consumer still needs a matching semantic variant,
+fresh matching provider components and an independently verified package.
+Structural package admission does not establish an execution witness.
 
 Run `cargo test -p echo-wesley-gen --test provider_source_module_contract_pack
 --test provider_publication_binding` for exact-pair, crossed-publication,

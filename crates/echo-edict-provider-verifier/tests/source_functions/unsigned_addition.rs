@@ -160,3 +160,89 @@ fn addition_predicate_proofs_follow_prefix_order_and_do_not_escape_negation() {
         );
     }
 }
+
+#[test]
+fn native_helper_calls_cannot_leak_negated_facts_for_an_uncached_callee() {
+    for callee_sorts_later in [false, true] {
+        let (names, fixture, package) = called_fixture(|core, _target| {
+            let coordinate = text_field(core, "coordinate")
+                .expect("coordinate")
+                .to_owned();
+            let callee_name = if callee_sorts_later {
+                "zProofValue"
+            } else {
+                "aProofValue"
+            };
+            let x = local("arg.0", "U64");
+            let y = local("arg.1", "U64");
+            let callee = call(&format!("{coordinate}.{callee_name}"), vec![reference(&y)]);
+            let compare = |left, op, right| {
+                map([
+                    ("kind", text("compare")),
+                    ("op", text(op)),
+                    ("left", left),
+                    ("right", right),
+                ])
+            };
+            let bound = compare(reference(&x), "<=", literal("U64", 5));
+            let negated = map([
+                ("kind", text("not")),
+                (
+                    "value",
+                    map([
+                        ("kind", text("all")),
+                        (
+                            "values",
+                            list(vec![
+                                compare(callee.clone(), "==", literal("U64", 1)),
+                                bound.clone(),
+                            ]),
+                        ),
+                    ]),
+                ),
+            ]);
+            let condition = map([
+                ("kind", text("all")),
+                (
+                    "values",
+                    list(vec![
+                        bound,
+                        negated,
+                        compare(
+                            add(callee, literal("U64", i128::from(u64::MAX - 1))),
+                            "<=",
+                            literal("U64", i128::from(u64::MAX)),
+                        ),
+                    ]),
+                ),
+            ]);
+            let caller = function(
+                vec![x, y],
+                "U64",
+                vec![],
+                vec![],
+                map([
+                    ("kind", text("if")),
+                    ("predicate", condition),
+                    ("then", literal("U64", 0)),
+                    ("else", literal("U64", 0)),
+                ]),
+            );
+            let value = function(
+                vec![local("arg.0", "U64")],
+                "U64",
+                vec![],
+                vec![],
+                literal("U64", 2),
+            );
+            let CanonicalValueV1::Map(functions) = map_field_mut(core, "functions") else {
+                panic!("functions")
+            };
+            functions.push((text("mProofCaller"), caller));
+            functions.push((text(callee_name), value));
+        });
+        let lower = lowerer::lower(lowering_request(names, &fixture)).is_ok();
+        let verify = verifier_accepts(names, &fixture, package);
+        assert_eq!((lower, verify), (false, false), "a negated comparison cannot prove the overflowing sum; callee_sorts_later={callee_sorts_later}");
+    }
+}

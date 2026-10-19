@@ -283,7 +283,15 @@ impl<'a> Judgment<'a> {
                 .ok_or(())?;
             return Ok(fact.clone());
         }
-        self.proven.clear();
+        // A helper has a fresh proof scope. Restore the caller on success and
+        // failure, so recursive checks cannot change enclosing all/not scopes.
+        let caller_facts = std::mem::take(&mut self.proven);
+        let result = self.check_function_body(name, prefix);
+        self.proven = caller_facts;
+        self.active.remove(name);
+        result
+    }
+    fn check_function_body(&mut self, name: &str, prefix: usize) -> Check<Fact> {
         let function = *self.functions.get(name).ok_or(())?;
         self.active.insert(name.to_owned());
         exact(function.body, &["locals", "bindings", "result"])?;
@@ -347,7 +355,6 @@ impl<'a> Judgment<'a> {
         if prefix.checked_add(fact.depth).ok_or(())? > DEPTH {
             return Err(());
         }
-        self.active.remove(name);
         self.completed.insert(name.to_owned(), fact.clone());
         Ok(fact)
     }

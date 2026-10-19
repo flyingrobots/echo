@@ -54,6 +54,8 @@ use crate::{
 ///
 /// This is a deterministic logical storage ceiling, not an OS memory limit.
 pub const EFFECT_READ_STORAGE_CEILING_V1: u64 = 16 * 1024 * 1024;
+/// Maximum emitted effects per whole authored operation, whether or not they write.
+pub const EFFECT_COUNT_CEILING_V1: usize = 1024;
 const OBSERVATION_STORAGE_BYTES: u64 = 128;
 const EDGE_RECORD_STORAGE_BYTES: u64 = 128;
 

@@ -57,10 +57,7 @@ impl MutationKind {
     }
 }
 
-use crate::edict_pure::{
-    evaluate::Meter,
-    values::{bytes, exact_fields, field},
-};
+use crate::edict_pure::values::{bytes, exact_fields, field};
 use crate::{AtomPayload, EdgeKey, Hash, NodeId, NodeKey, TypeId, WarpId};
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::BTreeMap;
@@ -118,8 +115,20 @@ pub enum EffectMutation {
         to: NodeId,
     },
 }
+impl EffectMutation {
+    pub(super) fn emission_write_bytes(&self) -> Option<u64> {
+        match self {
+            Self::EnsureNode { atom, .. }
+            | Self::CreateNode { atom, .. }
+            | Self::ReplaceAtom { atom, .. } => {
+                u64::try_from(atom.bytes.len()).ok()?.checked_add(64)
+            }
+            Self::EnsureEdge { .. } | Self::ReplaceEdge { .. } => Some(128),
+        }
+    }
+}
 impl MutationKind {
-    pub(super) fn emit(self, value: Value, meter: &mut Meter) -> Result<EffectMutation, Error> {
+    pub(super) fn emit(self, value: Value) -> Result<EffectMutation, Error> {
         exact_fields(&value, self.fields())?;
         for name in self.fields() {
             let value = bytes(field(&value, name)?)?;
@@ -131,9 +140,6 @@ impl MutationKind {
                 return Err(Error::InvalidArtifact);
             }
         }
-        // One deterministic EffectRow reservation; payload ownership is moved
-        // from its already charged expression value, never copied here.
-        meter.allocate(280)?;
         let Value::Map(fields) = value else {
             return Err(Error::InvalidArtifact);
         };

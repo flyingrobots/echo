@@ -197,11 +197,22 @@ impl Program {
             }
         }
         for instruction in &self.instructions {
-            meter.step(0)?;
+            // Mutation's fixed step is admitted atomically with its write bytes
+            // and row reservation after evaluating its argument.
+            if !matches!(instruction, Instruction::Mutation { .. }) {
+                meter.step(0)?;
+            }
             match instruction {
                 Instruction::Mutation { kind, binding } => {
                     let value = expression(&binding.value, &locals, helpers, meter, 0)?;
-                    let mutation = kind.emit(value, meter)?;
+                    if mutations.len() >= super::EFFECT_COUNT_CEILING_V1 {
+                        return Err(EffectFrameError::BudgetExceeded);
+                    }
+                    let mutation = kind.emit(value)?;
+                    let write_bytes = mutation
+                        .emission_write_bytes()
+                        .ok_or(EffectFrameError::BudgetExceeded)?;
+                    access.reads.charge_emission(meter, write_bytes)?;
                     mutations
                         .try_reserve(1)
                         .map_err(|_| Error::HostAllocationFailed)?;

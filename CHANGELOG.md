@@ -7,6 +7,13 @@
 
 ### Changed
 
+- Authored mutation emission now follows the fixed effect contract: one step,
+  64 write bytes plus atom payload for node/atom effects, or 128 write bytes for
+  edges, and at most 1,024 emitted effects. Step/write/row admission is atomic,
+  failed operations expose no partial buffer, and retained usage includes write
+  charges even for Ensure intents that may later resolve without writes. This
+  replaces the buffering prototype's incorrect deferral of emission charges.
+
 - Completed authored evaluation now has one runtime-owned origin record binding
   its exact program, canonical input basis, actual result, mutation intents and
   recorded reads to the same parent. Whole authored evaluation requires an
@@ -19,7 +26,7 @@
   private frames under the explicit graph-effects profile. Fixed input layouts,
   empty-record results and row reservations apply. Failed operations discard
   partial emission. Emission does not modify the frontier or derive a patch;
-  mutation validation, actual write costs, physical allocation and durable
+  mutation validation, charged validation reads, physical allocation and durable
   scheduler execution remain unfinished.
 
 - Runtime-bound private frames now evaluate prepared authored read/let/require

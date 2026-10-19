@@ -954,8 +954,11 @@ logical storage ceiling. Declaration/catalog agreement cannot redefine this ABI.
 | `ensure-edge` | `warpId`, `edgeId`, `fromId`, `toId`, `edgeType` |
 | `replace-edge` | `warpId`, `edgeId`, `expectedToId`, `toId` |
 
-The evaluator charges a deterministic 280-byte row reservation for each intent,
-then moves the already charged expression payload into its typed intent. It
+At emission the evaluator admits one fixed step, a deterministic 280-byte row
+reservation, and fixed write bytes atomically: 64 plus the atom payload length
+for node/atom effects, or 128 for edge effects. The typed intent moves the already
+charged expression payload without copying it. A failed row/step/write reservation
+commits none of that emission charge. Earlier expression work remains consumed. It
 retains separate node and atom types and both sides of replacement comparisons.
 Host allocation failure remains a host error. Only a successfully completed whole authored operation exposes intents through
 `EffectEvaluationFrame::buffered_mutations`, in execution order. Later
@@ -964,12 +967,15 @@ Another program cannot append to the completed operation, and prior private
 component work cannot be adopted into it. The buffer is not a validated proposal.
 
 `EffectMutation` values are data. No public API accepts caller-constructed
-values as evaluation evidence or grants a write from them. Emission neither
-resolves graph slots nor charges write bytes, because Ensure resolution and
-validation determine actual writes later. These intents are not a canonical
+values as evaluation evidence or grants a write from them. Emission does not resolve or modify graph slots. Its write-byte charge applies
+even when a later Ensure resolves identically and contributes no write slots. A
+whole operation may emit at most 1,024 effects, including identical targets and
+intents that later become no-ops; the next emission refuses without exposing a
+partial intent buffer. Completed read-image usage retains these emission costs
+alongside computation and read costs. These intents are not a canonical
 proposal, approved footprint, derived patch or successful Action. Reachability,
 canonical ordering, duplicate targets, schema/identity/footprint rules,
-preconditions, actual write costs and patch derivation remain required before
+preconditions, validation-read charges and patch derivation remain required before
 scheduler integration. Tests use explicitly synthetic pinned artifacts; genuine
 compiler/verifier production and physical arena guarantees remain open.
 

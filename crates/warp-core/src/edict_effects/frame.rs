@@ -42,6 +42,8 @@ pub enum EffectFrameError {
     Terminated,
     /// Whole authored evaluation cannot adopt another private component's work.
     UsedFrame,
+    /// The fixed effect-count ceiling or delegated emission budget is exhausted.
+    BudgetExceeded,
     /// A resolved node/atom pair violates the exact prepared graph schema.
     GraphSchemaViolation,
     /// An authored terminal reason or mapped read failure, without an Action decision.
@@ -51,6 +53,25 @@ pub enum EffectFrameError {
         /// Canonical payload bytes.
         payload: Vec<u8>,
     },
+}
+
+impl EffectRangeReadSession<'_> {
+    pub(super) fn charge_emission(
+        &mut self,
+        shared: &mut Meter,
+        write_bytes: u64,
+    ) -> Result<(), EffectFrameError> {
+        let mut io = self.meter;
+        let mut candidate = *shared;
+        if !io.charge(1, 0, write_bytes) {
+            return Err(EffectFrameError::BudgetExceeded);
+        }
+        candidate.charge_steps(1)?;
+        candidate.allocate(280)?;
+        self.meter = io;
+        *shared = candidate;
+        Ok(())
+    }
 }
 
 impl From<EffectRangeReadError> for EffectFrameError {
@@ -513,10 +534,14 @@ impl<'a> EffectEvaluationFrame<'a> {
         )
     }
 
-    /// Global computation plus read steps, and the view's I/O consumption.
+    /// Global computation/read/emission steps and all admitted I/O charges.
     #[must_use]
     pub fn consumed(&self) -> EchoOperationBudgetV1 {
-        EchoOperationBudgetV1::new(self.meter.usage().0, self.reads.consumed().read_bytes(), 0)
+        EchoOperationBudgetV1::new(
+            self.meter.usage().0,
+            self.reads.consumed().read_bytes(),
+            self.reads.consumed().write_bytes(),
+        )
     }
 
     /// Global cumulative expression and read-value storage reservations.

@@ -273,7 +273,10 @@ fn all_five_compiled_mutation_emitters_prepare_and_run_without_writing_the_front
         };
         assert_eq!(frame.buffered_mutations(), &[expected]);
         assert!(frame.readings().is_empty());
-        assert_eq!(frame.consumed().write_bytes(), 0);
+        assert_eq!(
+            frame.consumed().write_bytes(),
+            if name.ends_with("edge") { 128 } else { 71 }
+        );
         assert_eq!(frame.evaluation_basis(), Some(basis));
     }
 }
@@ -360,8 +363,209 @@ fn failure_after_emission_does_not_publish_a_partial_intent_buffer() {
         );
         assert!(frame.buffered_mutations().is_empty());
         assert_eq!(
+            frame.consumed().write_bytes(),
+            if name.ends_with("edge") { 128 } else { 71 },
+            "a later failure must not refund an admitted emission"
+        );
+        assert_eq!(
             frame.evaluate_effect(program, &input, &[]),
             Err(EffectFrameError::Terminated)
         );
+    }
+}
+#[test]
+fn mutation_emission_refuses_a_write_budget_one_byte_short_before_buffering() {
+    for name in NAMES {
+        let (publication, input) = fixture(name, "continuum.profile.graph-effects/v1");
+        let package = prepare(&publication).expect("program");
+        let program = package.program().as_effect_program().expect("effect");
+        let (host, head, _) = host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(
+                head,
+                EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+            )
+            .expect("basis");
+        let write = if name.ends_with("edge") { 127 } else { 70 };
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, write),
+                limits(),
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        assert!(
+            frame.evaluate_effect(program, &input, &[]).is_err(),
+            "{name} ignored its emission write budget"
+        );
+        assert!(frame.buffered_mutations().is_empty());
+        assert_eq!(
+            frame.consumed().write_bytes(),
+            0,
+            "failed write charge must remain atomic"
+        );
+    }
+}
+fn repeat_emission(publication: &V, count: usize) -> V {
+    let (mut core, mut target, exports, lowering) = parts(publication);
+    let body = core_body_mut(&mut core);
+    let V::Array(original_nodes) = get(body, "nodes") else {
+        panic!("nodes")
+    };
+    let node_template = original_nodes[0].clone();
+    let V::Array(original_locals) = get(body, "locals") else {
+        panic!("locals")
+    };
+    let mut locals = vec![original_locals[0].clone()];
+    let V::Array(original_steps) = get(selected_target_mut(&mut target), "steps") else {
+        panic!("steps")
+    };
+    let step_template = original_steps[0].clone();
+    let mut nodes = Vec::new();
+    let mut steps = Vec::new();
+    let mut order = Vec::new();
+    for index in 0..count {
+        let local = map([
+            ("id", text(&format!("local.{index}"))),
+            ("type", text("MutationUnit")),
+            ("alphaName", text(&format!("$local{index}"))),
+        ]);
+        let mut node = node_template.clone();
+        set(&mut node, "binding", local.clone());
+        nodes.push(node);
+        let id = text(&format!("effect.{index}"));
+        let mut step = step_template.clone();
+        set(&mut step, "id", id.clone());
+        set(&mut step, "binding", local.clone());
+        steps.push(step);
+        order.push(id);
+        locals.push(local);
+    }
+    let result = map([
+        ("kind", text("local")),
+        ("ref", locals.last().expect("local").clone()),
+    ]);
+    set(body, "locals", V::Array(locals));
+    set(body, "nodes", V::Array(nodes));
+    set(body, "result", result.clone());
+    let selected = selected_target_mut(&mut target);
+    set(selected, "steps", V::Array(steps));
+    set(selected, "executionOrder", V::Array(order));
+    set(selected, "result", result);
+    repin_core(&core, &mut target);
+    publication_from_parts(&core, &target, &exports, &lowering)
+}
+#[test]
+fn emitted_effect_count_is_bounded_even_when_all_intents_share_one_target() {
+    for count in [1024, 1025] {
+        let (publication, input) = fixture("ensure-edge", "continuum.profile.graph-effects/v1");
+        let package =
+            prepare(&repeat_emission(&publication, count)).expect("bounded repeated source");
+        let program = package.program().as_effect_program().expect("effect");
+        let (host, head, _) = host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(
+                head,
+                EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+            )
+            .expect("basis");
+        let mut allocation = limits();
+        allocation.max_package_bytes = 4 * 1024 * 1024;
+        allocation.max_steps = 1_048_576;
+        allocation.max_allocated_bytes = 16 * 1024 * 1024;
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(1_048_576, 4096, 16 * 1024 * 1024),
+                allocation,
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        let result = frame.evaluate_effect(program, &input, &[]);
+        if count == 1024 {
+            assert!(result.is_ok());
+            assert_eq!(frame.buffered_mutations().len(), 1024);
+        } else {
+            assert!(
+                result.is_err(),
+                "the 1025th effect bypassed the fixed emission ceiling"
+            );
+            assert!(frame.buffered_mutations().is_empty());
+        }
+        assert_eq!(
+            frame.consumed().write_bytes(),
+            131_072,
+            "the successful prefix must remain charged, including on refusal"
+        );
+    }
+}
+#[test]
+fn row_reservation_failure_does_not_commit_its_emission_write_charge() {
+    use warp_core::edict_effects::EffectFrameError;
+    use warp_core::edict_pure::EvaluationError;
+    use warp_core::edict_read::ReadError;
+    for name in NAMES {
+        let (publication, input) = fixture(name, "continuum.profile.graph-effects/v1");
+        let package = prepare(&publication).expect("program");
+        let program = package.program().as_effect_program().expect("effect");
+        let (host, head, _) = host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(
+                head,
+                EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+            )
+            .expect("basis");
+        let mut control = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 4096),
+                limits(),
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        control
+            .evaluate_effect(program, &input, &[])
+            .expect("control");
+        // After the row, this empty-record program reserves three 64-byte
+        // value cells: the unit binding, local result copy and encoding scratch.
+        // Remove that tail and one extra byte to miss the row by exactly one.
+        let mut ceiling = limits();
+        ceiling.max_allocated_bytes = control
+            .allocated_bytes()
+            .checked_sub(193)
+            .expect("row and output storage");
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 4096),
+                ceiling,
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        assert_eq!(
+            frame.evaluate_effect(program, &input, &[]),
+            Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
+                EvaluationError::AllocationBudgetExceeded
+            )))
+        );
+        assert_eq!(
+            frame.consumed().write_bytes(),
+            0,
+            "{name} committed its failed row's write reservation"
+        );
+        assert!(frame.buffered_mutations().is_empty());
     }
 }

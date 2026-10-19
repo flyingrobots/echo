@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-authmap-e1"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.96.0"
+publish = false
+license = "Apache-2.0"
+description = "Experiment E1: complete sparse and compressed-radix authenticated maps, measured side by side"
+
+# A separate workspace keeps the experiment out of Echo's default build.
+[workspace]
+
+[dependencies]
+blake3 = "=1.8.5"
+
+[profile.release]
+debug = false

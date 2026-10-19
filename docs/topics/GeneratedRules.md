@@ -824,8 +824,9 @@ output is a byte type with minimum zero and a positive maximum under the
 runtime's logical storage ceiling. The four named atom-read fault tags and their resource
 or integrity classes are fixed, and each carries the input-address type.
 Mutually agreeing Core, lawpack and catalog declarations cannot change these
-requirements. Other intrinsic names refuse until their actual handlers and ABI
-contracts exist. Static binding does not itself execute instructions.
+requirements. Five mutation-emitter ABIs are also supported as described below.
+Other intrinsic names refuse until their handlers and ABI contracts exist. Static
+binding does not itself execute instructions.
 
 The retained profile/catalog declares only the original replace fixture and a
 prior Target IR resource; it does not declare node/atom read. Positive tests now
@@ -925,9 +926,48 @@ The final result is validated and encoded under the intersected output ceiling.
 Every refusal terminates the frame; later calls do no work. Successful calls
 retain cumulative usage and observations. The new runtime witnesses use the
 explicitly synthetic, coherently pinned read fixture, not a genuine public
-compiler/verifier output. Physical arena guarantees, mutation intrinsics and
+compiler/verifier output. Physical arena guarantees, mutation validation and
 patch derivation, atomic scheduler settlement, receipts/WAL and original-decision
 recovery remain required for the complete bridge.
+
+### Buffered compiled mutation intents
+
+The current interpreter recognizes five `echo.dpo@1` mutation-emitter names.
+Their declared intrinsic `effectKind` and `writeClass` must both be `write`, and
+their named intrinsic failure set must be empty. They require the explicit
+`continuum.profile.graph-effects/v1` Core/Target operation profile; a matching
+read-only profile and adapter cannot authorize them.
+
+Each emitter accepts one record argument and returns an empty record. The
+runtime fixes every field other than `atomBytes` to exactly 32 bytes. The byte
+payload has minimum zero and a positive declared maximum within the 16 MiB
+logical storage ceiling. Declaration/catalog agreement cannot redefine this ABI.
+
+| Intrinsic suffix | Required input fields |
+| --- | --- |
+| `ensure-node`, `create-node` | `warpId`, `nodeId`, `nodeType`, `atomType`, `atomBytes` |
+| `replace-atom` | `warpId`, `nodeId`, `expectedAtomDigest`, `atomType`, `atomBytes` |
+| `ensure-edge` | `warpId`, `edgeId`, `fromId`, `toId`, `edgeType` |
+| `replace-edge` | `warpId`, `edgeId`, `expectedToId`, `toId` |
+
+The evaluator charges a deterministic 280-byte row reservation for each intent,
+then moves the already charged expression payload into its typed intent. It
+retains separate node and atom types and both sides of replacement comparisons.
+Host allocation failure remains a host error. Only a successfully completed
+component appends intents to `EffectEvaluationFrame::buffered_mutations`, in
+authored execution order. Later output/resource/guard failure discards that
+component's entire partial buffer and terminates the frame. Previously completed
+private components remain inspectable; they are not a validated proposal.
+
+`EffectMutation` values are data. No public API accepts caller-constructed
+values as evaluation evidence or grants a write from them. Emission neither
+resolves graph slots nor charges write bytes, because Ensure resolution and
+validation determine actual writes later. These intents are not a canonical
+proposal, approved footprint, derived patch or successful Action. Reachability,
+canonical ordering, duplicate targets, schema/identity/footprint rules,
+preconditions, actual write costs and patch derivation remain required before
+scheduler integration. Tests use explicitly synthetic pinned artifacts; genuine
+compiler/verifier production and physical arena guarantees remain open.
 
 ### Current invocation input, basis and owner grant admission
 

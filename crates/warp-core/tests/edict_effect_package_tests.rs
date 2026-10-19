@@ -1622,7 +1622,7 @@ fn runtime_read_abi_rejects_a_self_consistent_sixteen_byte_node_address() {
         "definition",
         text("Record<nodeId:Bytes<exact=16>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"),
     );
-    let lowering = lowering_fixture_inputs(None, Some(exports.clone()));
+    let lowering = lowering_fixture_inputs(None, Some(exports.clone()), None);
     let (mut core, mut target, _) = compiler_fixture(&lowering);
     set(
         value_field_mut(
@@ -1659,7 +1659,7 @@ fn runtime_read_abi_rejects_catalog_and_lawpack_agreement_on_wrong_fault_authori
         .find(|item| get(item, "coordinate") == &text("jedit.text@1.FactMalformed"))
         .expect("obstruction");
     set(malformed, "authorityClass", text("resourceFault"));
-    let lowering = lowering_fixture_inputs(None, Some(exports.clone()));
+    let lowering = lowering_fixture_inputs(None, Some(exports.clone()), None);
     let (core, target, _) = compiler_fixture(&lowering);
     refused(&publication_from_parts(&core, &target, &exports, &lowering));
 }
@@ -1694,3 +1694,7 @@ fn outer_package_pins_cannot_replace_profile_or_catalog_bytes() {
 #[cfg(feature = "native_rule_bootstrap")]
 #[path = "edict_effect_package_tests/execution.rs"]
 mod execution;
+
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/mutations.rs"]
+mod mutations;

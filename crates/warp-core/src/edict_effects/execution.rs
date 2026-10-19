@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Private ordered authored execution over the existing expression evaluator and recorded reads.
+use super::mutations::{EffectMutation, MutationKind};
 use super::{EffectFrameError, EffectGraphSchema, RecordedNodeAccess};
 use crate::edict_pure::{
     evaluate::{expression, predicate, validate, Meter, VALUE_CELL_BYTES},
@@ -26,6 +27,10 @@ struct Reason {
 }
 enum Instruction {
     Let(Binding),
+    Mutation {
+        kind: MutationKind,
+        binding: Binding,
+    },
     Read {
         binding: Binding,
         failures: BTreeMap<String, String>,
@@ -35,6 +40,10 @@ enum Instruction {
         condition: Predicate,
         reason: Reason,
     },
+}
+pub(super) struct Evaluation {
+    pub(super) output: Vec<u8>,
+    pub(super) mutations: Vec<EffectMutation>,
 }
 pub(super) struct Program {
     input: RuntimeType,
@@ -93,6 +102,12 @@ impl Program {
                 "effect" => {
                     let step = lowered.get(text(id)?).ok_or(Error::InvalidArtifact)?;
                     let binding = binding(node, "input", &mut parser)?;
+                    if let Some(kind) =
+                        MutationKind::from_intrinsic(text_field(step, "targetIntrinsic")?)
+                    {
+                        instructions.push(Instruction::Mutation { kind, binding });
+                        continue;
+                    }
                     let RuntimeType::Bytes { max, .. } = binding.ty else {
                         return Err(Error::UnsupportedProgram);
                     };
@@ -147,7 +162,7 @@ impl Program {
         access: &mut RecordedNodeAccess<'_, '_>,
         schema: &EffectGraphSchema,
         meter: &mut Meter,
-    ) -> Result<Vec<u8>, EffectFrameError> {
+    ) -> Result<Evaluation, EffectFrameError> {
         meter.with_component(self.limits, |meter| {
             self.run_body(input, access, schema, meter)
         })
@@ -158,7 +173,7 @@ impl Program {
         access: &mut RecordedNodeAccess<'_, '_>,
         schema: &EffectGraphSchema,
         meter: &mut Meter,
-    ) -> Result<Vec<u8>, EffectFrameError> {
+    ) -> Result<Evaluation, EffectFrameError> {
         validate(&input, &self.input, meter, 0).map_err(|e| {
             if e == Error::InvalidArtifact {
                 Error::InvalidInput
@@ -168,6 +183,7 @@ impl Program {
         })?;
         meter.charge(&input, 0)?;
         let mut locals = BTreeMap::from([("arg.0", input)]);
+        let mut mutations = Vec::new();
         let helpers = &self.helpers;
         if let Some(basis) = &self.basis {
             let basis = expression(basis, &locals, helpers, meter, 0)?;
@@ -183,6 +199,18 @@ impl Program {
         for instruction in &self.instructions {
             meter.step(0)?;
             match instruction {
+                Instruction::Mutation { kind, binding } => {
+                    let value = expression(&binding.value, &locals, helpers, meter, 0)?;
+                    let mutation = kind.emit(value, meter)?;
+                    mutations
+                        .try_reserve(1)
+                        .map_err(|_| Error::HostAllocationFailed)?;
+                    mutations.push(mutation);
+                    let result = Value::Map(Vec::new());
+                    meter.charge(&result, 0)?;
+                    validate(&result, &binding.ty, meter, 0)?;
+                    locals.insert(binding.name.as_str(), result);
+                }
                 Instruction::Let(binding) => {
                     let value = expression(&binding.value, &locals, helpers, meter, 0)?;
                     validate(&value, &binding.ty, meter, 0)?;
@@ -241,7 +269,10 @@ impl Program {
         }
         let value = expression(&self.result, &locals, helpers, meter, 0)?;
         validate(&value, &self.output, meter, 0)?;
-        self.output_bytes(&value, meter)
+        Ok(Evaluation {
+            output: self.output_bytes(&value, meter)?,
+            mutations,
+        })
     }
     fn output_bytes(&self, value: &Value, meter: &mut Meter) -> Result<Vec<u8>, EffectFrameError> {
         meter.charge(value, 0)?;

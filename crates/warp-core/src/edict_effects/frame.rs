@@ -79,6 +79,7 @@ pub struct EffectEvaluationFrame<'a> {
     meter: Meter,
     limits: EvaluationLimits,
     terminated: bool,
+    buffered_mutations: Vec<super::EffectMutation>,
     evaluation_basis: Option<EchoOperationEvaluationBasisV1>,
 }
 
@@ -113,6 +114,7 @@ impl<'a> EffectEvaluationFrame<'a> {
             meter: Meter::new_atomic(limits),
             limits,
             terminated: false,
+            buffered_mutations: Vec::new(),
             evaluation_basis: None,
         })
     }
@@ -251,7 +253,8 @@ impl<'a> EffectEvaluationFrame<'a> {
         result
     }
 
-    /// Privately evaluates the prepared current authored program against recorded reads.
+    /// Privately evaluates the prepared current authored program against its bound parent.
+    /// Reads are recorded and mutations are buffered as unvalidated intents.
     /// This grants no invocation or mutation authority.
     /// # Errors
     /// Any preparation, read, authored or resource refusal terminates the frame.
@@ -288,8 +291,23 @@ impl<'a> EffectEvaluationFrame<'a> {
             aperture,
         };
         let result = executable.run(input, &mut access, program.graph_schema(), &mut self.meter);
+        let result = result.and_then(|result| {
+            self.buffered_mutations
+                .try_reserve(result.mutations.len())
+                .map_err(|_| EffectFrameError::Evaluation(EvaluationError::HostAllocationFailed))?;
+            self.buffered_mutations.extend(result.mutations);
+            Ok(result.output)
+        });
         self.terminated = result.is_err();
         result
+    }
+
+    /// Completed compiler-emitted mutation intents, in authored execution order.
+    /// These have not passed proposal validation and are not writes or a patch.
+    /// Failed components never append their partial intent buffer.
+    #[must_use]
+    pub fn buffered_mutations(&self) -> &[super::EffectMutation] {
+        &self.buffered_mutations
     }
 
     /// Evaluates exact compiler-package bytes using the same cumulative meter.

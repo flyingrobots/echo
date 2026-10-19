@@ -171,6 +171,13 @@ pub(super) fn validate<'a>(
         }
         super::intrinsic_contract::validate(intrinsic, effect, implementation)?;
         super::runtime_abi::validate(intrinsic_name, module, effect, intrinsic)?;
+        if super::mutations::MutationKind::from_intrinsic(intrinsic_name).is_some() {
+            require_text(
+                intent,
+                "requiredOperationProfile",
+                "continuum.profile.graph-effects/v1",
+            )?;
+        }
         require_text(
             field(core, "binding")?,
             "type",

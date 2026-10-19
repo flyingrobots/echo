@@ -230,9 +230,13 @@ pub fn repinned_lowering_artifacts() -> V {
     lowering_fixture(None)
 }
 pub fn lowering_fixture(catalog: Option<V>) -> V {
-    lowering_fixture_inputs(catalog, None)
+    lowering_fixture_inputs(catalog, None, None)
 }
-pub fn lowering_fixture_inputs(catalog: Option<V>, exports_override: Option<V>) -> V {
+pub fn lowering_fixture_inputs(
+    catalog: Option<V>,
+    exports_override: Option<V>,
+    adapter_override: Option<V>,
+) -> V {
     let captured = |value: &str| {
         echo_edict_canonical::decode_canonical_cbor_v1(
             &hex::decode(value.trim()).expect("captured bytes"),
@@ -242,9 +246,11 @@ pub fn lowering_fixture_inputs(catalog: Option<V>, exports_override: Option<V>) 
     let mut lawpack = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/03-lawpack.hex"
     ));
-    let adapter = captured(include_str!(
+    let adapter = adapter_override.unwrap_or_else(|| {
+        captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"
-    ));
+    ))
+    });
     let exports = exports_override.unwrap_or_else(|| {
         captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"

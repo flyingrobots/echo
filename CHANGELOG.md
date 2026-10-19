@@ -7,18 +7,25 @@
 
 ### Changed
 
+- Prepared authored programs can now emit all five typed mutation intents into
+  private frames under the explicit graph-effects profile. Fixed input layouts,
+  empty-record results and row reservations apply. Failed components discard
+  partial emission. Emission does not modify the frontier or derive a patch;
+  mutation validation, actual write costs, physical allocation and durable
+  scheduler execution remain unfinished.
+
 - Runtime-bound private frames now evaluate prepared authored read/let/require
   programs through the shared expression evaluator and typed recording adapter.
   Exact footprint-law binding, graph-schema checks and cumulative component
   budgets apply; authored failures retain read dependencies and terminate the
-  frame. Mutation instructions, installed Action execution, the physical arena
+  frame. Mutation validation, installed Action execution, the physical arena
   and decision recovery remain unfinished.
 
 - Effect compiler bundles now require the pinned target profile and intrinsic
   catalog. Preparation checks catalog registration and concrete signature/fault
   agreement, then enforces the existing node/atom recording ABI independently
   of those declarations. Fresh pins cannot redefine 32-byte addresses or fault
-  authority. Other effect handlers, general signature unification, complete
+  authority. Further intrinsic families, general signature unification, complete
   profile obligations and installed effect execution remain unfinished.
 
 - Shared expression/helper inference now preserves nominal contract identity.

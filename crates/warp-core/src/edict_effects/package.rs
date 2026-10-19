@@ -142,8 +142,8 @@ impl EffectProgram {
         self.footprint
     }
     /// Canonical Core/Target IR/exports bundle bound to the selected intent.
-    /// Private read/let/require evaluation is available on a runtime-bound frame.
-    /// Mutation instructions and installed Action execution remain unfinished.
+    /// Private read/let/require evaluation and mutation emission use a bound frame.
+    /// Mutation validation and installed Action execution remain unfinished.
     #[must_use]
     pub fn compiled_program(&self) -> &[u8] {
         &self.compiled

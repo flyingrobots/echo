@@ -9,7 +9,7 @@ use warp_core::{
     InboxPolicy, NodeId, NodeKey, NodeRecord, PlaybackMode, TrustedRuntimeHost, WarpId,
     WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
-fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+pub(super) fn host() -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
     let key = NodeKey {
         warp_id: WarpId([3; 32]),
         local_id: NodeId([4; 32]),
@@ -88,7 +88,7 @@ fn publication() -> V {
     );
     publication
 }
-fn limits() -> EvaluationLimits {
+pub(super) fn limits() -> EvaluationLimits {
     EvaluationLimits {
         max_package_bytes: 1_048_576,
         max_input_bytes: 65536,

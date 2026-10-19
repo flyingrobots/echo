@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Runtime-owned ABI for implemented recording primitives; declarations cannot redefine it.
+//! Runtime-owned recording/emitter ABIs; declarations cannot redefine them.
 use crate::edict_pure::{
     model::{RuntimeType, MAX_PROGRAM_NODES},
     syntax::Parser,
@@ -15,13 +15,11 @@ pub(super) fn validate(
     effect: &Value,
     intrinsic: &Value,
 ) -> Result<(), Error> {
-    // Mutation intrinsics require their own actual handlers and contracts. A
-    // catalog declaration alone never registers executable code.
-    if name != "echo.dpo@1.node-atom-read" {
+    let mutation = super::mutations::MutationKind::from_intrinsic(name);
+    if name != "echo.dpo@1.node-atom-read" && mutation.is_none() {
         return Err(Error::UnsupportedProgram);
     }
-    require_text(intrinsic, "effectKind", "read")?;
-    require_text(intrinsic, "writeClass", "read")?;
+
     let mut parser = Parser {
         types: field(module, "types")?,
         coordinate: text_field(module, "coordinate")?,
@@ -29,6 +27,17 @@ pub(super) fn validate(
     };
     let input_name = text_field(effect, "inputType")?;
     let input = parser.ty(input_name, 0)?;
+    let output = parser.ty(text_field(effect, "outputType")?, 0)?;
+    if let Some(kind) = mutation {
+        require_text(intrinsic, "effectKind", "write")?;
+        require_text(intrinsic, "writeClass", "write")?;
+        if !map(field(intrinsic, "effectFailures")?)?.is_empty() {
+            return Err(Error::InvalidArtifact);
+        }
+        return kind.validate_type(&input, &output);
+    }
+    require_text(intrinsic, "effectKind", "read")?;
+    require_text(intrinsic, "writeClass", "read")?;
     let RuntimeType::Record(fields) = input.representation() else {
         return Err(Error::InvalidArtifact);
     };
@@ -41,7 +50,6 @@ pub(super) fn validate(
     {
         return Err(Error::InvalidArtifact);
     }
-    let output = parser.ty(text_field(effect, "outputType")?, 0)?;
     if !matches!(output, RuntimeType::Bytes { min: 0, max } if max > 0 && max <= super::EFFECT_READ_STORAGE_CEILING_V1)
     {
         return Err(Error::UnsupportedProgram);

@@ -1,0 +1,367 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Synthetic compiled mutation emitters; not public compiler/verifier evidence.
+use super::execution::{host, limits};
+use super::*;
+use warp_core::edict_effects::EffectMutation;
+use warp_core::{
+    AtomPayload, EchoOperationApplicationBasisV1, EchoOperationBudgetV1, EdgeId, EdgeKey, NodeId,
+    NodeKey, WarpId,
+};
+const NAMES: [&str; 5] = [
+    "ensure-node",
+    "create-node",
+    "replace-atom",
+    "ensure-edge",
+    "replace-edge",
+];
+fn layout(name: &str) -> Vec<(&'static str, &'static str)> {
+    match name {
+        "ensure-node" | "create-node" => vec![
+            ("warpId", "Bytes<exact=32>"),
+            ("nodeId", "Bytes<exact=32>"),
+            ("nodeType", "Bytes<exact=32>"),
+            ("atomType", "Bytes<exact=32>"),
+            ("atomBytes", "Bytes<max=1024>"),
+        ],
+        "replace-atom" => vec![
+            ("warpId", "Bytes<exact=32>"),
+            ("nodeId", "Bytes<exact=32>"),
+            ("expectedAtomDigest", "Bytes<exact=32>"),
+            ("atomType", "Bytes<exact=32>"),
+            ("atomBytes", "Bytes<max=1024>"),
+        ],
+        "ensure-edge" => vec![
+            ("warpId", "Bytes<exact=32>"),
+            ("edgeId", "Bytes<exact=32>"),
+            ("fromId", "Bytes<exact=32>"),
+            ("toId", "Bytes<exact=32>"),
+            ("edgeType", "Bytes<exact=32>"),
+        ],
+        "replace-edge" => vec![
+            ("warpId", "Bytes<exact=32>"),
+            ("edgeId", "Bytes<exact=32>"),
+            ("expectedToId", "Bytes<exact=32>"),
+            ("toId", "Bytes<exact=32>"),
+        ],
+        _ => panic!("fixture kind"),
+    }
+}
+fn fixture(name: &str, profile: &str) -> (V, Vec<u8>) {
+    let artifacts = repinned_lowering_artifacts();
+    let decode = |key| {
+        let V::Bytes(raw) = get(&artifacts, key) else {
+            panic!("artifact")
+        };
+        echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("artifact")
+    };
+    let (_, _, mut exports) = compiler_fixture(&artifacts);
+    let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
+        panic!("effects")
+    };
+    let effect = &mut effects[0];
+    set(effect, "inputType", text("MutationInput"));
+    set(effect, "outputType", text("MutationUnit"));
+    set(effect, "effectFailures", map([]));
+    let mut adapter = decode("adapter_artifact");
+    let implementation = value_field_mut(
+        value_field_mut(&mut adapter, "effectImplementations"),
+        "jedit.text@1.readFact",
+    );
+    set(
+        implementation,
+        "targetIntrinsic",
+        text(&format!("echo.dpo@1.{name}")),
+    );
+    set(implementation, "writeClass", text("write"));
+    set(implementation, "failureMappings", map([]));
+    let V::Map(profiles) = value_field_mut(&mut adapter, "operationProfiles") else {
+        panic!("profiles")
+    };
+    set(&mut profiles[0].1, "core", text(profile));
+    let mut catalog = catalog_fixture();
+    let intrinsic = get(get(&catalog, "intrinsics"), "echo.dpo@1.node-atom-read").clone();
+    let mut intrinsic = intrinsic;
+    set(
+        &mut intrinsic,
+        "argumentTypes",
+        V::Array(vec![text("MutationInput")]),
+    );
+    set(&mut intrinsic, "returnType", text("MutationUnit"));
+    set(&mut intrinsic, "effectKind", text("write"));
+    set(&mut intrinsic, "writeClass", text("write"));
+    set(&mut intrinsic, "effectFailures", map([]));
+    set(
+        &mut catalog,
+        "intrinsics",
+        V::Map(vec![(text(&format!("echo.dpo@1.{name}")), intrinsic)]),
+    );
+    let lowering = lowering_fixture_inputs(Some(catalog), Some(exports.clone()), Some(adapter));
+    let (mut core, mut target, _) = compiler_fixture(&lowering);
+    let fields = layout(name);
+    let input_type = map([
+        ("kind", text("Record")),
+        (
+            "fields",
+            V::Map(fields.iter().map(|(k, t)| (text(k), text(t))).collect()),
+        ),
+    ]);
+    add(
+        value_field_mut(&mut core, "types"),
+        "MutationInput",
+        input_type,
+    );
+    add(
+        value_field_mut(&mut core, "types"),
+        "MutationUnit",
+        map([("kind", text("Record")), ("fields", map([]))]),
+    );
+    let arg = map([
+        ("id", text("arg.0")),
+        ("type", text("MutationInput")),
+        ("alphaName", text("$arg0")),
+    ]);
+    let local = map([
+        ("id", text("local.0")),
+        ("type", text("MutationUnit")),
+        ("alphaName", text("$local0")),
+    ]);
+    let input = map([("kind", text("local")), ("ref", arg.clone())]);
+    let result = map([("kind", text("local")), ("ref", local.clone())]);
+    let node = map([
+        ("kind", text("effect")),
+        ("binding", local.clone()),
+        ("effect", text("text.readFact")),
+        ("input", input.clone()),
+        ("obstructionMap", map([])),
+    ]);
+    let intent = value_field_mut(value_field_mut(&mut core, "intents"), "replaceRange");
+    set(intent, "input", text("MutationInput"));
+    set(intent, "output", text("MutationUnit"));
+    set(intent, "requiredOperationProfile", text(profile));
+    if let V::Map(fields) = intent {
+        fields.retain(|(k, _)| k != &text("basis"));
+    }
+    set(
+        intent,
+        "body",
+        map([
+            ("locals", V::Array(vec![arg, local.clone()])),
+            ("nodes", V::Array(vec![node])),
+            ("result", result.clone()),
+        ]),
+    );
+    let selected = selected_target_mut(&mut target);
+    set(selected, "operationProfile", text(profile));
+    if let V::Map(fields) = selected {
+        fields.retain(|(k, _)| k != &text("basis"));
+    }
+    set(
+        selected,
+        "steps",
+        V::Array(vec![map([
+            ("id", text("effect.0")),
+            ("binding", local),
+            ("effect", text("text.readFact")),
+            ("input", input),
+            ("targetIntrinsic", text(&format!("echo.dpo@1.{name}"))),
+            ("obstructionArms", map([])),
+            ("obstructionFailures", V::Array(vec![])),
+        ])]),
+    );
+    set(selected, "requirements", V::Array(vec![]));
+    set(selected, "result", result);
+    set(selected, "executionOrder", V::Array(vec![text("effect.0")]));
+    set(
+        value_field_mut(
+            value_field_mut(&mut target, "semanticClosure"),
+            "sourceCore",
+        ),
+        "digest",
+        V::Array(vec![
+            text("sha256"),
+            artifact_identity("edict.core.module/v1", &core),
+        ]),
+    );
+    let publication = publication_from_parts(&core, &target, &exports, &lowering);
+    let input = V::Map(
+        fields
+            .iter()
+            .enumerate()
+            .map(|(i, (name, _))| {
+                (
+                    text(name),
+                    if *name == "atomBytes" {
+                        V::Bytes(b"payload".to_vec())
+                    } else {
+                        id(u8::try_from(i).expect("field index") + 10)
+                    },
+                )
+            })
+            .collect(),
+    );
+    (publication, encoded(&input))
+}
+#[test]
+fn all_five_compiled_mutation_emitters_prepare_and_run_without_writing_the_frontier() {
+    for name in NAMES {
+        let (publication, input) = fixture(name, "continuum.profile.graph-effects/v1");
+        let package = prepare(&publication).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let program = package.program().as_effect_program().expect("program");
+        let (host, head, _) = host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(
+                head,
+                EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+            )
+            .expect("basis");
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 4096),
+                limits(),
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        assert_eq!(
+            frame.evaluate_effect(program, &input, &[]).expect(name),
+            encoded(&map([]))
+        );
+        let node = NodeKey {
+            warp_id: WarpId([10; 32]),
+            local_id: NodeId([11; 32]),
+        };
+        let edge = EdgeKey {
+            warp_id: WarpId([10; 32]),
+            local_id: EdgeId([11; 32]),
+        };
+        let atom = AtomPayload {
+            type_id: TypeId([13; 32]),
+            bytes: b"payload".to_vec().into(),
+        };
+        let expected = match name {
+            "ensure-node" => EffectMutation::EnsureNode {
+                node,
+                ty: TypeId([12; 32]),
+                atom,
+            },
+            "create-node" => EffectMutation::CreateNode {
+                node,
+                ty: TypeId([12; 32]),
+                atom,
+            },
+            "replace-atom" => EffectMutation::ReplaceAtom {
+                node,
+                expected: [12; 32],
+                atom,
+            },
+            "ensure-edge" => EffectMutation::EnsureEdge {
+                edge,
+                from: NodeId([12; 32]),
+                to: NodeId([13; 32]),
+                ty: TypeId([14; 32]),
+            },
+            "replace-edge" => EffectMutation::ReplaceEdge {
+                edge,
+                expected_to: NodeId([12; 32]),
+                to: NodeId([13; 32]),
+            },
+            _ => panic!("kind"),
+        };
+        assert_eq!(frame.buffered_mutations(), &[expected]);
+        assert!(frame.readings().is_empty());
+        assert_eq!(frame.consumed().write_bytes(), 0);
+        assert_eq!(frame.evaluation_basis(), Some(basis));
+    }
+}
+fn parts(publication: &V) -> (V, V, V, V) {
+    let embedded = |value: &V| {
+        let V::Bytes(raw) = value else {
+            panic!("bytes")
+        };
+        echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("canonical")
+    };
+    let program = embedded(get(publication, "program"));
+    let bundle = embedded(get(&program, "compiled_program"));
+    (
+        embedded(get(&bundle, "core_artifact")),
+        embedded(get(&bundle, "target_ir_artifact")),
+        embedded(get(&bundle, "lawpack_exports_artifact")),
+        get(&bundle, "lowering_artifacts").clone(),
+    )
+}
+#[test]
+fn mutation_emitters_cannot_be_authorized_by_a_read_only_profile() {
+    for name in NAMES {
+        assert!(
+            prepare(&fixture(name, "continuum.profile.read-only/v1").0).is_err(),
+            "{name}"
+        );
+    }
+}
+#[test]
+fn mutation_emitter_abi_rejects_redefined_address_widths_under_fresh_pins() {
+    for name in NAMES {
+        let (publication, _) = fixture(name, "continuum.profile.graph-effects/v1");
+        let (mut core, mut target, exports, lowering) = parts(&publication);
+        let fields = value_field_mut(
+            value_field_mut(value_field_mut(&mut core, "types"), "MutationInput"),
+            "fields",
+        );
+        set(fields, "warpId", text("Bytes<exact=16>"));
+        repin_core(&core, &mut target);
+        assert!(
+            prepare(&publication_from_parts(&core, &target, &exports, &lowering)).is_err(),
+            "{name}"
+        );
+    }
+}
+#[test]
+fn failure_after_emission_does_not_publish_a_partial_intent_buffer() {
+    use warp_core::edict_effects::EffectFrameError;
+    use warp_core::edict_pure::EvaluationError;
+    use warp_core::edict_read::ReadError;
+    for name in NAMES {
+        let (mut publication, input) = fixture(name, "continuum.profile.graph-effects/v1");
+        let V::Bytes(raw) = get(&publication, "program") else {
+            panic!("program")
+        };
+        let mut value = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("program");
+        set(&mut value, "max_result_bytes", V::Integer(0));
+        set(&mut publication, "program", V::Bytes(encoded(&value)));
+        let package = prepare(&publication).expect("zero output ceiling");
+        let program = package.program().as_effect_program().expect("program");
+        let (host, head, _) = host();
+        let basis = host
+            .echo_operation_evaluation_basis_v1(
+                head,
+                EchoOperationApplicationBasisV1::new([6; 32], [7; 32]),
+            )
+            .expect("basis");
+        let mut frame = host
+            .effect_evaluation_frame_v1(
+                basis,
+                &[],
+                0,
+                EchoOperationBudgetV1::new(10000, 4096, 4096),
+                limits(),
+            )
+            .expect("frame")
+            .with_footprint_law(program.footprint_law().clone())
+            .expect("law");
+        assert_eq!(
+            frame.evaluate_effect(program, &input, &[]),
+            Err(EffectFrameError::BoundedRead(ReadError::Evaluation(
+                EvaluationError::OutputBudgetExceeded
+            )))
+        );
+        assert!(frame.buffered_mutations().is_empty());
+        assert_eq!(
+            frame.evaluate_effect(program, &input, &[]),
+            Err(EffectFrameError::Terminated)
+        );
+    }
+}

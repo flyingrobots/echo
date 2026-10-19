@@ -8,14 +8,17 @@
 //! The common owner invocation API separately checks grants and exact parents.
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
 //! logical meters. Private ordered read/let/require evaluation uses those frames.
-//! Mutation instructions, a physical evaluation arena,
-//! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
+//! Five mutation instructions buffer intents without modifying the frontier.
+//! A physical arena, effect validation/patch derivation and Action/receipt/WAL
+//! decision recovery remain unfinished.
 mod compiled_program;
 mod execution;
 mod imported_types;
 mod instruction_relation;
 mod intrinsic_contract;
 mod lowering_relation;
+mod mutations;
+pub use mutations::EffectMutation;
 mod package;
 mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};

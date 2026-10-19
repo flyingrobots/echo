@@ -40,6 +40,15 @@ pub enum EffectFrameError {
     Read(EffectRangeReadError),
     /// A prior failure ended this frame; no further work or reads are allowed.
     Terminated,
+    /// A resolved node/atom pair violates the exact prepared graph schema.
+    GraphSchemaViolation,
+    /// An authored terminal reason or mapped read failure, without an Action decision.
+    AuthoredObstruction {
+        /// Authored reason name in the bound source context.
+        reason_kind: String,
+        /// Canonical payload bytes.
+        payload: Vec<u8>,
+    },
 }
 
 impl From<EffectRangeReadError> for EffectFrameError {
@@ -238,6 +247,47 @@ impl<'a> EffectEvaluationFrame<'a> {
             .reads
             .read_range_inner(range, Some(&mut self.meter), Some(absent_source_type))
             .map_err(EffectFrameError::Read);
+        self.terminated = result.is_err();
+        result
+    }
+
+    /// Privately evaluates the prepared current authored program against recorded reads.
+    /// This grants no invocation or mutation authority.
+    /// # Errors
+    /// Any preparation, read, authored or resource refusal terminates the frame.
+    pub fn evaluate_effect(
+        &mut self,
+        program: &super::EffectProgram,
+        input: &[u8],
+        aperture: &[super::TypedNodeRead],
+    ) -> Result<Vec<u8>, EffectFrameError> {
+        if self.terminated {
+            return Err(EffectFrameError::Terminated);
+        }
+        self.terminated = true;
+        if self.evaluation_basis.is_none() {
+            return Err(EffectFrameError::UnboundParent);
+        }
+        if self.reads.law.as_ref() != Some(program.footprint_law()) {
+            return Err(EffectRangeReadError::FootprintLawViolation.into());
+        }
+        let aperture = super::NodeAperture::Typed(aperture);
+        aperture.validate()?;
+        if program.compiled_program().len() > self.limits.max_package_bytes {
+            return Err(EvaluationError::PackageTooLarge.into());
+        }
+        if input.len() as u64 > (self.limits.max_input_bytes as u64).min(program.max_input_bytes())
+        {
+            return Err(EvaluationError::InputTooLarge.into());
+        }
+        let executable = program.execution(self.limits)?;
+        let input = echo_edict_canonical::decode_canonical_cbor_v1(input)
+            .map_err(|_| EffectFrameError::Evaluation(EvaluationError::InvalidInput))?;
+        let mut access = super::RecordedNodeAccess {
+            reads: &mut self.reads,
+            aperture,
+        };
+        let result = executable.run(input, &mut access, program.graph_schema(), &mut self.meter);
         self.terminated = result.is_err();
         result
     }

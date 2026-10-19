@@ -7,9 +7,11 @@
 //! of those package crossings grants invocation rights or enables effect execution.
 //! The common owner invocation API separately checks grants and exact parents.
 //! Private frames bind immutable runtime frontiers, typed read laws and shared
-//! logical meters. Compiled effect instructions, a physical evaluation arena,
+//! logical meters. Private ordered read/let/require evaluation uses those frames.
+//! Mutation instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
+mod execution;
 mod imported_types;
 mod instruction_relation;
 mod intrinsic_contract;

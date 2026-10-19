@@ -124,6 +124,14 @@ impl EffectProgram {
             &self.output_type,
         )
     }
+    pub(super) fn execution(
+        &self,
+        mut limits: crate::edict_pure::EvaluationLimits,
+    ) -> Result<super::execution::Program, EvaluationError> {
+        limits.max_allocated_bytes = limits.max_allocated_bytes.min(self.max_allocated_bytes);
+        limits.max_output_bytes = limits.max_output_bytes.min(self.max_result_bytes);
+        self.compiled_contract.execution(limits)
+    }
     pub(crate) fn to_value(&self) -> Value {
         self.value.clone()
     }
@@ -134,7 +142,8 @@ impl EffectProgram {
         self.footprint
     }
     /// Canonical Core/Target IR/exports bundle bound to the selected intent.
-    /// Instruction semantics and execution still require validation.
+    /// Private read/let/require evaluation is available on a runtime-bound frame.
+    /// Mutation instructions and installed Action execution remain unfinished.
     #[must_use]
     pub fn compiled_program(&self) -> &[u8] {
         &self.compiled

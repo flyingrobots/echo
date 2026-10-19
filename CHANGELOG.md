@@ -7,19 +7,26 @@
 
 ### Changed
 
+- Runtime-bound private frames now evaluate prepared authored read/let/require
+  programs through the shared expression evaluator and typed recording adapter.
+  Exact footprint-law binding, graph-schema checks and cumulative component
+  budgets apply; authored failures retain read dependencies and terminate the
+  frame. Mutation instructions, installed Action execution, the physical arena
+  and decision recovery remain unfinished.
+
 - Effect compiler bundles now require the pinned target profile and intrinsic
   catalog. Preparation checks catalog registration and concrete signature/fault
   agreement, then enforces the existing node/atom recording ABI independently
   of those declarations. Fresh pins cannot redefine 32-byte addresses or fault
   authority. Other effect handlers, general signature unification, complete
-  profile obligations and compiled execution remain unfinished.
+  profile obligations and installed effect execution remain unfinished.
 
 - Shared expression/helper inference now preserves nominal contract identity.
   Effect expressions cannot interchange equal representations across contracts,
   implicitly unwrap opaque values, or construct them from untyped literals.
   Nominal declarations must bind their own Core identity. Wire validation keeps
   the existing representation and value-metering rules; complete pure-main
-  static typing, explicit construction operations and effect execution remain
+  static typing, explicit construction operations and installed effect execution remain
   unfinished.
 
 - Effect compiler preparation now authenticates imported Core type declarations
@@ -34,7 +41,7 @@
   bytes cannot hide wrong representations, unpublished calls or invalid helper
   arguments. Declared failure-arm constructors must preserve their exported
   failure authority class. Complete type/source authentication, nominal and
-  intrinsic semantics, and effect execution remain unfinished.
+  intrinsic semantics, and installed effect Action execution remain unfinished.
 
 - Effect compiler preparation now binds the declared lawpack's exports and
   adapter bytes and checks each lowered intrinsic and failure arm against that
@@ -58,7 +65,7 @@
   admit opaque bytes, false artifact identities, a different selected operation
   or output type, inconsistent Core/Target metadata, or invalid instruction
   ordering. This replaces the opaque-byte placeholder; full instruction
-  semantics and authored-effect execution remain unfinished.
+  semantics and authored-effect Action execution remain unfinished.
 
 
 - Invocations now use one `EchoOperationInvocation`, codec, owner policy and
@@ -90,7 +97,8 @@
   program kinds share the current package/program schemas and identity domains;
   the former V2 package type and decoder were removed. Program-kind validation
   requires real lawpack bindings for fixed programs and forbids them for authored
-  effects. Invocation consolidation and authored-effect execution remain unfinished.
+  effects. Invocation consolidation is complete; authored-effect Action execution
+  remains unfinished.
 
 
 - Recovery certificates now use one current operation-index recipe for empty,

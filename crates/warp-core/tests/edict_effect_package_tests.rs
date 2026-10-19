@@ -1691,3 +1691,6 @@ fn outer_package_pins_cannot_replace_profile_or_catalog_bytes() {
         refused(&publication_for_lowering(&lowering));
     }
 }
+#[cfg(feature = "native_rule_bootstrap")]
+#[path = "edict_effect_package_tests/execution.rs"]
+mod execution;

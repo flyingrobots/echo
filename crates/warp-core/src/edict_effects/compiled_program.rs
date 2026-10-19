@@ -139,6 +139,18 @@ impl CompiledProgram {
             lowering: field(&bundle, "lowering_artifacts")?.clone(),
         })
     }
+    pub(super) fn execution(
+        &self,
+        limits: crate::edict_pure::EvaluationLimits,
+    ) -> Result<super::execution::Program, Error> {
+        super::execution::Program::prepare(
+            &self.module,
+            field(field(&self.module, "intents")?, &self.intent)?,
+            field(field(&self.target, "intents")?, &self.intent)?,
+            &self.exports,
+            limits,
+        )
+    }
     pub(super) fn validate_binding(
         &self,
         operation: &str,

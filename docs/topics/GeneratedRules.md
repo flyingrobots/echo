@@ -825,7 +825,7 @@ runtime's logical storage ceiling. The four named atom-read fault tags and their
 or integrity classes are fixed, and each carries the input-address type.
 Mutually agreeing Core, lawpack and catalog declarations cannot change these
 requirements. Other intrinsic names refuse until their actual handlers and ABI
-contracts exist. This does not enable compiled instruction execution.
+contracts exist. Static binding does not itself execute instructions.
 
 The retained profile/catalog declares only the original replace fixture and a
 prior Target IR resource; it does not declare node/atom read. Positive tests now
@@ -895,6 +895,40 @@ interpret instructions, or prove that an application graph schema corresponds
 to compiler exports. Resource execution and the physical arena remain required.
 Static preparation grants no invocation or mutation authority.
 
+### Private ordered authored evaluation
+
+`EffectEvaluationFrame::evaluate_effect` evaluates the prepared current authored
+program against the runtime-selected immutable parent and typed node aperture.
+The frame's exact footprint law must equal the prepared program's law. Unbound
+frames, mismatched laws and invalid apertures refuse before graph observations.
+This is trusted-host private evaluation, without installed dispatch, invocation
+grants or mutation authority.
+
+The checked Core body and ordered Target IR are decoded into typed `let`,
+node/atom-read and terminal `require` instructions. Expressions, predicates,
+helper calls and value validation reuse the existing pure evaluator. Input,
+Core, program and frame ceilings intersect; computation and real recorded reads
+spend the same cumulative meter. Each component retains its own declared work
+and storage ceiling. Basis expressions are evaluated and must yield 32 bytes;
+this does not establish the invocation's separate input-derived basis grant.
+
+Reads resolve the actual atom through the existing typed recording adapter.
+Successful node/atom pairs must satisfy the prepared graph schema before their
+values reach subsequent instructions. Actual absence and mapped read failures
+retain completed dependencies. The currently supported zero-argument failure
+constructors yield their authored source-context name and empty canonical
+payload; false requirements evaluate their terminal payload expressions. These
+are private evaluation errors, not persisted Action decisions or a complete
+obstruction taxonomy/schema proof.
+
+The final result is validated and encoded under the intersected output ceiling.
+Every refusal terminates the frame; later calls do no work. Successful calls
+retain cumulative usage and observations. The new runtime witnesses use the
+explicitly synthetic, coherently pinned read fixture, not a genuine public
+compiler/verifier output. Physical arena guarantees, mutation intrinsics and
+patch derivation, atomic scheduler settlement, receipts/WAL and original-decision
+recovery remain required for the complete bridge.
+
 ### Current invocation input, basis and owner grant admission
 
 `EchoOperationInvocation` is the sole current invocation representation and
@@ -927,7 +961,7 @@ Authored-effect Action execution remains unfinished. Scheduler admission and
 Action recovery inspection explicitly refuse that unsupported execution path;
 the direct preparation seam yields an obstruction rather than a fabricated
 successful patch. Fixed-operation Action evaluation and recovery continue to
-use their real anchors. Compiled instruction execution, the physical arena,
+use their real anchors. Mutation instruction execution, the physical arena,
 derived effects, Tick integration and effect decision recovery remain required.
 
 ### Runtime-owner package policy admission
@@ -960,8 +994,9 @@ This method is exposed only on the runtime-owner host, under the existing
 `native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
 application handle cannot admit a package. The token has no public constructor
 and is neither an installation nor an invocation grant. Installation uses one evidence type and catalog for every program kind.
-Invocation admission and compiled effect execution remain unfinished. Package
-admission does not infer compiler/verifier approval from publication identities.
+Invocation admission is described above; authored-effect Action execution remains
+unfinished. Package admission does not infer compiler/verifier approval from
+publication identities.
 
 ### Runtime-owned installation and retained catalog recovery
 
@@ -1028,9 +1063,8 @@ or recipe switch based on the presence of effect installations or Action outcome
 The historical index recipes were removed under the one-current-version policy.
 
 A fresh filesystem-backed host restores all supported program kinds through
-the sole installation collection and rechecks coordinate conflicts. Invocation
-definitions still require consolidation under the one-current-version policy.
-This is installation recovery, not recovery of
-an authored-effect decision. Invocation grant admission, compiled execution,
-physical allocation, derived effects and Action/Tick/receipt recovery remain
-unfinished.
+the sole installation collection and rechecks coordinate conflicts. The common
+invocation model and owner grant admission are described above. Installation
+recovery does not establish recovery of an authored-effect decision. Mutation
+instruction execution, physical allocation, derived effects and authored-effect
+Action/Tick/receipt recovery remain unfinished.

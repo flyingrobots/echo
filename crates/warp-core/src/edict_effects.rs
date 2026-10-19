@@ -11,6 +11,7 @@
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
 mod instruction_relation;
+mod lowering_relation;
 mod package;
 pub use package::{EffectPackageError, EffectProgram};
 mod frame;

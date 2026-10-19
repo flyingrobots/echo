@@ -390,10 +390,10 @@ fn compiler_core_identity_operation_and_output_cannot_be_rebound_by_a_new_packag
 }
 
 #[test]
-fn retained_public_compiler_core_binds_without_a_bridge_specific_instruction_language() {
-    // These artifacts were captured during a public Edict JSONL build attempt,
-    // rather than manufactured by the bridge fixture builder. This witnesses
-    // canonical artifact binding, not a successful build, execution or verifier approval.
+fn retained_public_capture_refuses_its_inconsistent_lawpack_artifact_pins() {
+    // These are unchanged artifacts from a public Edict JSONL build attempt.
+    // Their lawpack pins do not match the retained exports/adapter bytes.
+    // They must not become accepted evidence through fresh package pins.
     let bytes = hex::decode(
         include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/core.hex")
             .trim(),
@@ -437,8 +437,15 @@ fn retained_public_compiler_core_binds_without_a_bridge_specific_instruction_lan
     )
     .expect("Target IR");
     let exports=echo_edict_canonical::decode_canonical_cbor_v1(&hex::decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex").trim()).expect("exports bytes")).expect("exports");
-    let bundle_bytes = encoded(&compiled_bundle(&core, &target, &exports, name));
-    set(&mut p, "compiled_program", V::Bytes(bundle_bytes.clone()));
+    let mut bundle = compiled_bundle(&core, &target, &exports, name);
+    let captured = |value: &str| V::Bytes(hex::decode(value.trim()).expect("capture"));
+    set(&mut bundle, "lowering_artifacts", map([
+        ("source_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/04-source.hex"))),
+        ("lawpack_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/03-lawpack.hex"))),
+        ("adapter_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"))),
+    ]));
+    let bundle_bytes = encoded(&bundle);
+    set(&mut p, "compiled_program", V::Bytes(bundle_bytes));
     set(
         &mut p,
         "target_ir_identity",
@@ -451,15 +458,7 @@ fn retained_public_compiler_core_binds_without_a_bridge_specific_instruction_lan
         "operation_coordinate",
         text(&format!("{coordinate}.{name}")),
     );
-    let prepared = prepare(&v).expect("real compiler Core bound to its operation and type");
-    assert_eq!(
-        prepared
-            .program()
-            .as_effect_program()
-            .expect("effect")
-            .compiled_program(),
-        bundle_bytes
-    );
+    refused(&v);
 }
 
 fn bound_compiler_package(core: &V, target: &V, exports: &V, intent: &str) -> V {
@@ -631,14 +630,52 @@ fn compiled_artifact_claims_and_nested_canonical_bytes_cannot_be_substituted() {
     refused(&package(&p));
 }
 
-fn captured_compiler_artifacts() -> (V, V, V) {
+fn repinned_compiler_artifacts() -> (V, V, V) {
     let decode = |hex: &str| {
         echo_edict_canonical::decode_canonical_cbor_v1(
             &hex::decode(hex.trim()).expect("artifact bytes"),
         )
         .expect("canonical compiler artifact")
     };
-    (decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/core.hex")),decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/06-target-ir.hex")),decode(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex")))
+    let mut core = decode(include_str!(
+        "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/core.hex"
+    ));
+    let mut target = decode(include_str!(
+        "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/06-target-ir.hex"
+    ));
+    let exports = decode(include_str!(
+        "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
+    ));
+    let artifacts = repinned_lowering_artifacts();
+    let V::Bytes(bytes) = get(&artifacts, "lawpack_artifact") else {
+        panic!("lawpack")
+    };
+    let lawpack = echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("lawpack");
+    let reference = map([
+        ("id", text("jedit.text@1")),
+        (
+            "digest",
+            V::Array(vec![
+                text("sha256"),
+                artifact_identity("edict.lawpack/v1", &lawpack),
+            ]),
+        ),
+    ]);
+    let V::Array(imports) = value_field_mut(&mut core, "imports") else {
+        panic!("imports")
+    };
+    set(&mut imports[0], "ref", reference.clone());
+    let closure = value_field_mut(&mut target, "semanticClosure");
+    set(closure, "lawpacks", V::Array(vec![reference]));
+    set(
+        value_field_mut(closure, "sourceCore"),
+        "digest",
+        V::Array(vec![
+            text("sha256"),
+            artifact_identity("edict.core.module/v1", &core),
+        ]),
+    );
+    (core, target, exports)
 }
 fn first_step_mut(target: &mut V) -> &mut V {
     let selected = selected_target_mut(target);
@@ -659,7 +696,7 @@ fn first_step_mut(target: &mut V) -> &mut V {
 fn repinning_cannot_change_a_compiled_instruction_while_retaining_its_core_body() {
     // Disabling the ordered Core/Target relation admits each forged lowering,
     // despite every artifact identity and the new package pin being correct.
-    let (core, target, exports) = captured_compiler_artifacts();
+    let (core, target, exports) = repinned_compiler_artifacts();
     assert!(prepare(&bound_compiler_package(
         &core,
         &target,
@@ -748,7 +785,7 @@ fn core_body_mut(core: &mut V) -> &mut V {
 }
 #[test]
 fn matching_core_and_target_still_cannot_forge_local_identity_or_scope() {
-    let (original_core, original_target, exports) = captured_compiler_artifacts();
+    let (original_core, original_target, exports) = repinned_compiler_artifacts();
     for mode in 0..3 {
         let mut core = original_core.clone();
         let mut target = original_target.clone();
@@ -901,7 +938,7 @@ fn pure_bindings_preserve_values_and_become_available_only_after_their_definitio
 
 #[test]
 fn lowered_failure_arms_preserve_the_source_binders_and_values_without_duplicates() {
-    let (core, target, exports) = captured_compiler_artifacts();
+    let (core, target, exports) = repinned_compiler_artifacts();
     for mode in 0..3 {
         let mut target = target.clone();
         let step = first_step_mut(&mut target);
@@ -940,5 +977,101 @@ fn lowered_failure_arms_preserve_the_source_binders_and_values_without_duplicate
             &exports,
             "replaceRange",
         ));
+    }
+}
+
+#[test]
+fn pinned_adapter_rejects_swapped_failure_tags_and_substituted_intrinsics() {
+    let (core, original, exports) = repinned_compiler_artifacts();
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &original,
+        &exports,
+        "replaceRange"
+    ))
+    .is_ok());
+    for mode in 0..2 {
+        let mut target = original.clone();
+        let step = first_step_mut(&mut target);
+        if mode == 0 {
+            let V::Map(arms) = value_field_mut(step, "obstructionArms") else {
+                panic!("arms")
+            };
+            let first = arms[0].1.clone();
+            arms[0].1 = arms[1].1.clone();
+            arms[1].1 = first;
+        } else {
+            set(step, "targetIntrinsic", text("echo.dpo@1.node-delete"));
+        }
+        assert!(
+            prepare(&bound_compiler_package(
+                &core,
+                &target,
+                &exports,
+                "replaceRange"
+            ))
+            .is_err(),
+            "adapter substitution {mode} survived fresh pins"
+        );
+    }
+}
+
+#[test]
+fn fresh_bundle_pins_cannot_replace_or_omit_the_pinned_lowering_artifacts() {
+    let (core, target, exports) = repinned_compiler_artifacts();
+    for mode in 0..5 {
+        let mut bundle = compiled_bundle(&core, &target, &exports, "replaceRange");
+        let lowering = value_field_mut(&mut bundle, "lowering_artifacts");
+        if mode == 0 {
+            *lowering = V::Null;
+        } else {
+            let key = [
+                "",
+                "source_artifact",
+                "lawpack_artifact",
+                "adapter_artifact",
+                "adapter_artifact",
+            ][mode];
+            let V::Bytes(raw) = get(lowering, key) else {
+                panic!("artifact")
+            };
+            let mut value = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("artifact");
+            match mode {
+                1 => {
+                    let V::Bytes(source) = &mut value else {
+                        panic!("source")
+                    };
+                    *source = String::from_utf8(source.clone())
+                        .expect("utf8")
+                        .replace(" as text;", " as other;")
+                        .into_bytes();
+                }
+                2 => set(&mut value, "version", text("2")),
+                3 => {
+                    let implementations = value_field_mut(&mut value, "effectImplementations");
+                    let implementation = value_field_mut(implementations, "jedit.text@1.readFact");
+                    set(
+                        implementation,
+                        "targetIntrinsic",
+                        text("echo.dpo@1.node-delete"),
+                    );
+                }
+                _ => {
+                    add(&mut value, "extra", V::Null);
+                }
+            }
+            set(lowering, key, V::Bytes(encoded(&value)));
+        }
+        let mut package = bound_compiler_package(&core, &target, &exports, "replaceRange");
+        let V::Bytes(raw) = get(&package, "program") else {
+            panic!("program")
+        };
+        let mut program = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("program");
+        set(&mut program, "compiled_program", V::Bytes(encoded(&bundle)));
+        set(&mut package, "program", V::Bytes(encoded(&program)));
+        assert!(
+            prepare(&package).is_err(),
+            "lowering substitution {mode} survived fresh pins"
+        );
     }
 }

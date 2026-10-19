@@ -219,12 +219,79 @@ pub fn compiled_exports() -> V {
     ])
 }
 pub fn compiled_bundle(core: &V, target: &V, exports: &V, intent: &str) -> V {
+    let has_effects = matches!(get(exports, "effects"), V::Array(effects) if !effects.is_empty());
+    let lowering = if has_effects {
+        repinned_lowering_artifacts()
+    } else {
+        V::Null
+    };
     map([
+        ("lowering_artifacts", lowering),
         ("schema", text("echo.compiler-produced-effect-program/v1")),
         ("intent", text(intent)),
         ("core_artifact", V::Bytes(encoded(core))),
         ("target_ir_artifact", V::Bytes(encoded(target))),
         ("lawpack_exports_artifact", V::Bytes(encoded(exports))),
+    ])
+}
+// This is a synthetic, internally repinned test chain built from the retained
+// public capture. It is not evidence of a successful compiler/verifier run.
+pub fn repinned_lowering_artifacts() -> V {
+    let captured = |value: &str| {
+        echo_edict_canonical::decode_canonical_cbor_v1(
+            &hex::decode(value.trim()).expect("captured bytes"),
+        )
+        .expect("captured value")
+    };
+    let mut lawpack = captured(include_str!(
+        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/03-lawpack.hex"
+    ));
+    let adapter = captured(include_str!(
+        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"
+    ));
+    let exports = captured(include_str!(
+        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
+    ));
+    let pin = |domain, value: &V| V::Array(vec![text("sha256"), artifact_identity(domain, value)]);
+    let mut reference = get(&lawpack, "exports").clone();
+    set(
+        &mut reference,
+        "digest",
+        pin("edict.lawpack-exports/v1", &exports),
+    );
+    set(&mut lawpack, "exports", reference);
+    let mut adapters = get(&lawpack, "targetAdapters").clone();
+    let V::Array(entries) = &mut adapters else {
+        panic!("adapters")
+    };
+    let mut reference = get(&entries[0], "adapter").clone();
+    set(
+        &mut reference,
+        "digest",
+        pin("edict.lawpack-adapter/v1", &adapter),
+    );
+    set(&mut entries[0], "adapter", reference);
+    set(&mut lawpack, "targetAdapters", adapters);
+    let original_source = captured(include_str!(
+        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/04-source.hex"
+    ));
+    let V::Bytes(source) = original_source else {
+        panic!("source")
+    };
+    let source = String::from_utf8(source).expect("utf8");
+    let digest = echo_edict_canonical::digest_canonical_value_v1("edict.lawpack/v1", &lawpack)
+        .expect("digest");
+    let source = source.replace(
+        "sha256:2ea164293719d2b03231c4904eb75ddcdf55fd29cc31f4fc5a5319d9ae5e60e7",
+        &digest,
+    );
+    map([
+        (
+            "source_artifact",
+            V::Bytes(encoded(&V::Bytes(source.into_bytes()))),
+        ),
+        ("lawpack_artifact", V::Bytes(encoded(&lawpack))),
+        ("adapter_artifact", V::Bytes(encoded(&adapter))),
     ])
 }
 pub fn compiler_program() -> V {

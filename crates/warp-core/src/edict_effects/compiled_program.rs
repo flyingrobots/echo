@@ -18,6 +18,8 @@ pub(super) struct CompiledProgram {
     target_identity: [u8; 32],
     exports_identity: [u8; 32],
     intent: String,
+    exports: Value,
+    lowering: Value,
 }
 impl CompiledProgram {
     pub(super) fn parse(bytes: &[u8]) -> Result<Self, Error> {
@@ -30,6 +32,7 @@ impl CompiledProgram {
                 "core_artifact",
                 "target_ir_artifact",
                 "lawpack_exports_artifact",
+                "lowering_artifacts",
             ],
         )?;
         require_text(
@@ -132,6 +135,8 @@ impl CompiledProgram {
             target_identity,
             exports_identity,
             intent,
+            exports,
+            lowering: field(&bundle, "lowering_artifacts")?.clone(),
         })
     }
     pub(super) fn validate_binding(
@@ -212,6 +217,14 @@ impl CompiledProgram {
             return Err(Error::InvalidArtifact);
         }
         super::instruction_relation::validate(&self.module, intent, target)?;
+        super::lowering_relation::validate(
+            &self.module,
+            intent,
+            &self.target,
+            target,
+            &self.exports,
+            &self.lowering,
+        )?;
         Ok(())
     }
 }

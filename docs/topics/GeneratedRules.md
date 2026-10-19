@@ -723,10 +723,15 @@ physical evaluation arena.
 
 The `compiled_program` payload uses one current
 `echo.compiler-produced-effect-program/v1` artifact bundle with exactly
-`schema`, `intent`, `core_artifact`, `target_ir_artifact`, and
-`lawpack_exports_artifact`. The three artifacts are exact canonical CBOR bytes;
-opaque bytes, an unbundled Core module, extra fields, and noncanonical nested
-encodings refuse. There is no alternate historical decoder.
+`schema`, `intent`, `core_artifact`, `target_ir_artifact`,
+`lawpack_exports_artifact`, and `lowering_artifacts`. The first three artifacts
+are exact canonical CBOR bytes. `lowering_artifacts` is null for a selected body
+without effects. For an effect body it is an exact map containing canonical
+`source_artifact`, `lawpack_artifact`, and `adapter_artifact` byte strings;
+the source decodes to UTF-8 bytes. This replaces the former bundle shape;
+there is one decoder and no compatibility path. Opaque program bytes,
+an unbundled Core module, extra bundle fields, and noncanonical nested
+encodings refuse.
 
 Preparation recomputes the Edict canonical SHA-256 identities for Core, Target
 IR and exports and checks them against the package closure and program. The
@@ -759,18 +764,39 @@ Expression syntax, type expansion and reference traversal retain the existing
 combined work/depth ceilings. Unsupported control-flow and optic bodies refuse
 until their instruction contracts exist.
 
+Effect bodies additionally require a single lawpack pinned identically by the
+Core imports and Target semantic closure. The lawpack must pin the exact exports
+and declarative adapter bytes. Its selected adapter entry must match the Target
+profile reference and Target IR schema ID. The current bounded source preamble
+requires the same package coordinate and an explicit lawpack import with that
+lawpack digest and one alias. Effect names must use that alias or the fully
+qualified lawpack coordinate. A uniquely matching adapter operation profile
+must authorize every effect. Each lowered intrinsic name must equal its adapter
+implementation. Source failure names map to the exact lowered tags and arm
+bodies through the adapter; mappings are bijective and agree with exported
+failure declarations. Effect result bindings and failure payload binders must
+use the exported type names. Collection storage order does not replace the
+explicit execution order.
+
+The retained raw public capture has inconsistent export/adapter pins in its
+lawpack and now refuses. Positive correspondence tests use an explicitly
+repinned synthetic chain derived from that capture. They do not prove a
+successful compiler build or verifier acceptance.
+
 These checks establish artifact binding, ordered node correspondence, expression
 syntax and lexical scope, not full Core or Target IR instruction semantics.
-They do not yet infer every expression's type, authorize helper calls, validate
-intrinsic signatures or authenticate the mapping from source failure names to
-lowered failure tags. They also do not authenticate the
-source closure, validate the complete lowering relation, establish verifier approval,
+They do not yet infer every expression's type, authorize helper calls, or
+validate complete intrinsic signatures. Adapter correspondence binds declared
+names and failure arms; it does not prove a source-to-Core translation or an
+independently verified source closure. The bounded preamble reader is not a full
+Edict parser. Multiple lawpacks and ambiguous adapter profiles refuse explicitly.
+Complete target schema/profile artifacts, effect input typing, failure authority
+classes, cost/footprint/configuration obligations, and the complete lowering
+relation remain unchecked. These checks do not establish verifier approval,
 interpret instructions, or prove that an application graph schema corresponds
 to compiler exports. Instruction typing, effect lowering, resource execution
 and the physical arena remain required. Static preparation grants no invocation
-or mutation authority. The retained compiler-artifact test uses captured public
-JSONL compiler artifacts; it does not claim a successful effect application
-build or an accepted effect verifier report.
+or mutation authority.
 
 ### Current invocation input, basis and owner grant admission
 

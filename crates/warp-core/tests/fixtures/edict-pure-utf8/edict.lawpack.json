@@ -1,0 +1,219 @@
+{
+  "schema": "edict.lawpack-build/v1",
+  "outputDirectory": "vendor/jedit-text",
+  "lawpack": {
+    "schema": "edict.lawpack-authoring/v1",
+    "id": "jedit.text",
+    "version": "1",
+    "acceptedCoreAbi": [
+      "edict.core/v1"
+    ],
+    "dependencies": [],
+    "exportsCoordinate": "jedit.text.exports/v1",
+    "exports": {
+      "types": [
+        {
+          "coordinate": "jedit.text@1.NodeId",
+          "definition": "Bytes<exact=32>"
+        },
+        {
+          "coordinate": "jedit.text@1.BufferId",
+          "definition": "Nominal<jedit.text@1.NodeId>"
+        },
+        {
+          "coordinate": "jedit.text@1.HeadId",
+          "definition": "Nominal<jedit.text@1.NodeId>"
+        },
+        {
+          "coordinate": "jedit.text@1.ReplacementBytes",
+          "definition": "Bytes<max=1048576>"
+        },
+        {
+          "coordinate": "jedit.text@1.ObstructionDetail",
+          "definition": "String<max=256>"
+        }
+      ],
+      "constants": [
+        {
+          "coordinate": "jedit.text@1.maxCreatedLeaves",
+          "type": "U64",
+          "value": 4096
+        },
+        {
+          "coordinate": "jedit.text@1.maxCreatedBranches",
+          "type": "U64",
+          "value": 4096
+        }
+      ],
+      "pureFunctions": [
+        {
+          "source": "edict",
+          "coordinate": "jedit.text@1.maxCreatedLeafCount",
+          "typeParameters": [],
+          "parameterTypes": [],
+          "returnType": "U64",
+          "costTemplate": "jedit.text@1.maxCreatedLeafCountCost",
+          "determinismClass": "total",
+          "body": {
+            "params": [],
+            "body": {
+              "locals": [],
+              "bindings": [],
+              "result": {
+                "kind": "const",
+                "value": {
+                  "kind": "int",
+                  "width": "U64",
+                  "value": 4096
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [],
+      "obstructions": [
+        {
+          "coordinate": "jedit.text@1.RangeOrderInvalid",
+          "authorityClass": "domainMappable",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.RangeOutOfBounds",
+          "authorityClass": "domainMappable",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.Utf8BoundaryInvalid",
+          "authorityClass": "domainMappable",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.NoOp",
+          "authorityClass": "domainMappable",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.BasisNotCanonical",
+          "authorityClass": "domainMappable",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.ArithmeticOverflow",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.FactMissing",
+          "authorityClass": "resourceFault",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.FactMalformed",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.ContentIdentityMismatch",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        },
+        {
+          "coordinate": "jedit.text@1.MalformedRope",
+          "authorityClass": "integrityFault",
+          "payloadSchema": "jedit.text@1.ObstructionDetail"
+        }
+      ],
+      "operationProfiles": {
+        "jedit.text@1.replaceRange": {
+          "opticTemplate": {
+            "opticKind": "affectReintegration",
+            "boundaryKind": "affect",
+            "supportPolicy": "jedit.text@1.basisBoundSupport",
+            "lossDisposition": "jedit.text@1.lossless",
+            "basisTemplate": "jedit.text@1.exactHeadBasis",
+            "apertureRequirement": {
+              "kind": "abstractFootprintObligation",
+              "reference": "jedit.text@1.replaceRangeFootprint"
+            }
+          },
+          "effectPredicate": "jedit.text@1.replaceRangeEffects"
+        }
+      }
+    },
+    "targetAdapters": [
+      {
+        "coordinate": "jedit.text.echo-adapter/v1",
+        "output": "adapter.cbor",
+        "acceptedTargetProfile": {
+          "id": "echo.dpo@1",
+          "digest": "sha256:2e2494121aecf5e6a2d920f5fb85408825d394765fad41484c416397c920fb04"
+        },
+        "acceptedTargetIr": {
+          "id": "echo.span-ir/v1",
+          "digest": "sha256:0057167e68f50c99dcce087b3e1cd677d17c5d1dc238bdb52d89469e1472fc2f"
+        },
+        "operationProfiles": {
+          "jedit.text@1.replaceRange": {
+            "core": "continuum.profile.read-write/v1",
+            "semanticEffects": [],
+            "budgetObligation": "jedit.text@1.replaceRangeBudget",
+            "targetConfiguration": {
+              "local": "echo-config"
+            }
+          }
+        },
+        "effectImplementations": {},
+        "budgets": {
+          "jedit.text@1.replaceRangeBudget": {
+            "maxSteps": 8388608,
+            "maxAllocatedBytes": 16777216,
+            "maxOutputBytes": 8388608
+          },
+          "jedit.text@1.maxCreatedLeafCountCost": {
+            "maxSteps": 64,
+            "maxAllocatedBytes": 1024,
+            "maxOutputBytes": 64
+          }
+        }
+      }
+    ],
+    "verifier": {
+      "class": "declarative",
+      "ruleset": {
+        "local": "verifier-rules"
+      }
+    },
+    "compatibility": {
+      "id": "jedit.text.compatibility/v1",
+      "digest": "sha256:2adf83f798205f52636ad64ca45178f33a8e1cc663874f8a6113484c945e3052"
+    },
+    "conformanceFixtureCorpus": {
+      "id": "jedit.text.ReplaceRange.oracle@1",
+      "digest": "sha256:b9b4707dd5e07897cbe7af36d88928401887e6af5d167d1a88a8d6181b4dbb0e"
+    },
+    "localResources": [
+      {
+        "name": "echo-config",
+        "coordinate": "echo.operation-lowering-configuration/v1",
+        "output": "echo-operation-configuration.cbor",
+        "value": {
+          "apiVersion": "echo.operation-lowering-configuration/v1",
+          "programKind": "compiler-produced-bounded-pure/v1"
+        }
+      },
+      {
+        "name": "verifier-rules",
+        "coordinate": "jedit.text.verifier-rules/v1",
+        "output": "verifier-rules.cbor",
+        "value": {
+          "schema": "jedit.text.schema@1",
+          "schemaDigest": "sha256:f49b0ff6c9c7010d3a72b46734d47832853f496739a083edc41dddec3431bac7",
+          "oracleIsExecutableInput": false,
+          "runtimeOntology": "generic-bounded-graph"
+        }
+      }
+    ]
+  },
+  "dependencyBundles": []
+}

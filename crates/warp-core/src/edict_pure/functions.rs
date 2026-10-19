@@ -607,6 +607,7 @@ impl Heights<'_> {
                     .max(self.expr(right, depth + 1)?)
                     + 1
             }
+            Predicate::Not(value) => self.predicate(value, depth + 1)? + 1,
             Predicate::All(values) => {
                 let mut maximum = 0;
                 for value in values {

@@ -286,7 +286,7 @@ pub(crate) fn expression(
             validate(&value, &helper.ty, meter, depth + 1)?;
             Ok(value)
         }
-        Expr::UnsignedSubtract { max, left, right } => {
+        Expr::UnsignedSubtract { max, left, right } | Expr::UnsignedAdd { max, left, right } => {
             let left = expression(left, locals, helpers, meter, depth + 1)?;
             let right = expression(right, locals, helpers, meter, depth + 1)?;
             let ty = RuntimeType::Unsigned(*max);
@@ -295,10 +295,14 @@ pub(crate) fn expression(
             let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
                 return Err(Error::InvalidArtifact);
             };
-            let difference = left
-                .checked_sub(right)
-                .filter(|value| *value >= 0)
-                .ok_or(Error::InvalidArtifact)?;
+            let difference = if matches!(expr, Expr::UnsignedAdd { .. }) {
+                left.checked_add(right)
+                    .filter(|value| *value <= i128::from(*max))
+            } else {
+                left.checked_sub(right)
+            }
+            .filter(|value| *value >= 0)
+            .ok_or(Error::InvalidArtifact)?;
             meter.copy(&Value::Integer(difference))
         }
         Expr::ByteUtf8 { min, max, value } => {
@@ -497,6 +501,70 @@ pub(crate) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_addition_checks_both_widths_and_charges_the_result() -> Result<(), Error> {
+        let limits = EvaluationLimits {
+            max_package_bytes: 1024,
+            max_input_bytes: 1024,
+            max_steps: 8,
+            max_allocated_bytes: 192,
+            max_output_bytes: 1024,
+        };
+        let sum = |max, left, right| Expr::UnsignedAdd {
+            max,
+            left: Box::new(Expr::Constant(Value::Integer(left))),
+            right: Box::new(Expr::Constant(Value::Integer(right))),
+        };
+        for max in [u64::from(u32::MAX), u64::MAX] {
+            let expr = sum(max, i128::from(max), 0);
+            let mut exact = Meter::new(limits);
+            assert_eq!(
+                expression(&expr, &BTreeMap::new(), &BTreeMap::new(), &mut exact, 0)?,
+                Value::Integer(i128::from(max))
+            );
+            assert_eq!(exact.usage(), (8, 192));
+            for (left, right) in [(i128::from(max), 1), (-1, 0), (i128::from(max) + 1, 0)] {
+                assert_eq!(
+                    expression(
+                        &sum(max, left, right),
+                        &BTreeMap::new(),
+                        &BTreeMap::new(),
+                        &mut Meter::new(limits),
+                        0
+                    ),
+                    Err(Error::InvalidArtifact)
+                );
+            }
+            assert_eq!(
+                expression(
+                    &expr,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &mut Meter::new(EvaluationLimits {
+                        max_steps: 7,
+                        ..limits
+                    }),
+                    0
+                ),
+                Err(Error::StepBudgetExceeded)
+            );
+            assert_eq!(
+                expression(
+                    &expr,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                    &mut Meter::new(EvaluationLimits {
+                        max_allocated_bytes: 191,
+                        ..limits
+                    }),
+                    0
+                ),
+                Err(Error::AllocationBudgetExceeded)
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn byte_concat_admits_both_copy_lengths_before_allocation() -> Result<(), Error> {

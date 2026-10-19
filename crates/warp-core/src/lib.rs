@@ -41,6 +41,8 @@ pub mod wsc;
 
 mod actual_footprint;
 mod admission;
+#[cfg(feature = "application_root_shadow")]
+pub mod application_root;
 mod attachment;
 mod braid;
 mod braid_shell;

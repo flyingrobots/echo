@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Execute an unmodified public compiler package containing proven unsigned sums.
 #![cfg(feature = "trusted_runtime")]
 #![allow(clippy::unwrap_used, clippy::panic)]

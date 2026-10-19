@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Lowerer-owned recursive upper bounds over checked, dominating predicates.
 use super::{get, list, literal, string, Check, Value};
 

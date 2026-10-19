@@ -360,6 +360,13 @@ impl<'a> Scope<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match (name, actual.as_slice(), declared.as_slice()) {
+            // source_functions::validate already established the independent
+            // no-overflow proof before this read relation is constructed.
+            ("core.integer.add", [left, right], [expected @ ReadType::Unsigned(_)])
+                if left == expected && right == expected =>
+            {
+                Ok(expected.clone())
+            }
             ("core.bytes.isUtf8", [actual], [expected @ ReadType::Bytes(_, _)])
                 if expected == actual =>
             {

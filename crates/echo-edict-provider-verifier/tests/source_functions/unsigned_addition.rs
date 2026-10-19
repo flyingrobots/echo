@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rebound native judgments; public compiler evidence is retained separately.
 use super::*;
 

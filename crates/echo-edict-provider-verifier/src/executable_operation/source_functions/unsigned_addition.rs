@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Verifier-owned inventory of canonical-expression caps and independent composition.
 use super::{get, sequence, string, unsigned, Check, Types, Value};
 

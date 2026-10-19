@@ -112,7 +112,8 @@ The public compiler fixture and arithmetic meter test in
 Native lowerer and verifier source-function judgments independently require
 exact same-width operands and a dominating no-overflow proof. Checked conjunctive
 prefixes can bound later terms; facts cannot escape negation or flow backward.
-New addition calls require this judgment even when the legacy Core function
+Bounded-read relations reuse this established proof and require exactly
+matching declared and operand widths. New addition calls require this judgment even when the legacy Core function
 table is absent. Both implementations bound proof traversal and comparisons
 using their existing work ceilings. Rebound native tests exercise these checks;
 they do not establish public compiler acceptance.

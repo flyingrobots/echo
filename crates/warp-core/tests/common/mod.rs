@@ -296,6 +296,8 @@ fn make_parallel_touch_rule() -> RewriteRule {
                 }));
             }
             Footprint {
+                r_read: warp_core::OutgoingEdgeRangeSet::default(),
+                r_write: warp_core::OutgoingEdgeRangeSet::default(),
                 n_read: warp_core::NodeSet::default(),
                 n_write: warp_core::NodeSet::default(),
                 e_read: warp_core::EdgeSet::default(),
@@ -1020,6 +1022,8 @@ macro_rules! make_touch_rule {
                     }));
                 }
                 warp_core::Footprint {
+                    r_read: warp_core::OutgoingEdgeRangeSet::default(),
+                    r_write: warp_core::OutgoingEdgeRangeSet::default(),
                     n_read: warp_core::NodeSet::default(),
                     n_write: warp_core::NodeSet::default(),
                     e_read: warp_core::EdgeSet::default(),

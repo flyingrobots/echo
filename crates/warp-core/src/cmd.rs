@@ -163,6 +163,8 @@ fn import_suffix_intent_footprint(view: crate::GraphView<'_>, scope: &NodeId) ->
     }));
 
     Footprint {
+        r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+        r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write,
         e_read: EdgeSet::default(),

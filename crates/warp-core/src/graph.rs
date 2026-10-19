@@ -427,8 +427,14 @@ impl GraphStore {
     ///
     /// Edges are yielded in insertion order. For deterministic traversal
     /// (e.g., snapshot hashing), callers must sort by `EdgeId`.
-    pub fn edges_from(&self, id: &NodeId) -> impl Iterator<Item = &EdgeRecord> {
-        self.edges_from.get(id).into_iter().flatten()
+    /// The remaining bucket length is available in constant time, without
+    /// advancing or inspecting an edge. Bounded range readers can therefore
+    /// charge the entire bucket before filtering by edge type.
+    pub fn edges_from(&self, id: &NodeId) -> impl ExactSizeIterator<Item = &EdgeRecord> {
+        self.edges_from
+            .get(id)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
     }
 
     /// Returns a mutable reference to a node when it exists.
@@ -776,6 +782,55 @@ impl GraphStore {
 mod tests {
     use super::*;
     use crate::ident::{make_edge_id, make_node_id, make_type_id};
+
+    // A range budget must count nonmatching edges before advancing the iterator.
+    #[test]
+    fn outgoing_bucket_length_is_available_before_inspection_and_tracks_moves() {
+        let mut store = GraphStore::default();
+        let a = make_node_id("range/a");
+        let b = make_node_id("range/b");
+        let ty = make_type_id("range/matching");
+        let other = make_type_id("range/nonmatching");
+        for node in [a, b] {
+            store.insert_node(node, NodeRecord { ty });
+        }
+        assert_eq!(store.edges_from(&a).len(), 0);
+        for (name, edge_type) in [("first", ty), ("second", other), ("third", other)] {
+            store.insert_edge(
+                a,
+                EdgeRecord {
+                    id: make_edge_id(name),
+                    from: a,
+                    to: b,
+                    ty: edge_type,
+                },
+            );
+        }
+        let mut bucket = store.edges_from(&a);
+        assert_eq!(bucket.len(), 3);
+        assert_eq!(
+            bucket.next().map(|edge| edge.id),
+            Some(make_edge_id("first"))
+        );
+        assert_eq!(bucket.len(), 2);
+        drop(bucket);
+        store.insert_edge(
+            b,
+            EdgeRecord {
+                id: make_edge_id("second"),
+                from: b,
+                to: a,
+                ty: other,
+            },
+        );
+        assert_eq!(store.edges_from(&a).len(), 2);
+        assert_eq!(store.edges_from(&b).len(), 1);
+        assert!(store.delete_edge_exact(a, make_edge_id("first")));
+        assert_eq!(store.edges_from(&a).len(), 1);
+        assert!(store.delete_node_cascade(b));
+        assert_eq!(store.edges_from(&a).len(), 0);
+        assert_eq!(store.edges_from(&b).len(), 0);
+    }
 
     #[test]
     fn delete_node_cascade_updates_reverse_indexes() {

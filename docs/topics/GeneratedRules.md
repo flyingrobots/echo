@@ -210,6 +210,15 @@ What is implemented today is a conservative subset:
   Tick fields, and recovery recomputes the rule from retained history. A failed
   dependency is reported as `BasisChanged`.
 
+The interval write set includes both each retained replay patch's declared
+`out_slots` and every record slot written by its operations. This includes
+runtime-ingress materialization, whose writes occur outside rule footprints.
+Node and edge deletion include their removed attachment slots; portal creation
+includes its portal attachment and child root. A missing replay patch or a
+warp-instance upsert or deletion makes the interval write set unknown, so the
+scoped exception is unavailable and the whole-frontier rule applies. This
+corroboration change does not change patch encodings, digests, or roots.
+
 Every other Action follows the whole-frontier rule below.
 
 Today an Action carries its whole `EchoOperationEvaluationBasisV1`: writer head
@@ -335,6 +344,13 @@ path now has positive provider-native installation and invocation witnesses,
 but it still needs a deliberately false-footprint negative oracle before it may
 claim release qualification. Wesley still needs both a package emitter and its
 own positive installed generated-pack witness.
+
+The scheduler can reserve explicit outgoing-edge range claims, including empty
+ranges, as described in the [scheduler contract](../spec/scheduler-warp-core.md).
+This claim API does not instrument existing graph reads or edge writers. Range
+keys survive patch identity, retained provenance encoding and native Tick
+metadata. This does not admit a new authored-effect profile or qualify a
+generated package for release.
 
 Conflicts remain explicit receipt rejections. A footprint failure must not
 trigger hidden retries or widen access.

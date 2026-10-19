@@ -31,7 +31,7 @@ Replay applies ops; it does not invoke matchers, executors, or scheduler decisio
 
 ## Decision 2: Slots are unversioned in the patch
 
-Patch slots name locations: `Node(NodeKey)`, `Edge(EdgeKey)`, `Attachment(AttachmentKey)`, and `Port(PortKey)`. Version identity is interpreted from patch position in the worldline.
+Patch slots name locations: `Node(NodeKey)`, `Edge(EdgeKey)`, `Attachment(AttachmentKey)`, `Port(PortKey)`, and `OutgoingEdges(OutgoingEdgeRange)`. Version identity is interpreted from patch position in the worldline.
 
 ## Decision 3: Ops are explicit carrier edits
 
@@ -39,7 +39,7 @@ Patch v2 supports `OpenPortal`, instance upsert/delete, node upsert/delete, edge
 
 ## Decision 4: Canonical ordering is part of the format
 
-Slot tag order is node, edge, attachment, port. Op replay order is open portals, upsert instances, delete instances, delete edges, delete nodes, upsert nodes, upsert edges, set attachments.
+Slot tag order is node, edge, attachment, port, outgoing-edge range. Op replay order is open portals, upsert instances, delete instances, delete edges, delete nodes, upsert nodes, upsert edges, set attachments.
 
 ## Decision 5: `patch_digest` commits to the patch core
 
@@ -48,3 +48,33 @@ Slot tag order is node, edge, attachment, port. Op replay order is open portals,
 ## Slicing contract
 
 For a target slot, find the latest producer patch, add that patch, enqueue its `in_slots`, and repeat until the producer frontier closes or reaches the boundary state. Over-approximating `in_slots` is acceptable; under-approximating them is not.
+
+## Outgoing-edge range slots
+
+An outgoing-edge range key contains the source `NodeKey` and edge `TypeId`.
+Slot tag 5 is followed by the 32-byte source WARP, 32-byte source node and
+32-byte edge type, in that order, both in the patch digest stream and retained
+provenance slot encoding. Existing point-slot bytes and digest inputs are
+unchanged. A reader without range-tag support refuses the new tag rather than
+interpreting it as a point slot.
+
+A declared range read contributes an input slot. A declared range write
+contributes both input and output slots, so tracing a range's next producer
+also traces the prior aggregate. The engine's blocker reconstruction compares
+these same range claims when explaining a scheduler rejection. A rejected
+candidate contributes no range outputs.
+
+The host slot reader returns matching full edge records sorted by edge ID.
+An existing source with no matching edges is `Some([])`; an absent source is
+`None`. A producer that depends on source presence must also record the source
+node slot; the range key does not replace that point dependency. A range is an aggregate, so the point index's latest absolute write
+cannot reconstruct it. Historical range reading currently clones the initial
+state and replays the selected prefix. This includes relabeling, moving and
+removing edges, and source deletion. Invalid replay history returns
+`InvalidRangeHistory`. The borrowed initial state is never mutated.
+
+That host reading has full-prefix replay and state-copy cost. It is not the
+bounded, metered read aperture of an interpreted Edict operation. Native Tick
+and retained-codec witnesses establish declared claim retention and replay;
+they do not establish the authored operation effect bridge or automatically
+record range reads and writes in existing graph accessors.

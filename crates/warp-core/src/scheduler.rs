@@ -14,11 +14,15 @@ use std::collections::BTreeMap;
 
 use std::sync::Arc;
 
-use crate::footprint::{Footprint, WarpScopedPortKey};
+use crate::footprint::{Footprint, OutgoingEdgeRange, WarpScopedPortKey};
 use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeKey};
 use crate::telemetry::TelemetrySink;
 use crate::tick_delta::OpOrigin;
 use crate::tx::TxId;
+
+#[cfg(test)]
+#[path = "scheduler/range_tests.rs"]
+mod range_tests;
 
 /// Active footprint tracking for one transaction, using per-transaction
 /// [`GenSet`]s (`BTreeMap`-backed, O(log n) per lookup).
@@ -36,6 +40,10 @@ pub(crate) struct ActiveFootprints {
     edges_written: GenSet<EdgeKey>,
     /// Edges read by reserved rewrites (warp-scoped)
     edges_read: GenSet<EdgeKey>,
+    /// Outgoing-edge ranges changed by reserved rewrites.
+    ranges_written: GenSet<OutgoingEdgeRange>,
+    /// Outgoing-edge ranges observed by reserved rewrites, empty included.
+    ranges_read: GenSet<OutgoingEdgeRange>,
     /// Attachments written by reserved rewrites (already warp-scoped via NodeKey/EdgeKey)
     attachments_written: GenSet<crate::attachment::AttachmentKey>,
     /// Attachments read by reserved rewrites (already warp-scoped via NodeKey/EdgeKey)
@@ -51,6 +59,8 @@ impl ActiveFootprints {
             nodes_read: GenSet::new(),
             edges_written: GenSet::new(),
             edges_read: GenSet::new(),
+            ranges_written: GenSet::new(),
+            ranges_read: GenSet::new(),
             attachments_written: GenSet::new(),
             attachments_read: GenSet::new(),
             ports: GenSet::new(),
@@ -194,6 +204,18 @@ impl RadixScheduler {
             }
         }
 
+        // Range writes conflict with prior writes OR reads, including absence.
+        for key in pr.footprint.r_write.iter() {
+            if active.ranges_written.contains(*key) || active.ranges_read.contains(*key) {
+                return true;
+            }
+        }
+        for key in pr.footprint.r_read.iter() {
+            if active.ranges_written.contains(*key) {
+                return true;
+            }
+        }
+
         // Attachment writes conflict with prior writes OR reads.
         for key in pr.footprint.a_write.iter() {
             if active.attachments_written.contains(*key) || active.attachments_read.contains(*key) {
@@ -240,6 +262,12 @@ impl RadixScheduler {
         }
         for key in pr.footprint.e_read.iter() {
             active.edges_read.mark(*key);
+        }
+        for key in pr.footprint.r_write.iter() {
+            active.ranges_written.mark(*key);
+        }
+        for key in pr.footprint.r_read.iter() {
+            active.ranges_read.mark(*key);
         }
         for key in pr.footprint.a_write.iter() {
             active.attachments_written.mark(*key);

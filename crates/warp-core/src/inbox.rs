@@ -184,6 +184,8 @@ fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     }
 
     Footprint {
+        r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+        r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write,
         e_read,
@@ -245,6 +247,8 @@ fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     n_write.insert_with_warp(warp_id, inbox_id);
 
     Footprint {
+        r_read: crate::footprint::OutgoingEdgeRangeSet::default(),
+        r_write: crate::footprint::OutgoingEdgeRangeSet::default(),
         n_read,
         n_write,
         e_read,

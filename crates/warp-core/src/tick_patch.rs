@@ -56,6 +56,8 @@ pub enum SlotId {
     Attachment(AttachmentKey),
     /// Boundary port value (warp-scoped: `(WarpId, PortKey)`).
     Port(WarpScopedPortKey),
+    /// All outgoing edges of one type from one source, including an empty range.
+    OutgoingEdges(crate::footprint::OutgoingEdgeRange),
 }
 
 impl SlotId {
@@ -65,6 +67,7 @@ impl SlotId {
             Self::Edge(_) => 2,
             Self::Attachment(_) => 3,
             Self::Port(_) => 4,
+            Self::OutgoingEdges(_) => 5,
         }
     }
 }
@@ -86,6 +89,7 @@ impl Ord for SlotId {
             (Self::Edge(a), Self::Edge(b)) => a.cmp(&b),
             (Self::Attachment(a), Self::Attachment(b)) => a.cmp(&b),
             (Self::Port(a), Self::Port(b)) => a.cmp(&b),
+            (Self::OutgoingEdges(a), Self::OutgoingEdges(b)) => a.cmp(&b),
             // SAFETY: tag comparison above guarantees matching variants.
             _ => unreachable!("tag mismatch in SlotId::cmp"),
         }
@@ -201,6 +205,59 @@ pub struct WarpOpKey {
 }
 
 impl WarpOp {
+    /// Adds the record slots this op can write to `slots`.
+    ///
+    /// Returns `false` for an op whose writes are not slot-addressable: a warp
+    /// instance upsert or delete changes a whole instance. A deletion also
+    /// writes the attachment it removes with its node or edge.
+    pub(crate) fn extend_written_slots(
+        &self,
+        slots: &mut std::collections::BTreeSet<SlotId>,
+    ) -> bool {
+        match self {
+            Self::UpsertNode { node, .. } => {
+                slots.insert(SlotId::Node(*node));
+            }
+            Self::DeleteNode { node } => {
+                slots.insert(SlotId::Node(*node));
+                slots.insert(SlotId::Attachment(AttachmentKey::node_alpha(*node)));
+            }
+            Self::UpsertEdge { warp_id, record } => {
+                slots.insert(SlotId::Edge(EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: record.id,
+                }));
+            }
+            Self::DeleteEdge {
+                warp_id, edge_id, ..
+            } => {
+                let edge = EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: *edge_id,
+                };
+                slots.insert(SlotId::Edge(edge));
+                slots.insert(SlotId::Attachment(AttachmentKey::edge_beta(edge)));
+            }
+            Self::SetAttachment { key, .. } => {
+                slots.insert(SlotId::Attachment(*key));
+            }
+            Self::OpenPortal {
+                key,
+                child_warp,
+                child_root,
+                ..
+            } => {
+                slots.insert(SlotId::Attachment(*key));
+                slots.insert(SlotId::Node(NodeKey {
+                    warp_id: *child_warp,
+                    local_id: *child_root,
+                }));
+            }
+            Self::UpsertWarpInstance { .. } | Self::DeleteWarpInstance { .. } => return false,
+        }
+        true
+    }
+
     /// Canonical replay ordering key for this operation.
     ///
     /// This ordering is used for two purposes:
@@ -1026,6 +1083,12 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
                 h.update(&[4u8]);
                 h.update(&warp_id.0);
                 h.update(&port_key.to_le_bytes());
+            }
+            SlotId::OutgoingEdges(range) => {
+                h.update(&[5]);
+                h.update(range.source.warp_id.as_bytes());
+                h.update(range.source.local_id.as_bytes());
+                h.update(range.edge_type.as_bytes());
             }
         }
     }

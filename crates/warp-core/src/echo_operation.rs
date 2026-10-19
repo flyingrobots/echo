@@ -124,6 +124,7 @@ const CREATE_APPLICATION_BASIS_DOMAIN: &[u8] =
 const CREATE_RESULT_ABSENCE_PROPOSITION_DOMAIN: &[u8] =
     b"echo:operation-result-anchored-node-alpha-absence-proposition:v1\0";
 const FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v1\0";
+const RANGE_FOOTPRINT_DIGEST_DOMAIN: &[u8] = b"echo:operation-footprint:v2\0";
 const RECEIPT_DIGEST_DOMAIN: &[u8] = b"echo:operation-receipt:v1\0";
 const COMPOSITION_DIGEST_DOMAIN: &[u8] = b"echo:operation-singleton-composition:v1\0";
 const PLAN_DIGEST_DOMAIN: &[u8] = b"echo:operation-plan:v1\0";
@@ -3869,8 +3870,9 @@ pub(crate) fn scoped_action_basis_holds_v1(
 }
 
 /// Slots written by a worldline's entries from `from` (inclusive) to `to`
-/// (exclusive), or `None` when one of those entries has no replay patch and its
-/// writes are therefore unknown.
+/// (exclusive): each patch's declared `out_slots` and every slot its ops
+/// write. `None` when one of those entries has no replay patch, or changes a
+/// whole warp instance, and its writes are therefore unknown.
 pub(crate) fn echo_operation_written_slots_v1(
     provenance: &crate::provenance_store::ProvenanceService,
     worldline_id: crate::WorldlineId,
@@ -3902,7 +3904,15 @@ pub(crate) fn extend_echo_operation_written_slots_v1(
             .ok()
             .and_then(|entry| entry.patch)
         {
-            Some(patch) => slots.extend(patch.out_slots),
+            // `out_slots` is the declared write set; a write outside every
+            // footprint (runtime-ingress materialization) appears only in the
+            // ops. An instance-level op makes the writes unknown.
+            Some(patch) => {
+                slots.extend(patch.out_slots);
+                if !patch.ops.iter().all(|op| op.extend_written_slots(slots)) {
+                    *written = None;
+                }
+            }
             None => *written = None,
         }
     }
@@ -7509,7 +7519,12 @@ fn record_node_read(footprint: &mut Footprint, node: NodeKey) {
 
 fn footprint_digest(footprint: &Footprint) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(FOOTPRINT_DIGEST_DOMAIN);
+    let has_ranges = !footprint.r_read.is_empty() || !footprint.r_write.is_empty();
+    hasher.update(if has_ranges {
+        RANGE_FOOTPRINT_DIGEST_DOMAIN
+    } else {
+        FOOTPRINT_DIGEST_DOMAIN
+    });
     hash_node_set(
         &mut hasher,
         b"nr",
@@ -7559,6 +7574,17 @@ fn footprint_digest(footprint: &Footprint) -> Hash {
         footprint.b_out.iter(),
     );
     hasher.update(&footprint.factor_mask.to_le_bytes());
+    if has_ranges {
+        for (label, ranges) in [(b"rr", &footprint.r_read), (b"rw", &footprint.r_write)] {
+            hasher.update(label);
+            hasher.update(&(ranges.len() as u64).to_le_bytes());
+            for range in ranges.iter() {
+                hasher.update(range.source.warp_id.as_bytes());
+                hasher.update(range.source.local_id.as_bytes());
+                hasher.update(range.edge_type.as_bytes());
+            }
+        }
+    }
     hasher.finalize().into()
 }
 
@@ -8690,6 +8716,17 @@ mod tests {
     }
 
     #[test]
+    fn footprint_without_ranges_retains_its_v1_identity() {
+        assert_eq!(
+            footprint_digest(&Footprint::default()),
+            [
+                133, 20, 8, 211, 91, 122, 210, 37, 17, 71, 156, 145, 21, 30, 109, 175, 39, 57, 176,
+                34, 41, 209, 18, 169, 48, 224, 15, 83, 138, 167, 145, 2
+            ]
+        );
+    }
+
+    #[test]
     fn footprint_digest_is_prefix_free_across_adjacent_sets() {
         let mut read_node_bytes = [0; 64];
         read_node_bytes[..2].copy_from_slice(b"nw");
@@ -8749,6 +8786,40 @@ mod tests {
         let mut footprint = Footprint::default();
         footprint.b_out.insert(node.warp_id, 9);
         footprints.push(footprint);
+        let range = crate::footprint::OutgoingEdgeRange {
+            source: node,
+            edge_type: crate::TypeId(digest(10)),
+        };
+        let mut footprint = Footprint::default();
+        footprint.r_read.insert(range);
+        footprints.push(footprint);
+        let mut footprint = Footprint::default();
+        footprint.r_write.insert(range);
+        footprints.push(footprint);
+        for changed in [
+            crate::footprint::OutgoingEdgeRange {
+                source: NodeKey {
+                    warp_id: crate::WarpId(digest(11)),
+                    ..node
+                },
+                ..range
+            },
+            crate::footprint::OutgoingEdgeRange {
+                source: NodeKey {
+                    local_id: crate::NodeId(digest(11)),
+                    ..node
+                },
+                ..range
+            },
+            crate::footprint::OutgoingEdgeRange {
+                edge_type: crate::TypeId(digest(11)),
+                ..range
+            },
+        ] {
+            let mut footprint = Footprint::default();
+            footprint.r_read.insert(changed);
+            footprints.push(footprint);
+        }
         footprints.push(Footprint {
             factor_mask: 1,
             ..Footprint::default()
@@ -9993,5 +10064,86 @@ mod tests {
         let store = state.store(&invocation.node.warp_id).expect("store exists");
         assert!(store.node(&invocation.node.local_id).is_none());
         assert!(store.node_attachment(&invocation.node.local_id).is_none());
+    }
+
+    #[test]
+    /// Corroboration must see every slot a tick wrote. Runtime-ingress
+    /// materialization writes the event node, its intent attachment and its
+    /// kind edge outside any rule footprint, so the patch's `out_slots` omits
+    /// them while its ops record them.
+    fn interval_written_slots_include_writes_outside_declared_footprints() {
+        let worldline_id = crate::WorldlineId::from_bytes([0x5c; 32]);
+        let mut runtime = crate::WorldlineRuntime::new();
+        runtime
+            .register_worldline(worldline_id, crate::WorldlineState::empty())
+            .expect("the worldline registers");
+        runtime
+            .register_writer_head(crate::WriterHead::with_routing(
+                crate::WriterHeadKey {
+                    worldline_id,
+                    head_id: crate::make_head_id("written-slots-writer"),
+                },
+                crate::PlaybackMode::Play,
+                crate::InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .expect("the writer registers");
+        let envelope = crate::IngressEnvelope::local_intent(
+            crate::IngressTarget::DefaultWriter { worldline_id },
+            crate::make_intent_kind("test/written-slots"),
+            b"materialized".to_vec(),
+        );
+        runtime
+            .ingest(envelope.clone())
+            .expect("the intent is accepted");
+        let mut provenance = crate::provenance_store::ProvenanceService::new();
+        for (id, frontier) in runtime.worldlines().iter() {
+            provenance
+                .register_worldline(*id, frontier.state())
+                .expect("provenance registers the worldline");
+        }
+        let mut engine_store = crate::GraphStore::default();
+        let engine_root = crate::make_node_id("root");
+        engine_store.insert_node(
+            engine_root,
+            crate::NodeRecord {
+                ty: crate::make_type_id("world"),
+            },
+        );
+        let mut engine = crate::EngineBuilder::new(engine_store, engine_root)
+            .scheduler(crate::SchedulerKind::Radix)
+            .workers(1)
+            .build();
+        crate::SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .expect("the tick commits");
+
+        let state = runtime
+            .worldlines()
+            .get(&worldline_id)
+            .expect("the worldline exists")
+            .state();
+        let event = NodeKey {
+            warp_id: state.root().warp_id,
+            local_id: crate::NodeId(envelope.ingress_id()),
+        };
+        assert!(
+            state
+                .store(&event.warp_id)
+                .and_then(|store| store.node(&event.local_id))
+                .is_some(),
+            "the tick materialized the event node"
+        );
+        let written = echo_operation_written_slots_v1(
+            &provenance,
+            worldline_id,
+            WorldlineTick::ZERO,
+            WorldlineTick::from_raw(1),
+        )
+        .expect("the tick retains its patch");
+        assert!(written.contains(&crate::tick_patch::SlotId::Node(event)));
+        assert!(written.contains(&crate::tick_patch::SlotId::Attachment(
+            AttachmentKey::node_alpha(event)
+        )));
     }
 }

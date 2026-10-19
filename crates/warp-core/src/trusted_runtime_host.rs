@@ -1221,7 +1221,10 @@ impl TrustedRuntimeHost {
             budget,
         );
         Ok(crate::edict_effects::EffectEvaluationFrame::at_parent(
-            reads, limits, current,
+            reads,
+            limits,
+            current,
+            self.echo_operation_evaluation_authority.clone(),
         )?)
     }
 
@@ -1236,7 +1239,9 @@ impl TrustedRuntimeHost {
     {
         use crate::edict_effects::{EffectDerivationError as Error, EffectDerivationKind as Kind};
         let fail = |kind| Error::new(kind, crate::EchoOperationBudgetV1::new(0, 0, 0));
-        if !admitted.is_owned_by(&self.echo_operation_evaluation_authority) {
+        if !admitted.is_owned_by(&self.echo_operation_evaluation_authority)
+            || !completed.is_owned_by(&self.echo_operation_evaluation_authority)
+        {
             return Err(fail(Kind::AuthorityMismatch));
         }
         let installed = self

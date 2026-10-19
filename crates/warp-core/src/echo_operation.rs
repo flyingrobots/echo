@@ -145,7 +145,7 @@ impl EchoOperationEvaluationAuthorityV1 {
         Self(Arc::new(()))
     }
 
-    fn same_owner(&self, other: &Self) -> bool {
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }

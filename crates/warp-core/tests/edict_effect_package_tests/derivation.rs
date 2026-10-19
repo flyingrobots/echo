@@ -99,6 +99,19 @@ fn evaluate(
     warp_core::AdmittedEchoOperationInvocation,
     warp_core::edict_effects::CompletedEffectEvaluation,
 ) {
+    evaluate_with_aperture(host, head, publication, input, &[])
+}
+fn evaluate_with_aperture(
+    host: &mut warp_core::TrustedRuntimeHost,
+    head: warp_core::WriterHeadKey,
+    publication: &V,
+    input: &[u8],
+    aperture: &[warp_core::edict_effects::TypedNodeRead],
+) -> (
+    warp_core::InstalledEchoOperation,
+    warp_core::AdmittedEchoOperationInvocation,
+    warp_core::edict_effects::CompletedEffectEvaluation,
+) {
     let raw = encoded(publication);
     let package = prepare(publication).expect("publication");
     let policy = EchoOperationAdmissionPolicy::exact(
@@ -179,7 +192,7 @@ fn evaluate(
         .with_footprint_law(program.footprint_law().clone())
         .expect("law");
     frame
-        .evaluate_effect(program, input, &[])
+        .evaluate_effect(program, input, aperture)
         .expect("compiled mutation");
     let completed = frame.into_effect_evaluation(4096).expect("origin");
     (installed, admitted, completed)
@@ -615,4 +628,370 @@ fn identical_ensure_still_requires_write_permission() {
         error.kind(),
         warp_core::edict_effects::EffectDerivationKind::FootprintLawViolation
     );
+}
+
+fn portal_host(
+    depth: u8,
+    beta: bool,
+) -> (
+    warp_core::TrustedRuntimeHost,
+    warp_core::WriterHeadKey,
+    Vec<NodeKey>,
+    NodeKey,
+) {
+    use warp_core::{
+        EdgeId, EdgeKey, EdgeRecord, PortalInit, TickCommitStatus, WarpId, WarpTickPatchV1,
+    };
+    let (host, head, root) = make_host(false, false, false);
+    let mut state = host
+        .runtime()
+        .worldlines()
+        .get(&head.worldline_id)
+        .expect("worldline")
+        .state()
+        .warp_state()
+        .clone();
+    let mut owner = root;
+    let mut owners = Vec::new();
+    for index in 0..depth {
+        owners.push(owner);
+        let child = NodeKey {
+            warp_id: WarpId([8 + index; 32]),
+            local_id: NodeId([4; 32]),
+        };
+        let key = if beta {
+            let edge = EdgeKey {
+                warp_id: owner.warp_id,
+                local_id: EdgeId([6; 32]),
+            };
+            state
+                .store_mut(&owner.warp_id)
+                .expect("parent store")
+                .insert_edge(
+                    owner.local_id,
+                    EdgeRecord {
+                        id: edge.local_id,
+                        from: owner.local_id,
+                        to: owner.local_id,
+                        ty: TypeId([6; 32]),
+                    },
+                );
+            AttachmentKey::edge_beta(edge)
+        } else {
+            AttachmentKey::node_alpha(owner)
+        };
+        WarpTickPatchV1::new(
+            0,
+            [0; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::OpenPortal {
+                key,
+                child_warp: child.warp_id,
+                child_root: child.local_id,
+                init: PortalInit::Empty {
+                    root_record: warp_core::NodeRecord {
+                        ty: TypeId([1; 32]),
+                    },
+                },
+            }],
+        )
+        .apply_to_state(&mut state)
+        .expect("portal");
+        owner = child;
+    }
+    let (host, head, _) = super::execution::host_with_state(
+        warp_core::WorldlineState::new(state, root).expect("portal state"),
+    );
+    (host, head, owners, owner)
+}
+
+// Omitting portal resolutions would lose ancestors from the derived footprint.
+#[test]
+fn descendant_mutation_records_every_portal_dependency_and_charge() {
+    for depth in [1, 2] {
+        let (mut host, head, owners, target) = portal_host(depth, false);
+        let mut body = input("create-node");
+        set(&mut body, "warpId", V::Bytes(target.warp_id.0.to_vec()));
+        let publication =
+            with_law_field(publication(), "portal_owner_types", V::Array(vec![id(1)]));
+        let (_, admitted, completed) = evaluate(&mut host, head, &publication, &encoded(&body));
+        let basis = admitted.invocation().evaluation_basis();
+        let derived = host
+            .derive_echo_operation_effects(&admitted, completed)
+            .expect("descendant mutation");
+        assert_eq!(
+            derived.consumed().read_bytes(),
+            192 + u64::from(depth) * 128
+        );
+        assert_eq!(derived.consumed().write_bytes(), 67);
+        for owner in owners {
+            assert!(derived.patch().in_slots().contains(&SlotId::Node(owner)));
+            assert!(derived
+                .patch()
+                .in_slots()
+                .contains(&SlotId::Attachment(AttachmentKey::node_alpha(owner))));
+            assert!(derived.footprint().n_read.iter().any(|key| *key == owner));
+            assert!(derived
+                .footprint()
+                .a_read
+                .iter()
+                .any(|key| *key == AttachmentKey::node_alpha(owner)));
+        }
+        assert!(derived.patch().ops().iter().any(|op|matches!(op,WarpOp::UpsertNode {node,..} if node.warp_id==target.warp_id && node.local_id==NodeId([17;32]))));
+        assert_eq!(
+            host.echo_operation_evaluation_basis_v1(head, basis.application_basis())
+                .expect("unchanged"),
+            basis
+        );
+    }
+}
+
+// Authorizing ordinary node writes must not implicitly authorize portal traversal.
+#[test]
+fn descendant_mutation_refuses_unpermitted_portal_owners_and_beta_portals() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    for beta in [false, true] {
+        let (mut host, head, _, target) = portal_host(1, beta);
+        let mut body = input("create-node");
+        set(&mut body, "warpId", V::Bytes(target.warp_id.0.to_vec()));
+        let (_, admitted, completed) = evaluate(&mut host, head, &publication(), &encoded(&body));
+        let error = host
+            .derive_echo_operation_effects(&admitted, completed)
+            .expect_err("portal not authorized");
+        assert_eq!(error.kind(), K::FootprintLawViolation);
+        assert_eq!(error.consumed().write_bytes(), 67);
+        assert_eq!(error.consumed().read_bytes(), if beta { 0 } else { 64 });
+    }
+}
+
+// A reachable-state root does not bind detached records at an uncommitted parent.
+// Removing the completed-origin owner check would import a different store's reads.
+#[test]
+fn completed_origin_from_another_owner_refuses_matching_parent_coordinates() {
+    let (mut host, head, _) = make_host(false, false, false);
+    let input = encoded(&input("create-node"));
+    let (_, admitted, _) = evaluate(&mut host, head, &publication(), &input);
+    let (mut other, other_head, _) = make_host(false, true, false);
+    let (_, _, completed) = evaluate(&mut other, other_head, &publication(), &input);
+    assert_eq!(
+        completed.evaluation_basis(),
+        admitted.invocation().evaluation_basis()
+    );
+    let result = host.derive_echo_operation_effects(&admitted, completed);
+    assert!(
+        matches!(result,Err(ref error) if error.kind()==warp_core::edict_effects::EffectDerivationKind::AuthorityMismatch),
+        "foreign completed work crossed the runtime owner"
+    );
+}
+
+// Program identity is independent of identical inputs and identical runtime parents.
+#[test]
+fn completed_work_cannot_be_substituted_from_another_program() {
+    let (mut host, head, _) = make_host(false, false, false);
+    let input = encoded(&input("create-node"));
+    let (installed, admitted, _) = evaluate(&mut host, head, &publication(), &input);
+    let alternate = prepare(&publication_for("ensure-node")).expect("alternate program");
+    let program = alternate.program().as_effect_program().expect("effect");
+    let basis = admitted.invocation().evaluation_basis();
+    let mut frame = host
+        .effect_evaluation_frame_v1(basis, &[], 0, budget(), limits())
+        .expect("frame")
+        .with_footprint_law(program.footprint_law().clone())
+        .expect("law");
+    frame
+        .evaluate_effect(program, &input, &[])
+        .expect("alternate private execution");
+    let completed = frame.into_effect_evaluation(4096).expect("completion");
+    assert_ne!(completed.program_identity(), installed.program_identity());
+    let error = host
+        .derive_echo_operation_effects(&admitted, completed)
+        .expect_err("wrong program");
+    assert_eq!(
+        error.kind(),
+        warp_core::edict_effects::EffectDerivationKind::OriginMismatch
+    );
+}
+
+// Derivation must preserve the actual read footprint even without mutations.
+#[test]
+fn read_only_completion_derives_empty_patch_without_recharging_witnessed_reads() {
+    let (mut host, head, node) = host();
+    let mut publication = super::execution::publication();
+    set(
+        &mut publication,
+        "budget_ceiling",
+        get(&self::publication(), "budget_ceiling").clone(),
+    );
+    let input = super::execution::input(node, b"before");
+    let (_, admitted, completed) = evaluate_with_aperture(
+        &mut host,
+        head,
+        &publication,
+        &input,
+        &[warp_core::edict_effects::TypedNodeRead {
+            node,
+            absent_node_type: TypeId([1; 32]),
+        }],
+    );
+    let consumed = completed.read_set_image().consumed();
+    assert_eq!(consumed.read_bytes(), 134);
+    let derived = host
+        .derive_echo_operation_effects(&admitted, completed)
+        .expect("read-only patch");
+    assert_eq!(derived.consumed(), consumed);
+    assert_eq!(
+        derived.completed().output(),
+        encoded(&V::Bytes(b"before".to_vec()))
+    );
+    assert!(derived.patch().ops().is_empty());
+    assert!(derived.patch().out_slots().is_empty());
+    assert_eq!(derived.patch().in_slots().len(), 2);
+    assert!(derived.patch().in_slots().contains(&SlotId::Node(node)));
+    assert!(derived
+        .patch()
+        .in_slots()
+        .contains(&SlotId::Attachment(AttachmentKey::node_alpha(node))));
+}
+
+// Matching program identity alone cannot authorize another input's bound parent.
+#[test]
+fn completed_work_cannot_be_substituted_from_another_application_basis() {
+    let (mut host, head, _) = host();
+    let input = encoded(&input("create-node"));
+    let (installed, admitted, _) = evaluate(&mut host, head, &publication(), &input);
+    let other = encoded(&input_for_other_basis());
+    let basis = host
+        .echo_operation_evaluation_basis_v1(
+            head,
+            EchoOperationApplicationBasisV1::new(
+                hash(
+                    b"echo:operation-profile:v1\0",
+                    b"echo.operation.basis.edict-effect/v1",
+                ),
+                hash(b"echo:operation-edict-effect-basis:v1\0", &other),
+            ),
+        )
+        .expect("other basis");
+    let program = installed.program().as_effect_program().expect("effect");
+    let mut frame = host
+        .effect_evaluation_frame_v1(basis, &[], 0, budget(), limits())
+        .expect("frame")
+        .with_footprint_law(program.footprint_law().clone())
+        .expect("law");
+    frame
+        .evaluate_effect(program, &other, &[])
+        .expect("other input");
+    let completed = frame.into_effect_evaluation(4096).expect("completion");
+    assert_eq!(completed.program_identity(), installed.program_identity());
+    assert_ne!(
+        completed.evaluation_basis(),
+        admitted.invocation().evaluation_basis()
+    );
+    let error = host
+        .derive_echo_operation_effects(&admitted, completed)
+        .expect_err("wrong application basis");
+    assert_eq!(
+        error.kind(),
+        warp_core::edict_effects::EffectDerivationKind::OriginMismatch
+    );
+}
+fn input_for_other_basis() -> V {
+    let mut body = input("create-node");
+    set(&mut body, "nodeId", id(18));
+    body
+}
+
+// Reconstruction through owned parts must retain both admission and origin owners.
+#[test]
+fn host_reconfiguration_preserves_its_completed_evaluation_authority() {
+    let (mut host, head, _) = host();
+    let (_, admitted, completed) = evaluate(
+        &mut host,
+        head,
+        &publication(),
+        &encoded(&input("create-node")),
+    );
+    let host = warp_core::TrustedRuntimeHost::from_parts(host.into_parts());
+    let derived = host
+        .derive_echo_operation_effects(&admitted, completed)
+        .expect("same runtime owner after parts round trip");
+    assert_eq!(derived.patch().ops().len(), 2);
+}
+
+// Each case violates two phases; returning whichever check happens to run first
+// would make the public refusal taxonomy unstable after refactoring.
+#[test]
+fn competing_mutation_failures_follow_the_validation_phase_order() {
+    use warp_core::edict_effects::EffectDerivationKind as K;
+    for (name, input_field, input_value, law_field, want, edge) in [
+        (
+            "ensure-node",
+            "nodeType",
+            id(99),
+            None,
+            K::SchemaViolation,
+            false,
+        ),
+        (
+            "ensure-node",
+            "nodeId",
+            id(17),
+            Some("write_node_types"),
+            K::IdentityLawViolation,
+            false,
+        ),
+        (
+            "replace-atom",
+            "nodeId",
+            id(99),
+            None,
+            K::NodeMissing,
+            false,
+        ),
+        (
+            "create-node",
+            "nodeId",
+            id(4),
+            Some("write_node_types"),
+            K::FootprintLawViolation,
+            false,
+        ),
+        (
+            "ensure-edge",
+            "edgeId",
+            id(88),
+            None,
+            K::IdentityLawViolation,
+            false,
+        ),
+        (
+            "replace-edge",
+            "expectedToId",
+            id(99),
+            Some("write_edge_types"),
+            K::FootprintLawViolation,
+            true,
+        ),
+    ] {
+        let mut body = input(name);
+        if name == "ensure-node" {
+            set(&mut body, "nodeId", id(17));
+        }
+        if name == "replace-atom" {
+            set(&mut body, "atomType", id(99));
+        }
+        if name == "ensure-edge" {
+            set(&mut body, "toId", id(99));
+        }
+        set(&mut body, input_field, input_value);
+        let mut publication = publication_for(name);
+        if let Some(field) = law_field {
+            publication = with_law_field(publication, field, V::Array(vec![]));
+        }
+        let error = derive_case(name, body, publication, edge, false, false)
+            .expect_err("multiple invalid claims");
+        assert_eq!(error.kind(), want, "{name}: {input_field}");
+    }
 }

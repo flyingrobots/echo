@@ -27,15 +27,40 @@ pub enum EffectCompletionError {
 ///
 /// There is no public constructor. This binds completed private evaluation,
 /// not installed meaning, validated mutation preconditions, a patch or an Action.
-/// Structural data getters grant no invocation or mutation authority.
+/// The process-local owner binding prevents importing another runtime's work
+/// under equal reachable-state parent coordinates. Structural data getters
+/// grant no invocation or mutation authority.
 #[derive(Debug)]
 pub struct CompletedEffectEvaluation {
     execution: AuthoredExecution,
     reads: EffectReadSetImage,
+    #[cfg(feature = "native_rule_bootstrap")]
+    authority: crate::echo_operation::EchoOperationEvaluationAuthorityV1,
 }
 impl CompletedEffectEvaluation {
-    pub(super) fn new(execution: AuthoredExecution, reads: EffectReadSetImage) -> Self {
-        Self { execution, reads }
+    pub(super) fn new(
+        execution: AuthoredExecution,
+        reads: EffectReadSetImage,
+        authority: crate::echo_operation::EchoOperationEvaluationAuthorityV1,
+    ) -> Self {
+        // Without the native owner feature there is no runtime-bound frame
+        // constructor or derivation crossing. Retaining owner authority is
+        // required precisely when that owner crossing is compiled.
+        #[cfg(not(feature = "native_rule_bootstrap"))]
+        drop(authority);
+        Self {
+            execution,
+            reads,
+            #[cfg(feature = "native_rule_bootstrap")]
+            authority,
+        }
+    }
+    #[cfg(feature = "native_rule_bootstrap")]
+    pub(crate) fn is_owned_by(
+        &self,
+        authority: &crate::echo_operation::EchoOperationEvaluationAuthorityV1,
+    ) -> bool {
+        self.authority.same_owner(authority)
     }
     /// Identity of the exact producing current operation program.
     #[must_use]

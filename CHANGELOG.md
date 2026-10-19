@@ -7,6 +7,12 @@
 
 ### Changed
 
+- Completed authored evaluations now retain their runtime owner's private
+  authority through frame consumption. Patch derivation refuses foreign-owner
+  completion even when program and parent coordinates match. This closes a
+  substitution gap because equal reachable-state roots can conceal different
+  detached store records. The authority is process-local and adds no wire format.
+
 - Trusted runtime owners can privately derive counterfactual patches from
   completed authored evaluation at an exact unchanged full parent. Validation
   checks all five mutation forms, schema and identity rules, typed write laws,

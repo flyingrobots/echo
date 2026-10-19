@@ -34,7 +34,14 @@ pub(super) fn host_with_store(
     store: GraphStore,
     key: NodeKey,
 ) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
-    let state = WorldlineState::from_root_store(store.clone(), key.local_id).expect("state");
+    let state = WorldlineState::from_root_store(store, key.local_id).expect("state");
+    host_with_state(state)
+}
+pub(super) fn host_with_state(
+    state: WorldlineState,
+) -> (TrustedRuntimeHost, WriterHeadKey, NodeKey) {
+    let key = *state.root();
+    let store = state.store(&key.warp_id).expect("root store").clone();
     let head = WriterHeadKey {
         worldline_id: WorldlineId::from_bytes([5; 32]),
         head_id: make_head_id("authored-execution"),

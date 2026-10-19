@@ -6,7 +6,7 @@ use crate::{EchoOperationBudgetV1, Footprint, Hash, WarpTickPatchV1};
 /// First failed validation rule, before publication or scheduler composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectDerivationKind {
-    /// The invocation was admitted by another runtime owner.
+    /// Admission or completed evaluation belongs to another runtime owner.
     AuthorityMismatch,
     /// The installed meaning is absent or has a different program kind.
     OperationUnavailable,

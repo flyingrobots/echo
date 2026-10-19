@@ -996,6 +996,12 @@ canonical program. Input binding reuses the current invocation-admission recipe,
 not a second projection/hash rule. Completion requires that binding to equal the
 runtime-selected parent's application basis. Changing otherwise valid input
 under an original parent therefore cannot yield completed origin evidence.
+The frame also carries the runtime owner's process-local evaluation authority
+into completion. No public API constructs or replaces that authority. Matching
+program and parent coordinates do not permit another owner's completion to
+cross the derivation boundary: reachable-state roots exclude detached records,
+so matching roots alone cannot establish equal underlying stores. This owner
+binding is process-local origin evidence, not a serialized recovery proof.
 Unused, failed or mixed-component frames cannot complete, and read-image export
 limits/faults deliver no partial completed value. Failed typed read prefixes may
 still be retained through the existing diagnostic read-image path.
@@ -1010,7 +1016,8 @@ parent against their own authoritative evidence.
 
 The trusted runtime owner can consume `CompletedEffectEvaluation` through
 `derive_echo_operation_effects` with an independently admitted invocation.
-The owner checks its admission authority, current installation, producing program
+The owner checks both admission and completed-evaluation authority, current
+installation, producing program
 and exact full parent before resolving mutation intents against immutable state.
 This returns a `DerivedEffectPatch` for inspection without applying its operations.
 The patch binds the runtime policy, installation and invocation identities.

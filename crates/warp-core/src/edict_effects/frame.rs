@@ -104,6 +104,7 @@ pub struct EffectEvaluationFrame<'a> {
     terminated: bool,
     completed: Option<super::completion::AuthoredExecution>,
     evaluation_basis: Option<EchoOperationEvaluationBasisV1>,
+    evaluation_authority: Option<crate::echo_operation::EchoOperationEvaluationAuthorityV1>,
 }
 
 impl<'a> EffectEvaluationFrame<'a> {
@@ -139,6 +140,7 @@ impl<'a> EffectEvaluationFrame<'a> {
             terminated: false,
             completed: None,
             evaluation_basis: None,
+            evaluation_authority: None,
         })
     }
 
@@ -149,6 +151,7 @@ impl<'a> EffectEvaluationFrame<'a> {
         reads: EffectRangeReadSession<'a>,
         limits: EvaluationLimits,
         basis: EchoOperationEvaluationBasisV1,
+        authority: crate::echo_operation::EchoOperationEvaluationAuthorityV1,
     ) -> Result<Self, EffectFrameSetupError> {
         let reading = reads.basis();
         if reading.worldline_id() != basis.writer_head().worldline_id
@@ -159,6 +162,7 @@ impl<'a> EffectEvaluationFrame<'a> {
         }
         let mut frame = Self::new(reads, limits)?;
         frame.evaluation_basis = Some(basis);
+        frame.evaluation_authority = Some(authority);
         Ok(frame)
     }
 
@@ -357,8 +361,14 @@ impl<'a> EffectEvaluationFrame<'a> {
         if parent.application_basis() != execution.input_basis {
             return Err(super::EffectCompletionError::InputBasisMismatch);
         }
+        let authority = self
+            .evaluation_authority
+            .take()
+            .ok_or(super::EffectCompletionError::NoCompletedOperation)?;
         let reads = self.into_read_set_image(max_read_bytes)?;
-        Ok(super::CompletedEffectEvaluation::new(execution, reads))
+        Ok(super::CompletedEffectEvaluation::new(
+            execution, reads, authority,
+        ))
     }
 
     /// Evaluates exact compiler-package bytes using the same cumulative meter.

@@ -307,10 +307,6 @@ fn validate_tick_receipt(
                 .any(|blocker| usize::try_from(*blocker).map_or(true, |blocker| blocker >= index))
             || matches!(receipt_entry.disposition, TickReceiptDisposition::Applied)
                 && !blockers.is_empty()
-            || matches!(
-                receipt_entry.disposition,
-                TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
-            ) && blockers.is_empty()
         {
             return Err(RetainedProvenanceError::NonCanonicalTickReceipt);
         }

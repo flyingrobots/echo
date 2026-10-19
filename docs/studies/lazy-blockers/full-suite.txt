@@ -1,0 +1,25 @@
+# cargo test --locked -p warp-core --features native_rule_bootstrap,trusted_runtime,host_test,delta_validate --no-fail-fast
+# before the three engine-level receipt tests were moved to the on-demand API
+passed 2014 failed 6
+thread 'special_files_are_rejected_before_a_read_attempt' (12357528) panicked at crates/warp-core/tests/bounded_workspace_observation_tests.rs:48:23:
+expected Ok(..), got Error { kind: InvalidInput, message: "path must be shorter than SUN_LEN" }
+
+thread 'serious_external_consumer_fixture_proves_hosted_contract_path' (12358702) panicked at crates/warp-core/tests/external_consumer_contract_fixture_tests.rs:1045:5:
+assertion `left == right` failed
+  left: []
+ right: [0]
+thread 'footprint_conflict_is_final_without_hidden_retry' (12358867) panicked at crates/warp-core/tests/installed_contract_intent_pipeline_tests.rs:741:5:
+assertion `left == right` failed: conflict receipt should attribute the blocking applied candidate
+  left: []
+ right: [0]
+thread 'retained_receipt_parts_reject_every_noncanonical_blocker_shape' (12398214) panicked at crates/warp-core/tests/tick_receipt_tests.rs:150:9:
+assertion `left == right` failed
+ right: Err(RejectedEntryMissingBlockers { entry: 2 })
+thread 'commit_with_receipt_records_accept_reject_and_matches_snapshot_digests' (12398212) panicked at crates/warp-core/tests/tick_receipt_tests.rs:290:5:
+assertion `left == right` failed: the rejected candidate should be blocked by the applied candidate
+  left: []
+ right: [0]
+thread 'commit_with_receipt_records_multi_blocker_causality' (12398213) panicked at crates/warp-core/tests/tick_receipt_tests.rs:398:5:
+assertion `left == right` failed: combined write should be blocked by both prior applied candidates
+  left: []
+ right: [0, 1]

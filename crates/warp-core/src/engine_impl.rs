@@ -53,6 +53,9 @@ use crate::worldline_state::WorldlineState;
 use crate::ContractInverseHandler;
 
 #[cfg(test)]
+#[path = "engine_impl/lazy_blocker_tests.rs"]
+mod lazy_blocker_tests;
+#[cfg(test)]
 #[path = "engine_impl/range_tests.rs"]
 mod range_tests;
 use std::sync::Arc;
@@ -446,6 +449,10 @@ impl<S> EngineBuilder<S> {
 /// Legacy constructors are also available for backward compatibility.
 pub struct Engine {
     state: WarpState,
+    /// The blocker lists the removed eager scan would have recorded for the
+    /// latest tick, kept so tests can check `Engine::footprint_blockers`.
+    #[cfg(test)]
+    eager_blockers_for_test: Vec<Vec<u32>>,
     rules: BTreeMap<&'static str, RewriteRule>,
     #[cfg_attr(not(feature = "native_rule_bootstrap"), allow(dead_code))]
     rules_by_id: BTreeMap<Hash, &'static str>,
@@ -953,6 +960,8 @@ impl Engine {
         let initial_state = Arc::new(state.clone());
         Self {
             state,
+            #[cfg(test)]
+            eager_blockers_for_test: Vec::new(),
             rules: BTreeMap::new(),
             rules_by_id: BTreeMap::new(),
             compact_rule_ids: BTreeMap::new(),
@@ -1159,6 +1168,8 @@ impl Engine {
         let initial_state = Arc::new(state.clone());
         Ok(Self {
             state,
+            #[cfg(test)]
+            eager_blockers_for_test: Vec::new(),
             rules: BTreeMap::new(),
             rules_by_id: BTreeMap::new(),
             compact_rule_ids: BTreeMap::new(),
@@ -2198,37 +2209,36 @@ impl Engine {
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
         let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
         let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
-        let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
+        let entry_count = drained.len();
+        if u32::try_from(entry_count).is_err() {
+            return Err(EngineError::InternalCorruption(
+                "too many receipt entries to index",
+            ));
+        }
+        #[cfg(test)]
         let mut reserved_entry_indices: Vec<u32> = Vec::new();
+        #[cfg(test)]
+        self.eager_blockers_for_test.clear();
 
-        for (entry_idx, mut rewrite) in drained.into_iter().enumerate() {
-            let entry_idx_u32 = u32::try_from(entry_idx).map_err(|_| {
-                EngineError::InternalCorruption("too many receipt entries to index")
-            })?;
+        for mut rewrite in drained {
+            #[cfg(test)]
+            let entry_index = u32::try_from(receipt_entries.len()).unwrap_or(u32::MAX);
             let accepted = self.scheduler.reserve(tx, &mut rewrite);
-            let blockers = if accepted {
+            // A rejection records only that the rewrite conflicted. Which
+            // applied rewrites it conflicted with is derived on demand by
+            // `Engine::footprint_blockers`, so the tick does no pairwise scan.
+            #[cfg(test)]
+            self.eager_blockers_for_test.push(if accepted {
                 Vec::new()
             } else {
-                // O(n) scan over reserved rewrites. Acceptable for typical tick sizes;
-                // consider spatial indexing if tick candidate counts grow large.
-                let mut blockers: Vec<u32> = Vec::new();
-                for (k, prior) in reserved.iter().enumerate() {
-                    if footprints_conflict(&rewrite.footprint, &prior.footprint) {
-                        blockers.push(reserved_entry_indices[k]);
-                    }
-                }
-                if blockers.is_empty() {
-                    // `reserve()` currently returns `false` exclusively on footprint
-                    // conflicts (see scheduler reserve rustdoc). If additional rejection
-                    // reasons are added, update the scheduler contract and this attribution
-                    // logic accordingly.
-                    return Err(EngineError::InternalCorruption(
-                        "scheduler rejected rewrite but no blockers were found",
-                    ));
-                }
-                blockers
-            };
+                reserved
+                    .iter()
+                    .zip(&reserved_entry_indices)
+                    .filter(|(prior, _)| footprints_conflict(&rewrite.footprint, &prior.footprint))
+                    .map(|(_, index)| *index)
+                    .collect()
+            });
             receipt_entries.push(TickReceiptEntry {
                 rule_id: rewrite.rule_id,
                 scope_hash: rewrite.scope_hash,
@@ -2250,17 +2260,77 @@ impl Engine {
                     &rewrite.footprint,
                 );
                 reserved.push(rewrite);
-                reserved_entry_indices.push(entry_idx_u32);
+                #[cfg(test)]
+                reserved_entry_indices.push(entry_index);
             }
-            blocked_by.push(blockers);
         }
 
         Ok(ReserveOutcome {
-            receipt: TickReceipt::new(tx, receipt_entries, blocked_by),
+            receipt: TickReceipt::new(tx, receipt_entries, vec![Vec::new(); entry_count]),
             reserved,
             in_slots,
             out_slots,
         })
+    }
+
+    /// Returns, for each entry of `receipt`, the applied entries that blocked it.
+    ///
+    /// A tick records that a rewrite was rejected for a footprint conflict,
+    /// not which applied rewrites it conflicted with. This derives those on
+    /// demand: it recomputes every entry's footprint against `state_before`,
+    /// the state the tick's footprints were computed from, and names each
+    /// earlier applied entry whose footprint conflicts with a rejected one,
+    /// in ascending order. Applied entries have no blockers.
+    ///
+    /// The receipt does not keep the descent chain of a rewrite queued inside
+    /// a descended instance, so the result covers rewrites queued with an
+    /// empty descent stack, which is every rewrite queued through
+    /// [`Engine::apply`].
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownRule`] if an entry names a rule this
+    /// engine has not registered, or [`EngineError::UnknownWarp`] if
+    /// `state_before` has no store for an entry's warp.
+    pub fn footprint_blockers(
+        &self,
+        state_before: &WarpState,
+        receipt: &TickReceipt,
+    ) -> Result<Vec<Vec<u32>>, EngineError> {
+        let mut applied: Vec<(u32, crate::footprint::Footprint)> = Vec::new();
+        let mut blockers = Vec::with_capacity(receipt.entries().len());
+        for (index, entry) in receipt.entries().iter().enumerate() {
+            let rule = self
+                .rules_by_id
+                .get(&entry.rule_id)
+                .and_then(|name| self.rules.get(name))
+                .ok_or_else(|| EngineError::UnknownRule(hex::encode(entry.rule_id)))?;
+            let store = state_before
+                .store(&entry.scope.warp_id)
+                .ok_or(EngineError::UnknownWarp(entry.scope.warp_id))?;
+            let footprint = (rule.compute_footprint)(GraphView::new(store), &entry.scope.local_id);
+            match entry.disposition {
+                TickReceiptDisposition::Applied => {
+                    let index = u32::try_from(index).map_err(|_| {
+                        EngineError::InternalCorruption("too many receipt entries to index")
+                    })?;
+                    applied.push((index, footprint));
+                    blockers.push(Vec::new());
+                }
+                TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => {
+                    blockers.push(
+                        applied
+                            .iter()
+                            .filter(|(_, prior)| footprints_conflict(&footprint, prior))
+                            .map(|(prior_index, _)| *prior_index)
+                            .collect(),
+                    );
+                }
+                TickReceiptDisposition::Rejected(
+                    TickReceiptRejection::ExecutableOperationObstruction,
+                ) => blockers.push(Vec::new()),
+            }
+        }
+        Ok(blockers)
     }
 
     fn apply_reserved_rewrites(

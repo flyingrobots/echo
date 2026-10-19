@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Outgoing-edge bucket iterators expose their exact remaining length without
+  inspecting edges, so bounded readers can precharge the entire source bucket
+  before filtering by type.
+
 - The native pure interpreter evaluates bounded UTF-8 byte predicates with
   complete aperture charging and typed Boolean values. Native provider judgments
   independently validate matching helper/read guards and their bounded scan work.

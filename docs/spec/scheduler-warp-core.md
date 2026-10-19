@@ -43,6 +43,10 @@ against range writes, and range writes against both reads and writes. Range
 reads can share a reservation. Footprint union preserves these claims, and a
 rejected reservation leaves no range marks behind. The admission-side affected
 region retains the range write wake as well as point-resource writes.
+`GraphStore::edges_from` exposes an exact-size iterator over its stored source
+bucket. Its remaining length is available without advancing or inspecting any
+edge, allowing a bounded reader to charge the whole bucket before type filtering.
+This storage capability does not itself meter or authorize a read.
 
 This is explicit claim tracking. It does not infer range observations from
 existing edge-ID sets or automatically instrument edge writers. Range-bearing

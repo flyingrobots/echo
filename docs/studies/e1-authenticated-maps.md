@@ -116,4 +116,85 @@ about log₂ N + 1 nodes, about 17 at N = 64k. Proofs should be similar, about
 
 ## Results
 
-Pending: the harness has not run at the commit that records this protocol.
+The protocol and harness were committed at `aec4b2ec`, before any
+measurement ran. One run of `e1 all` at that commit produced
+[`results.jsonl`](e1-authenticated-maps/results.jsonl). Host: Apple M5 Pro,
+64 GiB, macOS (Darwin 27.0.0), release build, Rust 1.96. The run took 38 s
+with peak RSS 4.69 GiB, under a 12 GiB guard.
+
+### Decision
+
+**Select `radix-v0` as the M1 experimental profile.** It passes every gate,
+R1 and R2. `sparse-v0` passes every gate and fails R1 against `radix-v0`.
+
+| Rule | Measured | Result |
+| --- | --- | --- |
+| G1 parity | Every `parity` field is true for both candidates; conformance passes. | Pass, both |
+| G3 soundness | W7: 77,000 trials each, 0 false claims, 0 accepted mutated encodings. | Pass, both |
+| G4 persistence | W4: 200 claims at 20 old versions, 0 wrong, for each candidate. | Pass, both |
+| R1 at 64k | `radix-v0` hashes 1,449 B and writes 1,661 B per update. `sparse-v0` hashes 20,817 B and writes 16,448 B. The ratios are 7.0% and 10.1%. | `radix-v0` dominates |
+| R2 at 64k | p99 proof bytes: `radix-v0` 682 (membership) and 680 (absence); `sparse-v0` 674 and 642. The worst ratio is 1.06. The largest W6 `radix-v0` proof is 8,706 B. | Pass |
+| W9 | At D = 16, `radix-v0`'s outer instance map hashes 1,364 B per leaf update, against 15,087 B for the `Descend` chain (9.0%). | Outer map justified |
+| W10 | `radix-v0`'s mean hashed bytes per tick grow from the first window to the last: 1.65× for tier S, 1.45× for tier M. `sparse-v0`'s grow 1.00×. | **Fails as written** for `radix-v0`; passes for `sparse-v0` |
+
+The W10 failure stands as declared. In W10 the live record set grows: 8×
+in tier S, 9.6× in tier M. `radix-v0`'s path length grows with log₂ of the
+record count, and so does its cost. The rule I wrote tested growth with live
+size where it meant growth with history. W4 is the history test: there,
+`radix-v0` holds steady at 1,111–1,117 B per update over 20,000 retained
+versions. The rule is not rewritten after the fact. A later version of E1
+should declare a W10 bound normalised by depth.
+
+Wall time agrees with the structural counters in direction everywhere, so
+nothing is flagged.
+
+### Predictions
+
+- **`sparse-v0`:** predicted 257 hashes per single update. Measured 257 at
+  every N, 20,817 B.
+- **`radix-v0`:** predicted about 17 hashes at 64k. Measured 17.3.
+- **Proofs:** predicted about 600 B at 64k for both. Measured means of
+  590–601 B (`radix-v0`) and 557–587 B (`sparse-v0`).
+
+### Measurements
+
+| Workload | `radix-v0` | `sparse-v0` |
+| --- | --- | --- |
+| W1, 64k, per update | 17.3 hashes, 1,449 B hashed, 1,661 B written, p50 4.4 µs | 257 hashes, 20,817 B, 16,448 B, p50 113 µs |
+| W1, 64k, build and retained nodes | 42 ms; 162,584 nodes | 4.32 s; 15,947,176 nodes |
+| W2, 4,096-key batch, per key | 273 B hashed | 17,486 B hashed |
+| W3, delete / insert | 1,116 / 1,340 B hashed | 1,236 / 20,817 B hashed |
+| W4, first / last window | 1,111 / 1,116 B hashed | 20,817 / 20,817 B hashed |
+| W5, 64k, verify p50 | 1.8 µs | 27.0 µs (membership), 2.8 µs (absence) |
+| W6 comb, update / largest proof | 10,908 B hashed / 8,706 B | 20,817 B / 8,226 B |
+| W6 40-bit shared prefix, largest proof | 1,022 B | 994 B |
+| W8, 64 KiB values | 1,278 B structural, plus 65,536 B payload | 20,817 B structural, plus 65,536 B payload |
+| W9, D = 16, outer map / chain | 1,364 / 15,087 B hashed; read proofs 559 / 6,164 B | 41,634 / 333,072 B; 591 / 6,316 B |
+| W10 M, last window, per tick | 3,587 B hashed, p50 9.4 µs | 62,070 B hashed, p50 137 µs |
+| W10 M, whole-record rebuild at 15,065 records | 3.95 ms (oracle) | 404 ms (oracle) |
+
+### F5 against Echo's own runtime
+
+On the same host, the Echo `scene_fixtures` bench at this branch's base
+(`0545dda9`) ran five valid rounds per tier
+([output](e1-authenticated-maps/echo-f5-bench.txt)). It took 0.078 ms per
+append for tier S and 1.08 ms per append for tier M, with replay at
+5,428 ms for tier M.
+
+On the same tier M stream, incremental `radix-v0` maintenance costs
+9.4 µs per tick at the end. A whole-record rebuild costs 3.95 ms at the end,
+growing linearly in the record count. This is consistent with the open
+hypothesis that F5-M's per-append time is dominated by recomputing the state
+root over the whole graph each tick. It does not test that hypothesis: the
+experiment's records are not Echo's graph, and no Echo profile was taken. The
+direct check is a per-tick count of state-root computations in F5, using the
+existing `state_root_computation_count_for_test`.
+
+### What this does not establish
+
+- No storage device, cold paths or eviction.
+- No concurrency.
+- No Echo integration; that is M1's shadow mode.
+- No production profile. Adoption still requires codec verification,
+  mutation coverage, publication and recovery behaviour, and legacy
+  compatibility, as revision 2 states.

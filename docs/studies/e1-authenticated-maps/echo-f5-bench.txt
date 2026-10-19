@@ -1,0 +1,22 @@
+F5 tier=S seed=7 workload_id=2d073ea67df118cbddab23932a0bc2a57af9781b6a789e666ea99d9e231e4f47 expectation_id=05c0c4d06bf64926770f845c84182f5fcda153e7c54948cdc6f9cb336242b715 script_digest=efc633360e2e237b9ed238e1cb0f57b8c12e64c779a52bba6e223c9bdfd33d4d
+F5 evidence=modeled construction=admitted-operations history=["append-admitted-operations", "replay-apply-retained-patches", "readings-at-earlier-coordinates"]
+F5 not-covered replay-re-execute-admitted-operations: Echo has no re-execution path for native-rule intents on main
+F5 not-covered replay-restore-stored-records: WAL recovery is not wired into this fixture yet
+F5 clocks: append = submit + admit + tick per append, envelopes built before; replay = apply retained patches from the initial state; validation, outcome collection and checkpoint readings are outside both
+round 1 class=valid append_ms=22.14 replay_ms=10.80 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 2 class=valid append_ms=14.98 replay_ms=8.50 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 3 class=valid append_ms=14.43 replay_ms=7.97 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 4 class=valid append_ms=14.06 replay_ms=8.02 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+round 5 class=valid append_ms=14.44 replay_ms=8.11 occurrences=200 delivery_attempts=200 submitted=200 admitted=200 committed=200 refused=0 unfinished=0 idle_passes=0
+F5 tier=S summary valid_rounds=5 append_p50_ms=14.44 per_append_p50_ms=0.0784 useful_throughput_appends_per_s=13854 replay_p50_ms=8.11
+F5 tier=M seed=7 workload_id=26ef9606d45b13960809fe90a2e4dced659aea3e80b5d20fb682ee3873026061 expectation_id=40bbecfbdcf065dc62c21c5704750e10cdc5a06028bbf95275679d1a33618273 script_digest=ac18dd3b37286646ff3a475b288d51eeb52323406a3d88fbc5ed4595d76e2017
+F5 evidence=modeled construction=admitted-operations history=["append-admitted-operations", "replay-apply-retained-patches", "readings-at-earlier-coordinates"]
+F5 not-covered replay-re-execute-admitted-operations: Echo has no re-execution path for native-rule intents on main
+F5 not-covered replay-restore-stored-records: WAL recovery is not wired into this fixture yet
+F5 clocks: append = submit + admit + tick per append, envelopes built before; replay = apply retained patches from the initial state; validation, outcome collection and checkpoint readings are outside both
+round 1 class=valid append_ms=5525.39 replay_ms=5464.70 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 2 class=valid append_ms=5512.39 replay_ms=5419.43 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 3 class=valid append_ms=5505.93 replay_ms=5428.11 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 4 class=valid append_ms=5508.08 replay_ms=5416.75 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+round 5 class=valid append_ms=5510.56 replay_ms=5429.49 occurrences=5000 delivery_attempts=5000 submitted=5000 admitted=5000 committed=5000 refused=0 unfinished=0 idle_passes=0
+F5 tier=M summary valid_rounds=5 append_p50_ms=5510.56 per_append_p50_ms=1.0785 useful_throughput_appends_per_s=907 replay_p50_ms=5428.11

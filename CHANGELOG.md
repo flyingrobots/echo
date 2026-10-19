@@ -7,6 +7,13 @@
 
 ### Changed
 
+- Package admission now uses one runtime-owner method, opaque
+  `AdmittedExecutableOperationPackage`, validator and evidence identity recipe
+  for all supported program kinds. Version-specific admission methods and the
+  duplicate effect token/module were removed. Installation and retained recovery
+  consume the common checked evidence; this does not grant invocation rights.
+
+
 - Operation publications now use one `ExecutableOperationPackage`, one
   `EchoOperationProgram` sum and one semantic closure. Fixed and authored-effect
   program kinds share the current package/program schemas and identity domains;
@@ -36,9 +43,9 @@
   coordinate-conflict checks with V1. Conflicts and failed WAL appends publish no
   V2 registry entry. Installation recovery does not authorize or execute effects.
 
-- Runtime-owner V2 package admission checks independently pinned publication,
-  operation, authority profile and budget policy, retaining distinct versioned
-  admission evidence. Restricted application handles cannot admit packages.
+- Runtime-owner package admission checks independently pinned publication,
+  operation, authority profile and budget policy, retaining checked
+  admission evidence under one shared recipe. Restricted application handles cannot admit packages.
   This does not install or execute an effect program or grant invocation rights.
 
 - V2 invocation preparation binds canonical application input to its recorded

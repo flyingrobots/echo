@@ -54,14 +54,15 @@ use crate::{
         action_admission_evidence_matches_v1, action_application_basis_matches_state_v1,
         action_batch_composition_digest_from_receipts_v1, action_batch_patch_from_preparations_v1,
         action_preparation_identity_matches_v1, admit_action_invocation_v1, admit_invocation_v1,
-        admit_package_v1, commit_prepared_to_state, commit_scheduler_action_batch_to_state_v1,
-        decode_invocation_route_v1, echo_operation_action_invocation_bytes_v1,
-        inspect_action_invocation_v1, install_recovered_v1, installed_from_admitted,
-        not_committed_basis_changed, not_committed_evaluation_authority_mismatch,
-        not_committed_installation_unavailable, operation_descent_stack, prepare_operation_v1,
-        reconstruct_action_evaluation_v1, reconstruct_action_preparation_v1,
-        recover_action_outcome_v1, recover_committed_execution_receipt_v1,
-        retain_action_outcome_v1, retain_committed_execution_v1, retain_installation_v1,
+        admit_operation_package, commit_prepared_to_state,
+        commit_scheduler_action_batch_to_state_v1, decode_invocation_route_v1,
+        echo_operation_action_invocation_bytes_v1, inspect_action_invocation_v1,
+        install_recovered_v1, installed_from_admitted, not_committed_basis_changed,
+        not_committed_evaluation_authority_mismatch, not_committed_installation_unavailable,
+        operation_descent_stack, prepare_operation_v1, reconstruct_action_evaluation_v1,
+        reconstruct_action_preparation_v1, recover_action_outcome_v1,
+        recover_committed_execution_receipt_v1, retain_action_outcome_v1,
+        retain_committed_execution_v1, retain_installation_v1,
         validate_receipt_application_result_v1, validate_receipt_installation_v1,
         EchoOperationEvaluationAuthorityV1, SchedulerEchoOperationCandidateV1,
     },
@@ -1102,57 +1103,43 @@ impl TrustedRuntimeHost {
             .copied()
     }
 
-    /// Admits V2 effect publication bytes under independently supplied owner policy.
-    ///
-    /// This returns opaque policy evidence. It neither installs the program nor
-    /// validates its compiled instruction language or authorizes an invocation.
-    /// Application-facing handles cannot call this runtime-owner method:
-    ///
-    /// ```compile_fail,E0599
-    /// use warp_core::{TrustedRuntimeApp, EchoOperationAdmissionPolicy};
-    /// fn application_cannot_admit(
-    ///     app: &TrustedRuntimeApp<'_>, policy: &EchoOperationAdmissionPolicy, bytes: Vec<u8>,
-    /// ) {
-    ///     app.admit_echo_operation_package_v2(policy, bytes);
-    /// }
-    /// ```
-    pub fn admit_echo_operation_package_v2(
-        &self,
-        policy: &crate::EchoOperationAdmissionPolicy,
-        canonical_package_bytes: Vec<u8>,
-    ) -> Result<crate::edict_effects::AdmittedEffectPackageV2, EchoOperationAdmissionError> {
-        crate::edict_effects::admit_effect_package_v2(policy, canonical_package_bytes)
-    }
-
     /// Admits exact executable-operation package bytes under independent policy.
     ///
     /// A successful result is an opaque admission token. It does not install
     /// the package and the program digest inside the package does not confer an
     /// operation coordinate, invocability, or authority.
-    pub fn admit_echo_operation_package_v1(
+    /// Application handles cannot admit executable packages:
+    ///
+    /// ```compile_fail,E0599
+    /// use warp_core::{TrustedRuntimeApp, EchoOperationAdmissionPolicy};
+    /// fn application_cannot_admit(app: &TrustedRuntimeApp<'_>, policy: &EchoOperationAdmissionPolicy, bytes: Vec<u8>) {
+    ///     app.admit_echo_operation_package(policy, bytes);
+    /// }
+    /// ```
+    pub fn admit_echo_operation_package(
         &self,
         policy: &EchoOperationAdmissionPolicy,
         canonical_package_bytes: Vec<u8>,
     ) -> Result<AdmittedExecutableOperationPackage, EchoOperationAdmissionError> {
-        admit_package_v1(policy, canonical_package_bytes)
+        admit_operation_package(policy, canonical_package_bytes)
     }
 
-    /// Installs an admitted V2 publication without granting invocation authority.
+    /// Installs an admitted effect program without granting invocation authority.
     ///
     /// With a WAL configured, the exact installation is durable before it becomes
     /// visible in the engine. Application handles cannot call this owner method:
     ///
     /// ```compile_fail,E0599
-    /// use warp_core::{TrustedRuntimeApp, edict_effects::AdmittedEffectPackageV2};
-    /// fn application_cannot_install(app: &mut TrustedRuntimeApp<'_>, admitted: AdmittedEffectPackageV2) {
+    /// use warp_core::{TrustedRuntimeApp, AdmittedExecutableOperationPackage};
+    /// fn application_cannot_install(app: &mut TrustedRuntimeApp<'_>, admitted: AdmittedExecutableOperationPackage) {
     ///     app.install_admitted_echo_operation_package_v2(admitted);
     /// }
     /// ```
     pub fn install_admitted_echo_operation_package_v2(
         &mut self,
-        admitted: crate::edict_effects::AdmittedEffectPackageV2,
+        admitted: crate::AdmittedExecutableOperationPackage,
     ) -> Result<InstalledEffectOperationV2, TrustedRuntimeHostError> {
-        let installed = InstalledEffectOperationV2::from_admitted(admitted);
+        let installed = InstalledEffectOperationV2::from_admitted(admitted)?;
         self.engine
             .preflight_echo_effect_installations(core::slice::from_ref(&installed))?;
         if self
@@ -7689,7 +7676,7 @@ mod tests {
             .to_canonical_bytes()
             .expect("the recovery-index package is canonical");
         let package_id = crate::echo_operation_package_id_v1(&package_bytes);
-        let admitted = admit_package_v1(
+        let admitted = admit_operation_package(
             &crate::EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 operation_coordinate,

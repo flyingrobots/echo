@@ -48,7 +48,7 @@ fn runtime_owner_admits_exact_publication_and_retains_separate_policy_evidence()
     );
     let host = host();
     let admitted = host
-        .admit_echo_operation_package_v2(&policy, bytes.clone())
+        .admit_echo_operation_package(&policy, bytes.clone())
         .expect("exact policy admits");
     assert_eq!(admitted.canonical_package_bytes(), bytes);
     assert_eq!(
@@ -69,7 +69,7 @@ fn runtime_owner_admits_exact_publication_and_retains_separate_policy_evidence()
         *oracle.finalize().as_bytes()
     );
     let mut id = blake3::Hasher::new();
-    id.update(b"echo:operation-package-admission:v2\0");
+    id.update(b"echo:operation-package-admission:v1\0");
     id.update(&hash(b"echo:operation-package:v1\0", &bytes));
     id.update(oracle.finalize().as_bytes());
     assert_eq!(admitted.identity(), *id.finalize().as_bytes());
@@ -99,7 +99,7 @@ fn runtime_policy_refuses_operation_authority_and_budget_substitution() {
         ),
     ] {
         assert_eq!(
-            host.admit_echo_operation_package_v2(
+            host.admit_echo_operation_package(
                 &policy(&bytes, operation, authority, budget),
                 bytes.clone()
             )
@@ -116,7 +116,7 @@ fn pin_identity_does_not_substitute_for_supported_artifact_validation() {
     set(&mut value, "schema", text("echo.operation-package/v2"));
     let bytes = encoded(&value);
     assert_eq!(
-        host.admit_echo_operation_package_v2(
+        host.admit_echo_operation_package(
             &policy(
                 &bytes,
                 "app.update@1",
@@ -137,7 +137,7 @@ fn pin_identity_does_not_substitute_for_supported_artifact_validation() {
         EchoOperationBudgetV1::new(1, 0, 0),
     );
     assert_eq!(
-        host.admit_echo_operation_package_v2(&pin, bytes)
+        host.admit_echo_operation_package(&pin, bytes)
             .expect_err("wrong pin")
             .kind(),
         EchoOperationAdmissionErrorKind::PackageIdentityMismatch
@@ -168,7 +168,7 @@ fn each_package_budget_axis_is_subject_to_the_independent_policy() {
         );
         let bytes = encoded(&value);
         assert_eq!(
-            host.admit_echo_operation_package_v2(
+            host.admit_echo_operation_package(
                 &policy(
                     &bytes,
                     "app.update@1",
@@ -200,10 +200,10 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
         EchoOperationBudgetV1::new(10, 20, 30),
     );
     let first = host
-        .admit_echo_operation_package_v2(&narrow, bytes.clone())
+        .admit_echo_operation_package(&narrow, bytes.clone())
         .expect("narrow policy");
     let second = host
-        .admit_echo_operation_package_v2(&wide, bytes)
+        .admit_echo_operation_package(&wide, bytes)
         .expect("wide policy");
     assert_eq!(first.package(), second.package());
     assert_eq!(first.admission_policy(), &narrow);
@@ -214,7 +214,7 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
     );
     assert_ne!(first.identity(), second.identity());
     let mut wrong_domain = blake3::Hasher::new();
-    wrong_domain.update(b"echo:operation-package-admission:v1\0");
+    wrong_domain.update(b"echo:operation-package-admission:v2\0");
     wrong_domain.update(&first.package_identity());
     wrong_domain.update(&first.admission_policy_identity());
     assert_ne!(first.identity(), *wrong_domain.finalize().as_bytes());
@@ -223,28 +223,65 @@ fn admission_evidence_changes_with_policy_even_when_exact_program_bytes_do_not()
 mod installation;
 
 #[test]
-fn all_operation_publications_use_one_policy_and_one_refusal_contract() {
-    let owner = host();
-    let pin = policy(
-        b"independent pin",
+fn one_admitted_token_binds_fixed_and_effect_programs_under_the_same_recipe() {
+    use warp_core::{
+        AdmittedExecutableOperationPackage, EchoOperationProgram, EchoOperationSemanticClosure,
+        ExecutableOperationPackage, TypeId,
+    };
+    let fixed = ExecutableOperationPackage::new(
         "app.update@1",
+        "app.Refusal",
+        EchoOperationSemanticClosure::new(
+            [1; 32],
+            [2; 32],
+            [3; 32],
+            [4; 32],
+            "app.Schema",
+            [5; 32],
+            "app.Law",
+            [6; 32],
+        ),
+        warp_core::echo_operation_target_profile_identity_v1(),
         [8; 32],
-        EchoOperationBudgetV1::new(1, 0, 0),
-    );
-    // The array requires both host entry points to return the same error type.
-    // Neither decoder may accept a publication that differs from this pin.
-    let refusals = [
-        owner
-            .admit_echo_operation_package_v1(&pin, vec![0xa0])
-            .map(|_| ()),
-        owner
-            .admit_echo_operation_package_v2(&pin, vec![0xa0])
-            .map(|_| ()),
-    ];
-    for refusal in refusals {
+        EchoOperationBudgetV1::new(4, 64, 32),
+        EchoOperationProgram::anchored_node_attachment_compare_and_set(
+            TypeId([1; 32]),
+            TypeId([2; 32]),
+            16,
+        ),
+    )
+    .to_canonical_bytes()
+    .expect("fixed publication");
+    let owner = host();
+    for (bytes, budget) in [
+        (fixed, EchoOperationBudgetV1::new(4, 64, 32)),
+        (
+            encoded(&package(&program())),
+            EchoOperationBudgetV1::new(1, 0, 0),
+        ),
+    ] {
+        let policy = policy(&bytes, "app.update@1", [8; 32], budget);
+        let token: AdmittedExecutableOperationPackage = owner
+            .admit_echo_operation_package(&policy, bytes.clone())
+            .expect("one owner crossing admits each program kind");
+        let package_id = hash(b"echo:operation-package:v1\0", &bytes);
+        let mut oracle = blake3::Hasher::new();
+        oracle.update(b"echo:operation-package-admission:v1\0");
+        oracle.update(&package_id);
+        oracle.update(&policy.identity());
+        assert_eq!(token.identity(), *oracle.finalize().as_bytes());
+        assert_eq!(token.package_identity(), package_id);
+        assert_eq!(token.canonical_package_bytes(), bytes);
+        assert_eq!(token.admission_policy(), &policy);
+        assert_eq!(token.admission_policy_identity(), policy.identity());
         assert_eq!(
-            refusal.expect_err("wrong pin").kind(),
-            warp_core::EchoOperationAdmissionErrorKind::PackageIdentityMismatch,
+            token.program_identity(),
+            token
+                .package()
+                .program()
+                .identity()
+                .expect("program identity")
+                .as_hash()
         );
     }
 }

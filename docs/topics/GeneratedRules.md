@@ -724,8 +724,8 @@ physical evaluation arena.
 
 This is byte binding and contract preparation. Compiler bytes and upstream
 identities do not infer verifier approval or validate the compiled instruction
-language. The separate invocation/admission-token/installation definitions and
-catalogs described below still require consolidation under the one-current-
+language. The separate invocation/installation definitions and catalogs described below
+still require consolidation under the one-current-
 version policy. Preparation does not grant invocation or mutation authority.
 
 ### V2 invocation input and basis preparation
@@ -749,40 +749,40 @@ it does not verify a grant, establish installation, resolve the current
 frontier or admit an Action. Runtime-owned authority checks and evaluation at
 the named parent remain required before effects can be accepted.
 
-### Runtime-owner V2 package policy admission
+### Runtime-owner package policy admission
 
-`TrustedRuntimeHost::admit_echo_operation_package_v2` crosses the independent
-package-policy boundary. The single `EchoOperationAdmissionPolicy` pins exact
-publication identity bytes, operation coordinate, authority profile and maximum
-budget. Both current package admission entry points consume this definition,
-its retained codec and its shared operation/authority/budget checks, and return
-the same `EchoOperationAdmissionError` / `EchoOperationAdmissionErrorKind`
-refusal contract. The old version-specific policy and refusal definitions have
-been removed without compatibility aliases. This is one completed part of the
-format cutover; the remaining invocation, admission-token and installation
-definitions still require replacement under the one-current-version policy.
+`TrustedRuntimeHost::admit_echo_operation_package` is the sole package-admission
+crossing. It consumes the current `EchoOperationAdmissionPolicy` and exact
+canonical publication bytes for any supported program kind, returning one
+opaque `AdmittedExecutableOperationPackage`. The former version-specific owner
+methods, effect-admission module and effect token definition were removed
+without aliases or wrappers. Retained recovery reruns the same validator.
 
-The host prepares the canonical package, checks all four independent policy
-conditions, and returns opaque `AdmittedEffectPackageV2` evidence. Every budget
-axis is checked separately. A matching package pin alone cannot substitute for
-canonical artifact/profile validation or for the independent authority policy.
+The independently selected policy pins package identity, operation coordinate,
+authority profile and maximum budget. The common validator checks the exact
+pin, canonical artifact and profile contracts, operation/authority agreement,
+and every budget axis. A matching pin does not replace structural validation
+or independent authority policy. Both fixed and authored-effect programs cross
+these same checks and produce the same current evidence type.
 
-The evidence retains the exact package and policy. Policy identity uses the
-existing `echo:operation-admission-policy:v1\0` recipe with the current package pin.
-The package-admission identity uses `echo:operation-package-admission:v2\0`
-followed by the package and policy identities. Two policies admitting the same
-program therefore produce distinct policy/admission evidence while retaining
-the same package identity. A policy pins a raw 32-byte identity; the package
-decoder, rather than the policy type, selects the publication identity domain.
+The token retains the prepared package, exact publication bytes, checked
+package/program identities, policy and policy identity. Its admission identity
+uses `echo:operation-package-admission:v1\0` followed by the raw package and
+policy identities. There is no alternative effect-admission identity recipe.
+Policy identity uses the existing current
+`echo:operation-admission-policy:v1\0` recipe. Different independent policies
+therefore retain distinct admission evidence for otherwise identical bytes.
+Installation consumes the token's checked program identity; recovery rebuilds
+and checks this evidence rather than trusting retained hashes alone.
 
-This method is exposed only on the runtime-owner host, under its existing
-`native_rule_bootstrap` and `trusted_runtime` feature boundary. The restricted
-application handle cannot admit a package. The opaque token has no public
-constructor and is not an installation, invocation grant or scheduler Action.
-Compiled effect instruction validation, grant admission, evaluation and
-retained decision recovery remain necessary before this program can execute.
-This policy crossing does not infer compiler/verifier approval from
-publication identities or confer graph mutation authority.
+This method is exposed only on the runtime-owner host, under the existing
+`native_rule_bootstrap` and `trusted_runtime` boundary. The restricted
+application handle cannot admit a package. The token has no public constructor
+and is neither an installation nor an invocation grant. The still-separate
+fixed and effect installation paths enforce their supported program kinds;
+their definitions/catalogs remain unfinished consolidation work. Invocation
+admission and compiled effect execution also remain unfinished. Package
+admission does not infer compiler/verifier approval from publication identities.
 
 ### Runtime-owned V2 installation and retained catalog recovery
 
@@ -835,8 +835,8 @@ three sections are empty. There is no older index recipe, empty-index bypass,
 or recipe switch based on the presence of effect installations or Action outcomes.
 The historical index recipes were removed under the one-current-version policy.
 
-The installation and admission-token definitions still have parallel versions;
-the shared package/program and index cutovers do not complete their replacement. A fresh
+The installation definitions still have parallel versions; the shared package/
+program, admission-token and index cutovers do not complete their replacement. A fresh
 filesystem-backed host currently restores those installations and rechecks
 coordinate conflicts. This is installation recovery, not recovery of
 an authored-effect decision. Invocation grant admission, compiled execution,

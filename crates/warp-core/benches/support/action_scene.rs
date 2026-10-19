@@ -226,7 +226,7 @@ impl Scene {
         };
         let package = package();
         let admitted = host
-            .admit_echo_operation_package_v1(
+            .admit_echo_operation_package(
                 &EchoOperationAdmissionPolicy::exact(
                     echo_operation_package_id_v1(&package).as_hash(),
                     OPERATION,

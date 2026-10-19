@@ -2510,10 +2510,6 @@ impl EchoOperationAdmissionPolicy {
         hasher.finalize().into()
     }
 
-    pub(crate) const fn expected_package_identity(&self) -> Hash {
-        self.expected_package_id
-    }
-
     pub(crate) fn validate_contract(
         &self,
         operation_coordinate: &str,
@@ -2628,14 +2624,53 @@ impl EchoOperationAdmissionError {
 }
 
 /// Opaque evidence that Echo admitted exact package bytes under separate policy.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdmittedExecutableOperationPackage {
     package: ExecutableOperationPackage,
     canonical_package_bytes: Vec<u8>,
     package_id: EchoOperationPackageIdV1,
+    program_id: EchoOperationProgramIdV1,
     admission_policy_id: Hash,
     admission_id: EchoOperationPackageAdmissionIdV1,
     admission_policy: EchoOperationAdmissionPolicy,
+}
+
+impl AdmittedExecutableOperationPackage {
+    /// Exact publication admitted by the runtime owner.
+    #[must_use]
+    pub const fn package(&self) -> &ExecutableOperationPackage {
+        &self.package
+    }
+    /// Exact canonical publication retained at admission.
+    #[must_use]
+    pub fn canonical_package_bytes(&self) -> &[u8] {
+        &self.canonical_package_bytes
+    }
+    /// Identity of the exact current publication.
+    #[must_use]
+    pub const fn package_identity(&self) -> Hash {
+        self.package_id.as_hash()
+    }
+    /// Identity of the exact current program.
+    #[must_use]
+    pub const fn program_identity(&self) -> Hash {
+        self.program_id.as_hash()
+    }
+    /// The independently selected owner policy.
+    #[must_use]
+    pub const fn admission_policy(&self) -> &EchoOperationAdmissionPolicy {
+        &self.admission_policy
+    }
+    /// Identity of that independent policy.
+    #[must_use]
+    pub const fn admission_policy_identity(&self) -> Hash {
+        self.admission_policy_id
+    }
+    /// Evidence identity under the sole current admission recipe.
+    #[must_use]
+    pub const fn identity(&self) -> Hash {
+        self.admission_id.as_hash()
+    }
 }
 
 /// Installed executable meaning. Installation does not itself authorize an invocation.
@@ -2757,7 +2792,7 @@ impl EchoOperationInstallationErrorV1 {
     }
 }
 
-pub(crate) fn admit_package_v1(
+pub(crate) fn admit_operation_package(
     policy: &EchoOperationAdmissionPolicy,
     canonical_package_bytes: Vec<u8>,
 ) -> Result<AdmittedExecutableOperationPackage, EchoOperationAdmissionError> {
@@ -2779,9 +2814,19 @@ pub(crate) fn admit_package_v1(
         package.authority_profile_identity,
         package.budget_ceiling,
     )?;
+    let program_id =
+        package
+            .program
+            .identity()
+            .map_err(|artifact| EchoOperationAdmissionError {
+                kind: EchoOperationAdmissionErrorKind::ArtifactInvalid,
+                detail: artifact.to_string(),
+                artifact: Some(artifact),
+            })?;
     let admission_policy_id = policy.identity();
     Ok(AdmittedExecutableOperationPackage {
         package,
+        program_id,
         canonical_package_bytes,
         package_id,
         admission_policy_id,
@@ -2810,7 +2855,7 @@ pub(crate) fn installed_from_admitted(
         authority_profile_identity: package.authority_profile_identity,
         application_basis_schema_identity: package.application_basis_schema_identity,
         budget_ceiling: package.budget_ceiling,
-        program_id: package.program.identity()?,
+        program_id: admitted.program_id,
         program: package.program,
         application_result_projection: package
             .application_result_projection
@@ -2891,7 +2936,7 @@ pub(crate) fn recover_installation_v1(
         ));
     }
     let admitted =
-        admit_package_v1(&admission_policy, canonical_package_bytes).map_err(|error| {
+        admit_operation_package(&admission_policy, canonical_package_bytes).map_err(|error| {
             invalid_structure(format!(
                 "retained executable-operation package no longer admits: {error}"
             ))
@@ -8229,7 +8274,7 @@ mod tests {
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
-            admit_package_v1(
+            admit_operation_package(
                 &EchoOperationAdmissionPolicy::exact(
                     package_id.as_hash(),
                     operation_coordinate,
@@ -8356,7 +8401,7 @@ mod tests {
                     package.budget_ceiling,
                 )
             };
-            admit_package_v1(&policy_for(&valid), valid.clone())
+            admit_operation_package(&policy_for(&valid), valid.clone())
                 .expect("matching projection admits");
             let CanonicalValueV1::Map(mut fields) =
                 decode_canonical_cbor_v1(&valid).expect("package")
@@ -8378,7 +8423,7 @@ mod tests {
             }
             let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
                 .expect("invalid package encodes");
-            let error = admit_package_v1(&policy_for(&invalid), invalid)
+            let error = admit_operation_package(&policy_for(&invalid), invalid)
                 .expect_err("program-incompatible projection must refuse before installation");
             assert_eq!(
                 error.kind(),
@@ -8424,7 +8469,8 @@ mod tests {
                 package.budget_ceiling,
             )
         };
-        admit_package_v1(&policy_for(&valid), valid.clone()).expect("disjoint digest path admits");
+        admit_operation_package(&policy_for(&valid), valid.clone())
+            .expect("disjoint digest path admits");
         let inside = |path: &[String]| {
             let mut extended = path.to_vec();
             extended.push("inner".to_owned());
@@ -8451,7 +8497,7 @@ mod tests {
             }
             let invalid = encode_canonical_cbor_v1(&CanonicalValueV1::Map(fields))
                 .expect("invalid package encodes");
-            let error = admit_package_v1(&policy_for(&invalid), invalid)
+            let error = admit_operation_package(&policy_for(&invalid), invalid)
                 .expect_err("an unusable digest path must refuse before installation");
             assert_eq!(
                 error.kind(),
@@ -9103,7 +9149,7 @@ mod tests {
         let package_bytes = package.to_canonical_bytes().expect("package encodes");
         let package_id = echo_operation_package_id_v1(&package_bytes);
         let installed = installed_from_admitted(
-            admit_package_v1(
+            admit_operation_package(
                 &EchoOperationAdmissionPolicy::exact(
                     package_id.as_hash(),
                     operation_coordinate,
@@ -9345,7 +9391,7 @@ mod tests {
             digest(7),
             EchoOperationBudgetV1::new(8, 512, 512),
         );
-        installed_from_admitted(admit_package_v1(&policy, bytes).expect("package admits"))
+        installed_from_admitted(admit_operation_package(&policy, bytes).expect("package admits"))
             .expect("an admitted program remains canonically encodable")
     }
 

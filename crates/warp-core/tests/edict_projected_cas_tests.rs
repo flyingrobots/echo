@@ -162,7 +162,7 @@ impl Fixture {
         let bytes = package();
         let admitted = self
             .host
-            .admit_echo_operation_package_v1(
+            .admit_echo_operation_package(
                 &EchoOperationAdmissionPolicy::exact(
                     echo_operation_package_id_v1(&bytes).as_hash(),
                     OPERATION,
@@ -826,7 +826,7 @@ fn compiler_cas_refuses_aliased_projection_before_installation() {
     // merely a mismatch against the original package's hash.
     let error = fixture
         .host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 id.as_hash(),
                 OPERATION,

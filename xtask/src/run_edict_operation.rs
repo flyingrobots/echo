@@ -1088,7 +1088,7 @@ fn install_package(
     package_bytes: Vec<u8>,
 ) -> Result<()> {
     let admitted = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 &package.operation_coordinate,

@@ -182,7 +182,7 @@ fn preparing_an_action_does_not_copy_its_installed_package() {
     let bytes = package();
     let package_len = bytes.len();
     let admitted = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 echo_operation_package_id_v1(&bytes).as_hash(),
                 OPERATION,

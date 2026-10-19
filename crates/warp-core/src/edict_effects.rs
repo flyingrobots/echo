@@ -9,13 +9,7 @@
 //! logical meters. Compiled effect instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
 #[cfg(feature = "native_rule_bootstrap")]
-mod admission;
-#[cfg(feature = "native_rule_bootstrap")]
 mod installation;
-#[cfg(feature = "native_rule_bootstrap")]
-pub(crate) use admission::admit as admit_effect_package_v2;
-#[cfg(feature = "native_rule_bootstrap")]
-pub use admission::AdmittedEffectPackageV2;
 #[cfg(feature = "native_rule_bootstrap")]
 pub use installation::InstalledEffectOperationV2;
 #[cfg(feature = "native_rule_bootstrap")]

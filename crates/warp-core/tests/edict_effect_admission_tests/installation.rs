@@ -26,9 +26,9 @@ impl Drop for WalDir {
         std::fs::remove_dir_all(&self.0).expect("remove owned WAL fixture");
     }
 }
-fn admitted(host: &TrustedRuntimeHost) -> warp_core::edict_effects::AdmittedEffectPackageV2 {
+fn admitted(host: &TrustedRuntimeHost) -> warp_core::AdmittedExecutableOperationPackage {
     let bytes = encoded(&package(&program()));
-    host.admit_echo_operation_package_v2(
+    host.admit_echo_operation_package(
         &policy(
             &bytes,
             "app.update@1",
@@ -163,7 +163,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
     set(&mut p, "compiled_program", V::Bytes(vec![0xa1]));
     let bytes = encoded(&package(&p));
     let token = owner
-        .admit_echo_operation_package_v2(
+        .admit_echo_operation_package(
             &policy(
                 &bytes,
                 "app.update@1",
@@ -178,7 +178,7 @@ fn conflicting_coordinate_or_policy_cannot_replace_an_installed_meaning_or_appen
         .is_err());
     let bytes = encoded(&package(&program()));
     let token = owner
-        .admit_echo_operation_package_v2(
+        .admit_echo_operation_package(
             &policy(
                 &bytes,
                 "app.update@1",
@@ -246,7 +246,7 @@ fn install_v1(
         budget,
     );
     let admitted = owner
-        .admit_echo_operation_package_v1(&policy, bytes)
+        .admit_echo_operation_package(&policy, bytes)
         .expect("V1 policy");
     owner.install_admitted_echo_operation_package_v1(admitted)
 }
@@ -389,7 +389,7 @@ fn self_consistent_retained_hashes_cannot_bypass_independent_policy_readmission(
         V::Bytes(policy_id.to_vec()),
     );
     let mut h = blake3::Hasher::new();
-    h.update(b"echo:operation-package-admission:v2\0");
+    h.update(b"echo:operation-package-admission:v1\0");
     h.update(&pin);
     h.update(&policy_id);
     let admission_id = *h.finalize().as_bytes();

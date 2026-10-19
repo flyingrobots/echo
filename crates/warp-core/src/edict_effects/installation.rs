@@ -2,11 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Versioned effect installation evidence; invocation authority remains separate.
 use super::package::hash;
-use super::AdmittedEffectPackageV2;
 use crate::echo_operation::{
     installation_error, invalid_structure, map_value, recover_installation_v1,
 };
 use crate::edict_pure::values::{bytes, exact_fields, field, require_text, text};
+use crate::AdmittedExecutableOperationPackage;
 use crate::EchoOperationAdmissionPolicy;
 use crate::ExecutableOperationPackage;
 use crate::{
@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 /// Exact installation evidence; registry membership remains runtime-owned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledEffectOperationV2 {
-    admitted: AdmittedEffectPackageV2,
+    admitted: AdmittedExecutableOperationPackage,
     id: [u8; 32],
 }
 impl InstalledEffectOperationV2 {
@@ -40,7 +40,14 @@ impl InstalledEffectOperationV2 {
         self.admitted.canonical_package_bytes()
     }
 
-    pub(crate) fn from_admitted(admitted: AdmittedEffectPackageV2) -> Self {
+    pub(crate) fn from_admitted(
+        admitted: AdmittedExecutableOperationPackage,
+    ) -> Result<Self, EchoOperationArtifactErrorV1> {
+        if admitted.package().program().as_effect_program().is_none() {
+            return Err(invalid_structure(
+                "effect catalog requires an authored-effect program",
+            ));
+        }
         let package = admitted.package();
         let mut h = blake3::Hasher::new();
         h.update(b"echo:operation-installation:v2\0");
@@ -51,10 +58,10 @@ impl InstalledEffectOperationV2 {
         h.update(&admitted.program_identity());
         h.update(&(admitted.canonical_package_bytes().len() as u64).to_le_bytes());
         h.update(admitted.canonical_package_bytes());
-        Self {
+        Ok(Self {
             admitted,
             id: h.finalize().into(),
-        }
+        })
     }
     /// Exact publication named by this installation.
     #[must_use]
@@ -125,15 +132,16 @@ impl InstalledEffectOperationV2 {
         let (policy, policy_id, package_id, package_bytes, admission_id, installed_id) =
             read().map_err(|_| invalid_structure("invalid V2 installation fields"))?;
         let policy = EchoOperationAdmissionPolicy::from_value(policy.clone())?;
-        let admitted = super::admission::admit(&policy, package_bytes.to_vec())
-            .map_err(|_| invalid_structure("V2 retained package no longer admits"))?;
+        let admitted =
+            crate::echo_operation::admit_operation_package(&policy, package_bytes.to_vec())
+                .map_err(|_| invalid_structure("V2 retained package no longer admits"))?;
         if policy.identity() != policy_id
             || admitted.package_identity() != package_id
             || admitted.identity() != admission_id
         {
             return Err(invalid_structure("V2 retained admission identities differ"));
         }
-        let installed = Self::from_admitted(admitted);
+        let installed = Self::from_admitted(admitted)?;
         if installed.id != installed_id || installed.retained_bytes()? != canonical {
             return Err(invalid_structure(
                 "V2 retained installation identity differs",

@@ -511,7 +511,7 @@ fn install_fixture_operation_at(
     .expect("fixture package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 operation_coordinate,
@@ -534,7 +534,7 @@ fn install_fixture_creation_operation(host: &mut TrustedRuntimeHost) -> Installe
     .expect("fixture creation package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 CREATE_OPERATION_COORDINATE,
@@ -668,7 +668,7 @@ fn admitted_data_only_program_commits_one_typed_attachment_patch() {
         EchoOperationBudgetV1::new(16, 4_096, 4_096),
     );
     let admitted_package = host
-        .admit_echo_operation_package_v1(&package_policy, package_bytes)
+        .admit_echo_operation_package(&package_policy, package_bytes)
         .expect("the independently pinned package is admitted");
     let installed = host
         .install_admitted_echo_operation_package_v1(admitted_package)
@@ -845,7 +845,7 @@ fn a_prepared_operation_cannot_commit_after_its_parent_basis_changes() {
         .expect("package encodes");
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
     let admitted_package = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 OPERATION_COORDINATE,
@@ -1085,7 +1085,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     let package_id = warp_core::echo_operation_package_id_v1(&package_bytes);
 
     let digest_mismatch = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 warp_core::echo_operation_package_id_v1(b"different package bytes").as_hash(),
                 OPERATION_COORDINATE,
@@ -1102,7 +1102,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
 
     let malformed_bytes = vec![0xff];
     let malformed = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 warp_core::echo_operation_package_id_v1(&malformed_bytes).as_hash(),
                 OPERATION_COORDINATE,
@@ -1133,7 +1133,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     .to_canonical_bytes()
     .expect("unsupported target package still has canonical source bytes");
     let unsupported_target = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 warp_core::echo_operation_package_id_v1(&unsupported_target_bytes).as_hash(),
                 OPERATION_COORDINATE,
@@ -1163,7 +1163,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         CanonicalValueV1::Bytes(unsupported_program_bytes),
     );
     let unsupported_program = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 warp_core::echo_operation_package_id_v1(&unsupported_program_package).as_hash(),
                 OPERATION_COORDINATE,
@@ -1187,7 +1187,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
         CanonicalValueV1::Bytes(digest("unsupported-input-schema").to_vec()),
     );
     let unsupported_schema = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 warp_core::echo_operation_package_id_v1(&unsupported_schema_bytes).as_hash(),
                 OPERATION_COORDINATE,
@@ -1206,7 +1206,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     );
 
     let authority_mismatch = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 OPERATION_COORDINATE,
@@ -1222,7 +1222,7 @@ fn package_admission_rejects_malformed_unsupported_mismatched_and_over_budget_by
     );
 
     let over_budget = host
-        .admit_echo_operation_package_v1(
+        .admit_echo_operation_package(
             &EchoOperationAdmissionPolicy::exact(
                 package_id.as_hash(),
                 OPERATION_COORDINATE,
@@ -1813,7 +1813,7 @@ fn filesystem_wal_recovers_installed_meaning_consequence_and_typed_receipt() {
         host.enable_runtime_wal(TrustedRuntimeWalConfig::filesystem(wal_dir.path()))
             .expect("the fresh filesystem WAL opens");
         let admitted_package = host
-            .admit_echo_operation_package_v1(
+            .admit_echo_operation_package(
                 &EchoOperationAdmissionPolicy::exact(
                     package_id.as_hash(),
                     OPERATION_COORDINATE,

@@ -46,10 +46,13 @@ pub(crate) enum Expr {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Predicate {
-    pub op: Comparison,
-    pub left: Expr,
-    pub right: Expr,
+pub(crate) enum Predicate {
+    Compare {
+        op: Comparison,
+        left: Expr,
+        right: Expr,
+    },
+    All(Vec<Predicate>),
 }
 
 #[derive(Debug, PartialEq, Eq)]

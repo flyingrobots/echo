@@ -279,6 +279,13 @@ Canonical structural `Bytes<max=N>`, `Bytes<exact=N>`, and
 entry. Noncanonical numbers, inverted bounds, and an interval spelling with
 equal endpoints reject; equal endpoints use `exact=N`.
 
+Negation uses the closed `not` predicate shape with exactly one `value` child.
+The interpreter validates the entire child before execution, evaluates it once,
+and inverts its Boolean result. A negation wrapper costs one predicate step;
+child errors and budget refusals propagate unchanged. Negation participates in
+the same syntax-node and combined expression/helper depth limits as conjunction.
+It adds no proof assumptions or byte-normalization behavior.
+
 The generic `core.bytes.slice<OperandType>(bytes, start, end)` operation returns
 raw bytes in the half-open range `[start, end)`. It validates the operand's byte
 bounds and both offsets as U64, then refuses reversed or out-of-bounds ranges

@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- Pure evaluation executes compiler-produced negated input guards, including
+  authored no-op refusal after checked byte-range predicates, with bounded
+  decoding, combined traversal and deterministic step accounting.
+
 - Pure evaluation accepts compiler-produced conjunctive input guards instead of
   rejecting their `all` predicate shape as an invalid artifact. Conjunctions
   retain deterministic short-circuit metering and combined traversal limits.

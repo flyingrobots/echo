@@ -11,18 +11,18 @@ use echo_edict_canonical::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn validate(
+pub(super) fn validate<'a>(
     module: &Value,
     intent: &Value,
     target_artifact: &Value,
-    target: &Value,
-    exports: &Value,
+    target: &'a Value,
+    exports: &'a Value,
     artifacts: &Value,
-) -> Result<(), Error> {
+) -> Result<BTreeMap<&'a str, &'a Value>, Error> {
     let steps = array(field(target, "steps")?)?;
     if steps.is_empty() {
         return if artifacts == &Value::Null {
-            Ok(())
+            Ok(BTreeMap::new())
         } else {
             Err(Error::InvalidArtifact)
         };
@@ -89,6 +89,7 @@ pub(super) fn validate(
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
     let nodes = array(field(field(intent, "body")?, "nodes")?)?;
+    let mut signatures = BTreeMap::new();
     let steps = steps
         .iter()
         .map(|step| Ok((text_field(step, "id")?, step)))
@@ -123,6 +124,7 @@ pub(super) fn validate(
             "type",
             text_field(effect, "outputType")?,
         )?;
+        signatures.insert(text(id)?, effect);
         let failures = field(effect, "effectFailures")?;
         let mappings = map(field(implementation, "failureMappings")?)?;
         let source_arms = field(core, "obstructionMap")?;
@@ -149,9 +151,30 @@ pub(super) fn validate(
                 "type",
                 text_field(field(failures, failure)?, "payloadType")?,
             )?;
+            let reason = field(arm, "value")?;
+            exact_fields(reason, &["kind", "callee", "args", "typeArgs"])?;
+            require_text(reason, "kind", "call")?;
+            if !array(field(reason, "args")?)?.is_empty()
+                || !array(field(reason, "typeArgs")?)?.is_empty()
+            {
+                return Err(Error::UnsupportedProgram);
+            }
+            let coordinate = resolve(text_field(reason, "callee")?, &alias, &coordinate)?;
+            let mut obstructions = array(field(exports, "obstructions")?)?
+                .iter()
+                .filter(|item| text_field(item, "coordinate") == Ok(coordinate.as_str()));
+            let obstruction = obstructions.next().ok_or(Error::InvalidArtifact)?;
+            if obstructions.next().is_some() {
+                return Err(Error::InvalidArtifact);
+            }
+            let authority = text_field(field(failures, failure)?, "authorityClass")?;
+            if !["domainMappable", "resourceFault", "integrityFault"].contains(&authority) {
+                return Err(Error::InvalidArtifact);
+            }
+            require_text(obstruction, "authorityClass", authority)?;
         }
     }
-    Ok(())
+    Ok(signatures)
 }
 fn pinned(reference: &Value, expected: [u8; 32]) -> Result<(), Error> {
     exact_fields(reference, &["id", "digest"])?;

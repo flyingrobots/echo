@@ -12,18 +12,19 @@ use super::{
 use echo_edict_canonical::CanonicalValueV1 as Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-struct Definition<'a> {
+pub(crate) struct Definition<'a> {
     params: &'a [Value],
     body: &'a Value,
     result_type: &'a str,
     source_owned: bool,
 }
 
-pub(crate) fn decode(
-    core: &Value,
-    exports: &Value,
-    parser: &mut Parser<'_>,
-) -> Result<BTreeMap<String, Helper>, Error> {
+/// Collect the one current source/imported helper signature authority.
+pub(crate) fn definitions<'a>(
+    core: &'a Value,
+    exports: &'a Value,
+    coordinate: &str,
+) -> Result<BTreeMap<String, Definition<'a>>, Error> {
     let mut definitions = BTreeMap::new();
     for item in array(field(exports, "pureFunctions")?)? {
         require_text(item, "source", "edict")?;
@@ -82,7 +83,7 @@ pub(crate) fn decode(
                 return Err(Error::InvalidArtifact);
             }
             exact_fields(value, &["params", "returnType", "body"])?;
-            let coordinate = format!("{}.{}", parser.coordinate, name);
+            let coordinate = format!("{coordinate}.{name}");
             if coordinate.starts_with("core.")
                 || effect_names.contains(coordinate.as_str())
                 || definitions
@@ -101,6 +102,15 @@ pub(crate) fn decode(
             }
         }
     }
+    Ok(definitions)
+}
+
+pub(crate) fn decode(
+    core: &Value,
+    exports: &Value,
+    parser: &mut Parser<'_>,
+) -> Result<BTreeMap<String, Helper>, Error> {
+    let definitions = definitions(core, exports, parser.coordinate)?;
     let mut helpers = BTreeMap::new();
     // Collect all signatures before resolving calls: definition order carries
     // no execution meaning. Every body is checked, including unused functions.
@@ -221,7 +231,7 @@ pub(crate) fn local(value: &Value) -> Result<(), Error> {
     Ok(())
 }
 
-fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
+pub(crate) fn accepts(expected: &RuntimeType, actual: &RuntimeType) -> bool {
     match (expected, actual) {
         (RuntimeType::Bytes { min, max }, RuntimeType::Bytes { min: a, max: b }) => {
             min <= a && b <= max
@@ -253,7 +263,7 @@ fn join(left: RuntimeType, right: RuntimeType) -> Result<RuntimeType, Error> {
 }
 
 type Scope<'a> = BTreeMap<&'a str, &'a Value>;
-fn infer(
+pub(crate) fn infer(
     value: &Value,
     scope: &Scope<'_>,
     definitions: &BTreeMap<String, Definition<'_>>,
@@ -478,7 +488,7 @@ fn unsigned_literal(value: &Value) -> Result<u64, Error> {
     }
     number(field(field(value, "value")?, "value")?)
 }
-fn check_predicate(
+pub(crate) fn check_predicate(
     value: &Value,
     scope: &Scope<'_>,
     definitions: &BTreeMap<String, Definition<'_>>,

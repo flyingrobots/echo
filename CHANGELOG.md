@@ -7,6 +7,13 @@
 
 ### Changed
 
+- Effect compiler preparation now shares the pure expression and helper checker
+  for data values, predicates, effect inputs and results. Matching Core/Target
+  bytes cannot hide wrong representations, unpublished calls or invalid helper
+  arguments. Declared failure-arm constructors must preserve their exported
+  failure authority class. Full export/Core type authentication, nominal and
+  intrinsic semantics, and effect execution remain unfinished.
+
 - Effect compiler preparation now binds the declared lawpack's exports and
   adapter bytes and checks each lowered intrinsic and failure arm against that
   adapter. Fresh artifact/package pins cannot hide a swapped failure tag or a

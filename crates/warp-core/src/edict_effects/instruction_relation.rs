@@ -3,7 +3,7 @@
 //! Ordered Core/Target correspondence and exact lexical local identities.
 use crate::edict_pure::{
     functions,
-    model::{MAX_DEPTH, MAX_PROGRAM_NODES},
+    model::{Expr, Helper, Predicate, RuntimeType, MAX_DEPTH, MAX_PROGRAM_NODES},
     syntax::Parser,
     values::{array, exact_fields, field, map, require_text, text, text_field},
     EvaluationError as Error,
@@ -11,7 +11,13 @@ use crate::edict_pure::{
 use echo_edict_canonical::{encode_canonical_cbor_v1 as encode, CanonicalValueV1 as Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn validate(module: &Value, intent: &Value, target: &Value) -> Result<(), Error> {
+pub(super) fn validate(
+    module: &Value,
+    intent: &Value,
+    target: &Value,
+    exports: &Value,
+    signatures: &BTreeMap<&str, &Value>,
+) -> Result<(), Error> {
     let mut fields = vec![
         "operationProfile",
         "inputConstraints",
@@ -33,12 +39,14 @@ pub(super) fn validate(module: &Value, intent: &Value, target: &Value) -> Result
     let body = field(intent, "body")?;
     let mut scope = Scope::new(
         module,
+        exports,
         array(field(body, "locals")?)?,
         text_field(intent, "input")?,
     )?;
     scope.parser.ty(text_field(intent, "output")?, 0)?;
     if let Ok(basis) = field(intent, "basis") {
         scope.expression(basis, None)?;
+        scope.data_type(basis)?;
     }
     for constraint in array(field(intent, "inputConstraints")?)? {
         scope.predicate(field(constraint, "predicate")?)?;
@@ -74,7 +82,10 @@ pub(super) fn validate(module: &Value, intent: &Value, target: &Value) -> Result
                 exact_fields(target, &["id", "binding", "value"])?;
                 equal(node, target, "binding")?;
                 equal(node, target, "value")?;
-                scope.expression(field(node, "value")?, None)?;
+                scope.typed_expression(
+                    field(node, "value")?,
+                    text_field(field(node, "binding")?, "type")?,
+                )?;
                 scope.introduce(field(node, "binding")?)?;
             }
             "require" => {
@@ -93,16 +104,30 @@ pub(super) fn validate(module: &Value, intent: &Value, target: &Value) -> Result
                 }
                 for (_, value) in map(field(reason, "payload")?)? {
                     scope.expression(value, None)?;
+                    scope.data_type(value)?;
                 }
             }
-            "effect" => effect(node, target, &mut scope)?,
+            "effect" => effect(
+                node,
+                target,
+                &mut scope,
+                signatures
+                    .get(text_field(target, "id")?)
+                    .copied()
+                    .ok_or(Error::InvalidArtifact)?,
+            )?,
             _ => return Err(Error::UnsupportedProgram),
         }
     }
-    scope.expression(field(body, "result")?, None)?;
+    scope.typed_expression(field(body, "result")?, text_field(intent, "output")?)?;
     if scope.used.len() != scope.inventory.len() {
         return Err(Error::InvalidArtifact);
     }
+    functions::check_roots(
+        &scope.helpers,
+        scope.expressions.iter(),
+        scope.predicates.iter(),
+    )?;
     Ok(())
 }
 fn equal(core: &Value, target: &Value, key: &str) -> Result<(), Error> {
@@ -111,7 +136,12 @@ fn equal(core: &Value, target: &Value, key: &str) -> Result<(), Error> {
     }
     Ok(())
 }
-fn effect(core: &Value, target: &Value, scope: &mut Scope<'_>) -> Result<(), Error> {
+fn effect(
+    core: &Value,
+    target: &Value,
+    scope: &mut Scope<'_>,
+    signature: &Value,
+) -> Result<(), Error> {
     exact_fields(
         core,
         &["kind", "binding", "effect", "input", "obstructionMap"],
@@ -134,7 +164,7 @@ fn effect(core: &Value, target: &Value, scope: &mut Scope<'_>) -> Result<(), Err
     if text_field(target, "targetIntrinsic")?.is_empty() || text_field(core, "effect")?.is_empty() {
         return Err(Error::InvalidArtifact);
     }
-    scope.expression(field(core, "input")?, None)?;
+    scope.typed_expression(field(core, "input")?, text_field(signature, "inputType")?)?;
     let mut arms = BTreeSet::new();
     for (_, arm) in map(field(core, "obstructionMap")?)? {
         exact_fields(arm, &["binder", "value"])?;
@@ -170,14 +200,25 @@ struct Scope<'a> {
     used: BTreeSet<&'a str>,
     parser: Parser<'a>,
     remaining_references: usize,
+    definitions: BTreeMap<String, functions::Definition<'a>>,
+    helpers: BTreeMap<String, Helper>,
+    expressions: Vec<Expr>,
+    predicates: Vec<Predicate>,
 }
 impl<'a> Scope<'a> {
-    fn new(module: &'a Value, locals: &'a [Value], input_type: &str) -> Result<Self, Error> {
+    fn new(
+        module: &'a Value,
+        exports: &'a Value,
+        locals: &'a [Value],
+        input_type: &str,
+    ) -> Result<Self, Error> {
         let mut parser = Parser {
             types: field(module, "types")?,
             coordinate: text_field(module, "coordinate")?,
             remaining: MAX_PROGRAM_NODES,
         };
+        let helpers = functions::decode(module, exports, &mut parser)?;
+        let definitions = functions::definitions(module, exports, parser.coordinate)?;
         let mut inventory = BTreeMap::new();
         for local in locals {
             functions::local(local)?;
@@ -196,6 +237,10 @@ impl<'a> Scope<'a> {
             used: BTreeSet::from(["arg.0"]),
             parser,
             remaining_references: MAX_PROGRAM_NODES,
+            definitions,
+            helpers,
+            expressions: Vec::new(),
+            predicates: Vec::new(),
         })
     }
     fn claim(&mut self, reference: &Value) -> Result<&'a Value, Error> {
@@ -216,8 +261,37 @@ impl<'a> Scope<'a> {
         self.parser.expr(value, 0)?;
         self.references(value, binder, 0)
     }
+    fn data_type(&mut self, value: &Value) -> Result<RuntimeType, Error> {
+        let actual = functions::infer(
+            value,
+            &self.available,
+            &self.definitions,
+            true,
+            &mut self.parser,
+            0,
+        )?;
+        self.expressions.push(self.parser.expr(value, 0)?);
+        Ok(actual)
+    }
+    fn typed_expression(&mut self, value: &Value, expected: &str) -> Result<(), Error> {
+        self.expression(value, None)?;
+        let actual = self.data_type(value)?;
+        let expected = self.parser.ty(expected, 0)?;
+        if !functions::accepts(&expected, &actual) {
+            return Err(Error::InvalidArtifact);
+        }
+        Ok(())
+    }
     fn predicate(&mut self, value: &Value) -> Result<(), Error> {
-        self.parser.predicate(value, 0)?;
+        functions::check_predicate(
+            value,
+            &self.available,
+            &self.definitions,
+            true,
+            &mut self.parser,
+            0,
+        )?;
+        self.predicates.push(self.parser.predicate(value, 0)?);
         self.references(value, None, 0)
     }
     fn references(

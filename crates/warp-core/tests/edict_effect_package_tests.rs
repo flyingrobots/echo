@@ -1075,3 +1075,219 @@ fn fresh_bundle_pins_cannot_replace_or_omit_the_pinned_lowering_artifacts() {
         );
     }
 }
+
+fn repin_core(core: &V, target: &mut V) {
+    set(
+        value_field_mut(value_field_mut(target, "semanticClosure"), "sourceCore"),
+        "digest",
+        V::Array(vec![
+            text("sha256"),
+            artifact_identity("edict.core.module/v1", core),
+        ]),
+    );
+}
+#[test]
+fn typed_contract_refuses_an_effect_input_with_the_wrong_representation() {
+    let (mut core, mut target, exports) = repinned_compiler_artifacts();
+    let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+        panic!("nodes")
+    };
+    let mut input = get(&nodes[0], "input").clone();
+    set(&mut input, "field", text("expected"));
+    set(&mut nodes[0], "input", input.clone());
+    set(first_step_mut(&mut target), "input", input);
+    repin_core(&core, &mut target);
+    refused(&bound_compiler_package(
+        &core,
+        &target,
+        &exports,
+        "replaceRange",
+    ));
+}
+#[test]
+fn typed_contract_refuses_wrong_result_types() {
+    let mut core = compiled_core();
+    set(
+        core_body_mut(&mut core),
+        "result",
+        map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([("kind", text("bool")), ("value", V::Bool(false))]),
+            ),
+        ]),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn typed_contract_refuses_unauthorized_helper_calls() {
+    let mut core = compiled_core();
+    set(
+        core_body_mut(&mut core),
+        "result",
+        map([
+            ("kind", text("call")),
+            ("callee", text("app.unpublished")),
+            ("args", V::Array(vec![])),
+            ("typeArgs", V::Array(vec![])),
+        ]),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn typed_contract_refuses_a_matching_core_target_let_with_the_wrong_type() {
+    let mut core = compiled_core();
+    let binding = map([
+        ("id", text("local.0")),
+        ("type", text("U32")),
+        ("alphaName", text("$local0")),
+    ]);
+    let value = map([
+        ("kind", text("const")),
+        (
+            "value",
+            map([("kind", text("bool")), ("value", V::Bool(false))]),
+        ),
+    ]);
+    let body = core_body_mut(&mut core);
+    let V::Array(locals) = value_field_mut(body, "locals") else {
+        panic!("locals")
+    };
+    locals.push(binding.clone());
+    set(
+        body,
+        "nodes",
+        V::Array(vec![map([
+            ("kind", text("let")),
+            ("binding", binding.clone()),
+            ("value", value.clone()),
+        ])]),
+    );
+    let mut target = compiled_target(&core);
+    let selected = selected_target_mut(&mut target);
+    set(
+        selected,
+        "pureBindings",
+        V::Array(vec![map([
+            ("id", text("binding.0")),
+            ("binding", binding),
+            ("value", value),
+        ])]),
+    );
+    set(
+        selected,
+        "executionOrder",
+        V::Array(vec![text("binding.0")]),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &target,
+        &compiled_exports(),
+        "update@1",
+    ));
+}
+#[test]
+fn typed_contract_refuses_mapping_an_integrity_failure_to_a_resource_obstruction() {
+    let (mut core, mut target, exports) = repinned_compiler_artifacts();
+    let V::Array(nodes) = value_field_mut(core_body_mut(&mut core), "nodes") else {
+        panic!("nodes")
+    };
+    let arms = value_field_mut(&mut nodes[0], "obstructionMap");
+    let arm = value_field_mut(arms, "notAtom");
+    set(
+        value_field_mut(arm, "value"),
+        "callee",
+        text("text.FactMissing"),
+    );
+    let arm = arm.clone();
+    set(
+        value_field_mut(first_step_mut(&mut target), "obstructionArms"),
+        "echo.atom-required/v1",
+        arm,
+    );
+    repin_core(&core, &mut target);
+    refused(&bound_compiler_package(
+        &core,
+        &target,
+        &exports,
+        "replaceRange",
+    ));
+}
+
+#[test]
+fn typed_contract_accepts_checked_source_helpers_and_refuses_wrong_arguments() {
+    let mut core = compiled_core();
+    let parameter = map([
+        ("id", text("param.0")),
+        ("type", text("U32")),
+        ("alphaName", text("$param0")),
+    ]);
+    let reference = map([("kind", text("local")), ("ref", parameter.clone())]);
+    add(
+        &mut core,
+        "functions",
+        map([(
+            "identity",
+            map([
+                ("params", V::Array(vec![parameter])),
+                ("returnType", text("U32")),
+                (
+                    "body",
+                    map([
+                        ("locals", V::Array(vec![])),
+                        ("bindings", V::Array(vec![])),
+                        ("result", reference),
+                    ]),
+                ),
+            ]),
+        )]),
+    );
+    let V::Array(locals) = get(core_body_mut(&mut core), "locals") else {
+        panic!("locals")
+    };
+    let argument = map([("kind", text("local")), ("ref", locals[0].clone())]);
+    let call = |arg| {
+        map([
+            ("kind", text("call")),
+            ("callee", text("app.identity")),
+            ("args", V::Array(vec![arg])),
+            ("typeArgs", V::Array(vec![])),
+        ])
+    };
+    set(core_body_mut(&mut core), "result", call(argument));
+    assert!(prepare(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1"
+    ))
+    .is_ok());
+    set(
+        core_body_mut(&mut core),
+        "result",
+        call(map([
+            ("kind", text("const")),
+            (
+                "value",
+                map([("kind", text("bool")), ("value", V::Bool(false))]),
+            ),
+        ])),
+    );
+    refused(&bound_compiler_package(
+        &core,
+        &compiled_target(&core),
+        &compiled_exports(),
+        "update@1",
+    ));
+}

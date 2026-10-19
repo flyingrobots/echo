@@ -216,14 +216,20 @@ impl CompiledProgram {
         if field(target, "result")? != field(body, "result")? {
             return Err(Error::InvalidArtifact);
         }
-        super::instruction_relation::validate(&self.module, intent, target)?;
-        super::lowering_relation::validate(
+        let signatures = super::lowering_relation::validate(
             &self.module,
             intent,
             &self.target,
             target,
             &self.exports,
             &self.lowering,
+        )?;
+        super::instruction_relation::validate(
+            &self.module,
+            intent,
+            target,
+            &self.exports,
+            &signatures,
         )?;
         Ok(())
     }

@@ -783,20 +783,40 @@ lawpack and now refuses. Positive correspondence tests use an explicitly
 repinned synthetic chain derived from that capture. They do not prove a
 successful compiler build or verifier acceptance.
 
-These checks establish artifact binding, ordered node correspondence, expression
-syntax and lexical scope, not full Core or Target IR instruction semantics.
-They do not yet infer every expression's type, authorize helper calls, or
-validate complete intrinsic signatures. Adapter correspondence binds declared
-names and failure arms; it does not prove a source-to-Core translation or an
-independently verified source closure. The bounded preamble reader is not a full
-Edict parser. Multiple lawpacks and ambiguous adapter profiles refuse explicitly.
-Complete target schema/profile artifacts, effect input typing, failure authority
-classes, cost/footprint/configuration obligations, and the complete lowering
+Data-valued `let` expressions, effect inputs, operation results, basis expressions,
+terminal-reason payload values, and predicates now use the shared pure-expression
+type checker. Expected effect input names come from the pinned exports and
+resolve through Core's current type definitions. Byte bounds, integer widths,
+record fields, conditional branches and helper argument/result representations
+must agree. The same helper signature collector and body checker serve pure
+and effect preparation; there is no second helper authority implementation.
+Every source/imported helper body is checked, including unused definitions.
+Unpublished calls, effect names used as pure helpers, invalid arguments,
+recursive helper cycles, and excess combined expression/call depth refuse.
+These checks retain the existing pure-helper subset and bounded work limits.
+
+Failure-arm values currently support declared zero-argument obstruction
+constructors. Their exported authority class must equal the exported failure's
+class: `domainMappable`, `resourceFault`, or `integrityFault`. A matching arm body
+and fresh pins cannot turn an exported integrity failure into a resource or
+domain obstruction. Parameterized or computed obstruction expressions refuse
+until their contracts are implemented. Constructor payload schemas and terminal
+reason authority are not yet checked by this relation.
+
+These checks establish artifact binding, ordered correspondence, lexical scope,
+and data representation typing/helper authority within the current pure subset.
+They do not authenticate Core type definitions against exported definitions or
+preserve nominal identity through every inferred expression. Complete intrinsic
+signatures and intrinsic-defined failure authority remain open. Adapter
+correspondence binds declared names and failure arms; it does not prove a
+source-to-Core translation or an independently verified source closure. The
+bounded preamble reader is not a full Edict parser. Multiple lawpacks and
+ambiguous adapter profiles refuse explicitly. Complete target schema/profile
+artifacts, cost/footprint/configuration obligations and the complete lowering
 relation remain unchecked. These checks do not establish verifier approval,
 interpret instructions, or prove that an application graph schema corresponds
-to compiler exports. Instruction typing, effect lowering, resource execution
-and the physical arena remain required. Static preparation grants no invocation
-or mutation authority.
+to compiler exports. Resource execution and the physical arena remain required.
+Static preparation grants no invocation or mutation authority.
 
 ### Current invocation input, basis and owner grant admission
 

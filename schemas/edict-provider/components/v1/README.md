@@ -23,8 +23,8 @@ is componentized with `wit-component` 0.251.0.
 The source WIT is the exact 7,392-byte Edict contract with SHA-256
 `2971fe44def7e51d5271dfc0f04f3088aa58754cffdc847681a587605aac749e`.
 
-The checked component is 486,173 bytes with SHA-256
-`5f16b46c0f2e346541c518f978e0f48a374b8e17719e049063f2af18a6a18193`.
+The checked component is 485,983 bytes with SHA-256
+`04d5162202ca2ce9b4496c3eff5b7b249d31b33d72e97a23f2e2a86f8d4ed93e`.
 Its sole contract attestation is the top-level custom section
 `edict:target-provider-contract` containing
 `edict:target-provider/lowerer@1.0.0`. Its only imports are the frozen WIT's

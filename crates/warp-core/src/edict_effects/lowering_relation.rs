@@ -29,13 +29,50 @@ pub(super) fn validate<'a>(
     }
     exact_fields(
         artifacts,
-        &["source_artifact", "lawpack_artifact", "adapter_artifact"],
+        &[
+            "source_artifact",
+            "lawpack_artifact",
+            "adapter_artifact",
+            "target_profile_artifact",
+            "intrinsics_artifact",
+        ],
     )?;
     let embedded = |key| decode(bytes(field(artifacts, key)?)?).map_err(|_| Error::InvalidArtifact);
     let source = embedded("source_artifact")?;
     let source = std::str::from_utf8(bytes(&source)?).map_err(|_| Error::InvalidArtifact)?;
     let lawpack = embedded("lawpack_artifact")?;
     let adapter = embedded("adapter_artifact")?;
+    let target_profile = embedded("target_profile_artifact")?;
+    let catalog = embedded("intrinsics_artifact")?;
+    require_text(&target_profile, "apiVersion", "edict.target-profile/v1")?;
+    let profile_coordinate = format!(
+        "{}@{}",
+        text_field(&target_profile, "id")?,
+        text_field(&target_profile, "version")?
+    );
+    let profile_reference = field(target_artifact, "targetProfile")?;
+    require_text(profile_reference, "id", &profile_coordinate)?;
+    pinned(
+        profile_reference,
+        digest("edict.target-profile/v1", &target_profile).map_err(|_| Error::InvalidArtifact)?,
+    )?;
+    if !array(field(&target_profile, "acceptedCoreAbi")?)?
+        .iter()
+        .any(|value| text(value) == text_field(module, "apiVersion"))
+    {
+        return Err(Error::UnsupportedProgram);
+    }
+    require_text(&target_profile, "intrinsicNamespace", &profile_coordinate)?;
+    let catalog_reference = field(&target_profile, "intrinsics")?;
+    require_text(catalog_reference, "id", "echo.dpo.intrinsics/v1")?;
+    pinned(
+        catalog_reference,
+        digest("echo.dpo.intrinsics/v1", &catalog).map_err(|_| Error::InvalidArtifact)?,
+    )?;
+    exact_fields(&catalog, &["apiVersion", "intrinsics"])?;
+    require_text(&catalog, "apiVersion", "edict.target-profile.intrinsics/v1")?;
+    let catalog = field(&catalog, "intrinsics")?;
+    map(catalog)?;
     require_text(&lawpack, "apiVersion", "edict.lawpack/v1")?;
     require_text(&adapter, "apiVersion", "edict.lawpack-adapter/v1")?;
     require_text(&adapter, "class", "declarative")?;
@@ -68,6 +105,9 @@ pub(super) fn validate<'a>(
             field(entry, "acceptedTargetProfile") == field(target_artifact, "targetProfile")
         });
     let entry = matching.next().ok_or(Error::InvalidArtifact)?;
+    if field(&target_profile, "targetIr")? != field(entry, "acceptedTargetIr")? {
+        return Err(Error::InvalidArtifact);
+    }
     if matching.next().is_some() {
         return Err(Error::InvalidArtifact);
     }
@@ -108,6 +148,15 @@ pub(super) fn validate<'a>(
             return Err(Error::InvalidArtifact);
         }
         let implementation = field(field(&adapter, "effectImplementations")?, &name)?;
+        let intrinsic_name = text_field(implementation, "targetIntrinsic")?;
+        if !intrinsic_name
+            .strip_prefix(&profile_coordinate)
+            .is_some_and(|suffix| suffix.starts_with('.') && suffix.len() > 1)
+        {
+            return Err(Error::InvalidArtifact);
+        }
+        let intrinsic = field(catalog, intrinsic_name)?;
+        require_text(intrinsic, "intrinsicClass", "effect")?;
         require_text(
             lowered,
             "targetIntrinsic",
@@ -120,6 +169,8 @@ pub(super) fn validate<'a>(
         if declarations.next().is_some() {
             return Err(Error::InvalidArtifact);
         }
+        super::intrinsic_contract::validate(intrinsic, effect, implementation)?;
+        super::runtime_abi::validate(intrinsic_name, module, effect, intrinsic)?;
         require_text(
             field(core, "binding")?,
             "type",

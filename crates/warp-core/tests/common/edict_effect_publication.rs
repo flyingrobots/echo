@@ -227,6 +227,12 @@ pub fn compiled_bundle(core: &V, target: &V, exports: &V, intent: &str) -> V {
 // This is a synthetic, internally repinned test chain built from the retained
 // public capture. It is not evidence of a successful compiler/verifier run.
 pub fn repinned_lowering_artifacts() -> V {
+    lowering_fixture(None)
+}
+pub fn lowering_fixture(catalog: Option<V>) -> V {
+    lowering_fixture_inputs(catalog, None)
+}
+pub fn lowering_fixture_inputs(catalog: Option<V>, exports_override: Option<V>) -> V {
     let captured = |value: &str| {
         echo_edict_canonical::decode_canonical_cbor_v1(
             &hex::decode(value.trim()).expect("captured bytes"),
@@ -239,9 +245,82 @@ pub fn repinned_lowering_artifacts() -> V {
     let adapter = captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"
     ));
-    let exports = captured(include_str!(
+    let exports = exports_override.unwrap_or_else(|| {
+        captured(include_str!(
         "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
+    ))
+    });
+    let catalog = catalog.unwrap_or_else(|| {
+        let V::Array(effects) = get(&exports, "effects") else {
+            panic!("effects")
+        };
+        let effect = &effects[0];
+        let implementation = get(
+            get(&adapter, "effectImplementations"),
+            "jedit.text@1.readFact",
+        );
+        let V::Map(mappings) = get(implementation, "failureMappings") else {
+            panic!("mappings")
+        };
+        let failures = V::Map(
+            mappings
+                .iter()
+                .map(|(source, tag)| {
+                    let V::Text(source) = source else {
+                        panic!("failure")
+                    };
+                    (
+                        tag.clone(),
+                        get(get(effect, "effectFailures"), source).clone(),
+                    )
+                })
+                .collect(),
+        );
+        map([
+            ("apiVersion", text("edict.target-profile.intrinsics/v1")),
+            (
+                "intrinsics",
+                map([(
+                    "echo.dpo@1.node-atom-read",
+                    map([
+                        ("intrinsicClass", text("effect")),
+                        (
+                            "argumentTypes",
+                            V::Array(vec![get(effect, "inputType").clone()]),
+                        ),
+                        ("returnType", get(effect, "outputType").clone()),
+                        ("typeParameters", V::Array(vec![])),
+                        ("effectKind", text("read")),
+                        ("writeClass", text("read")),
+                        ("guardSupport", V::Bool(true)),
+                        ("canParticipateInAtomicGuard", V::Bool(true)),
+                        (
+                            "costTemplate",
+                            get(implementation, "costObligation").clone(),
+                        ),
+                        (
+                            "footprintTemplate",
+                            get(implementation, "footprintObligation").clone(),
+                        ),
+                        ("effectFailures", failures),
+                    ]),
+                )]),
+            ),
+        ])
+    });
+    let mut target_profile = captured(include_str!(
+        "../../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"
     ));
+    let mut intrinsics_ref = get(&target_profile, "intrinsics").clone();
+    set(
+        &mut intrinsics_ref,
+        "digest",
+        V::Array(vec![
+            text("sha256"),
+            artifact_identity("echo.dpo.intrinsics/v1", &catalog),
+        ]),
+    );
+    set(&mut target_profile, "intrinsics", intrinsics_ref);
     let pin = |domain, value: &V| V::Array(vec![text("sha256"), artifact_identity(domain, value)]);
     let mut reference = get(&lawpack, "exports").clone();
     set(
@@ -254,6 +333,18 @@ pub fn repinned_lowering_artifacts() -> V {
     let V::Array(entries) = &mut adapters else {
         panic!("adapters")
     };
+    set(
+        &mut target_profile,
+        "targetIr",
+        get(&entries[0], "acceptedTargetIr").clone(),
+    );
+    let mut target_profile_ref = get(&entries[0], "acceptedTargetProfile").clone();
+    set(
+        &mut target_profile_ref,
+        "digest",
+        pin("edict.target-profile/v1", &target_profile),
+    );
+    set(&mut entries[0], "acceptedTargetProfile", target_profile_ref);
     let mut reference = get(&entries[0], "adapter").clone();
     set(
         &mut reference,
@@ -282,6 +373,11 @@ pub fn repinned_lowering_artifacts() -> V {
         ),
         ("lawpack_artifact", V::Bytes(encoded(&lawpack))),
         ("adapter_artifact", V::Bytes(encoded(&adapter))),
+        (
+            "target_profile_artifact",
+            V::Bytes(encoded(&target_profile)),
+        ),
+        ("intrinsics_artifact", V::Bytes(encoded(&catalog))),
     ])
 }
 pub fn compiler_program() -> V {

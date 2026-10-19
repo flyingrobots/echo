@@ -12,8 +12,10 @@
 mod compiled_program;
 mod imported_types;
 mod instruction_relation;
+mod intrinsic_contract;
 mod lowering_relation;
 mod package;
+mod runtime_abi;
 pub use package::{EffectPackageError, EffectProgram};
 mod frame;
 mod read_image;

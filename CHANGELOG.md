@@ -7,6 +7,13 @@
 
 ### Changed
 
+- Effect compiler bundles now require the pinned target profile and intrinsic
+  catalog. Preparation checks catalog registration and concrete signature/fault
+  agreement, then enforces the existing node/atom recording ABI independently
+  of those declarations. Fresh pins cannot redefine 32-byte addresses or fault
+  authority. Other effect handlers, general signature unification, complete
+  profile obligations and compiled execution remain unfinished.
+
 - Shared expression/helper inference now preserves nominal contract identity.
   Effect expressions cannot interchange equal representations across contracts,
   implicitly unwrap opaque values, or construct them from untyped literals.

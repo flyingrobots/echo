@@ -727,7 +727,8 @@ The `compiled_program` payload uses one current
 `lawpack_exports_artifact`, and `lowering_artifacts`. The first three artifacts
 are exact canonical CBOR bytes. `lowering_artifacts` is null for a selected body
 without effects. For an effect body it is an exact map containing canonical
-`source_artifact`, `lawpack_artifact`, and `adapter_artifact` byte strings;
+`source_artifact`, `lawpack_artifact`, `adapter_artifact`,
+`target_profile_artifact`, and `intrinsics_artifact` byte strings;
 the source decodes to UTF-8 bytes. This replaces the former bundle shape;
 there is one decoder and no compatibility path. Opaque program bytes,
 an unbundled Core module, extra bundle fields, and noncanonical nested
@@ -797,6 +798,42 @@ Named unsigned aliases use the compiler's canonical `{"kind":"U64"}` form
 and corresponding widths. The synthetic `Int`/`width` decoder was removed and
 its fixture producer updated; there is no alternate decoder for that shape.
 
+The bundled target profile's canonical identity must equal the Target IR
+reference and the lawpack adapter's selected profile reference. Its Core ABI,
+coordinate and intrinsic namespace must agree, and its Target IR resource
+reference must equal the adapter's complete accepted reference. The profile's
+`echo.dpo.intrinsics/v1` reference must pin the exact bundled intrinsic catalog.
+Only the current catalog schema is accepted, and the selected intrinsic must be
+present as an effect in the declared namespace. The previous evidence shape
+without profile/catalog artifacts refuses; there is no alternate decoder.
+
+Concrete catalog declarations must have exact fields and agree with the exported
+effect's single input coordinate and result coordinate, execution class,
+write class and supported guard posture. Free type parameters and positional
+argument lists requiring unpacking refuse until implemented. Catalog named-fault
+entries are indexed by the adapter's mapped target tags; their complete tag set,
+payload coordinates and authority classes must agree with exported failures.
+This is concrete declared agreement, not general structural or polymorphic
+signature unification. Cost/footprint template names are present and nonempty,
+but their calculus is not validated by this check.
+
+Declarations cannot redefine the existing node/atom recording primitive's ABI.
+The runtime currently recognizes `echo.dpo@1.node-atom-read` here. Its input
+representation has exactly `nodeId`, `typeId` and `warpId`, each 32 bytes; its
+output is a byte type with minimum zero and a positive maximum under the
+runtime's logical storage ceiling. The four named atom-read fault tags and their resource
+or integrity classes are fixed, and each carries the input-address type.
+Mutually agreeing Core, lawpack and catalog declarations cannot change these
+requirements. Other intrinsic names refuse until their actual handlers and ABI
+contracts exist. This does not enable compiled instruction execution.
+
+The retained profile/catalog declares only the original replace fixture and a
+prior Target IR resource; it does not declare node/atom read. Positive tests now
+construct an explicitly synthetic read catalog and consistently repin its
+profile, lawpack, Core imports, Target references and source preamble. The raw
+capture remains a refusal case. Neither this synthetic chain nor matching hashes
+is evidence of successful public effect compilation or verifier approval.
+
 The retained raw public capture has inconsistent export/adapter pins in its
 lawpack and now refuses. Positive correspondence tests use an explicitly
 repinned synthetic chain derived from that capture. They do not prove a
@@ -845,14 +882,15 @@ These checks establish artifact binding, ordered correspondence, lexical scope,
 and data representation typing/helper authority within the current pure subset.
 Imported declarations in the selected lawpack namespace now bind to exports,
 but this does not authenticate every source/local definition or establish a
-complete typing proof across every pure main/projection path. Complete intrinsic
-signatures and intrinsic-defined failure authority remain open. Adapter
+complete typing proof across every pure main/projection path. General intrinsic families, structural/polymorphic signatures and the remaining
+runtime handlers remain open. Adapter
 correspondence binds declared names and failure arms; it does not prove a
 source-to-Core translation or an independently verified source closure. The
 bounded preamble reader is not a full Edict parser. Multiple lawpacks and
 ambiguous adapter profiles refuse explicitly. Complete target schema/profile
-artifacts, cost/footprint/configuration obligations and the complete lowering
-relation remain unchecked. These checks do not establish verifier approval,
+artifacts beyond the supplied profile/catalog, obstruction-taxonomy resources,
+cost/footprint/configuration obligations and the complete lowering relation
+remain unchecked. These checks do not establish verifier approval,
 interpret instructions, or prove that an application graph schema corresponds
 to compiler exports. Resource execution and the physical arena remain required.
 Static preparation grants no invocation or mutation authority.

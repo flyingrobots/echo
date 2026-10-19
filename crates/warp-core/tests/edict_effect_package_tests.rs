@@ -436,6 +436,8 @@ fn retained_public_capture_refuses_its_inconsistent_lawpack_artifact_pins() {
         ("source_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/04-source.hex"))),
         ("lawpack_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/03-lawpack.hex"))),
         ("adapter_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/01-lawpack-adapter.hex"))),
+        ("target_profile_artifact", captured(include_str!("../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/profile.hex"))),
+        ("intrinsics_artifact", V::Bytes(include_bytes!("../../echo-edict-provider-verifier/resources/resource.target-intrinsics.cbor").to_vec())),
     ]));
     let bundle_bytes = encoded(&bundle);
     set(&mut p, "compiled_program", V::Bytes(bundle_bytes));
@@ -624,6 +626,9 @@ fn compiled_artifact_claims_and_nested_canonical_bytes_cannot_be_substituted() {
 }
 
 fn repinned_compiler_artifacts() -> (V, V, V) {
+    compiler_fixture(&repinned_lowering_artifacts())
+}
+fn compiler_fixture(artifacts: &V) -> (V, V, V) {
     let decode = |hex: &str| {
         echo_edict_canonical::decode_canonical_cbor_v1(
             &hex::decode(hex.trim()).expect("artifact bytes"),
@@ -639,11 +644,18 @@ fn repinned_compiler_artifacts() -> (V, V, V) {
     let exports = decode(include_str!(
         "../../echo-edict-provider-lowerer/tests/fixtures/node-atom-read/02-lawpack-exports.hex"
     ));
-    let artifacts = repinned_lowering_artifacts();
-    let V::Bytes(bytes) = get(&artifacts, "lawpack_artifact") else {
+    let V::Bytes(bytes) = get(artifacts, "lawpack_artifact") else {
         panic!("lawpack")
     };
     let lawpack = echo_edict_canonical::decode_canonical_cbor_v1(bytes).expect("lawpack");
+    let V::Array(adapters) = get(&lawpack, "targetAdapters") else {
+        panic!("adapters")
+    };
+    set(
+        &mut target,
+        "targetProfile",
+        get(&adapters[0], "acceptedTargetProfile").clone(),
+    );
     let reference = map([
         ("id", text("jedit.text@1")),
         (
@@ -1495,4 +1507,187 @@ fn checked_helpers_preserve_nominal_arguments_and_return_identity() {
         &compiled_exports(),
         "update@1",
     ));
+}
+
+#[test]
+fn effect_preparation_requires_the_pinned_target_profile_and_intrinsic_catalog() {
+    let (core, target, exports) = repinned_compiler_artifacts();
+    let mut publication = bound_compiler_package(&core, &target, &exports, "replaceRange");
+    let V::Bytes(raw) = get(&publication, "program") else {
+        panic!("program")
+    };
+    let mut program = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("program");
+    let V::Bytes(raw) = get(&program, "compiled_program") else {
+        panic!("bundle")
+    };
+    let mut bundle = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("bundle");
+    let V::Map(fields) = value_field_mut(&mut bundle, "lowering_artifacts") else {
+        panic!("lowering")
+    };
+    fields.retain(|(key, _)| {
+        key != &text("target_profile_artifact") && key != &text("intrinsics_artifact")
+    });
+    set(&mut program, "compiled_program", V::Bytes(encoded(&bundle)));
+    set(&mut publication, "program", V::Bytes(encoded(&program)));
+    refused(&publication);
+}
+
+fn catalog_fixture() -> V {
+    let lowering = repinned_lowering_artifacts();
+    let V::Bytes(raw) = get(&lowering, "intrinsics_artifact") else {
+        panic!("catalog")
+    };
+    echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("catalog")
+}
+fn publication_for_lowering(lowering: &V) -> V {
+    let (core, target, exports) = compiler_fixture(lowering);
+    publication_from_parts(&core, &target, &exports, lowering)
+}
+fn publication_from_parts(core: &V, target: &V, exports: &V, lowering: &V) -> V {
+    let mut publication = bound_compiler_package(core, target, exports, "replaceRange");
+    let V::Bytes(raw) = get(&publication, "program") else {
+        panic!("program")
+    };
+    let mut program = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("program");
+    let mut bundle = compiled_bundle(core, target, exports, "replaceRange");
+    set(&mut bundle, "lowering_artifacts", lowering.clone());
+    set(&mut program, "compiled_program", V::Bytes(encoded(&bundle)));
+    set(&mut publication, "program", V::Bytes(encoded(&program)));
+    publication
+}
+#[test]
+fn intrinsic_catalog_signatures_must_agree_with_the_exported_effect() {
+    assert!(prepare(&publication_for_lowering(&repinned_lowering_artifacts())).is_ok());
+    for mode in 0..3 {
+        let mut catalog = catalog_fixture();
+        let intrinsic = value_field_mut(
+            value_field_mut(&mut catalog, "intrinsics"),
+            "echo.dpo@1.node-atom-read",
+        );
+        match mode {
+            0 => set(intrinsic, "argumentTypes", V::Array(vec![text("U32")])),
+            1 => set(intrinsic, "returnType", text("U32")),
+            _ => set(intrinsic, "typeParameters", V::Array(vec![text("T")])),
+        }
+        let lowering = lowering_fixture(Some(catalog));
+        assert!(
+            prepare(&publication_for_lowering(&lowering)).is_err(),
+            "catalog signature substitution {mode} survived a fully repinned artifact chain"
+        );
+    }
+}
+#[test]
+fn intrinsic_catalog_fault_contracts_must_agree_with_exported_failures() {
+    for mode in 0..2 {
+        let mut catalog = catalog_fixture();
+        let intrinsic = value_field_mut(
+            value_field_mut(&mut catalog, "intrinsics"),
+            "echo.dpo@1.node-atom-read",
+        );
+        let failure = value_field_mut(
+            value_field_mut(intrinsic, "effectFailures"),
+            "echo.atom-required/v1",
+        );
+        if mode == 0 {
+            set(failure, "authorityClass", text("resourceFault"));
+        } else {
+            set(failure, "payloadType", text("U32"));
+        }
+        let lowering = lowering_fixture(Some(catalog));
+        assert!(
+            prepare(&publication_for_lowering(&lowering)).is_err(),
+            "catalog fault substitution {mode} survived a fully repinned artifact chain"
+        );
+    }
+}
+#[test]
+fn a_profile_cannot_authorize_an_intrinsic_missing_from_its_catalog() {
+    let mut catalog = catalog_fixture();
+    set(&mut catalog, "intrinsics", map([]));
+    refused(&publication_for_lowering(&lowering_fixture(Some(catalog))));
+}
+
+#[test]
+fn runtime_read_abi_rejects_a_self_consistent_sixteen_byte_node_address() {
+    let (_, _, mut exports) = repinned_compiler_artifacts();
+    let V::Array(types) = value_field_mut(&mut exports, "types") else {
+        panic!("types")
+    };
+    let address = types
+        .iter_mut()
+        .find(|ty| get(ty, "coordinate") == &text("jedit.text@1.FactAddress"))
+        .expect("address");
+    set(
+        address,
+        "definition",
+        text("Record<nodeId:Bytes<exact=16>,typeId:Bytes<exact=32>,warpId:Bytes<exact=32>>"),
+    );
+    let lowering = lowering_fixture_inputs(None, Some(exports.clone()));
+    let (mut core, mut target, _) = compiler_fixture(&lowering);
+    set(
+        value_field_mut(
+            value_field_mut(
+                value_field_mut(&mut core, "types"),
+                "jedit.text@1.FactAddress",
+            ),
+            "fields",
+        ),
+        "nodeId",
+        text("Bytes<exact=16>"),
+    );
+    repin_core(&core, &mut target);
+    refused(&publication_from_parts(&core, &target, &exports, &lowering));
+}
+#[test]
+fn runtime_read_abi_rejects_catalog_and_lawpack_agreement_on_wrong_fault_authority() {
+    let (_, _, mut exports) = repinned_compiler_artifacts();
+    let V::Array(effects) = value_field_mut(&mut exports, "effects") else {
+        panic!("effects")
+    };
+    for failure in ["notAtom", "tooLarge", "typeMismatch"] {
+        set(
+            value_field_mut(value_field_mut(&mut effects[0], "effectFailures"), failure),
+            "authorityClass",
+            text("resourceFault"),
+        );
+    }
+    let V::Array(obstructions) = value_field_mut(&mut exports, "obstructions") else {
+        panic!("obstructions")
+    };
+    let malformed = obstructions
+        .iter_mut()
+        .find(|item| get(item, "coordinate") == &text("jedit.text@1.FactMalformed"))
+        .expect("obstruction");
+    set(malformed, "authorityClass", text("resourceFault"));
+    let lowering = lowering_fixture_inputs(None, Some(exports.clone()));
+    let (core, target, _) = compiler_fixture(&lowering);
+    refused(&publication_from_parts(&core, &target, &exports, &lowering));
+}
+
+#[test]
+fn outer_package_pins_cannot_replace_profile_or_catalog_bytes() {
+    for key in ["target_profile_artifact", "intrinsics_artifact"] {
+        let mut lowering = repinned_lowering_artifacts();
+        let V::Bytes(raw) = get(&lowering, key) else {
+            panic!("artifact")
+        };
+        let mut artifact = echo_edict_canonical::decode_canonical_cbor_v1(raw).expect("artifact");
+        if key == "target_profile_artifact" {
+            set(
+                value_field_mut(&mut artifact, "diagnosticAbi"),
+                "digest",
+                V::Array(vec![text("sha256"), id(55)]),
+            );
+        } else {
+            let declaration =
+                get(get(&artifact, "intrinsics"), "echo.dpo@1.node-atom-read").clone();
+            add(
+                value_field_mut(&mut artifact, "intrinsics"),
+                "echo.dpo@1.unused",
+                declaration,
+            );
+        }
+        set(&mut lowering, key, V::Bytes(encoded(&artifact)));
+        refused(&publication_for_lowering(&lowering));
+    }
 }

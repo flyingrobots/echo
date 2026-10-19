@@ -10,6 +10,7 @@
 //! logical meters. Compiled effect instructions, a physical evaluation arena,
 //! derived mutations and Action/receipt/WAL decision recovery remain unfinished.
 mod compiled_program;
+mod imported_types;
 mod instruction_relation;
 mod lowering_relation;
 mod package;

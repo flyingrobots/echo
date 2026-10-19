@@ -86,6 +86,7 @@ pub(super) fn validate<'a>(
         identity,
         text_field(module, "coordinate")?,
     )?;
+    super::imported_types::validate(module, exports, &coordinate)?;
     let profile = unique_profile(&adapter, text_field(intent, "requiredOperationProfile")?)?;
     let authorized = array(field(profile, "semanticEffects")?)?;
     let nodes = array(field(field(intent, "body")?, "nodes")?)?;

@@ -50,7 +50,10 @@ impl Parser<'_> {
         let definition = field(self.types, name)?;
         match text_field(definition, "kind")? {
             "Bool" => Ok(RuntimeType::Bool),
-            "Int" => self.ty(text_field(definition, "width")?, depth + 1),
+            kind @ ("U8" | "U16" | "U32" | "U64") => {
+                exact_fields(definition, &["kind"])?;
+                self.ty(kind, depth + 1)
+            }
             "Nominal" => self.ty(text_field(definition, "representation")?, depth + 1),
             "Bytes" => {
                 let min = field(definition, "min").map_or(Ok(0), number)?;

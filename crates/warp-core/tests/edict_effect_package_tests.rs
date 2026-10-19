@@ -1291,3 +1291,46 @@ fn typed_contract_accepts_checked_source_helpers_and_refuses_wrong_arguments() {
         "update@1",
     ));
 }
+
+#[test]
+fn pinned_exports_refuse_core_redefinitions_of_imported_type_contracts() {
+    let (original, target, exports) = repinned_compiler_artifacts();
+    for mode in 0..4 {
+        let mut core = original.clone();
+        let types = value_field_mut(&mut core, "types");
+        match mode {
+            0 => set(
+                value_field_mut(value_field_mut(types, "jedit.text@1.FactAddress"), "fields"),
+                "nodeId",
+                text("Bytes<exact=16>"),
+            ),
+            1 => set(
+                value_field_mut(types, "jedit.text@1.FactBytes"),
+                "max",
+                V::Integer(2_097_152),
+            ),
+            2 => add(
+                types,
+                "jedit.text@1.Unpublished",
+                map([("kind", text("Bool"))]),
+            ),
+            _ => add(
+                value_field_mut(types, "jedit.text@1.FactBytes"),
+                "extra",
+                V::Null,
+            ),
+        }
+        let mut target = target.clone();
+        repin_core(&core, &mut target);
+        assert!(
+            prepare(&bound_compiler_package(
+                &core,
+                &target,
+                &exports,
+                "replaceRange"
+            ))
+            .is_err(),
+            "Core type substitution {mode} survived the pinned exports"
+        );
+    }
+}

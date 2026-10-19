@@ -7,11 +7,18 @@
 
 ### Changed
 
+- Effect compiler preparation now authenticates imported Core type declarations
+  in the selected lawpack namespace against pinned export definitions, including
+  bounds, record fields, nominal contract names and unused declarations. Fresh
+  pins cannot hide imported type redefinitions or unknown members. Named unsigned
+  aliases now use the actual compiler's canonical width-kind encoding; the
+  synthetic `Int`/`width` form and its decoder were replaced.
+
 - Effect compiler preparation now shares the pure expression and helper checker
   for data values, predicates, effect inputs and results. Matching Core/Target
   bytes cannot hide wrong representations, unpublished calls or invalid helper
   arguments. Declared failure-arm constructors must preserve their exported
-  failure authority class. Full export/Core type authentication, nominal and
+  failure authority class. Complete type/source authentication, nominal and
   intrinsic semantics, and effect execution remain unfinished.
 
 - Effect compiler preparation now binds the declared lawpack's exports and

@@ -778,6 +778,25 @@ failure declarations. Effect result bindings and failure payload binders must
 use the exported type names. Collection storage order does not replace the
 explicit execution order.
 
+Every Core type declaration in the selected lawpack's namespace must now name
+an exported type and match its canonical definition. The metadata check uses
+exact Core declaration shapes, renders record fields in lexical name order,
+preserves explicit byte bounds and nominal contract names, and follows exported
+whole-definition aliases with bounded cycle detection. Unknown imported members,
+changed field types or bounds, duplicate export coordinates and extra declaration
+fields refuse even under recomputed Core/Target/package identities. It checks
+all declarations in that namespace, including unused ones. Alias/reference walks
+have fixed work, depth and reference-length limits.
+
+The metadata renderer authenticates the current primitive, string/bytes, record,
+nominal, option/list/map, capability-reference and external-action-request
+shapes. Unsupported shapes, including variants, refuse until implemented.
+Metadata authentication does not enable evaluation of those type families;
+the executable expression checker still admits its current pure subset.
+Named unsigned aliases use the compiler's canonical `{"kind":"U64"}` form
+and corresponding widths. The synthetic `Int`/`width` decoder was removed and
+its fixture producer updated; there is no alternate decoder for that shape.
+
 The retained raw public capture has inconsistent export/adapter pins in its
 lawpack and now refuses. Positive correspondence tests use an explicitly
 repinned synthetic chain derived from that capture. They do not prove a
@@ -805,8 +824,9 @@ reason authority are not yet checked by this relation.
 
 These checks establish artifact binding, ordered correspondence, lexical scope,
 and data representation typing/helper authority within the current pure subset.
-They do not authenticate Core type definitions against exported definitions or
-preserve nominal identity through every inferred expression. Complete intrinsic
+Imported declarations in the selected lawpack namespace now bind to exports,
+but this does not authenticate every source/local definition or preserve nominal
+identity through every inferred expression. Complete intrinsic
 signatures and intrinsic-defined failure authority remain open. Adapter
 correspondence binds declared names and failure arms; it does not prove a
 source-to-Core translation or an independently verified source closure. The

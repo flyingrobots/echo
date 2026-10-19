@@ -111,3 +111,9 @@ reads.
   does not exercise them.
 - Concurrency.
 - The legacy root is still computed. Removing it is not M1's job.
+
+## Superseded
+
+This version is the pre-fix probe. Two branches replace it:
+- **`claude/corroboration-write-set`:** fixes finding 1. It has its own study.
+- **`claude/m1-shadow-probe-v2`:** cherry-picks that fix and reruns this probe on the fixed write set. That branch's copy of this study has an "After the fix" section.
